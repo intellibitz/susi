@@ -9,6 +9,7 @@
 //! Tests for direct `susi mcp call` CLI execution.
 
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn run_susi(args: &[&str]) -> (i32, String, String) {
     static CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -24,12 +25,10 @@ fn run_susi(args: &[&str]) -> (i32, String, String) {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&cwd).unwrap();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
 
@@ -84,7 +83,7 @@ fn test_mcp_call_write_and_read_file_round_trip() {
     std::fs::create_dir_all(&cwd).unwrap();
 
     // 1. write_file
-    let out1 = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out1 = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args([
             "mcp",
             "call",
@@ -93,9 +92,7 @@ fn test_mcp_call_write_and_read_file_round_trip() {
             r#"{"path":"test.txt","content":"direct mcp execution works"}"#,
         ])
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
 
@@ -105,12 +102,10 @@ fn test_mcp_call_write_and_read_file_round_trip() {
     assert_eq!(parsed1["isError"], false);
 
     // 2. read_file
-    let out2 = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out2 = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "call", "susi", "read_file", r#"{"path":"test.txt"}"#])
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
 

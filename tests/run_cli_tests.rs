@@ -9,6 +9,7 @@
 //! Tests for `susi run` direct execution CLI.
 
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn run_susi(args: &[&str]) -> (i32, String, String) {
     let scratch = std::env::temp_dir().join(format!(
@@ -21,12 +22,10 @@ fn run_susi(args: &[&str]) -> (i32, String, String) {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&cwd).unwrap();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
 

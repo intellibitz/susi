@@ -782,6 +782,27 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
     },
 ];
 
+/// One E2E check's `susi` run: `args` in `cwd`, under `home` as its whole
+/// home.
+///
+/// `HOME` alone was not that: on Windows the child kept the operator's real
+/// `%APPDATA%` / `%LOCALAPPDATA%` (and on Linux any inherited `XDG_DATA_HOME`
+/// / `XDG_CACHE_HOME`), so a dev build resolved its release instance there
+/// and linked the operator's real `cloud.env` (provider keys) and model dir
+/// into the check's scratch instance. `isolate_home` moves every one of them
+/// with the home, as it does for every test that launches `susi`.
+fn e2e_command(susi_bin: &Path, args: &[&str], home: &Path, cwd: &Path, ceiling: &Path) -> Command {
+    let mut cmd = Command::new(susi_bin);
+    susi_paths::test_env::isolate_home(&mut cmd, home);
+    cmd.args(args)
+        .current_dir(cwd)
+        .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env("GIT_CEILING_DIRECTORIES", ceiling)
+        .env_remove("SUSI_PORT_OFFSET");
+    scrub_instance_env(&mut cmd);
+    cmd
+}
+
 /// Compare one command's outcome with its expectation.
 fn e2e_verdict(
     check: &E2eCheck,
@@ -821,16 +842,7 @@ impl SusiAdmin {
             let cwd = root.join("cwd");
             std::fs::create_dir_all(&home)?;
             std::fs::create_dir_all(&cwd)?;
-            let mut cmd = Command::new(susi_bin);
-            cmd.args(check.args)
-                .current_dir(&cwd)
-                .env("HOME", &home)
-                .env("USERPROFILE", &home)
-                .env("XDG_CONFIG_HOME", home.join("xdg"))
-                .env("GIT_CEILING_DIRECTORIES", &ceiling)
-                .env_remove("SUSI_PORT_OFFSET");
-            scrub_instance_env(&mut cmd);
-            let out = cmd.output()?;
+            let out = e2e_command(susi_bin, check.args, &home, &cwd, &ceiling).output()?;
             let files: Vec<String> = std::fs::read_dir(&cwd)?
                 .filter_map(Result::ok)
                 .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -1277,6 +1289,46 @@ mod tests {
             .collect();
         assert!(removed.contains(&"SUSI_HOME".to_string()));
         assert!(removed.contains(&"SUSI_PORT_OFFSET".to_string()));
+    }
+
+    /// Every variable an E2E check's `susi` takes its home, config, data or
+    /// cache dir from points under the check's scratch home. With `HOME` and
+    /// `USERPROFILE` alone, a Windows child kept the launching shell's
+    /// `%APPDATA%` / `%LOCALAPPDATA%` (a Linux one its `XDG_DATA_HOME` /
+    /// `XDG_CACHE_HOME`), and a dev build linked the real `cloud.env` and
+    /// models from there into its scratch instance.
+    #[test]
+    fn an_e2e_check_resolves_nothing_outside_its_scratch_home() {
+        let home = Path::new("scratch").join("check-0").join("home");
+        let cmd = e2e_command(
+            Path::new("susi"),
+            &["tasks"],
+            &home,
+            Path::new("cwd"),
+            Path::new("ceiling"),
+        );
+        let envs: std::collections::HashMap<String, Option<std::path::PathBuf>> = cmd
+            .get_envs()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(Into::into)))
+            .collect();
+        let mut moved = vec!["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"];
+        if cfg!(windows) {
+            moved.extend(["USERPROFILE", "APPDATA", "LOCALAPPDATA"]);
+        }
+        for var in moved {
+            let Some(Some(dir)) = envs.get(var) else {
+                panic!("{var} is inherited from the launching shell");
+            };
+            assert!(
+                dir.starts_with(&home),
+                "{var} = {} is outside the check's home",
+                dir.display()
+            );
+        }
+        assert_eq!(envs["XDG_CONFIG_HOME"], Some(home.join("xdg")));
+        for var in ["SUSI_HOME", "SUSI_PORT_OFFSET"] {
+            assert_eq!(envs.get(var), Some(&None), "{var} must be scrubbed");
+        }
     }
 
     /// Bare `cargo check|clippy` at the workspace root select one package of 86;

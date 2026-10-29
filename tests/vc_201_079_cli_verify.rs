@@ -9,16 +9,15 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use susi_paths::test_env::isolate_home;
 
 use susi_gawd::audit_evidence::AuditEvidence;
 
 fn run(home: &Path, args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), home)
         .args(args)
-        .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("XDG_DATA_HOME", home.join("xdg-data"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
     (

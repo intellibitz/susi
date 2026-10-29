@@ -11,9 +11,24 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
+    run_as(dir, None, program, args, envs)
+}
+
+/// [`run`], with `home` as the child's whole home when one is given.
+fn run_as(
+    dir: &Path,
+    home: Option<&Path>,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> (i32, String, String) {
     let mut cmd = Command::new(program);
+    if let Some(home) = home {
+        isolate_home(&mut cmd, home);
+    }
     cmd.args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -149,43 +164,22 @@ impl World {
     }
 
     fn check(&self, dir: &Path) -> (i32, String) {
-        let home = self.home.to_str().unwrap();
-        let xdg = self.home.join("xdg");
-        let envs = vec![
-            ("HOME", home),
-            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
-            ("SUSI_AGENT", "test"),
-        ];
-        #[cfg(windows)]
-        let envs = {
-            let mut envs = envs;
-            envs.push(("USERPROFILE", home));
-            envs
-        };
-        let (code, out, _) = run(
-            dir,
-            env!("CARGO_BIN_EXE_susi"),
-            &["workflow", "check"],
-            &envs,
-        );
+        let (code, out, _) = self.susi(dir, &["workflow", "check"]);
         (code, out)
     }
 
     fn susi(&self, dir: &Path, args: &[&str]) -> (i32, String, String) {
-        let home = self.home.to_str().unwrap();
         let xdg = self.home.join("xdg");
-        let envs = vec![
-            ("HOME", home),
-            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
-            ("SUSI_AGENT", "test"),
-        ];
-        #[cfg(windows)]
-        let envs = {
-            let mut envs = envs;
-            envs.push(("USERPROFILE", home));
-            envs
-        };
-        run(dir, env!("CARGO_BIN_EXE_susi"), args, &envs)
+        run_as(
+            dir,
+            Some(&self.home),
+            env!("CARGO_BIN_EXE_susi"),
+            args,
+            &[
+                ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+                ("SUSI_AGENT", "test"),
+            ],
+        )
     }
 
     fn claim_a_task(&self) {

@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use susi_paths::test_env::isolate_home;
 
 fn root() -> PathBuf {
     static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
@@ -23,11 +24,9 @@ fn root() -> PathBuf {
 }
 
 fn run(home: &Path, workspace: &Path, args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), home)
         .args(args)
         .current_dir(workspace)
-        .env("HOME", home)
-        .env("USERPROFILE", home)
         .env("SUSI_HOME", home.join("instance"))
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("XDG_DATA_HOME", home.join("xdg-data"))

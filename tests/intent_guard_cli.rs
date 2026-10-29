@@ -10,6 +10,7 @@
 //! binary refuses it (exit 2) before any daemon, inference or file write.
 
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn run(args: &[&str]) -> (i32, String, Vec<String>) {
     let scratch = std::env::temp_dir().join(format!(
@@ -21,12 +22,10 @@ fn run(args: &[&str]) -> (i32, String, Vec<String>) {
     let cwd = scratch.join("cwd");
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&cwd).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
     let written: Vec<String> = std::fs::read_dir(&cwd)

@@ -11,6 +11,7 @@
 use std::fs;
 use std::process::Command;
 use susi_gemi::tui_top::UnifiedOperatorState;
+use susi_paths::test_env::isolate_home;
 
 fn run_susi_in_dir(args: &[&str], custom_cwd: Option<&std::path::Path>) -> (i32, String, String) {
     static CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -33,12 +34,10 @@ fn run_susi_in_dir(args: &[&str], custom_cwd: Option<&std::path::Path>) -> (i32,
         }
     };
 
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
 

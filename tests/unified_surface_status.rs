@@ -16,6 +16,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn scratch(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("susi-unified-status-{tag}-{}", std::process::id()))
@@ -30,9 +31,9 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
     let cwd = home.join("cwd");
     std::fs::create_dir_all(&cwd).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
-    cmd.args(["status"])
+    isolate_home(&mut cmd, home)
+        .args(["status"])
         .current_dir(&cwd)
-        .env("HOME", home)
         .env("SUSI_HOME", home.join(".susi-dev"))
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("XDG_DATA_HOME", home.join("xdg-data"))

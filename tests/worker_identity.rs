@@ -16,6 +16,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 struct World {
     root: PathBuf,
@@ -40,11 +41,10 @@ fn command(program: &str, dir: &Path, home: &Path) -> Command {
     };
     #[cfg(not(windows))]
     let mut cmd = Command::new(program);
-    cmd.current_dir(dir)
-        .env("HOME", home)
+    isolate_home(&mut cmd, home)
+        .current_dir(dir)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env_remove("SUSI_HOME")
         .env_remove("SUSI_AGENT")
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
