@@ -381,16 +381,16 @@ impl World {
 
     /// `finish --wait` on a branch whose push never becomes a merge, with a
     /// one-second poll and a three-second budget so the wait is observable in
-    /// a test. (Waiting is opt-in: `SUSI_FINISH_WAIT=1` here.)
+    /// a test. (Waiting is opt-in: the `--wait` flag here.)
     fn finish_without_merging(&self) -> std::process::Output {
-        self.susi(&["workflow", "finish", "T-WORKER-1"])
+        // The flag, through the binary: the documented way to opt in.
+        self.susi(&["workflow", "finish", "T-WORKER-1", "--wait"])
             .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
             .env("TEST_REAL_CARGO", env!("CARGO"))
             .env("TEST_NO_MERGE", "1")
-            .env("SUSI_FINISH_WAIT", "1")
             .env("SUSI_FINISH_POLL", "1")
             .env("SUSI_FINISH_WAIT_MAX", "3")
             .output()
@@ -898,23 +898,27 @@ fn finish_hands_off_once_the_run_is_green() {
 #[test]
 fn finish_hands_off_by_default_without_waiting() {
     let w = World::new("default-handoff");
-    // No gh at all: a wait would have to poll, and there is nothing to poll.
-    let started = std::time::Instant::now();
-    let out = w.finish_env(false, &[("TEST_NO_MERGE", "1")]);
+    // A short budget, so a default that regressed to waiting fails here in
+    // seconds (at the budget's handoff message) rather than after 30 minutes.
+    let out = w.finish_env(
+        false,
+        &[
+            ("TEST_NO_MERGE", "1"),
+            ("SUSI_FINISH_WAIT_MAX", "3"),
+            ("SUSI_FINISH_POLL", "1"),
+        ],
+    );
     assert!(
         out.status.success(),
         "an unmerged push is a handoff, not a failure: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let err = String::from_utf8_lossy(&out.stderr);
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    let both = format!("{err}\n{}", String::from_utf8_lossy(&out.stdout));
     assert!(err.contains("no wait"), "{err}");
     assert!(
-        !err.contains("Waiting for") && !err.contains("still not on origin/main"),
-        "the default must not enter the wait loop: {err}"
-    );
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(60),
-        "finish must return as soon as the push is published"
+        !both.contains("Waiting for") && !both.contains("still not on origin/main"),
+        "the default must not enter the wait loop: {both}"
     );
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
     let claims = git(
@@ -936,13 +940,23 @@ fn finish_hands_off_by_default_without_waiting() {
 
     // What the wait used to catch, the sync boundary catches: with `gh`
     // reporting the pushed head's run red, the owed-run check names it.
-    executable(
-        &w.bins.join("gh"),
-        &format!(
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"{}\" rev-parse HEAD 2>/dev/null)\n printf '[{{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\",\"url\":\"https://ci/run/1\"}}]\\n' \"$sha\"\n ;;\n*) exit 1 ;;\nesac\n",
-            host_git_binary()
-        ),
+    // The run is keyed on the pushed tip (origin/worker), never on the head
+    // the receipt recorded (the commit before the close): a `gh` that answers
+    // only for the tip, and only when asked for exactly it.
+    let tip = git(&w.remote, &["rev-parse", "refs/heads/worker"]);
+    let receipt = git(&w.remote, &["cat-file", "-p", "refs/closed/T-WORKER-1"]);
+    let receipt: serde_json::Value = serde_json::from_str(&receipt).unwrap();
+    assert_ne!(
+        receipt["head"].as_str().unwrap(),
+        tip,
+        "the receipt's head is the accepted commit; the close commit is pushed on top"
     );
+    let fake_gh = |conclusion: &str, url: &str| {
+        format!(
+            "#!/bin/sh\n[ \"$1 $2\" = \"run list\" ] || exit 1\nwant=\nwhile [ $# -gt 0 ]; do [ \"$1\" = --commit ] && want=$2; shift; done\n[ \"$want\" = \"{tip}\" ] || {{ echo '[]'; exit 0; }}\nprintf '[{{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"{conclusion}\",\"url\":\"{url}\"}}]\\n' \"$want\"\n"
+        )
+    };
+    executable(&w.bins.join("gh"), &fake_gh("failure", "https://ci/run/1"));
     let check = Command::new("bash")
         .arg(w.work.join("scripts/check-owed-runs.sh"))
         .current_dir(&w.work)
@@ -962,13 +976,7 @@ fn finish_hands_off_by_default_without_waiting() {
         "a red run for an owed receipt must be named at the sync boundary: {report}"
     );
     // A green run is silence.
-    executable(
-        &w.bins.join("gh"),
-        &format!(
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"{}\" rev-parse HEAD 2>/dev/null)\n printf '[{{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\",\"url\":\"https://ci/run/2\"}}]\\n' \"$sha\"\n ;;\n*) exit 1 ;;\nesac\n",
-            host_git_binary()
-        ),
-    );
+    executable(&w.bins.join("gh"), &fake_gh("success", "https://ci/run/2"));
     let check = Command::new("bash")
         .arg(w.work.join("scripts/check-owed-runs.sh"))
         .current_dir(&w.work)

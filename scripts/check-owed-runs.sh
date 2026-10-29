@@ -5,10 +5,15 @@
 # publishes the close receipt (refs/closed/<id>) and returns, and the merge
 # machinery owns the rest. What the wait used to catch — a red run while the
 # claim still made repair cheap — is caught here instead, at the next sync
-# boundary every agent crosses, for the receipts this agent owes: the run for
-# the receipt's head, when `gh` can read it. Bounded by the pipeline (one owed
-# merge, two at most) and one API call each. Advisory: it prints, it never
-# blocks, and no `gh`, no `jq` or no answer is silence.
+# boundary every agent crosses, for the receipts this agent owes. Bounded by
+# the pipeline (one owed merge, two at most) and one API call each. Advisory:
+# it prints, it never blocks, and no `gh`, no `jq` or no answer is silence.
+#
+# The receipt records the head `tasks close` accepted, which is never the sha
+# `finish` pushed: the close commit (and a merge of main) lands on top of it
+# before the push, and the branch run is keyed on that pushed tip. So the run
+# to read is the one for the tip of the remote branch that carries the receipt
+# head — the branch `finish` pushed — and only a run for exactly that tip.
 #
 #   scripts/check-owed-runs.sh            # exit 0 always; ❌ lines name red runs
 set -uo pipefail
@@ -25,6 +30,8 @@ agent=$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 remote=${SUSI_TASK_REMOTE:-origin}
 
 git fetch --quiet --prune "$remote" '+refs/closed/*:refs/closed/*' 2>/dev/null || exit 0
+# The branches `finish` pushes: their tips are what the runs are keyed on.
+git fetch --quiet --prune "$remote" 2>/dev/null || exit 0
 while IFS= read -r name; do
     [ -n "$name" ] || continue
     id=${name#refs/closed/}
@@ -35,19 +42,29 @@ while IFS= read -r name; do
     # Published work: the close is on main, the record just has not been
     # cleaned up yet.
     git cat-file -e "$remote/main:.agents/tasks/done/$id.json" 2>/dev/null && continue
-    state=$(gh run list --workflow Test --commit "$head" --limit 5 \
-        --json status,conclusion,url 2>/dev/null |
-        jq -r '[.[] | select(.status == "completed")][0] | select(. != null) | .conclusion + " " + .url' 2>/dev/null || true)
-    case "$state" in
-    failure* | timed_out* | startup_failure*)
-        cat >&2 <<MSG
-❌ the branch run for $id (head ${head:0:12}) did not pass: ${state#* }
+    # Every remote branch (main aside) whose history holds the accepted head
+    # is a branch finish pushed for this task; judge the run for its tip.
+    while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        case "$ref" in "refs/remotes/$remote/main" | "refs/remotes/$remote/HEAD") continue ;; esac
+        tip=$(git rev-parse --verify --quiet "$ref" 2>/dev/null) || continue
+        branch=${ref#refs/remotes/$remote/}
+        state=$(gh run list --workflow Test --commit "$tip" --limit 5 \
+            --json headSha,status,conclusion,url 2>/dev/null |
+            jq -r --arg sha "$tip" \
+                '[.[] | select(.headSha == $sha and .status == "completed")][0] | select(. != null) | .conclusion + " " + .url' \
+                2>/dev/null || true)
+        case "$state" in
+        failure* | timed_out* | startup_failure*)
+            cat >&2 <<MSG
+❌ the branch run for $id ($branch at ${tip:0:12}) did not pass: ${state#* }
    The task is accepted but will not merge until this is fixed. Commit the
    repair on that branch and run \`susi workflow finish $id\` again (if the
    acceptance was already published, revert the close and fix under the same
    claim); or give it up on the record: susi tasks release $id --abandon <reason>
 MSG
-        ;;
-    esac
+            ;;
+        esac
+    done < <(git for-each-ref --format='%(refname)' --contains "$head" "refs/remotes/$remote/" 2>/dev/null || true)
 done < <(git for-each-ref --format='%(refname)' refs/closed/ 2>/dev/null || true)
 exit 0

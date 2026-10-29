@@ -1420,6 +1420,17 @@ fn open_on_main(ws: &Path, id: &str) -> bool {
     .is_ok()
 }
 
+/// When the done record on `origin/main` says `id` was closed, if it is there.
+fn closed_on_main_at(ws: &Path, id: &str) -> Option<u64> {
+    let body = git(
+        ws,
+        &["show", &format!("origin/main:.agents/tasks/done/{id}.json")],
+    )
+    .ok()?;
+    let record: serde_json::Value = serde_json::from_str(&body).ok()?;
+    record.get("closed")?.get("at_unix")?.as_u64()
+}
+
 /// [`published_on_main`] against the `origin/main` this clone already has.
 fn done_on_main(ws: &Path, id: &str) -> bool {
     git(
@@ -2329,8 +2340,11 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         // work is on main the files are everyone's again, and a sibling's
         // next task must not wait out a lease that reserves nothing. Board
         // hygiene removes the ref once the lease lapses; this is the window
-        // before that.
-        if done_on_main(ws, &other.task) {
+        // before that. The claim must predate that close: ids are minted from
+        // a clone's own view of the queue, so a clone behind main can mint an
+        // id main already closed, and a live claim on the re-minted id is
+        // real work, not a leftover.
+        if closed_on_main_at(ws, &other.task).is_some_and(|at| other.claimed_unix <= at) {
             continue;
         }
         return Err(EaiError::config(format!(

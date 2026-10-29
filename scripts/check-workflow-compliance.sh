@@ -267,7 +267,16 @@ if [ -z "$cutover" ]; then
     exit 0
 fi
 
-commits=$(git rev-list --no-merges --reverse --ancestry-path "$cutover^..$head_commit" "^$base_commit") || {
+# Not `--ancestry-path`: it keeps a commit only when a bottom (the base, the
+# cutover's parent) is reachable from it *inside* the listed range, and once
+# main has moved past the branch point the chain from a branch commit back to
+# any bottom runs through commits main already has and is cut. Every branch
+# that was not rebased onto main's exact head then listed nothing and passed
+# with "every commit belongs to a claimed task" — the gate was vacuous for the
+# ordinary case of a branch pushed while other agents merge. Plain reachability
+# judges every commit the branch adds over the base; `^$cutover^` still keeps
+# history from before the rule out.
+commits=$(git rev-list --no-merges --reverse "$head_commit" "^$base_commit" "^$cutover^") || {
     echo "❌ workflow compliance: cannot compute the commit range $base..$head" >&2
     exit 1
 }

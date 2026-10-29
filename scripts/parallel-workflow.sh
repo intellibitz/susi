@@ -343,14 +343,16 @@ finish)
     # the old loop — poll the run, stop on red, hand off on green or at the
     # budget — for a session that wants the verdict in-line; `--no-wait` and
     # SUSI_FINISH_NOWAIT=1 are accepted and mean the default.
+    # Environment first, then the flags: a flag on the command line always
+    # wins over a variable left in a profile.
     wait=${SUSI_FINISH_WAIT:-0}
+    [ "${SUSI_FINISH_NOWAIT:-0}" = 1 ] && wait=0
     for arg in "$@"; do
         case "$arg" in
         --wait) wait=1 ;;
         --no-wait) wait=0 ;;
         esac
     done
-    [ "${SUSI_FINISH_NOWAIT:-0}" = 1 ] && wait=0
     export SUSI_SYNC_SKIP_BOARD=1
     renew_or_readopt
     sync

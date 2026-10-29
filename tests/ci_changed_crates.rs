@@ -404,6 +404,21 @@ fn a_workspace_wide_input_is_all_in_both_modes() {
     assert_eq!(ws.pkgs(&["--dependents"]), ["ALL"]);
 }
 
+/// vendor/ holds the `[patch.crates-io]` path crates linked into nearly every
+/// workspace crate, and xtask/ is a member outside crates/; neither maps to a
+/// package, and both fell through as "no crate": a change there reached main
+/// with no compile and no test.
+#[test]
+fn a_vendored_patch_crate_or_xtask_is_workspace_wide() {
+    let ws = Workspace::new("vendor");
+    ws.change("vendor/patched/src/lib.rs");
+    assert_eq!(ws.pkgs(&[]), ["ALL"]);
+    assert_eq!(ws.pkgs(&["--dependents"]), ["ALL"]);
+    let ws = Workspace::new("xtask");
+    ws.change("xtask/src/main.rs");
+    assert_eq!(ws.pkgs(&[]), ["ALL"]);
+}
+
 #[test]
 fn a_diff_that_touches_no_crate_prints_nothing_in_both_modes() {
     let ws = Workspace::new("docs");

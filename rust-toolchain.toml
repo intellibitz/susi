@@ -5,7 +5,7 @@
 # failed the clippy job on unchanged code (T-DEEPSEEK-8). The lockfile is
 # committed for exactly this reason — determinism — so the compiler is pinned
 # too. Bump this deliberately, with the fixes the new compiler needs in the
-# same change (the Toolchain Pin job in test.yml fails if a runner does not
+# same change (the Repository Invariants job in test.yml fails if a runner does not
 # resolve the pinned version).
 [toolchain]
 channel = "1.99.0"

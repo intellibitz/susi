@@ -23,7 +23,10 @@ git rev-parse --verify --quiet "$base^{commit}" >/dev/null || { echo true; exit 
 # Rename detection off: a file moved out of scripts/ or an installer renamed
 # still names the path it left.
 changed=$(git -c diff.renames=false diff --no-renames --name-only "$base" HEAD 2>/dev/null) || { echo true; exit 0; }
-if grep -Eq '^(install\.sh|install\.ps1|\.github/workflows/zc-matrix\.yml|scripts/)' <<<"$changed"; then
+# The installers, the matrix's own definition and workflow, the scripts the
+# job runs, and the vendored patch crates (`[patch.crates-io]` path crates
+# linked into the binary) and xtask, which no workspace package maps to.
+if grep -Eq '^(install\.sh|install\.ps1|\.github/workflows/zc-matrix\.yml|\.github/zc-matrix/|scripts/|vendor/|xtask/)' <<<"$changed"; then
     echo true
     exit 0
 fi
