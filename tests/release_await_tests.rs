@@ -76,6 +76,11 @@ impl Fake {
 D="$(dirname "$0")"
 echo "$*" >> "$D/calls"
 jqexpr() { local p=; for a in "$@"; do [ "$p" = --jq ] && { echo "$a"; return; }; p=$a; done; }
+if [ "$1" = api ]; then
+  # `gh api repos/o/r/git/ref/heads/main --jq .object.sha`: main's head.
+  [ -f "$D/main_head" ] || { echo "HTTP 502" >&2; exit 1; }
+  cat "$D/main_head"; exit 0
+fi
 case "$1 $2" in
 "run list") if [ -f "$D/dispatched" ]; then cat "$D/after.json"; else cat "$D/before.json"; fi ;;
 "workflow run")
@@ -106,11 +111,16 @@ esac
     }
 
     fn run(&self, envs: &[(&str, &str)]) -> (i32, String) {
+        self.run_on("v1.2.3", envs)
+    }
+
+    /// The script for a release of `SHA` on `git_ref` (the tag, or `main`).
+    fn run_on(&self, git_ref: &str, envs: &[(&str, &str)]) -> (i32, String) {
         let path = path_with_prefix(&self.dir);
         let out = script_command(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/release-await-tests.sh"),
         )
-        .args(["o/r", "v1.2.3", SHA])
+        .args(["o/r", git_ref, SHA])
         .env("PATH", path)
         .env("RELEASE_TESTS_POLL", "0")
         .envs(envs.iter().copied())
@@ -129,6 +139,11 @@ esac
 
     fn flag(&self, name: &str) {
         std::fs::write(self.dir.join(name), "1").unwrap();
+    }
+
+    /// What `gh api` reports as main's head; without it the call fails.
+    fn main_head(&self, sha: &str) {
+        std::fs::write(self.dir.join("main_head"), sha).unwrap();
     }
 
     /// What `gh run view <id> --json jobs` reports for run `id`.
@@ -477,4 +492,78 @@ fn a_suite_that_never_finishes_is_not_waited_on_forever() {
     let (code, out) = f.run(&[("RELEASE_TESTS_WAIT_MAX", "0")]);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("had not finished"), "{out}");
+}
+
+/// A release dry run on main (`gh workflow run release.yml` without `--ref`)
+/// dispatched the suite into main's concurrency group, where it queued behind
+/// the running suite past the wait and the next merge's run replaced it while
+/// it was pending. On main the dispatch is a `prove` run, which test.yml gives
+/// a group of its own, and it is sent only while main's head is still the
+/// commit being released.
+#[test]
+fn on_main_the_head_is_dispatched_as_a_prove_run() {
+    let mut run = dispatched(90, SHA);
+    run["headBranch"] = serde_json::json!("main");
+    let f = Fake::new(
+        "main-prove",
+        serde_json::json!([]),
+        serde_json::json!([run]),
+        &["queued/", "in_progress/", "completed/success"],
+    );
+    f.main_head(SHA);
+    let (code, out) = f.run_on("main", &[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref main -f gate=full -f prove=true"),
+        "on main the suite is a prove run: {}",
+        f.calls()
+    );
+    assert!(out.contains("passed on abc1234 (run 90)"), "{out}");
+}
+
+/// A dispatch on main runs main's head as it is when sent; once main has moved
+/// past the commit being released, that run would prove another tree.
+#[test]
+fn on_main_a_commit_main_has_moved_past_is_not_dispatched_for() {
+    let f = Fake::new(
+        "main-moved",
+        serde_json::json!([]),
+        serde_json::json!([]),
+        &["completed/success"],
+    );
+    f.main_head("def5678");
+    let (code, out) = f.run_on("main", &[]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("main is at def5678, not abc1234"), "{out}");
+    assert!(!f.calls().contains("workflow run"), "{}", f.calls());
+
+    // An API that does not say where main is proves nothing either way.
+    let _ = std::fs::remove_file(f.dir.join("main_head"));
+    let (code, out) = f.run_on("main", &[]);
+    assert_eq!(code, 1, "{out}");
+    assert!(!f.calls().contains("workflow run"), "{}", f.calls());
+}
+
+/// A tag is a fixed commit and has a concurrency group of its own already: its
+/// dispatch asks nothing about main and is no prove run.
+#[test]
+fn a_tag_dispatch_asks_nothing_about_main() {
+    let f = Fake::new(
+        "tag-no-prove",
+        serde_json::json!([]),
+        serde_json::json!([dispatched(91, SHA)]),
+        &["completed/success"],
+    );
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    let calls = f.calls();
+    assert!(
+        calls.contains("workflow run test.yml --repo o/r --ref v1.2.3 -f gate=full"),
+        "{calls}"
+    );
+    assert!(
+        !calls.contains("prove") && !calls.contains("api "),
+        "{calls}"
+    );
 }

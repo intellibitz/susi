@@ -15,7 +15,11 @@
 # 2. Otherwise the Test workflow is dispatched on <ref> (the tag) with the full
 #    gate, which runs the sharded suite, lint and e2e - not the coverage ratchet
 #    or the Kani proofs, which gate merges to main and are skipped on a tag - and
-#    this waits for it.
+#    this waits for it. A dispatch on main runs main's head as it is then, so
+#    on main <sha> must still be that head (a commit main has moved past is
+#    proven on a tag), and the dispatch is a `prove` run: test.yml gives one a
+#    concurrency group of its own, where the merges' group would make it wait
+#    behind the running suite past wait_max, or replace it while pending.
 #
 # exit 0: the suite passed on <sha>
 # exit 1: it failed, was cancelled, never started, or did not finish in time
@@ -77,8 +81,19 @@ if [ -n "$reusable" ]; then
     exit 0
 fi
 
+dispatch=(gh workflow run test.yml --repo "$repo" --ref "$ref" -f gate=full)
+case "$ref" in
+main | refs/heads/main)
+    tip=$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha 2>/dev/null) || tip=""
+    if [ "$tip" != "$sha" ]; then
+        echo "main is at ${tip:-a commit the API did not name}, not $sha: a dispatch on main would test that tree — release a tag on $sha instead" >&2
+        exit 1
+    fi
+    dispatch+=(-f prove=true)
+    ;;
+esac
 started=$(date +%s)
-if ! gh workflow run test.yml --repo "$repo" --ref "$ref" -f gate=full; then
+if ! "${dispatch[@]}"; then
     echo "could not dispatch the Test workflow on $ref" >&2
     exit 1
 fi

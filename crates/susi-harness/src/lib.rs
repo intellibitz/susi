@@ -95,5 +95,6 @@ pub mod usage;
 pub mod validate;
 pub mod verify;
 
+pub mod memory;
 pub mod router;
 pub mod worker;
