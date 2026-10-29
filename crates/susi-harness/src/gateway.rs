@@ -604,6 +604,55 @@ fn without_stream(body: &str) -> String {
     serde_json::to_string(&request).unwrap_or_else(|_| body.to_string())
 }
 
+fn cached_streaming_response(cache_key: &str, cached_response: &Value, model: &str) -> Response {
+    let content = cached_response
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c0| c0.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let chunk1 = json!({
+        "id": format!("chatcmpl-cache-{cache_key}"),
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "role": "assistant",
+                "content": content
+            },
+            "finish_reason": Value::Null
+        }]
+    });
+    let chunk2 = json!({
+        "id": format!("chatcmpl-cache-{cache_key}"),
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }]
+    });
+    let sse_body = format!(
+        "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+        serde_json::to_string(&chunk1).unwrap_or_default(),
+        serde_json::to_string(&chunk2).unwrap_or_default()
+    );
+    let mut res = Response::new(axum::body::Body::from(sse_body));
+    *res.status_mut() = StatusCode::OK;
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    res.headers_mut().insert(
+        header::HeaderName::from_static("x-susi-cache-key"),
+        HeaderValue::from_str(cache_key).unwrap_or(HeaderValue::from_static("hit")),
+    );
+    res
+}
+
 fn with_usage_in_stream(request: &Value, original: &str) -> String {
     let mut request = request.clone();
     if let Value::Object(map) = &mut request {
