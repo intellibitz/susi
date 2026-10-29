@@ -26,9 +26,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 const HOOKS: [&str; 4] = ["commit-msg", "pre-commit", "pre-push", "workflow-guard"];
-const SCRIPTS: [&str; 13] = [
+const SCRIPTS: [&str; 14] = [
     "cloud-session.sh",
     "queue-relay.py",
+    "parallel-workflow.sh",
     "cloud-onnxruntime.sh",
     "check-worker-identity.sh",
     "check-task-scope.py",

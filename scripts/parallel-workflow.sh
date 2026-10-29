@@ -20,7 +20,12 @@ lock="$common/susi-workflow.lock"
 susi_bin=${SUSI_WORKFLOW_BIN:-susi}
 
 sync() {
-    [ -f "$root/scripts/cloud-session.sh" ] || [ "$(git rev-parse --path-format=absolute --git-dir)" != "$common" ] || { echo 'Use your own linked worktree.' >&2; return 1; }
+    # A cloud session's clone is the worker's own checkout: the mark says so
+    # (scripts/cloud-session.sh exits 0 for a marked clone). The script's mere
+    # presence says nothing — every clone has it.
+    { [ -x "$root/scripts/cloud-session.sh" ] && "$root/scripts/cloud-session.sh"; } \
+        || [ "$(git rev-parse --path-format=absolute --git-dir)" != "$common" ] \
+        || { echo 'Use your own linked worktree.' >&2; return 1; }
     [ "$(git symbolic-ref -q --short HEAD)" != main ] || { echo 'Use your own branch.' >&2; return 1; }
     exec 9>"$lock"
     flock 9
