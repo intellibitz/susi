@@ -24,6 +24,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use susi_paths::test_env::isolate_home;
 
 const HOOKS: [&str; 4] = ["commit-msg", "pre-commit", "pre-push", "workflow-guard"];
 const SCRIPTS: [&str; 14] = [
@@ -142,8 +143,8 @@ impl World {
     /// variables the cloud harness or a test runner would hand down.
     fn command(&self, program: &str, dir: &Path) -> Command {
         let mut cmd = Command::new(program);
-        cmd.current_dir(dir)
-            .env("HOME", &self.home)
+        isolate_home(&mut cmd, &self.home)
+            .current_dir(dir)
             .env("XDG_CONFIG_HOME", self.home.join("xdg"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("SUSI_PRIMARY_WATCH_DISABLE", "1");
@@ -233,8 +234,8 @@ impl World {
     /// A command on the server's side of the proxy (the relay job's token).
     fn as_relay(&self, program: &str, dir: &Path) -> Command {
         let mut cmd = Command::new(program);
-        cmd.current_dir(dir)
-            .env("HOME", &self.home)
+        isolate_home(&mut cmd, &self.home)
+            .current_dir(dir)
             .env("GIT_CONFIG_NOSYSTEM", "1");
         for var in SCRUBBED {
             cmd.env_remove(var);
@@ -258,8 +259,8 @@ impl World {
         let handle = thread::spawn(move || {
             let command = |program: &str, dir: &Path| {
                 let mut cmd = Command::new(program);
-                cmd.current_dir(dir)
-                    .env("HOME", &home)
+                isolate_home(&mut cmd, &home)
+                    .current_dir(dir)
                     .env("GIT_CONFIG_NOSYSTEM", "1");
                 for var in SCRUBBED {
                     cmd.env_remove(var);

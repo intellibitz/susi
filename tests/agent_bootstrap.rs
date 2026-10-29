@@ -12,6 +12,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn script_command(script: &Path) -> Command {
     #[cfg(windows)]
@@ -27,11 +28,25 @@ fn script_command(script: &Path) -> Command {
 }
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
+    run_as(dir, None, program, args, envs)
+}
+
+/// [`run`], with `home` as the child's whole home when one is given.
+fn run_as(
+    dir: &Path,
+    home: Option<&Path>,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> (i32, String, String) {
     let mut cmd = if program.ends_with(".sh") {
         script_command(Path::new(program))
     } else {
         Command::new(program)
     };
+    if let Some(home) = home {
+        isolate_home(&mut cmd, home);
+    }
     cmd.args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -199,12 +214,12 @@ fn susi_workflow_start_wraps_the_same_setup() {
     let w = World::new("cli");
     let home = w.root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let (code, out, err) = run(
+    let (code, out, err) = run_as(
         &w.primary,
+        Some(&home),
         env!("CARGO_BIN_EXE_susi"),
         &["workflow", "start", "cli-made"],
         &[
-            ("HOME", home.to_str().unwrap()),
             ("XDG_CONFIG_HOME", home.join("xdg").to_str().unwrap()),
             ("SUSI_AGENT", "claude"),
         ],

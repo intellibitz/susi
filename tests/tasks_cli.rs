@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -30,13 +31,11 @@ fn git(dir: &Path, args: &[&str]) {
 }
 
 fn susi(dir: &Path, home: &Path, agent: &str, args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), home)
         .args(args)
         .current_dir(dir)
-        .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("SUSI_AGENT", agent)
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
     (
@@ -221,13 +220,11 @@ fn a_task_already_closed_on_main_cannot_be_closed_again() {
 /// Runs the binary without `SUSI_AGENT`, so the identity falls through to the
 /// worktree and the process tree exactly as it does for a real worker.
 fn susi_no_agent(dir: &Path, home: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(program)
+    let out = isolate_home(&mut Command::new(program), home)
         .args(args)
         .current_dir(dir)
-        .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env_remove("SUSI_AGENT")
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
     (

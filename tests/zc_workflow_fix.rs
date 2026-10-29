@@ -17,14 +17,13 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn run(dir: &Path, args: &[&str], home: &Path) -> (i32, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), home)
         .args(args)
         .current_dir(dir)
-        .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .unwrap();
     (

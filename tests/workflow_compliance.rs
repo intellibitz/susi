@@ -12,8 +12,20 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
+    run_as(dir, None, program, args, envs)
+}
+
+/// [`run`], with `home` as the child's whole home when one is given.
+fn run_as(
+    dir: &Path,
+    home: Option<&Path>,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> (i32, String, String) {
     #[cfg(windows)]
     let mut cmd = if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("sh") {
         let mut shell = Command::new("sh");
@@ -24,6 +36,9 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
     };
     #[cfg(not(windows))]
     let mut cmd = Command::new(program);
+    if let Some(home) = home {
+        isolate_home(&mut cmd, home);
+    }
     cmd.args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "agent")
@@ -91,12 +106,12 @@ impl Env {
     }
 
     fn susi(&self, args: &[&str]) -> (i32, String, String) {
-        run(
+        run_as(
             &self.repo,
+            Some(&self.home),
             env!("CARGO_BIN_EXE_susi"),
             args,
             &[
-                ("HOME", self.home.to_str().unwrap()),
                 ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
                 ("SUSI_AGENT", "test"),
             ],

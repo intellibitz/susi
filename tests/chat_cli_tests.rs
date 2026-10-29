@@ -10,11 +10,17 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
+use susi_paths::test_env::isolate_home;
 
 fn run_susi_with_stdin(args: &[&str], input: &str) -> (i32, String, String) {
+    // One scratch per run: two tests run `susi chat` with the same args in
+    // parallel, and one's cleanup removed the other's cwd before it spawned
+    // ("The directory name is invalid").
+    static RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let scratch = std::env::temp_dir().join(format!(
-        "susi-chat-test-{}-{}",
+        "susi-chat-test-{}-{}-{}",
         std::process::id(),
+        RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         args.join("_").replace(['/', ' ', '-'], "")
     ));
     let home = scratch.join("home");
@@ -22,12 +28,10 @@ fn run_susi_with_stdin(args: &[&str], input: &str) -> (i32, String, String) {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&cwd).unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let mut child = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

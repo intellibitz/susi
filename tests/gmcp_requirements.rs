@@ -16,6 +16,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use susi_paths::test_env::isolate_home;
 
 #[test]
 fn gmcp_req_203_001_01_contract() {
@@ -47,12 +48,10 @@ fn gmcp_req_203_001_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-ledger-test-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -73,12 +72,10 @@ fn gmcp_req_203_001_02_production() {
 
 fn susi_command(root: &Path, home: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
-    command
+    isolate_home(&mut command, home)
         .args(args)
         .current_dir(root)
-        .env("HOME", home)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME");
+        .env("XDG_CONFIG_HOME", home.join("xdg"));
     command
 }
 
@@ -6342,12 +6339,10 @@ fn gmcp_req_203_004_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-004-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -6405,12 +6400,10 @@ fn gmcp_req_203_005_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-005-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -6464,12 +6457,10 @@ fn gmcp_req_203_006_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-006-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -6530,12 +6521,10 @@ fn gmcp_req_203_009_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-009-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -6593,12 +6582,10 @@ fn gmcp_req_203_010_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-010-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -6656,12 +6643,10 @@ fn gmcp_req_203_011_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-011-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);
@@ -6719,12 +6704,10 @@ fn gmcp_req_203_013_02_production() {
     let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-013-prod-{}", std::process::id()));
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(["mcp", "ledger"])
         .current_dir(root)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
     let _ = std::fs::remove_dir_all(&scratch);

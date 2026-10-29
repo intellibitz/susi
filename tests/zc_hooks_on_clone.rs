@@ -13,6 +13,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -41,12 +42,11 @@ fn git_get(dir: &Path, args: &[&str]) -> String {
 }
 
 fn susi(dir: &Path, args: &[&str]) -> (i32, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let home = dir.join("home");
+    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(dir)
-        .env("HOME", dir.join("home"))
         .env("XDG_CONFIG_HOME", dir.join("home/xdg"))
-        .env_remove("SUSI_HOME")
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .unwrap();

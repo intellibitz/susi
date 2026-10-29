@@ -19,5 +19,11 @@ serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-
 name = "stdio_guard_probe"
 path = "src/bin/stdio_guard_probe.rs"
 
+# Prints the dirs `SusiDirs` resolves; spawned by tests/isolate_home.rs through
+# `test_env::isolate_home` to prove a child resolves them under the given home.
+[[bin]]
+name = "paths_probe"
+path = "src/bin/paths_probe.rs"
+
 [lints]
 workspace = true

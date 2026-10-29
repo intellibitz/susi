@@ -1,0 +1,20 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-14",
+  "title": "Hermetic children: every spawned susi gets its whole home, not just HOME",
+  "goal": "On Windows a child resolves its home from USERPROFILE/APPDATA/LOCALAPPDATA, so ~30 integration tests and the release e2e gate that set only HOME on a spawned susi read and wrote the developer's real profile; one helper (susi_paths::test_env::isolate_home) now sets the whole home, a guard test refuses a bare HOME, and daemon liveness uses process_probe instead of tasklist",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "child_home_isolation",
+      "--test",
+      "release_e2e_checks"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793310117
+}

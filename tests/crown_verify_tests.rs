@@ -11,6 +11,7 @@
 
 use std::fs;
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 #[test]
 fn crown_verify_exits_zero_in_workspace() {
@@ -24,11 +25,9 @@ fn crown_verify_exits_zero_in_workspace() {
     fs::create_dir_all(&workspace).expect("temp workspace");
 
     let susi = env!("CARGO_BIN_EXE_susi");
-    let output = Command::new(susi)
+    let output = isolate_home(&mut Command::new(susi), &home)
         .args(["crown", "verify"])
         .current_dir(&workspace)
-        .env("HOME", &home)
-        .env_remove("USERPROFILE")
         .output()
         .expect("spawn susi crown verify");
 

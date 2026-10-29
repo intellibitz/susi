@@ -8,11 +8,100 @@
 //! every change is undone in reverse order on drop.
 //!
 //! Callers keep holding their own env lock — this only saves and restores.
+//!
+//! A test that launches a child (the `susi` binary, a script that runs it)
+//! under a throwaway home uses [`isolate_home`] instead: it hands the child
+//! the same whole-home swap, and the same instance scrub, without touching
+//! this process's env. The release gate's E2E checks launch the release
+//! binary the same way, so this module is not test-only code.
 
 use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Instance-selecting variables an isolated test must not inherit.
 const INSTANCE_VARS: [&str; 2] = ["SUSI_HOME", "SUSI_PORT_OFFSET"];
+
+/// The variables that move with `HOME`, and where each points under `home`.
+///
+/// On Windows the profile (`USERPROFILE`) is the home directory and `HOME`
+/// only its fallback, and the profile's `%APPDATA%` / `%LOCALAPPDATA%` hold
+/// the platform layout (`xdg.rs`). Elsewhere nothing reads them. One list
+/// for [`EnvGuard::set`] and [`isolate_home`], so a test that swaps its own
+/// home and a child it launches resolve the same layout.
+fn moved_with_home(home: &Path) -> Vec<(&'static str, PathBuf)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    vec![
+        ("USERPROFILE", home.to_path_buf()),
+        ("APPDATA", home.join("AppData").join("Roaming")),
+        ("LOCALAPPDATA", home.join("AppData").join("Local")),
+    ]
+}
+
+/// The XDG base dirs [`isolate_home`] puts under `home`: the spec's
+/// defaults, so a Linux child resolves exactly what `HOME` alone would give
+/// it when nothing inherited overrides them.
+fn xdg_under(home: &Path) -> [(&'static str, PathBuf); 3] {
+    [
+        ("XDG_CONFIG_HOME", home.join(".config")),
+        ("XDG_DATA_HOME", home.join(".local").join("share")),
+        ("XDG_CACHE_HOME", home.join(".cache")),
+    ]
+}
+
+/// Point `cmd`'s child at `home` as its whole home, and return `cmd`.
+///
+/// Setting `HOME` on a child is not enough: on Windows it resolves its home
+/// from the inherited `USERPROFILE` and its config/data dirs from the
+/// inherited `%APPDATA%` / `%LOCALAPPDATA%`, and on Linux from any inherited
+/// `XDG_*_HOME` — so a test that set only `HOME` read and wrote the
+/// developer's real `~/.susi` and `AppData\Roaming\intellibitz\susi` unless
+/// the whole run happened to be isolated. This sets `HOME`, the variables
+/// [`EnvGuard::set`] moves with it, and the three `XDG_*_HOME` dirs under
+/// `home`, and drops the inherited instance knobs [`EnvGuard::isolated`]
+/// drops: `SUSI_HOME` (which outranks all of the dirs) and
+/// `SUSI_PORT_OFFSET` (a dev build keeps an inherited offset, so the child
+/// would talk to the launching instance's ports).
+///
+/// What the caller set on `cmd` itself is theirs and kept, before or after
+/// this call: its own `XDG_*_HOME` (a test's `home/xdg` layout), its own
+/// `SUSI_HOME` (an explicit instance root) and its own `SUSI_PORT_OFFSET`.
+/// Call it after any `env_clear`, which would discard it.
+///
+/// Every launch of `susi` under a throwaway home goes through here — the
+/// integration tests and the release gate's end-to-end checks
+/// (`SusiAdmin::run_e2e_checks`) alike — and `tests/child_home_isolation.rs`
+/// keeps it that way.
+pub fn isolate_home<'c>(cmd: &'c mut Command, home: &Path) -> &'c mut Command {
+    // Windows env names are case-insensitive; elsewhere they are exact.
+    let set_by_caller = |cmd: &Command, var: &str| {
+        cmd.get_envs().any(|(k, v)| {
+            v.is_some()
+                && if cfg!(windows) {
+                    k.eq_ignore_ascii_case(var)
+                } else {
+                    k == var
+                }
+        })
+    };
+    cmd.env("HOME", home);
+    for (var, dir) in moved_with_home(home) {
+        cmd.env(var, dir);
+    }
+    for (var, dir) in xdg_under(home) {
+        if !set_by_caller(cmd, var) {
+            cmd.env(var, dir);
+        }
+    }
+    for var in INSTANCE_VARS {
+        if !set_by_caller(cmd, var) {
+            cmd.env_remove(var);
+        }
+    }
+    cmd
+}
 
 /// Restores every variable it touched (to its prior value, or unset) on drop.
 #[derive(Debug)]
@@ -45,13 +134,10 @@ impl EnvGuard {
     pub fn set(&mut self, var: &'static str, value: impl AsRef<OsStr>) -> &mut Self {
         self.save(var);
         std::env::set_var(var, value.as_ref());
-        if cfg!(windows) && var == "HOME" {
-            let home = std::path::Path::new(value.as_ref());
-            self.save("USERPROFILE");
-            std::env::set_var("USERPROFILE", home);
-            for (app_data, leaf) in [("APPDATA", "Roaming"), ("LOCALAPPDATA", "Local")] {
-                self.save(app_data);
-                std::env::set_var(app_data, home.join("AppData").join(leaf));
+        if var == "HOME" {
+            for (moved, dir) in moved_with_home(Path::new(value.as_ref())) {
+                self.save(moved);
+                std::env::set_var(moved, dir);
             }
         }
         self

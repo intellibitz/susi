@@ -427,10 +427,17 @@ impl SusiDaemon {
         Self::process_alive(pid)
     }
 
-    /// Whether a bare pid names a live process. Windows previously answered
-    /// from `tasklist`'s exit status, which is 0 whether or not the pid
-    /// matched — every pid read as alive, so a stop could never observe its
-    /// child exit. The CSV output is parsed for the pid itself instead.
+    /// Whether a bare pid names a live process.
+    ///
+    /// Windows asks the process object itself
+    /// ([`process_probe::pid_alive`](crate::susi_config::process_probe::pid_alive)).
+    /// It used to spawn `tasklist` per call — a process launch on every tick
+    /// of a stop's wait, and one whose exit status is 0 whether or not the
+    /// pid matched. A pid the probe cannot judge reads as gone, as a
+    /// `tasklist` that could not run did. One answer differs: a process that
+    /// exited with code 259 (`STILL_ACTIVE`) cannot be told from a running
+    /// one and reads as alive (the probe's documented conservative side), so
+    /// a stop waiting on it runs to its timeout. No susi process exits 259.
     ///
     /// On Linux a killed-but-unreaped child is a zombie: `kill(pid, 0)`
     /// succeeds for it, so the probe read a terminated process as alive and a
@@ -454,13 +461,7 @@ impl SusiDaemon {
         }
         #[cfg(windows)]
         {
-            Command::new("tasklist")
-                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .output()
-                .map(|out| Self::tasklist_image_name(&out.stdout, pid).is_some())
-                .unwrap_or(false)
+            crate::susi_config::process_probe::pid_alive(pid).unwrap_or(false)
         }
     }
 
@@ -2618,6 +2619,56 @@ mod tests {
             !SusiDaemon::process_alive(4_000_000_000),
             "an unused pid must not read as alive — stop's wait depends on it"
         );
+    }
+
+    /// Liveness is asked of the OS in-process, never by launching a process
+    /// per probe: a stop polls it, and on Windows every probe used to spawn
+    /// `tasklist` — tens to hundreds of milliseconds each. A hundred probes
+    /// stay far inside what even a handful of launches take.
+    #[test]
+    fn process_alive_launches_no_process_per_probe() {
+        let own = std::process::id();
+        let start = Instant::now();
+        for _ in 0..50 {
+            assert!(SusiDaemon::process_alive(own), "this process is alive");
+            assert!(!SusiDaemon::process_alive(4_000_000_000));
+        }
+        let took = start.elapsed();
+        assert!(
+            took < Duration::from_secs(2),
+            "100 liveness probes took {took:?}: each one launches a process"
+        );
+    }
+
+    /// Windows answers exactly what the process probe answers: a running
+    /// process is alive, and one that exited is gone even while its handle
+    /// is still held (the `Child` here, until `wait`).
+    #[cfg(windows)]
+    #[test]
+    fn process_alive_is_the_process_probe_on_windows() {
+        use crate::susi_config::process_probe::pid_alive;
+        let own = std::process::id();
+        assert_eq!(pid_alive(own), Some(true));
+        assert!(SusiDaemon::process_alive(own));
+
+        let mut child = Command::new("cmd")
+            .args(["/C", "exit 0"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while pid_alive(pid) == Some(true) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(pid_alive(pid), Some(false), "the child exited");
+        assert!(
+            !SusiDaemon::process_alive(pid),
+            "an exited child must read as gone while its handle is held"
+        );
+        let _ = child.wait();
     }
 
     #[cfg(target_os = "linux")]

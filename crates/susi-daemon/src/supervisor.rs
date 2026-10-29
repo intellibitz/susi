@@ -431,29 +431,13 @@ fn wait_for_port(port: u16, deadline: Duration) -> bool {
 
 /// Whether a supervised pid is still running.
 ///
-/// `service_table::pid_alive` answers `true` unconditionally off unix (it has
-/// no cheap probe there), which makes a Windows shutdown wait a fixed grace
-/// and a dead record look alive. A `tasklist` row is the answer here; an
-/// unreadable probe falls back to the conservative table answer.
+/// On Windows `service_table::pid_alive` asks the process object itself
+/// (`process_probe::pid_alive`) and keeps its conservative "alive" only when
+/// that cannot tell — the same answer the `tasklist` row this used to spawn
+/// per call gave, without launching a process on every supervision tick and
+/// shutdown poll.
 fn child_alive(pid: u32) -> bool {
-    #[cfg(windows)]
-    {
-        let out = Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output();
-        match out {
-            Ok(out) if out.status.success() => {
-                String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
-            }
-            _ => service_table::pid_alive(pid),
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        service_table::pid_alive(pid)
-    }
+    service_table::pid_alive(pid)
 }
 
 /// Send a unix signal to a pid the daemon supervises.
@@ -1137,6 +1121,26 @@ mod tests {
             "the fake service child outlived the job guard (pid {pid})"
         );
         let _ = child.wait();
+    }
+
+    /// A supervised pid's liveness is asked of the OS in-process: the monitor
+    /// and every shutdown poll ask it, and on Windows each answer used to
+    /// launch `tasklist`. (Other unixes still run `kill -0`: there is no
+    /// in-process probe there.)
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn child_alive_launches_no_process_per_probe() {
+        let own = std::process::id();
+        let start = Instant::now();
+        for _ in 0..50 {
+            assert!(child_alive(own), "this process is alive");
+            assert!(!child_alive(4_000_000_000));
+        }
+        let took = start.elapsed();
+        assert!(
+            took < Duration::from_secs(2),
+            "100 liveness probes took {took:?}: each one launches a process"
+        );
     }
 
     #[test]

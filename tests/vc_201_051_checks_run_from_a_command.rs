@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_paths::test_env::isolate_home;
 
 fn scratch(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("susi-vc201051-{tag}-{}", std::process::id()))
@@ -28,8 +29,8 @@ fn run_probe(home: &Path, probe_env: Option<&str>) -> (i32, String) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
     cmd.args(["admin", "provider-contract"])
         .current_dir(home.join("cwd"))
-        .env_clear()
-        .env("HOME", home)
+        .env_clear();
+    isolate_home(&mut cmd, home)
         .env("SUSI_HOME", home.join(".susi-dev"))
         .env("PATH", std::env::var("PATH").unwrap_or_default());
     if let Some(v) = probe_env {

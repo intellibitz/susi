@@ -11,6 +11,7 @@
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use susi_paths::test_env::isolate_home;
 
 fn run_susi_code(args: &[&str], input: &str) -> (i32, String, String) {
     let scratch = std::env::temp_dir().join(format!(
@@ -23,12 +24,10 @@ fn run_susi_code(args: &[&str], input: &str) -> (i32, String, String) {
     fs::create_dir_all(&home).unwrap();
     fs::create_dir_all(&cwd).unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_susi"))
+    let mut child = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
         .args(args)
         .current_dir(&cwd)
-        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env_remove("SUSI_HOME")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
