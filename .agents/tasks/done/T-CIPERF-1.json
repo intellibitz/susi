@@ -1,0 +1,22 @@
+{
+  "id": "T-CIPERF-1",
+  "title": "Optimize CI coverage ratchet and mold linkage",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "CIPERF",
+  "created_unix": 1793289748,
+  "closed": {
+    "at_unix": 1793290140,
+    "commit": "afd17de03cde317fc96b4150cbc0f5cdfde2ba43",
+    "by": "CIPERF"
+  }
+}

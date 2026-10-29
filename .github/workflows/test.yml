@@ -202,6 +202,7 @@ jobs:
     outputs:
       proven: ${{ steps.stamp.outputs.proven }}
       affected: ${{ steps.scope.outputs.affected }}
+      cov_pkgs: ${{ steps.scope.outputs.cov_pkgs }}
       skip_shards: ${{ steps.scope.outputs.skip_shards }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
       run_windows: ${{ steps.scope.outputs.run_windows }}
@@ -275,6 +276,7 @@ jobs:
           PROVE_ANYWAY: ${{ inputs.prove }}
         run: |
           affected=ALL
+          cov_pkgs="--workspace"
           skip='[]'
           e2e=true
           # The Kani proofs cover susi-gawd alone; they can only change when
@@ -286,6 +288,7 @@ jobs:
           win=true
           if [ "${PROVE_ANYWAY:-}" = "true" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "prove=true — scoping nothing, every job runs"
+            cov_pkgs="--workspace"
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             head=$(git rev-parse HEAD)
             base=
@@ -303,6 +306,7 @@ jobs:
               changed=$(git diff --no-renames --name-only "$base" HEAD)
               if grep -Eq '^(\.github/|scripts/|\.cargo/|rust-toolchain|vendor/|xtask/)' <<<"$changed"; then
                 echo "merge touched CI machinery, a vendored crate or xtask — scoping nothing"
+                cov_pkgs="--workspace"
               else
                 pkgs=$(BASE_REF="$base" scripts/ci-changed-crates.sh --dependents || echo ALL)
                 # The compile gate's "no crate" (docs, README, the installers,
@@ -315,15 +319,17 @@ jobs:
                   pkgs=$(printf '%s\nsusi\n' "$pkgs" | grep . | sort -u)
                 fi
                 case "$pkgs" in
-                  ALL) ;;
+                  ALL) cov_pkgs="--workspace" ;;
                   "")
                     affected=NONE
+                    cov_pkgs=""
                     skip=$(scripts/ci-test-shards.sh | cut -f1 | jq -R . | jq -sc .)
                     e2e=false
                     kani=false
                     win=false ;;
                   *)
                     affected=SCOPED
+                    cov_pkgs=$(for p in $pkgs; do printf -- "-p %s " "$p"; done)
                     e2e=false
                     kani=false
                     win=false
@@ -359,6 +365,7 @@ jobs:
           fi
           {
             echo "affected=$affected"
+            echo "cov_pkgs=$cov_pkgs"
             echo "skip_shards=$skip"
             echo "run_e2e=$e2e"
             echo "run_windows=$win"
@@ -754,6 +761,9 @@ jobs:
       - name: Install Linux System Dependencies
         run: scripts/ci-system-deps.sh
 
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
+
       - name: Install wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
 
@@ -772,6 +782,8 @@ jobs:
       - name: Coverage ratchet
         env:
           TMPDIR: ${{ runner.temp }}
+          CARGO_TARGET_DIR: target/llvm-cov-target
+          SUSI_COV_PKGS: ${{ needs.codetree.outputs.cov_pkgs }}
         run: scripts/coverage-ratchet.sh
 
   # Gated exactly as the shards are (`run_shards`): scripts/release-await-tests.sh
