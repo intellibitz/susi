@@ -324,8 +324,9 @@ pub fn http_probe(port: u16) -> bool {
 }
 
 /// Whether `pid` refers to a live process. `/proc` on Linux; `kill -0`
-/// elsewhere on unix; conservatively "alive" where neither exists — a false
-/// "dead" would make the supervisor respawn a healthy service.
+/// elsewhere on unix; the process object on Windows; conservatively "alive"
+/// where none of them answers — a false "dead" would make the supervisor
+/// respawn a healthy service.
 pub fn pid_alive(pid: u32) -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -355,21 +356,11 @@ pub fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        // `tasklist` is the one process probe every Windows host has. It exits
-        // 0 whether or not it matched, so the CSV row itself is the answer; an
-        // unreadable answer keeps the conservative "alive" above so a healthy
-        // service is never respawned over a probe failure.
-        let out = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .output();
-        match out {
-            Ok(out) if out.status.success() => {
-                String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
-            }
-            _ => true,
-        }
+        // Asked of the process object itself rather than by spawning
+        // `tasklist` on every supervision tick; an unknowable answer keeps the
+        // conservative "alive" above so a healthy service is never respawned
+        // over a probe failure.
+        crate::susi_config::process_probe::pid_alive(pid).unwrap_or(true)
     }
     #[cfg(all(not(unix), not(windows)))]
     {
@@ -451,21 +442,13 @@ pub fn pid_for_port(_port: u16) -> Option<u32> {
     None
 }
 
-/// Resident set size of `pid` in KiB (`VmRSS` from `/proc/<pid>/status`)
-/// — the footprint column for service tables. `None` when the pid is
-/// dead, unreadable, or the field is absent.
-#[cfg(target_os = "linux")]
+/// Resident set size of `pid` in KiB — the footprint column for service
+/// tables: `VmRSS` from `/proc/<pid>/status` on Linux, the working set on
+/// Windows (`susi_config::process_probe`, which Windows used to lack, so the
+/// column was always empty there). `None` when the pid is dead, unreadable,
+/// or the platform has no source.
 pub fn rss_kb(pid: u32) -> Option<u64> {
-    let text = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    text.lines()
-        .find_map(|l| l.strip_prefix("VmRSS:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-}
-
-/// No `/proc` on non-Linux platforms — memory footprint is unknown.
-#[cfg(not(target_os = "linux"))]
-pub fn rss_kb(_pid: u32) -> Option<u64> {
-    None
+    crate::susi_config::process_probe::rss_kb(pid)
 }
 
 /// A snapshot of every leaf service with its live health — what the
@@ -701,12 +684,24 @@ mod tests {
         assert!(probe(port), "TCP probe sees the listener");
         assert!(!http_probe(port), "HTTP probe must see through the wedge");
 
-        // A minimal HTTP responder passes both.
+        // A minimal HTTP responder passes both. It reads the request before
+        // replying, as every HTTP server does: closing a socket whose request
+        // is still unread resets the connection, and Windows then discards a
+        // reply the client has not read yet, so the probe failed under load
+        // on the fixture rather than on the probe.
         let serving = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = serving.local_addr().unwrap().port();
         std::thread::spawn(move || {
             for s in serving.incoming().flatten() {
                 let mut s = s;
+                let mut request = Vec::new();
+                let mut buf = [0u8; 256];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buf[..n]),
+                    }
+                }
                 let _ = s.write_all(b"HTTP/1.0 404 Not Found\r\n\r\n");
             }
         });

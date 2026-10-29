@@ -37,13 +37,22 @@ impl EnvGuard {
     /// `HOME` also moves `USERPROFILE` on Windows, where the profile is the
     /// home directory and `HOME` only its fallback: a test that swapped
     /// `HOME` alone still resolved the operator's real profile, and wrote
-    /// the real `~/.susi/cloud.env` and extension state.
+    /// the real `~/.susi/cloud.env` and extension state. The profile's
+    /// `%APPDATA%` and `%LOCALAPPDATA%` move with it too: they are where the
+    /// platform layout lives (`xdg.rs`), so with no legacy `~/.susi` under
+    /// the swapped home a test still wrote `cloud.env` into the operator's
+    /// real `AppData\Roaming\intellibitz\susi\config`.
     pub fn set(&mut self, var: &'static str, value: impl AsRef<OsStr>) -> &mut Self {
         self.save(var);
         std::env::set_var(var, value.as_ref());
         if cfg!(windows) && var == "HOME" {
+            let home = std::path::Path::new(value.as_ref());
             self.save("USERPROFILE");
-            std::env::set_var("USERPROFILE", value.as_ref());
+            std::env::set_var("USERPROFILE", home);
+            for (app_data, leaf) in [("APPDATA", "Roaming"), ("LOCALAPPDATA", "Local")] {
+                self.save(app_data);
+                std::env::set_var(app_data, home.join("AppData").join(leaf));
+            }
         }
         self
     }
@@ -90,5 +99,36 @@ mod tests {
         }
         assert_eq!(std::env::var_os("HOME"), before_home);
         assert_eq!(std::env::var_os("USERPROFILE"), before_profile);
+    }
+
+    /// With no legacy `~/.susi` the substrate takes the platform layout,
+    /// whose dirs must sit under the swapped home on every OS: `~/.config`
+    /// and friends on Linux, `~/Library` on macOS, and on Windows the
+    /// profile's `AppData`, which used to stay the operator's real one.
+    #[test]
+    fn a_swapped_home_takes_the_platform_dirs_along() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let before = ["APPDATA", "LOCALAPPDATA"].map(std::env::var_os);
+        let tmp = std::env::temp_dir().join(format!("susi_env_guard_dirs_{}", std::process::id()));
+        {
+            let mut env = EnvGuard::isolated();
+            for var in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"] {
+                env.remove(var);
+            }
+            env.set("HOME", &tmp);
+            for dir in [
+                crate::xdg::config_dir(),
+                crate::xdg::data_dir(),
+                crate::xdg::cache_dir(),
+            ] {
+                let dir = dir.unwrap();
+                assert!(
+                    dir.starts_with(&tmp),
+                    "{} is outside the swapped home",
+                    dir.display()
+                );
+            }
+        }
+        assert_eq!(["APPDATA", "LOCALAPPDATA"].map(std::env::var_os), before);
     }
 }

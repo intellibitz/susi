@@ -1,0 +1,23 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-10",
+  "title": "Main compiles again: drop the dead fleet memory call and unused variables in susi-gawd-agents",
+  "goal": "origin/main does not compile since #1026: susi-gawd-agents calls susi_harness::memory without the dependency, and unused bindings fail -D warnings; restore a green main without the dead embedding call",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd-agents"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793293718,
+  "closed": {
+    "at_unix": 1793294343,
+    "commit": "4e826f0ab3c7bee1324fbda2d49a535dba3b2a66",
+    "by": "GUARDEDACCEPTANCE"
+  }
+}

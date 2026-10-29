@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-// Unix-only: Windows resolves home from %USERPROFILE% and the platform dirs
-// from %APPDATA%, which this test does not repoint.
-#![cfg(unix)]
+// Every home swap goes through `EnvGuard`, which on Windows also repoints
+// %USERPROFILE% (the home there) and %APPDATA%/%LOCALAPPDATA% (the platform
+// dirs), so this runs on every OS.
 
 //! The XDG-vs-legacy layout is decided once per resolved root for the life
 //! of a process. Creating `$HOME/.susi` mid-process (workspace-scoped state
@@ -57,25 +57,26 @@ fn creating_legacy_dir_mid_process_keeps_the_xdg_layout() {
     // at its first resolution selects the legacy layout.
     let legacy_home = scratch("legacy");
     std::fs::create_dir_all(legacy_home.join(".susi")).unwrap();
-    std::env::set_var("HOME", &legacy_home);
+    env.set("HOME", &legacy_home);
     assert_eq!(SusiDirs::config_dir(), legacy_home.join(".susi"));
 
     // SUSI_XDG stays a live override over an existing legacy root.
-    std::env::set_var("SUSI_XDG", "1");
+    env.set("SUSI_XDG", "1");
     assert_ne!(SusiDirs::config_dir(), legacy_home.join(".susi"));
-    std::env::remove_var("SUSI_XDG");
+    env.remove("SUSI_XDG");
     assert_eq!(SusiDirs::config_dir(), legacy_home.join(".susi"));
 
     // SUSI_HOME still pins a fully isolated instance root.
     let instance = scratch("instance");
-    std::env::set_var("SUSI_HOME", &instance);
+    env.set("SUSI_HOME", &instance);
     assert_eq!(SusiDirs::config_dir(), instance);
-    std::env::remove_var("SUSI_HOME");
+    env.remove("SUSI_HOME");
 
     // Back on the first HOME, the pinned XDG decision still holds.
-    std::env::set_var("HOME", &home);
+    env.set("HOME", &home);
     assert_eq!(SusiDirs::config_dir(), config_before);
 
+    drop(env);
     for dir in [home, legacy_home, instance] {
         let _ = std::fs::remove_dir_all(dir);
     }

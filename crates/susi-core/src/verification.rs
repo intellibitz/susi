@@ -147,14 +147,10 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
         },
         Contract::FileAbsent { path } => {
             // A deletion claim about a path outside the workspace cannot be
-            // vouched for: `root.join` of an absolute path *replaces* the
-            // root, and `..` climbs out of it, so a nonexistent outside path
-            // used to come back `Verified`.
-            if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
-            {
+            // vouched for: `root.join` of a rooted or prefixed path
+            // *replaces* the root, and `..` climbs out of it, so a
+            // nonexistent outside path used to come back `Verified`.
+            if !is_workspace_relative(path) {
                 return ContractVerdict::Unverifiable {
                     reason: format!(
                         "deletion claim '{}' is not workspace-relative",
@@ -252,11 +248,7 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
             }
         }
         Contract::DirExists { path } => {
-            if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
-            {
+            if !is_workspace_relative(path) {
                 return ContractVerdict::Unverifiable {
                     reason: format!(
                         "directory claim '{}' is not workspace-relative",
@@ -285,6 +277,21 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
             verify_command_exit(argv, *timeout_secs, workspace)
         }
     }
+}
+
+/// Whether `path` stays inside whatever root it is joined to: plain names
+/// and `.` only — no root, no drive or UNC prefix, no `..`. `is_absolute`
+/// is not that test on Windows, where `/x` and `\x` are rooted but not
+/// absolute (they lack a drive) and `C:x` is drive-relative: `join` of
+/// either discards the workspace, so a deletion claim about
+/// `/nonexistent/...` came back `Verified` there.
+fn is_workspace_relative(path: &Path) -> bool {
+    path.components().all(|c| {
+        matches!(
+            c,
+            std::path::Component::Normal(_) | std::path::Component::CurDir
+        )
+    })
 }
 
 /// Chunk size for streamed content checks. `FileContains` / `FileHash`
@@ -610,6 +617,38 @@ mod tests {
         }
     }
 
+    /// Windows spellings that leave the workspace without being
+    /// `is_absolute`: rooted without a drive, drive-relative, verbatim. None
+    /// of them exists on unix, where a backslash is an ordinary filename
+    /// character and `C:x` a plain name; there the absolute and `..` escapes
+    /// above are the whole set.
+    #[cfg(windows)]
+    #[test]
+    fn windows_rooted_and_prefixed_claims_are_not_workspace_relative() {
+        let dir = ws();
+        for outside in [
+            r"\nonexistent\susi-verify-probe",
+            "/",
+            "C:susi-verify-probe-drive-relative",
+            r"\\?\C:\nonexistent-susi-verify-probe",
+        ] {
+            for contract in [
+                Contract::FileAbsent {
+                    path: outside.into(),
+                },
+                Contract::DirExists {
+                    path: outside.into(),
+                },
+            ] {
+                let v = verify_contract(&contract, dir.path());
+                assert!(
+                    matches!(v, ContractVerdict::Unverifiable { .. }),
+                    "{contract:?}: {v:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn file_absent_distinguishes_gone_present_and_escaped() {
         let dir = ws();
@@ -687,22 +726,32 @@ mod tests {
     #[test]
     fn command_exit_runs_allowlisted_probes_only() {
         let dir = ws();
-        let ok = verify_contract(
-            &Contract::CommandExit {
-                argv: vec!["true".into()],
-                timeout_secs: 5,
-            },
-            dir.path(),
-        );
-        assert!(ok.is_verified());
-        let fail = verify_contract(
-            &Contract::CommandExit {
-                argv: vec!["false".into()],
-                timeout_secs: 5,
-            },
-            dir.path(),
-        );
-        assert!(fail.violation().is_some());
+        let probe = |argv: &[&str]| {
+            verify_contract(
+                &Contract::CommandExit {
+                    argv: argv.iter().map(|a| a.to_string()).collect(),
+                    timeout_secs: 5,
+                },
+                dir.path(),
+            )
+        };
+        // `git diff --no-index --quiet` is an allowlisted probe on every
+        // platform (a Windows PATH has no POSIX `true`/`false`): exit 0 for
+        // identical files is Verified, exit 1 for differing ones Violated.
+        std::fs::write(dir.path().join("a.txt"), "same").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "same").unwrap();
+        std::fs::write(dir.path().join("c.txt"), "different").unwrap();
+        let ok = probe(&["git", "diff", "--no-index", "--quiet", "a.txt", "b.txt"]);
+        assert!(ok.is_verified(), "{ok:?}");
+        let fail = probe(&["git", "diff", "--no-index", "--quiet", "a.txt", "c.txt"]);
+        assert!(fail.violation().is_some(), "{fail:?}");
+        // POSIX `true`/`false` as well where the platform ships them; the git
+        // probes above prove the same exit-code contract on Windows.
+        #[cfg(unix)]
+        {
+            assert!(probe(&["true"]).is_verified());
+            assert!(probe(&["false"]).violation().is_some());
+        }
         let refused = verify_contract(
             &Contract::CommandExit {
                 argv: vec!["curl".into(), "http://evil".into()],

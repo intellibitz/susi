@@ -1477,10 +1477,16 @@ mod tests {
             .node(&NodeId::stable("external_source", "test_adapter"))
             .is_some());
         assert!(g.node(&NodeId::stable("user", "alice")).is_some());
+        // A workspace is keyed by its canonical path (`record_workspace`),
+        // and `temp_dir()` does not hand out that spelling on every host:
+        // Windows canonical paths are verbatim (`\\?\C:\...`) and expand 8.3
+        // names, macOS resolves `/var` to `/private/var`.
+        let canonical = ws.canonicalize().unwrap();
         assert!(g
-            .node(&NodeId::stable("workspace", &ws.to_string_lossy()))
+            .node(&NodeId::stable("workspace", &canonical.to_string_lossy()))
             .is_some());
         let subgraph = g.workspace_subgraph(&ws);
         assert!(subgraph.nodes.iter().any(|n| n.id == id));
+        let _ = std::fs::remove_dir_all(&ws);
     }
 }
