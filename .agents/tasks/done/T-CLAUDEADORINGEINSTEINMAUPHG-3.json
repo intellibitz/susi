@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CLAUDEADORINGEINSTEINMAUPHG",
-  "created_unix": 1793246070
+  "created_unix": 1793246070,
+  "closed": {
+    "at_unix": 1793247816,
+    "commit": "f19fb41541a59caf47dbaf6557bd5f758ddf0d8e",
+    "by": "CLAUDEADORINGEINSTEINMAUPHG"
+  }
 }
