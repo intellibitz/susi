@@ -198,11 +198,34 @@ fn every_binary_the_release_publishes_is_bumped_by_the_cut() {
         .and_then(|(_, rest)| rest.split_once("];"))
         .map(|(list, _)| list)
         .expect("version.rs declares ENGINE_VERSION_MANIFESTS");
+    let package_version = |rel: &str| -> String {
+        let mut in_package = false;
+        for line in read(rel).lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_package = line == "[package]";
+            } else if in_package {
+                if let Some(v) = line.strip_prefix("version = \"") {
+                    return v.trim_end_matches('"').to_string();
+                }
+            }
+        }
+        panic!("{rel} has no [package] version")
+    };
+    let root = package_version("Cargo.toml");
     for manifest in &published {
         assert!(
             list.contains(&format!("\"{manifest}\"")),
             "release.yml publishes the binary of {manifest}, but `susi admin release --cut` \
              does not bump it: add it to ENGINE_VERSION_MANIFESTS"
+        );
+        // Between cuts too: a dry run of the release workflow runs the same
+        // version check, and a manifest one version behind failed both
+        // required legs of every dry run until the next cut.
+        assert_eq!(
+            package_version(manifest),
+            root,
+            "{manifest} must carry the release version its binary is published under"
         );
     }
 }
