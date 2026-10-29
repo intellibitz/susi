@@ -681,10 +681,14 @@ impl GawdAgent for EpistemicAuditorAgent {
 
         if !hallucinated_paths.is_empty() {
             let res = format!(
-                "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded, {} unverifiable (no file reference), {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED CLAIMS DETECTED.",
+                "[HALLUCINATION_CAUGHT_8B] [EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded, {} unverifiable (no file reference), {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED 8B MODEL HALLUCINATION DETECTED & REJECTED.",
                 total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
             );
             blackboard.insert(self.name(), res.clone());
+            blackboard.insert(
+                "8b_model#hallucination_caught".to_string(),
+                format!("{:?}", hallucinated_paths),
+            );
             return Err(crate::susi_core::susi_error::EaiError::governance(res));
         }
         if !ir_failed.is_empty() {
