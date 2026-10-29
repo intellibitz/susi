@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEADORINGEINSTEINMAUPHG-3",
+  "title": "CI follow-up: the code-tree stamp counts .agents/ outside tasks/ as code",
+  "goal": "scripts/ci-code-proven.sh treats all of .agents/ as inert, while ci-changed-crates.sh counts .agents/ outside tasks/ as ALL: build.rs and root tests (architecture_tests, gmcp_requirements) read identity, roadmap and evidence.json. A push to main that changes only .agents/roadmap.json is stamped proven and skips every test job, so a test it breaks stays hidden until a later merge runs root-cli and is blamed for it. Exclude only .agents/tasks, as ci-changed-crates.sh does; test a roadmap-only head (not proven) and a tasks-only head (proven); correct the stamp and scope comments in test.yml.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "code_proven"
+    ]
+  },
+  "created_by": "CLAUDEADORINGEINSTEINMAUPHG",
+  "created_unix": 1793246070,
+  "closed": {
+    "at_unix": 1793247816,
+    "commit": "f19fb41541a59caf47dbaf6557bd5f758ddf0d8e",
+    "by": "CLAUDEADORINGEINSTEINMAUPHG"
+  }
+}

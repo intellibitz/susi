@@ -162,12 +162,13 @@ jobs:
   # reddened main once already, when 1.99.0 deprecated `Atomic::fetch_update`
   # and failed clippy on unchanged code (T-DEEPSEEK-8). No `if`: every push and
   # main. It costs one toolchain resolution, no cargo build.
-  # A merge that moves only .agents/ (task adds, close receipts, roadmap
-  # narratives) lands a main tree whose code is byte-identical to a run that
+  # A merge that moves only the task queue (.agents/tasks/: task adds, done
+  # records) lands a main tree whose code is byte-identical to a run that
   # already went green - the shards, coverage, doc tests, kani and the e2e
-  # would spend ~20-30 min re-proving proven bytes while every later merge
-  # queues behind them. This job diffs the merge against the newest green main runs
-  # excluding .agents/; an empty diff means the suite's verdict already exists
+  # would spend their minutes re-proving proven bytes while every later merge
+  # queues behind them. This job diffs the merge against the newest green main
+  # runs excluding .agents/tasks/ (the rest of .agents/ is compiled and read by
+  # tests, so it counts); an empty diff means the suite's verdict already exists
   # and the gated jobs skip. Dispatch runs and branches always prove: only a
   # main push can reuse evidence. Everything cheap or state-judging - fmt,
   # toolchain, roadmap, artifacts, deny, the unsafe ratchet and post-merge
@@ -215,10 +216,9 @@ jobs:
       # - the run's own head: a second dispatch on a green head re-proves the
       #   merges before it rather than nothing;
       # - a push run: the `stamp` above can prove one by tree identity without
-      #   running it, and ci-code-proven.sh ignores all of .agents/ while
-      #   ci-changed-crates.sh counts .agents/ outside tasks/ as ALL, so a push
-      #   that moved only .agents/roadmap.json would go green untested and
-      #   every later run would scope from past it. The auto-merger's
+      #   running it, so its green is an earlier tree's, not a run of its own
+      #   (the stamp and ci-changed-crates.sh exempt the same .agents/tasks/,
+      #   but the base is kept to heads whose suite ran). The auto-merger's
       #   dispatched runs are never stamped.
       # Rename detection is off for every diff below, so a file moved out of
       # scripts/ or out of a crate still names the path it left. Two escapes,
@@ -293,10 +293,11 @@ jobs:
             # never builds Windows. It was 94% of the merge gate (a cold ~23 min
             # build against ~1.5 min for every Linux check), and each agent may
             # hold only one unmerged task, so it capped every agent's rate.
-            # main's post-merge run builds it (main-failure.yml names the PR
-            # of a red push run; the auto-merger's dispatched runs never start
-            # it); a release tag builds it before anything publishes. A
-            # release tag keeps run_windows=true.
+            # main's post-merge run builds it whenever the merge can affect the
+            # `susi` binary, and a release tag builds it before anything
+            # publishes (run_windows=true). A red main run names its PR
+            # through main-failure.yml only when it was a push; the
+            # auto-merger's dispatched runs never start that workflow.
             win=false
           fi
           {
@@ -461,7 +462,10 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
-          pkgs=$(./scripts/ci-changed-crates.sh --dependents)
+          # Rename detection off, as on main: a file moved out of a crate
+          # (an include_str! source, a fixture) names the crate it left.
+          pkgs=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false \
+            ./scripts/ci-changed-crates.sh --dependents)
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
