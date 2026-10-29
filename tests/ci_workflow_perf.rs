@@ -254,6 +254,29 @@ fn a_branch_dispatch_never_cancels_the_branch_gate() {
 }
 
 #[test]
+fn a_prove_dispatch_on_main_has_a_group_of_its_own() {
+    // The release dry run on main dispatches a `prove` run of main's head. In
+    // the merges' group it queued behind the running suite past the release's
+    // wait, and the next merge's run replaced it while it was pending.
+    let text = read(".github/workflows/test.yml");
+    let line = code(&text)
+        .lines()
+        .find(|l| l.trim_start().starts_with("group: test-"))
+        .expect("test.yml declares its concurrency group")
+        .trim()
+        .to_string();
+    assert!(
+        line.ends_with("|| (inputs.prove && '-prove' || '') }}"),
+        "test.yml: a prove dispatch on main must run in its own concurrency group: `{line}`"
+    );
+    let release = read("scripts/release-await-tests.sh");
+    assert!(
+        code(&release).contains("dispatch+=(-f prove=true)"),
+        "release-await-tests.sh must dispatch on main as a prove run"
+    );
+}
+
+#[test]
 fn the_windows_build_is_off_the_merge_gate() {
     // The Windows leg was 94% of a branch's Test run (a cold ~23 min build
     // against ~1.5 min for every Linux check), and auto-merge waits on the whole
