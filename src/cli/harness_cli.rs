@@ -1232,7 +1232,7 @@ mod tests {
         std::fs::write(dir.join("empty.json"), r#"{"accounts": []}"#).expect("write");
         std::fs::write(
             dir.join("one.json"),
-            r#"{"accounts": [{"token": "sk-a", "name": "alice", "budget_usd": "1"}]}"#,
+            r#"{"accounts": [{"token": "alice-token", "name": "alice", "budget_usd": "1"}]}"#,
         )
         .expect("write");
 

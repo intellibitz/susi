@@ -1,0 +1,21 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-4",
+  "title": "A src/ test fixture never looks like a provider key",
+  "goal": "The release compliance audit refuses any 'sk-' text under src/; a test fixture token in src/cli/harness_cli.rs tripped it and stopped the v0.21.23 cut. Use a token that looks like no provider key.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "harness_cli"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793249860
+}
