@@ -888,8 +888,6 @@ impl GawdAgent for SelfHealingAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let trimmed = lower.trim();
         if is_reflex_query(goal) {
             let res = "[SelfHealingAgent]: no health check runs for reflex queries.".to_string();
             blackboard.insert(self.name(), res.clone());
@@ -1117,7 +1115,6 @@ impl GawdAgent for LibraryScoutAgent {
         _blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
         let lower_goal = goal.to_lowercase();
-        let trimmed = lower_goal.trim();
 
         if is_reflex_query(goal) {
             return Ok(

@@ -657,11 +657,8 @@ impl GawdAgentFleet {
                 "[STALLED] Agent execution cancelled before its result was accepted.".to_string()
             } else { res };
 
-            // Iteration 4: Enterprise Audit Logging & Memory Integration
+            // The returned outcome supersedes optimistic intermediate observations.
             blackboard.insert(name.clone(), res.clone());
-            if let Ok(mem_store) = std::panic::catch_unwind(|| susi_harness::memory::MemoryStore::new()) {
-                let _ = mem_store.memorize(&name, &res);
-            }
 
             if !crate::accountability::is_usable(&res) {
                 task_handle.mark_failed(&res);
