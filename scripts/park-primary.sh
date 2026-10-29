@@ -29,6 +29,14 @@ sync_only=0
 [ "${1:-}" = "--sync-only" ] && sync_only=1
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 primary=$(dirname "$common")
+# A cloud session's clone (scripts/cloud-session.sh) is the worker's own and
+# only checkout: there is no parked primary to keep, and moving it onto main
+# would move the work out from under the worker. Silent for --sync-only, which
+# every check and hook runs.
+if [ -x "$primary/scripts/cloud-session.sh" ] && (cd "$primary" && scripts/cloud-session.sh); then
+    [ "$sync_only" = 1 ] || echo "park-primary: a cloud session's clone is the worker's own checkout; nothing to park (docs/cloud-sessions.md)"
+    exit 0
+fi
 # Serialize all watchers/hooks that mutate the primary index and branch.
 exec 7>"$common/susi-primary-update.lock"
 flock 7

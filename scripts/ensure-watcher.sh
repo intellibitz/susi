@@ -23,6 +23,13 @@ set -uo pipefail
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+# A cloud session's clone is disposable and the worker's own: there is no
+# primary checkout to keep converging, so there is no watcher to heal
+# (scripts/cloud-session.sh, docs/cloud-sessions.md).
+if [ -x "$root/scripts/cloud-session.sh" ] && "$root/scripts/cloud-session.sh"; then
+    echo "primary watcher not needed: a cloud session's clone has nothing to keep converging"
+    exit 0
+fi
 stamp="$common/susi-primary-watch.stamp"
 log="$common/susi-primary-watch.log"
 stale_after=${SUSI_WATCH_STALE:-120}
