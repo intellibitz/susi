@@ -2121,7 +2121,11 @@ mod tests {
     /// Isolated HOME/XDG + cooldown file for preference-writing tests.
     struct PrefSandbox {
         _cd: CooldownFileGuard,
-        prev: [(&'static str, Option<std::ffi::OsString>); 3],
+        // Restores every variable it set when the sandbox drops. `EnvGuard`
+        // also moves `USERPROFILE` with `HOME` on Windows, where the profile
+        // is the home: swapping `HOME` alone left these tests writing routing
+        // preferences into the operator's real `~/.susi` there.
+        _env: susi_paths::test_env::EnvGuard,
         tmp: PathBuf,
     }
     impl PrefSandbox {
@@ -2133,33 +2137,24 @@ mod tests {
             ));
             let _ = std::fs::create_dir_all(tmp.join("config"));
             let _ = std::fs::create_dir_all(tmp.join(".susi"));
-            let keys = ["HOME", "XDG_CONFIG_HOME", "SUSI_XDG"];
-            let prev = keys.map(|k| (k, std::env::var_os(k)));
-            // SAFETY: test-only env override, serialized by env_test_lock and
-            // restored in Drop.
-            unsafe {
-                std::env::set_var("HOME", &tmp);
-                std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
-                std::env::set_var("SUSI_XDG", "0");
-            }
+            // Serialized by env_test_lock, held by every caller.
+            let mut env = susi_paths::test_env::EnvGuard::isolated();
+            env.set("HOME", &tmp);
+            env.set("XDG_CONFIG_HOME", tmp.join("config"));
+            env.set("SUSI_XDG", "0");
+            assert!(
+                susi_paths::SusiDirs::config_dir().starts_with(&tmp),
+                "preference writes must land in the sandbox, not the real home"
+            );
             Self {
                 _cd: CooldownFileGuard::new(tag),
-                prev,
+                _env: env,
                 tmp,
             }
         }
     }
     impl Drop for PrefSandbox {
         fn drop(&mut self) {
-            // SAFETY: restores the values captured in `new`, under the same lock.
-            unsafe {
-                for (k, v) in &self.prev {
-                    match v {
-                        Some(v) => std::env::set_var(k, v),
-                        None => std::env::remove_var(k),
-                    }
-                }
-            }
             let _ = std::fs::remove_dir_all(&self.tmp);
         }
     }

@@ -1,0 +1,24 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-8",
+  "title": "Windows tests: process liveness for lock holders, RSS, verification paths, hermetic test homes",
+  "goal": "Windows: dead lock holders reclaimed by real process liveness, RSS via the process API, workspace-relative verification paths, hermetic test homes (USERPROFILE/APPDATA), no stale-reclaim race in FileLock",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-core",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-sandbox-client"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793288912
+}

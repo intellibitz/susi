@@ -525,14 +525,16 @@ mod hermetic_forbidden_tests {
         let _ = std::fs::create_dir_all(&forbidden);
         let home = std::env::temp_dir().join(format!("susi_hermetic_home_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&home);
-        let prev_home = std::env::var_os("HOME");
-        let prev_susi = std::env::var_os("SUSI_HOME");
-        let prev_forbid = std::env::var_os("SUSI_HERMETIC_FORBIDDEN");
-        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-        std::env::set_var("HOME", &home);
-        std::env::set_var("SUSI_HOME", &forbidden);
-        std::env::set_var("SUSI_HERMETIC_FORBIDDEN", &forbidden);
-        std::env::remove_var("XDG_CONFIG_HOME");
+        // `EnvGuard` swaps `USERPROFILE` with `HOME` on Windows (where the
+        // profile is the home) and restores everything on drop, even when an
+        // assertion fails; setting `HOME` alone left Windows resolving the
+        // operator's real profile.
+        let mut env = test_env::EnvGuard::isolated();
+        env.set("HOME", &home);
+        env.set("SUSI_HOME", &forbidden);
+        env.set("SUSI_HERMETIC_FORBIDDEN", &forbidden);
+        env.remove("XDG_CONFIG_HOME");
+        assert_eq!(LocalDirs::home_dir(), home, "the swapped home is the home");
         // Without a pre-existing ~/.susi, XDG layout applies under HOME.
         let cfg = LocalDirs::config_dir();
         assert_ne!(
@@ -543,24 +545,9 @@ mod hermetic_forbidden_tests {
         let other =
             std::env::temp_dir().join(format!("susi_hermetic_other_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&other);
-        std::env::set_var("SUSI_HOME", &other);
+        env.set("SUSI_HOME", &other);
         assert_eq!(LocalDirs::config_dir(), other);
-        match prev_home {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
-        }
-        match prev_susi {
-            Some(v) => std::env::set_var("SUSI_HOME", v),
-            None => std::env::remove_var("SUSI_HOME"),
-        }
-        match prev_forbid {
-            Some(v) => std::env::set_var("SUSI_HERMETIC_FORBIDDEN", v),
-            None => std::env::remove_var("SUSI_HERMETIC_FORBIDDEN"),
-        }
-        match prev_xdg {
-            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
+        drop(env);
         let _ = std::fs::remove_dir_all(&forbidden);
         let _ = std::fs::remove_dir_all(&home);
         let _ = std::fs::remove_dir_all(&other);
