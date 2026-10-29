@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179302487347500-1",
+  "title": "The GMCP-013-06 latency budget must survive a loaded suite",
+  "goal": "The merged GMCP-013-06 test asserts a 10 second per-request latency budget, which fails when the whole suite runs in parallel and spawns dozens of sessions: main went red after the merge while the test passes alone. Relax the budget to a value a loaded machine meets (60 seconds) so the test proves bounded behaviour instead of machine speed, keeping the typed-verdict and determinism assertions.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_013_06_operations"
+    ]
+  },
+  "created_by": "AGENT179302487347500",
+  "created_unix": 1793024917,
+  "closed": {
+    "at_unix": 1793025837,
+    "commit": "56b0fe0fd600302bfae399693d05eb3b53d5d7d0",
+    "by": "AGENT179302487347500"
+  }
+}
