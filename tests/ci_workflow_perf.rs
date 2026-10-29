@@ -705,30 +705,329 @@ fn a_dispatched_retest_merges_its_own_head() {
     );
 }
 
+/// Main moves while the retest's checks and its queue wait run, so the head
+/// its merge job finds is often stale again. That job used to resync it: an
+/// update-branch and another dispatched retest, whose own merge job found main
+/// moved again, so the PR re-dispatched itself, a branch gate per lap, for as
+/// long as merges kept landing. The head is green by then, so the job gates
+/// the stale merge in place exactly as auto-merge.yml `merge-pr` does, and
+/// `SUSI_NO_RESYNC` forbids the resync outright.
+#[test]
+fn the_retest_merge_job_gates_a_stale_head_in_place_and_never_resyncs() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let merge = job(&jobs, "merge");
+    for needle in [
+        "SUSI_NO_RESYNC: \"1\"",
+        "SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' \
+         && steps.mold.outcome == 'success' && '1' || '0' }}",
+        // A shallow clone has no merge base, and merge-tree calls that a conflict.
+        "fetch-depth: 0",
+        "scripts/merge-queue-probe.sh \"$REPO\" \"$BRANCH\" \"$SHA\"",
+        "RUSTC_WRAPPER: \"sccache\"",
+        "RUSTC_WORKSPACE_WRAPPER: \"sccache\"",
+    ] {
+        assert!(
+            merge.body.contains(needle),
+            "the retest's merge job is missing `{needle}`"
+        );
+    }
+    let steps = steps(&merge.body);
+    for name in [
+        "Install Rust",
+        "Install sccache",
+        "Cache Cargo",
+        "Install Linux System Dependencies",
+        "Install mold",
+    ] {
+        let step = steps
+            .iter()
+            .find(|s| s.contains(&format!("name: {name}")))
+            .unwrap_or_else(|| panic!("the retest's merge job has no `{name}` step"));
+        assert!(
+            step.contains("if: steps.probe.outputs.need_gate == 'true'"),
+            "`{name}` must be gated on the probe: a head that is current needs no toolchain"
+        );
+    }
+    // The gate switch reads `steps.mold.outcome`: that is only "the toolchain
+    // is here" while mold is the last setup step before the merge.
+    let at = |needle: &str| {
+        steps
+            .iter()
+            .position(|s| s.contains(needle))
+            .unwrap_or_else(|| panic!("the retest's merge job has no step with `{needle}`"))
+    };
+    let (mold, merge_step) = (at("id: mold"), at("scripts/auto-merge-pr.sh"));
+    assert_eq!(
+        mold + 1,
+        merge_step,
+        "the step `steps.mold.outcome` names must be the last setup step"
+    );
+    assert!(
+        steps[merge_step].contains("if: ${{ !cancelled() }}"),
+        "the merge step must run after a failed setup step too: the gate is off then, \
+         and a stale head is handed to a reconcile pass instead of waiting for the \
+         scheduled one, which GitHub throttles to hours"
+    );
+    assert_eq!(
+        value_of(&merge.body, "shared-key").as_deref(),
+        Some("lint"),
+        "the gate restores the clippy entry `lint` writes on main"
+    );
+    assert_eq!(
+        value_of(&merge.body, "save-if").as_deref(),
+        Some("false"),
+        "a branch run's merge job must not write the cache main owns"
+    );
+    // The setup steps can fail on a download; the checks stay the verdict.
+    assert!(
+        merge.body.contains("\n    continue-on-error: true\n"),
+        "a failed toolchain download in the merge job must not turn a green retest red"
+    );
+}
+
+/// codetree lists main's green Test runs twice: the stamp, which reuses a
+/// green run of this very tree (a re-run of a green head is proven), and the
+/// scope, which diffs from the newest green head before this one. The
+/// workflow grants only `contents: read`, and a token without `actions: read`
+/// gets an answer only while the repository is public; both steps read no
+/// answer as "nothing proven", so every merge ran the whole suite.
+#[test]
+fn codetree_lists_mains_runs_with_a_token_that_can_read_them() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let codetree = job(&jobs, "codetree");
+    assert!(
+        codetree.body.contains("    permissions:\n")
+            && codetree.body.contains("      actions: read\n")
+            && codetree.body.contains("      contents: read\n"),
+        "codetree lists main's runs: its token needs `actions: read` (and keeps \
+         `contents: read` for the checkout)"
+    );
+    let steps = steps(&codetree.body);
+    let step = |id: &str| {
+        steps
+            .iter()
+            .find(|s| s.contains(&format!("id: {id}")))
+            .unwrap_or_else(|| panic!("codetree has no step `{id}`"))
+            .clone()
+    };
+    let (stamp, scope) = (step("stamp"), step("scope"));
+    for s in [&stamp, &scope] {
+        assert!(s.contains("gh run list --workflow test.yml --branch main --status success"));
+        assert!(s.contains("GH_TOKEN:"), "gh needs the job's token:\n{s}");
+    }
+    // Scoped from itself a re-run would prove nothing; the stamp is what
+    // reuses the head's own green run, so only the scope skips it.
+    assert!(
+        scope.contains("[ \"$sha\" != \"$head\" ] || continue"),
+        "the scope base must never be HEAD's own earlier green run:\n{scope}"
+    );
+    assert!(
+        stamp.contains("scripts/ci-code-proven.sh \"$GITHUB_SHA\" $shas")
+            && !stamp.contains("$head"),
+        "the stamp keeps every green sha, the head's own included:\n{stamp}"
+    );
+}
+
+/// A shell function's definition as `text` writes it: `name() {` through the
+/// `}` that closes it at the start of a line.
+fn shell_function(text: &str, name: &str) -> String {
+    let start = text
+        .find(&format!("\n{name}() {{\n"))
+        .unwrap_or_else(|| panic!("no `{name}()` is defined"))
+        + 1;
+    let len = text[start..]
+        .find("\n}\n")
+        .unwrap_or_else(|| panic!("`{name}()` never closes"))
+        + 3;
+    text[start..start + len].to_string()
+}
+
 /// Worktrees share one target, and cargo names a workspace crate's build by
 /// its path relative to the workspace: a crate another worktree built (with
 /// other content) reads as fresh here, and its code is linked into this
-/// branch's build. Both gates run the guard that rebuilds such crates before
-/// any cargo command, so what they accept is this branch's code.
+/// branch's build. Both gates take the guard that rebuilds such crates and
+/// hold it through every cargo command that follows (no other worktree's
+/// guard and build can land in between), and let go on every exit, a failing
+/// cargo included. Where the guard's path first appears in the text proves
+/// none of that: once it sat in a function definition, deleting the call, or
+/// the release in the EXIT trap, left this test green. So the finish gate's
+/// own functions run here, against a guard that records the lock and a cargo
+/// that records whether it ran under it.
 #[test]
 fn the_gates_guard_the_shared_target_before_cargo() {
-    let gate = read("scripts/parallel-workflow.sh");
-    let hook = read(".githooks/pre-push");
-    for (name, text, first_cargo) in [
-        ("the finish gate", &gate, "cargo fmt --all --check"),
-        ("pre-push", &hook, "cargo clippy"),
+    let gate = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    // `finish` sets the trap that lets go before it runs the gate.
+    let finish = gate
+        .split("\nfinish)\n")
+        .nth(1)
+        .expect("parallel-workflow.sh has a `finish` action");
+    let trap_at = finish
+        .find("\n    trap ")
+        .expect("finish sets an EXIT trap");
+    let trap = finish[trap_at + 1..].lines().next().unwrap().trim();
+    assert!(
+        trap.contains("release_target") && trap.ends_with(" EXIT"),
+        "finish's EXIT trap must let go of the target on every exit: `{trap}`"
+    );
+    let gate_call = finish.find("\n    gate\n").expect("finish runs the gate");
+    assert!(
+        trap_at < gate_call,
+        "the trap must be set before the gate runs"
+    );
+
+    let f = Fakes::new("finish-guard");
+    std::fs::create_dir_all(f.dir.join("scripts")).unwrap();
+    std::fs::create_dir_all(f.dir.join("gitdir")).unwrap();
+    for (name, body) in [
+        (
+            "target-guard.sh",
+            r#"case "$1" in
+--hold) echo "hold $2" >> log; echo held > guard-state; echo "$2" ;;
+--release) echo "release $2" >> log; echo free > guard-state ;;
+*) echo "guard $*" >> log ;;
+esac"#,
+        ),
+        (
+            "ci-changed-crates.sh",
+            r#"echo susi-core
+[ "${1:-}" != --dependents ] || echo susi"#,
+        ),
     ] {
-        let guard = text
-            .find("scripts/target-guard.sh")
-            .unwrap_or_else(|| panic!("{name} must run scripts/target-guard.sh"));
-        let cargo = text
-            .find(first_cargo)
-            .unwrap_or_else(|| panic!("{name} runs no `{first_cargo}`?"));
-        assert!(
-            guard < cargo,
-            "{name} must guard the target before cargo runs"
-        );
+        let path = f.dir.join("scripts").join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        set_script_executable(&path);
     }
+    // The gate's own functions, verbatim, around stand-ins for what they
+    // call: shell functions, so no `cargo` or `git` on PATH can answer first.
+    let mut driver = String::from(
+        r#"set -euo pipefail
+root=.
+cargo() {
+    local state
+    read -r state < guard-state
+    echo "cargo $1 $state" >> log
+    [ "$1" != "${FAKE_CARGO_FAIL:-}" ]
+}
+git() {
+    [ "$1 $2" = "rev-parse --git-dir" ] || { echo "git $*" >> log; return 1; }
+    echo gitdir
+}
+gate_stamp() { echo stamp; }
+gate_tests() { cargo test "$@"; }
+target_held=
+target_prev_held=
+"#,
+    );
+    for name in ["hold_target", "release_target", "gate", "gate_held"] {
+        driver.push_str(&shell_function(&gate, name));
+    }
+    driver.push_str(trap);
+    driver.push_str("\ngate\necho 'gate returned' >> log\n");
+    let script = f.dir.join("finish-gate.sh");
+    std::fs::write(&script, driver).unwrap();
+
+    let run = |fail: &str| {
+        std::fs::write(f.dir.join("log"), "").unwrap();
+        std::fs::write(f.dir.join("guard-state"), "free\n").unwrap();
+        let out = script_command(&script)
+            .current_dir(&f.dir)
+            .env("FAKE_CARGO_FAIL", fail)
+            .env("SUSI_GATE_NOCACHE", "1")
+            .env_remove("SUSI_LOCAL_GATE")
+            .env_remove("SUSI_TARGET_GUARD_HELD")
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout).into_owned()
+            + &String::from_utf8_lossy(&out.stderr);
+        let log = std::fs::read_to_string(f.dir.join("log")).unwrap();
+        let state = std::fs::read_to_string(f.dir.join("guard-state")).unwrap();
+        (out.status.success(), said, log, state.trim().to_string())
+    };
+    for (fail, ok, cargo_ran) in [
+        ("", true, &["fmt", "clippy", "test"][..]),
+        // A failing step exits the script under `set -e`: only the trap is
+        // left to let go.
+        ("clippy", false, &["fmt", "clippy"][..]),
+    ] {
+        let (success, said, log, state) = run(fail);
+        assert_eq!(success, ok, "failing `{fail}`: {said}\n{log}");
+        let lines: Vec<&str> = log.lines().collect();
+        let holder = lines
+            .first()
+            .and_then(|l| l.strip_prefix("hold "))
+            .unwrap_or_else(|| panic!("the gate must take the guard before anything else:\n{log}"));
+        let cargo: Vec<&str> = lines
+            .iter()
+            .filter_map(|l| l.strip_prefix("cargo "))
+            .collect();
+        let expected: Vec<String> = cargo_ran.iter().map(|c| format!("{c} held")).collect();
+        assert_eq!(
+            cargo, expected,
+            "every cargo command runs, in order, while the target is held:\n{log}"
+        );
+        let last_cargo = lines.iter().rposition(|l| l.starts_with("cargo ")).unwrap();
+        let releases: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.starts_with("release "))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            releases.len(),
+            1,
+            "the gate lets go exactly once (failing `{fail}`):\n{log}"
+        );
+        assert!(
+            releases[0] > last_cargo && lines[releases[0]] == format!("release {holder}"),
+            "the hold is let go after the last cargo, by the pid that took it:\n{log}"
+        );
+        assert_eq!(state, "free", "the target is left free:\n{log}");
+        let returned = lines.iter().position(|l| *l == "gate returned");
+        assert_eq!(
+            returned.is_some(),
+            ok,
+            "a failing gate must stop the script:\n{log}"
+        );
+        // A gate that passed lets go itself, before finish goes on to commit,
+        // close and push: held to the EXIT trap, every other worktree's gate
+        // waits on a lock nothing is building under.
+        if let Some(returned) = returned {
+            assert!(
+                releases[0] < returned,
+                "a passing gate must let go before it returns, not at exit:\n{log}"
+            );
+        }
+    }
+
+    // pre-push: the hold, and the trap that lets go of it, come before the
+    // first clippy; the explicit release after the last.
+    let hook = code(&read(".githooks/pre-push"));
+    assert!(
+        hook.lines().any(|l| {
+            let l = l.trim();
+            l.starts_with("guard=") && l.ends_with("/scripts/target-guard.sh\"")
+        }),
+        "pre-push names the guard"
+    );
+    let at = |needle: &str| {
+        hook.find(needle)
+            .unwrap_or_else(|| panic!("pre-push has no `{needle}`"))
+    };
+    let hold = at("\"$guard\" --hold $$");
+    let trap = at("trap '\"$guard\" --release $$");
+    let first_clippy = at("cargo clippy");
+    let last_clippy = hook.rfind("cargo clippy").unwrap();
+    let release = hook.rfind("\"$guard\" --release $$").unwrap();
+    assert!(
+        hold < trap && trap < first_clippy,
+        "pre-push must hold the target, and trap its release, before clippy runs"
+    );
+    assert!(
+        release > last_clippy,
+        "pre-push must let go of the target once clippy is done"
+    );
     let guard = read("scripts/target-guard.sh");
     assert!(
         guard.contains("git -C \"$root\" ls-tree HEAD"),
@@ -1877,17 +2176,123 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
     );
 }
 
-/// The `shard` legs `ci-test-shards.sh --matrix <skip>` emits.
-fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
-    let out = script_command(&root().join("scripts/ci-test-shards.sh"))
-        .args(["--matrix", skip])
+/// Workspace members whose tests deliberately run in no shard, each with the
+/// reason. Empty: a member in no shard has its tests run by no CI job at all.
+const UNSHARDED_MEMBERS: &[&str] = &[];
+
+/// The shard map is the whole of what CI tests: main's run and the release
+/// tag run exactly its shards. susi-harness was in none, so its ~380 tests
+/// (the model ladder's price table among them) never ran on main or before a
+/// release, and a merge that broke them stayed green — main's scope even
+/// mapped a deploy/harness/prices.json change to the harness and then ran
+/// nothing of it.
+#[test]
+fn every_workspace_member_runs_in_a_shard() {
+    let manifest = read("Cargo.toml").replace("\r\n", "\n");
+    let members = manifest
+        .split("\nmembers = [")
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .expect("the root manifest lists its workspace members");
+    let names: Vec<String> = members
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(|dir| {
+            let path = if dir == "." {
+                "Cargo.toml".to_string()
+            } else {
+                format!("{dir}/Cargo.toml")
+            };
+            let member = read(&path).replace("\r\n", "\n");
+            member
+                .split("\n[package]\n")
+                .nth(1)
+                .or_else(|| member.strip_prefix("[package]\n"))
+                .and_then(|package| {
+                    package.lines().find_map(|l| {
+                        l.strip_prefix("name = \"")
+                            .and_then(|n| n.strip_suffix('"'))
+                    })
+                })
+                .unwrap_or_else(|| panic!("{path} names no package"))
+                .to_string()
+        })
+        .collect();
+    assert!(
+        names.len() > 50 && names.iter().any(|n| n == "susi"),
+        "expected the real member list, got {names:?}"
+    );
+    let shards = script_command(&root().join("scripts/ci-test-shards.sh"))
         .output()
         .unwrap();
+    assert!(shards.status.success());
+    let map = String::from_utf8_lossy(&shards.stdout).into_owned();
+    let sharded: std::collections::BTreeSet<&str> = map
+        .lines()
+        .filter_map(|line| line.split('\t').nth(1))
+        .flat_map(|pkgs| {
+            let words: Vec<&str> = pkgs.split_whitespace().collect();
+            words
+                .windows(2)
+                .filter(|w| w[0] == "-p")
+                .map(|w| w[1])
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let missing: Vec<&String> = names
+        .iter()
+        .filter(|n| !sharded.contains(n.as_str()) && !UNSHARDED_MEMBERS.contains(&n.as_str()))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "workspace members in no test shard (scripts/ci-test-shards.sh), so no CI job \
+         runs their tests: {missing:?}"
+    );
+}
+
+/// The `shard` legs `ci-test-shards.sh --matrix <skip>` emits.
+///
+/// The skip array goes in on stdin (`--matrix -`). Git for Windows' sh.exe,
+/// started from a native process such as this test, globs its own command
+/// line before the script runs, and the empty array `[]` crashed it
+/// (0xC0000005, a failed status and no stderr) — every test that read the
+/// matrix failed on Windows. Where the argument form is safe, it must say
+/// the same: it is the form test.yml uses.
+fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
+    use std::io::Write as _;
+    let mut child = script_command(&root().join("scripts/ci-test-shards.sh"))
+        .args(["--matrix", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(skip.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
     assert!(
         out.status.success(),
-        "ci-test-shards.sh --matrix {skip}: {}",
-        String::from_utf8_lossy(&out.stderr)
+        "ci-test-shards.sh --matrix - <<< {skip}: {} ({})",
+        String::from_utf8_lossy(&out.stderr),
+        out.status
     );
+    #[cfg(not(windows))]
+    {
+        let by_arg = script_command(&root().join("scripts/ci-test-shards.sh"))
+            .args(["--matrix", skip])
+            .output()
+            .unwrap();
+        assert!(
+            by_arg.status.success() && by_arg.stdout == out.stdout,
+            "`--matrix {skip}` and `--matrix -` must emit the same matrix: {}",
+            String::from_utf8_lossy(&by_arg.stderr)
+        );
+    }
     let matrix: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
         panic!(
             "--matrix is not JSON ({e}): {}",

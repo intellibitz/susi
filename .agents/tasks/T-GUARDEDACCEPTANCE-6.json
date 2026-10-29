@@ -1,0 +1,20 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-6",
+  "title": "Merge-bot retests gate in place; every workspace crate runs in a CI shard",
+  "goal": "Land the deferred merge-bot fixes (F39 dispatched retest gates inline and never resyncs; F41 codetree may read main's runs), run susi-harness's tests on main (G17), make ci-test-shards.sh work when started by a native Windows process, and make the guard pin test prove behaviour (G15).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793271166
+}
