@@ -21,10 +21,14 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 const HOOKS: [&str; 4] = ["commit-msg", "pre-commit", "pre-push", "workflow-guard"];
-const SCRIPTS: [&str; 12] = [
+const SCRIPTS: [&str; 13] = [
     "cloud-session.sh",
+    "queue-relay.py",
     "cloud-onnxruntime.sh",
     "check-worker-identity.sh",
     "check-task-scope.py",
@@ -40,8 +44,13 @@ const SCRIPTS: [&str; 12] = [
 
 /// The variables a worker's shell may carry and these fixtures must not: the
 /// cloud harness's own marker, the explicit word, a borrowed identity, the
-/// hooks' escape hatches, and the `GIT_DIR` a calling hook exports.
-const SCRUBBED: [&str; 12] = [
+/// hooks' escape hatches, the queue transport's knobs, the fake proxy's own
+/// switch, and the `GIT_DIR` a calling hook exports.
+const SCRUBBED: [&str; 16] = [
+    "SUSI_QUEUE_TRANSPORT",
+    "SUSI_QUEUE_WAIT_SECS",
+    "SUSI_QUEUE_POLL_MS",
+    "SUSI_TEST_RELAY",
     "SUSI_HOME",
     "SUSI_AGENT",
     "SUSI_CLOUD_SESSION",
@@ -187,6 +196,198 @@ impl World {
             out.contains("this clone is the worker's own worktree"),
             "{out}"
         );
+    }
+
+    fn bare(&self) -> PathBuf {
+        self.root.join("server.git")
+    }
+
+    /// The cloud proxy, as the server sees it: a push outside `refs/heads/*`
+    /// is refused, and so is any branch deletion — unless the pusher is the
+    /// relay (`SUSI_TEST_RELAY=1`), the way an Actions job's token is not the
+    /// proxy.
+    fn refuse_queue_pushes(&self) {
+        use std::os::unix::fs::PermissionsExt;
+        let hooks = self.bare().join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let hook = hooks.join("pre-receive");
+        std::fs::write(
+            &hook,
+            "#!/bin/sh\n\
+             [ -n \"$SUSI_TEST_RELAY\" ] && exit 0\n\
+             while read -r _old new ref; do\n\
+             \tcase \"$new\" in *[!0]*) ;; *)\n\
+             \t\techo \"HTTP 403: this transport deletes nothing ($ref)\" >&2; exit 1 ;;\n\
+             \tesac\n\
+             \tcase \"$ref\" in refs/heads/*) ;; *)\n\
+             \t\techo \"HTTP 403: this transport carries refs/heads/* only ($ref)\" >&2; exit 1 ;;\n\
+             \tesac\n\
+             done\n\
+             exit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// A command on the server's side of the proxy (the relay job's token).
+    fn as_relay(&self, program: &str, dir: &Path) -> Command {
+        let mut cmd = Command::new(program);
+        cmd.current_dir(dir)
+            .env("HOME", &self.home)
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        for var in SCRUBBED {
+            cmd.env_remove(var);
+        }
+        cmd.env("SUSI_TEST_RELAY", "1");
+        cmd
+    }
+
+    /// `.github/workflows/queue.yml`, as a thread: every request branch on the
+    /// server is fetched into a checkout of its own, applied with
+    /// `scripts/queue-relay.py` and deleted, whatever the outcome; then the
+    /// expired ones are swept. A [`Sabotage`] armed on the server lands
+    /// another writer's ref just before or just after the next replay.
+    fn relay_server(&self) -> RelayServer {
+        let stop = Arc::new(AtomicBool::new(false));
+        let sabotage: Arc<Mutex<Vec<Sabotage>>> = Arc::new(Mutex::new(Vec::new()));
+        let (flag, armed) = (Arc::clone(&stop), Arc::clone(&sabotage));
+        let bare = self.bare();
+        let work = self.root.join("relay-work");
+        let home = self.home.clone();
+        let handle = thread::spawn(move || {
+            let command = |program: &str, dir: &Path| {
+                let mut cmd = Command::new(program);
+                cmd.current_dir(dir)
+                    .env("HOME", &home)
+                    .env("GIT_CONFIG_NOSYSTEM", "1");
+                for var in SCRUBBED {
+                    cmd.env_remove(var);
+                }
+                cmd.env("SUSI_TEST_RELAY", "1");
+                cmd
+            };
+            let ok = |cmd: &mut Command| {
+                let (code, out, err) = finish(cmd);
+                assert_eq!(code, 0, "{err}");
+                out
+            };
+            ok(command("git", bare.parent().unwrap()).args([
+                "clone",
+                "--quiet",
+                bare.to_str().unwrap(),
+                work.to_str().unwrap(),
+            ]));
+            ok(command("git", &work).args(["config", "user.name", "github-actions[bot]"]));
+            ok(command("git", &work).args(["config", "user.email", "actions@localhost"]));
+            let land = |s: &Sabotage| {
+                let mut child = command("git", &work)
+                    .args(["hash-object", "-w", "--stdin"])
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                {
+                    use std::io::Write;
+                    child
+                        .stdin
+                        .take()
+                        .unwrap()
+                        .write_all(s.body.as_bytes())
+                        .unwrap();
+                }
+                let blob = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
+                ok(command("git", &work).args([
+                    "push",
+                    "--quiet",
+                    "--force",
+                    "origin",
+                    &format!("{}:{}", blob.trim(), s.refname),
+                ]));
+            };
+            let mut log = Vec::new();
+            while !flag.load(Ordering::SeqCst) {
+                let listed = ok(command("git", &work).args([
+                    "ls-remote",
+                    "origin",
+                    "refs/heads/susi-queue/*",
+                ]));
+                for line in listed.lines() {
+                    let mut fields = line.split_whitespace();
+                    let (Some(sha), Some(name)) = (fields.next(), fields.next()) else {
+                        continue;
+                    };
+                    let next = armed.lock().unwrap().pop();
+                    if let Some(s) = next.as_ref().filter(|s| !s.after) {
+                        land(s);
+                    }
+                    ok(command("git", &work).args(["fetch", "--quiet", "origin", name]));
+                    let (code, out, err) = finish(command("python3", &work).args([
+                        "-I",
+                        "scripts/queue-relay.py",
+                        sha,
+                    ]));
+                    if let Some(s) = next.as_ref().filter(|s| s.after) {
+                        land(s);
+                    }
+                    log.push(format!("{name}: exit {code}; {out} {err}"));
+                    ok(command("git", &work).args(["push", "--quiet", "origin", "--delete", name]));
+                }
+                ok(command("python3", &work).args([
+                    "-I",
+                    "scripts/queue-relay.py",
+                    "--sweep",
+                    "--grace",
+                    "0",
+                ]));
+                thread::sleep(std::time::Duration::from_millis(100));
+            }
+            log
+        });
+        RelayServer {
+            stop,
+            sabotage,
+            handle: Some(handle),
+        }
+    }
+}
+
+/// Another writer's ref, landed on the server around the next replay.
+struct Sabotage {
+    /// After the replay (a sibling landing in the read-back window), or before
+    /// it (a sibling winning the race the request runs).
+    after: bool,
+    refname: String,
+    body: String,
+}
+
+struct RelayServer {
+    stop: Arc<AtomicBool>,
+    sabotage: Arc<Mutex<Vec<Sabotage>>>,
+    handle: Option<thread::JoinHandle<Vec<String>>>,
+}
+
+impl RelayServer {
+    fn arm(&self, after: bool, refname: &str, body: &str) {
+        self.sabotage.lock().unwrap().push(Sabotage {
+            after,
+            refname: refname.to_string(),
+            body: body.to_string(),
+        });
+    }
+
+    /// Stop consuming requests; what was relayed, one line each.
+    fn stop(mut self) -> Vec<String> {
+        self.stop.store(true, Ordering::SeqCst);
+        self.handle.take().unwrap().join().unwrap()
+    }
+}
+
+impl Drop for RelayServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -562,4 +763,429 @@ fn cloud_onnxruntime_points_cargo_at_the_release_without_touching_the_repository
         std::fs::read_to_string(foreign.join("config.toml")).unwrap(),
         "[env]\nFOO = \"bar\"\n"
     );
+}
+
+#[test]
+fn cloud_session_queue_refs_travel_as_request_branches_when_the_remote_refuses_them() {
+    let w = World::new("relay");
+    w.mark();
+    let (code, _, err) = w.susi(&["workflow", "own-identity"], &[]);
+    assert_eq!(code, 0, "{err}");
+    let (code, out, err) = w.susi(
+        &[
+            "tasks",
+            "add",
+            "relayed work",
+            "--accept",
+            "cargo --version",
+        ],
+        &[],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("added T-CLAUDECCRTEST-1"), "{out}");
+    w.git(&w.clone, &["add", ".agents/tasks/T-CLAUDECCRTEST-1.json"]);
+    w.git(&w.clone, &["commit", "--quiet", "-m", "task"]);
+    let bare = w.bare();
+    w.refuse_queue_pushes();
+    // Bounded: a server that died fails the test in a minute, not five.
+    let quick = [
+        ("SUSI_QUEUE_POLL_MS", "100"),
+        ("SUSI_QUEUE_WAIT_SECS", "60"),
+    ];
+    let claim = ["tasks", "claim", "T-CLAUDECCRTEST-1", "--scope", "work"];
+    let requests = || {
+        w.git(
+            &bare,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/susi-queue/",
+            ],
+        )
+    };
+
+    // The transport forbidden: the proxy's refusal, verbatim, and no request.
+    let (code, _, err) = w.susi(&claim, &[("SUSI_QUEUE_TRANSPORT", "direct")]);
+    assert_ne!(code, 0);
+    assert!(err.contains("HTTP 403"), "{err}");
+    assert!(requests().is_empty(), "no request without the relay");
+
+    // Nobody consuming: the request expires, the client says it will never
+    // apply, and names what to look at instead of a deletion the proxy refuses.
+    let (code, _, err) = w.susi(
+        &claim,
+        &[("SUSI_QUEUE_POLL_MS", "100"), ("SUSI_QUEUE_WAIT_SECS", "1")],
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("refused the direct push"), "{err}");
+    assert!(
+        err.contains("relaying it through .github/workflows/queue.yml"),
+        "{err}"
+    );
+    assert!(err.contains("has expired"), "{err}");
+    assert!(err.contains("will never be applied"), "{err}");
+    assert!(err.contains("merge origin/main"), "{err}");
+    let pending = requests();
+    assert_eq!(pending.lines().count(), 1, "{pending}");
+    assert!(
+        pending.starts_with("refs/heads/susi-queue/CLAUDECCRTEST/"),
+        "{pending}"
+    );
+    assert!(w.git(&bare, &["for-each-ref", "refs/claims/"]).is_empty());
+    // The cloud cannot remove it: the proxy refuses a branch deletion.
+    let (code, _, err) = finish(w.command("git", &w.clone).args([
+        "push",
+        "--quiet",
+        "origin",
+        &format!(":{pending}"),
+    ]));
+    assert_ne!(code, 0);
+    assert!(err.contains("deletes nothing"), "{err}");
+
+    // With the workflow consuming requests: the expired one is consumed
+    // without being applied, and nothing claims the task.
+    let server = w.relay_server();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !requests().is_empty() && std::time::Instant::now() < deadline {
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(requests().is_empty(), "the expired request is consumed");
+    assert!(w.git(&bare, &["for-each-ref", "refs/claims/"]).is_empty());
+
+    // A sibling wins the race on the server, between the request and its
+    // replay: the replay is refused, the client reads back the lost race, its
+    // retry sees the sibling's live claim, and nothing of ours landed.
+    let rival = r#"{"branch":"elsewhere","scopes":["elsewhere"],"task":"T-CLAUDECCRTEST-1","agent":"RIVAL","claimed_unix":1,"lease_until_unix":4102444800}"#;
+    server.arm(false, "refs/claims/T-CLAUDECCRTEST-1", rival);
+    let (code, _, err) = w.susi(&claim, &quick);
+    assert_ne!(code, 0, "{err}");
+    // The read-back's lost race is what the retry loop retries on; the retry
+    // then meets the rival's claim, which is the error the agent sees.
+    assert!(
+        err.contains("queue: request susi-queue/CLAUDECCRTEST/"),
+        "{err}"
+    );
+    assert!(!err.contains("has expired"), "{err}");
+    assert!(err.contains("is claimed by RIVAL"), "{err}");
+    assert!(w
+        .git(&bare, &["for-each-ref", "refs/claim-agents/"])
+        .is_empty());
+    let (code, _, err) = finish(w.as_relay("git", &w.clone).args([
+        "push",
+        "--quiet",
+        "origin",
+        ":refs/claims/T-CLAUDECCRTEST-1",
+    ]));
+    assert_eq!(code, 0, "{err}");
+
+    // Now the loop is the ordinary one.
+    let (code, _, err) = w.susi(&claim, &quick);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("queue: relayed claims/T-CLAUDECCRTEST-1"),
+        "{err}"
+    );
+    let landed = w.git(&bare, &["cat-file", "-p", "refs/claims/T-CLAUDECCRTEST-1"]);
+    assert!(
+        landed.contains("\"agent\":\"CLAUDECCRTEST\"")
+            && landed.contains("\"branch\":\"ccr-test\""),
+        "{landed}"
+    );
+    assert_eq!(
+        w.git(&bare, &["rev-parse", "refs/claim-agents/CLAUDECCRTEST"]),
+        w.git(&bare, &["rev-parse", "refs/claims/T-CLAUDECCRTEST-1"])
+    );
+    let (code, out, err) = w.susi(&["workflow", "check"], &[]);
+    assert_eq!(code, 0, "out={out} err={err}");
+    assert!(out.contains("✅ holds a claim"), "{out}");
+    // A renewal, relayed without trying the direct push first, while a
+    // sibling's claim moves the shared generation ref right after the replay:
+    // the renewal landed, and is reported so — once, without a retry.
+    let sibling = r#"{"branch":"b","scopes":["x"],"task":"T-SIBLING-1","agent":"SIBLING","claimed_unix":1,"lease_until_unix":4102444800}"#;
+    server.arm(true, "refs/claim-generation/current", sibling);
+    let mut relay_only = quick.to_vec();
+    relay_only.push(("SUSI_QUEUE_TRANSPORT", "relay"));
+    let (code, _, err) = w.susi(
+        &["tasks", "renew", "T-CLAUDECCRTEST-1", "--hours", "2"],
+        &relay_only,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("refused the direct push"), "{err}");
+    assert_eq!(
+        err.matches("queue: request ").count(),
+        1,
+        "one request, no retry: {err}"
+    );
+    assert!(
+        err.contains("queue: relayed claims/T-CLAUDECCRTEST-1"),
+        "{err}"
+    );
+    // Work, then close: the acceptance runs here, the receipt is relayed, and
+    // the record moves as it always did.
+    std::fs::write(w.clone.join("work/change.txt"), "done\n").unwrap();
+    w.git(&w.clone, &["add", "work/change.txt"]);
+    let (code, _, err) = finish(w.command("git", &w.clone).args([
+        "commit",
+        "--quiet",
+        "-m",
+        "work: a change",
+        "-m",
+        "Task: T-CLAUDECCRTEST-1",
+    ]));
+    assert_eq!(code, 0, "{err}");
+    let (code, out, err) = w.susi(&["tasks", "close", "T-CLAUDECCRTEST-1"], &quick);
+    assert_eq!(code, 0, "out={out} err={err}");
+    assert!(
+        err.contains("queue: relayed closed/T-CLAUDECCRTEST-1"),
+        "{err}"
+    );
+    let receipt = w.git(&bare, &["cat-file", "-p", "refs/closed/T-CLAUDECCRTEST-1"]);
+    assert!(receipt.contains("\"agent\":\"CLAUDECCRTEST\""), "{receipt}");
+    assert!(
+        receipt.contains(&w.git(&w.clone, &["rev-parse", "HEAD"])),
+        "{receipt}"
+    );
+    assert!(w
+        .clone
+        .join(".agents/tasks/done/T-CLAUDECCRTEST-1.json")
+        .is_file());
+    // Releasing the claim (deliberately, before the merge: `--force`) deletes
+    // the claim and agent refs under their leases — relayed too.
+    let (code, _, err) = w.susi(
+        &["tasks", "release", "T-CLAUDECCRTEST-1", "--force"],
+        &quick,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("queue: relayed -claims/T-CLAUDECCRTEST-1"),
+        "{err}"
+    );
+    assert!(w.git(&bare, &["for-each-ref", "refs/claims/"]).is_empty());
+    assert!(w
+        .git(&bare, &["for-each-ref", "refs/claim-agents/"])
+        .is_empty());
+    // Every request was consumed: the expired one unapplied (3), the one the
+    // sibling raced refused (1), the four others landed (0). The work branch
+    // was never pushed; main is as it was.
+    let log = server.stop();
+    let exits = |code: &str| {
+        log.iter()
+            .filter(|l| l.contains(&format!(": exit {code};")))
+            .count()
+    };
+    assert_eq!((exits("0"), exits("1"), exits("3")), (4, 1, 1), "{log:#?}");
+    assert_eq!(log.len(), 6, "{log:#?}");
+    assert!(requests().is_empty());
+    assert_eq!(
+        w.git(
+            &bare,
+            &["for-each-ref", "--format=%(refname)", "refs/heads/"]
+        ),
+        "refs/heads/main"
+    );
+}
+
+#[test]
+fn queue_relay_applies_a_request_under_its_leases_and_only_to_the_queues_namespaces() {
+    let w = World::new("relay-script");
+    let bare = w.bare();
+    // A request as the client writes it: HEAD's tree, the transaction in the
+    // message, on a susi-queue branch — pushed through the real hooks.
+    let request = |doc: &str, name: &str| -> String {
+        let tree = w.git(&w.clone, &["rev-parse", "HEAD^{tree}"]);
+        let commit = w.git(
+            &w.clone,
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                "HEAD",
+                "-m",
+                "susi queue request",
+                "-m",
+                doc,
+            ],
+        );
+        w.git(
+            &w.clone,
+            &[
+                "push",
+                "--quiet",
+                "origin",
+                &format!("{commit}:refs/heads/susi-queue/X/{name}"),
+            ],
+        );
+        commit
+    };
+    let relay = |args: &[&str]| -> (i32, String, String) {
+        let mut cmd = w.command("python3", &w.clone);
+        cmd.args(["-I", "scripts/queue-relay.py"]).args(args);
+        finish(&mut cmd)
+    };
+    let far = 4_102_444_800_u64;
+    // A record carrying U+2028: serde leaves it raw, and the relay must not
+    // cut the request line there.
+    let record =
+        "{\"task\":\"T-CLAUDECCRTEST-9\",\"agent\":\"CLAUDECCRTEST\",\"note\":\"a\u{2028}b\"}";
+    let valid = format!(
+        r#"{{"v":1,"requester":"X","expires_unix":{far},"leases":[["refs/claims/T-CLAUDECCRTEST-9",""]],"updates":[{{"ref":"refs/claims/T-CLAUDECCRTEST-9","blob":{}}}]}}"#,
+        serde_json_string(record)
+    );
+    let commit = request(&valid, &format!("{far}.1"));
+    let (code, out, err) = relay(&[&commit]);
+    assert_eq!(code, 0, "out={out} err={err}");
+    assert!(
+        out.contains("relayed refs/claims/T-CLAUDECCRTEST-9"),
+        "{out}"
+    );
+    // The blob's exact bytes, so the client's sha is the server's.
+    assert_eq!(
+        w.git(&bare, &["cat-file", "-p", "refs/claims/T-CLAUDECCRTEST-9"]),
+        record
+    );
+    // Replayed as is, nothing changes and nothing fails: the ref already holds
+    // exactly this, so a run retried by the platform lands the same state once.
+    let (code, _, err) = relay(&[&commit]);
+    assert_eq!(code, 0, "{err}");
+    // Another record under the same lease ("absent") finds the ref taken: the
+    // lost race, exit 1, and the ref keeps what landed first.
+    let taken = r#"{"task":"T-CLAUDECCRTEST-9","agent":"OTHER"}"#;
+    let late = format!(
+        r#"{{"v":1,"requester":"OTHER","expires_unix":{far},"leases":[["refs/claims/T-CLAUDECCRTEST-9",""]],"updates":[{{"ref":"refs/claims/T-CLAUDECCRTEST-9","blob":{taken:?}}}]}}"#
+    );
+    let (code, _, err) = relay(&[&request(&late, &format!("{far}.2"))]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("refused refs/claims/T-CLAUDECCRTEST-9"),
+        "{err}"
+    );
+    assert_eq!(
+        w.git(&bare, &["cat-file", "-p", "refs/claims/T-CLAUDECCRTEST-9"]),
+        record
+    );
+    // Past its expiry, a request is never applied: exit 3, nothing written.
+    let stale = r#"{"v":1,"expires_unix":1,"leases":[],"updates":[{"ref":"refs/closed/T-A-1","blob":"{}"}]}"#;
+    let (code, _, err) = relay(&[&request(stale, "1.3")]);
+    assert_eq!(code, 3, "{err}");
+    assert!(err.contains("expired"), "{err}");
+    assert!(w.git(&bare, &["for-each-ref", "refs/closed/"]).is_empty());
+    // Not a queue namespace, or not a request: refused before any push, exit 2.
+    for (name, doc) in [
+        (
+            "branch",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[],"updates":[{"ref":"refs/heads/main","blob":"{}"}]}"#,
+        ),
+        (
+            "tag",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[],"updates":[{"ref":"refs/tags/v9.9.9","blob":"{}"}]}"#,
+        ),
+        (
+            "attestation",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[],"updates":[{"ref":"refs/merged/T-A-1","blob":"{}"}]}"#,
+        ),
+        (
+            "traversal",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[],"updates":[{"ref":"refs/claims/../heads/main","blob":"{}"}]}"#,
+        ),
+        (
+            "not-json",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[],"updates":[{"ref":"refs/claims/T-A-1","blob":"not a record"}]}"#,
+        ),
+        (
+            "lease-outside",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[["refs/heads/main",""]],"updates":[{"ref":"refs/claims/T-A-1","blob":"{}"}]}"#,
+        ),
+        (
+            "no-expiry",
+            r#"{"v":1,"leases":[],"updates":[{"ref":"refs/claims/T-A-1","blob":"{}"}]}"#,
+        ),
+        (
+            "version",
+            r#"{"v":2,"expires_unix":4102444800,"leases":[],"updates":[{"ref":"refs/claims/T-A-1","blob":"{}"}]}"#,
+        ),
+        (
+            "empty",
+            r#"{"v":1,"expires_unix":4102444800,"leases":[],"updates":[]}"#,
+        ),
+    ] {
+        let commit = request(doc, &format!("{far}.{name}"));
+        let (code, _, err) = relay(&[&commit]);
+        assert_eq!(code, 2, "{name}: {err}");
+        assert!(err.contains("refusing"), "{name}: {err}");
+    }
+    let main_before = w.git(&w.clone, &["rev-parse", "origin/main"]);
+    assert_eq!(w.git(&bare, &["rev-parse", "refs/heads/main"]), main_before);
+    assert!(w.git(&bare, &["for-each-ref", "refs/tags/"]).is_empty());
+    assert!(w.git(&bare, &["for-each-ref", "refs/merged/"]).is_empty());
+    assert_eq!(
+        w.git(
+            &bare,
+            &["for-each-ref", "--format=%(refname)", "refs/claims/"]
+        ),
+        "refs/claims/T-CLAUDECCRTEST-9"
+    );
+    // A commit that is not a request at all.
+    let (code, _, err) = relay(&["HEAD"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("no request in the commit message"), "{err}");
+
+    // The sweep removes the requests whose expiry passed — the cloud cannot
+    // delete a branch — and keeps the live ones and any it cannot date.
+    let listed = || {
+        w.git(
+            &bare,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/susi-queue/",
+            ],
+        )
+    };
+    w.git(
+        &w.clone,
+        &[
+            "push",
+            "--quiet",
+            "origin",
+            "HEAD:refs/heads/susi-queue/X/undated",
+        ],
+    );
+    let before = listed();
+    assert!(before.contains("susi-queue/X/1.3"), "{before}");
+    let (code, out, err) = relay(&["--sweep", "--now", "1000", "--grace", "60"]);
+    assert_eq!(code, 0, "out={out} err={err}");
+    assert!(out.contains("swept susi-queue/X/1.3"), "{out}");
+    let after = listed();
+    assert!(!after.contains("susi-queue/X/1.3"), "{after}");
+    assert!(after.contains(&format!("susi-queue/X/{far}.1")), "{after}");
+    assert!(after.contains("susi-queue/X/undated"), "{after}");
+    // Inside the grace, an expired request is left for its client to judge.
+    w.git(
+        &w.clone,
+        &[
+            "push",
+            "--quiet",
+            "origin",
+            "HEAD:refs/heads/susi-queue/X/990.late",
+        ],
+    );
+    let (code, out, _) = relay(&["--sweep", "--now", "1000", "--grace", "60"]);
+    assert_eq!(code, 0);
+    assert!(!out.contains("990.late"), "{out}");
+}
+
+/// `s` as a JSON string literal, escaping only what serde_json escapes (so
+/// U+2028 stays raw, as it does in a real request).
+fn serde_json_string(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }

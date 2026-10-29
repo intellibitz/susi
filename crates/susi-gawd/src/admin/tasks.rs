@@ -11,6 +11,7 @@
 //! * **Closed by a check, not a claim.** A task names an acceptance command;
 //!   `close` runs it, and only a passing run moves the task to
 //!   `.agents/tasks/done/` (the record keeps who, when and at which commit).
+use super::queue_relay;
 use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -1122,17 +1123,13 @@ fn put_record<T: Serialize>(ws: &Path, name: &str, value: &T, raced: &str) -> Ea
     let r = remote();
     let listed = git(ws, &["ls-remote", &r, name])?;
     let old = listed.split_whitespace().next().unwrap_or("");
-    git(
+    queue_relay::push(
         ws,
-        &[
-            "push",
-            "--quiet",
-            &format!("--force-with-lease={name}:{old}"),
-            &r,
-            &format!("{blob}:{name}"),
-        ],
-    )
-    .map_err(|_| EaiError::config(raced.to_string()))?;
+        &r,
+        &[(name.to_string(), old.to_string())],
+        &[(name.to_string(), Some(blob.clone()))],
+        raced,
+    )?;
     git(ws, &["update-ref", name, &blob])?;
     Ok(())
 }
@@ -1144,15 +1141,12 @@ fn clear_record(ws: &Path, name: &str) -> EaiResult<()> {
     let listed = git(ws, &["ls-remote", &r, name])?;
     let old = listed.split_whitespace().next().unwrap_or("");
     if !old.is_empty() {
-        git(
+        queue_relay::push(
             ws,
-            &[
-                "push",
-                "--quiet",
-                &format!("--force-with-lease={name}:{old}"),
-                &r,
-                &format!(":{name}"),
-            ],
+            &r,
+            &[(name.to_string(), old.to_string())],
+            &[(name.to_string(), None)],
+            &format!("{name} was rewritten on {r} since it was read; refresh the queue and retry"),
         )?;
     }
     let _ = git(ws, &["update-ref", "-d", name]);
@@ -2403,26 +2397,21 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
                 "agent ownership changed; cannot expand claim scope",
             ));
         }
-        git(
+        queue_relay::push(
             ws,
+            &r,
             &[
-                "push",
-                "--quiet",
-                "--atomic",
-                &format!("--force-with-lease={}:{}", claim_ref(id), old),
-                &format!("--force-with-lease={agent_ref}:{agent_old}"),
-                &format!("--force-with-lease={generation_ref}:{generation_old}"),
-                &r,
-                &format!("{blob}:{}", claim_ref(id)),
-                &format!("{blob}:{agent_ref}"),
-                &format!("{blob}:{generation_ref}"),
+                (claim_ref(id), old),
+                (agent_ref.clone(), agent_old.to_string()),
+                (generation_ref.to_string(), generation_old.to_string()),
             ],
-        )
-        .map_err(|_| {
-            EaiError::config(format!(
-                "{id} or agent {agent} was claimed {CAS_PHRASE}; refresh the queue and retry"
-            ))
-        })?;
+            &[
+                (claim_ref(id), Some(blob.clone())),
+                (agent_ref, Some(blob.clone())),
+                (generation_ref.to_string(), Some(blob.clone())),
+            ],
+            &format!("{id} or agent {agent} was claimed {CAS_PHRASE}; refresh the queue and retry"),
+        )?;
         git(ws, &["update-ref", &claim_ref(id), &blob])?;
         return Ok(expanded);
     }
@@ -2465,14 +2454,8 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         lease_until_unix: now.saturating_add(hours.max(1).saturating_mul(3600)),
     };
     let blob = claim_blob(ws, &mine)?;
-    let target = format!("{blob}:{}", claim_ref(id));
     let r = remote();
     let task_old = existing.as_ref().map_or("", |(sha, _)| sha.as_str());
-    let task_lease = format!("--force-with-lease={}:{}", claim_ref(id), task_old);
-    let agent_lease = format!("--force-with-lease={agent_ref}:{agent_old}");
-    let agent_target = format!("{blob}:{agent_ref}");
-    let generation_lease = format!("--force-with-lease={generation_ref}:{generation_old}");
-    let generation_target = format!("{blob}:{generation_ref}");
     // A claim is one blob pushed to the task, agent and generation refs, so a
     // takeover of an expired claim leaves the previous holder's agent ref
     // pointing at a claim it no longer holds. Clear it in the same atomic push
@@ -2487,31 +2470,30 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         }
         _ => None,
     };
-    let mut args: Vec<String> = vec![
-        "push".into(),
-        "--quiet".into(),
-        "--atomic".into(),
-        task_lease,
-        agent_lease,
-        generation_lease,
+    let mut leases: Vec<queue_relay::Lease> = vec![
+        (claim_ref(id), task_old.to_string()),
+        (agent_ref.clone(), agent_old.clone()),
+        (generation_ref.to_string(), generation_old.to_string()),
     ];
-    if let Some((stale, sha)) = &stale_agent {
-        args.push(format!("--force-with-lease={stale}:{sha}"));
+    let mut updates: Vec<queue_relay::Update> = vec![
+        (claim_ref(id), Some(blob.clone())),
+        (agent_ref, Some(blob.clone())),
+        (generation_ref.to_string(), Some(blob.clone())),
+    ];
+    if let Some((stale, sha)) = stale_agent {
+        leases.push((stale.clone(), sha));
+        updates.push((stale, None));
     }
-    args.push(r);
-    args.push(target);
-    args.push(agent_target);
-    args.push(generation_target);
-    if let Some((stale, _)) = &stale_agent {
-        args.push(format!(":{stale}"));
-    }
-    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
-    git(ws, &argv).map_err(|_| {
-        EaiError::config(format!(
+    queue_relay::push(
+        ws,
+        &r,
+        &leases,
+        &updates,
+        &format!(
             "{id} or agent {} was claimed {CAS_PHRASE}; refresh the queue and retry",
             mine.agent
-        ))
-    })?;
+        ),
+    )?;
     git(ws, &["update-ref", &claim_ref(id), &blob])?;
     Ok(mine)
 }
@@ -2578,22 +2560,21 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
     if !agent_old.is_empty() && agent_old != old {
         return Err(EaiError::config("agent ownership changed; cannot renew"));
     }
-    git(
+    queue_relay::push(
         ws,
+        &r,
         &[
-            "push",
-            "--quiet",
-            "--atomic",
-            &format!("--force-with-lease={}:{}", claim_ref(id), old),
-            &format!("--force-with-lease={agent_ref}:{agent_old}"),
-            &format!("--force-with-lease={generation_ref}:{generation_old}"),
-            &r,
-            &format!("{blob}:{}", claim_ref(id)),
-            &format!("{blob}:{agent_ref}"),
-            &format!("{blob}:{generation_ref}"),
+            (claim_ref(id), old),
+            (agent_ref.clone(), agent_old.to_string()),
+            (generation_ref.to_string(), generation_old.to_string()),
         ],
-    )
-    .map_err(|_| EaiError::config(format!("renewal of {id} raced {CAS_RENEW_PHRASE}; retry")))?;
+        &[
+            (claim_ref(id), Some(blob.clone())),
+            (agent_ref, Some(blob.clone())),
+            (generation_ref.to_string(), Some(blob.clone())),
+        ],
+        &format!("renewal of {id} raced {CAS_RENEW_PHRASE}; retry"),
+    )?;
     git(ws, &["update-ref", &claim_ref(id), &blob])?;
     Ok(claim)
 }
@@ -2675,16 +2656,12 @@ fn release_claim(
             let body = git(ws, &["cat-file", "-p", stale_sha])?;
             if let Ok(parsed) = serde_json::from_str::<Claim>(&body) {
                 if parsed.task == id {
-                    let lease = format!("--force-with-lease={stale_agent}:{stale_sha}");
-                    let _ = git(
+                    let _ = queue_relay::push(
                         ws,
-                        &[
-                            "push",
-                            "--quiet",
-                            &lease,
-                            &remote(),
-                            &format!(":{stale_agent}"),
-                        ],
+                        &remote(),
+                        &[(stale_agent.clone(), stale_sha.to_string())],
+                        &[(stale_agent.clone(), None)],
+                        "the agent ref moved on since it was read; nothing to clean",
                     );
                 }
             }
@@ -2727,7 +2704,6 @@ fn release_claim(
              `susi workflow finish {id}`"
         )));
     }
-    let lease = format!("--force-with-lease={}:{sha}", claim_ref(id));
     let agent_ref = format!("refs/claim-agents/{}", c.agent);
     // A reason given for work that was never accepted is still a fact worth
     // keeping: without this, abandoning an unfinished task left no trace at
@@ -2739,26 +2715,22 @@ fn release_claim(
     }
     let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
     let agent_old = listed.split_whitespace().next().unwrap_or("");
-    let deletion = format!(":{}", claim_ref(id));
+    let mut leases: Vec<queue_relay::Lease> = vec![(claim_ref(id), sha.clone())];
+    let mut updates: Vec<queue_relay::Update> = vec![(claim_ref(id), None)];
+    // Legacy claims have no agent ref; never delete a newer agent lease.
     if agent_old == sha {
-        let agent_lease = format!("--force-with-lease={agent_ref}:{sha}");
-        git(
-            ws,
-            &[
-                "push",
-                "--quiet",
-                "--atomic",
-                &lease,
-                &agent_lease,
-                &remote(),
-                &deletion,
-                &format!(":{agent_ref}"),
-            ],
-        )?;
-    } else {
-        // Legacy claims have no agent ref; never delete a newer agent lease.
-        git(ws, &["push", "--quiet", &lease, &remote(), &deletion])?;
+        leases.push((agent_ref.clone(), sha.clone()));
+        updates.push((agent_ref, None));
     }
+    queue_relay::push(
+        ws,
+        &remote(),
+        &leases,
+        &updates,
+        &format!(
+            "{id}'s claim changed on the remote since it was read; refresh the queue and retry"
+        ),
+    )?;
     let _ = git(ws, &["update-ref", "-d", &claim_ref(id)]);
     Ok(())
 }

@@ -123,11 +123,11 @@ Run cargo through the guard as everywhere else (`scripts/target-guard.sh
 
 Measured, not assumed (a `git push --dry-run` shows none of it):
 
-* The container's git proxy pushes **branches** (`refs/heads/*`) and nothing
-  else. A push to `refs/claims/*`, `refs/closed/*` or any other queue
-  namespace is answered with HTTP 403 at receive-pack; `susi tasks claim`
-  reports it as "was claimed concurrently with another agent; refresh the
-  queue and retry", which is its wording for any refused atomic push.
+* The container's git proxy pushes **branches** (`refs/heads/*`), any branch
+  name, and nothing else. A push to `refs/claims/*`, `refs/closed/*` or any
+  other queue namespace is answered with HTTP 403 at receive-pack, and so is
+  a branch deletion ("the proxy rejects branch deletions and pushes of
+  anything other than a branch", code.claude.com/docs/en/cloud-environments).
 * `gh api` reads the repository's REST API, and every write path is refused
   ("Write access to this GitHub API path is not permitted through this
   proxy"): no refs, blobs, trees or contents. `gh auth status` reports the
@@ -136,20 +136,44 @@ Measured, not assumed (a `git push --dry-run` shows none of it):
 * The harness's clone is shallow; the hooks and the compliance script walk
   the whole history (`fatal: bad revision '^…^'`), so the session-start hook
   runs `git fetch --unshallow` in a cloud clone.
-* A `workflow_dispatch` **is** accepted, through the GitHub MCP server
-  (`mcp__github__actions_run_trigger`), and an Actions job's `GITHUB_TOKEN`
-  pushes any ref the rulesets leave open — `scripts/auto-merge-pr.sh` already
-  writes `refs/merged/*` and `refs/verified/*` that way.
+* An Actions job's `GITHUB_TOKEN` pushes any ref the rulesets leave open —
+  `scripts/auto-merge-pr.sh` already writes `refs/merged/*` and
+  `refs/verified/*` that way — and GitHub runs the workflow files *of the
+  pushed commit* for a push. (A `workflow_dispatch` is accepted too, but only
+  through the GitHub MCP server, which the `susi` binary cannot call, and only
+  for a workflow file already on `main`.)
 
-So the queue's refs reach the shared remote from a cloud session through a
-dispatched workflow that runs the queue operation server-side (see
-"Follow-ups"). Until it lands, a cloud session cannot claim or close a task
-on the shared remote by itself: its work branch pushes, its pull request
-opens, and the `Workflow Compliance` check stays red until a laptop session
-claims the task from a worktree on that branch (`git worktree add
-../susi-<branch> <branch>`, then `susi tasks claim <id> --scope …` there) and
-re-runs the check — a one-time bootstrap, after which the dispatched
-workflow removes the laptop from the loop for good.
+So the queue's refs travel as **request branches**. When `susi tasks claim`,
+`renew`, `release` or `close` has its compare-and-swap push refused while
+every lease it carried still holds (a lost race is a lost race, and is never
+relayed), and every ref it touches is one of the queue's (`refs/claims/`,
+`refs/claim-agents/`, `refs/claim-generation/`, `refs/closed/`,
+`refs/abandoned/`), it writes the transaction — every lease, every ref
+update, the blobs' bytes, an expiry — into the message of a commit on
+`refs/heads/susi-queue/<agent>/<expires>.<nonce>` whose tree is HEAD's,
+pushes that branch, and waits for it to disappear.
+`.github/workflows/queue.yml` runs for the push: it replays the push with the
+job's token through `scripts/queue-relay.py` (which refuses every other
+namespace, and any request past its expiry), deletes the request, and sweeps
+any request whose expiry has passed — the cloud cannot delete a branch, so
+the relay is the one place that can. The client then judges the refs only its
+transaction writes (the push was atomic; the shared generation ref, which
+every claim rewrites, never decides), so what it reports is what the remote
+holds. The hooks and CI treat `susi-queue/**` as queue traffic, not code: no
+task trailer, no compliance run, no pull request.
+
+Nothing to bootstrap: the workflow travels in the request's own tree, so a
+branch's first request runs it before it is on `main`. The direct push is
+always tried first, so a laptop clone never relays; `SUSI_QUEUE_TRANSPORT=
+direct` forbids the relay and `relay` skips the direct attempt.
+`SUSI_QUEUE_WAIT_SECS` (300) is a request's lifetime: past it the relay
+refuses the request, so a client that stopped waiting and said "it will
+never be applied" is never contradicted by a late run. The workflow has no
+concurrency group on purpose: GitHub keeps one pending run per group and
+cancels the rest, which would strand requests; the leases already serialize
+replays that touch the same refs. The whole loop — claim, work, commit,
+close, push, release — therefore runs from the container, and the `Workflow
+Compliance` check sees the claim it needs.
 
 The pushed branch opens and merges its own pull request
 (`.github/workflows/auto-merge.yml`); a cloud session does not open one by
@@ -181,23 +205,12 @@ Queued as tasks (`susi tasks list`), because the files were reserved by
 another live claim when this landed, or because the work cannot be verified
 from inside a cloud session until it is on `main`:
 
-* **The queue's transport for cloud sessions** — a dispatchable workflow
-  (`.github/workflows/queue.yml`: inputs `op` = claim | renew | release |
-  abandon | close-receipt, `task`, `agent`, `branch`, `scopes`, `head`) that
-  checks the branch out and runs the released `susi tasks …` with
-  `GITHUB_TOKEN`, so the compare-and-swap pushes of `refs/claims/*` and
-  `refs/closed/*` happen where they are allowed; and in `susi tasks` a
-  transport that, when the direct push is refused with a 403, dispatches
-  that workflow and polls `git ls-remote` for the ref. `workflow_dispatch`
-  only fires for a workflow file on the default branch, so the first landing
-  is the one-time bootstrap above.
 * `scripts/parallel-workflow.sh` — `sync` (and so `finish`) still refuses
   "Use your own linked worktree." in the primary checkout; until it reads the
   mark, a cloud session runs the finish steps by hand (gate → `tasks close`
   → commit → merge `origin/main` → push → `tasks release --force`), which
   AGENTS.md names as the supported path outside the harness.
-* `.claude/settings.json` — the permission allow/deny lists above, and
-  `Bash(gh workflow run *)` so a shell dispatch is pre-approved.
+* `.claude/settings.json` — the permission allow/deny lists above.
 * `AGENTS.md` — the "Cloud sessions" section of the START HERE block.
 
 ## Troubleshooting
@@ -206,8 +219,11 @@ from inside a cloud session until it is on `main`:
 |---|---|---|
 | `❌ own worktree — this is the primary checkout` in a cloud session | the clone is not marked (the hook did not run, or ran for another directory) | `scripts/cloud-session.sh --mark` (needs the harness's variable; `--force` otherwise) |
 | `ort-sys failed to download prebuilt binaries … 403` | the CDN is refused by the network policy | `scripts/cloud-onnxruntime.sh`, then build again |
+| `queue: … refused the direct push … relaying it through .github/workflows/queue.yml` | normal in a cloud session: the proxy carries branches only | nothing; the command waits for the run (a minute or so) and reads the refs back |
+| `queue relay: susi-queue/… was not consumed in 300s and has expired` | no run came: the branch's tree has no `.github/workflows/queue.yml` (a branch older than the relay), or Actions is off | merge `origin/main` and retry; the expired request is never applied, and the next relay run sweeps it (do not try to delete it: the proxy refuses branch deletions) |
+| `… (relayed as susi-queue/…; origin does not carry the requested refs/claims/…)` | the compare-and-swap lost on the server: another agent moved the ref between the read and the replay | the same as any lost race: `susi tasks list`, then retry |
 | `gh auth status`: "The token in GH_TOKEN is invalid" | an unproxied probe | ignore; `gh api …` reads work |
-| `susi tasks claim`: "was claimed concurrently with another agent" on a quiet queue | the git proxy refused the `refs/claims/*` push (403) | the dispatched queue workflow, or the one-time laptop claim above |
+| `susi tasks claim`: "was claimed concurrently with another agent" on a quiet queue, with no `queue:` line before it | a `susi` built before the relay: it read every refused push as a lost race | build this branch's `susi` (`scripts/target-guard.sh --run cargo build -q`) and retry; the relay reports what it does |
 | pre-push: `fatal: bad revision '^…^'`, "cannot compute the commit range" | the harness's clone is shallow | `git fetch --unshallow origin` (the session-start hook does it) |
 | `Use your own linked worktree.` from `susi workflow sync` / `finish` | `scripts/parallel-workflow.sh` does not read the mark yet | the by-hand finish above |
 | a fixture test behaves like a cloud clone | something exported `SUSI_CLOUD_SESSION=1`, or the fixture was marked | unset it; fixtures are marked only by a test that means to |

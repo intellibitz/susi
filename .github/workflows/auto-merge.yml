@@ -53,7 +53,7 @@ name: Auto PR + Merge
 
 on:
   push:
-    branches-ignore: [main, 'wip/**', 'nopr/**', 'dependabot/**', 'gh-pages']
+    branches-ignore: [main, 'wip/**', 'nopr/**', 'dependabot/**', 'gh-pages', 'susi-queue/**']
   workflow_run:
     workflows: [Test]
     types: [completed]

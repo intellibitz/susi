@@ -1,0 +1,68 @@
+name: Queue
+
+# The task queue's refs (refs/claims/*, refs/claim-agents/*,
+# refs/claim-generation/current, refs/closed/*, refs/abandoned/*) are written by
+# compare-and-swap pushes from the agent's own clone. A cloud session's git
+# proxy (Claude Code on the web) pushes branches and nothing else — no other
+# namespace, no deletion (docs/cloud-sessions.md, "GitHub from the
+# container") — so `susi tasks claim|renew|release|close` there relays a refused
+# push as a commit on refs/heads/susi-queue/<agent>/<expires>.<nonce>: HEAD's
+# tree, and the transaction in the message. This job replays that push with its
+# own token — which may write any ref the rulesets leave open, as auto-merge's
+# attestations already do — deletes the request, and sweeps expired ones the
+# cloud cannot delete. The client waits for the deletion and judges the refs it
+# alone writes. The leases are the pusher's, so what lands is exactly what the
+# pusher proved, or nothing; a request past its expiry is never applied.
+# scripts/queue-relay.py refuses every other namespace, so a branch, a tag or
+# an attestation never travels this way.
+#
+# A push runs the workflow file of the pushed commit, and a request's tree is
+# the branch's: the first request a branch makes runs this before the file is
+# on main. No bootstrap, no laptop.
+#
+# Deliberately no `concurrency:` group. Each request carries its own leases, so
+# two replays on the same refs are serialized by the server and one loses its
+# lease, which the client reads back as the race it was. A group would add
+# nothing but GitHub's one-pending-run rule: a third request arriving while one
+# runs and one waits cancels the waiting run before any step, so its request
+# is never consumed and its agent waits out the expiry for nothing.
+
+on:
+  push:
+    branches: ['susi-queue/**']
+
+permissions:
+  contents: write
+
+jobs:
+  relay:
+    name: Relay the queue request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the request
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      # 1: a lease no longer held (the client reads back the race it lost);
+      # 3: expired (the client already reported it will not apply). Both are
+      # outcomes, not faults; 2 is a commit this relay cannot read.
+      - name: Apply the request's compare-and-swap push
+        run: |
+          status=0
+          python3 scripts/queue-relay.py "$GITHUB_SHA" || status=$?
+          [ "$status" -ne 2 ]
+
+      # Consumed whatever the outcome: the client judges the refs, not a branch
+      # left behind. A sweep may have removed an expired one already.
+      - name: Consume the request
+        if: always()
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/$GITHUB_REF_NAME" >/dev/null; then
+            git push --quiet origin --delete "$GITHUB_REF_NAME"
+          fi
+
+      - name: Sweep expired requests
+        if: always()
+        run: python3 scripts/queue-relay.py --sweep

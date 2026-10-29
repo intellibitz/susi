@@ -66,6 +66,12 @@ push)
         # origin/main before it is pushed (atomic per-task loop).
         case "$rref" in
         refs/heads/main) ;;
+        refs/heads/susi-queue/*)
+            # A queue request: a refused compare-and-swap push of the queue's
+            # refs, carried as a branch for the relay workflow to replay
+            # (scripts/queue-relay.py). Not code; no task, no sync.
+            continue
+            ;;
         refs/heads/*)
             if [ "$fetched" = 0 ]; then
                 # Never judge code freshness against a cached tracking ref.
