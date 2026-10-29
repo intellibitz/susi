@@ -169,6 +169,30 @@ fn the_harness_ships_only_a_binary_that_passed_its_own_check() {
     );
 }
 
+/// The Windows binary is checked from a scratch directory. Run from the
+/// checkout, `susi tasks` read the repository's own queue where the check
+/// expects an empty one, so every release from v0.21.21 to v0.21.23 failed
+/// its required Windows leg and published no Windows binary.
+#[test]
+fn the_windows_binary_is_checked_outside_the_checkout() {
+    let text = read(".github/workflows/release.yml");
+    let jobs = jobs(&text);
+    let build = job(&jobs, "build");
+    let steps = steps(&build.body);
+    let verify = steps
+        .iter()
+        .find(|s| s.contains("- name: Verify the Windows artifact answers offline\n"))
+        .expect("release.yml `build` checks the Windows artifact");
+    let moved = verify
+        .find("Set-Location $home_")
+        .expect("the check runs from its scratch home");
+    let first_check = verify.find("Check '").expect("the step runs its checks");
+    assert!(
+        moved < first_check,
+        "the check must leave the checkout before its first command"
+    );
+}
+
 /// Every binary the release publishes is cut with the release's version. The
 /// harness ships as its own asset, but the cut bumped only the engine's
 /// manifests, so a harness built for v0.21.23 said `susi-harness 0.21.20` - in
