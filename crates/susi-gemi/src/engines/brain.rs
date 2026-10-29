@@ -617,6 +617,81 @@ impl Store {
         names.dedup();
         names
     }
+
+    /// Explain the routing decision for a given user prompt.
+    pub fn explain(&self, prompt: &str) -> crate::brain_explain::RoutingExplanation {
+        let class = TaskClass::classify(prompt);
+        let mut providers = self.providers();
+        if providers.is_empty() {
+            providers = vec![
+                "gemini".into(),
+                "deepseek".into(),
+                "kimi".into(),
+                "anthropic".into(),
+                "openai".into(),
+                "local".into(),
+            ];
+        }
+        let ranked = self.rank(&providers, class);
+        let cooled = super::routing::InferenceRouter::cooled_providers();
+        let is_cooled = |p: &str| cooled.iter().any(|c| c.provider == p);
+        let now = unix_now();
+        let chosen = ranked
+            .iter()
+            .find(|r| !is_cooled(&r.provider) && !self.is_unfit(&r.provider, class, now))
+            .or_else(|| ranked.first())
+            .map(|r| r.provider.clone())
+            .unwrap_or_else(|| "none".into());
+
+        let candidates: Vec<(String, f64)> = ranked
+            .iter()
+            .map(|r| (r.provider.clone(), f64::from(r.score)))
+            .collect();
+
+        let why = format!(
+            "Task classified as '{}' (budget={})",
+            class.label(),
+            Budget::from_env().label()
+        );
+        crate::brain_explain::explain_route(&chosen, &candidates, &why)
+    }
+
+    /// Export evidence records as JSON entries for cross-host bundling.
+    pub fn export_entries(&self) -> Vec<serde_json::Value> {
+        self.records
+            .iter()
+            .map(|(k, r)| {
+                serde_json::json!({
+                    "key": k,
+                    "ok": r.ok,
+                    "fail": r.fail,
+                    "ema_ms": r.ema_ms,
+                })
+            })
+            .collect()
+    }
+
+    /// Merge evidence records from imported bundle entries.
+    pub fn import_entries(&mut self, entries: &[serde_json::Value]) {
+        for entry in entries {
+            if let Some(key) = entry.get("key").and_then(|v| v.as_str()) {
+                let rec = self.records.entry(key.to_string()).or_default();
+                if let Some(ok) = entry.get("ok").and_then(|v| v.as_u64()) {
+                    rec.ok += ok as u32;
+                }
+                if let Some(fail) = entry.get("fail").and_then(|v| v.as_u64()) {
+                    rec.fail += fail as u32;
+                }
+                if let Some(ema) = entry.get("ema_ms").and_then(|v| v.as_f64()) {
+                    if rec.ema_ms == 0.0 {
+                        rec.ema_ms = ema as f32;
+                    } else {
+                        rec.ema_ms = (rec.ema_ms + ema as f32) / 2.0;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn unix_now() -> u64 {
@@ -690,10 +765,21 @@ pub fn load() -> Store {
     if cfg!(test) && std::env::var_os("SUSI_BRAIN_EVIDENCE_FILE").is_none() {
         return Store::default();
     }
-    std::fs::read_to_string(store_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    let p = store_path();
+    if let Ok(s) = std::fs::read_to_string(&p) {
+        if let Ok(store) = serde_json::from_str::<Store>(&s) {
+            return store;
+        }
+    }
+    // Attempt recovery from backup if primary read or parse failed
+    let bak_path = p.with_extension("json.bak");
+    if let Ok(s) = std::fs::read_to_string(&bak_path) {
+        if let Ok(store) = serde_json::from_str::<Store>(&s) {
+            let _ = std::fs::copy(&bak_path, &p);
+            return store;
+        }
+    }
+    Store::default()
 }
 
 /// Record one live outcome and persist it.
@@ -711,8 +797,37 @@ fn persist(store: &Store) {
         return;
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(store) {
-        let _ = crate::susi_config::atomic_write_bytes(&store_path(), &bytes);
+        let p = store_path();
+        if p.exists() {
+            let bak_path = p.with_extension("json.bak");
+            let _ = std::fs::copy(&p, &bak_path);
+        }
+        let _ = crate::susi_config::atomic_write_bytes(&p, &bytes);
     }
+}
+
+/// Explain the routing decision for a given user prompt.
+pub fn explain(prompt: &str) -> crate::brain_explain::RoutingExplanation {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    guard.get_or_insert_with(load).explain(prompt)
+}
+
+/// Export current evidence as a portable BrainBundle.
+pub fn export() -> crate::brain_export::BrainBundle {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    let store = guard.get_or_insert_with(load);
+    crate::brain_export::export_brain(store.export_entries())
+}
+
+/// Import a BrainBundle and merge into current evidence store.
+pub fn import(bundle: crate::brain_export::BrainBundle) -> Result<usize, String> {
+    let entries = crate::brain_export::import_brain(bundle)?;
+    let count = entries.len();
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    let store = guard.get_or_insert_with(load);
+    store.import_entries(&entries);
+    persist(store);
+    Ok(count)
 }
 
 /// Rank `providers` for `class` from persisted evidence.
@@ -1133,5 +1248,66 @@ mod tests {
         let r = &loaded.rank(&names(&["groq-y"]), TaskClass::Code)[0];
         assert_eq!((r.samples, r.success_rate), (2, Some(0.5)));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explain_selects_and_details_candidates() {
+        let mut s = Store::default();
+        s.record("fast-code", TaskClass::Code, true, 50);
+        s.record("slow-code", TaskClass::Code, false, 500);
+        let explanation = s.explain("fn optimize_pipeline() -> Result<()>");
+        assert_eq!(explanation.chosen, "fast-code");
+        assert!(explanation.reasons.iter().any(|r| r.contains("code")));
+        assert!(explanation.reasons.iter().any(|r| r.contains("fast-code")));
+    }
+
+    #[test]
+    fn corrupted_evidence_recovers_from_backup() {
+        let dir = std::env::temp_dir().join(format!("susi-brain-bak-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("evidence.json");
+        let bak = dir.join("evidence.json.bak");
+        let _g = crate::engines::env_test_lock();
+        std::env::set_var("SUSI_BRAIN_EVIDENCE_FILE", &file);
+
+        let mut s = Store::default();
+        s.record("saved-provider", TaskClass::Chat, true, 100);
+        persist(&s);
+
+        // A second persist triggers backup of the first
+        s.record("saved-provider", TaskClass::Chat, true, 120);
+        persist(&s);
+
+        assert!(file.exists());
+        assert!(bak.exists());
+
+        // Corrupt primary file
+        std::fs::write(&file, b"corrupted non-json content").unwrap();
+
+        // Load must recover from .bak
+        let recovered = load();
+        assert_eq!(recovered.providers(), ["saved-provider"]);
+
+        std::env::remove_var("SUSI_BRAIN_EVIDENCE_FILE");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_import_evidence_bundle() {
+        let mut s = Store::default();
+        s.record("export-p1", TaskClass::Reasoning, true, 150);
+        s.record("export-p1", TaskClass::Reasoning, true, 200);
+
+        let entries = s.export_entries();
+        assert_eq!(entries.len(), 1);
+        let bundle = crate::brain_export::export_brain(entries);
+        assert_eq!(bundle.version, 1);
+
+        let mut s2 = Store::default();
+        let imported = crate::brain_export::import_brain(bundle).unwrap();
+        s2.import_entries(&imported);
+        assert_eq!(s2.providers(), ["export-p1"]);
+        let ranked = s2.rank(&["export-p1".into()], TaskClass::Reasoning);
+        assert_eq!(ranked[0].samples, 2);
     }
 }
