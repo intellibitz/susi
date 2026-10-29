@@ -119,6 +119,15 @@ target/debug/susi workflow finish <id>     # gate, close, push, receipt, release
 Run cargo through the guard as everywhere else (`scripts/target-guard.sh
 --run cargo test -p <crate>`); `finish` and `tasks close` guard themselves.
 
+* **The `susi-harness` MCP server.** `.mcp.json` runs the clone's own build
+  (`target/debug/susi mcp`, relative to the clone; Windows finds
+  `susi.exe`), never a path on one machine, and leaves `SUSI_HOME` to the
+  host (`tests/checked_in_mcp_config.rs` pins both). A cold container has no
+  binary yet when Claude Code connects its servers, so the server reports a
+  failed connection at session start; that is expected, and nothing asks
+  the operator for anything: the loop never needs the server, it runs on the
+  CLI above.
+
 ## GitHub from the container
 
 Measured, not assumed (a `git push --dry-run` shows none of it):
@@ -209,5 +218,6 @@ families); `tests/cloud_session.rs` pins both lists.
 | `… (relayed as susi-queue/…; origin does not carry the requested refs/claims/…)` | the compare-and-swap lost on the server: another agent moved the ref between the read and the replay | the same as any lost race: `susi tasks list`, then retry |
 | `gh auth status`: "The token in GH_TOKEN is invalid" | an unproxied probe | ignore; `gh api …` reads work |
 | `susi tasks claim`: "was claimed concurrently with another agent" on a quiet queue, with no `queue:` line before it | a `susi` built before the relay: it read every refused push as a lost race | build this branch's `susi` (`scripts/target-guard.sh --run cargo build -q`) and retry; the relay reports what it does |
+| at session start: `susi-harness` failed to connect, `ENOENT … target/debug/susi` | the container is cold: the background build has not produced the binary yet | nothing; the loop runs on the CLI. Once the build is done, `/mcp` reconnects the server if you want its tools |
 | pre-push: `fatal: bad revision '^…^'`, "cannot compute the commit range" | the harness's clone is shallow | `git fetch --unshallow origin` (the session-start hook does it) |
 | a fixture test behaves like a cloud clone | something exported `SUSI_CLOUD_SESSION=1`, or the fixture was marked | unset it; fixtures are marked only by a test that means to |
