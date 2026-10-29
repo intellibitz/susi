@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDECCRC9F023D1SDLJMO-2",
+  "title": "Cloud sessions II: sync/finish, Claude Code permissions and AGENTS.md read the cloud mark",
+  "goal": "Three files were reserved by another live claim when the first cloud-sessions task landed (docs/cloud-sessions.md, Follow-ups). 1) scripts/parallel-workflow.sh: sync (and therefore finish) refuses 'Use your own linked worktree.' in the primary checkout; let it read scripts/cloud-session.sh so a cloud session's clone runs susi workflow sync and finish like any worktree, and add the case to tests/cloud_session.rs. 2) .claude/settings.json: pre-approve the loop's commands for Claude Code sessions (cargo, git, gh api, the repository's scripts/ and .githooks/, target/debug/susi and susi) and deny the tools that would reach the operator's laptop (mcp__claude-code-remote__request_computer_folder, mcp__claude-code-remote__list_computer_folders, mcp__claude-code-remote__confirm_repository_trust, the mcp__remote-devices, mcp__computer-use, mcp__Claude_Browser and mcp__claude-in-chrome servers); pin the lists with a test. 3) AGENTS.md: a Cloud sessions paragraph in the START HERE block pointing at docs/cloud-sessions.md, and drop the by-hand finish note from that doc once sync reads the mark.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session"
+    ]
+  },
+  "created_by": "CLAUDECCRC9F023D1SDLJMO",
+  "created_unix": 1793261474
+}

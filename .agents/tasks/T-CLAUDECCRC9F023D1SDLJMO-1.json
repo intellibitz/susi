@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDECCRC9F023D1SDLJMO-1",
+  "title": "Cloud sessions: the clone is the worktree, and nothing needs the laptop",
+  "goal": "A cloud session (Claude Code on the web) clones the repository into a disposable container and has no laptop behind it, yet the loop refused exactly that shape: workflow check failed 'own worktree' in the primary checkout, the hooks refused commits there, the identity was PRIMARY, the fixes pointed at scripts/susi-worktree.sh, park-primary and a watcher, and a cold build died in ort-sys because the pyke CDN is refused by the container's egress policy. Record the fact on the clone (scripts/cloud-session.sh --mark; susi.cloud in git config, never the harness's environment, so test fixtures stay laptop clones), and have workflow check, worker identity, workflow-guard, check-worker-identity.sh, park-primary.sh, ensure-watcher.sh, susi-worktree.sh and workflow start read it: the clone on its branch is the worker's own worktree, identity <TOOL><BRANCH>, no watcher, nothing parked, main and detached HEAD still refused. Fetch the ONNX Runtime release from GitHub with a pinned checksum and point cargo at it from CARGO_HOME (scripts/cloud-onnxruntime.sh); the session-start hook marks the clone, runs it and starts the build in the background. Document it (docs/cloud-sessions.md, the pointer files, README). A cloud session never asks for the operator's machine. An implementation already exists, made in the cloud session that minted this task (branch ccr-c9f023d1-sdljmo, commit 'cloud sessions: the clone is the worktree, and nothing needs the laptop'): the cloud proxy could not push the claim ref, so claim this task from a worktree on a branch named ccr-c9f023d1-sdljmo (git fetch origin && git worktree add ../susi-ccr -b ccr-c9f023d1-sdljmo origin/main, then susi tasks claim with the scopes the commit touches) and land that commit rather than re-implementing it.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session"
+    ]
+  },
+  "created_by": "CLAUDECCRC9F023D1SDLJMO",
+  "created_unix": 1793261474
+}
