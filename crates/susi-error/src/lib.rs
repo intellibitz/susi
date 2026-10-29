@@ -123,7 +123,7 @@ fn record_event(entry: &serde_json::Value) {
 /// only when the service accepted the event (2xx), so a rejected or
 /// unanswered post still falls back to the local metrics file.
 fn post_event(entry: &serde_json::Value) -> bool {
-    susi_paths::loopback::request(
+    susi_paths::loopback::request_with_fallback(
         &susi_paths::loopback::Endpoint {
             port: service_port(),
             timeout: Duration::from_millis(200),

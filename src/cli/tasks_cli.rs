@@ -378,6 +378,23 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                 })
                 .collect();
             let mut out = serde_json::json!({ "open": open, "claims_note": claims_note });
+            // Failing intent-ladder rungs the daemon recorded host-wide —
+            // every worktree sees them here; adopting one authors its task.
+            let gaps: Vec<_> =
+                susi_gawd::intent_ladder::read_gaps(&susi_paths::SusiDirs::substrate_home())
+                    .pending()
+                    .map(|g| {
+                        serde_json::json!({
+                            "intent": g.intent,
+                            "grade": g.grade,
+                            "failures": g.failures,
+                            "adopt": g.adopt_command(),
+                        })
+                    })
+                    .collect();
+            if !gaps.is_empty() {
+                out["intent_gaps_pending"] = serde_json::Value::Array(gaps);
+            }
             if done {
                 out["done"] = serde_json::to_value(tasks::list_done(&root))?;
             }

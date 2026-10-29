@@ -29,15 +29,41 @@ pub struct SusiDirs;
 const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);
 
 impl SusiDirs {
-    /// Cached while the service is healthy; retries (bounded) while it is down.
+    /// Cached while the service is healthy; while it is down the local
+    /// resolver answers and the service is retried on a bounded backoff
+    /// ([`loopback::request_with_fallback`]).
     fn fetch_paths() -> HashMap<String, PathBuf> {
-        static CACHE: OnceLock<HashMap<String, PathBuf>> = OnceLock::new();
-        if let Some(cached) = CACHE.get() {
-            return cached.clone();
+        Self::cached_for(&LocalDirs::home_dir(), Self::fetch_paths_uncached)
+    }
+
+    /// The service's answer, cached per home directory. A process whose
+    /// home moves (a test's `EnvGuard` swapping `HOME`/`USERPROFILE`) must
+    /// never be handed the map the service gave for the previous home: one
+    /// process-wide entry resolved every later lookup to the real
+    /// `~/.susi` — `cloud.env` included — whenever an earlier call had
+    /// reached a live paths service.
+    fn cached_for(
+        home: &Path,
+        fetch: impl FnOnce() -> HashMap<String, PathBuf>,
+    ) -> HashMap<String, PathBuf> {
+        /// Home directory → the path map the service answered for it.
+        type PerHome = HashMap<PathBuf, HashMap<String, PathBuf>>;
+        static CACHE: OnceLock<Mutex<PerHome>> = OnceLock::new();
+        let cache = CACHE.get_or_init(Mutex::default);
+        if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(home) {
+            return hit.clone();
         }
-        let map = Self::fetch_paths_uncached();
-        if !map.is_empty() {
-            let _ = CACHE.set(map.clone());
+        let map = fetch();
+        // Only a map the service resolved for *this* home is kept (the
+        // fetch already refuses any other); an empty answer is retried.
+        if map
+            .get("home_dir")
+            .is_some_and(|served| same_path(served, home))
+        {
+            cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(home.to_path_buf(), map.clone());
         }
         map
     }
@@ -55,7 +81,9 @@ impl SusiDirs {
                 timeout: SERVICE_TIMEOUT,
                 auth: loopback::Auth::None,
             };
-            let resp = loopback::request(&ep, "GET", "/paths", None)?;
+            // The local resolver is the fallback, so a closed service port
+            // is backed off instead of re-dialled on every lookup.
+            let resp = loopback::request_with_fallback(&ep, "GET", "/paths", None)?;
             serde_json::from_str::<HashMap<String, PathBuf>>(resp.ok_body()?).ok()
         };
         let map = fetch().unwrap_or_default();
@@ -415,6 +443,68 @@ mod tests {
             "{}",
             home.display()
         );
+    }
+
+    /// A paths-service answer cached while home was A is never served once
+    /// `HOME`/`USERPROFILE` move to B: the swapped home resolves its own
+    /// substrate, not A's (the real `~/.susi`, whose `cloud.env` a
+    /// home-swapped test then overwrote).
+    #[test]
+    fn a_service_map_cached_for_one_home_is_never_served_to_another() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::env::temp_dir().join(format!("susi_paths_cache_{}", std::process::id()));
+        let (a, b) = (root.join("a"), root.join("b"));
+        // Legacy roots pin the layout under each home on every OS.
+        std::fs::create_dir_all(a.join(".susi")).unwrap();
+        std::fs::create_dir_all(b.join(".susi")).unwrap();
+        // Nothing listens here: B's lookup never reaches a live service.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .map(|addr| addr.port())
+            .unwrap();
+        let mut env = test_env::EnvGuard::isolated();
+        for var in [
+            "SUSI_XDG",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+        ] {
+            env.remove(var);
+        }
+        env.set("SUSI_PATHS_PORT", closed.to_string());
+        env.set("HOME", &a);
+        // The service answered for A — say, a live daemon's leaf service.
+        let served = a.join("served-substrate");
+        let map: HashMap<String, PathBuf> = [
+            ("home_dir", a.clone()),
+            ("config_dir", served.clone()),
+            ("data_dir", served.clone()),
+            ("cache_dir", served.clone()),
+            ("substrate_home", served.clone()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        assert_eq!(
+            SusiDirs::cached_for(&LocalDirs::home_dir(), || map.clone()),
+            map
+        );
+        assert_eq!(SusiDirs::substrate_home(), served, "A is served from cache");
+        env.set("HOME", &b);
+        for resolved in [
+            SusiDirs::home_dir(),
+            SusiDirs::config_dir(),
+            SusiDirs::substrate_home(),
+        ] {
+            assert!(
+                resolved.starts_with(&b) && !resolved.starts_with(&a),
+                "after the swap to B, {} must resolve under B",
+                resolved.display()
+            );
+        }
+        assert_eq!(SusiDirs::config_dir(), b.join(".susi"));
+        drop(env);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

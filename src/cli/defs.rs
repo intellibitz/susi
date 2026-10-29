@@ -527,7 +527,9 @@ pub(crate) enum AdminCommands {
     ProviderContract,
     /// The graded user-intent ladder: print the last scorecard (default),
     /// run the full ladder hermetically (--run), or just the bounded
-    /// start-up slice (--slice).
+    /// start-up slice (--slice). The daemon records failing rungs in the
+    /// host outbox (--gaps); an agent adopts one as a repair task in its
+    /// own checkout (--adopt-gap).
     #[command(name = "intent-ladder")]
     IntentLadder {
         /// Run every rung now — hermetic, wall-clock bounded
@@ -540,6 +542,13 @@ pub(crate) enum AdminCommands {
         /// task's close runs; exits nonzero unless the intent passes
         #[arg(long, value_name = "ID")]
         verify: Option<String>,
+        /// Print the host outbox of failing rungs (`<home>/intent-gaps.json`)
+        #[arg(long)]
+        gaps: bool,
+        /// Author the outbox gap for this intent id as a repair task in the
+        /// current checkout, and mark it adopted
+        #[arg(long, value_name = "ID")]
+        adopt_gap: Option<String>,
     },
 }
 
@@ -589,6 +598,24 @@ pub(crate) enum AuditCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+/// Daemon lifecycle and status commands answer from the lock, the contract
+/// ports and the files the daemon writes; none of them touches tools,
+/// catalogs or inference, so none runs the CLI composition root. That root
+/// costs tens of seconds even on a healthy host (catalog priming probes
+/// every launcher), and `daemon-start` composes its own substrate in
+/// `run_daemon_loop` — running the CLI root first had doubled the daemon's
+/// boot before it even took its lock.
+pub(crate) fn command_skips_composition(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::DaemonStart { .. }
+            | Commands::Start
+            | Commands::Stop
+            | Commands::Restart
+            | Commands::Status
+    )
 }
 
 /// Mandate 32: only ensure the daemon for commands that need the background
@@ -682,5 +709,35 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
             )
         }
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{command_skips_composition, Cli};
+    use clap::Parser;
+
+    fn skips(args: &[&str]) -> bool {
+        let cli = Cli::try_parse_from(args).unwrap();
+        command_skips_composition(&cli.command.unwrap())
+    }
+
+    /// Lifecycle and status never run the CLI composition root: on a host
+    /// whose daemon was down, that root alone held `susi start`, `susi
+    /// status` and the daemon's own `daemon-start` for ~13 minutes.
+    #[test]
+    fn lifecycle_and_status_skip_the_cli_composition() {
+        for cmd in [
+            &["susi", "start"][..],
+            &["susi", "stop"],
+            &["susi", "restart"],
+            &["susi", "status"],
+            &["susi", "daemon-start", "--workspace", "x"],
+        ] {
+            assert!(skips(cmd), "{cmd:?} must skip composition");
+        }
+        for cmd in [&["susi", "mcp", "serve"][..], &["susi", "models", "local"]] {
+            assert!(!skips(cmd), "{cmd:?} composes the substrate");
+        }
     }
 }

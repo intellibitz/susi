@@ -287,9 +287,16 @@ surfaces and extension-pack capability strings.
 Exactly two process-entry assembly paths:
 
 1. **CLI** — `susi_daemon::composition::wire_cli_substrate` (from `src/main.rs`)
-   then command dispatch against cwd workspace.
-2. **Daemon** — `SusiDaemon::run` → `wire_engine_hooks` →
-   `bootstrap_zero_config_substrate` → bind host-contract ports 9090–9094.
+   then command dispatch against cwd workspace. Lifecycle and status commands
+   (`start`, `stop`, `restart`, `status`, `daemon-start`) skip it.
+2. **Daemon** — `SusiDaemon::run_daemon_loop` (cwd = substrate home) → lock →
+   `wire_daemon_engine_hooks` (plane handlers + hooks, no discovery) → bind
+   host-contract ports 9090–9094 → `register_contract_providers` (configured
+   cloud endpoints, Candle fallback, tool registry; a supervised one-shot,
+   seconds) beside the leaf services → background
+   `bootstrap_zero_config_substrate` once those providers are in. The
+   contract never waits on discovery, and discovery never runs ahead of the
+   providers the contract answers with.
 
 Sequence (both paths, subset as applicable):
 

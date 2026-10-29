@@ -1,7 +1,9 @@
 //! Composition roots: the only places that assemble concrete adapters.
 //!
 //! - CLI: [`wire_cli_substrate`]
-//! - Daemon: [`wire_engine_hooks`] then [`crate::discovery_pipeline::bootstrap_zero_config_substrate`]
+//! - Daemon: [`wire_daemon_engine_hooks`], the host-contract bind, then
+//!   [`crate::discovery_pipeline::bootstrap_zero_config_substrate`] in the
+//!   background
 //!
 //! See `ARCHITECTURE.md` at the repo root.
 
@@ -469,14 +471,37 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
 /// directory, so a request from any plane resolves. Sibling binaries
 /// (`susi-gemi`, `susi-gmcp`, `susi-gawd`, `susi-dsh-cell`) are not part of
 /// the release image; spawning them left every topic unanswered.
+///
+/// Then registers the configured cloud endpoints as providers. Both happen
+/// once per process: the CLI composition reached this twice (directly and
+/// again through [`wire_engine_hooks`]), and the endpoint registration —
+/// a walk of the whole model catalog plus the credential scout — cost
+/// seconds each time. The daemon's rediscovery loop re-registers endpoints
+/// itself.
 pub fn wire_plane_bus() {
-    susi_gemi::plane_handler::register();
-    susi_gawd::plane_handler::register();
-    susi_tools::plane_handler::register();
-    susi_agents::plane_handler::register();
-    susi_gemi::engines::http_provider::register_configured_cloud_endpoints(
-        susi_gemi::susi_core::registry::CapabilityRegistry::global(),
-    );
+    static WIRED: OnceLock<()> = OnceLock::new();
+    WIRED.get_or_init(|| {
+        wire_plane_handlers();
+        crate::boot_trace::phase("plane-bus: configured cloud endpoints", || {
+            susi_gemi::engines::http_provider::register_configured_cloud_endpoints(
+                susi_gemi::susi_core::registry::CapabilityRegistry::global(),
+            )
+        });
+    });
+}
+
+/// The four plane handlers alone — what a request needs to resolve. Cheap
+/// and idempotent: no discovery, no network.
+pub fn wire_plane_handlers() {
+    static WIRED: OnceLock<()> = OnceLock::new();
+    WIRED.get_or_init(|| {
+        crate::boot_trace::phase("plane-bus: handlers", || {
+            susi_gemi::plane_handler::register();
+            susi_gawd::plane_handler::register();
+            susi_tools::plane_handler::register();
+            susi_agents::plane_handler::register();
+        });
+    });
 }
 
 /// Wire `EngineHooks` so `ToolRegistry` and `susi-gmcp` tool handlers can reach
@@ -484,6 +509,20 @@ pub fn wire_plane_bus() {
 /// are ignored by `OnceLock`.
 pub fn wire_engine_hooks() {
     wire_plane_bus();
+    wire_hooks_and_swarm_host();
+}
+
+/// The daemon's half of [`wire_engine_hooks`]: plane handlers, swarm host and
+/// EngineHooks — everything a request to the host contract needs — without
+/// provider discovery. The daemon registers providers (configured cloud
+/// endpoints, catalogs, local engines) in its zero-config bootstrap, after
+/// the contract is listening; doing it first held the bind for minutes.
+pub fn wire_daemon_engine_hooks() {
+    wire_plane_handlers();
+    wire_hooks_and_swarm_host();
+}
+
+fn wire_hooks_and_swarm_host() {
     wire_swarm_host();
     susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }
@@ -493,12 +532,17 @@ pub fn wire_engine_hooks() {
 /// Does not bind host-contract ports (daemon owns those). Call before command
 /// dispatch that may touch tools, catalogs, or inference.
 pub fn wire_cli_substrate(substrate: &Path) {
-    wire_plane_bus();
-    wire_mcp_serve_substrate(substrate);
+    use crate::boot_trace::phase;
+    phase("cli: plane bus", wire_plane_bus);
+    phase("cli: mcp-serve substrate", || {
+        wire_mcp_serve_substrate(substrate)
+    });
     crate::ambient::start_ambient_indexer(substrate);
     // Catalog priming only: Swarm Cells are long-running servers owned by
     // the daemon, never spawned per CLI invocation.
-    let _ = crate::discovery_pipeline::prime_catalogs(substrate);
+    let _ = phase("cli: prime catalogs", || {
+        crate::discovery_pipeline::prime_catalogs(substrate)
+    });
 }
 
 /// Composition root for `susi mcp serve`: what GMCP's tool handlers reach
@@ -509,19 +553,24 @@ pub fn wire_cli_substrate(substrate: &Path) {
 /// with the session for CPU. The daemon and every other command still run
 /// both.
 pub fn wire_mcp_serve_substrate(substrate: &Path) {
-    wire_engine_hooks();
+    use crate::boot_trace::phase;
+    phase("mcp-serve: engine hooks", wire_engine_hooks);
     let _ = crate::susi_sandbox::extensions::ensure_extensions_substrate();
     let _ = std::fs::create_dir_all(substrate);
-    susi_core::context_graph::ContextGraph::init_global_storage(
-        substrate.join("context_graph.jsonl"),
-    );
+    phase("mcp-serve: context graph", || {
+        susi_core::context_graph::ContextGraph::init_global_storage(
+            substrate.join("context_graph.jsonl"),
+        )
+    });
     crate::privacy::wire_mac_policy(substrate);
     // The registry boots on first use and links the essential MCP servers
     // on a one-shot thread (`gmcp_bootstrap`). Settle both before the first
     // line is read: a session that answered sooner saw its `tools/list`
     // grow under it once the link landed.
-    let _ = susi_tools::ToolRegistry::global();
-    let _ = crate::service_supervision::Supervisor::global().join("mcp-auto-link");
+    phase("mcp-serve: tool registry + mcp auto-link", || {
+        let _ = susi_tools::ToolRegistry::global();
+        let _ = crate::service_supervision::Supervisor::global().join("mcp-auto-link");
+    });
 }
 
 #[cfg(test)]

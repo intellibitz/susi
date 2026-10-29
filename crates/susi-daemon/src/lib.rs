@@ -25,6 +25,7 @@ pub mod audit_log;
 pub mod auto_discovery;
 pub mod auto_tune;
 pub mod blackboard;
+pub mod boot_trace;
 pub mod budget;
 pub mod cas;
 pub mod cell_snapshot;

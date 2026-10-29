@@ -389,6 +389,19 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
             return;
         }
         if std::time::Instant::now() >= deadline {
+            // A live daemon that has not bound yet is still booting, not a
+            // failed start — say which, so nobody kills a daemon mid-boot.
+            let booting = last_pid.filter(|pid| SusiDaemon::process_alive(*pid));
+            if let Some(pid) = booting.filter(|_| !SusiDaemon::host_contract_tcp_ready()) {
+                eprintln!(
+                    "[SUSI Daemon] Not ready: daemon PID {pid} is alive but the host-contract \
+                     ports are not listening after {}s. It is still booting — the boot \
+                     phases are logged to the audit log (set SUSI_BOOT_TRACE=1 on the \
+                     daemon for a per-phase trace).",
+                    START_READY_TIMEOUT.as_secs()
+                );
+                std::process::exit(1);
+            }
             if SusiDaemon::host_contract_tcp_ready() {
                 eprintln!(
                     "[SUSI Daemon] Failed to start. Host-contract TCP ports are listening but \

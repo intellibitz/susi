@@ -33,9 +33,18 @@ impl EnvGuard {
     }
 
     /// Set `var` until drop.
+    ///
+    /// `HOME` also moves `USERPROFILE` on Windows, where the profile is the
+    /// home directory and `HOME` only its fallback: a test that swapped
+    /// `HOME` alone still resolved the operator's real profile, and wrote
+    /// the real `~/.susi/cloud.env` and extension state.
     pub fn set(&mut self, var: &'static str, value: impl AsRef<OsStr>) -> &mut Self {
         self.save(var);
-        std::env::set_var(var, value);
+        std::env::set_var(var, value.as_ref());
+        if cfg!(windows) && var == "HOME" {
+            self.save("USERPROFILE");
+            std::env::set_var("USERPROFILE", value.as_ref());
+        }
         self
     }
 
@@ -59,5 +68,27 @@ impl Drop for EnvGuard {
                 None => std::env::remove_var(var),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EnvGuard;
+
+    /// Swapping `HOME` swaps the whole home: on Windows that is
+    /// `USERPROFILE`, and both come back on drop.
+    #[test]
+    fn a_swapped_home_is_the_resolved_home_and_is_restored() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let before_home = std::env::var_os("HOME");
+        let before_profile = std::env::var_os("USERPROFILE");
+        let tmp = std::env::temp_dir().join(format!("susi_env_guard_{}", std::process::id()));
+        {
+            let mut env = EnvGuard::isolated();
+            env.set("HOME", &tmp);
+            assert_eq!(crate::xdg::home_dir().as_deref(), Some(tmp.as_path()));
+        }
+        assert_eq!(std::env::var_os("HOME"), before_home);
+        assert_eq!(std::env::var_os("USERPROFILE"), before_profile);
     }
 }
