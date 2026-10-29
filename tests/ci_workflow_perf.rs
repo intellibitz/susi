@@ -85,7 +85,20 @@ fn path_with_prefix(prefix: &Path, include_host: bool) -> std::ffi::OsString {
                 paths.extend(std::env::split_paths(&path));
             }
         } else {
-            paths.extend([PathBuf::from("/usr/bin"), PathBuf::from("/bin")]);
+            // The fakes and the shell alone: /usr/bin would bring the host's
+            // own tools along (a cloud container ships /usr/bin/cmake), and a
+            // runner that lacks one could not be staged.
+            let shell = prefix.join("shell");
+            std::fs::create_dir_all(&shell).unwrap();
+            let bash = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .map(|dir| dir.join("bash"))
+                .find(|path| path.is_file())
+                .expect("bash on the host's PATH");
+            let link = shell.join("bash");
+            if !link.exists() {
+                std::os::unix::fs::symlink(bash, &link).unwrap();
+            }
+            paths.push(shell);
         }
         std::env::join_paths(paths).unwrap()
     }
