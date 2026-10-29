@@ -850,9 +850,11 @@ fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
 /// flight and everything it started, not leave them running out the bound or
 /// for good. The caller here starts the batch as `run_import_batch` does (a
 /// group of its own, a stdout pipe it reads, a null stdin), waits until the
-/// import runs, and exits: straight to the interpreter and through a wrapper
-/// script that runs python without exec'ing it, with an import that started a
-/// helper process and one that left the batch's process group.
+/// import runs, and exits: straight to the interpreter, through a wrapper
+/// script that runs python without exec'ing it, and under a startup hook that
+/// restores SIGPIPE's default (which would kill the batch at its first write
+/// to a broken pipe); with an import that started a helper process and one
+/// that left the batch's process group before starting its own.
 #[test]
 #[cfg(unix)]
 fn python_import_batch_ends_with_its_caller() {
@@ -880,9 +882,38 @@ fn python_import_batch_ends_with_its_caller() {
             ),
             (
                 "susi_leaves_the_group",
-                &hangs("os.setpgrp()\n", "str(os.getpid())"),
+                &hangs(
+                    "os.setpgrp()\nhelper = subprocess.Popen(['sleep', '60'])\n",
+                    "'%d %d' % (os.getpid(), helper.pid)",
+                ),
+            ),
+            // The hook's SIGPIPE setting reaches the import, as under `-c`.
+            (
+                "susi_sees_default_sigpipe",
+                &hangs(
+                    "import signal\n\
+                     assert signal.getsignal(signal.SIGPIPE) == signal.SIG_DFL\n\
+                     helper = subprocess.Popen(['sleep', '60'])\n",
+                    "'%d %d' % (os.getpid(), helper.pid)",
+                ),
             ),
         ],
+    );
+    let hook = fixture.root.join("sigpipe-hook");
+    fs::create_dir_all(&hook).unwrap();
+    fs::write(
+        hook.join("sitecustomize.py"),
+        "import signal\nsignal.signal(signal.SIGPIPE, signal.SIG_DFL)\n",
+    )
+    .unwrap();
+    let sigpipe_wrapper = fixture.root.join("python3-sigpipe");
+    write_executable(
+        &sigpipe_wrapper,
+        &format!(
+            "#!/bin/sh\nPYTHONPATH='{}:{}' exec python3 \"$@\"\n",
+            hook.display(),
+            fixture.root.join("pymods").display()
+        ),
     );
     let noexec_wrapper = fixture.root.join("python3-noexec");
     write_executable(
@@ -909,6 +940,7 @@ os._exit(0)
         (&exec_wrapper, "susi_hangs_with_helper"),
         (&noexec_wrapper, "susi_hangs_with_helper"),
         (&exec_wrapper, "susi_leaves_the_group"),
+        (&sigpipe_wrapper, "susi_sees_default_sigpipe"),
     ] {
         let _ = fs::remove_file(&pidfile);
         let out = std::process::Command::new("python3")
@@ -932,46 +964,163 @@ os._exit(0)
     }
 }
 
-/// The batch's lifeline is the stdout pipe, never stdin: an interpreter whose
-/// stdin a wrapper swapped for the null device, with a startup hook that reads
-/// stdin, still answers every module in one batch and at once, as the single
-/// probe (null stdin too) would.
+/// The batch's lifeline is the stdout pipe, never stdin, and its stdin is the
+/// null device the single probe has: an interpreter a wrapper hands a null
+/// stdin, and one under a startup hook that reads stdin to its end, each still
+/// answer every module in one batch and at once.
 #[test]
 #[cfg(unix)]
 fn python_import_batch_does_not_depend_on_stdin() {
     use catalog::ImportVerdict::{Importable, NotImportable};
     let fixture = Fixture::for_kind(CatalogKind::Framework);
     let (counting, log) = counting_python(&fixture.root);
-    let dir = fixture.root.join("stdin-hook");
-    fs::create_dir_all(&dir).unwrap();
+    let hook = fixture.root.join("stdin-hook");
+    fs::create_dir_all(&hook).unwrap();
     fs::write(
-        dir.join("sitecustomize.py"),
+        hook.join("sitecustomize.py"),
         "import sys\nsys.stdin.read()\n",
     )
     .unwrap();
-    let python = dir.join("python3");
+    let null_stdin = fixture.root.join("python3-null-stdin");
     write_executable(
-        &python,
+        &null_stdin,
         &format!(
-            "#!/bin/sh\nPYTHONPATH='{}' exec '{}' \"$@\" </dev/null\n",
-            dir.display(),
+            "#!/bin/sh\nexec '{}' \"$@\" </dev/null\n",
+            counting.display()
+        ),
+    );
+    let reads_stdin = fixture.root.join("python3-reads-stdin");
+    write_executable(
+        &reads_stdin,
+        &format!(
+            "#!/bin/sh\nPYTHONPATH='{}' exec '{}' \"$@\"\n",
+            hook.display(),
             counting.display()
         ),
     );
     let modules = vec!["json".to_string(), "susi_no_such_module_xyz".to_string()];
-    let started = std::time::Instant::now();
-    let verdicts = catalog::probe_imports(&python, &modules, std::time::Duration::from_secs(5));
-    assert_eq!(verdicts.get("json"), Some(&Importable));
-    assert_eq!(
-        verdicts.get("susi_no_such_module_xyz"),
-        Some(&NotImportable)
+    for (n, python) in [&null_stdin, &reads_stdin].into_iter().enumerate() {
+        let started = std::time::Instant::now();
+        let verdicts = catalog::probe_imports(python, &modules, std::time::Duration::from_secs(5));
+        let case = python.display();
+        assert_eq!(verdicts.get("json"), Some(&Importable), "{case}");
+        assert_eq!(
+            verdicts.get("susi_no_such_module_xyz"),
+            Some(&NotImportable),
+            "{case}"
+        );
+        assert_eq!(starts(&log), n + 1, "{case}: one batch answered both");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "{case}: {:?}",
+            started.elapsed()
+        );
+    }
+}
+
+/// A stopped susi (Ctrl-Z) does not stop the batch, which runs on in a group
+/// of its own and leaves its answers in the pipe. Resumed past its deadline,
+/// the caller must read them, not call the import it was waiting on stuck.
+/// The test runs `stopped_caller_probe` in a child process, stops that child
+/// while its import runs for longer than the caller's bound, and resumes it.
+/// Whether the reader thread has passed the answer on by the time the caller
+/// looks is a race, so a caller that drops waiting answers fails this test
+/// most of the time (7 runs in 10), not every time.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_answers_are_read_after_the_caller_was_stopped() {
+    struct Resume(std::process::Child);
+    impl Drop for Resume {
+        fn drop(&mut self) {
+            let pid = self.0.id().to_string();
+            let _ = std::process::Command::new("kill")
+                .args(["-CONT", &pid])
+                .status();
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let marker = fixture.root.join("import-started");
+    python_with_modules(
+        &fixture.root,
+        &[(
+            "susi_slow_import",
+            &format!(
+                "import time\nopen('{}', 'w').close()\ntime.sleep(0.5)\n",
+                marker.display()
+            ),
+        )],
     );
-    assert_eq!(starts(&log), 1, "one batch answered both modules");
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "external::tests::stopped_caller_probe",
+            "--test-threads=1",
+        ])
+        .env("SUSI_STOPPED_CALLER_ROOT", &fixture.root)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut child = Resume(child);
+    let pid = child.0.id().to_string();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !marker.exists() {
+        assert!(
+            std::time::Instant::now() < until,
+            "the import never started"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Stopped past the caller's bound (per-import 1 s + 2 s); the batch
+    // answers within its own 1 s meanwhile.
+    assert!(std::process::Command::new("kill")
+        .args(["-STOP", &pid])
+        .status()
+        .unwrap()
+        .success());
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    assert!(std::process::Command::new("kill")
+        .args(["-CONT", &pid])
+        .status()
+        .unwrap()
+        .success());
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(3),
-        "{:?}",
-        started.elapsed()
+        child.0.wait().unwrap().success(),
+        "the probe in the child failed"
     );
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("verdicts")).unwrap(),
+        "Some(Importable) Some(Importable)",
+        "an answer that waited in the pipe while the caller was stopped was lost"
+    );
+}
+
+/// The child half of the test above; without its fixture it does nothing.
+#[test]
+#[ignore = "run by python_import_batch_answers_are_read_after_the_caller_was_stopped"]
+#[cfg(unix)]
+fn stopped_caller_probe() {
+    let Some(root) = std::env::var_os("SUSI_STOPPED_CALLER_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let verdicts = catalog::probe_imports(
+        &root.join("python3-with-modules"),
+        &["susi_slow_import".to_string(), "json".to_string()],
+        std::time::Duration::from_secs(1),
+    );
+    fs::write(
+        root.join("verdicts"),
+        format!(
+            "{:?} {:?}",
+            verdicts.get("susi_slow_import"),
+            verdicts.get("json")
+        ),
+    )
+    .unwrap();
 }
 
 /// A fork the system refuses, on the first module or a later one, leaves the
