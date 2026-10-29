@@ -504,24 +504,26 @@ pub(super) fn with_scan_verdicts_for_test<T>(
 /// and that module and the rest get the single probe.
 ///
 /// The batch sits in a process group of its own (`own-group`), which a
-/// terminal's Ctrl-C does not reach, so it watches its caller instead: the
-/// caller holds the write end of the batch's stdin and never writes, and end
-/// of file there means the caller is gone, whatever runs between them (a
-/// wrapper script that does not exec). The batch then kills its whole group,
-/// the import in flight and anything it started included, as the Ctrl-C
-/// would have killed the single probe's.
+/// terminal's Ctrl-C does not reach, so it watches its caller instead: while
+/// an import runs it writes an empty line to its stdout about every 50 ms (the
+/// caller skips untagged lines), and a broken pipe means the caller is gone,
+/// whatever runs between them (a wrapper script that does not exec). stdin
+/// stays the null device the single probe has. The batch then kills the
+/// import, even one that left the group, and the whole group with it, so
+/// anything the import started goes too, as the Ctrl-C would have killed the
+/// single probe's.
 pub(super) const BATCH_SCRIPT: &str = "keep = set(globals())
 import os, sys, time
 token, bound, own_group = sys.argv[1], float(sys.argv[2]), sys.argv[3] == 'own-group'
-os.set_blocking(0, False)
 def say(kind, m):
     sys.stdout.write('\\n%s %s %s\\n' % (token, kind, m))
     sys.stdout.flush()
 def caller_gone():
     try:
-        return os.read(0, 1) == b''
-    except BlockingIOError:
-        return False
+        os.write(1, b'\\n')
+    except OSError:
+        return True
+    return False
 def batch():
     for m in sys.argv[4:]:
         say('begin', m)
@@ -539,18 +541,22 @@ def batch():
             sys.argv = ['-c']
             return m
         deadline = time.monotonic() + bound
+        beat = 0.0
         while True:
             done, status = os.waitpid(pid, os.WNOHANG)
             if done:
                 ok = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
                 say('ok' if ok else 'fail', m)
                 break
-            if caller_gone():
-                if own_group:
-                    os.killpg(0, 9)
-                os.kill(pid, 9)
-                os._exit(1)
-            if time.monotonic() > deadline:
+            now = time.monotonic()
+            if now > beat:
+                beat = now + 0.05
+                if caller_gone():
+                    os.kill(pid, 9)
+                    if own_group:
+                        os.killpg(0, 9)
+                    os._exit(1)
+            if now > deadline:
                 os.kill(pid, 9)
                 os.waitpid(pid, 0)
                 say('timeout', m)
@@ -651,13 +657,13 @@ fn run_import_batch(
         .arg(per_import.as_secs_f64().to_string())
         .arg("own-group")
         .args(modules)
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     // Its own process group, so an interpreter that stopped answering is
     // killed with the import it was waiting on. A Ctrl-C no longer reaches
-    // it; its stdin is the lifeline instead, held open below and never
-    // written, so it reads end of file once this process is gone.
+    // it; the stdout pipe read below is its lifeline instead, broken once
+    // this process is gone.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -666,7 +672,6 @@ fn run_import_batch(
     let Ok(mut child) = cmd.spawn() else {
         return BatchEnd::Died(None);
     };
-    let _lifeline = child.stdin.take();
     let Some(stdout) = child.stdout.take() else {
         kill_batch(&mut child);
         return BatchEnd::Died(None);
