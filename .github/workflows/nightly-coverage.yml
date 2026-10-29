@@ -1,0 +1,79 @@
+name: Nightly Coverage Audit
+
+on:
+  schedule:
+    # Daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      update:
+        description: 'Rewrite coverage baseline floors to measured values'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  coverage:
+    name: Full Workspace Coverage Ratchet
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust (llvm-tools)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+          cache-targets: "false"
+          shared-key: coverage
+
+      - name: Cache llvm-cov target dir
+        uses: actions/cache@v4
+        with:
+          path: target/llvm-cov-target
+          key: llvm-cov-v2-${{ hashFiles('Cargo.lock') }}
+          restore-keys: llvm-cov-v2-
+
+      - name: Install Linux System Dependencies
+        run: scripts/ci-system-deps.sh
+
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
+
+      - name: Install wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
+      - name: Install cargo-llvm-cov and cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        run: scripts/ci-prefetch-onnxruntime.sh
+
+      - name: Run Workspace Coverage Ratchet
+        env:
+          TMPDIR: ${{ runner.temp }}
+          CARGO_TARGET_DIR: target/llvm-cov-target
+        run: |
+          if [ "${{ inputs.update }}" = "true" ]; then
+            scripts/coverage-ratchet.sh --update
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .agents/coverage-baseline.json
+            git diff --cached --quiet || git commit -m "chore: ratchet coverage baselines [skip ci]"
+            git push origin main
+          else
+            scripts/coverage-ratchet.sh
+          fi
