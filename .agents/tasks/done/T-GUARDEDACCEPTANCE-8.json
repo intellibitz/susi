@@ -20,5 +20,10 @@
     ]
   },
   "created_by": "GUARDEDACCEPTANCE",
-  "created_unix": 1793288912
+  "created_unix": 1793288912,
+  "closed": {
+    "at_unix": 1793290802,
+    "commit": "7c22584dc9a06478c45ec900aecc41d0842cacd7",
+    "by": "GUARDEDACCEPTANCE"
+  }
 }
