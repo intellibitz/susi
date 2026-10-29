@@ -176,13 +176,34 @@ pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
     history
 }
 
-/// Each model's mean provider-call latency, from the ledger.
+/// Each model's mean provider-call latency, from the ledger, keyed by the
+/// registry id ([`canonical`]).
+///
+/// A client of the gateway may name a model by an alias (`coder`) or with the
+/// `susi/` prefix, and the ledger keeps the name it used; the fleet ranks by
+/// registry id, so the calls under every name of one model are one record.
 #[must_use]
 pub fn latencies(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
-    history(entries)
+    let mut timed: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+    for (model, record) in history(entries) {
+        let slot = timed.entry(canonical(&model)).or_default();
+        slot.0 = slot.0.saturating_add(record.latency_ms);
+        slot.1 = slot.1.saturating_add(record.timed_calls);
+    }
+    timed
         .into_iter()
-        .filter_map(|(model, record)| Some((model, record.mean_latency_ms()?)))
+        .filter_map(|(model, (total, calls))| Some((model, total.checked_div(calls)?)))
         .collect()
+}
+
+/// The registry id a ledger row's model name stands for: an alias is
+/// followed and a `susi/` prefix dropped. A name the registry does not know
+/// is kept as written.
+#[must_use]
+pub fn canonical(model: &str) -> String {
+    crate::providers::Registry::builtin()
+        .canonical_id(model)
+        .to_string()
 }
 
 /// How long a provider failure is remembered for cooling down.
@@ -227,35 +248,94 @@ pub fn cooling_providers(entries: &[LedgerEntry], now_unix_ms: u64) -> BTreeSet<
         .collect()
 }
 
-/// Models whose most recent real call failed, with when it failed (ms since
-/// the epoch).
+/// How a model's most recent real call failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelFailure {
+    /// When the call ended, in milliseconds since the Unix epoch.
+    pub at_unix_ms: u64,
+    /// The provider's answer, as the gateway or the probe classed it.
+    pub class: FailureClass,
+}
+
+impl ModelFailure {
+    /// Whether waiting cannot change the answer: the provider refused the key
+    /// or has no credit for it (`NoCredit`, which the gateway writes for 401,
+    /// 402 and 403 and for an "insufficient balance" body). Such a model is
+    /// inactive until a later real call succeeds, which only a probe makes
+    /// once the model is off the ladder.
+    ///
+    /// Every other class is transient: a rate limit, a timeout, an overloaded
+    /// or failing provider (5xx), a dropped connection. One such answer used to
+    /// take the model off the ladder for the rest of a mission, so a fleet of
+    /// one model failed every remaining task without a call after a single
+    /// 429. A transient failure now only moves the model back for
+    /// [`COOLDOWN_MS`] ([`arrange`], [`in_force`]).
+    #[must_use]
+    pub fn definitive(&self) -> bool {
+        self.class == FailureClass::NoCredit
+    }
+}
+
+/// Models whose most recent real call failed, with when and how, keyed by the
+/// registry id ([`canonical`]).
 ///
 /// The actual API calls are the source of truth for whether a model works: a
-/// model whose last call to its provider failed is inactive, whatever its
-/// budget, balance or listing says, until a later real call succeeds (a task's
-/// call, or [`crate::fleet`]'s probe). Only provider calls count: a gateway
-/// row (`Completed` or `ModelFailed`), never a task verdict, since rejected
-/// work is about the task, and never an answer the gateway's own cache gave.
+/// model whose last call to its provider failed is judged on that call,
+/// whatever its budget, balance or listing says, until a later real call
+/// succeeds (a task's call, or [`crate::fleet`]'s probe). A definitive failure
+/// ([`ModelFailure::definitive`]) makes it inactive; a transient one cools it
+/// down. Only provider calls count: a gateway row (`Completed` or
+/// `ModelFailed`), never a task verdict, since rejected work is about the
+/// task, and never an answer the gateway's own cache gave.
+///
+/// Rows are grouped by registry id because a gateway client may call a model
+/// by an alias or with the `susi/` prefix, and the gateway records the name
+/// the client used: a refused `coder` call must take `deepseek-flash` off the
+/// fleet, and a later good `coder` call must bring it back.
 #[must_use]
-pub fn failed_models(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
-    let mut last: BTreeMap<&str, (u64, bool)> = BTreeMap::new();
+pub fn failed_models(entries: &[LedgerEntry]) -> BTreeMap<String, ModelFailure> {
+    let mut last: BTreeMap<String, (u64, Option<FailureClass>)> = BTreeMap::new();
     for entry in entries {
-        let ok = match &entry.outcome {
-            Outcome::Completed if !entry.cached => true,
-            Outcome::ModelFailed { .. } => false,
+        let failure = match &entry.outcome {
+            Outcome::Completed if !entry.cached => None,
+            Outcome::ModelFailed { class } => Some(*class),
             Outcome::Completed
             | Outcome::Accepted
             | Outcome::Rejected { .. }
             | Outcome::Cancelled => continue,
         };
-        let slot = last.entry(entry.model.as_str()).or_insert((0, true));
+        let slot = last.entry(canonical(&entry.model)).or_insert((0, None));
         if entry.ended_unix_ms >= slot.0 {
-            *slot = (entry.ended_unix_ms, ok);
+            *slot = (entry.ended_unix_ms, failure);
         }
     }
     last.into_iter()
-        .filter(|(_, (_, ok))| !ok)
-        .map(|(model, (at, _))| (model.to_string(), at))
+        .filter_map(|(model, (at_unix_ms, class))| {
+            Some((
+                model,
+                ModelFailure {
+                    at_unix_ms,
+                    class: class?,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// The failures that still decide a task's order at `now_unix_ms`: every
+/// definitive one, and a transient one for [`COOLDOWN_MS`] after it ended. A
+/// rate limit an hour ago says nothing about the model now, and a model at
+/// the back of the ladder may not be called again to clear it.
+#[must_use]
+pub fn in_force(
+    failures: BTreeMap<String, ModelFailure>,
+    now_unix_ms: u64,
+) -> BTreeMap<String, ModelFailure> {
+    failures
+        .into_iter()
+        .filter(|(_, failure)| {
+            failure.definitive() || failure.at_unix_ms.saturating_add(COOLDOWN_MS) >= now_unix_ms
+        })
         .collect()
 }
 
@@ -279,19 +359,24 @@ pub struct Standing<'a> {
     pub history: &'a BTreeMap<String, ModelHistory>,
     /// Providers cooling down ([`cooling_providers`]).
     pub cooling: &'a BTreeSet<String>,
-    /// Models whose last real call failed ([`failed_models`]).
-    pub failed: &'a BTreeMap<String, u64>,
+    /// Models whose last real call failed ([`failed_models`]), keyed by
+    /// registry id. A caller with a clock passes only the failures still in
+    /// force ([`in_force`]).
+    pub failed: &'a BTreeMap<String, ModelFailure>,
 }
 
 /// The order one task tries its models in.
 ///
 /// The fleet's ladder is the policy: it already ranks expiring credit, cache,
 /// price and capability. The task's own model goes first, then the ladder in
-/// its order. A model whose last real call failed ([`failed_models`]) is left
-/// out: the calls decide. The rest only move back, and their order is
+/// its order. A model whose last real call failed definitively
+/// ([`ModelFailure::definitive`]: the key was refused or has no credit) is
+/// left out: the calls decide. The rest only move back, and their order is
 /// otherwise kept: a model whose record is [`ModelHistory::unreliable`] goes
 /// behind the healthy ones, and a model whose provider is cooling down
-/// ([`cooling_providers`]) goes to the end.
+/// ([`cooling_providers`]) or whose own last call failed transiently (a rate
+/// limit, a timeout, a 5xx) goes to the end. A transient failure never takes
+/// a model off: with one model, that model still runs.
 #[must_use]
 pub fn arrange(
     preferred: &str,
@@ -304,15 +389,18 @@ pub fn arrange(
         cooling,
         failed,
     } = *standing;
+    let failure = |model: &str| failed.get(&canonical(model));
     let mut models = vec![preferred.to_string()];
     for model in ladder {
         if !models.contains(model) {
             models.push(model.clone());
         }
     }
-    models.retain(|model| !failed.contains_key(model));
+    models.retain(|model| !failure(model).is_some_and(ModelFailure::definitive));
     let standing = |model: &String| -> u8 {
-        if provider_of(model).is_some_and(|provider| cooling.contains(&provider)) {
+        if failure(model).is_some()
+            || provider_of(model).is_some_and(|provider| cooling.contains(&provider))
+        {
             2
         } else if history.get(model).is_some_and(|record| record.unreliable()) {
             1
@@ -951,6 +1039,23 @@ mod tests {
     }
 
     #[test]
+    fn latency_under_an_alias_counts_for_the_registry_model() {
+        let timed = |model: &str, task: &str, took: u64| {
+            let mut entry = row((task, 1), model, "deepseek", 0, Outcome::Completed);
+            entry.ended_unix_ms = took;
+            entry
+        };
+        let entries = vec![
+            timed("deepseek-flash", "A", 100),
+            timed("coder", "B", 300),
+            timed("susi/deepseek-flash", "C", 500),
+        ];
+        let measured = latencies(&entries);
+        assert_eq!(measured.get("deepseek-flash"), Some(&300), "{measured:?}");
+        assert!(!measured.contains_key("coder"), "{measured:?}");
+    }
+
+    #[test]
     fn a_light_workers_failure_goes_to_the_strong_fixers_first() {
         let ladder: Vec<String> = [
             "deepseek-flash",
@@ -1000,18 +1105,29 @@ mod tests {
                 failed(FailureClass::RateLimited),
             ),
             row(("T", 1), "healed", "p", 20, Outcome::Completed),
-            // Worked, then failed: inactive, whatever else is true of it.
+            // Worked, then its key was refused: inactive, whatever else is
+            // true of it.
             row(("T", 1), "broken", "p", 10, Outcome::Completed),
-            row(("T", 1), "broken", "p", 30, failed(FailureClass::Other)),
+            row(("T", 1), "broken", "p", 30, failed(FailureClass::NoCredit)),
+            // Worked, then hit an overload: it failed, but only for now.
+            row(("T", 1), "busy", "p", 10, Outcome::Completed),
+            row(("T", 1), "busy", "p", 35, failed(FailureClass::Other)),
             // A rejected task is about the task, not the model's API.
             row(("T", 1), "judged", "p", 10, Outcome::Completed),
             row(("T", 1), "judged", "p", 40, rejected()),
         ];
         let failed = failed_models(&entries);
-        assert_eq!(failed.keys().collect::<Vec<_>>(), vec!["broken"]);
-        assert_eq!(failed["broken"], 30);
-        // A failed model is left out of a task's order, even the task's own.
-        let ladder = vec!["broken".to_string(), "healed".to_string()];
+        assert_eq!(failed.keys().collect::<Vec<_>>(), vec!["broken", "busy"]);
+        assert_eq!(failed["broken"].at_unix_ms, 30);
+        assert!(failed["broken"].definitive());
+        assert!(!failed["busy"].definitive());
+        // A model whose key was refused is left out of a task's order, even
+        // the task's own; one that failed transiently only goes to the back.
+        let ladder = vec![
+            "broken".to_string(),
+            "busy".to_string(),
+            "healed".to_string(),
+        ];
         let order = arrange(
             "broken",
             &ladder,
@@ -1022,7 +1138,95 @@ mod tests {
             },
             &|_| None,
         );
-        assert_eq!(order, vec!["healed".to_string()]);
+        assert_eq!(order, vec!["healed".to_string(), "busy".to_string()]);
+    }
+
+    /// The observed failure: one model, one 429 that outlived the same-model
+    /// retry, and every later task of the mission failed with no call at all,
+    /// because the model's last row was a failure and it was dropped.
+    #[test]
+    fn a_fleet_of_one_model_still_runs_it_after_a_transient_failure() {
+        for class in [
+            FailureClass::RateLimited,
+            FailureClass::Timeout,
+            FailureClass::Other,
+        ] {
+            let entries = vec![
+                row(("T1", 1), "only", "p", 10, Outcome::Completed),
+                row(("T2", 2), "only", "p", 20, failed(class)),
+            ];
+            let order = arrange(
+                "only",
+                &["only".to_string()],
+                &Standing {
+                    history: &history(&entries),
+                    cooling: &cooling_providers(&entries, 20),
+                    failed: &failed_models(&entries),
+                },
+                &|_| Some("p".to_string()),
+            );
+            assert_eq!(order, vec!["only".to_string()], "{class:?}");
+        }
+    }
+
+    #[test]
+    fn a_transient_failure_cools_for_the_cooldown_and_a_refusal_lasts() {
+        let entries = vec![
+            row(
+                ("T", 1),
+                "busy",
+                "p",
+                1_000,
+                failed(FailureClass::RateLimited),
+            ),
+            row(
+                ("T", 1),
+                "refused",
+                "q",
+                1_000,
+                failed(FailureClass::NoCredit),
+            ),
+        ];
+        let soon = in_force(failed_models(&entries), 1_000 + COOLDOWN_MS);
+        assert_eq!(soon.keys().collect::<Vec<_>>(), vec!["busy", "refused"]);
+        let later = in_force(failed_models(&entries), 1_001 + COOLDOWN_MS);
+        assert_eq!(later.keys().collect::<Vec<_>>(), vec!["refused"]);
+    }
+
+    /// A gateway client may call a model by an alias or with the `susi/`
+    /// prefix; the ledger keeps that name, but the fleet asks by registry id.
+    #[test]
+    fn a_refused_call_through_an_alias_takes_the_registry_model_off() {
+        let refused = vec![row(
+            ("T", 1),
+            "coder",
+            "deepseek",
+            10,
+            failed(FailureClass::NoCredit),
+        )];
+        let failed = failed_models(&refused);
+        assert!(failed["deepseek-flash"].definitive(), "{failed:?}");
+        let order = arrange(
+            "deepseek-flash",
+            &["deepseek-flash".to_string(), "deepseek-pro".to_string()],
+            &Standing {
+                history: &BTreeMap::new(),
+                cooling: &BTreeSet::new(),
+                failed: &failed,
+            },
+            &|_| None,
+        );
+        assert_eq!(order, vec!["deepseek-pro".to_string()]);
+        // A later good call under another name brings it back.
+        let mut healed = refused.clone();
+        healed.push(row(
+            ("T", 2),
+            "susi/deepseek-flash",
+            "deepseek",
+            20,
+            Outcome::Completed,
+        ));
+        assert!(failed_models(&healed).is_empty());
     }
 
     #[test]

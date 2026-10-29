@@ -5,7 +5,9 @@ that: nothing uncommitted and no merge left half-resolved, a claim whose lease
 is not about to lapse, a live primary-checkout watcher, and how many of your
 finished worktrees are still lying around. It prints the command that fixes each
 ❌, and warnings (a work in progress, a stale watcher, reclaimable worktrees)
-never block work. (No installed susi? `cargo run -q -- workflow check`.)
+never block work. (No installed susi? `scripts/target-guard.sh --run cargo run
+-q -- workflow check`: cargo builds into the shared target, so it goes through
+the guard like any other cargo; see step 1.)
 
 The agent loop is **atomic per task** (own worktree, always synced with
 `origin/main` so parallel agents stay current):
@@ -23,12 +25,25 @@ The agent loop is **atomic per task** (own worktree, always synced with
    never in the primary, never over a `target/` that already holds a build, and
    `SUSI_PRIVATE_TARGET=1` opts out); cargo locks the build directory, so two
    sessions compiling at the same moment wait for each other.
-   **Run `scripts/target-guard.sh` before you run cargo yourself.** Cargo
-   names a workspace crate's build by its path relative to the workspace, so a
-   crate a sibling worktree built last reads as fresh in yours, and your
-   build or test then uses the other branch's code. The guard rebuilds exactly
-   the crates whose content differs (about 2 s). `sync`, the `finish` gate,
-   the pre-push hook and `tasks close` run it for you.
+   **Run your own cargo through the guard: `scripts/target-guard.sh --run
+   cargo test -p <crate>`.** Cargo names a workspace crate's build by its
+   path relative to the workspace, so a crate a sibling worktree built last
+   reads as fresh in yours, and your build or test then uses the other
+   branch's code. The guard drops the shared builds of exactly the crates
+   whose content differs from yours (their sources, and the files outside
+   their directory they compile in: `config/`, `deploy/`, the `.agents/`
+   ledgers), and `--run` holds the target until your command ends, so no
+   other worktree's guard and build land in between (a second guarded build
+   waits for the first, whichever Git install's shell runs it). A plain
+   `cargo` is not trusted: the next guard rebuilds every crate it rebuilt,
+   since nothing says from whose content. The `finish` gate, the pre-push
+   hook and `tasks close` guard themselves; do not run them under
+   `scripts/target-guard.sh --run`. Guards nest, so that would not deadlock,
+   but an outer `--run` holds the shared target through finish's whole CI
+   wait while every other worktree's build waits. Without an installed susi,
+   build it guarded (`scripts/target-guard.sh --run cargo build -q`) and run
+   `target/debug/susi workflow finish <id>` outside the guard; wrap only
+   `workflow check` as above. `sync` builds nothing and needs no guard.
 2. **Sync, then claim one task:** if behind, `git fetch && git merge
    origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
    claim at a time. Nobody starts a claimed task.
@@ -48,13 +63,17 @@ The agent loop is **atomic per task** (own worktree, always synced with
    and take the next claim. Do not push to `main`, tag, or cut a release;
    pushed branches open and merge their own PR.
 
-**Mandate 61 (Harness-Driven Workflow).** Every susi workflow runs through
-`susi harness`. The harness claims the task, prepares the worktree, runs the
-worker, checks the acceptance and publishes; an agent starts it with
-`susi harness plan` and `susi harness run` rather than hand-running
-`workflow finish`, `tasks claim` or `tasks close`. Workflow steps run outside
-the harness are defects to fix in the harness. Mandates 49 and 50 still hold
-inside it. The text is compiled into the genome from `.agents/identity.json`.
+**Mandate 61 (Harness-Driven Workflow).** The steps above are the loop the
+harness runs for you. When it can run here (a gateway and provider keys),
+start work with `susi harness plan` and `susi harness run`: they claim the
+task, prepare the worktree, run the worker, check the acceptance and publish
+through `workflow finish`. Inside a harness run the loop is the harness's
+alone: a worker command that calls `tasks claim`, `tasks close`, `tasks
+release` or `workflow start`, `sync` or `finish` is refused. Outside the
+harness (no gateway or keys, or a step it cannot do yet) steps 1–5 by hand are
+the supported path, and every step the harness cannot do yet is a defect to
+fix in the harness. Mandates 49 and 50 hold either way. The genome carries the
+mandate from `.agents/identity.json`.
 
 This block is loaded for you: `CLAUDE.md`, `GEMINI.md`,
 and `.github/copilot-instructions.md` each point every agent tool here, and
@@ -406,8 +425,8 @@ fails if a mandate goes missing or names an enforcement file that does not exist
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+scripts/target-guard.sh --run cargo clippy --workspace --all-targets --locked -- -D warnings
+scripts/target-guard.sh --run cargo test --workspace --locked
 ```
 
 ## Multi-agent parallel work

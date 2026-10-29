@@ -8,8 +8,12 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Read at run time, not compile time: worktrees share one target, and a
+/// build-script binary that `env!` baked one worktree's path into read that
+/// worktree's `.agents/` when cargo reused it for another.
 fn agents_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents")
+    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"))
+        .join("../../.agents")
 }
 
 fn main() {

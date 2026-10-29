@@ -83,6 +83,7 @@ case "$1 $2" in
 api\ *)
   for a in "$@"; do case "$a" in
     *"compare/main"*)
+      [ -f "$D/compare_fail" ] && { echo "HTTP 502" >&2; exit 1; }
       spec=$(echo "${a##*compare/}" | tr '/.' '__')
       cat "$D/cmp-$spec" 2>/dev/null || cat "$D/comparison" 2>/dev/null || echo ahead ;;
     *"compare/"*)
@@ -90,7 +91,9 @@ api\ *)
     *"pulls/"*)
       cat "$D/prcommits" 2>/dev/null || echo '[]' ;;
   esac; done ;;
-"pr list") jq -r "$(jqexpr "$@")" "$D/prs.json" ;;
+"pr list")
+  [ -f "$D/prlist_fail" ] && { echo "HTTP 502" >&2; exit 1; }
+  jq -r "$(jqexpr "$@")" "$D/prs.json" ;;
 "pr merge") if [ -f "$D/merge_fail" ]; then echo "merge refused" >&2; exit 1; fi ;;
 "pr update-branch") if [ -f "$D/update_fail" ]; then echo "branch is not mergeable" >&2; exit 1; fi ;;
 "pr view")
@@ -103,6 +106,7 @@ api\ *)
 "pr close") ;;
 "workflow run") ;;
 "run list")
+  [ -f "$D/runlist_fail" ] && { echo "HTTP 502" >&2; exit 1; }
   sha=$(argafter --commit "$@")
   if jq -e --arg s "$sha" 'has($s)' "$D/runs.json" >/dev/null; then arr="[$(jq -c --arg s "$sha" '.[$s]' "$D/runs.json")]"; else arr='[]'; fi
   echo "$arr" | jq -r "$(jqexpr "$@")" ;;
@@ -176,6 +180,13 @@ exec "{}" "$@"
         .env_remove("GIT_AUTHOR_EMAIL")
         .env_remove("GIT_COMMITTER_NAME")
         .env_remove("GIT_COMMITTER_EMAIL")
+        // The merge bot's switches and the gate's wrappers come from the
+        // test, never from the shell that runs it.
+        .env_remove("SUSI_INLINE_MERGE_GATE")
+        .env_remove("SUSI_NO_RESYNC")
+        .env_remove("SUSI_RECONCILING")
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER")
         .envs(envs.iter().copied())
         .output()
         .unwrap();
@@ -451,8 +462,20 @@ fn a_reconcile_pass_that_merges_starts_one_follow_up_and_an_idle_one_none() {
         ]),
         serde_json::json!({"s1": green(), "s2": green()}),
     );
-    let (code, out) = f.script("reconcile-prs.sh", &["o/r"]);
+    // A pass that carries the gate, so it processes the whole queue.
+    let (code, out) = f.script_env(
+        "reconcile-prs.sh",
+        &["o/r"],
+        &[("SUSI_INLINE_MERGE_GATE", "1")],
+    );
     assert_eq!(code, 0, "{out}\ncalls: {}", f.calls());
+    for n in [1, 2] {
+        assert!(
+            f.calls().contains(&format!("pr merge {n} --repo o/r")),
+            "{}",
+            f.calls()
+        );
+    }
     assert_eq!(
         f.calls()
             .matches("workflow run auto-merge.yml --repo o/r --ref main")
@@ -688,12 +711,12 @@ fn the_reconciler_rebases_only_the_oldest_green_candidate_per_pass() {
     );
 }
 
-/// Mergeable PRs still merge in the same pass — but once one lands, at most
-/// one follower is rebased; the rest wait for it to land first.
+/// A pass whose probe installed the gate merges the followers its own first
+/// merge turned stale in place — merge tree, gate, merge — with no rebase.
 #[test]
-fn the_reconciler_merges_ahead_prs_then_rebases_one_follower() {
+fn a_pass_with_the_gate_merges_the_followers_its_own_merge_made_stale() {
     let f = Fake::new(
-        "rec-mix",
+        "rec-mix-gated",
         serde_json::json!([
             pr(12, "feat-newest", "s12", NOW, false),
             pr(3, "feat-older", "s3", NOW, false),
@@ -705,13 +728,223 @@ fn the_reconciler_merges_ahead_prs_then_rebases_one_follower() {
     f.flag("cmp-main___s3", "ahead");
     f.flag("cmp-main___s9", "behind");
     f.flag("cmp-main___s12", "behind");
-    let (code, out) = f.script("reconcile-prs.sh", &["o/r"]);
+    let gate = f.gate_stub();
+    let (code, out) = f.script_env(
+        "reconcile-prs.sh",
+        &["o/r"],
+        &[("SUSI_INLINE_MERGE_GATE", "1"), ("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 0, "{out}");
+    let calls = f.calls();
+    for n in [3, 9, 12] {
+        assert!(
+            calls.contains(&format!("pr merge {n} --repo o/r")),
+            "{calls}"
+        );
+    }
+    assert!(!calls.contains("update-branch"), "{calls}");
+    let gatecalls = std::fs::read_to_string(f.dir.join("gatecalls")).unwrap();
+    assert_eq!(gatecalls.lines().count(), 2, "{gatecalls}");
+}
+
+/// A pass whose probe found nothing stale installed no toolchain, and its
+/// first merge makes every other green head stale. Gating them there failed in
+/// clippy (no sccache) and told each PR its merge "fails the compile gate";
+/// rebasing them costs each a retest. The pass stops at its first merge and
+/// the follow-up pass it dispatches probes again and gates the rest.
+#[test]
+fn a_pass_without_the_gate_merges_one_pr_and_leaves_the_rest_to_the_follow_up_pass() {
+    let f = Fake::new(
+        "rec-mix",
+        serde_json::json!([
+            pr(12, "feat-newest", "s12", NOW, false),
+            pr(3, "feat-older", "s3", NOW, false),
+            pr(9, "feat-newer", "s9", NOW, false),
+        ]),
+        serde_json::json!({"s3": green(), "s9": green(), "s12": green()}),
+    );
+    f.flag("cmp-main___s3", "ahead");
+    f.flag("cmp-main___s9", "diverged");
+    f.flag("cmp-main___s12", "behind");
+    let gate = f.gate_stub();
+    // The pass's probe answered false: the workflow hands the script `0`.
+    let (code, out) = f.script_env(
+        "reconcile-prs.sh",
+        &["o/r"],
+        &[("SUSI_INLINE_MERGE_GATE", "0"), ("SUSI_MERGE_GATE", &gate)],
+    );
     assert_eq!(code, 0, "{out}");
     let calls = f.calls();
     assert!(calls.contains("pr merge 3 --repo o/r"), "{calls}");
-    assert!(calls.contains("pr update-branch 9 --repo o/r"), "{calls}");
-    assert!(!calls.contains("pr update-branch 12"), "{calls}");
-    assert!(!calls.contains("pr merge 9"), "{calls}");
+    for n in [9, 12] {
+        assert!(!calls.contains(&format!("pr merge {n}")), "{calls}");
+        assert!(!calls.contains(&format!("update-branch {n}")), "{calls}");
+    }
+    assert!(
+        !f.dir.join("gatecalls").exists(),
+        "no gate runs where no toolchain was installed"
+    );
+    assert_eq!(f.comments(), "", "nothing is wrong with the other PRs");
+    assert_eq!(
+        calls
+            .matches("workflow run auto-merge.yml --repo o/r --ref main")
+            .count(),
+        1,
+        "the follow-up pass takes the rest: {calls}"
+    );
+}
+
+/// The image ships cargo, so cargo alone does not say the job installed the
+/// gate's toolchain. A wrapper the job env names but never installed is an
+/// environment that cannot gate — the resync path — not a red gate on the PR.
+#[test]
+fn a_gate_whose_compiler_wrapper_was_never_installed_is_not_a_red_gate() {
+    let f = Fake::new(
+        "inline-nowrapper",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "diverged");
+    let gate = f.gate_stub();
+    let (code, out) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[
+            ("SUSI_INLINE_MERGE_GATE", "1"),
+            ("SUSI_MERGE_GATE", &gate),
+            ("RUSTC_WRAPPER", "susi-test-no-such-sccache"),
+            ("RUSTC_WORKSPACE_WRAPPER", "susi-test-no-such-sccache"),
+        ],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        !f.comments().contains("fails the compile gate"),
+        "{}",
+        f.comments()
+    );
+    assert!(
+        !f.dir.join("gatecalls").exists(),
+        "the gate must not run without its wrapper"
+    );
+    assert!(
+        f.calls().contains("pr update-branch 5 --repo o/r"),
+        "{}",
+        f.calls()
+    );
+}
+
+/// The retest a resync dispatched merges its own head (test.yml `merge`).
+/// When that head fell behind again it used to resync it — another
+/// update-branch and another dispatched retest, whose merge job found main
+/// moved again — so the PR re-dispatched itself, a branch gate per lap, for as
+/// long as merges kept landing. The retest gates the stale merge in place, and
+/// a head it cannot gate goes to a reconcile pass, never to another retest.
+#[test]
+fn a_retest_that_fell_behind_again_never_dispatches_another_retest() {
+    // Gate not installed (probe false), and gate installed but unable to run.
+    for (tag, gate_flag, broken) in [("off", "0", false), ("broken", "1", true)] {
+        let f = Fake::new(
+            &format!("retest-{tag}"),
+            serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+            serde_json::json!({}),
+        );
+        f.flag("comparison", "diverged");
+        if broken {
+            f.flag("checkoutfail", "1");
+        }
+        let gate = f.gate_stub();
+        let (code, out) = f.script_env(
+            "auto-merge-pr.sh",
+            &["o/r", "feat", "aaa"],
+            &[
+                ("SUSI_NO_RESYNC", "1"),
+                ("SUSI_INLINE_MERGE_GATE", gate_flag),
+                ("SUSI_MERGE_GATE", &gate),
+            ],
+        );
+        assert_eq!(code, 0, "{tag}: {out}");
+        let calls = f.calls();
+        assert!(!calls.contains("update-branch"), "{tag}: {calls}");
+        assert!(
+            !calls.contains("workflow run test.yml"),
+            "{tag}: the retest must not dispatch another retest: {calls}"
+        );
+        assert!(!calls.contains("pr merge"), "{tag}: {calls}");
+        assert!(
+            calls.contains("workflow run auto-merge.yml --repo o/r --ref main"),
+            "{tag}: a reconcile pass gates the merge instead: {calls}"
+        );
+        assert_eq!(f.comments(), "", "{tag}: nothing is wrong with the PR");
+    }
+    // With the gate installed the retest merges the stale head itself.
+    let f = Fake::new(
+        "retest-gated",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "behind");
+    let gate = f.gate_stub();
+    let (code, out) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[
+            ("SUSI_NO_RESYNC", "1"),
+            ("SUSI_INLINE_MERGE_GATE", "1"),
+            ("SUSI_MERGE_GATE", &gate),
+        ],
+    );
+    assert_eq!(code, 0, "{out}");
+    let calls = f.calls();
+    assert!(
+        calls.contains("pr merge 5 --repo o/r --merge --match-head-commit aaa"),
+        "{calls}"
+    );
+    assert!(!calls.contains("update-branch"), "{calls}");
+}
+
+/// The probe decides whether the merge job installs the gate's toolchain, so
+/// a wrong `false` is what sends a stale head to a job that cannot gate it.
+/// Its contract is that any API failure answers `true`; a failed listing or
+/// compare used to answer `false`.
+#[test]
+fn the_merge_queue_probe_answers_true_whenever_it_cannot_tell() {
+    let probe = |f: &Fake, args: &[&str]| {
+        let (code, out) = f.script("merge-queue-probe.sh", args);
+        assert_eq!(code, 0, "{out}");
+        out.lines().last().unwrap_or_default().trim().to_string()
+    };
+    let f = Fake::new(
+        "probe",
+        serde_json::json!([
+            pr(1, "feat-a", "s1", NOW, false),
+            pr(2, "feat-b", "s2", NOW, false)
+        ]),
+        serde_json::json!({"s1": green(), "s2": {"status":"in_progress","conclusion":"","url":"u"}}),
+    );
+    f.flag("cmp-main___s1", "ahead");
+    f.flag("cmp-main___s2", "behind");
+    assert_eq!(probe(&f, &["o/r"]), "false", "nothing green is stale");
+    assert_eq!(probe(&f, &["o/r", "feat-a", "s1"]), "false");
+    assert_eq!(probe(&f, &["o/r", "feat-b", "s2"]), "true");
+    f.flag("cmp-main___s1", "diverged");
+    assert_eq!(probe(&f, &["o/r"]), "true", "a green head is stale");
+
+    f.flag("cmp-main___s1", "ahead");
+    f.flag("compare_fail", "1");
+    assert_eq!(probe(&f, &["o/r"]), "true", "a failed compare");
+    assert_eq!(
+        probe(&f, &["o/r", "feat-a", "s1"]),
+        "true",
+        "a failed compare"
+    );
+    std::fs::remove_file(f.dir.join("compare_fail")).unwrap();
+
+    f.flag("runlist_fail", "1");
+    assert_eq!(probe(&f, &["o/r"]), "true", "a failed run listing");
+    std::fs::remove_file(f.dir.join("runlist_fail")).unwrap();
+
+    f.flag("prlist_fail", "1");
+    assert_eq!(probe(&f, &["o/r"]), "true", "a failed PR listing");
 }
 
 #[test]
@@ -923,5 +1156,50 @@ fn the_integration_jobs_carry_the_inline_gate() {
         ] {
             assert!(body.contains(needle), "job `{job}` is missing `{needle}`");
         }
+    }
+}
+
+/// The probe runs once, before the job does anything; the gate runs on any
+/// head that is stale when the script reaches it. A job-wide
+/// `SUSI_INLINE_MERGE_GATE: "1"` therefore gated heads that went stale after
+/// the probe (a reconcile pass's own first merge does that to every other
+/// green PR) on a runner with no sccache, and clippy's failure reached the PR
+/// as "the merge with current main fails the compile gate". The switch is the
+/// probe's answer, set on the step that merges.
+#[test]
+fn the_merge_step_gates_only_where_the_probe_installed_the_toolchain() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let probe_flag =
+        "SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' && '1' || '0' }}";
+    let auto = std::fs::read_to_string(root.join(".github/workflows/auto-merge.yml")).unwrap();
+    for (job, step) in [
+        ("merge-pr", "Merge the PR for the tested commit"),
+        ("reconcile", "Reconcile open PRs"),
+    ] {
+        let body = auto.split(&format!("  {job}:")).nth(1).unwrap();
+        // The step's own lines: up to the next step or the next job.
+        let step_body: String = body
+            .split(&format!("- name: {step}"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("job `{job}` has no step `{step}`"))
+            .lines()
+            .skip(1)
+            .take_while(|l| {
+                let indent = l.len() - l.trim_start().len();
+                l.trim().is_empty() || (indent > 6 && !l.trim_start().starts_with("- "))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            step_body.contains(probe_flag),
+            "job `{job}`: the merge step must take the gate switch from the probe"
+        );
+    }
+    let test = std::fs::read_to_string(root.join(".github/workflows/test.yml")).unwrap();
+    for wf in [&auto, &test] {
+        assert!(
+            !wf.contains("SUSI_INLINE_MERGE_GATE: \"1\""),
+            "no job may switch the gate on regardless of what its probe installed"
+        );
     }
 }

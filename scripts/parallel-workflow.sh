@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 # Safe boundaries for the per-task agent loop. Never merge into dirty worktrees.
 set -euo pipefail
+# Git for Windows' own usr/bin/sh.exe, started from PowerShell or the desktop
+# app, has no /usr/bin on PATH: `dirname` below failed, posix-compat.sh (and
+# its flock) was never loaded, and `sync` stopped at `flock 9`.
+case "${OSTYPE:-}" in
+msys* | cygwin*)
+    case ":$PATH:" in
+    *:/usr/bin:*) ;;
+    *) PATH=/usr/bin:$PATH ;;
+    esac
+    ;;
+esac
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 root=$(git rev-parse --show-toplevel)
 common=$(git rev-parse --path-format=absolute --git-common-dir)
@@ -16,11 +27,10 @@ sync() {
     [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
     git fetch --quiet origin
     git merge --no-edit origin/main
-    # The merge changed this worktree's crates; the shared target may hold a
-    # sibling worktree's build of them. Make the next cargo build this code.
-    if [ -x "$root/scripts/target-guard.sh" ]; then
-        "$root/scripts/target-guard.sh" || true
-    fi
+    # No target guard here: sync builds nothing. Its guard stamped the shared
+    # target as holding this worktree's crates while nothing built them, and
+    # the next worktree with that content linked a sibling's build. Every
+    # cargo this loop runs (gate, pre-push, tasks close) guards for itself.
     "$root/scripts/park-primary.sh" --sync-only || true
     # Inside the lock: the watcher heal is cheap, and the board block is cached,
     # so one sync pays for the checks and the rest read the verdict.
@@ -178,8 +188,45 @@ gate_stamp() {
     } | git hash-object --stdin
 }
 
+# The shared target may hold another worktree's build of a crate this branch
+# has differently; the gate must judge this branch's code. The guard and every
+# cargo command after it are one step: held from the guard through the last
+# cargo, so no other worktree's guard and build can land in between (two gates
+# interleaving left one of them linking the other's code). A failing step exits
+# the script, and the EXIT trap lets go.
+#
+# The commands the gate runs are told who holds the target
+# (SUSI_TARGET_GUARD_HELD), and only that: this shell when the guard took the
+# lock, the ancestor whose lock it found (an outer `target-guard.sh --run`)
+# otherwise, exactly as `--hold` reports it. Letting go puts back what was
+# inherited. Exporting this shell's pid when it held nothing, and unsetting
+# the variable after, left the close and the push that follow waiting on the
+# ancestor, which was waiting on them: a hang until the lock's stale age, six
+# hours, with every other worktree's gate waiting behind it.
+target_held=
+target_prev_held=
+hold_target() {
+    if [ -x "$root/scripts/target-guard.sh" ]; then
+        local holder
+        target_prev_held=${SUSI_TARGET_GUARD_HELD-}
+        holder=$("$root/scripts/target-guard.sh" --hold $$)
+        target_held=1
+        [ -z "$holder" ] || export SUSI_TARGET_GUARD_HELD="$holder"
+    fi
+}
+release_target() {
+    if [ -n "$target_held" ]; then
+        "$root/scripts/target-guard.sh" --release $$ || true
+        target_held=
+        if [ -n "$target_prev_held" ]; then
+            export SUSI_TARGET_GUARD_HELD="$target_prev_held"
+        else
+            unset SUSI_TARGET_GUARD_HELD
+        fi
+    fi
+}
+
 gate() {
-    local pkgs lint sel lsel
     local okfile stamp
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
     stamp=$(gate_stamp)
@@ -188,11 +235,14 @@ gate() {
         gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
         return 0
     fi
-    # The shared target may hold another worktree's build of a crate this
-    # branch has differently; the gate must judge this branch's code.
-    if [ -x "$root/scripts/target-guard.sh" ]; then
-        "$root/scripts/target-guard.sh"
-    fi
+    hold_target
+    # Not in a condition: `set -e` must still stop the gate at its first failure.
+    gate_held "$stamp" "$okfile"
+    release_target
+}
+
+gate_held() {
+    local stamp=$1 okfile=$2 pkgs lint sel lsel
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
     gate_pkgs=$pkgs
@@ -282,7 +332,7 @@ finish)
     # children (`service-run`) would otherwise outlive this run and keep
     # `target\debug\susi.exe` locked on Windows. Runs on every exit path —
     # including a failing gate — scoped to this checkout's target dir.
-    trap "\"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
+    trap "release_target; \"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
     nowait=0
     for arg in "$@"; do
         [ "$arg" = "--no-wait" ] && nowait=1
@@ -456,7 +506,18 @@ watch)
     # This runs locally: hosted Actions cannot update a developer's filesystem.
     # A single watcher per clone, and a separate lock for primary tree updates.
     exec 8>"$common/susi-primary-watch.lock"
-    flock -n 8 || { echo 'A primary sync watcher is already running.'; exit 0; }
+    # Only "held" (1) means another watcher. Anything else is a lock that could
+    # not be taken at all: a missing flock exits 127, which was read as a live
+    # watcher, so none ran and the primary silently stopped converging.
+    flock -n 8 || {
+        rc=$?
+        if [ "$rc" -ne 1 ]; then
+            echo "watch: cannot take the watcher lock (flock exited $rc)" >&2
+            exit "$rc"
+        fi
+        echo 'A primary sync watcher is already running.'
+        exit 0
+    }
     trap 'exit 0' INT TERM
     # A heartbeat, because the log stays empty while things go well: a stale
     # stamp is the only way `susi workflow check` can report a dead watcher.

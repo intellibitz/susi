@@ -5445,7 +5445,7 @@ dependencies = [
 
 [[package]]
 name = "susi-harness"
-version = "0.21.20"
+version = "0.21.22"
 dependencies = [
  "susi-adapters-llm",
  "susi-error",

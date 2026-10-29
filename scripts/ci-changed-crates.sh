@@ -29,6 +29,17 @@
 # they all carry a task file — forced `cargo check --workspace` on its branch
 # push instead of the bounded affected-crate gate.
 #
+# config/ and deploy/ are data the crates compile in (`include_str!`, thirty-odd
+# sites, the harness price table among them) or read at run time by a path
+# their sources spell out. A change there is a change to the packages whose
+# Rust sources name the file, or a directory above it (two components or more:
+# `config` alone names nothing). Skipping them as "no crate" let a change to
+# deploy/harness/prices.json through the local gate, the branch Compile Check
+# and main's affected-crate run with no test run at all, while a broken table
+# left the harness pricing nothing. A file there that no source names is ALL
+# (a crate may still reach it by a path assembled at run time), unless the
+# diff deleted it.
+#
 # Prints nothing when the diff touched no crate (docs/CI-only changes), so
 # callers can skip cargo entirely.
 set -euo pipefail
@@ -50,7 +61,12 @@ mb=$(git merge-base "$BASE" HEAD 2>/dev/null) || {
     echo ALL
     exit 0
 }
-changed=$(git diff --name-only "$mb" HEAD)
+# Both sides of a rename: with rename detection (git's default) a renamed
+# config/ file showed only its new path, and a crate that still compiles in
+# the old one was never gated. Paths read as git prints them whatever the
+# user's config says (relative to a subdirectory, quoted, colored).
+changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
+    diff --no-renames --no-color --name-only "$mb" HEAD)
 # A branch whose content is its base's has nothing of its own to prove: the
 # base's suite already proved these bytes. This used to print ALL, so a branch
 # holding only merges of main ran the whole workspace suite, and publishing
@@ -78,6 +94,61 @@ pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | gsub("\\\\"; "/") | 
 
 root=$(git rev-parse --show-toplevel)
 rootpkg=$(awk -F'|' -v m="$root" '$2 == m { print $1 }' <<<"$pkgs" | head -1)
+
+# The Rust sources that name each changed data path (or a directory above it),
+# one per line; fails when some path that still exists is named by none (a
+# deleted one no source names any more needs nothing). One `git grep` for all
+# of them: `-o` prints which spelling each source holds.
+data_readers() {
+    local data patterns p
+    local -a args=()
+    data=$(cat)
+    patterns=$(awk -F/ '{ p = $1; for (i = 2; i <= NF; i++) { p = p "/" $i; print p } }' <<<"$data" | sort -u)
+    while IFS= read -r p; do
+        [ -n "$p" ] && args+=(-e "$p")
+    done <<<"$patterns"
+    {
+        while IFS= read -r p; do
+            if [ -e "$root/$p" ]; then echo "D $p"; else echo "G $p"; fi
+        done <<<"$data"
+        # "<path>:<match>" whatever the user's config says: grep.lineNumber
+        # or grep.column put "<n>:" before the match, color wrapped both.
+        git -C "$root" -c grep.lineNumber=false -c grep.column=false -c grep.fullName=false \
+            -c color.grep=never -c color.ui=never -c core.quotePath=false \
+            grep -I -o -F "${args[@]}" -- '*.rs' 2>/dev/null | sed 's/^/H /' || true
+    } | awk '
+        /^[DG] / { d[++n] = substr($0, 3); gone[n] = ($1 == "G"); next }
+        /^H / {
+            s = substr($0, 3); i = index(s, ":"); if (!i) next
+            f = substr(s, 1, i - 1); t = substr(s, i + 1)
+            if (!((t, f) in pair)) { pair[t, f] = 1; by[t] = by[t] f "\n" }
+            next
+        }
+        END {
+            for (k = 1; k <= n; k++) {
+                q = d[k]; named = 0
+                while (index(q, "/")) {
+                    if (q in by) { named = 1; out = out by[q] }
+                    sub(/\/[^\/]*$/, "", q)
+                }
+                if (!named && !gone[k]) exit 1
+            }
+            printf "%s", out
+        }'
+}
+
+# Data paths stand for the sources that read them; see the header.
+data=$(grep -E '^(config|deploy)/' <<<"$changed" || true)
+if [ -n "$data" ]; then
+    readers=$(data_readers <<<"$data") || {
+        echo ALL
+        exit 0
+    }
+    changed=$(
+        grep -vE '^(config|deploy)/' <<<"$changed" || true
+        printf '%s\n' "$readers"
+    )
+fi
 declare -A seen=()
 while IFS= read -r f; do
     case "$f" in

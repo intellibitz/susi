@@ -36,14 +36,17 @@ impl SusiAdmin {
     /// The Cargo.toml files that share the engine's own release version -
     /// susi-error/core/native/sandbox/paths/tools/agents are independently
     /// versioned library crates (all pinned at 0.1.0) and are deliberately
-    /// not part of this list.
-    pub(crate) const ENGINE_VERSION_MANIFESTS: [&'static str; 6] = [
+    /// not part of this list. The harness is: release.yml publishes its binary
+    /// under the release tag, and left off this list it said `susi-harness
+    /// 0.21.20` in every release after the one it was created in.
+    pub(crate) const ENGINE_VERSION_MANIFESTS: [&'static str; 7] = [
         "Cargo.toml",
         "crates/susi-gawd/Cargo.toml",
         "crates/susi-gemi/Cargo.toml",
         "crates/susi-gmcp/Cargo.toml",
         "crates/susi-daemon/Cargo.toml",
         "crates/susi-server/Cargo.toml",
+        "crates/susi-harness/Cargo.toml",
     ];
 
     /// Bumps a clean `major.minor.patch` version string. Pure/no I/O so the

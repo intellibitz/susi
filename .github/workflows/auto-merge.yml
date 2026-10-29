@@ -34,8 +34,14 @@ name: Auto PR + Merge
 # commit GitHub produces has that exact tree for a clean merge, so what lands
 # is what was proven. That turns the stale-head retest — the unit of merge-
 # queue latency — into ~1-2 min inside one job. The toolchain steps are gated
-# on merge-queue-probe.sh so passes with nothing stale cost seconds.
-# SUSI_INLINE_MERGE_GATE=0 or a missing checkout falls back to resync+retest.
+# on merge-queue-probe.sh so passes with nothing stale cost seconds, and the
+# merge step's SUSI_INLINE_MERGE_GATE is that same probe answer: a head that
+# went stale after the probe (a reconcile pass's own first merge does that to
+# every other green PR) is never gated without the toolchain — that failed in
+# clippy on the missing sccache and told the PR its merge "fails the compile
+# gate". SUSI_INLINE_MERGE_GATE=0 or a missing checkout falls back to
+# resync+retest; a reconcile pass without the gate stops at its first merge and
+# leaves the rest to the follow-up pass, which probes again.
 #
 # The workflow_run and schedule jobs only fire from the default branch's copy
 # of this file. The merge logic lives in scripts/auto-merge-pr.sh so every path
@@ -131,7 +137,6 @@ jobs:
     # (#988's: 2m18s ONNX prefetch, 5m43s clippy) against about 30 s of clippy
     # warm, with the whole serialized queue waiting behind it.
     env:
-      SUSI_INLINE_MERGE_GATE: "1"
       CARGO_PROFILE_DEV_DEBUG: 0
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -174,6 +179,8 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           SHA: ${{ github.event.workflow_run.head_sha }}
           REPO: ${{ github.repository }}
+          # Gate only where the steps above installed the gate's toolchain.
+          SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' && '1' || '0' }}
         run: scripts/auto-merge-pr.sh "$REPO" "$BRANCH" "$SHA"
 
   reconcile:
@@ -185,7 +192,6 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
-      SUSI_INLINE_MERGE_GATE: "1"
       CARGO_PROFILE_DEV_DEBUG: 0 # as merge-pr: test.yml's profile, or no warm cache
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -226,4 +232,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          # The probe ran once, before this pass merged anything. Heads its
+          # own merges turn stale are gated only if the toolchain is here.
+          SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' && '1' || '0' }}
         run: scripts/reconcile-prs.sh "$REPO"

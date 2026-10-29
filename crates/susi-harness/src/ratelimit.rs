@@ -42,6 +42,54 @@ struct Lane {
     paused_until: u64,
 }
 
+impl Lane {
+    /// The earliest start the caps allow a call that arrives at `now_ms`,
+    /// once the window has moved on to it. `limits` is read on the lane's
+    /// first call when given as `None`.
+    fn next_start(&mut self, provider: &str, now_ms: u64, limits: Option<Limits>) -> u64 {
+        let limits = *self
+            .limits
+            .get_or_insert_with(|| limits.unwrap_or_else(|| Limits::configured(provider)));
+        let horizon = now_ms.saturating_sub(WINDOW_MS);
+        while self.calls.front().is_some_and(|start| *start < horizon) {
+            self.calls.pop_front();
+        }
+        while self.tokens.front().is_some_and(|(at, _)| *at < horizon) {
+            self.tokens.pop_front();
+        }
+        let mut start = now_ms.max(self.paused_until);
+        if let Some(rpm) = limits.rpm.filter(|rpm| *rpm > 0) {
+            let rpm = usize::try_from(rpm).unwrap_or(usize::MAX);
+            // The window may hold at most `rpm` starts: this call starts a
+            // minute after the start `rpm` places back.
+            if self.calls.len() >= rpm {
+                if let Some(oldest) = self.calls.get(self.calls.len() - rpm) {
+                    start = start.max(oldest.saturating_add(WINDOW_MS));
+                }
+            }
+        }
+        if let Some(tpm) = limits.tpm.filter(|tpm| *tpm > 0) {
+            // Wait until enough of the last minute's tokens have aged out to
+            // bring the total under the cap.
+            let mut used: u64 = self.tokens.iter().map(|(_, tokens)| *tokens).sum();
+            for (at, tokens) in &self.tokens {
+                if used < tpm {
+                    break;
+                }
+                used = used.saturating_sub(*tokens);
+                start = start.max(at.saturating_add(WINDOW_MS));
+            }
+        }
+        start
+    }
+
+    /// Count `start` against the window.
+    fn take(&mut self, start: u64) {
+        let position = self.calls.partition_point(|reserved| *reserved <= start);
+        self.calls.insert(position, start);
+    }
+}
+
 /// A provider's caps.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Limits {
@@ -56,7 +104,10 @@ impl Limits {
     /// `SUSI_HARNESS_RPM_<PROVIDER>` and `SUSI_HARNESS_TPM_<PROVIDER>`.
     #[must_use]
     pub fn configured(provider: &str) -> Self {
-        let upper = provider.to_ascii_uppercase().replace('-', "_");
+        // The name `susi-harness env` advertises (fleet::environment): every
+        // character a variable name cannot hold is written as '_', so an
+        // overlay id like `acme.v2` is read from SUSI_HARNESS_RPM_ACME_V2.
+        let upper = crate::balance::env_suffix(provider);
         let read = |name: String| secrets::setting(&name).and_then(|text| text.trim().parse().ok());
         Self {
             rpm: read(format!("SUSI_HARNESS_RPM_{upper}"))
@@ -83,45 +134,86 @@ impl Pacer {
     /// Reserve a start for one call to `provider` at or after `now_ms`, and
     /// return how many milliseconds the call must wait first. `limits` is
     /// read on the provider's first call when given as `None`.
+    ///
+    /// The slot is kept even if the call never goes; a caller that can be
+    /// abandoned while it waits takes a [`Pacer::hold`] instead.
     pub fn reserve(&self, provider: &str, now_ms: u64, limits: Option<Limits>) -> u64 {
+        let reservation = self.hold(provider, now_ms, limits);
+        let wait = reservation.wait_ms();
+        reservation.keep();
+        wait
+    }
+
+    /// Reserve a start as [`Pacer::reserve`] does, as a [`Reservation`] that
+    /// gives the slot back when it is dropped without [`Reservation::keep`].
+    pub fn hold(&self, provider: &str, now_ms: u64, limits: Option<Limits>) -> Reservation<'_> {
         let mut lanes = self.lanes.lock().unwrap_or_else(PoisonError::into_inner);
         let lane = lanes.entry(provider.to_string()).or_default();
-        let limits = *lane
-            .limits
-            .get_or_insert_with(|| limits.unwrap_or_else(|| Limits::configured(provider)));
-        let horizon = now_ms.saturating_sub(WINDOW_MS);
-        while lane.calls.front().is_some_and(|start| *start < horizon) {
-            lane.calls.pop_front();
+        let start = lane.next_start(provider, now_ms, limits);
+        lane.take(start);
+        self.reservation(provider, start, now_ms)
+    }
+
+    /// Reserve a start as [`Pacer::hold`] does, unless the call would wait
+    /// longer than `max_wait_ms` for it: then nothing is reserved, and the
+    /// error is the wait the call would have had.
+    ///
+    /// Giving back the slots of abandoned waiters does not keep an overloaded
+    /// provider serving. Every new call still queues behind the live waiters,
+    /// so under load that outruns the limit the queue grows past every
+    /// client's timeout, and from then on no call is served while the load
+    /// lasts: one arrival every 3 s against 10 a minute, each client giving up
+    /// after 120 s, served 50 calls in the first ten minutes and none in the
+    /// fifty after. Turned away at once, a caller backs off instead, and the
+    /// calls the queue does take each start while their client still waits.
+    ///
+    /// # Errors
+    ///
+    /// Returns the wait in milliseconds when it is longer than `max_wait_ms`.
+    pub fn hold_within(
+        &self,
+        provider: &str,
+        now_ms: u64,
+        limits: Option<Limits>,
+        max_wait_ms: u64,
+    ) -> Result<Reservation<'_>, u64> {
+        let mut lanes = self.lanes.lock().unwrap_or_else(PoisonError::into_inner);
+        let lane = lanes.entry(provider.to_string()).or_default();
+        let start = lane.next_start(provider, now_ms, limits);
+        let wait_ms = start.saturating_sub(now_ms);
+        if wait_ms > max_wait_ms {
+            return Err(wait_ms);
         }
-        while lane.tokens.front().is_some_and(|(at, _)| *at < horizon) {
-            lane.tokens.pop_front();
+        lane.take(start);
+        Ok(self.reservation(provider, start, now_ms))
+    }
+
+    fn reservation(&self, provider: &str, start: u64, now_ms: u64) -> Reservation<'_> {
+        Reservation {
+            pacer: self,
+            provider: provider.to_string(),
+            start,
+            wait_ms: start.saturating_sub(now_ms),
+            kept: false,
         }
-        let mut start = now_ms.max(lane.paused_until);
-        if let Some(rpm) = limits.rpm.filter(|rpm| *rpm > 0) {
-            let rpm = usize::try_from(rpm).unwrap_or(usize::MAX);
-            // The window may hold at most `rpm` starts: this call starts a
-            // minute after the start `rpm` places back.
-            if lane.calls.len() >= rpm {
-                if let Some(oldest) = lane.calls.get(lane.calls.len() - rpm) {
-                    start = start.max(oldest.saturating_add(WINDOW_MS));
-                }
+    }
+
+    /// Give back one reserved start that was never used.
+    fn release(&self, provider: &str, start: u64) {
+        let mut lanes = self.lanes.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(lane) = lanes.get_mut(provider) {
+            let position = lane.calls.partition_point(|reserved| *reserved < start);
+            if lane.calls.get(position) == Some(&start) {
+                lane.calls.remove(position);
             }
         }
-        if let Some(tpm) = limits.tpm.filter(|tpm| *tpm > 0) {
-            // Wait until enough of the last minute's tokens have aged out to
-            // bring the total under the cap.
-            let mut used: u64 = lane.tokens.iter().map(|(_, tokens)| *tokens).sum();
-            for (at, tokens) in &lane.tokens {
-                if used < tpm {
-                    break;
-                }
-                used = used.saturating_sub(*tokens);
-                start = start.max(at.saturating_add(WINDOW_MS));
-            }
-        }
-        let position = lane.calls.partition_point(|reserved| *reserved <= start);
-        lane.calls.insert(position, start);
-        start.saturating_sub(now_ms)
+    }
+
+    /// How many starts `provider` holds in (or reserved for) the window.
+    #[cfg(test)]
+    pub(crate) fn reserved(&self, provider: &str) -> usize {
+        let lanes = self.lanes.lock().unwrap_or_else(PoisonError::into_inner);
+        lanes.get(provider).map_or(0, |lane| lane.calls.len())
     }
 
     /// Record the tokens a finished call to `provider` used.
@@ -139,6 +231,45 @@ impl Pacer {
         let lane = lanes.entry(provider.to_string()).or_default();
         let until = now_ms.saturating_add(retry_after_ms.min(MAX_PAUSE_MS));
         lane.paused_until = lane.paused_until.max(until);
+    }
+}
+
+/// One call's reserved start, given back unless the call goes ahead.
+///
+/// A call waits for its slot inside its request. When the client gives up
+/// meanwhile (its own timeout, a killed worker), the server drops that wait
+/// and this guard with it, and the slot is free again: kept, it counted
+/// against the provider's minute for a call nobody made. That alone does not
+/// keep an overloaded provider serving; [`Pacer::hold_within`] bounds the
+/// queue for that.
+#[must_use = "a reservation dropped without `keep` gives its slot back"]
+#[derive(Debug)]
+pub struct Reservation<'a> {
+    pacer: &'a Pacer,
+    provider: String,
+    start: u64,
+    wait_ms: u64,
+    kept: bool,
+}
+
+impl Reservation<'_> {
+    /// How many milliseconds the call must wait before it starts.
+    #[must_use]
+    pub fn wait_ms(&self) -> u64 {
+        self.wait_ms
+    }
+
+    /// The call is going ahead: its slot stays counted.
+    pub fn keep(mut self) {
+        self.kept = true;
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        if !self.kept {
+            self.pacer.release(&self.provider, self.start);
+        }
     }
 }
 
@@ -193,6 +324,84 @@ mod tests {
         assert_eq!(pacer.reserve("p", 3_000, caps(Some(2), None)), 59_000);
         // Another provider is not held.
         assert_eq!(pacer.reserve("q", 3_000, caps(Some(2), None)), 0);
+    }
+
+    #[test]
+    fn a_reservation_dropped_unkept_gives_its_slot_back() {
+        let pacer = Pacer::default();
+        assert_eq!(pacer.reserve("p", 0, caps(Some(1), None)), 0);
+        let abandoned = pacer.hold("p", 1_000, caps(Some(1), None));
+        assert_eq!(abandoned.wait_ms(), 59_000);
+        drop(abandoned);
+        assert_eq!(pacer.reserved("p"), 1);
+        // The next call takes the freed slot, not the one after it.
+        let kept = pacer.hold("p", 2_000, caps(Some(1), None));
+        assert_eq!(kept.wait_ms(), 58_000);
+        kept.keep();
+        assert_eq!(pacer.reserved("p"), 2, "a kept slot stays counted");
+        assert_eq!(pacer.reserve("p", 2_000, caps(Some(1), None)), 118_000);
+    }
+
+    #[test]
+    fn a_call_that_would_wait_past_the_cap_is_refused_and_reserves_nothing() {
+        let pacer = Pacer::default();
+        assert_eq!(pacer.reserve("p", 0, caps(Some(1), None)), 0);
+        let refused = pacer.hold_within("p", 1_000, caps(Some(1), None), 30_000);
+        assert_eq!(refused.err(), Some(59_000), "the error is the wait");
+        assert_eq!(pacer.reserved("p"), 1, "a refused call holds no slot");
+        let within = pacer
+            .hold_within("p", 1_000, caps(Some(1), None), 59_000)
+            .unwrap();
+        assert_eq!(within.wait_ms(), 59_000);
+        within.keep();
+        assert_eq!(pacer.reserved("p"), 2);
+    }
+
+    /// One arrival every 3 s for an hour against 10 calls a minute, each
+    /// client giving up 120 s after it asked, with the queue bounded at `cap`
+    /// as the gateway bounds it: the calls served in each ten minutes.
+    fn served_under_overload(cap: u64) -> [u32; 6] {
+        const TIMEOUT_MS: u64 = 120_000;
+        let pacer = Pacer::default();
+        let limits = caps(Some(10), None);
+        // (start, the client's deadline, its reservation)
+        let mut waiting: Vec<(u64, u64, Reservation<'_>)> = Vec::new();
+        let mut served = [0u32; 6];
+        for now in (0..3_600_000u64).step_by(3_000) {
+            // A waiter's slot comes up, or its client gives up, whichever is
+            // first; an abandoned waiter's slot goes back.
+            for (start, deadline, reservation) in std::mem::take(&mut waiting) {
+                if start.min(deadline) > now {
+                    waiting.push((start, deadline, reservation));
+                } else if start <= deadline {
+                    reservation.keep();
+                    served[usize::try_from(start / 600_000).unwrap()] += 1;
+                } else {
+                    drop(reservation);
+                }
+            }
+            // A call turned away holds nothing and backs off.
+            if let Ok(reservation) = pacer.hold_within("p", now, limits, cap) {
+                waiting.push((now + reservation.wait_ms(), now + TIMEOUT_MS, reservation));
+            }
+        }
+        served
+    }
+
+    /// Arrivals faster than the limit, each client giving up after 120 s.
+    /// Queued with `hold` alone, abandoned slots given back, this served
+    /// [50, 0, 0, 0, 0, 0]: the queue ran past every client's timeout. Bounded
+    /// at the clients' timeout, the provider is used at its limit for as
+    /// long as the load lasts.
+    #[test]
+    fn sustained_overload_is_served_at_the_limit_when_the_queue_is_bounded() {
+        let served = served_under_overload(120_000);
+        for (window, calls) in served.iter().enumerate() {
+            assert!(
+                (90..=100).contains(calls),
+                "ten minutes #{window} served {calls} of 100: {served:?}"
+            );
+        }
     }
 
     #[test]

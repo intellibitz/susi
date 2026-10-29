@@ -1201,48 +1201,87 @@ fn fetch_origin(ws: &Path) -> EaiResult<()> {
     git(ws, &["fetch", "--quiet", "origin"]).map(|_| ())
 }
 
-/// Make the shared cargo target build this worktree's code before a cargo
-/// acceptance runs (`scripts/target-guard.sh`).
+/// The command that runs a cargo acceptance with the shared cargo target held
+/// for this worktree: `scripts/target-guard.sh --run <argv>`.
 ///
 /// Worktrees share one target, and cargo names a workspace crate's build by
 /// its path relative to the workspace, so a crate another worktree built last
 /// reads as fresh here: the acceptance then tests the other branch's code. It
 /// happened: a close failed its acceptance (and could as easily have passed
 /// one) because a sibling worktree's `finish` had just built a crate both
-/// branches have. The guard rebuilds exactly the crates whose content differs.
-/// It is a correctness aid, never a gate: a checkout without the script, or a
-/// host without bash, runs the acceptance as before.
-pub fn guard_shared_target(ws: &Path) {
+/// branches have. The guard drops exactly the builds whose content differs,
+/// and `--run` keeps the target until the acceptance ends: a guard that ran
+/// first and let go let another worktree's guard and build land in between.
+/// `None` when the checkout has no guard script; a host where no shell can
+/// run it runs the acceptance unguarded (the guard is an aid, never a gate).
+fn guarded_acceptance(ws: &Path, argv: &[String]) -> Option<Command> {
     let script = ws.join("scripts").join("target-guard.sh");
-    if script.is_file() {
-        let _ = Command::new(posix_shell("bash"))
-            .arg(&script)
-            .current_dir(ws)
-            .stdin(std::process::Stdio::null())
-            .status();
+    if !script.is_file() {
+        return None;
     }
+    let mut command = posix_shell_command("bash");
+    // No Git shell found: a bare `bash` there is WSL's, which cannot run a
+    // script by its Windows path.
+    #[cfg(windows)]
+    if !Path::new(command.get_program()).is_absolute() {
+        return None;
+    }
+    command.arg(&script).arg("--run").arg("--").args(argv);
+    Some(command)
 }
 
 /// The POSIX shell to run a repo script with: `name` (`sh` or `bash`).
 ///
 /// Elsewhere that is just the name. On Windows a bare name is a trap: process
 /// creation searches the system directories before PATH, so `bash` finds
-/// WSL's `System32ash.exe` (or the WindowsApps stub), which cannot run a
-/// script given as a Windows path. So the PATH is searched here, skipping
-/// those, and then Git for Windows' own shell is used: `git --exec-path` is
-/// `<git>/<mingw64|ucrt64>/libexec/git-core`, and the shells are in
-/// `<git>/usr/bin` and `<git>/bin`, three levels up. A standard Git install
-/// puts only `<git>/cmd` on PATH, so that fallback is the common case outside
-/// Git Bash (PowerShell, the desktop app).
+/// WSL's `System32\bash.exe` (or the WindowsApps stub), which cannot run a
+/// script given as a Windows path. So Git for Windows' own shell is used:
+/// `git --exec-path` is `<git>/<mingw64|ucrt64>/libexec/git-core`, and the
+/// shells are in `<git>/bin` and `<git>/usr/bin`, three levels up. A standard
+/// Git install puts only `<git>/cmd` on PATH, so outside Git Bash
+/// (PowerShell, the desktop app) no shell is on PATH at all.
+///
+/// That install comes first, for every name, and the PATH (skipping those
+/// stubs) only after it: each MSYS runtime keeps its own process table, and
+/// a host with two Git installs (Program Files' and scoop's, whose shim put
+/// `sh` on PATH) ran `finish` under one and `tasks close` under the other,
+/// so the target guard's lock read each one's live holder as dead. The Git
+/// that `git` is also runs the hooks a push starts. Run the shell through
+/// [`posix_shell_command`], which also gives it the POSIX userland.
 #[must_use]
 pub fn posix_shell(name: &str) -> std::path::PathBuf {
+    posix_shell_on(name, std::env::var_os("PATH").as_deref())
+}
+
+/// A shell that cannot run a script by its Windows path: WSL's System32
+/// `bash.exe` and the WindowsApps stub.
+#[cfg(windows)]
+fn is_shell_stub(path: &Path) -> bool {
+    let lowered = path.to_string_lossy().to_ascii_lowercase();
+    lowered.contains("system32") || lowered.contains("windowsapps")
+}
+
+/// [`posix_shell`] for a given PATH (the child's, which a test can narrow).
+fn posix_shell_on(name: &str, path: Option<&std::ffi::OsStr>) -> std::path::PathBuf {
     #[cfg(windows)]
     {
         let exe = format!("{name}.exe");
-        if let Some(path) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&path) {
-                let lowered = dir.to_string_lossy().to_ascii_lowercase();
-                if lowered.contains("system32") || lowered.contains("windowsapps") {
+        if let Some(root) = git_install_root(path) {
+            // `bin/` first: those are Git's launchers, which set MSYSTEM and
+            // put usr/bin and the mingw bin on PATH. usr/bin's shell is the
+            // raw MSYS one; started from PowerShell it found no mkdir, sed or
+            // dirname, so the target guard silently did nothing and `workflow
+            // sync` stopped at its first `dirname`.
+            for dir in ["bin", "usr/bin"] {
+                let candidate = root.join(dir).join(&exe);
+                if candidate.is_file() && !is_shell_stub(&candidate) {
+                    return candidate;
+                }
+            }
+        }
+        if let Some(path) = path {
+            for dir in std::env::split_paths(path) {
+                if is_shell_stub(&dir) {
                     continue;
                 }
                 let candidate = dir.join(&exe);
@@ -1251,25 +1290,95 @@ pub fn posix_shell(name: &str) -> std::path::PathBuf {
                 }
             }
         }
-        if let Ok(out) = Command::new("git").arg("--exec-path").output() {
-            if out.status.success() {
-                let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let git_root = Path::new(&exec_path)
-                    .ancestors()
-                    .nth(3)
-                    .map(Path::to_path_buf);
-                if let Some(root) = git_root {
-                    for dir in ["usr/bin", "bin"] {
-                        let candidate = root.join(dir).join(&exe);
-                        if candidate.is_file() {
-                            return candidate;
-                        }
-                    }
-                }
-            }
-        }
     }
+    #[cfg(not(windows))]
+    let _ = path;
     std::path::PathBuf::from(name)
+}
+
+/// The root of the Git install that `git` (on `path`) runs from: three levels
+/// above its `--exec-path`.
+#[cfg(windows)]
+fn git_install_root(path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    let mut git = Command::new("git");
+    if let Some(path) = path {
+        git.env("PATH", path);
+    }
+    let out = git.arg("--exec-path").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Path::new(&exec_path)
+        .ancestors()
+        .nth(3)
+        .map(Path::to_path_buf)
+}
+
+/// A command running [`posix_shell`] `name` with the POSIX userland on its
+/// PATH, so a repo script finds mkdir, sed, find and dirname.
+///
+/// Git's `bin/` launchers set that PATH themselves. A raw MSYS shell
+/// (`<git>/usr/bin/sh.exe`: the last resort, and what a PATH holding usr/bin
+/// yields) does not, so its own directory and Git's mingw `bin` go first on
+/// the child's PATH. Started outside Git Bash it otherwise ran scripts with
+/// only `<git>/cmd` and System32 on PATH, where `find` is Windows' own.
+#[must_use]
+pub fn posix_shell_command(name: &str) -> Command {
+    posix_shell_command_on(name, std::env::var_os("PATH"))
+}
+
+/// [`posix_shell_command`] for a given PATH (the child's, which a test can
+/// narrow to what a standard Git install leaves outside Git Bash).
+fn posix_shell_command_on(name: &str, path: Option<std::ffi::OsString>) -> Command {
+    let shell = posix_shell_on(name, path.as_deref());
+    let mut command = Command::new(&shell);
+    #[cfg(windows)]
+    let path = {
+        let mut dirs = msys_userland(&shell);
+        if dirs.is_empty() {
+            path
+        } else {
+            if let Some(path) = &path {
+                dirs.extend(std::env::split_paths(path));
+            }
+            std::env::join_paths(dirs).ok().or(path)
+        }
+    };
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    command
+}
+
+/// The directories a raw MSYS shell (`<root>/usr/bin/<shell>.exe`) needs at
+/// the front of PATH: Git's mingw `bin` (its git and curl) and `usr/bin` (the
+/// coreutils), in the order Git's launchers put them. Empty for any other
+/// shell, a launcher included.
+#[cfg(windows)]
+fn msys_userland(shell: &Path) -> Vec<std::path::PathBuf> {
+    let named = |dir: &Path, name: &str| {
+        dir.file_name()
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+    };
+    let Some(bin) = shell.parent().filter(|d| named(d, "bin")) else {
+        return Vec::new();
+    };
+    let Some(root) = bin
+        .parent()
+        .filter(|d| named(d, "usr"))
+        .and_then(Path::parent)
+    else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<std::path::PathBuf> =
+        ["ucrt64", "mingw64", "clang64", "clangarm64", "mingw32"]
+            .iter()
+            .map(|mingw| root.join(mingw).join("bin"))
+            .filter(|dir| dir.is_dir())
+            .collect();
+    dirs.push(bin.to_path_buf());
+    dirs
 }
 
 /// Whether an unobserved close is still *owed*. A receipt reports debt while
@@ -2701,17 +2810,29 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             task.accept.cmd.join(" ")
         );
     } else {
-        if task.accept.cmd.first().is_some_and(|p| p == "cargo") {
-            guard_shared_target(ws);
-        }
-        let mut command = acceptance_command(&task.accept.cmd);
-        let out = command.current_dir(ws).output().map_err(|e| {
-            // A check that does not exist yet is "not done", not an I/O crash.
-            EaiError::process(format!(
-                "{id} is not done: acceptance command `{}` could not run ({e})",
-                task.accept.cmd.join(" ")
-            ))
-        })?;
+        // A cargo acceptance runs held by the shared-target guard; without a
+        // shell to run the guard it runs as it always did.
+        let guarded = task
+            .accept
+            .cmd
+            .first()
+            .is_some_and(|p| p == "cargo")
+            .then(|| guarded_acceptance(ws, &task.accept.cmd))
+            .flatten()
+            .and_then(|mut command| command.current_dir(ws).output().ok());
+        let out = match guarded {
+            Some(out) => out,
+            None => acceptance_command(&task.accept.cmd)
+                .current_dir(ws)
+                .output()
+                .map_err(|e| {
+                    // A check that does not exist yet is "not done", not an I/O crash.
+                    EaiError::process(format!(
+                        "{id} is not done: acceptance command `{}` could not run ({e})",
+                        task.accept.cmd.join(" ")
+                    ))
+                })?,
+        };
         // Show the check's own output: the closer should see what proved it.
         eprint!("{}", String::from_utf8_lossy(&out.stderr));
         print!("{}", String::from_utf8_lossy(&out.stdout));
@@ -2874,30 +2995,174 @@ mod tests {
         }
     }
 
+    /// `sh` and `bash` both come from the Git install `git` runs from, ahead
+    /// of whatever PATH offers: on a host with two installs, scoop's shim put
+    /// its `sh` first on PATH, so `finish` ran under scoop's runtime and
+    /// `tasks close` (bash, found under `git`) under Program Files'. Each
+    /// runtime keeps its own process table, and the target guard's lock read
+    /// the other's live holder as dead and took it.
+    #[cfg(windows)]
     #[test]
-    fn a_cargo_acceptance_is_preceded_by_the_target_guard() {
+    fn sh_and_bash_come_from_the_git_install_git_runs_from() {
+        let Some(git_root) = git_install_root(std::env::var_os("PATH").as_deref()) else {
+            return; // no git: nothing to find a shell in
+        };
+        if !git_root.join("bin").join("bash.exe").is_file()
+            || !git_root.join("bin").join("sh.exe").is_file()
+        {
+            return; // not Git for Windows' layout
+        }
+        // Another install's shells, first on PATH (as a scoop shim is).
+        let decoy = std::env::temp_dir().join(format!("susi-decoy-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&decoy);
+        std::fs::create_dir_all(&decoy).unwrap();
+        for name in ["sh.exe", "bash.exe"] {
+            std::fs::write(decoy.join(name), b"not a shell").unwrap();
+        }
+        let mut dirs = vec![decoy.clone()];
+        if let Some(path) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&path));
+        }
+        let path = std::env::join_paths(dirs).unwrap();
+        for name in ["sh", "bash"] {
+            let shell = posix_shell_on(name, Some(&path));
+            assert_eq!(
+                shell.parent(),
+                Some(git_root.join("bin").as_path()),
+                "{name} must come from {}, not {}",
+                git_root.display(),
+                shell.display()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&decoy);
+    }
+
+    /// Outside Git Bash (PowerShell, the desktop app) a standard Git install
+    /// leaves only `<git>\cmd` and System32 on PATH. The shell picked there
+    /// must still find the POSIX userland: Git's raw `usr/bin` shell, picked
+    /// first, found no mkdir, so the target guard stopped at its first line
+    /// and did nothing (and `workflow sync` stopped at its first `dirname`).
+    #[cfg(windows)]
+    #[test]
+    fn the_posix_shell_finds_coreutils_with_only_gits_cmd_on_path() {
+        let Ok(out) = Command::new("git").arg("--exec-path").output() else {
+            return; // no git: nothing to find a shell in
+        };
+        let exec_path = std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        let Some(git_root) = exec_path.ancestors().nth(3).map(Path::to_path_buf) else {
+            return;
+        };
+        if !git_root.join("cmd").join("git.exe").is_file() {
+            return; // not Git for Windows' layout
+        }
+        let windows = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+        let path = std::env::join_paths([
+            git_root.join("cmd"),
+            windows.join("System32"),
+            windows.clone(),
+        ])
+        .unwrap();
+        let dir = std::env::temp_dir().join(format!("susi-shell-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // External tools only, and `find` is the one System32 also has.
+        std::fs::write(
+            dir.join("probe.sh"),
+            "mkdir -p made/deep && touch made/deep/ok && find made -name ok | sed 's/^/found /' > seen\n",
+        )
+        .unwrap();
+        for name in ["sh", "bash"] {
+            let _ = std::fs::remove_dir_all(dir.join("made"));
+            let _ = std::fs::remove_file(dir.join("seen"));
+            let status = posix_shell_command_on(name, Some(path.clone()))
+                .arg(dir.join("probe.sh"))
+                .current_dir(&dir)
+                .stdin(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "{name} could not run the probe script");
+            assert_eq!(
+                std::fs::read_to_string(dir.join("seen"))
+                    .unwrap_or_default()
+                    .trim(),
+                "found made/deep/ok",
+                "{name} must run scripts with Git's mkdir, find and sed"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The raw MSYS shell gets its userland put first on the child's PATH, in
+    /// the launchers' order; a launcher (or any other shell) gets nothing.
+    #[cfg(windows)]
+    #[test]
+    fn a_raw_msys_shell_is_given_its_userland_and_a_launcher_is_not() {
+        let root = std::env::temp_dir().join(format!("susi-msys-layout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["usr/bin", "bin", "ucrt64/bin"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        assert_eq!(
+            msys_userland(&root.join("usr").join("bin").join("sh.exe")),
+            [
+                root.join("ucrt64").join("bin"),
+                root.join("usr").join("bin")
+            ]
+        );
+        assert!(msys_userland(&root.join("bin").join("sh.exe")).is_empty());
+        assert!(msys_userland(Path::new(r"C:\tools\sh.exe")).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A cargo acceptance runs *inside* the target guard (`--run`): a guard
+    /// that ran first and let go let another worktree's guard and build land
+    /// before the acceptance, which then tested that worktree's code. The fake
+    /// guard calls external tools, as the real one does.
+    #[test]
+    fn a_cargo_acceptance_runs_inside_the_target_guard() {
         if Command::new(posix_shell("bash"))
             .arg("--version")
             .output()
             .is_err()
         {
-            return; // no bash on this host: the guard is skipped by design
+            return; // no bash on this host: the acceptance runs unguarded by design
         }
         let ws = std::env::temp_dir().join(format!("susi-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
         std::fs::create_dir_all(ws.join("scripts")).unwrap();
         std::fs::write(
             ws.join("scripts").join("target-guard.sh"),
             "#!/usr/bin/env bash
-echo guarded > guard-ran
+[ \"$1\" = --run ] || exit 9
+shift
+[ \"$1\" != -- ] || shift
+mkdir -p guard && touch guard/ran
+exec \"$@\"
 ",
         )
         .unwrap();
-        guard_shared_target(&ws);
-        assert!(ws.join("guard-ran").exists(), "the guard must run");
-        // A checkout without the script is not an error.
+        let argv = ["git".to_string(), "--version".to_string()];
+        let out = guarded_acceptance(&ws, &argv)
+            .expect("a checkout with the guard runs its acceptance through it")
+            .current_dir(&ws)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).starts_with("git version"),
+            "the acceptance itself must run, inside the guard"
+        );
+        assert!(ws.join("guard").join("ran").is_file(), "the guard must run");
+        // A checkout without the script runs its acceptance unguarded.
         let bare = std::env::temp_dir().join(format!("susi-noguard-{}", std::process::id()));
         std::fs::create_dir_all(&bare).unwrap();
-        guard_shared_target(&bare);
+        assert!(guarded_acceptance(&bare, &argv).is_none());
         let _ = std::fs::remove_dir_all(&ws);
         let _ = std::fs::remove_dir_all(&bare);
     }

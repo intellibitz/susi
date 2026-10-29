@@ -21,17 +21,37 @@ billed.
 
 ### How does the metered gateway cache responses?
 
-The gateway computes a SHA-256 key over the chat-completion request body (the
-model, messages, temperature and token limit, with `max_tokens` and
-`max_completion_tokens` treated as one field) and looks that key up before the
-request goes anywhere. An identical request is served straight from the cache:
-no provider call, no spend, and the ledger still gets its row, recorded with
+The gateway computes a SHA-256 key over the whole chat-completion request
+body, with its object keys sorted so field order does not matter, and looks
+that key up before the request goes anywhere. Only `stream` and
+`stream_options` are left out of the key: they change how an answer is
+delivered, not what it is, so a cached answer is served to a buffered and a
+streaming request alike. Every other field is in the key: `tools`,
+`tool_choice`, `top_p`, `stop`, `response_format`, `reasoning_effort` and the
+rest. `max_tokens` and `max_completion_tokens` are separate fields, so the
+same limit under the other name is a different request. The key is taken
+after the gateway's `--max-output-tokens` clamp, so the limit hashed is the
+one sent. An identical request is served straight from the cache: no provider
+call, no spend, and the ledger still gets its row, recorded with
 `cached: true` and `cost: 0`.
 
-The cache lives beside the gateway ledger, in a `cache/` directory under the same
-state directory, one JSON file per key. It is in-memory plus on disk: a hit in
-the running process never touches the filesystem, a restart reloads from the
-files, and a freshly fetched response is written back to both.
+The cache lives beside the gateway ledger, in a `cache/` directory under the
+same state directory, one JSON file per key. A hit in memory never touches
+the filesystem; a key missing from memory is looked up on disk, and a file
+found there is loaded back into memory. A freshly fetched answer is written
+to both, except an answer larger than 2 MiB and an answer starved of output
+tokens, which are never cached. A call streamed from an OpenAI-shaped
+provider is passed through as it arrives and is not cached either.
+
+The cache is bounded, so a gateway that runs for days does not grow without
+limit:
+
+- in memory, at most 2,048 answers and 64 MiB, the least recently used
+  evicted first;
+- on disk, at most 20,000 files and 512 MiB, the least recently written (or
+  served) deleted first, at startup and every 256 writes.
+
+An answer evicted or deleted is simply fetched, and billed, again.
 
 ## How is the budget enforced?
 

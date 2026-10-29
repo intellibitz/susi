@@ -49,6 +49,15 @@ while IFS=$'\t' read -r num branch sha updated draft; do
         # re-testing the whole queue at once burns a run per PR that the next
         # merge invalidates — so one resync per pass.
         case "$out" in *"was behind main; branch updated"*) break ;; esac
+        # A pass whose probe found nothing stale installed no toolchain, and
+        # its first merge makes every other green head stale: gating them here
+        # failed in clippy for want of sccache, and resyncing them costs each a
+        # retest. The follow-up pass this merge dispatches probes again and
+        # installs the gate for them.
+        if [ "$merged" -gt 0 ] && [ "${SUSI_INLINE_MERGE_GATE:-0}" != 1 ]; then
+            echo "main moved and this pass has no merge gate; the follow-up pass takes the rest"
+            break
+        fi
         continue
     fi
 

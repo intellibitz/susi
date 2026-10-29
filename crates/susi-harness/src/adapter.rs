@@ -814,7 +814,10 @@ pub struct SusiRunReport {
     pub accepted: bool,
     /// Every attempt, in order.
     pub attempts: Vec<SusiAttemptRecord>,
-    /// True when the ladder stopped because the budget would be crossed.
+    /// True when the ladder stopped because the budget would be crossed, or
+    /// because no model on it can be paid for (every one's last real call was
+    /// refused: the key was refused or has no credit). Either way the mission
+    /// stops for a top-up rather than fail its remaining tasks unattempted.
     pub budget_exhausted: bool,
 }
 
@@ -907,6 +910,13 @@ nothing outside the task.",
             Some((model.clone(), window))
         })
         .collect();
+    // Only a refusal takes a model off a task's order ([`rank_alternates`]),
+    // so an empty order means every model's key was refused or has no
+    // credit. The rest of the mission would fail the same way without a
+    // call, task after task; the mission stops for a top-up instead, as it
+    // does when the budget runs out, and leaves the rest of its tasks for a
+    // later run.
+    let refused_all = ranked.is_empty();
     let mut ladder = Ladder::new(ranked, policy.policy).with_contexts(contexts);
     let mut attempts = Vec::new();
     let mut last_outcome = None;
@@ -917,6 +927,16 @@ nothing outside the task.",
     loop {
         let attempt = match ladder.next_attempt() {
             NextAttempt::Attempt(attempt) => attempt,
+            NextAttempt::Stop(_) if refused_all => {
+                last_outcome = Some(RunOutcome::Failed {
+                    message: format!(
+                        "no model can run: the last real call of every model on this task's ladder was refused (key refused or no credit); fix the key or top up, and a probe re-admits a model once its refusal is {} minutes old",
+                        crate::fleet::PROBE_AFTER_MS / 60_000
+                    ),
+                });
+                budget_exhausted = true;
+                break;
+            }
             NextAttempt::Stop(reason) => {
                 if attempts.is_empty() {
                     last_outcome = Some(RunOutcome::Failed {
@@ -1097,27 +1117,61 @@ Fix this in the worktree before you finish:\n{message}"
 
 /// The model order for a task: its own (light) model first, then the strong
 /// fixers, then the other light models ([`crate::policy::escalation_order`]),
-/// each group in the fleet's order, with models whose last real call failed
-/// left out and unreliable models and cooling providers moved back
-/// ([`crate::policy::arrange`]). The ladder already ranks expiring credit,
-/// cache, price and capability; re-sorting it by price here would undo that.
+/// each group in the fleet's order, with models whose last real call was
+/// refused left out, and unreliable models, cooling providers and models that
+/// just failed transiently moved back ([`crate::policy::arrange`]). The ladder
+/// already ranks expiring credit, cache, price and capability; re-sorting it
+/// by price here would undo that.
+///
+/// A refused model is re-admitted here, inside the mission, the way a run
+/// re-admits it when it starts: once its refusal is
+/// [`crate::fleet::PROBE_AFTER_MS`] old, one probe call decides
+/// ([`crate::fleet::readmit`]). Otherwise a key fixed or an account topped up
+/// mid-mission stayed off until the next run.
 fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<String> {
-    let entries = crate::ledger::read_entries_reporting(policy.ledger_path);
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0);
+    let now_ms = || {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+            .unwrap_or(0)
+    };
     let registry = crate::providers::Registry::builtin();
-    let provider_of = |model: &str| registry.resolve(model).map(|resolved| resolved.provider);
     let strong = |model: &str| registry.tier_of(model) == Some(crate::providers::Tier::Rescue);
     let ladder = crate::policy::escalation_order(&spec.alternates, &strong);
+    let mut entries = crate::ledger::read_entries_reporting(policy.ledger_path);
+    if !policy.ledger_path.as_os_str().is_empty() {
+        let mut candidates = ladder.clone();
+        candidates.push(spec.model.clone());
+        let probed = crate::fleet::readmit(
+            &entries,
+            policy.ledger_path,
+            policy.catalogue,
+            &candidates,
+            now_ms(),
+        );
+        if !probed.is_empty() {
+            entries = crate::ledger::read_entries_reporting(policy.ledger_path);
+        }
+    }
+    order_from(&spec.model, &ladder, &entries, now_ms())
+}
+
+/// [`rank_alternates`] on a ledger already read, at `now_unix_ms`.
+fn order_from(
+    preferred: &str,
+    ladder: &[String],
+    entries: &[LedgerEntry],
+    now_unix_ms: u64,
+) -> Vec<String> {
+    let registry = crate::providers::Registry::builtin();
+    let provider_of = |model: &str| registry.resolve(model).map(|resolved| resolved.provider);
     crate::policy::arrange(
-        &spec.model,
-        &ladder,
+        preferred,
+        ladder,
         &crate::policy::Standing {
-            history: &crate::policy::history(&entries),
-            cooling: &crate::policy::cooling_providers(&entries, now_ms),
-            failed: &crate::policy::failed_models(&entries),
+            history: &crate::policy::history(entries),
+            cooling: &crate::policy::cooling_providers(entries, now_unix_ms),
+            failed: &crate::policy::in_force(crate::policy::failed_models(entries), now_unix_ms),
         },
         &provider_of,
     )
@@ -1736,5 +1790,164 @@ mod tests {
             "test result: ok. 0 passed; 0 failed"
         ));
         assert!(!SusiTarget::<FakeRunner>::ran_zero_tests("tests pass"));
+    }
+
+    fn now_unix_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+            .unwrap_or(0)
+    }
+
+    /// A gateway row for `model` that ended at `at_ms`.
+    fn gateway_row(model: &str, at_ms: u64, outcome: Outcome) -> LedgerEntry {
+        LedgerEntry::settle(Dispatch {
+            mission: "m".to_string(),
+            task: "T".to_string(),
+            attempt: 1,
+            model: model.to_string(),
+            provider: "deepseek".to_string(),
+            usage: TokenUsage::default(),
+            price: crate::pricing::ModelPrice::default(),
+            started_unix_ms: at_ms,
+            ended_unix_ms: at_ms,
+            outcome,
+        })
+    }
+
+    fn one_model_task(dir: &Path) -> SusiTaskSpec {
+        SusiTaskSpec {
+            worktree_name: "one".into(),
+            title: "docs".into(),
+            accept: "cargo test -p susi-harness".into(),
+            scopes: vec!["docs/harness.md".into()],
+            prompt: "write docs".into(),
+            gateway_url: "http://127.0.0.1:1".into(),
+            model: "deepseek-flash".into(),
+            alternates: vec!["deepseek-flash".into()],
+            timeout: Duration::from_secs(5),
+            state_dir: dir.join("state"),
+            task: None,
+            precheck: false,
+        }
+    }
+
+    /// The observed failure: a fleet of one model, a 429 that outlived the
+    /// same-model retry, and every later task of the mission failed in
+    /// seconds with "the attempt cap was reached" and no call made.
+    #[test]
+    fn a_single_model_whose_last_call_was_rate_limited_still_gets_an_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("ledger.jsonl");
+        let now = now_unix_ms();
+        append_entry(
+            &ledger,
+            &gateway_row("deepseek-flash", now - 2, Outcome::Completed),
+        )
+        .unwrap();
+        append_entry(
+            &ledger,
+            &gateway_row(
+                "deepseek-flash",
+                now - 1,
+                Outcome::ModelFailed {
+                    class: crate::ledger::FailureClass::RateLimited,
+                },
+            ),
+        )
+        .unwrap();
+        let exec = FakeExec {
+            outcome: RunOutcome::Failed {
+                message: "tests red".into(),
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
+            ok("added T-AGENT-5 — commit\n"),
+        ]);
+        let policy = SusiRunPolicy {
+            ledger_path: &ledger,
+            mission: "m",
+            ..SusiRunPolicy::unmetered()
+        };
+        let report = run_task(&target, &one_model_task(dir.path()), &exec, &policy).unwrap();
+        assert_eq!(report.attempts.len(), 1, "the only model must be tried");
+        assert_eq!(report.attempts[0].model, "deepseek-flash");
+        assert!(!report.budget_exhausted);
+        assert_eq!(exec.prompts.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_ladder_whose_every_key_was_refused_stops_the_mission_without_a_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("ledger.jsonl");
+        // Refused just now: too recent to probe, so no call leaves the test.
+        append_entry(
+            &ledger,
+            &gateway_row(
+                "deepseek-flash",
+                now_unix_ms(),
+                Outcome::ModelFailed {
+                    class: crate::ledger::FailureClass::NoCredit,
+                },
+            ),
+        )
+        .unwrap();
+        let exec = FakeExec {
+            outcome: RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: None,
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
+            ok("added T-AGENT-6 — commit\n"),
+        ]);
+        let policy = SusiRunPolicy {
+            ledger_path: &ledger,
+            mission: "m",
+            ..SusiRunPolicy::unmetered()
+        };
+        let report = run_task(&target, &one_model_task(dir.path()), &exec, &policy).unwrap();
+        assert!(report.attempts.is_empty());
+        assert!(exec.prompts.lock().unwrap().is_empty());
+        assert!(
+            report.budget_exhausted,
+            "the mission stops instead of failing every task"
+        );
+        let RunOutcome::Failed { message } = &report.agent else {
+            panic!("expected a failure, got {:?}", report.agent);
+        };
+        assert!(message.contains("was refused"), "{message}");
+    }
+
+    #[test]
+    fn a_transient_failure_moves_a_model_back_only_for_the_cooldown() {
+        let ladder = vec!["deepseek-flash".to_string(), "deepseek-pro".to_string()];
+        let at = 1_000_000;
+        let entries = vec![gateway_row(
+            "deepseek-flash",
+            at,
+            Outcome::ModelFailed {
+                class: crate::ledger::FailureClass::Timeout,
+            },
+        )];
+        assert_eq!(
+            order_from("deepseek-flash", &ladder, &entries, at + 1),
+            vec!["deepseek-pro", "deepseek-flash"]
+        );
+        assert_eq!(
+            order_from(
+                "deepseek-flash",
+                &ladder,
+                &entries,
+                at + crate::policy::COOLDOWN_MS + 1
+            ),
+            vec!["deepseek-flash", "deepseek-pro"]
+        );
     }
 }

@@ -8,10 +8,19 @@
 //! The script reuses a passed run when one exists, otherwise dispatches the Test
 //! workflow on the tag and waits - and what counts as "a run that executed the
 //! full suite" is the part worth pinning: a branch-push run only compiles and
-//! lints, so a green one proves nothing about the tests.
+//! lints, so a green one proves nothing about the tests, and neither does the
+//! merge bot's `gate=branch` retest, which is a dispatch run like the suite.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// A full-gate run's jobs: the suite ran and passed.
+const SUITE_PASSED: &str = r#"{"jobs":[{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"success"},{"name":"Format Check","conclusion":"success"}]}"#;
+/// A full-gate run with one red shard.
+const SHARD_FAILED: &str = r#"{"jobs":[{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"failure"},{"name":"Format Check","conclusion":"success"}]}"#;
+/// The merge bot's `gate=branch` retest of a resynced head: green, but it ran
+/// what a branch push runs - the shards, lint and e2e were all skipped.
+const BRANCH_GATE: &str = r#"{"jobs":[{"name":"Compile Check (branch pushes)","conclusion":"success"},{"name":"Workflow Compliance","conclusion":"success"},{"name":"Doc Tests + Clippy","conclusion":"skipped"},{"name":"Merge the retested head","conclusion":"success"}]}"#;
 
 fn script_command(script: &Path) -> Command {
     #[cfg(windows)]
@@ -45,7 +54,8 @@ struct Fake {
 impl Fake {
     /// `before`: what `gh run list` returns until the workflow is dispatched;
     /// `after`: what it returns afterwards; `states`: one `status/conclusion`
-    /// per `gh run view` poll, the last repeating.
+    /// per `gh run view` poll, the last repeating. Every run's jobs are a
+    /// passed suite unless [`Fake::jobs`] says otherwise.
     fn new(
         tag: &str,
         before: serde_json::Value,
@@ -58,11 +68,7 @@ impl Fake {
         std::fs::write(dir.join("before.json"), before.to_string()).unwrap();
         std::fs::write(dir.join("after.json"), after.to_string()).unwrap();
         std::fs::write(dir.join("states"), states.join("\n")).unwrap();
-        std::fs::write(
-            dir.join("jobs.json"),
-            r#"{"jobs":[{"name":"Test (gemi)","conclusion":"failure"},{"name":"Format Check","conclusion":"success"}]}"#,
-        )
-        .unwrap();
+        std::fs::write(dir.join("jobs.json"), SUITE_PASSED).unwrap();
         let gh = dir.join("gh");
         std::fs::write(
             &gh,
@@ -77,7 +83,10 @@ case "$1 $2" in
   : > "$D/dispatched" ;;
 "run view")
   case "$*" in
-  *"--json jobs"*) jq -r "$(jqexpr "$@")" "$D/jobs.json" ;;
+  *"--json jobs"*)
+    if [ -f "$D/jobs_fail_once" ]; then rm -f "$D/jobs_fail_once"; echo "HTTP 502" >&2; exit 1; fi
+    f="$D/jobs-$3.json"; [ -f "$f" ] || f="$D/jobs.json"
+    jq -r "$(jqexpr "$@")" "$f" ;;
   *)
     n=$(cat "$D/n" 2>/dev/null || echo 0); echo $((n + 1)) > "$D/n"
     line=$(sed -n "$((n + 1))p" "$D/states"); [ -n "$line" ] || line=$(tail -n 1 "$D/states")
@@ -121,6 +130,11 @@ esac
     fn flag(&self, name: &str) {
         std::fs::write(self.dir.join(name), "1").unwrap();
     }
+
+    /// What `gh run view <id> --json jobs` reports for run `id`.
+    fn jobs(&self, id: u64, jobs: &str) {
+        std::fs::write(self.dir.join(format!("jobs-{id}.json")), jobs).unwrap();
+    }
 }
 
 impl Drop for Fake {
@@ -139,8 +153,12 @@ fn run_entry(id: u64, event: &str, branch: &str, conclusion: &str) -> serde_json
 
 /// The dispatched run, as `gh run list --event workflow_dispatch` shows it.
 fn dispatched(id: u64, sha: &str) -> serde_json::Value {
+    dispatched_at(id, sha, LATER)
+}
+
+fn dispatched_at(id: u64, sha: &str, created: &str) -> serde_json::Value {
     serde_json::json!({ "databaseId": id, "event": "workflow_dispatch", "headBranch": "v1.2.3",
-        "status": "queued", "conclusion": "", "headSha": sha, "createdAt": LATER })
+        "status": "queued", "conclusion": "", "headSha": sha, "createdAt": created })
 }
 
 #[test]
@@ -194,6 +212,155 @@ fn a_green_branch_push_run_never_counts_as_the_suite() {
     );
 }
 
+/// The merge bot retests a resynced head by dispatching the Test workflow with
+/// `gate=branch`. `gh run list` shows that run as a green `workflow_dispatch`,
+/// exactly like the suite, and it was reused as "the full suite already passed"
+/// although it ran no test. A release dry run on such a branch then built with
+/// no suite behind it.
+#[test]
+fn a_green_branch_gate_retest_of_the_commit_is_not_taken_for_the_suite() {
+    let f = Fake::new(
+        "branch-gate-reuse",
+        serde_json::json!([run_entry(
+            15,
+            "workflow_dispatch",
+            "claude/some-task",
+            "success"
+        )]),
+        serde_json::json!([dispatched(84, SHA)]),
+        &["completed/success"],
+    );
+    f.jobs(15, BRANCH_GATE);
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("already passed"), "{out}");
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref v1.2.3 -f gate=full"),
+        "the full suite must be dispatched, and asked for as the full gate: {}",
+        f.calls()
+    );
+    assert!(out.contains("passed on abc1234 (run 84)"), "{out}");
+}
+
+/// The dispatch returns no run id, so the script finds its run by commit and
+/// time. A branch-gate retest dispatched on the same commit in that window is
+/// found the same way; when it is the one watched, its green finish must not
+/// pass for the suite - the script looks again and waits for its own run.
+#[test]
+fn a_branch_gate_retest_dispatched_beside_the_suite_is_passed_over() {
+    let f = Fake::new(
+        "branch-gate-beside",
+        serde_json::json!([]),
+        serde_json::json!([
+            dispatched_at(85, SHA, "2099-01-01T00:00:00Z"),
+            dispatched_at(86, SHA, "2099-01-01T00:01:00Z"),
+        ]),
+        &["completed/success"],
+    );
+    f.jobs(86, BRANCH_GATE);
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("the full suite passed on abc1234 (run 85)"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("(run 86)") && out.contains("run 86 passed without running the suite"),
+        "{out}"
+    );
+}
+
+/// Telling the suite from a branch gate takes one more `gh` call. When that call
+/// fails, the run is neither: the script must ask again, not pass over its own
+/// green suite and then fail the release for want of another run.
+#[test]
+fn a_green_run_whose_jobs_cannot_be_read_is_asked_again_not_passed_over() {
+    let f = Fake::new(
+        "jobs-unreadable",
+        serde_json::json!([]),
+        serde_json::json!([dispatched(88, SHA)]),
+        &["completed/success"],
+    );
+    f.flag("jobs_fail_once");
+    let (code, out) = f.run(&[("RELEASE_TESTS_FIND_MAX", "0")]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("passed on abc1234 (run 88)"), "{out}");
+    assert_eq!(
+        f.calls()
+            .matches("run view 88 --repo o/r --json jobs")
+            .count(),
+        2,
+        "{}",
+        f.calls()
+    );
+}
+
+/// A branch-gate run is never the suite, even when it is the only run there is.
+#[test]
+fn a_branch_gate_retest_alone_never_passes_the_release() {
+    let f = Fake::new(
+        "branch-gate-alone",
+        serde_json::json!([]),
+        serde_json::json!([dispatched(87, SHA)]),
+        &["completed/success"],
+    );
+    f.jobs(87, BRANCH_GATE);
+    let (code, out) = f.run(&[("RELEASE_TESTS_FIND_MAX", "0")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(!out.contains("full suite passed"), "{out}");
+    assert!(out.contains("no Test run appeared"), "{out}");
+}
+
+/// The script tells a branch-gate dispatch from the suite by one job of
+/// test.yml: it must be skipped on the branch gate exactly when the shards are,
+/// and run on every other dispatch. Renaming it, or gating it differently,
+/// silently turns every reuse into a fresh dispatch or, worse, lets a branch
+/// gate through.
+#[test]
+fn the_job_that_proves_a_dispatch_ran_the_suite_is_skipped_exactly_with_the_shards() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script = std::fs::read_to_string(root.join("scripts/release-await-tests.sh")).unwrap();
+    let name = script
+        .lines()
+        .find_map(|l| l.strip_prefix("suite_job=\""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .expect("release-await-tests.sh names the job that proves the suite ran");
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/test.yml")).unwrap();
+    // A job's lines, from its two-space-indented id to the next one.
+    let job = |id: &str| -> Vec<&str> {
+        workflow
+            .lines()
+            .skip_while(|l| *l != format!("  {id}:"))
+            .skip(1)
+            .take_while(|l| !(l.starts_with("  ") && !l.starts_with("   ") && l.ends_with(':')))
+            .collect()
+    };
+    let gate = |lines: &[&str]| -> String {
+        lines
+            .iter()
+            .find_map(|l| l.strip_prefix("    if: "))
+            .unwrap_or_default()
+            .to_string()
+    };
+    let lint = job("lint");
+    assert!(
+        lint.contains(&format!("    name: {name}").as_str()),
+        "test.yml's `lint` job must be named `{name}`, the job release-await-tests.sh reads"
+    );
+    let shards = gate(&job("test"));
+    assert!(
+        shards.contains("inputs.gate != 'branch'"),
+        "the shards no longer skip on the branch gate: {shards}"
+    );
+    assert_eq!(
+        gate(&lint),
+        shards,
+        "`{name}` must run exactly when the shards do, or its success no longer means the \
+         suite ran"
+    );
+}
+
 #[test]
 fn a_failed_earlier_run_does_not_count_and_the_suite_is_dispatched() {
     let f = Fake::new(
@@ -223,8 +390,12 @@ fn it_waits_through_queued_and_in_progress_until_the_run_passes() {
     let (code, out) = f.run(&[]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("passed on abc1234"), "{out}");
+    // Counted on the status read: the green run's jobs are read once more, to
+    // see that its suite ran.
     assert_eq!(
-        f.calls().matches("run view 79").count(),
+        f.calls()
+            .matches("run view 79 --repo o/r --json status")
+            .count(),
         4,
         "one poll per state: {}",
         f.calls()
@@ -239,6 +410,7 @@ fn a_failed_run_blocks_the_release_and_names_the_failing_job() {
         serde_json::json!([dispatched(80, SHA)]),
         &["in_progress/", "completed/failure"],
     );
+    f.jobs(80, SHARD_FAILED);
     let (code, out) = f.run(&[]);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("did not pass"), "{out}");
