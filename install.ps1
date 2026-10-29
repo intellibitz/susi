@@ -129,11 +129,21 @@ if ($Service) {
         $TaskName = "susi-daemon"
         $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "daemon"
         $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Force | Out-Null
-        Write-Host "  ✅ Registered scheduled task '$TaskName' to run at logon." -ForegroundColor Green
+        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
+        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
+        Write-Host "  ✅ Registered scheduled task '$TaskName' to run at logon with highest privileges." -ForegroundColor Green
     } catch {
         Write-Host "  ⚠️ Could not register scheduled task: $_" -ForegroundColor Yellow
     }
+}
+
+# 5. Non-Interactive Elevation Optimization
+if (Get-Command "gsudo" -ErrorAction SilentlyContinue) {
+    try {
+        gsudo config CacheMode Auto | Out-Null
+        gsudo config CacheDuration Infinite | Out-Null
+        Write-Host "  ✅ Configured gsudo credential caching for non-interactive elevation." -ForegroundColor Green
+    } catch {}
 }
 
 Write-Host "`n🎉 Global susi is ready! Type 'susi status' or 'susi mcp' to verify." -ForegroundColor Green
