@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDEECSTATICBELLLSUY53-1",
+  "title": "CI never blocks an agent: scoped main runs, no finish wait",
+  "goal": "GitHub runners are the scarce resource every branch gate queues on, and finish idled polling them. Scope every main run to the merge (dynamic shard matrix, stamp on dispatched runs, coverage/kani/e2e/zc-matrix gated at the job level, static checks in one job, no codetree on branch pushes) and make workflow finish hand off at the push, with red runs reported at sync.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "--test",
+      "parallel_workflow",
+      "--test",
+      "release_await_tests"
+    ]
+  },
+  "created_by": "CLAUDEECSTATICBELLLSUY53",
+  "created_unix": 1793250191
+}

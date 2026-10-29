@@ -28,6 +28,14 @@ on:
         default: full
         type: choice
         options: [full, branch]
+      # The code-tree stamp (job `codetree`) lets a main run whose code is
+      # byte-identical to an already-green run skip the suite. `prove: true`
+      # runs it regardless (a cache refresh, a suspected flake).
+      prove:
+        description: "true: run the suite even when the code tree is already proven"
+        required: false
+        default: false
+        type: boolean
 
 # Off main a newer run supersedes the older one: a branch's gate is only ever
 # about its newest head. On `main` a running run is never cancelled: it
@@ -175,6 +183,12 @@ jobs:
   # verify - still runs on every merge.
   codetree:
     name: Code-tree stamp
+    # Main, tags and dispatches only. A branch push runs none of the jobs this
+    # scopes (the shards, coverage, lint, kani, e2e and Windows are main's, and
+    # the retest's `merge` job exists only on a dispatch), so on every push it
+    # spent a runner and a full-history checkout to compute nothing — one of
+    # nine runners a push took from a pool the main suite was already filling.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -183,19 +197,34 @@ jobs:
       skip_shards: ${{ steps.scope.outputs.skip_shards }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
       run_windows: ${{ steps.scope.outputs.run_windows }}
+      run_kani: ${{ steps.scope.outputs.run_kani }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      run_shards: ${{ steps.matrix.outputs.run_shards }}
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
         with:
           fetch-depth: 0 # the candidate green shas need main's history
 
+      # Every main run is a dispatch: a GITHUB_TOKEN merge raises no push
+      # event, so the auto-merger dispatches the suite after each merge. Keyed
+      # on `push`, the stamp never fired once — every task-only merge (a close
+      # record, a task add: about half of all merges) ran coverage, kani and
+      # the post-merge build for 10+ minutes on bytes a green run had already
+      # proved, holding runners every branch push then queued behind. The
+      # stamp judges the tree, whatever event started the run; `prove: true`
+      # on a manual dispatch runs the suite regardless. A stamped run skips
+      # `Doc Tests + Clippy`, which scripts/release-await-tests.sh reads as
+      # "no suite ran here", so a release cut on such a sha dispatches its own
+      # suite on the tag — correct, and rare.
       - name: Resolve whether the code tree is already proven
         id: stamp
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROVE_ANYWAY: ${{ inputs.prove }}
         run: |
           proven=false
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+          if [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$PROVE_ANYWAY" != "true" ]; then
             shas=$(gh run list --workflow test.yml --branch main --status success \
               --limit 20 --json headSha --jq '.[].headSha' || true)
             scripts/ci-code-proven.sh "$GITHUB_SHA" $shas && proven=true
@@ -215,11 +244,12 @@ jobs:
       # failed. Two kinds of green are no base:
       # - the run's own head: a second dispatch on a green head re-proves the
       #   merges before it rather than nothing;
-      # - a push run: the `stamp` above can prove one by tree identity without
-      #   running it, so its green is an earlier tree's, not a run of its own
-      #   (the stamp and ci-changed-crates.sh exempt the same .agents/tasks/,
-      #   but the base is kept to heads whose suite ran). The auto-merger's
-      #   dispatched runs are never stamped.
+      # - a push run: main's merges are GITHUB_TOKEN merges and raise none, so
+      #   a push run on main is a hand push, outside the loop this scopes.
+      # A dispatched run the `stamp` proved by tree identity is a sound base:
+      # its code is byte-identical to the green run it reused (the stamp and
+      # ci-changed-crates.sh exempt the same .agents/tasks/), so a diff from
+      # it is the diff from that run.
       # Rename detection is off for every diff below, so a file moved out of
       # scripts/ or out of a crate still names the path it left. Two escapes,
       # both toward proving more: the suite's own machinery (.github/,
@@ -232,15 +262,21 @@ jobs:
         id: scope
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROVE_ANYWAY: ${{ inputs.prove }}
         run: |
           affected=ALL
           skip='[]'
           e2e=true
+          # The Kani proofs cover susi-gawd alone; they can only change when
+          # the merge reaches that crate.
+          kani=true
           # The Windows leg proves the published binary starts and answers; it
           # is worth a runner whenever the root package (the `susi` binary) is
           # in the affected set, including as a dependent.
           win=true
-          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+          if [ "${PROVE_ANYWAY:-}" = "true" ]; then
+            echo "prove=true — scoping nothing, every job runs"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false
             head=$(git rev-parse HEAD)
             base=
@@ -266,13 +302,16 @@ jobs:
                     affected=NONE
                     skip=$(scripts/ci-test-shards.sh | cut -f1 | jq -R . | jq -sc .)
                     e2e=false
+                    kani=false
                     win=false ;;
                   *)
                     affected=SCOPED
                     e2e=false
+                    kani=false
                     win=false
                     grep -qx 'susi' <<<"$pkgs" && win=true
-                    while IFS=$'\t' read -r name shardpkgs; do
+                    grep -qx 'susi-gawd' <<<"$pkgs" && kani=true
+                    while IFS=$'\t' read -r name shardpkgs _partitions; do
                       hit=false
                       for c in $(awk '{for(i=1;i<=NF;i++) if($i=="-p") print $(i+1)}' <<<"$shardpkgs"); do
                         grep -qx "$c" <<<"$pkgs" && { hit=true; break; }
@@ -305,10 +344,41 @@ jobs:
             echo "skip_shards=$skip"
             echo "run_e2e=$e2e"
             echo "run_windows=$win"
+            echo "run_kani=$kani"
           } >> "$GITHUB_OUTPUT"
 
-  toolchain:
-    name: Toolchain Pin
+      # The shard matrix the `test` job runs, built from the same map the scope
+      # above filtered (scripts/ci-test-shards.sh) with the unaffected shards
+      # left out. A job-level `if` cannot see matrix variables, so the legs
+      # used to skip themselves in a first step — after GitHub had allocated a
+      # runner for each of the nine, and in a pool where every branch push's
+      # gate was queuing behind them. A leg that is not in the matrix costs
+      # nothing. `run_shards` is the job-level gate for the empty matrix
+      # (`strategy` refuses one).
+      - name: Build the shard matrix
+        id: matrix
+        env:
+          AFFECTED: ${{ steps.scope.outputs.affected }}
+          SKIP: ${{ steps.scope.outputs.skip_shards }}
+        run: |
+          [ "$AFFECTED" != "ALL" ] || SKIP='[]'
+          matrix=$(scripts/ci-test-shards.sh --matrix "$SKIP")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          if jq -e '.shard | length > 0' <<<"$matrix" >/dev/null; then
+            echo "run_shards=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "every shard is unaffected — no test leg runs"
+            echo "run_shards=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The toolchain pin, the roadmap and the tracked-artifact checks are each a
+  # checkout and a few seconds of script; as three jobs they were three runner
+  # allocations (plus three checkouts and three "Set up job"s) on every push
+  # and every main run. One job, one runner: every check still runs, in order,
+  # and a failure names its step. Nothing here is a required status check
+  # (scripts/github-enforce.sh), so the names are free to change.
+  invariants:
+    name: Repository Invariants
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -321,47 +391,12 @@ jobs:
       - name: rustc, cargo and clippy resolve to the pinned channel
         run: scripts/check-toolchain-pin.sh
 
-  # Mandates 49-51, server side: every commit on a pushed branch names a
-  # claimed or closed task (`Task: T-<AGENT>-<n>` trailer). The local hooks can
-  # be skipped with --no-verify; this job cannot.
-  workflow:
-    name: Workflow Compliance
-    if: (github.event_name == 'push' || inputs.gate == 'branch') && github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0 # base..head needs history and origin/main
-
-      - name: Every commit belongs to a task this branch claimed
-        run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA" origin "$GITHUB_REF_NAME"
-
-  # Roadmap prose must not contradict verified delivery. 100 of 102 vectors
-  # said "not an implemented capability" while every one of them had a closed
-  # linked task whose acceptance check passed, so the roadmap read as unbuilt
-  # work that was in fact implemented and tested. No `if`: this runs on the
-  # branch-push run that gates the merge *and* on main, so the invariant
-  # cannot silently rot between reconciliations.
-  roadmap:
-    name: Roadmap Progress
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v6
-
+      # Roadmap prose must not contradict verified delivery. 100 of 102
+      # vectors said "not an implemented capability" while every one of them
+      # had a closed linked task whose acceptance check passed. Runs on the
+      # branch-push run that gates the merge *and* on main.
       - name: Every vector with closed linked tasks states what verifies it
         run: scripts/check-roadmap-progress.sh
-
-  artifacts:
-    name: Tracked Artifacts
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v6
 
       # An action version that does not exist kills the job at "Set up job",
       # before a single step runs. A bump of softprops/action-gh-release to a
@@ -388,6 +423,23 @@ jobs:
       # `delivered` verdict citing a test no module declares is refused.
       - name: Every recorded verdict cites evidence that can run
         run: scripts/check-roadmap-verdict.py --all
+
+  # Mandates 49-51, server side: every commit on a pushed branch names a
+  # claimed or closed task (`Task: T-<AGENT>-<n>` trailer). The local hooks can
+  # be skipped with --no-verify; this job cannot.
+  workflow:
+    name: Workflow Compliance
+    if: (github.event_name == 'push' || inputs.gate == 'branch') && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # base..head needs history and origin/main
+
+      - name: Every commit belongs to a task this branch claimed
+        run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA" origin "$GITHUB_REF_NAME"
 
   deny:
     name: cargo deny (licenses + advisories)
@@ -568,7 +620,7 @@ jobs:
   test:
     name: Test (${{ matrix.shard.name }}${{ matrix.shard.partition && format(' {0}', matrix.shard.partition) || '' }})
     needs: codetree
-    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true' && needs.codetree.outputs.run_shards == 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     # 90, not 60: a shard that loses its cache entry to the 10 GB quota rebuilds
     # its test profile, and root-cli then needs more than 60 — it was cancelled
@@ -577,97 +629,36 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        shard:
-          - name: foundation
-            pkgs: -p susi-paths -p susi-error -p susi-config -p susi-abi -p susi-core -p susi-sandbox -p susi-sandbox-client -p susi-http-transport -p susi-native-client -p susi-leaf-services
-          - name: daemon
-            pkgs: -p susi-daemon -p susi-server -p susi-gmcp -p susi-tools
-          - name: gawd
-            pkgs: -p susi-gawd -p susi-gawd-agents -p susi-gawd-swarm -p susi-gawd-a2a -p susi-agents
-          - name: gemi
-            pkgs: -p susi-gemi -p susi-gemi-models -p susi-adapters-llm
-          - name: vendor-cells
-            pkgs: -p susi-vendor-wasmtime -p susi-vendor-candle -p susi-vendor-fastembed -p susi-vendor-tantivy -p susi-vendor-chrome -p susi-vendor-syn -p susi-vendor-mcp -p susi-vendor-mcp-server -p susi-vendor-cloud -p susi-vendor-agents -p susi-vendor-models -p susi-vendor-web -p susi-dsh-cell -p susi-universal-cell -p susi-vendor-anyhow -p susi-vendor-axum -p susi-vendor-base64 -p susi-vendor-bollard -p susi-vendor-bytes -p susi-vendor-chacha20poly1305 -p susi-vendor-clap -p susi-vendor-console-subscriber -p susi-vendor-criterion -p susi-vendor-dashmap -p susi-vendor-ed25519-dalek -p susi-vendor-flume -p susi-vendor-futures -p susi-vendor-getrandom -p susi-vendor-hex -p susi-vendor-http-body-util -p susi-vendor-hyper -p susi-vendor-hyper-util -p susi-vendor-indicatif -p susi-vendor-jsonschema -p susi-vendor-libc -p susi-vendor-md-5 -p susi-vendor-parking-lot -p susi-vendor-proptest -p susi-vendor-ra2a -p susi-vendor-rayon -p susi-vendor-rcgen -p susi-vendor-regex -p susi-vendor-serde -p susi-vendor-serde-json -p susi-vendor-sha1 -p susi-vendor-sha2 -p susi-vendor-shlex -p susi-vendor-signal-hook -p susi-vendor-sysinfo -p susi-vendor-tempfile -p susi-vendor-tokio -p susi-vendor-tokio-rustls -p susi-vendor-tokio-stream -p susi-vendor-tower -p susi-vendor-tower-service -p susi-vendor-tracing -p susi-vendor-tracing-appender -p susi-vendor-tracing-subscriber -p susi-vendor-ureq -p susi-vendor-url -p susi-vendor-winapi -p susi-vendor-x25519-dalek
-          # root-cli runs on three runners, a third of its tests each
-          # (`partition`): it was the longest shard of main's post-merge suite,
-          # 17-45 min, of which compiling is about 2.5 and the rest is nextest
-          # (534 tests, 76 of them gmcp_requirements at a median 88 s). Hash
-          # partitioning spreads its ~100 small test binaries evenly; counted
-          # partitioning goes binary by binary and would pile the first test
-          # of each onto partition 1. The three keep the shard's name, so
-          # scoping and the shard map are unchanged, and share its cache.
-          - name: root-cli
-            pkgs: -p susi -p xtask
-            partition: hash:1/3
-          - name: root-cli
-            pkgs: -p susi -p xtask
-            partition: hash:2/3
-          - name: root-cli
-            pkgs: -p susi -p xtask
-            partition: hash:3/3
-          # susi-leaf-services feature-gates every service shell; the router
-          # tests only exist under --all-features (zero-feature builds compile
-          # them out by design so vendor backends stay out of unrelated
-          # binaries). Its own shard because the all-features build pulls
-          # wasmtime's cranelift backend and cost ~7.5 min on its own - run as a
-          # second step of `foundation` it made that shard ~10 min against ~2.5
-          # min for the rest of it.
-          - name: leaf-all-features
-            pkgs: -p susi-leaf-services --all-features
+      # The shard list lives in scripts/ci-test-shards.sh (names, packages and
+      # how many hash partitions a shard runs in); `codetree` builds the matrix
+      # from it with the shards this merge cannot affect left out, so a leg
+      # that would only re-prove green code is never allocated a runner.
+      matrix: ${{ fromJSON(needs.codetree.outputs.matrix) }}
     steps:
-      # Job-level `if` cannot see matrix variables, so scoping happens here:
-      # a leg whose shard the merge cannot affect exits in seconds instead of
-      # building its dependency closure. The map from shard name to packages
-      # is scripts/ci-test-shards.sh (kept in sync with the matrix above by
-      # tests/ci_workflow_perf.rs); codetree has already folded dependents in
-      # and scoped from the last green head, so an absent shard can only prove
-      # what was already green.
-      - name: Skip when this shard cannot be affected
-        id: scope
-        env:
-          AFFECTED: ${{ needs.codetree.outputs.affected }}
-          SKIP: ${{ needs.codetree.outputs.skip_shards }}
-          NAME: ${{ matrix.shard.name }}
-        run: |
-          run=true
-          if [ "$AFFECTED" != "ALL" ] && jq -e --arg n "$NAME" 'index($n) != null' <<<"$SKIP" >/dev/null; then
-            echo "shard $NAME holds no crate this merge can affect — skipping"
-            run=false
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
       - name: Checkout Source
-        if: steps.scope.outputs.run == 'true'
         uses: actions/checkout@v6
 
       - name: Install Rust
-        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
-        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: test-${{ matrix.shard.name }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
-        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
-        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-install-mold.sh
 
       # wasm32-wasip1 lets the reflex tests take the real compile+execute
       # branch instead of skipping (VC-200-002 evidence).
       - name: Install wasm32-wasip1 target
-        if: steps.scope.outputs.run == 'true'
         run: rustup target add wasm32-wasip1
 
       - name: Install cargo-nextest
-        if: steps.scope.outputs.run == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
@@ -685,7 +676,7 @@ jobs:
       # reverse-dependency set of susi-vendor-fastembed (scripts/ci-reverse-deps.sh):
       # gmcp, vendor-fastembed itself, the daemon and the root package.
       - name: Pre-fetch ONNX Runtime (bounded retries)
-        if: steps.scope.outputs.run == 'true' && (contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || contains(matrix.shard.pkgs, 'susi-daemon') || matrix.shard.name == 'root-cli')
+        if: contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || contains(matrix.shard.pkgs, 'susi-daemon') || matrix.shard.name == 'root-cli'
         run: scripts/ci-prefetch-onnxruntime.sh
 
       # `--retries 2`: with the branch gate no longer running tests, this is the
@@ -699,17 +690,22 @@ jobs:
       # fill it and fail with EDQUOT ("Disk quota exceeded"). Point temp at the
       # runner's real disk (~104 GB free) instead of the RAM-backed /tmp.
       - name: cargo nextest
-        if: steps.scope.outputs.run == 'true'
         env:
           TMPDIR: ${{ runner.temp }}
         run: cargo nextest run --locked --retries 2 ${{ matrix.shard.pkgs }} ${{ matrix.shard.partition && format('--partition {0}', matrix.shard.partition) || '' }} -E 'not binary(capability_gap_e2e)'
 
   # Per-crate coverage floor: coverage can only rise. Parallel with the
   # shards so it adds no wall time; instrumented build is the cost.
+  # Scoped like the shards, but only to the whole: coverage is measured over
+  # the workspace, and a test in one crate covers lines in another, so a
+  # merge that reaches any crate re-measures everything. A merge that reaches
+  # none (docs, CI prose) cannot move a line of coverage and skips the ~10 min
+  # instrumented build — about half of all merges, each of which used to run
+  # it on an unchanged tree.
   coverage:
     name: Coverage Ratchet
     needs: codetree
-    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true' && needs.codetree.outputs.affected != 'NONE'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     # The instrumented build is the cost, and it is cold whenever the llvm-cov
     # entry is evicted: 60 cancelled it on the last main run. Same bound as the
@@ -763,10 +759,14 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: scripts/coverage-ratchet.sh
 
+  # Gated exactly as the shards are (`run_shards`): scripts/release-await-tests.sh
+  # reads this job's success as "the suite ran on this sha", so it must never
+  # run where the shards did not. A merge that reaches no crate skips both;
+  # the caches this job writes have nothing new to hold then either.
   lint:
     name: Doc Tests + Clippy
     needs: codetree
-    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true' && needs.codetree.outputs.run_shards == 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     env:
@@ -834,10 +834,13 @@ jobs:
   # Once it had a runner the proofs failed at once: 0.68 rejects
   # `--concrete-playback` unless `-Z concrete-playback` is passed too. The job had
   # been broken for as long as the runner had been missing, and nobody could tell.
+  # Scoped: the harnesses live in susi-gawd, so the proofs can only change
+  # when the merge reaches that crate (`run_kani`, folded from the affected
+  # set with dependents, or ALL).
   kani:
     name: Kani Bounded Proofs
     needs: codetree
-    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true' && needs.codetree.outputs.run_kani == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -957,64 +960,45 @@ jobs:
   # The capability-gap e2e executes a synthesized WASI reflex through a live
   # susi-native leaf service. It runs in its own job in parallel with `test`
   # so building the service no longer serializes ahead of the suite.
+  # Scoped like the shards, at the job level: a merge that cannot reach the
+  # daemon/leaf/native/gmcp set this exercises (`run_e2e`, true for ALL) is
+  # already proven, and the job is never allocated a runner for it.
   e2e:
     name: capability_gap_e2e (live susi-native)
     needs: codetree
-    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true' && needs.codetree.outputs.run_e2e == 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:
-      # Same scoping as the test shards: a merge that cannot reach the
-      # daemon/leaf/native/gmcp set this exercises is already proven.
-      - name: Skip when the merge cannot reach the e2e crates
-        id: scope
-        env:
-          AFFECTED: ${{ needs.codetree.outputs.affected }}
-          RUN: ${{ needs.codetree.outputs.run_e2e }}
-        run: |
-          run=$RUN
-          [ "$AFFECTED" = "ALL" ] && run=true
-          [ "$run" = true ] || echo "merge cannot affect the e2e crates — skipping"
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
       - name: Checkout Source
-        if: steps.scope.outputs.run == 'true'
         uses: actions/checkout@v6
 
       - name: Install Rust
-        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
-        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
-        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
-        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-install-mold.sh
 
       - name: Install wasm32-wasip1 target
-        if: steps.scope.outputs.run == 'true'
         run: rustup target add wasm32-wasip1
 
       - name: Install cargo-nextest
-        if: steps.scope.outputs.run == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
 
       - name: Build susi-native service
-        if: steps.scope.outputs.run == 'true'
         run: cargo build -p susi-leaf-services --bin susi-native --no-default-features --features service-native,standalone-service-bins --locked
 
       - name: Start susi-native on 127.0.0.1:18084
-        if: steps.scope.outputs.run == 'true'
         run: |
           ./target/debug/susi-native &
           for i in $(seq 1 60); do
@@ -1029,11 +1013,9 @@ jobs:
       # vendor-cells shard). Build it up front with bounded retries - only the
       # build is retried, never the tests.
       - name: Pre-fetch ONNX Runtime (bounded retries)
-        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-prefetch-onnxruntime.sh
 
       - name: cargo nextest (e2e only)
-        if: steps.scope.outputs.run == 'true'
         run: cargo nextest run -p susi-daemon --test capability_gap_e2e --locked
 
   # The release publishes a Windows binary, so the Windows binary is proven on
@@ -1088,7 +1070,7 @@ jobs:
   # through the merge bot's script and its serialized queue.
   merge:
     name: Merge the retested head
-    needs: [unsafe-ratchet, fmt, codetree, toolchain, workflow, roadmap, artifacts, deny, check]
+    needs: [unsafe-ratchet, fmt, codetree, invariants, workflow, deny, check]
     if: github.event_name == 'workflow_dispatch' && inputs.gate == 'branch' && github.ref != 'refs/heads/main'
     concurrency:
       group: auto-merge-integration

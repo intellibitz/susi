@@ -119,14 +119,22 @@ The concrete loop is:
 3. Implement and commit the work with its open task trailer.
 4. `susi workflow finish <id>` synchronizes, runs the diff-scoped gate
    (fmt/clippy/tests for the affected crates) and acceptance, commits
-   completion, synchronizes and pushes, waits for the
-   remote merge, then syncs and releases ownership. It integrates intervening
-   merges and repushes; the merged head is proven by its own branch CI run —
-   nothing merges without a green run on that exact sha — so the local gate
-   does not re-run for them (`SUSI_FINISH_REGATE=1` restores it). A failed check/conflict stops
+   completion, synchronizes, pushes, publishes the close receipt and
+   **returns — it does not wait for the branch run or the merge.** The merged
+   head is proven by its own branch CI run — nothing merges without a green
+   run on that exact sha — so the local gate does not re-run for intervening
+   merges (`SUSI_FINISH_REGATE=1` restores it). A failed check/conflict stops
    for repair; rerun finish after committing the repair. One accepted-but-
    unmerged close may be in flight at a time — the pipeline: nobody idles on a
-   merge queue they cannot hurry. Agents must never sleep or block waiting for cloud CI runs — finish publishes the close receipt and the next task is free to claim immediately. `close` pushes a **close receipt** to
+   merge queue they cannot hurry. Agents must never sleep or block waiting for
+   cloud CI runs: the branch run and the merge are the machinery's (auto-merge,
+   the reconciler), and nothing an agent does after the push speeds either up.
+   What the old post-push wait caught — a red run while the claim still made
+   repair cheap — `susi workflow sync` reports instead, at the boundary every
+   agent crosses before its next claim (`scripts/check-owed-runs.sh`: the run
+   for each receipt this agent owes, one `gh` call each). `susi workflow
+   finish <id> --wait` (or `SUSI_FINISH_WAIT=1`) polls the run in-line for a
+   session that wants the verdict before moving on. `close` pushes a **close receipt** to
    `refs/closed/<id>`: the accepted-but-unmerged state is a fact on the shared
    remote, not private to one working tree. The receipt survives releasing the
    claim, losing the worktree, or letting the lease lapse — an agent that
@@ -136,18 +144,17 @@ The concrete loop is:
    second is refused until a merge lands. A receipt clears only when the close
    is *observed* on `origin/main`; giving the task up is deliberate and
    recorded (`susi tasks release <id> --abandon <reason>`, which pushes
-   `refs/abandoned/<id>`). The wait after push exists to catch a failed run
-   while the claim still makes repair cheap: once `gh` reports the run for
-   the pushed sha green, or once the merge lands, ownership is released and
-   the merge machinery (auto-merge; the serialized merge job gates a
-   green-but-behind head's merge tree itself — `scripts/merge-gate.sh` —
-   rather than resyncing it through another CI round-trip) owns the rest. The budget (`SUSI_FINISH_WAIT_MAX`,
-   default 30 min) covers a run that never reports: past it, a
-   healthy-but-unverifiable branch is handed off the same way. The wait
-   still stops early, with claim and receipt intact, when the pull request
-   is closed or the run has failed, so a branch that cannot merge costs a
-   minute of feedback rather than the whole budget. A lease that lapsed
-   during the wait is re-adopted rather than an abort.
+   `refs/abandoned/<id>`). Ownership is released at the push; the merge
+   machinery (auto-merge; the serialized merge job gates a green-but-behind
+   head's merge tree itself — `scripts/merge-gate.sh` — rather than resyncing
+   it through another CI round-trip) owns the rest. With `--wait`, the loop
+   polls instead: once `gh` reports the run for the pushed sha green, or once
+   the merge lands, ownership is released; the budget (`SUSI_FINISH_WAIT_MAX`,
+   default 30 min) covers a run that never reports, past which a
+   healthy-but-unverifiable branch is handed off the same way; and the wait
+   stops early, with claim and receipt intact, when the pull request is
+   closed or the run has failed. A lease that lapsed during a wait is
+   re-adopted rather than an abort.
    **After the merge, the merge itself is attested** by the job that performs
    it (`scripts/auto-merge-pr.sh`): one `refs/merged/<id>` per task the pull
    request named, carrying the tested head and the merge commit. The attestation
@@ -497,7 +504,8 @@ convergent:
   a second compile. Clippy is here because the
   `lint` job is main-only: 1.99.0 deprecated `Atomic::fetch_update` and it
   failed on code nobody had touched. **The compiler is pinned** in
-  `rust-toolchain.toml`, and the `Toolchain Pin` job asserts that a runner
+  `rust-toolchain.toml`, and the `Repository Invariants` job (the toolchain
+  pin, the roadmap and tracked-artifact checks: one runner, not three) asserts that a runner
   which installs `stable` still resolves it: a toolchain roll once reddened
   `main` with no code change at all (1.99.0 deprecated
   `Atomic::fetch_update`, which failed the clippy job on unchanged code), and
@@ -508,9 +516,20 @@ convergent:
   build plus one CDN hiccup reddened a shard; the jobs that build it pre-fetch
   with bounded retries (`scripts/ci-prefetch-onnxruntime.sh`, build only —
   never the tests). On `main` and manual dispatch the
-  suite runs as six parallel nextest shards (foundation, daemon, gawd,
-  gemi, vendor-cells, root-cli) plus a lint job and the live susi-native
-  e2e job — the gate is the slowest shard, not one serial workspace build.
+  suite runs as parallel nextest shards (`scripts/ci-test-shards.sh`:
+  foundation, daemon, gawd, gemi, vendor-cells, root-cli in three partitions,
+  leaf-all-features) plus a lint job and the live susi-native e2e job — the
+  gate is the slowest shard, not one serial workspace build. **Every main run
+  is scoped to the merge** (the `codetree` job): the tree is first compared
+  with the last green runs, and a merge that moved only `.agents/tasks/` is
+  proven by identity and runs none of it; otherwise the changed crates plus
+  their dependents, measured from main's last green head, decide which shards
+  are in the matrix at all (an unaffected shard is not a job that skips, it is
+  no job — runners are the scarce resource every branch gate queues on),
+  whether the e2e, the Kani proofs (susi-gawd) and the Windows leg run, and
+  the coverage ratchet runs unless no crate was reached. The Zero-Config
+  Matrix is scoped the same way (`scripts/ci-zc-scope.sh`: the installers,
+  its machinery, or a crate in the root package's closure).
   Auto-merge dispatches it on `main` right after each merge, and a 15-minute
   reconciler (`scripts/reconcile-prs.sh`) merges any green PR the events missed,
   comments once on red or conflicting ones and closes PRs idle for 7 days; PRs are gated by

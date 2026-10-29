@@ -488,8 +488,8 @@ something goes wrong; each is covered by tests in `crates/susi-harness`.
   directory or branch behind, the harness removes it and retries once.
 - **Shared target.** A new mission worktree links the primary checkout's cargo target, so only the
   workspace crates rebuild instead of the whole registry graph.
-- **Merge waits.** A finish publishes its close receipt to the remote and then waits for the merge;
-  one accepted-but-unmerged close pipelines, so the next task may be claimed. The waiting process
-  holds the clone's workflow lock, so another mission in the same clone cannot prepare until it
-  returns or the wait budget (`SUSI_FINISH_WAIT_MAX`, default 30 minutes) expires — plan one mission
-  at a time per clone.
+- **No merge wait.** A finish publishes its close receipt to the remote and returns; the merge is
+  the machinery's, and one accepted-but-unmerged close pipelines, so the next task may be claimed at
+  once. A red branch run is reported at the next `workflow sync`. `SUSI_FINISH_WAIT=1` restores the
+  in-line poll (budget `SUSI_FINISH_WAIT_MAX`, default 30 minutes); a waiting finish holds the
+  clone's workflow lock, so with it set plan one mission at a time per clone.

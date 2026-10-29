@@ -41,6 +41,10 @@ sync() {
     "$root/scripts/ensure-watcher.sh" || true
     # A working agent crosses this boundary but not `finish`, so top the lease up.
     renew_owned_claims
+    # `finish` hands a pushed branch to the merge machinery without waiting
+    # for its run; a run that then fails is reported here, where every agent
+    # passes before its next claim (scripts/check-owed-runs.sh).
+    "$root/scripts/check-owed-runs.sh" || true
     # The board checks were only as reliable as the habit of running them.
     [ "${SUSI_SYNC_SKIP_BOARD:-0}" = 1 ] || "$root/scripts/swarm-status.sh" || true
     flock -u 9
@@ -333,10 +337,20 @@ finish)
     # `target\debug\susi.exe` locked on Windows. Runs on every exit path —
     # including a failing gate — scoped to this checkout's target dir.
     trap "release_target; \"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
-    nowait=0
+    # The default is not to wait: the branch-push run and the merge are the
+    # machinery's (auto-merge, the reconciler), and nothing the agent does
+    # after the push speeds either up. `--wait` (or SUSI_FINISH_WAIT=1) keeps
+    # the old loop — poll the run, stop on red, hand off on green or at the
+    # budget — for a session that wants the verdict in-line; `--no-wait` and
+    # SUSI_FINISH_NOWAIT=1 are accepted and mean the default.
+    wait=${SUSI_FINISH_WAIT:-0}
     for arg in "$@"; do
-        [ "$arg" = "--no-wait" ] && nowait=1
+        case "$arg" in
+        --wait) wait=1 ;;
+        --no-wait) wait=0 ;;
+        esac
     done
+    [ "${SUSI_FINISH_NOWAIT:-0}" = 1 ] && wait=0
     export SUSI_SYNC_SKIP_BOARD=1
     renew_or_readopt
     sync
@@ -379,13 +393,15 @@ finish)
     branch=$(git symbolic-ref --short HEAD)
     git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
-    if [ "${SUSI_FINISH_NOWAIT:-0}" = 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ] || [ "$nowait" = 1 ]; then
+    if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
         if "$susi_bin" tasks release "$task" --force; then
             cat >&2 <<MSG
-✅ pushed $sha and published close receipt — handing merge to the machinery (--no-wait).
+✅ pushed $sha and published the close receipt — the merge is the machinery's now (no wait).
    The close receipt on the remote keeps the debt until $sha is on
-   origin/main (\`susi workflow check\` shows it under "merge published").
+   origin/main (\`susi workflow check\` shows it under "merge published"), and
+   a red run for it is reported at your next \`susi workflow sync\`.
    The next task is free to claim; a second outstanding close is refused.
+   (\`susi workflow finish <id> --wait\` polls the run in-line instead.)
 MSG
             exit 0
         fi
