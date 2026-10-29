@@ -1,0 +1,15 @@
+{
+  "id": "T-CIPERF-2",
+  "title": "Close T-CLAUDECCRC9F023D1SDLJMO-2 locally",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test"
+    ]
+  },
+  "created_by": "CIPERF",
+  "created_unix": 1793300137
+}
