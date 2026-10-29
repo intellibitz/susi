@@ -70,7 +70,14 @@ pub(crate) mod service {
             timeout,
             auth: Auth::HostToken,
         };
-        loopback::request(&ep, method, path, body.as_deref())
+        // Fast calls have a local fallback, so a closed service port is
+        // backed off rather than re-dialled; Docker exec has none and keeps
+        // dialling.
+        if timeout == DOCKER_TIMEOUT {
+            loopback::request(&ep, method, path, body.as_deref())
+        } else {
+            loopback::request_with_fallback(&ep, method, path, body.as_deref())
+        }
     }
 
     fn json<T: serde::de::DeserializeOwned>(resp: &loopback::Response) -> Option<T> {

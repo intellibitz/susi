@@ -13,6 +13,47 @@ use susi_gemi::models::resource_inventory::{ProbeInputs, ResourceInventory};
 // type susi_gemi's discovery entrypoints take.
 use susi_gemi::susi_core::registry::CapabilityRegistry;
 
+/// The providers and tools the host contract answers with, registered the
+/// moment the daemon's contract is up and before any slow discovery: the
+/// configured cloud endpoints, the Candle fallback, and the tool registry
+/// with its essential-MCP auto-link settled.
+///
+/// Before the contract moved ahead of discovery, the daemon's composition
+/// registered all of these before it bound, so "contract up" meant
+/// "providers ready". Discovery (catalog priming, local-engine probes, the
+/// ecosystem scan) takes tens of seconds to minutes; registering these only
+/// at its step 1b left `/v1/models`, inference and daemon pulses without a
+/// single provider — not even Candle — for that whole window. This costs a
+/// few seconds and runs once per daemon; the zero-config pass that follows
+/// still re-registers the cloud endpoints after it prunes unhealthy
+/// providers, exactly as before.
+pub fn register_contract_providers() {
+    use crate::boot_trace::phase;
+    let registry = CapabilityRegistry::global();
+    // The fallback first: it is instant, and from here on inference always
+    // has somewhere to go.
+    phase("contract providers: candle fallback", || {
+        ensure_candle_fallback(registry)
+    });
+    phase("contract providers: configured cloud endpoints", || {
+        susi_gemi::engines::http_provider::register_configured_cloud_endpoints(registry)
+    });
+    // The registry boots its tools on first use and links the essential MCP
+    // servers on a one-shot; settle both so a session's `tools/list` does
+    // not grow under it, and so MCP discovery below reads the linked config.
+    phase("contract providers: tool registry + mcp auto-link", || {
+        let _ = susi_tools::ToolRegistry::global();
+        let _ = crate::service_supervision::Supervisor::global().join("mcp-auto-link");
+    });
+}
+
+/// Candle (local edge) is the permanent last-resort provider.
+fn ensure_candle_fallback(registry: &CapabilityRegistry) {
+    if registry.get_provider("Candle (Local)").is_none() {
+        registry.register_provider(susi_gemi::engines::candle_provider::CandleProvider);
+    }
+}
+
 /// Universal Autonomous Substrate Bootstrapper
 /// Implements Pillar 8 (Autonomous Provisioning) by triggering zero-config
 /// capability discovery across the local system — packs, MCP, models, peers,
@@ -44,42 +85,60 @@ pub async fn bootstrap_zero_config_substrate() {
         }
     }
 
+    use crate::boot_trace::{finished, phase};
+
     // 0b. Auto-enable leading MCP / prefer coding models / admit ready peers.
-    prime_catalogs(&substrate);
+    phase("bootstrap: prime catalogs", || prime_catalogs(&substrate));
 
     // 0c. Awaken local inference daemons already installed on PATH.
-    try_awaken_local_engines();
+    phase("bootstrap: awaken local engines", try_awaken_local_engines);
 
     // Drop HTTP providers that went unhealthy since the last pass so a killed
     // Ollama/vLLM does not keep winning routing. Candle is permanent fallback.
+    let started = std::time::Instant::now();
     prune_unhealthy_providers(registry).await;
+    finished("bootstrap: prune unhealthy providers", started);
 
     // 0d. Hardware + installed local-AI ecosystem inventory (read-only scan).
+    let started = std::time::Instant::now();
     let _ = tokio::task::spawn_blocking(local_ecosystem_report).await;
+    finished("bootstrap: local ecosystem report", started);
 
     // 1. Probe for Local Model Inference Engines (Ollama, vLLM, llama.cpp, etc.)
     //    plus any configured OpenAI-compat inference_endpoints bases (open admission).
+    let started = std::time::Instant::now();
     susi_gemi::engines::http_provider::auto_discover_local_engines(registry).await;
+    finished("bootstrap: local engines", started);
 
     // 1b. Register configured cloud + local-with-model endpoints when keys/models present.
-    susi_gemi::engines::http_provider::register_configured_cloud_endpoints(registry);
+    phase("bootstrap: configured cloud endpoints", || {
+        susi_gemi::engines::http_provider::register_configured_cloud_endpoints(registry)
+    });
 
     // 2. Discover and Provision MCP Tools (any entry in ~/.susi/mcp_config.json).
-    susi_gmcp::mcp_wrapper::auto_discover_mcp();
+    phase(
+        "bootstrap: mcp discovery",
+        susi_gmcp::mcp_wrapper::auto_discover_mcp,
+    );
 
     // 2b. MCP servers that expose chat/LLM tools → inference Providers so they
     // join cloud prefer / slow-local escalation (not tools-only).
-    susi_gemi::engines::mcp_provider::register_mcp_inference_providers(registry);
+    phase("bootstrap: mcp inference providers", || {
+        susi_gemi::engines::mcp_provider::register_mcp_inference_providers(registry)
+    });
 
     // 3. Fallback: Ensure Candle (Local Edge) is always provisioned
-    if registry.get_provider("Candle (Local)").is_none() {
-        registry.register_provider(susi_gemi::engines::candle_provider::CandleProvider);
-    }
+    phase("bootstrap: candle fallback", || {
+        ensure_candle_fallback(registry)
+    });
 
     // 3b. Local embedder: susi-gmcp self-registers through
     // the shared IPC rendezvous, so `gemi.infer.embed` and /v1/embeddings
     // work with zero external configuration.
-    susi_gmcp::embed_provider::register_local_embed_provider();
+    phase(
+        "bootstrap: local embed provider",
+        susi_gmcp::embed_provider::register_local_embed_provider,
+    );
 
     // 4. Background weight priming (hardware-optimal ladder) — idempotent.
     susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&substrate);

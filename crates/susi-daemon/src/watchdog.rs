@@ -32,6 +32,12 @@ impl WatchdogManager {
         }
     }
 
+    /// How long a cell may stay silent before it is reported dead.
+    #[must_use]
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
     /// Registers a new cell with the watchdog.
     pub fn register_cell(&self, cell_id: &str) {
         let mut map = self.heartbeats.lock().unwrap_or_else(|e| e.into_inner());

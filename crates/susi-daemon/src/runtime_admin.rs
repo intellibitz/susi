@@ -51,12 +51,16 @@ impl SusiRuntimeAdmin {
                     // ladder (VC-201-001): a few low-grade intents run
                     // hermetically — scratch SUSI_HOME, throwaway
                     // workspace, no live estate, no egress — and the
-                    // scorecard lands under the susi home.
-                    let root = susi_gawd::intent_ladder::repo_root();
-                    if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &root) {
-                        // A failed rung becomes a repair task whose close
-                        // is the intent passing again (VC-201-012).
-                        let _ = susi_gawd::intent_ladder::gap_tasks(&root, &card, "SUSI");
+                    // scorecard lands under the susi home. The ladder
+                    // resolves from that home too, never from a cwd.
+                    if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &home) {
+                        // A failed rung lands in the host outbox, and an
+                        // agent adopts it as a repair task in its own
+                        // checkout; the task closes when the intent passes
+                        // again (VC-201-012).
+                        if let Err(e) = susi_gawd::intent_ladder::record_gaps(&home, &card) {
+                            warn!("[runtime-admin] intent ladder gap outbox: {e}");
+                        }
                     }
 
                     let mut last_pulse = std::time::Instant::now();
@@ -681,18 +685,18 @@ impl Maintenance {
         if let crate::eco_probe_scheduler::Decision::Run { .. } =
             self.probes.decide(&ladder, now, cond)
         {
-            let root = susi_gawd::intent_ladder::repo_root();
-            match susi_gawd::intent_ladder::full_run(&self.home, &root) {
+            match susi_gawd::intent_ladder::full_run(&self.home, &self.home) {
                 Ok(card) => {
                     self.probes.record_run(&ladder, now, card.entries.len());
                     self.changes_last = self.changes_last.saturating_add(
                         card.entries.iter().filter(|e| e.verdict == "fail").count() as u32,
                     );
-                    // Every failing rung becomes an evidence-backed repair
-                    // task — deduplicated, triaged by grade, rate-limited —
-                    // whose close is the intent passing again (VC-201-012).
-                    if let Err(e) = susi_gawd::intent_ladder::gap_tasks(&root, &card, "SUSI") {
-                        warn!("[runtime-admin] intent ladder gap tasking failed: {e}");
+                    // Every failing rung lands in the host outbox —
+                    // deduplicated, triaged by grade, rate-limited — for an
+                    // agent to adopt as an evidence-backed repair task whose
+                    // close is the intent passing again (VC-201-012).
+                    if let Err(e) = susi_gawd::intent_ladder::record_gaps(&self.home, &card) {
+                        warn!("[runtime-admin] intent ladder gap outbox: {e}");
                     }
                 }
                 Err(e) => warn!("[runtime-admin] intent ladder run failed: {e}"),

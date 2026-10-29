@@ -120,9 +120,67 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 std::process::exit(1);
             }
         },
-        AdminCommands::IntentLadder { run, slice, verify } => {
+        AdminCommands::IntentLadder {
+            run,
+            slice,
+            verify,
+            gaps,
+            adopt_gap,
+        } => {
             let home = susi_paths::SusiDirs::substrate_home();
-            if let Some(id) = verify {
+            if let Some(id) = adopt_gap {
+                let root = super::tasks_cli::repo_root(cwd);
+                // Authored under the daemon's token, as before the outbox:
+                // the evidence is the substrate's, and the per-author bound
+                // on open authored tasks keeps applying to it.
+                match susi_gawd::intent_ladder::adopt_gap(&root, &home, &id, "SUSI") {
+                    Ok(adoption) if adoption.task.is_some() => {
+                        let _ = crate::cli_json::print_json(&serde_json::json!({
+                            "adopted": adoption.gap.intent,
+                            "task": adoption.task,
+                            // Empty when an open task here already named the
+                            // intent and the gap was linked to it.
+                            "authored": adoption.authored.tasks,
+                            "accept": format!(
+                                "susi admin intent-ladder --verify {}",
+                                adoption.gap.intent
+                            ),
+                        }));
+                    }
+                    Ok(adoption) => {
+                        eprintln!(
+                            "intent gap `{}` authored nothing in {}: it needs a checkout with \
+                             .agents/roadmap.json and .agents/tasks, and no roadmap vector may \
+                             already name the intent",
+                            adoption.gap.intent,
+                            root.display()
+                        );
+                        std::process::exit(1);
+                    }
+                    Err(e) => {
+                        eprintln!("intent gap adoption failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else if gaps {
+                let outbox = susi_gawd::intent_ladder::read_gaps(&home);
+                let pending: Vec<_> = outbox
+                    .pending()
+                    .map(|g| {
+                        serde_json::json!({
+                            "intent": g.intent,
+                            "grade": g.grade,
+                            "failures": g.failures,
+                            "adopt": g.adopt_command(),
+                        })
+                    })
+                    .collect();
+                let _ = crate::cli_json::print_json(&serde_json::json!({
+                    "outbox": susi_gawd::intent_ladder::gaps_path(&home),
+                    "pending": pending,
+                    "gaps": outbox.gaps,
+                }));
+            } else if let Some(id) = verify {
                 let runner = match susi_gawd::intent_ladder::ProcessRunner::this_binary() {
                     Ok(r) => r,
                     Err(e) => {

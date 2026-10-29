@@ -6,9 +6,11 @@
 //! read-to-end / status-line / body split; this module is that code once,
 //! std-only, so foundation crates stay dependency-free.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -71,8 +73,118 @@ pub struct Endpoint {
 /// failure, response overflow, or an unparseable response.
 #[must_use]
 pub fn request(ep: &Endpoint, method: &str, path: &str, json: Option<&str>) -> Option<Response> {
+    exchange(connect(ep).ok()?, ep, method, path, json)
+}
+
+/// [`request`] for a client that has a local fallback when its service is
+/// unreachable (paths, config, error events, sandbox state).
+///
+/// A connect to a closed loopback port is refused at once on Linux, but on
+/// Windows the stack retries the SYN and only refuses after about two
+/// seconds, so every such call costs the client's whole connect timeout.
+/// While the substrate is down — every CLI command before `susi start`, and
+/// the daemon's own boot until it brings its leaf services up — clients
+/// make thousands of these calls, and the boot that should take seconds
+/// took tens of minutes. A refused or timed-out connect therefore puts the
+/// port in a short, doubling [`Backoff`]; until it runs out the call
+/// returns `None` without touching the network and the caller takes its
+/// local path, exactly as it would after a failed connect. A connect that
+/// succeeds clears the backoff.
+#[must_use]
+pub fn request_with_fallback(
+    ep: &Endpoint,
+    method: &str,
+    path: &str,
+    json: Option<&str>,
+) -> Option<Response> {
+    let now = Instant::now();
+    if unreachable_ports()
+        .lock()
+        .is_ok_and(|b| b.skips(ep.port, now))
+    {
+        return None;
+    }
+    match connect(ep) {
+        Ok(stream) => {
+            if let Ok(mut b) = unreachable_ports().lock() {
+                b.reachable(ep.port);
+            }
+            exchange(stream, ep, method, path, json)
+        }
+        Err(_) => {
+            if let Ok(mut b) = unreachable_ports().lock() {
+                b.unreachable(ep.port, Instant::now());
+            }
+            None
+        }
+    }
+}
+
+/// True while `port` is in its unreachable backoff — what
+/// [`request_with_fallback`] would skip right now.
+#[must_use]
+pub fn backed_off(port: u16) -> bool {
+    unreachable_ports()
+        .lock()
+        .is_ok_and(|b| b.skips(port, Instant::now()))
+}
+
+fn unreachable_ports() -> &'static Mutex<Backoff> {
+    static PORTS: OnceLock<Mutex<Backoff>> = OnceLock::new();
+    PORTS.get_or_init(|| Mutex::new(Backoff::default()))
+}
+
+/// First backoff after a failed connect.
+pub const BACKOFF_FIRST: Duration = Duration::from_millis(500);
+/// Ceiling of the doubling backoff — also the longest a client keeps using
+/// its local fallback after the service has come back.
+pub const BACKOFF_MAX: Duration = Duration::from_secs(10);
+
+/// Per-port memory of failed connects: each consecutive failure doubles the
+/// window (from [`BACKOFF_FIRST`] up to [`BACKOFF_MAX`]) during which the
+/// port is not dialled again.
+#[derive(Debug, Default)]
+pub struct Backoff {
+    ports: HashMap<u16, (Instant, u32)>,
+}
+
+impl Backoff {
+    /// Whether a call to `port` at `now` is skipped.
+    #[must_use]
+    pub fn skips(&self, port: u16, now: Instant) -> bool {
+        self.ports.get(&port).is_some_and(|(until, _)| now < *until)
+    }
+
+    /// Record a failed connect to `port` at `now`.
+    pub fn unreachable(&mut self, port: u16, now: Instant) {
+        let streak = self
+            .ports
+            .get(&port)
+            .map_or(0, |(_, s)| *s)
+            .saturating_add(1);
+        let factor = 1u32 << streak.saturating_sub(1).min(16);
+        let window = BACKOFF_FIRST.saturating_mul(factor).min(BACKOFF_MAX);
+        self.ports.insert(port, (now + window, streak));
+    }
+
+    /// Record a successful connect to `port`.
+    pub fn reachable(&mut self, port: u16) {
+        self.ports.remove(&port);
+    }
+}
+
+fn connect(ep: &Endpoint) -> std::io::Result<TcpStream> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), ep.port);
-    let mut stream = TcpStream::connect_timeout(&addr, ep.timeout).ok()?;
+    TcpStream::connect_timeout(&addr, ep.timeout)
+}
+
+fn exchange(
+    mut stream: TcpStream,
+    ep: &Endpoint,
+    method: &str,
+    path: &str,
+    json: Option<&str>,
+) -> Option<Response> {
     let _ = stream.set_read_timeout(Some(ep.timeout));
     let _ = stream.set_write_timeout(Some(ep.timeout));
     let bearer = match ep.auth {
@@ -130,7 +242,66 @@ pub fn local_env_override() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::Response;
+    use super::{Backoff, Response, BACKOFF_FIRST, BACKOFF_MAX};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_failed_connect_backs_the_port_off_and_doubles_to_a_ceiling() {
+        let mut b = Backoff::default();
+        let t0 = Instant::now();
+        assert!(!b.skips(18080, t0), "an unknown port is dialled");
+        b.unreachable(18080, t0);
+        assert!(b.skips(18080, t0));
+        assert!(b.skips(18080, t0 + BACKOFF_FIRST - Duration::from_millis(1)));
+        assert!(!b.skips(18080, t0 + BACKOFF_FIRST), "the window runs out");
+        // Other ports are untouched.
+        assert!(!b.skips(18082, t0));
+        // Consecutive failures double the window, up to the ceiling.
+        let t1 = t0 + BACKOFF_FIRST;
+        b.unreachable(18080, t1);
+        assert!(b.skips(18080, t1 + BACKOFF_FIRST));
+        assert!(!b.skips(18080, t1 + BACKOFF_FIRST * 2));
+        for _ in 0..40 {
+            b.unreachable(18080, t1);
+        }
+        assert!(b.skips(18080, t1 + BACKOFF_MAX - Duration::from_millis(1)));
+        assert!(!b.skips(18080, t1 + BACKOFF_MAX));
+        // A successful connect clears it at once.
+        b.reachable(18080);
+        assert!(!b.skips(18080, t1));
+    }
+
+    /// The fallback client never pays a second connect timeout to a port it
+    /// just found closed: on Windows each one costs the whole timeout (the
+    /// stack retries the SYN for ~2 s before refusing), which is what held a
+    /// daemon boot for tens of minutes.
+    #[test]
+    fn request_with_fallback_skips_a_port_it_just_found_closed() {
+        // A port that was just free: bind, read it, release it.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .map(|a| a.port())
+            .unwrap();
+        let ep = super::Endpoint {
+            port,
+            timeout: Duration::from_millis(200),
+            auth: super::Auth::None,
+        };
+        assert!(super::request_with_fallback(&ep, "GET", "/x", None).is_none());
+        assert!(
+            super::backed_off(port),
+            "the failed connect starts a backoff"
+        );
+        let started = Instant::now();
+        assert!(super::request_with_fallback(&ep, "GET", "/x", None).is_none());
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "a backed-off port is not dialled again: {:?}",
+            started.elapsed()
+        );
+        // The plain client keeps dialling — it has no local fallback.
+        assert!(super::request(&ep, "GET", "/x", None).is_none());
+    }
 
     #[test]
     fn parses_status_and_body() {

@@ -1,0 +1,20 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-7",
+  "title": "The daemon binds its host contract in seconds and never writes into worktrees",
+  "goal": "The daemon host contract came up only after a ~30-minute boot on Windows (refused loopback connects cost ~2 s; leaf clients redialled every call; the daemon bound last after the whole CLI composition), so susi start reported failure; and the daemon wrote intent-gap task files into whatever repo its cwd was. Fix both, with supervision, bus sweeping and test-isolation fixes found on the way.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "intent_ladder"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793272024
+}

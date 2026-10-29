@@ -275,15 +275,35 @@ impl Supervisor {
     }
 
     /// Join a supervised worker's current thread — the daemon uses it to
-    /// wait out the leaf-service monitor during graceful shutdown.
+    /// wait out the leaf-service monitor during graceful shutdown, and to
+    /// settle the essential-MCP auto-link before discovery.
+    ///
+    /// The registry lock is released before the join: the joined worker (or
+    /// anything it calls) may heartbeat or spawn a supervised worker, and
+    /// `supervise()` must keep running meanwhile. A joined one-shot is
+    /// retired here — `supervise()` can no longer see its thread finish, and
+    /// would otherwise report it running forever.
     pub fn join(&self, name: &str) -> Option<thread::Result<()>> {
-        self.services
+        let handle = self
+            .services
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get_mut(name)?
             .handle
-            .take()
-            .map(thread::JoinHandle::join)
+            .take()?;
+        let result = handle.join();
+        if let Some(svc) = self
+            .services
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(name)
+            .filter(|svc| matches!(svc.kind, WorkerKind::OneShot) && svc.handle.is_none())
+        {
+            svc.done = true;
+            svc.done_since = Some(Instant::now());
+            svc.healthy = result.is_ok();
+        }
+        Some(result)
     }
 
     /// One supervision round — driven every [`SUPERVISE_INTERVAL`] by
@@ -295,12 +315,12 @@ impl Supervisor {
         // The watchdog is consulted before the services lock is taken:
         // heartbeat() locks watchdog → services and nothing may take
         // them in the reverse order.
-        let dead_cells: Vec<String> = self
+        let (dead_cells, watchdog_timeout): (Vec<String>, Option<Duration>) = self
             .watchdog
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
-            .map(crate::watchdog::WatchdogManager::find_dead_cells)
+            .map(|w| (w.find_dead_cells(), Some(w.timeout())))
             .unwrap_or_default();
         let now = Instant::now();
         let mut restarts = Vec::new();
@@ -376,7 +396,18 @@ impl Supervisor {
                 let stale_heartbeat = svc
                     .heartbeat_timeout
                     .is_some_and(|t| now.duration_since(svc.last_heartbeat) > t);
-                let dead_cell = dead_cells.iter().any(|c| c == &svc.name);
+                // The watchdog's verdict only counts for a worker that opted
+                // into heartbeat supervision with a bound no looser than the
+                // watchdog's own. A server worker never heartbeats, and a
+                // loop that pings every 10–30 s under a 600 s bound is
+                // healthy — the swarm watchdog's fixed 5 s timeout had every
+                // one of them reported hung seconds after boot, then
+                // flapping hung/recovered every pass.
+                let dead_cell = svc
+                    .heartbeat_timeout
+                    .zip(watchdog_timeout)
+                    .is_some_and(|(own, watchdog)| own <= watchdog)
+                    && dead_cells.iter().any(|c| c == &svc.name);
                 let healthy = !(stale_heartbeat || dead_cell);
                 if healthy != svc.healthy {
                     crate::supervisor::slog(&format!(
@@ -656,6 +687,77 @@ mod tests {
         sup.supervise();
         assert_eq!(sup.state_of("sleeper"), WorkerState::Running);
         stop.store(true, Ordering::Release);
+    }
+
+    /// The swarm watchdog's short fixed timeout must not override a
+    /// worker's own supervision terms: a server worker that never
+    /// heartbeats, and a loop whose cadence sits inside its own looser
+    /// bound, stay running however long their watchdog cell is silent
+    /// (live: every server worker read "hung" 7 s after boot while its port
+    /// answered).
+    #[test]
+    fn watchdog_silence_alone_never_marks_a_worker_hung() {
+        let sup = Supervisor::new();
+        sup.attach_watchdog(crate::watchdog::WatchdogManager::new(
+            Duration::from_millis(20),
+        ));
+        let stop = Arc::new(AtomicBool::new(false));
+        for (name, bound) in [
+            ("server", None),
+            ("slow-loop", Some(Duration::from_secs(600))),
+        ] {
+            let stop = Arc::clone(&stop);
+            sup.spawn(name, 3, bound, move || {
+                let stop = Arc::clone(&stop);
+                Some(move || {
+                    while !stop.load(Ordering::Acquire) {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                })
+            });
+        }
+        // Well past the watchdog timeout, inside the slow loop's own bound.
+        thread::sleep(Duration::from_millis(80));
+        for _ in 0..3 {
+            sup.supervise();
+            assert_eq!(sup.state_of("server"), WorkerState::Running);
+            assert_eq!(sup.state_of("slow-loop"), WorkerState::Running);
+            thread::sleep(Duration::from_millis(30));
+        }
+        stop.store(true, Ordering::Release);
+    }
+
+    /// Joining a one-shot never holds the registry while it waits — the
+    /// joined worker may spawn or heartbeat (with the lock held across the
+    /// join this deadlocked) — and the joined one-shot reads done after,
+    /// not running forever.
+    #[test]
+    fn join_releases_the_registry_and_retires_the_one_shot() {
+        let sup = Arc::new(Supervisor::new());
+        let inner = Arc::clone(&sup);
+        sup.spawn_oneshot("linker", 0, move || {
+            let inner = Arc::clone(&inner);
+            Some(move || {
+                thread::sleep(Duration::from_millis(30));
+                inner.spawn_oneshot("child", 0, || Some(|| {}));
+                inner.heartbeat("linker");
+            })
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let sup = Arc::clone(&sup);
+            thread::spawn(move || {
+                let _ = tx.send(sup.join("linker").map(|r| r.is_ok()));
+            });
+        }
+        let joined = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("join must not deadlock against the joined worker");
+        assert_eq!(joined, Some(true));
+        assert_eq!(sup.state_of("linker"), WorkerState::Done);
+        sup.supervise();
+        assert_eq!(sup.state_of("linker"), WorkerState::Done);
+        assert!(sup.join("linker").is_none(), "nothing left to join");
     }
 
     /// One-shots retire on a clean return and restart only on panic,
