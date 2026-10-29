@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEFUNNYCERFYM03QP-1",
+  "title": "Cloud sessions: the checked-in .mcp.json names no laptop path",
+  "goal": ".mcp.json (added by T-AGENT2026102817540410895-1) points every Claude Code session at F:/src/github.com/intellibitz/susi/target/debug/susi.exe with SUSI_HOME=C:/Users/user/.susi: one laptop's paths. A cloud session reads the same file, so every one starts with a failed susi-harness MCP server (ENOENT on the Windows path) and the harness tells the agent to have the operator fix it, the laptop dependency docs/cloud-sessions.md rules out; on Linux the SUSI_HOME value is even a relative path into the clone. Point the server at the clone's own build (target/debug/susi, which Windows resolves to susi.exe), drop the SUSI_HOME override (~/.susi is the default on every host), pin in tests/checked_in_mcp_config.rs that no checked-in MCP server names a machine path, and say in docs/cloud-sessions.md that the loop never needs the server (a cold container has no binary at connect time).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "checked_in_mcp_config"
+    ]
+  },
+  "created_by": "CLAUDEFUNNYCERFYM03QP",
+  "created_unix": 1793314113
+}
