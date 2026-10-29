@@ -303,11 +303,15 @@ fn hand_off_finish(cwd: &Path, args: &[&str]) -> Result<bool> {
         return Ok(false);
     }
     let staged_exe = stage_executable(&exe)?;
-    // Forward this exact command line: `susi workflow finish <id>`.
+    // Forward this exact command line: `susi workflow finish <id>`. The copy
+    // outlives this process, so a target-guard hold above it (`--run cargo
+    // run -- workflow finish`) ends while it runs: it must not claim that
+    // hold as its own, and takes the target itself when its gate needs it.
     let mut child = std::process::Command::new(&staged_exe)
         .args(std::env::args_os().skip(1))
         .current_dir(cwd)
         .env(FINISH_STAGED_ENV, "1")
+        .env_remove("SUSI_TARGET_GUARD_HELD")
         .spawn()?;
     // A short handshake catches an immediately failing copy (no shell, no
     // repo) while adding nothing to the handoff itself.

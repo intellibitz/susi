@@ -194,19 +194,35 @@ gate_stamp() {
 # cargo, so no other worktree's guard and build can land in between (two gates
 # interleaving left one of them linking the other's code). A failing step exits
 # the script, and the EXIT trap lets go.
+#
+# The commands the gate runs are told who holds the target
+# (SUSI_TARGET_GUARD_HELD), and only that: this shell when the guard took the
+# lock, the ancestor whose lock it found (an outer `target-guard.sh --run`)
+# otherwise, exactly as `--hold` reports it. Letting go puts back what was
+# inherited. Exporting this shell's pid when it held nothing, and unsetting
+# the variable after, left the close and the push that follow waiting on the
+# ancestor, which was waiting on them: a hang until the lock's stale age, six
+# hours, with every other worktree's gate waiting behind it.
 target_held=
+target_prev_held=
 hold_target() {
     if [ -x "$root/scripts/target-guard.sh" ]; then
-        "$root/scripts/target-guard.sh" --hold $$
+        local holder
+        target_prev_held=${SUSI_TARGET_GUARD_HELD-}
+        holder=$("$root/scripts/target-guard.sh" --hold $$)
         target_held=1
-        export SUSI_TARGET_GUARD_HELD=$$
+        [ -z "$holder" ] || export SUSI_TARGET_GUARD_HELD="$holder"
     fi
 }
 release_target() {
     if [ -n "$target_held" ]; then
         "$root/scripts/target-guard.sh" --release $$ || true
         target_held=
-        unset SUSI_TARGET_GUARD_HELD
+        if [ -n "$target_prev_held" ]; then
+            export SUSI_TARGET_GUARD_HELD="$target_prev_held"
+        else
+            unset SUSI_TARGET_GUARD_HELD
+        fi
     fi
 }
 

@@ -5,7 +5,9 @@ that: nothing uncommitted and no merge left half-resolved, a claim whose lease
 is not about to lapse, a live primary-checkout watcher, and how many of your
 finished worktrees are still lying around. It prints the command that fixes each
 ❌, and warnings (a work in progress, a stale watcher, reclaimable worktrees)
-never block work. (No installed susi? `cargo run -q -- workflow check`.)
+never block work. (No installed susi? `scripts/target-guard.sh --run cargo run
+-q -- workflow check`: cargo builds into the shared target, so it goes through
+the guard like any other cargo; see step 1.)
 
 The agent loop is **atomic per task** (own worktree, always synced with
 `origin/main` so parallel agents stay current):
@@ -32,8 +34,16 @@ The agent loop is **atomic per task** (own worktree, always synced with
    their directory they compile in: `config/`, `deploy/`, the `.agents/`
    ledgers), and `--run` holds the target until your command ends, so no
    other worktree's guard and build land in between (a second guarded build
-   waits for the first). The `finish` gate, the pre-push hook and `tasks
-   close` run it for you; `sync` builds nothing and does not.
+   waits for the first, whichever Git install's shell runs it). A plain
+   `cargo` is not trusted: the next guard rebuilds every crate it rebuilt,
+   since nothing says from whose content. The `finish` gate, the pre-push
+   hook and `tasks close` guard themselves; do not run them under
+   `scripts/target-guard.sh --run`. Guards nest, so that would not deadlock,
+   but an outer `--run` holds the shared target through finish's whole CI
+   wait while every other worktree's build waits. Without an installed susi,
+   build it guarded (`scripts/target-guard.sh --run cargo build -q`) and run
+   `target/debug/susi workflow finish <id>` outside the guard; wrap only
+   `workflow check` as above. `sync` builds nothing and needs no guard.
 2. **Sync, then claim one task:** if behind, `git fetch && git merge
    origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
    claim at a time. Nobody starts a claimed task.
@@ -415,8 +425,8 @@ fails if a mandate goes missing or names an enforcement file that does not exist
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+scripts/target-guard.sh --run cargo clippy --workspace --all-targets --locked -- -D warnings
+scripts/target-guard.sh --run cargo test --workspace --locked
 ```
 
 ## Multi-agent parallel work

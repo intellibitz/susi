@@ -14,7 +14,7 @@ if command -v susi >/dev/null 2>&1 && susi workflow --help >/dev/null 2>&1; then
 elif [ -x ./target/debug/susi ]; then
     ./target/debug/susi workflow check 2>&1 || true
 else
-    echo "susi workflow check is not installed here; run: cargo run -q -- workflow check"
+    echo "susi workflow check is not installed here; run: scripts/target-guard.sh --run cargo run -q -- workflow check"
 fi
 cat <<'MSG'
 

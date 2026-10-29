@@ -1235,16 +1235,30 @@ fn guarded_acceptance(ws: &Path, argv: &[String]) -> Option<Command> {
 /// Elsewhere that is just the name. On Windows a bare name is a trap: process
 /// creation searches the system directories before PATH, so `bash` finds
 /// WSL's `System32\bash.exe` (or the WindowsApps stub), which cannot run a
-/// script given as a Windows path. So the PATH is searched here, skipping
-/// those, and then Git for Windows' own shell is used: `git --exec-path` is
-/// `<git>/<mingw64|ucrt64>/libexec/git-core`, and the shells are in
-/// `<git>/bin` and `<git>/usr/bin`, three levels up. A standard Git install
-/// puts only `<git>/cmd` on PATH, so that fallback is the common case outside
-/// Git Bash (PowerShell, the desktop app). Run the shell through
+/// script given as a Windows path. So Git for Windows' own shell is used:
+/// `git --exec-path` is `<git>/<mingw64|ucrt64>/libexec/git-core`, and the
+/// shells are in `<git>/bin` and `<git>/usr/bin`, three levels up. A standard
+/// Git install puts only `<git>/cmd` on PATH, so outside Git Bash
+/// (PowerShell, the desktop app) no shell is on PATH at all.
+///
+/// That install comes first, for every name, and the PATH (skipping those
+/// stubs) only after it: each MSYS runtime keeps its own process table, and
+/// a host with two Git installs (Program Files' and scoop's, whose shim put
+/// `sh` on PATH) ran `finish` under one and `tasks close` under the other,
+/// so the target guard's lock read each one's live holder as dead. The Git
+/// that `git` is also runs the hooks a push starts. Run the shell through
 /// [`posix_shell_command`], which also gives it the POSIX userland.
 #[must_use]
 pub fn posix_shell(name: &str) -> std::path::PathBuf {
     posix_shell_on(name, std::env::var_os("PATH").as_deref())
+}
+
+/// A shell that cannot run a script by its Windows path: WSL's System32
+/// `bash.exe` and the WindowsApps stub.
+#[cfg(windows)]
+fn is_shell_stub(path: &Path) -> bool {
+    let lowered = path.to_string_lossy().to_ascii_lowercase();
+    lowered.contains("system32") || lowered.contains("windowsapps")
 }
 
 /// [`posix_shell`] for a given PATH (the child's, which a test can narrow).
@@ -1252,10 +1266,22 @@ fn posix_shell_on(name: &str, path: Option<&std::ffi::OsStr>) -> std::path::Path
     #[cfg(windows)]
     {
         let exe = format!("{name}.exe");
+        if let Some(root) = git_install_root(path) {
+            // `bin/` first: those are Git's launchers, which set MSYSTEM and
+            // put usr/bin and the mingw bin on PATH. usr/bin's shell is the
+            // raw MSYS one; started from PowerShell it found no mkdir, sed or
+            // dirname, so the target guard silently did nothing and `workflow
+            // sync` stopped at its first `dirname`.
+            for dir in ["bin", "usr/bin"] {
+                let candidate = root.join(dir).join(&exe);
+                if candidate.is_file() && !is_shell_stub(&candidate) {
+                    return candidate;
+                }
+            }
+        }
         if let Some(path) = path {
             for dir in std::env::split_paths(path) {
-                let lowered = dir.to_string_lossy().to_ascii_lowercase();
-                if lowered.contains("system32") || lowered.contains("windowsapps") {
+                if is_shell_stub(&dir) {
                     continue;
                 }
                 let candidate = dir.join(&exe);
@@ -1264,37 +1290,29 @@ fn posix_shell_on(name: &str, path: Option<&std::ffi::OsStr>) -> std::path::Path
                 }
             }
         }
-        let mut git = Command::new("git");
-        if let Some(path) = path {
-            git.env("PATH", path);
-        }
-        if let Ok(out) = git.arg("--exec-path").output() {
-            if out.status.success() {
-                let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let git_root = Path::new(&exec_path)
-                    .ancestors()
-                    .nth(3)
-                    .map(Path::to_path_buf);
-                if let Some(root) = git_root {
-                    // `bin/` first: those are Git's launchers, which set
-                    // MSYSTEM and put usr/bin and the mingw bin on PATH.
-                    // usr/bin's shell is the raw MSYS one; started from
-                    // PowerShell it found no mkdir, sed or dirname, so the
-                    // target guard silently did nothing and `workflow sync`
-                    // stopped at its first `dirname`.
-                    for dir in ["bin", "usr/bin"] {
-                        let candidate = root.join(dir).join(&exe);
-                        if candidate.is_file() {
-                            return candidate;
-                        }
-                    }
-                }
-            }
-        }
     }
     #[cfg(not(windows))]
     let _ = path;
     std::path::PathBuf::from(name)
+}
+
+/// The root of the Git install that `git` (on `path`) runs from: three levels
+/// above its `--exec-path`.
+#[cfg(windows)]
+fn git_install_root(path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    let mut git = Command::new("git");
+    if let Some(path) = path {
+        git.env("PATH", path);
+    }
+    let out = git.arg("--exec-path").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Path::new(&exec_path)
+        .ancestors()
+        .nth(3)
+        .map(Path::to_path_buf)
 }
 
 /// A command running [`posix_shell`] `name` with the POSIX userland on its
@@ -2975,6 +2993,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `sh` and `bash` both come from the Git install `git` runs from, ahead
+    /// of whatever PATH offers: on a host with two installs, scoop's shim put
+    /// its `sh` first on PATH, so `finish` ran under scoop's runtime and
+    /// `tasks close` (bash, found under `git`) under Program Files'. Each
+    /// runtime keeps its own process table, and the target guard's lock read
+    /// the other's live holder as dead and took it.
+    #[cfg(windows)]
+    #[test]
+    fn sh_and_bash_come_from_the_git_install_git_runs_from() {
+        let Some(git_root) = git_install_root(std::env::var_os("PATH").as_deref()) else {
+            return; // no git: nothing to find a shell in
+        };
+        if !git_root.join("bin").join("bash.exe").is_file()
+            || !git_root.join("bin").join("sh.exe").is_file()
+        {
+            return; // not Git for Windows' layout
+        }
+        // Another install's shells, first on PATH (as a scoop shim is).
+        let decoy = std::env::temp_dir().join(format!("susi-decoy-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&decoy);
+        std::fs::create_dir_all(&decoy).unwrap();
+        for name in ["sh.exe", "bash.exe"] {
+            std::fs::write(decoy.join(name), b"not a shell").unwrap();
+        }
+        let mut dirs = vec![decoy.clone()];
+        if let Some(path) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&path));
+        }
+        let path = std::env::join_paths(dirs).unwrap();
+        for name in ["sh", "bash"] {
+            let shell = posix_shell_on(name, Some(&path));
+            assert_eq!(
+                shell.parent(),
+                Some(git_root.join("bin").as_path()),
+                "{name} must come from {}, not {}",
+                git_root.display(),
+                shell.display()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&decoy);
     }
 
     /// Outside Git Bash (PowerShell, the desktop app) a standard Git install

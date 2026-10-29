@@ -61,7 +61,12 @@ mb=$(git merge-base "$BASE" HEAD 2>/dev/null) || {
     echo ALL
     exit 0
 }
-changed=$(git diff --name-only "$mb" HEAD)
+# Both sides of a rename: with rename detection (git's default) a renamed
+# config/ file showed only its new path, and a crate that still compiles in
+# the old one was never gated. Paths read as git prints them whatever the
+# user's config says (relative to a subdirectory, quoted, colored).
+changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
+    diff --no-renames --no-color --name-only "$mb" HEAD)
 # A branch whose content is its base's has nothing of its own to prove: the
 # base's suite already proved these bytes. This used to print ALL, so a branch
 # holding only merges of main ran the whole workspace suite, and publishing
@@ -106,7 +111,11 @@ data_readers() {
         while IFS= read -r p; do
             if [ -e "$root/$p" ]; then echo "D $p"; else echo "G $p"; fi
         done <<<"$data"
-        git -C "$root" grep -I -o -F "${args[@]}" -- '*.rs' 2>/dev/null | sed 's/^/H /' || true
+        # "<path>:<match>" whatever the user's config says: grep.lineNumber
+        # or grep.column put "<n>:" before the match, color wrapped both.
+        git -C "$root" -c grep.lineNumber=false -c grep.column=false -c grep.fullName=false \
+            -c color.grep=never -c color.ui=never -c core.quotePath=false \
+            grep -I -o -F "${args[@]}" -- '*.rs' 2>/dev/null | sed 's/^/H /' || true
     } | awk '
         /^[DG] / { d[++n] = substr($0, 3); gone[n] = ($1 == "G"); next }
         /^H / {
