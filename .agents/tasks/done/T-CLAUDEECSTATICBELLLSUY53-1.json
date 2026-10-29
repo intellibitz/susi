@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CLAUDEECSTATICBELLLSUY53",
-  "created_unix": 1793250191
+  "created_unix": 1793250191,
+  "closed": {
+    "at_unix": 1793274883,
+    "commit": "5173041a25ca96431a0fafcb1f4f8e295e43185f",
+    "by": "CLAUDEECSTATICBELLLSUY53"
+  }
 }
