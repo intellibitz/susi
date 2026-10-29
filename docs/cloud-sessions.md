@@ -191,14 +191,6 @@ from inside a cloud session until it is on `main`:
   that workflow and polls `git ls-remote` for the ref. `workflow_dispatch`
   only fires for a workflow file on the default branch, so the first landing
   is the one-time bootstrap above.
-* `scripts/parallel-workflow.sh` — `sync` (and so `finish`) still refuses
-  "Use your own linked worktree." in the primary checkout; until it reads the
-  mark, a cloud session runs the finish steps by hand (gate → `tasks close`
-  → commit → merge `origin/main` → push → `tasks release --force`), which
-  AGENTS.md names as the supported path outside the harness.
-* `.claude/settings.json` — the permission allow/deny lists above, and
-  `Bash(gh workflow run *)` so a shell dispatch is pre-approved.
-* `AGENTS.md` — the "Cloud sessions" section of the START HERE block.
 
 ## Troubleshooting
 
@@ -209,5 +201,4 @@ from inside a cloud session until it is on `main`:
 | `gh auth status`: "The token in GH_TOKEN is invalid" | an unproxied probe | ignore; `gh api …` reads work |
 | `susi tasks claim`: "was claimed concurrently with another agent" on a quiet queue | the git proxy refused the `refs/claims/*` push (403) | the dispatched queue workflow, or the one-time laptop claim above |
 | pre-push: `fatal: bad revision '^…^'`, "cannot compute the commit range" | the harness's clone is shallow | `git fetch --unshallow origin` (the session-start hook does it) |
-| `Use your own linked worktree.` from `susi workflow sync` / `finish` | `scripts/parallel-workflow.sh` does not read the mark yet | the by-hand finish above |
 | a fixture test behaves like a cloud clone | something exported `SUSI_CLOUD_SESSION=1`, or the fixture was marked | unset it; fixtures are marked only by a test that means to |
