@@ -32,10 +32,6 @@ sync() {
     [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
     git fetch --quiet origin
     git merge --no-edit origin/main
-    # No target guard here: sync builds nothing. Its guard stamped the shared
-    # target as holding this worktree's crates while nothing built them, and
-    # the next worktree with that content linked a sibling's build. Every
-    # cargo this loop runs (gate, pre-push, tasks close) guards for itself.
     "$root/scripts/park-primary.sh" --sync-only || true
     # Inside the lock: the watcher heal is cheap, and the board block is cached,
     # so one sync pays for the checks and the rest read the verdict.
@@ -53,6 +49,22 @@ sync() {
     # The board checks were only as reliable as the habit of running them.
     [ "${SUSI_SYNC_SKIP_BOARD:-0}" = 1 ] || "$root/scripts/swarm-status.sh" || true
     flock -u 9
+    # The merge may have just brought this worktree the seeding: a target/
+    # still linked to the clone's old shared one gets its own before anything
+    # builds (seed_own_target). Outside the lock, which the copy would hold
+    # for a minute.
+    seed_own_target
+}
+
+# Every cargo the loop runs builds into this worktree's own target. A worktree
+# whose session began before seeding existed may still have target/ linked to
+# the clone's old shared one, where a sibling's build of a crate can stand in
+# for this branch's: scripts/seed-target.sh replaces the link (the link only)
+# and copies the snapshot in, in the foreground, before the first cargo. On a
+# target that already holds a build it does nothing.
+seed_own_target() {
+    # "$BASH": this very bash. A bare `bash` can be WSL's on a Windows PATH.
+    [ ! -f "$root/scripts/seed-target.sh" ] || "${BASH:-bash}" "$root/scripts/seed-target.sh" "$root" 9>&- || true
 }
 
 # Keep the claim alive across a long wait. `renew` refuses an expired lease, and
@@ -197,46 +209,13 @@ gate_stamp() {
     } | git hash-object --stdin
 }
 
-# The shared target may hold another worktree's build of a crate this branch
-# has differently; the gate must judge this branch's code. The guard and every
-# cargo command after it are one step: held from the guard through the last
-# cargo, so no other worktree's guard and build can land in between (two gates
-# interleaving left one of them linking the other's code). A failing step exits
-# the script, and the EXIT trap lets go.
-#
-# The commands the gate runs are told who holds the target
-# (SUSI_TARGET_GUARD_HELD), and only that: this shell when the guard took the
-# lock, the ancestor whose lock it found (an outer `target-guard.sh --run`)
-# otherwise, exactly as `--hold` reports it. Letting go puts back what was
-# inherited. Exporting this shell's pid when it held nothing, and unsetting
-# the variable after, left the close and the push that follow waiting on the
-# ancestor, which was waiting on them: a hang until the lock's stale age, six
-# hours, with every other worktree's gate waiting behind it.
-target_held=
-target_prev_held=
-hold_target() {
-    if [ -x "$root/scripts/target-guard.sh" ]; then
-        local holder
-        target_prev_held=${SUSI_TARGET_GUARD_HELD-}
-        holder=$("$root/scripts/target-guard.sh" --hold $$)
-        target_held=1
-        [ -z "$holder" ] || export SUSI_TARGET_GUARD_HELD="$holder"
-    fi
-}
-release_target() {
-    if [ -n "$target_held" ]; then
-        "$root/scripts/target-guard.sh" --release $$ || true
-        target_held=
-        if [ -n "$target_prev_held" ]; then
-            export SUSI_TARGET_GUARD_HELD="$target_prev_held"
-        else
-            unset SUSI_TARGET_GUARD_HELD
-        fi
-    fi
-}
-
+# The gate's cargo builds into this worktree's own target, made so first
+# (seed_own_target: a link to the old shared target is replaced), so plain cargo
+# judges this branch's code: no other worktree builds there, and there is no
+# shared target to lock or guard.
 gate() {
-    local okfile stamp
+    local okfile stamp pkgs lint sel lsel
+    seed_own_target
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
     stamp=$(gate_stamp)
     if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
@@ -244,14 +223,6 @@ gate() {
         gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
         return 0
     fi
-    hold_target
-    # Not in a condition: `set -e` must still stop the gate at its first failure.
-    gate_held "$stamp" "$okfile"
-    release_target
-}
-
-gate_held() {
-    local stamp=$1 okfile=$2 pkgs lint sel lsel
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
     gate_pkgs=$pkgs
@@ -341,7 +312,7 @@ finish)
     # children (`service-run`) would otherwise outlive this run and keep
     # `target\debug\susi.exe` locked on Windows. Runs on every exit path —
     # including a failing gate — scoped to this checkout's target dir.
-    trap "release_target; \"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
+    trap "\"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
     # The default is not to wait: the branch-push run and the merge are the
     # machinery's (auto-merge, the reconciler), and nothing the agent does
     # after the push speeds either up. `--wait` (or SUSI_FINISH_WAIT=1) keeps
@@ -542,11 +513,33 @@ watch)
         exit 0
     }
     trap 'exit 0' INT TERM
+    # The snapshot new worktrees copy their target from (scripts/seed-target.sh)
+    # is rebuilt here, by its one writer: a refresh in its own checkout of
+    # origin/main, started in the background at low priority, so the heartbeat
+    # never waits on a build. It is asked every SUSI_SEED_CHECK_SECS (300) and
+    # runs one at a time (it locks); it does nothing unless origin/main has
+    # moved past the snapshot and the snapshot is older than
+    # SUSI_SEED_REFRESH_SECS. SUSI_NO_SEED=1 turns it off.
+    seed_next=0
+    seed_tick() {
+        [ "${SUSI_NO_SEED:-}" != 1 ] || return 0
+        [ -f "$root/scripts/seed-target.sh" ] || return 0
+        [ "$SECONDS" -ge "$seed_next" ] || return 0
+        seed_next=$((SECONDS + ${SUSI_SEED_CHECK_SECS:-300}))
+        local nice=
+        ! command -v nice >/dev/null 2>&1 || nice="nice -n 19"
+        # Not the watcher's lock (fd 8): a refresh that outlived this watcher
+        # would hold it and keep the next one from starting.
+        # shellcheck disable=SC2086 # an empty $nice is no word at all
+        nohup $nice "${BASH:-bash}" "$root/scripts/seed-target.sh" --refresh \
+            --log "$common/susi-seed-refresh.log" >/dev/null 2>&1 </dev/null 8>&- &
+    }
     # A heartbeat, because the log stays empty while things go well: a stale
     # stamp is the only way `susi workflow check` can report a dead watcher.
     while true; do
         date +%s >"$common/susi-primary-watch.stamp" 2>/dev/null || true
         "$root/scripts/park-primary.sh" --sync-only || true
+        seed_tick || true
         sleep "${SUSI_SYNC_INTERVAL:-15}"
     done
     ;;

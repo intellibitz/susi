@@ -17,15 +17,17 @@ xn = "nextest run --workspace --locked"
 #   worktree and passes it as `-C linker=...`; that path is part of every unit's
 #   fingerprint. So no two worktrees could ever share a compiled crate - not the
 #   workspace crates and not the 637 registry crates either - and each one
-#   overwrote the other's artifacts in a shared target dir. scripts/susi-worktree.sh
-#   has pointed new worktrees at one shared target for exactly this reason, and
-#   it never delivered: a fresh worktree compiled 716 crates in 656 s, and the
-#   shared target grew to 425 GB. With a path-independent config, a worktree
-#   created after a warm build compiled 81 crates (79 workspace, 2 registry) in
-#   176 s.
+#   overwrote the other's artifacts in a shared target dir. Worktrees then
+#   pointed at one shared target to reuse builds, and it never delivered: a
+#   fresh worktree compiled 716 crates in 656 s, and the shared target grew to
+#   425 GB. With a path-independent config, a worktree created after a warm
+#   build compiled 81 crates (79 workspace, 2 registry) in 176 s.
 #
-# Do not set a repo-relative `linker` (or any flag that embeds a worktree path)
-# for a target developers build on; tests/ci_workflow_perf.rs pins this.
+# Each worktree now has a target of its own, copied from a warm snapshot of
+# origin/main (scripts/seed-target.sh), and the snapshot's registry crates are
+# fresh in the copy only while their fingerprints carry no worktree path. So
+# do not set a repo-relative `linker` (or any flag that embeds a worktree
+# path) for a target developers build on; tests/ci_workflow_perf.rs pins this.
 #
 # aarch64 keeps the wrapper: rustc self-contains lld only on x86_64 Linux (on
 # other targets `-Clinker-features` is unstable, which broke the linux-aarch64

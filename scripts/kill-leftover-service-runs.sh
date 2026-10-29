@@ -12,9 +12,10 @@
 # Scope: only `service-run` / `daemon-start` processes launched from THIS
 # checkout's `target/`. A sibling agent's daemon (a different worktree path), a
 # user's installed `~/.susi/bin/susi`, and the running gate itself are never
-# touched. On Linux, where worktrees share one real target file through a
-# symlink, the process must additionally carry a throwaway `SUSI_HOME` (a temp
-# dir), which is what the hermetic wrapper exports.
+# touched. On Linux, where a worktree's target/ may still be a symlink to one
+# shared target (worktrees made before each got its own; see
+# scripts/seed-target.sh), the process must additionally carry a throwaway
+# `SUSI_HOME` (a temp dir), which is what the hermetic wrapper exports.
 #
 # Best-effort by design: a sweep that cannot identify a process leaves it
 # alone. Always exits 0 so teardown never masks the real result.

@@ -32,18 +32,34 @@ if [ "$cloud" = 1 ]; then
             && echo "  fetched the full history (the harness's clone was shallow)"
     fi
 else
-    # A worktree the desktop app made has a private target/ and would cold-compile
-    # every dependency; share the clone's instead (a no-op where it already is, or
-    # where a build already lives in target/). See scripts/link-shared-target.sh.
-    [ -x scripts/link-shared-target.sh ] && scripts/link-shared-target.sh 2>&1
+    # Give this worktree a cargo target of its own: a link to the clone's shared
+    # one (what older sessions made) is replaced now, and a missing or empty
+    # target/ is copied from the warm snapshot in the background, so the session
+    # does not wait for it. A target/ that holds a build is left alone. See
+    # scripts/seed-target.sh. "$BASH" is the bash running this hook: a bare
+    # `bash` can resolve to WSL's on a Windows PATH. A plain cargo does not
+    # wait for that copy (it builds cold, and the copy is thrown away), so the
+    # session is told to run the script in the foreground first: it waits.
+    if [ -f scripts/seed-target.sh ]; then
+        seeding=$("${BASH:-bash}" scripts/seed-target.sh --background 2>&1)
+        if [ -n "$seeding" ]; then
+            printf '%s\n' "$seeding"
+            case "$seeding" in
+            *"in the background"*)
+                echo "  before your first plain cargo here, run scripts/seed-target.sh: it waits for that copy"
+                ;;
+            esac
+        fi
+    fi
     # Keep the primary checkout's main current (silent unless it advanced).
     [ -x scripts/park-primary.sh ] && scripts/park-primary.sh --sync-only 2>/dev/null
 fi
 
 # A cloud container starts cold: no installed susi and no target/. The check
-# needs the binary, so start the guarded build now, in the background, while
-# the agent reads the rules — it is what the agent's first command would do
-# anyway, and the guard serializes a second build behind it. SUSI_CLOUD_PREBUILD=0
+# needs the binary, so start the build now, in the background, while the agent
+# reads the rules — it is what the agent's first command would do anyway, and
+# cargo's own build-directory lock makes a second build wait for it (the clone
+# has a target of its own; nothing else builds into it). SUSI_CLOUD_PREBUILD=0
 # opts out. The log is in the clone's git directory.
 prebuild() {
     local common lock log
@@ -53,10 +69,10 @@ prebuild() {
     (
         exec 9>"$lock"
         flock -n 9 || exit 0
-        exec scripts/target-guard.sh --run cargo build -q
+        exec cargo build -q
     ) >"$log" 2>&1 </dev/null &
     disown 2>/dev/null || true
-    echo "building susi in the background (log: $log); wait for it with: scripts/target-guard.sh --run cargo build -q"
+    echo "building susi in the background (log: $log); wait for it with: cargo build -q"
 }
 
 if command -v susi >/dev/null 2>&1 && susi workflow --help >/dev/null 2>&1; then
@@ -64,10 +80,10 @@ if command -v susi >/dev/null 2>&1 && susi workflow --help >/dev/null 2>&1; then
 elif [ -x ./target/debug/susi ]; then
     ./target/debug/susi workflow check 2>&1 || true
 elif [ "$cloud" = 1 ] && [ "${SUSI_CLOUD_PREBUILD:-1}" != 0 ] && command -v cargo >/dev/null 2>&1 \
-    && command -v flock >/dev/null 2>&1 && [ -x scripts/target-guard.sh ]; then
+    && command -v flock >/dev/null 2>&1; then
     prebuild
 else
-    echo "susi workflow check is not installed here; run: scripts/target-guard.sh --run cargo build -q, then: target/debug/susi workflow check"
+    echo "susi workflow check is not installed here; run: scripts/seed-target.sh; cargo run -q -- workflow check"
 fi
 if [ "$cloud" = 1 ]; then
     cat <<MSG

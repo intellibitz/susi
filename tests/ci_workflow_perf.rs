@@ -880,195 +880,248 @@ fn shell_function(text: &str, name: &str) -> String {
     text[start..start + len].to_string()
 }
 
-/// Worktrees share one target, and cargo names a workspace crate's build by
-/// its path relative to the workspace: a crate another worktree built (with
-/// other content) reads as fresh here, and its code is linked into this
-/// branch's build. Both gates take the guard that rebuilds such crates and
-/// hold it through every cargo command that follows (no other worktree's
-/// guard and build can land in between), and let go on every exit, a failing
-/// cargo included. Where the guard's path first appears in the text proves
-/// none of that: once it sat in a function definition, deleting the call, or
-/// the release in the EXIT trap, left this test green. So the finish gate's
-/// own functions run here, against a guard that records the lock and a cargo
-/// that records whether it ran under it.
+/// Worktrees shared one target, and cargo names a workspace crate's build by
+/// its path relative to the workspace, so a crate another worktree built read
+/// as fresh and was linked into this branch's build. `scripts/target-guard.sh`
+/// narrowed that and could not close it; every worktree now builds into a
+/// target of its own, seeded from a warm snapshot (`scripts/seed-target.sh`),
+/// where plain cargo is correct. So no gate, hook or close depends on the
+/// guard any more: it is a pass-through kept one release for the installed
+/// susi and older branches, and the worktree paths seed instead of linking.
+/// For that one release the new binary and hooks still meet branches cut
+/// before the seeding, which carry the real guard and no seeder and build in
+/// the shared target: `tasks close` and the pre-push hook run such a branch's
+/// own guard, only when it has no `scripts/seed-target.sh` (pinned by
+/// behaviour in tasks.rs and tests/worktree_target_dir.rs), and the staged
+/// `finish` copy still drops an outer guard's hold. Nowhere else.
 #[test]
-fn the_gates_guard_the_shared_target_before_cargo() {
-    let gate = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
-    // `finish` sets the trap that lets go before it runs the gate.
-    let finish = gate
-        .split("\nfinish)\n")
-        .nth(1)
-        .expect("parallel-workflow.sh has a `finish` action");
-    let trap_at = finish
-        .find("\n    trap ")
-        .expect("finish sets an EXIT trap");
-    let trap = finish[trap_at + 1..].lines().next().unwrap().trim();
-    assert!(
-        trap.contains("release_target") && trap.ends_with(" EXIT"),
-        "finish's EXIT trap must let go of the target on every exit: `{trap}`"
-    );
-    let gate_call = finish.find("\n    gate\n").expect("finish runs the gate");
-    assert!(
-        trap_at < gate_call,
-        "the trap must be set before the gate runs"
-    );
-
-    let f = Fakes::new("finish-guard");
-    std::fs::create_dir_all(f.dir.join("scripts")).unwrap();
-    std::fs::create_dir_all(f.dir.join("gitdir")).unwrap();
-    for (name, body) in [
-        (
-            "target-guard.sh",
-            r#"case "$1" in
---hold) echo "hold $2" >> log; echo held > guard-state; echo "$2" ;;
---release) echo "release $2" >> log; echo free > guard-state ;;
-*) echo "guard $*" >> log ;;
-esac"#,
-        ),
-        (
-            "ci-changed-crates.sh",
-            r#"echo susi-core
-[ "${1:-}" != --dependents ] || echo susi"#,
-        ),
-    ] {
-        let path = f.dir.join("scripts").join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        set_script_executable(&path);
-    }
-    // The gate's own functions, verbatim, around stand-ins for what they
-    // call: shell functions, so no `cargo` or `git` on PATH can answer first.
-    let mut driver = String::from(
-        r#"set -euo pipefail
-root=.
-cargo() {
-    local state
-    read -r state < guard-state
-    echo "cargo $1 $state" >> log
-    [ "$1" != "${FAKE_CARGO_FAIL:-}" ]
-}
-git() {
-    [ "$1 $2" = "rev-parse --git-dir" ] || { echo "git $*" >> log; return 1; }
-    echo gitdir
-}
-gate_stamp() { echo stamp; }
-gate_tests() { cargo test "$@"; }
-target_held=
-target_prev_held=
-"#,
-    );
-    for name in ["hold_target", "release_target", "gate", "gate_held"] {
-        driver.push_str(&shell_function(&gate, name));
-    }
-    driver.push_str(trap);
-    driver.push_str("\ngate\necho 'gate returned' >> log\n");
-    let script = f.dir.join("finish-gate.sh");
-    std::fs::write(&script, driver).unwrap();
-
-    let run = |fail: &str| {
-        std::fs::write(f.dir.join("log"), "").unwrap();
-        std::fs::write(f.dir.join("guard-state"), "free\n").unwrap();
-        let out = script_command(&script)
-            .current_dir(&f.dir)
-            .env("FAKE_CARGO_FAIL", fail)
-            .env("SUSI_GATE_NOCACHE", "1")
-            .env_remove("SUSI_LOCAL_GATE")
-            .env_remove("SUSI_TARGET_GUARD_HELD")
-            .output()
-            .unwrap();
-        let said = String::from_utf8_lossy(&out.stdout).into_owned()
-            + &String::from_utf8_lossy(&out.stderr);
-        let log = std::fs::read_to_string(f.dir.join("log")).unwrap();
-        let state = std::fs::read_to_string(f.dir.join("guard-state")).unwrap();
-        (out.status.success(), said, log, state.trim().to_string())
+fn no_gate_or_hook_depends_on_the_retired_target_guard() {
+    let guard = "target-guard";
+    // A file's code lines: no comment, and no Rust tests (which may name the
+    // retired paths to prove them gone).
+    let code_of = |path: &str| -> Vec<String> {
+        let text = read(path).replace("\r\n", "\n");
+        let text = text.split("#[cfg(test)]").next().unwrap_or_default();
+        text.lines()
+            .filter(|line| {
+                let line = line.trim_start();
+                !line.starts_with('#') && !line.starts_with("//")
+            })
+            .map(str::to_string)
+            .collect()
     };
-    for (fail, ok, cargo_ran) in [
-        ("", true, &["fmt", "clippy", "test"][..]),
-        // A failing step exits the script under `set -e`: only the trap is
-        // left to let go.
-        ("clippy", false, &["fmt", "clippy"][..]),
+    for path in [
+        "scripts/parallel-workflow.sh",
+        ".githooks/pre-push",
+        "crates/susi-gawd/src/admin/tasks.rs",
+        "crates/susi-harness/src/adapter.rs",
+        "src/cli/workflow_cli.rs",
+        "scripts/workflow-session-start.sh",
+        "scripts/susi-worktree.sh",
+        ".githooks/post-merge",
+        ".githooks/post-commit",
+        ".githooks/post-checkout",
     ] {
-        let (success, said, log, state) = run(fail);
-        assert_eq!(success, ok, "failing `{fail}`: {said}\n{log}");
-        let lines: Vec<&str> = log.lines().collect();
-        let holder = lines
-            .first()
-            .and_then(|l| l.strip_prefix("hold "))
-            .unwrap_or_else(|| panic!("the gate must take the guard before anything else:\n{log}"));
-        let cargo: Vec<&str> = lines
-            .iter()
-            .filter_map(|l| l.strip_prefix("cargo "))
-            .collect();
-        let expected: Vec<String> = cargo_ran.iter().map(|c| format!("{c} held")).collect();
-        assert_eq!(
-            cargo, expected,
-            "every cargo command runs, in order, while the target is held:\n{log}"
-        );
-        let last_cargo = lines.iter().rposition(|l| l.starts_with("cargo ")).unwrap();
-        let releases: Vec<usize> = lines
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.starts_with("release "))
-            .map(|(i, _)| i)
-            .collect();
-        assert_eq!(
-            releases.len(),
-            1,
-            "the gate lets go exactly once (failing `{fail}`):\n{log}"
-        );
-        assert!(
-            releases[0] > last_cargo && lines[releases[0]] == format!("release {holder}"),
-            "the hold is let go after the last cargo, by the pid that took it:\n{log}"
-        );
-        assert_eq!(state, "free", "the target is left free:\n{log}");
-        let returned = lines.iter().position(|l| *l == "gate returned");
-        assert_eq!(
-            returned.is_some(),
-            ok,
-            "a failing gate must stop the script:\n{log}"
-        );
-        // A gate that passed lets go itself, before finish goes on to commit,
-        // close and push: held to the EXIT trap, every other worktree's gate
-        // waits on a lock nothing is building under.
-        if let Some(returned) = returned {
+        let code = code_of(path);
+        for (at, line) in code.iter().enumerate() {
             assert!(
-                releases[0] < returned,
-                "a passing gate must let go before it returns, not at exit:\n{log}"
+                !line.contains("link-shared-target"),
+                "{path} still links a shared target: {line}"
             );
+            if !line.contains(guard) && !line.contains("SUSI_TARGET_GUARD_HELD") {
+                continue;
+            }
+            // The one-release fallbacks for a branch that predates the
+            // seeding, and nothing else.
+            let allowed = match path {
+                ".githooks/pre-push" => {
+                    // Only inside the branch taken when there is no seeder.
+                    let seeds = code.iter().position(|l| {
+                        l.contains("if [ -f \"$top/scripts/seed-target.sh\" ]; then")
+                    });
+                    let fallback = code.iter().position(|l| {
+                        l.contains("elif [ -x \"$top/scripts/target-guard.sh\" ]; then")
+                    });
+                    let end = fallback.and_then(|f| {
+                        code[f..]
+                            .iter()
+                            .position(|l| l.trim() == "fi")
+                            .map(|e| f + e)
+                    });
+                    matches!((seeds, fallback, end), (Some(s), Some(f), Some(e)) if s < f && f <= at && at < e)
+                }
+                "crates/susi-gawd/src/admin/tasks.rs" => {
+                    // Only inside `guarded_acceptance`, which returns early
+                    // where the seeder is.
+                    let start = code
+                        .iter()
+                        .position(|l| l.starts_with("fn guarded_acceptance("));
+                    let end =
+                        start.and_then(|s| code[s..].iter().position(|l| l == "}").map(|e| s + e));
+                    let seeder_first = start.zip(end).is_some_and(|(s, e)| {
+                        let body = &code[s..e];
+                        let seeder = body.iter().position(|l| l.contains("\"seed-target.sh\""));
+                        let guard_at = body.iter().position(|l| l.contains("\"target-guard.sh\""));
+                        matches!((seeder, guard_at), (Some(a), Some(b)) if a < b)
+                    });
+                    seeder_first && matches!((start, end), (Some(s), Some(e)) if s < at && at < e)
+                }
+                "src/cli/workflow_cli.rs" => {
+                    line.trim() == ".env_remove(\"SUSI_TARGET_GUARD_HELD\")"
+                }
+                _ => false,
+            };
+            assert!(allowed, "{path} still runs the retired guard: {line}");
         }
     }
-
-    // pre-push: the hold, and the trap that lets go of it, come before the
-    // first clippy; the explicit release after the last.
-    let hook = code(&read(".githooks/pre-push"));
+    // For that release the staged `finish` copy outlives an outer guard
+    // hold (an old branch's `target-guard.sh --run cargo run -- workflow
+    // finish`): it must not claim that hold as its own.
     assert!(
-        hook.lines().any(|l| {
-            let l = l.trim();
-            l.starts_with("guard=") && l.ends_with("/scripts/target-guard.sh\"")
-        }),
-        "pre-push names the guard"
+        code_of("src/cli/workflow_cli.rs")
+            .iter()
+            .any(|line| line.trim() == ".env_remove(\"SUSI_TARGET_GUARD_HELD\")"),
+        "the staged finish must drop an outer guard's hold"
     );
-    let at = |needle: &str| {
-        hook.find(needle)
-            .unwrap_or_else(|| panic!("pre-push has no `{needle}`"))
+    // The gates run plain cargo.
+    let gate = read("scripts/parallel-workflow.sh");
+    assert!(gate.contains("cargo clippy --locked --all-targets $lsel -- -D warnings"));
+    let hook = read(".githooks/pre-push");
+    assert!(hook.contains("cargo clippy --workspace --all-targets --locked -- -D warnings"));
+    // Worktrees are seeded, by the scripts and by `workflow start` alike.
+    for path in [
+        "scripts/susi-worktree.sh",
+        "scripts/workflow-session-start.sh",
+        "crates/susi-gawd/src/admin/workflow.rs",
+        "crates/susi-harness/src/adapter.rs",
+    ] {
+        assert!(
+            read(path).contains("seed-target.sh"),
+            "{path} must seed the worktree's own target"
+        );
+    }
+    assert!(
+        !read("crates/susi-gawd/src/admin/workflow.rs").contains("symlink_dir"),
+        "`workflow start` must not link the primary's target"
+    );
+    // The shim only passes through: no lock, no stamps, no fingerprints.
+    let shim = read("scripts/target-guard.sh");
+    for gone in ["mkdir", "rm -rf", ".fingerprint", "stamps"] {
+        assert!(
+            !shim
+                .lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+                .any(|line| line.contains(gone)),
+            "the retired guard must not `{gone}`"
+        );
+    }
+    // Every path that runs cargo for an agent first gives a worktree still
+    // linked to the old shared target one of its own: a worktree whose
+    // session began before seeding keeps its link until something converts
+    // it, and merging origin/main hands it these paths. A sibling's build in
+    // the shared target could otherwise stand in for this branch's.
+    let at = |text: &str, needle: &str, what: &str| {
+        text.find(needle)
+            .unwrap_or_else(|| panic!("{what}: no `{needle}`"))
     };
-    let hold = at("\"$guard\" --hold $$");
-    let trap = at("trap '\"$guard\" --release $$");
-    let first_clippy = at("cargo clippy");
-    let last_clippy = hook.rfind("cargo clippy").unwrap();
-    let release = hook.rfind("\"$guard\" --release $$").unwrap();
+    let gate = gate.replace("\r\n", "\n");
+    let gate_fn = shell_function(&gate, "gate");
     assert!(
-        hold < trap && trap < first_clippy,
-        "pre-push must hold the target, and trap its release, before clippy runs"
+        at(&gate_fn, "seed_own_target", "the gate")
+            < at(&gate_fn, "cargo fmt --all --check", "the gate"),
+        "the finish gate must seed before its first cargo"
     );
+    let sync_fn = shell_function(&gate, "sync");
     assert!(
-        release > last_clippy,
-        "pre-push must let go of the target once clippy is done"
+        at(&sync_fn, "git merge --no-edit origin/main", "sync")
+            < at(&sync_fn, "seed_own_target", "sync"),
+        "sync must seed after the merge that may bring the seeding"
     );
-    let guard = read("scripts/target-guard.sh");
+    assert!(gate.contains("\"${BASH:-bash}\" \"$root/scripts/seed-target.sh\" \"$root\""));
     assert!(
-        guard.contains("git -C \"$root\" ls-tree HEAD"),
-        "the guard reads every member's content in one call, not a process per member"
+        at(&hook, "scripts/seed-target.sh\" \"$top\"", "pre-push")
+            < at(&hook, "cargo clippy", "pre-push"),
+        "pre-push must seed before clippy"
     );
+    let shim_code: Vec<&str> = shim
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect();
+    assert!(
+        shim_code
+            .iter()
+            .any(|l| l.contains("[ -L \"$1/target\" ] && return 0"))
+            && shim_code
+                .iter()
+                .any(|l| l.contains("wants_seed \"$root\"") && l.contains("[ -f \"$seeder\" ]"))
+            && shim_code
+                .iter()
+                .any(|l| l.contains("\"$shell\" \"$seeder\" \"$root\"")),
+        "the retired guard converts a linked target before the cargo its callers run"
+    );
+    // The installed susi (v0.21.23) runs both shims on Windows by a path Rust
+    // joined (`F:/w\scripts\target-guard.sh`): they find seed-target.sh beside
+    // them only once $0's backslashes are slashes, and splitting $0 on `/`
+    // alone found the wrong directory and seeded nothing.
+    for path in ["scripts/target-guard.sh", "scripts/link-shared-target.sh"] {
+        let text = read(path);
+        let code: Vec<&str> = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .collect();
+        assert!(
+            code.iter()
+                .any(|l| l.contains("self=$(printf '%s\\n' \"$0\" | tr '\\\\' /)")),
+            "{path} must make $0's backslashes slashes before taking its directory"
+        );
+        assert!(
+            !code.iter().any(|l| l.contains("${0%/*}")),
+            "{path} splits $0 on `/` alone"
+        );
+    }
+    assert!(
+        read("crates/susi-gawd/src/admin/tasks.rs").contains("seed_own_target(ws);"),
+        "`tasks close` converts a linked target before a cargo acceptance"
+    );
+    // A merge that brings the seeding converts a linked target at once; so
+    // does the commit that concludes one that stopped on conflicts (Git runs
+    // no post-merge for it), and `git worktree add` (before v0.21.23's
+    // `workflow start` can link a target/ that does not exist yet); in the
+    // background, so none of them waits for the copy.
+    for hook in [
+        ".githooks/post-merge",
+        ".githooks/post-commit",
+        ".githooks/post-checkout",
+    ] {
+        let text = read(hook);
+        assert!(
+            text.contains("[ -L \"$top/target\" ]")
+                && text.contains("scripts/seed-target.sh\" --background \"$top\""),
+            "{hook} must seed a linked target in the background"
+        );
+    }
+    assert!(read(".githooks/post-checkout").contains("[ ! -e \"$top/target\" ]"));
+    // The cloud prebuild is plain cargo: the clone's target is its own.
+    let session = read("scripts/workflow-session-start.sh");
+    assert!(session.contains("exec cargo build -q"));
+    // The seeder runs under the bash already running: on a Windows PATH a
+    // bare `bash` can be WSL's.
+    for (path, needle) in [
+        (
+            ".githooks/pre-push",
+            "\"${BASH:-bash}\" \"$top/scripts/seed-target.sh\"",
+        ),
+        (
+            "scripts/susi-worktree.sh",
+            "\"${BASH:-bash}\" \"$seeder\" \"$dest\"",
+        ),
+        (
+            "scripts/workflow-session-start.sh",
+            "\"${BASH:-bash}\" scripts/seed-target.sh --background",
+        ),
+    ] {
+        assert!(read(path).contains(needle), "{path}: no `{needle}`");
+    }
 }
 
 /// The pre-push hook lints what the finish gate lints, with the same command
@@ -1153,8 +1206,10 @@ fn a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates() {
 /// crate (registry crates included) and each overwrote the other's artifacts in
 /// the shared target dir. Measured: a fresh worktree compiled 716 crates in 656 s;
 /// with a path-independent config, one created after a warm build compiled 81 in
-/// 176 s. `scripts/susi-worktree.sh` shares one target dir *for this reason* and it
-/// never worked until the linker path stopped differing.
+/// 176 s. Worktrees now get a target of their own seeded from a snapshot built in
+/// another checkout (`scripts/seed-target.sh`), and the snapshot's registry
+/// crates are reused only while no unit's fingerprint names a worktree path: a
+/// repo-relative linker would make every seeded target rebuild cold.
 #[test]
 fn the_cargo_config_does_not_hash_a_worktree_path_into_every_unit() {
     let config = read(".cargo/config.toml");
@@ -1190,6 +1245,35 @@ fn the_cargo_config_does_not_hash_a_worktree_path_into_every_unit() {
             "`{line}`: opting out of rustc's bundled lld only made sense to hand linking to the \
              wrapper; without one it silently falls back to GNU ld, which is slower than both"
         );
+    }
+}
+
+/// sccache hashes every `CARGO_*` environment variable into its keys, so a
+/// job that exports a `CARGO_TARGET_DIR` differing from the one the cache was
+/// written under gets no hits at all (measured: 0% on this repo, against
+/// 57-61% with `--target-dir` or the default target). A CI job with an sccache
+/// wrapper keeps the default target and never exports one.
+#[test]
+fn no_sccache_job_exports_a_cargo_target_dir() {
+    for (file, text) in workflows() {
+        let top = code(&text);
+        let workflow_wide = top
+            .split("\njobs:")
+            .next()
+            .unwrap_or_default()
+            .contains("CARGO_TARGET_DIR:");
+        for j in jobs(&text) {
+            let wrapped = j.body.contains("RUSTC_WRAPPER") && j.body.contains("sccache");
+            if !wrapped {
+                continue;
+            }
+            assert!(
+                !workflow_wide && !j.body.contains("CARGO_TARGET_DIR:"),
+                "{file}: job `{}` runs sccache and exports CARGO_TARGET_DIR, which zeroes \
+                 its hits",
+                j.id
+            );
+        }
     }
 }
 

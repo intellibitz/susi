@@ -1,0 +1,29 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-15",
+  "title": "Private seeded per-worktree cargo targets replace the shared target",
+  "goal": "Retire the shared 253 GiB cargo target: every worktree gets a private target seeded by copy from a snapshot (scripts/seed-target.sh), linked worktrees convert on hooks, target-guard.sh/link-shared-target.sh stay as shims for installed v0.21.23, and parallel_workflow's children get a whole home via isolate_home",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "worktree_target_dir",
+      "--test",
+      "ci_workflow_perf",
+      "--test",
+      "ci_changed_crates",
+      "--test",
+      "child_home_isolation"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793315428,
+  "closed": {
+    "at_unix": 1793317150,
+    "commit": "0572a3775e9e86708473665ba4e7e7b12c507ea6",
+    "by": "GUARDEDACCEPTANCE"
+  }
+}

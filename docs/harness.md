@@ -485,9 +485,15 @@ something goes wrong; each is covered by tests in `crates/susi-harness`.
 - **A failed mission releases its claim.** The worktree stays for diagnosis, but the claim does not
   outlive the attempt, so the next mission can retry without a manual forced release.
 - **Stale worktree cleanup.** When `workflow start` refuses because a killed mission left its
-  directory or branch behind, the harness removes it and retries once.
-- **Shared target.** A new mission worktree links the primary checkout's cargo target, so only the
-  workspace crates rebuild instead of the whole registry graph.
+  directory or branch behind, the harness removes it and retries once. A directory is removed by
+  hand only when it is a worktree of this clone (registered, or prunable); anything else at that
+  name is left alone, and the retry then fails as before.
+- **Seeded target.** A new mission worktree gets a cargo target of its own, copied from the clone's
+  warm snapshot of `origin/main` (`scripts/seed-target.sh`), so only the workspace crates (and the
+  vendored path crates) rebuild instead of the whole registry graph, and no other worktree's build
+  can stand in for the mission's. The gate runs clippy directly: there is nothing to `cargo clean`.
+  For one release, a mission worktree whose `target/` is still a link to the clone's old shared
+  target (nothing could seed it) has the touched packages cleaned first, as before.
 - **No merge wait.** A finish publishes its close receipt to the remote and returns; the merge is
   the machinery's, and one accepted-but-unmerged close pipelines, so the next task may be claimed at
   once. A red branch run is reported at the next `workflow sync`. `SUSI_FINISH_WAIT=1` restores the

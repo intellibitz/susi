@@ -370,7 +370,8 @@ if [ "$INSTALLED" = "0" ]; then
                 case "$(uname -m)" in
                 aarch64 | arm64) echo "  Using .cargo/fast-linker (mold/lld when available)." ;;
                 # .cargo/config.toml sets no linker on x86_64: a repo-relative one
-                # is hashed into every unit and defeats a shared target dir.
+                # is hashed into every unit, and no worktree could reuse a build
+                # made in another checkout (scripts/seed-target.sh's snapshot).
                 *) echo "  Linking with rustc's bundled lld." ;;
                 esac
             elif command -v clang >/dev/null 2>&1 && [ -x "${HOME}/.susi/mold/bin/ld.mold" ]; then

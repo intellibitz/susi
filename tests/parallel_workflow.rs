@@ -132,7 +132,6 @@ impl World {
             "ci-changed-crates.sh",
             "check-hermetic-tests.sh",
             "posix-compat.sh",
-            "target-guard.sh",
         ] {
             std::fs::copy(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -236,22 +235,19 @@ impl World {
     }
     fn susi(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
+        susi_paths::test_env::isolate_home(&mut cmd, &self.root.join("home"));
         cmd.args(args)
             .current_dir(&self.work)
-            .env("HOME", self.root.join("home"))
             .env("CARGO_HOME", self.root.join("cargo-home"))
             .env("XDG_CONFIG_HOME", self.root.join("home/xdg"))
-            .env_remove("SUSI_HOME")
             // The gate reads these: a developer who exports them must not change
             // what the fixture's gate runs.
             .env_remove("SUSI_HERMETIC_RUNNER")
             .env_remove("SUSI_HERMETIC_RETRIES")
             .env_remove("SUSI_LOCAL_GATE")
-            // So does the target guard the gate holds: a suite run against the
-            // shared target would have the fixture lock that target, wait on
-            // real gates, and stamp it with the fixture's content.
+            // So does the cargo it runs: the fixture's builds stay out of the
+            // caller's target.
             .env_remove("CARGO_TARGET_DIR")
-            .env_remove("SUSI_TARGET_GUARD_HELD")
             .env("SUSI_AGENT", "WORKER");
         cmd
     }
@@ -486,11 +482,8 @@ fn finish_waits_for_publication_before_releasing_and_syncs_primary() {
     );
 }
 
-/// The gate runs `scripts/target-guard.sh --hold`, which locks and stamps the
-/// target `CARGO_TARGET_DIR` names. Inherited from a suite run against the
-/// shared target, it had the fixture's gate wait on real gates' locks and
-/// write the fixture's root identity into the real stamps, so the next real
-/// gate dropped the root package's builds and rebuilt them.
+/// The fixture's gate runs cargo; inheriting the suite's `CARGO_TARGET_DIR`,
+/// it would build into the caller's target.
 #[test]
 fn the_fixtures_gate_never_reaches_the_callers_cargo_target() {
     let w = World::new("target");
@@ -500,12 +493,10 @@ fn the_fixtures_gate_never_reaches_the_callers_cargo_target() {
         .filter(|(_, value)| value.is_none())
         .map(|(key, _)| key)
         .collect();
-    for var in ["CARGO_TARGET_DIR", "SUSI_TARGET_GUARD_HELD"] {
-        assert!(
-            removed.contains(&std::ffi::OsStr::new(var)),
-            "{var} must not reach the fixture's gate"
-        );
-    }
+    assert!(
+        removed.contains(&std::ffi::OsStr::new("CARGO_TARGET_DIR")),
+        "CARGO_TARGET_DIR must not reach the fixture's gate"
+    );
 }
 
 /// A diff that touches a member crate gates that crate — clippy and the tests

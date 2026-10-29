@@ -75,7 +75,7 @@ test's) explicit word, and beats the mark either way.
 | `scripts/susi-worktree.sh`, `susi workflow start` | create a sibling worktree, park the primary, start the watcher | install the hooks and print `cd <this clone>`; refuse on `main` |
 | `scripts/park-primary.sh` | parks the primary at `origin/main` | does nothing (silently for `--sync-only`) |
 | `scripts/ensure-watcher.sh` | restarts a stale watcher | nothing to heal |
-| `scripts/workflow-session-start.sh` | links the shared target, syncs the primary | installs the ONNX Runtime from GitHub, starts the build in the background, prints the cloud guidance |
+| `scripts/workflow-session-start.sh` | gives the worktree a target of its own (`scripts/seed-target.sh`), syncs the primary | installs the ONNX Runtime from GitHub, starts the build in the background, prints the cloud guidance |
 
 Everything else — the task queue, claims, the `Task:` trailer, the gate, the
 close receipt, the pull request that opens and merges itself — is the same
@@ -100,11 +100,10 @@ are specific to it:
   through the repository's `.cargo/config.toml`, which every laptop shares.
   The session-start hook runs it; it is idempotent.
 * **The background build.** The check needs the binary, so the hook starts
-  `scripts/target-guard.sh --run cargo build -q` in the background (log:
-  `.git/susi-cloud-build.log`). The guard serializes a second build behind
-  it, so `scripts/target-guard.sh --run cargo build -q` by hand simply waits
-  for it. `SUSI_CLOUD_PREBUILD=0` opts out; `SUSI_CLOUD_ONNXRUNTIME=0` skips
-  the runtime step.
+  `cargo build -q` in the background (log: `.git/susi-cloud-build.log`).
+  Cargo's own lock on the build directory makes a second build wait for it,
+  so `cargo build -q` by hand simply waits. `SUSI_CLOUD_PREBUILD=0` opts out;
+  `SUSI_CLOUD_ONNXRUNTIME=0` skips the runtime step.
 
 Then the loop is the ordinary one, with the dev binary:
 
@@ -116,8 +115,8 @@ target/debug/susi tasks claim <id> --scope <path> [--scope <path>…]
 target/debug/susi workflow finish <id>     # gate, close, push, receipt, release
 ```
 
-Run cargo through the guard as everywhere else (`scripts/target-guard.sh
---run cargo test -p <crate>`); `finish` and `tasks close` guard themselves.
+Run plain cargo, as everywhere else (`cargo test -p <crate>`): the clone's
+`target/` is its own, and nothing else builds into it.
 
 * **The `susi-harness` MCP server.** `.mcp.json` runs the clone's own build
   (`target/debug/susi mcp`, relative to the clone; Windows finds

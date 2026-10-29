@@ -311,10 +311,15 @@ fn hand_off_finish(cwd: &Path, args: &[&str]) -> Result<bool> {
         return Ok(false);
     }
     let staged_exe = stage_executable(&exe)?;
-    // Forward this exact command line: `susi workflow finish <id>`. The copy
-    // outlives this process, so a target-guard hold above it (`--run cargo
-    // run -- workflow finish`) ends while it runs: it must not claim that
-    // hold as its own, and takes the target itself when its gate needs it.
+    // Forward this exact command line: `susi workflow finish <id>`.
+    //
+    // For one release, while branches cut before the seeding still carry the
+    // real target guard (their finish gate runs it, with this copy's
+    // `tasks close`): the copy outlives this process, so a guard hold above
+    // it (`target-guard.sh --run cargo run -- workflow finish`) ends while it
+    // runs. It must not claim that hold as its own, and takes the target
+    // itself when its gate needs it. Remove once no branch predates the
+    // seeding.
     let mut child = std::process::Command::new(&staged_exe)
         .args(std::env::args_os().skip(1))
         .current_dir(cwd)
