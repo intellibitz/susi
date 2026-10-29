@@ -591,7 +591,7 @@ fn cloud_session_settings_json_permissions() {
         "Bash(scripts/*)",
         "Bash(.githooks/*)",
         "Bash(target/debug/susi*)",
-        "Bash(susi*)"
+        "Bash(susi*)",
     ];
     let expected_deny = vec![
         "mcp__claude-code-remote__request_computer_folder",
@@ -600,13 +600,21 @@ fn cloud_session_settings_json_permissions() {
         "mcp__remote-devices*",
         "mcp__computer-use*",
         "mcp__Claude_Browser*",
-        "mcp__claude-in-chrome*"
+        "mcp__claude-in-chrome*",
     ];
 
     for ea in expected_allow {
-        assert!(allow.iter().any(|v| v.as_str().unwrap() == ea), "missing allow: {}", ea);
+        assert!(
+            allow.iter().any(|v| v.as_str().unwrap() == ea),
+            "missing allow: {}",
+            ea
+        );
     }
     for ed in expected_deny {
-        assert!(deny.iter().any(|v| v.as_str().unwrap() == ed), "missing deny: {}", ed);
+        assert!(
+            deny.iter().any(|v| v.as_str().unwrap() == ed),
+            "missing deny: {}",
+            ed
+        );
     }
 }
