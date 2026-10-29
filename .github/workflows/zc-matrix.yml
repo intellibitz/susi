@@ -20,7 +20,52 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Half of main's merges are task records and prose: they cannot change what
+  # the three-OS build proves, and each one still started it (three runners,
+  # a macOS and a Windows one among them, ~15 min). The scope job diffs the
+  # merge against main's newest head with a green run of this workflow — the
+  # same last-green base test.yml scopes from, so merges a replaced pending
+  # run absorbed are covered, and a run this job skipped is a sound base (it
+  # was skipped because nothing it proves changed) — and the matrix runs only
+  # when the installers, the matrix machinery or a crate the root package
+  # depends on changed (scripts/ci-zc-scope.sh). No green base, or no answer
+  # from the API, runs it.
+  scope:
+    name: Scope to what the merge can change
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0 # the candidate green shas need main's history
+      - name: Resolve whether this merge can change the verdict
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=true
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            head=$(git rev-parse HEAD)
+            base=
+            for sha in $(gh run list --workflow zc-matrix.yml --branch main --status success \
+              --limit 20 --json headSha --jq '.[].headSha' || true); do
+              [ "$sha" != "$head" ] || continue
+              if git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+                base=$sha
+                break
+              fi
+            done
+            echo "scoping against the last green main head: ${base:-none}"
+            [ -z "$base" ] || run=$(scripts/ci-zc-scope.sh "$base")
+          fi
+          [ "$run" = true ] || echo "the merge reaches no installer and no crate — the matrix is already proven"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   matrix:
+    needs: scope
+    if: needs.scope.outputs.run == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:

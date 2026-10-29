@@ -1420,6 +1420,17 @@ fn open_on_main(ws: &Path, id: &str) -> bool {
     .is_ok()
 }
 
+/// When the done record on `origin/main` says `id` was closed, if it is there.
+fn closed_on_main_at(ws: &Path, id: &str) -> Option<u64> {
+    let body = git(
+        ws,
+        &["show", &format!("origin/main:.agents/tasks/done/{id}.json")],
+    )
+    .ok()?;
+    let record: serde_json::Value = serde_json::from_str(&body).ok()?;
+    record.get("closed")?.get("at_unix")?.as_u64()
+}
+
 /// [`published_on_main`] against the `origin/main` this clone already has.
 fn done_on_main(ws: &Path, id: &str) -> bool {
     git(
@@ -2310,16 +2321,36 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
             union
         },
     );
-    for other in live
+    let held: Vec<&Claim> = live
         .iter()
         .filter(|c| !c.expired(now) && !owned.is_some_and(|own| own.task == c.task))
-    {
-        if scopes_conflict(&requested_scopes, &other.scopes) {
-            return Err(EaiError::config(format!(
-                "scope overlaps {} held by {}",
-                other.task, other.agent
-            )));
+        .filter(|c| scopes_conflict(&requested_scopes, &c.scopes))
+        .collect();
+    if !held.is_empty() {
+        // Refusing on a stale view of main would hold files a merge already
+        // freed; one fetch, only when something overlaps.
+        fetch_origin(ws)?;
+    }
+    for other in held {
+        // `close` keeps the lease until the closing commit reaches main, and
+        // `finish` releases the claim at the push — so a claim outlives its
+        // merge whenever nothing released it (a session that ended, a wait
+        // that never came back): hours of a 4 h lease on files that are on
+        // main already. The reservation was for work on a branch; once that
+        // work is on main the files are everyone's again, and a sibling's
+        // next task must not wait out a lease that reserves nothing. Board
+        // hygiene removes the ref once the lease lapses; this is the window
+        // before that. The claim must predate that close: ids are minted from
+        // a clone's own view of the queue, so a clone behind main can mint an
+        // id main already closed, and a live claim on the re-minted id is
+        // real work, not a leftover.
+        if closed_on_main_at(ws, &other.task).is_some_and(|at| other.claimed_unix <= at) {
+            continue;
         }
+        return Err(EaiError::config(format!(
+            "scope overlaps {} held by {}",
+            other.task, other.agent
+        )));
     }
     // Closed but not merged: the work is on a branch, not on main, so its
     // files are still taken. Only receipts that recorded their scopes count,
@@ -4377,6 +4408,85 @@ exec \"$@\"
             },
         )
         .unwrap_or_else(|e| panic!("a merged close must free its files: {e}"));
+        drop(r);
+    }
+
+    /// A claim can outlive its merge: `close` keeps the lease until the close
+    /// is on main, and nothing released it (the session ended, the wait never
+    /// came back). Its files are on main — the reservation reserves nothing —
+    /// so a sibling's claim on them is not refused for the rest of a 4 h lease.
+    #[test]
+    fn a_live_claim_on_a_task_merged_to_main_reserves_nothing() {
+        let (r, a, b) = Repos::new("merged-claim");
+        let scoped =
+            |scopes: &[&str]| -> Vec<String> { scopes.iter().map(|s| (*s).to_string()).collect() };
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let src = scoped(&["src/x.rs"]);
+        claim_scoped(
+            &a,
+            &first.id,
+            "claude",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &src,
+            },
+        )
+        .unwrap();
+        close(&a, &first.id, "claude").unwrap();
+        // The merge lands with the claim still live — never released.
+        publish(&a);
+
+        std::fs::create_dir_all(done_dir(&b)).unwrap();
+        std::fs::copy(
+            done_dir(&a).join(format!("{}.json", first.id)),
+            done_dir(&b).join(format!("{}.json", first.id)),
+        )
+        .unwrap();
+        let second = addt!(&b, "gemini", "second", "", "s", &[], true_cmd()).unwrap();
+        let wide = scoped(&["src"]);
+        claim_scoped(
+            &b,
+            &second.id,
+            "gemini",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &wide,
+            },
+        )
+        .unwrap_or_else(|e| panic!("a merged task's live claim must not reserve its files: {e}"));
+        release(&b, &second.id, "gemini", false).unwrap();
+
+        // An unmerged live claim still does (a third agent: claude still holds
+        // the merged task's claim, and one live claim per agent is the rule).
+        let third = addt!(&a, "devin", "third", "", "s", &[], true_cmd()).unwrap();
+        let docs = scoped(&["docs/x.md"]);
+        claim_scoped(
+            &a,
+            &third.id,
+            "devin",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &docs,
+            },
+        )
+        .unwrap();
+        let err = claim_scoped(
+            &b,
+            &second.id,
+            "gemini",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &scoped(&["docs"]),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("scope overlaps"), "{err}");
+        assert!(err.contains(&third.id), "{err}");
         drop(r);
     }
 

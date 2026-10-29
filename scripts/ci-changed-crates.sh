@@ -14,9 +14,9 @@
 #
 # Prints "ALL" when a workspace-wide input changed — the lockfile, workspace
 # Cargo.toml, the root build.rs (it compiles .agents/*.json into
-# susi-gawd-agents), or toolchain/lint config — or when detection is
-# impossible (missing/shallow base ref, metadata failure). A path under
-# crates/ matching no package is also ALL.
+# susi-gawd-agents), toolchain/lint config, a vendored patch crate under
+# vendor/, or xtask/ — or when detection is impossible (missing/shallow base
+# ref, metadata failure). A path under crates/ matching no package is also ALL.
 #
 # The root package's own trees (src/, tests/, benches/, examples/) map to the
 # root package rather than ALL: its test binaries are the gate for a
@@ -76,7 +76,11 @@ changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
 # The task queue is inert at build time; see the header.
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
-if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml)' <<<"$changed"; then
+# vendor/ holds the `[patch.crates-io]` path crates, compiled into nearly
+# every workspace crate, and xtask/ is a workspace member outside crates/:
+# neither maps to a package below, and both used to fall through as "no
+# crate", so a change there reached main with no compile and no test.
+if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|vendor/|xtask/)' <<<"$changed"; then
     echo ALL
     exit 0
 fi

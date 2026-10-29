@@ -381,15 +381,16 @@ fn the_root_cli_shard_runs_in_partitions() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
     let test = job(&jobs, "test");
-    let parts: Vec<&str> = test
-        .body
-        .split("- name: root-cli\n            pkgs: -p susi -p xtask\n")
-        .skip(1)
+    let matrix = shard_matrix("[]");
+    let parts: Vec<String> = matrix
+        .iter()
+        .filter(|leg| leg["name"] == "root-cli")
         .map(|leg| {
-            leg.lines()
-                .next()
-                .and_then(|l| l.trim().strip_prefix("partition: hash:"))
-                .expect("every root-cli leg declares `partition: hash:<k>/<n>`")
+            leg["partition"]
+                .as_str()
+                .and_then(|p| p.strip_prefix("hash:"))
+                .expect("every root-cli leg carries `partition: hash:<k>/<n>`")
+                .to_string()
         })
         .collect();
     assert!(parts.len() >= 2, "root-cli runs in partitions: {parts:?}");
@@ -401,6 +402,16 @@ fn the_root_cli_shard_runs_in_partitions() {
             "root-cli legs must be hash:1/{n} .. hash:{n}/{n}, in order: {parts:?}"
         );
     }
+    let pkgs: std::collections::BTreeSet<&str> = matrix
+        .iter()
+        .filter(|leg| leg["name"] == "root-cli")
+        .filter_map(|leg| leg["pkgs"].as_str())
+        .collect();
+    assert_eq!(
+        pkgs.len(),
+        1,
+        "every root-cli leg runs the shard's one package list: {pkgs:?}"
+    );
     assert!(
         test.body
             .contains("format('--partition {0}', matrix.shard.partition)"),
@@ -888,7 +899,10 @@ fn the_slow_all_features_build_is_not_a_serial_step_of_another_shard() {
     let jobs = jobs(&text);
     let test = job(&jobs, "test");
     assert!(
-        test.body.contains("name: leaf-all-features"),
+        shard_matrix("[]")
+            .iter()
+            .any(|leg| leg["name"] == "leaf-all-features"
+                && leg["pkgs"] == "-p susi-leaf-services --all-features"),
         "susi-leaf-services --all-features (wasmtime's cranelift, ~7.5 min) runs as its own \
          parallel shard"
     );
@@ -1141,6 +1155,175 @@ fn zc_matrix_cannot_stack_a_three_os_build_per_merge() {
         "a cargo cache on this 3-OS matrix would add ~3 GB to a 10 GB repository quota that \
          test.yml's caches only just fit; weigh that before adding one"
     );
+    // Half of main's merges reach no installer and no crate; the three-OS
+    // build must not start for them.
+    let zc_jobs = jobs(&text);
+    let scope = job(&zc_jobs, "scope");
+    assert!(
+        scope.body.contains("scripts/ci-zc-scope.sh")
+            && scope
+                .body
+                .contains("--workflow zc-matrix.yml --branch main --status success"),
+        "the scope job must judge the diff from the last green zc-matrix head with \
+         scripts/ci-zc-scope.sh"
+    );
+    let matrix = job(&zc_jobs, "matrix");
+    assert!(
+        matrix.body.contains("needs: scope")
+            && matrix
+                .body
+                .contains("if: needs.scope.outputs.run == 'true'"),
+        "the matrix must wait for the scope verdict and skip at the job level"
+    );
+}
+
+/// `scripts/ci-zc-scope.sh`: the installers, the matrix's machinery and any
+/// crate in the root package's closure turn the matrix on; a task record or a
+/// doc does not; a base that cannot be resolved runs it.
+#[cfg(unix)]
+#[test]
+fn zc_scope_script_runs_the_matrix_only_for_what_it_proves() {
+    let dir = std::env::temp_dir().join(format!("susi-zc-scope-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let write = |rel: &str, body: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        set_script_executable(&path);
+    };
+    let commit = |message: &str| {
+        git(&["add", "-A", "."]);
+        git(&["commit", "--quiet", "-m", message]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "--quiet", "-b", "main", "."]);
+    for script in ["ci-zc-scope.sh", "ci-changed-crates.sh", "posix-compat.sh"] {
+        write(
+            &format!("scripts/{script}"),
+            &read(&format!("scripts/{script}")),
+        );
+    }
+    // A real workspace, so `ci-changed-crates.sh` can map paths to crates
+    // (without one it answers ALL, which is "run", for every diff).
+    write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    write("src/lib.rs", "pub fn f() {}\n");
+    write("install.sh", "#!/bin/sh\necho susi checksum\n");
+    write("docs/a.md", "a\n");
+    let base = commit("green");
+    let verdict = |base: &str| {
+        let out = script_command(&dir.join("scripts/ci-zc-scope.sh"))
+            .arg(base)
+            .current_dir(&dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "ci-zc-scope.sh never fails: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    write("docs/a.md", "b\n");
+    write(".agents/tasks/done/T-X-1.json", "{}\n");
+    commit("a doc and a task record");
+    assert_eq!(
+        verdict(&base),
+        "false",
+        "prose and task records prove nothing new"
+    );
+    write("install.sh", "#!/bin/sh\necho susi checksum v2\n");
+    commit("the installer");
+    assert_eq!(
+        verdict(&base),
+        "true",
+        "the installer is what the matrix tests"
+    );
+    let installer = git(&["rev-parse", "HEAD"]);
+    write("scripts/check-zc-matrix.sh", "#!/bin/sh\nexit 0\n");
+    commit("matrix machinery");
+    assert_eq!(
+        verdict(&installer),
+        "true",
+        "a scripts/ change is the matrix's own machinery"
+    );
+    let machinery = git(&["rev-parse", "HEAD"]);
+    write("src/main.rs", "fn main() {}\n");
+    commit("crate code");
+    assert_eq!(
+        verdict(&machinery),
+        "true",
+        "a change to the root package runs the matrix"
+    );
+    assert_eq!(verdict("0000000000000000000000000000000000000000"), "true");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A branch push runs none of the jobs `codetree` scopes, so it must not pay
+/// a runner for the stamp; and the three static checks that used to be three
+/// runner allocations per push run in one job.
+#[test]
+fn a_branch_push_takes_no_runner_it_does_not_need() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let stamp = job(&jobs, "codetree");
+    let condition = stamp
+        .body
+        .lines()
+        .find_map(|l| l.strip_prefix("    if: "))
+        .expect("codetree has a job-level if");
+    assert!(
+        condition.contains("github.ref == 'refs/heads/main'")
+            && condition.contains("github.event_name == 'workflow_dispatch'")
+            && condition.contains("startsWith(github.ref, 'refs/tags/')"),
+        "codetree must run on main, tags and dispatches only, never on a branch push: \
+         `{condition}`"
+    );
+    for gone in ["  toolchain:\n", "  roadmap:\n", "  artifacts:\n"] {
+        assert!(
+            !code(&text).contains(gone),
+            "`{}` is a job again: each static check as its own job is a runner \
+             allocation, a checkout and a \"Set up job\" per push for seconds of script",
+            gone.trim()
+        );
+    }
+    let invariants = job(&jobs, "invariants");
+    for script in [
+        "scripts/check-toolchain-pin.sh",
+        "scripts/check-roadmap-progress.sh",
+        "scripts/check-release-actions.sh",
+        "scripts/check-tracked-artifacts.sh",
+        "scripts/check-roadmap-queue.py --consistency-only",
+        "scripts/check-roadmap-verdict.py --all",
+    ] {
+        assert!(
+            invariants.body.contains(script),
+            "the invariants job must still run `{script}`: folding the jobs is not \
+             dropping a check"
+        );
+    }
+    assert!(
+        !invariants.body.contains("    if:"),
+        "the invariants run on every push and on main"
+    );
 }
 
 #[test]
@@ -1390,6 +1573,21 @@ fn code_proven_stamp_gates_the_expensive_main_jobs() {
         stamp.body.contains("--status success"),
         "only a concluded-green run is evidence: an in-flight one may still fail"
     );
+    // Every main run is the auto-merger's dispatch (a GITHUB_TOKEN merge raises
+    // no push), so a stamp keyed on the push event never fired once.
+    let stamp_step = steps(&stamp.body)
+        .into_iter()
+        .find(|s| s.contains("id: stamp"))
+        .expect("codetree resolves the stamp in the step with id `stamp`");
+    assert!(
+        !stamp_step.contains("GITHUB_EVENT_NAME") && stamp_step.contains("refs/heads/main"),
+        "the stamp must judge every run on main by its tree, whatever event started it: \
+         main's runs are dispatched, and keyed on `push` the stamp never applied"
+    );
+    assert!(
+        stamp_step.contains("PROVE_ANYWAY") && text.contains("prove:"),
+        "a manual dispatch must be able to force the suite past the stamp (`prove: true`)"
+    );
     for id in ["test", "coverage", "lint", "e2e", "kani"] {
         let j = job(&jobs, id);
         assert!(
@@ -1614,6 +1812,23 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
     let text = read(".github/workflows/test.yml");
     let test_jobs = jobs(&text);
     let test = job(&test_jobs, "test");
+    assert!(
+        test.body
+            .contains("matrix: ${{ fromJSON(needs.codetree.outputs.matrix) }}"),
+        "the test job's matrix must be the one codetree built from ci-test-shards.sh: a \
+         second copy of the shard list in the workflow drifts from the one the scope \
+         filters on"
+    );
+    let stamp = job(&test_jobs, "codetree");
+    assert!(
+        stamp
+            .body
+            .contains("scripts/ci-test-shards.sh --matrix \"$SKIP\"")
+            && stamp.body.contains("matrix=$matrix")
+            && stamp.body.contains("run_shards="),
+        "codetree must build the matrix with `ci-test-shards.sh --matrix` from the \
+         shards it did not scope out, and publish `run_shards` for the empty matrix"
+    );
     let script = script_command(&root().join("scripts/ci-test-shards.sh"))
         .output()
         .unwrap();
@@ -1623,48 +1838,134 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
         String::from_utf8_lossy(&script.stderr)
     );
     let script_text = String::from_utf8_lossy(&script.stdout);
-    let test_body = test.body.clone();
-    let mut seen = 0;
+    let names: Vec<&str> = script_text
+        .lines()
+        .map(|line| line.split('\t').next().expect("name<TAB>pkgs"))
+        .collect();
+    assert!(
+        names.len() >= 6,
+        "expected the real shard list, got {names:?}"
+    );
+    // Every shard in the map is a leg of the unfiltered matrix, with the
+    // map's package list; a skipped shard is absent from the matrix entirely
+    // (never a leg that skips itself after taking a runner).
+    let full = shard_matrix("[]");
     for line in script_text.lines() {
-        let (name, pkgs) = line.split_once('\t').expect("name<TAB>pkgs");
+        let mut cols = line.split('\t');
+        let (name, pkgs) = (cols.next().unwrap(), cols.next().unwrap());
         assert!(
-            test_body.contains(&format!("- name: {name}\n            pkgs: {pkgs}")),
-            "matrix has no `{name}` shard with exactly `{pkgs}`: {name} in \
-             ci-test-shards.sh and the test.yml matrix must name the same \
-             crates, or the scope resolution filters on a different set than \
-             the shard runs"
+            full.iter()
+                .any(|leg| leg["name"] == name && leg["pkgs"] == pkgs),
+            "the matrix has no `{name}` leg with exactly `{pkgs}`"
         );
-        seen += 1;
     }
-    assert!(seen >= 6, "expected the real shard list, got {seen} lines");
+    let skip = format!("[\"{}\"]", names[0]);
+    let scoped = shard_matrix(&skip);
+    assert!(
+        scoped.iter().all(|leg| leg["name"] != names[0]),
+        "`--matrix {skip}` must leave the skipped shard out: {scoped:?}"
+    );
+    assert_eq!(
+        scoped.len(),
+        full.iter().filter(|leg| leg["name"] != names[0]).count(),
+        "`--matrix` must keep every other leg"
+    );
+    let all: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
+    assert!(
+        shard_matrix(&format!("[{}]", all.join(","))).is_empty(),
+        "every shard skipped is an empty matrix, which `run_shards` turns into no job"
+    );
 }
 
-/// `codetree` must publish the scoping verdicts the matrix legs and the e2e
-/// gate on — and they must gate on them: a leg that skips late still paid for
-/// the runner, and a leg that skips nothing re-runs the suite on every merge.
-/// A job-level `if` cannot see matrix variables, which is why the gate is a
-/// step every later step checks.
+/// The `shard` legs `ci-test-shards.sh --matrix <skip>` emits.
+fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
+    let out = script_command(&root().join("scripts/ci-test-shards.sh"))
+        .args(["--matrix", skip])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "ci-test-shards.sh --matrix {skip}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let matrix: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "--matrix is not JSON ({e}): {}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    });
+    matrix["shard"]
+        .as_array()
+        .expect("the matrix is {\"shard\": [...]}")
+        .clone()
+}
+
+/// `codetree` must publish the scoping verdicts the shards, the e2e, the
+/// coverage ratchet and the Kani proofs gate on — at the job level. The legs
+/// used to skip themselves in a first step, which a job-level `if` cannot do
+/// for a matrix variable; but a leg that skips in a step has already been
+/// allocated a runner, and nine of them per main run (plus the e2e) were
+/// taken from the pool every branch push's gate then queued behind. The
+/// matrix is built with the unaffected shards left out instead, and the rest
+/// gate on a verdict in their `if`.
 #[test]
 fn the_main_suite_scopes_shards_and_e2e_to_the_merge() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
     let stamp = job(&jobs, "codetree");
-    for needle in ["affected", "skip_shards", "run_e2e"] {
+    for needle in [
+        "affected=",
+        "skip_shards=",
+        "run_e2e=",
+        "run_kani=",
+        "run_shards=",
+        "matrix=",
+    ] {
         assert!(
-            stamp.body.contains(&format!("{needle}=")) || stamp.body.contains(needle),
+            stamp.body.contains(needle),
             "codetree must emit `{needle}` for the scoping gates"
         );
     }
-    for id in ["test", "e2e"] {
-        let j = job(&jobs, id);
-        let gated = steps(&j.body)
-            .into_iter()
-            .filter(|s| s.contains("if: steps.scope.outputs.run == 'true'"))
-            .count();
+    let job_if = |id: &str| {
+        job(&jobs, id)
+            .body
+            .lines()
+            .find_map(|l| l.strip_prefix("    if: "))
+            .unwrap_or_else(|| panic!("job `{id}` has a job-level if"))
+            .to_string()
+    };
+    for (id, verdict) in [
+        ("test", "needs.codetree.outputs.run_shards == 'true'"),
+        ("e2e", "needs.codetree.outputs.run_e2e == 'true'"),
+        ("kani", "needs.codetree.outputs.run_kani == 'true'"),
+        ("coverage", "needs.codetree.outputs.affected != 'NONE'"),
+    ] {
         assert!(
-            gated >= 5,
-            "job `{id}`: only {gated} steps are gated on the scope verdict — \
-             a skipped leg must exit before checkout, toolchain and cargo"
+            job_if(id).contains(verdict),
+            "job `{id}` must gate on `{verdict}` at the job level, so a run the merge \
+             cannot affect is never allocated a runner"
+        );
+    }
+    for id in ["test", "e2e"] {
+        assert!(
+            !job(&jobs, id).body.contains("steps.scope.outputs"),
+            "job `{id}` skips itself in a step again: that leg has already taken a runner"
+        );
+    }
+    // The scope step turns an affected set into these verdicts: nothing
+    // affected skips everything; a crate the e2e, kani or the Windows leg
+    // depends on turns its verdict back on.
+    let scope = steps(&stamp.body)
+        .into_iter()
+        .find(|s| s.contains("id: scope"))
+        .expect("codetree resolves its scope in the step with id `scope`");
+    for needle in [
+        "grep -qx 'susi-gawd' <<<\"$pkgs\" && kani=true",
+        "grep -qx 'susi' <<<\"$pkgs\" && win=true",
+    ] {
+        assert!(
+            scope.contains(needle),
+            "the scope step must resolve `{needle}`"
         );
     }
 }
@@ -1871,8 +2172,9 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
     let (_, affected, skip) = scope(Some(&[green(&c4)]));
     assert_eq!(
         (affected.as_str(), skip.as_str()),
-        ("NONE", r#"["root-cli","foundation"]"#),
-        "from a green head whose only successor is docs, no shard is affected"
+        ("SCOPED", r#"["foundation"]"#),
+        "a doc is no crate to the compile gate, but root tests read docs, README \
+         and the installers: the root package re-proves it"
     );
     let (_, affected, skip) = scope(Some(&[green(&c3)]));
     assert_eq!(
@@ -1958,6 +2260,25 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
     assert_eq!(affected, "ALL", "no green base proves everything");
     let (_, affected, _) = scope(None);
     assert_eq!(affected, "ALL", "no answer from the API proves everything");
+
+    // Two more merges on top, each judged from the green head just before it:
+    // one that moves only the task queue affects no shard; one that touches a
+    // vendored patch crate (linked into nearly everything) is workspace-wide.
+    write(".agents/tasks/done/T-X-2.json", "{}\n");
+    let tasks_only = commit("a close record");
+    let (_, affected, skip) = scope(Some(&[green(&head)]));
+    assert_eq!(
+        (affected.as_str(), skip.as_str()),
+        ("NONE", r#"["root-cli","foundation"]"#),
+        "a merge that moves only the task queue affects no shard"
+    );
+    write("vendor/patched/src/lib.rs", "pub fn p() {}\n");
+    commit("a vendored patch crate");
+    let (_, affected, _) = scope(Some(&[green(&tasks_only)]));
+    assert_eq!(
+        affected, "ALL",
+        "a vendored patch crate is linked everywhere"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

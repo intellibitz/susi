@@ -12,10 +12,16 @@ use susi_gawd::worker_identity;
 pub enum WorkflowCommands {
     /// Fetch and merge origin/main into a clean agent worktree.
     Sync,
-    /// Verify, close, push, wait for remote merge, sync, then release ownership.
+    /// Verify, close, push, publish the close receipt and release ownership;
+    /// the branch run and the merge are the machinery's (a red run is
+    /// reported at the next `sync`).
     Finish {
         id: String,
-        /// Release ownership immediately after pushing and publishing close receipt (do not wait for remote CI/merge)
+        /// Poll the branch run in-line instead: stop on a red run, hand off on
+        /// green or at the SUSI_FINISH_WAIT_MAX budget (the old default)
+        #[arg(long, conflicts_with = "no_wait")]
+        wait: bool,
+        /// Hand off at the push (the default; kept for scripts that pass it)
         #[arg(long)]
         no_wait: bool,
     },
@@ -60,8 +66,10 @@ pub enum WorkflowCommands {
 pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
     let (json, agent) = match action {
         WorkflowCommands::Sync => return run_loop(cwd, &["sync"]),
-        WorkflowCommands::Finish { id, no_wait } => {
-            if no_wait {
+        WorkflowCommands::Finish { id, wait, no_wait } => {
+            if wait {
+                return run_loop(cwd, &["finish", &id, "--wait"]);
+            } else if no_wait {
                 return run_loop(cwd, &["finish", &id, "--no-wait"]);
             } else {
                 return run_loop(cwd, &["finish", &id]);

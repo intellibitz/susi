@@ -128,6 +128,7 @@ impl World {
             "park-primary.sh",
             "ensure-watcher.sh",
             "swarm-status.sh",
+            "check-owed-runs.sh",
             "ci-changed-crates.sh",
             "check-hermetic-tests.sh",
             "posix-compat.sh",
@@ -345,6 +346,7 @@ impl World {
             .env("TEST_RACE_PRIMARY", &self.primary)
             .env("TEST_RACE_USED", self.root.join("race-used"))
             .env("TEST_PUSHES", self.root.join("pushes"))
+            .env("SUSI_FINISH_WAIT", "1")
             .env("SUSI_FINISH_WAIT_MAX", "3")
             .env("SUSI_FINISH_POLL", "1")
             .output()
@@ -377,10 +379,12 @@ impl World {
         }
     }
 
-    /// `finish` on a branch whose push never becomes a merge, with a one-second
-    /// poll and a three-second budget so the wait is observable in a test.
+    /// `finish --wait` on a branch whose push never becomes a merge, with a
+    /// one-second poll and a three-second budget so the wait is observable in
+    /// a test. (Waiting is opt-in: the `--wait` flag here.)
     fn finish_without_merging(&self) -> std::process::Output {
-        self.susi(&["workflow", "finish", "T-WORKER-1"])
+        // The flag, through the binary: the documented way to opt in.
+        self.susi(&["workflow", "finish", "T-WORKER-1", "--wait"])
             .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
@@ -411,6 +415,7 @@ impl World {
             .env("TEST_GATE_FAIL", "0")
             .env("TEST_REAL_CARGO", env!("CARGO"))
             .env("TEST_NO_MERGE", "1")
+            .env("SUSI_FINISH_WAIT", "1")
             .env("SUSI_FINISH_POLL", "1")
             .env("SUSI_FINISH_WAIT_MAX", "8")
             .output()
@@ -436,6 +441,7 @@ impl World {
             .env("TEST_GATE_FAIL", "0")
             .env("TEST_REAL_CARGO", env!("CARGO"))
             .env("TEST_NO_MERGE", "1")
+            .env("SUSI_FINISH_WAIT", "1")
             .env("SUSI_FINISH_POLL", "1")
             .env("SUSI_FINISH_WAIT_MAX", "8")
             .output()
@@ -451,7 +457,7 @@ impl Drop for World {
 #[test]
 fn finish_waits_for_publication_before_releasing_and_syncs_primary() {
     let w = World::new("success");
-    let out = w.finish(false);
+    let out = w.finish_env(false, &[("SUSI_FINISH_WAIT", "1")]);
     assert!(
         out.status.success(),
         "{}",
@@ -883,6 +889,109 @@ fn finish_hands_off_once_the_run_is_green() {
     );
 }
 
+/// Agents must never block on cloud CI: the branch-push run and the merge are
+/// the machinery's, and nothing the agent does after the push speeds either
+/// up. So `finish` pushes, publishes the close receipt, releases the claim and
+/// returns — by default, with no `gh` and no poll — and the next task is free
+/// to claim while the merge lands. A red run is reported at the next sync
+/// (`scripts/check-owed-runs.sh`), where the agent passes before that claim.
+#[test]
+fn finish_hands_off_by_default_without_waiting() {
+    let w = World::new("default-handoff");
+    // A short budget, so a default that regressed to waiting fails here in
+    // seconds (at the budget's handoff message) rather than after 30 minutes.
+    let out = w.finish_env(
+        false,
+        &[
+            ("TEST_NO_MERGE", "1"),
+            ("SUSI_FINISH_WAIT_MAX", "3"),
+            ("SUSI_FINISH_POLL", "1"),
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "an unmerged push is a handoff, not a failure: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    let both = format!("{err}\n{}", String::from_utf8_lossy(&out.stdout));
+    assert!(err.contains("no wait"), "{err}");
+    assert!(
+        !both.contains("Waiting for") && !both.contains("still not on origin/main"),
+        "the default must not enter the wait loop: {both}"
+    );
+    assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    let claims = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+    );
+    assert!(
+        !claims.contains("refs/claims/T-WORKER-1"),
+        "the claim must be released at handoff: {claims}"
+    );
+    let closed = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/closed/"],
+    );
+    assert!(
+        closed.contains("refs/closed/T-WORKER-1"),
+        "the close receipt must outlive the claim: {closed}"
+    );
+
+    // What the wait used to catch, the sync boundary catches: with `gh`
+    // reporting the pushed head's run red, the owed-run check names it.
+    // The run is keyed on the pushed tip (origin/worker), never on the head
+    // the receipt recorded (the commit before the close): a `gh` that answers
+    // only for the tip, and only when asked for exactly it.
+    let tip = git(&w.remote, &["rev-parse", "refs/heads/worker"]);
+    let receipt = git(&w.remote, &["cat-file", "-p", "refs/closed/T-WORKER-1"]);
+    let receipt: serde_json::Value = serde_json::from_str(&receipt).unwrap();
+    assert_ne!(
+        receipt["head"].as_str().unwrap(),
+        tip,
+        "the receipt's head is the accepted commit; the close commit is pushed on top"
+    );
+    let fake_gh = |conclusion: &str, url: &str| {
+        format!(
+            "#!/bin/sh\n[ \"$1 $2\" = \"run list\" ] || exit 1\nwant=\nwhile [ $# -gt 0 ]; do [ \"$1\" = --commit ] && want=$2; shift; done\n[ \"$want\" = \"{tip}\" ] || {{ echo '[]'; exit 0; }}\nprintf '[{{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"{conclusion}\",\"url\":\"{url}\"}}]\\n' \"$want\"\n"
+        )
+    };
+    executable(&w.bins.join("gh"), &fake_gh("failure", "https://ci/run/1"));
+    let check = Command::new("bash")
+        .arg(w.work.join("scripts/check-owed-runs.sh"))
+        .current_dir(&w.work)
+        .env("PATH", path_with_prefix(&w.bins))
+        .env("SUSI_AGENT", "WORKER")
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "the owed-run check is advisory: {check:?}"
+    );
+    let report = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        report.contains("did not pass")
+            && report.contains("T-WORKER-1")
+            && report.contains("https://ci/run/1"),
+        "a red run for an owed receipt must be named at the sync boundary: {report}"
+    );
+    // A green run is silence.
+    executable(&w.bins.join("gh"), &fake_gh("success", "https://ci/run/2"));
+    let check = Command::new("bash")
+        .arg(w.work.join("scripts/check-owed-runs.sh"))
+        .current_dir(&w.work)
+        .env("PATH", path_with_prefix(&w.bins))
+        .env("SUSI_AGENT", "WORKER")
+        .output()
+        .unwrap();
+    assert!(check.status.success());
+    assert!(
+        check.stderr.is_empty(),
+        "a green run is nothing to report: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
 #[test]
 fn finish_hands_off_immediately_with_nowait() {
     let w = World::new("nowait");
@@ -900,7 +1009,7 @@ fn finish_hands_off_immediately_with_nowait() {
         String::from_utf8_lossy(&out.stderr),
         String::from_utf8_lossy(&out.stdout)
     );
-    assert!(output.contains("--no-wait"), "{output}");
+    assert!(output.contains("no wait"), "{output}");
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
     let claims = git(
         &w.remote,

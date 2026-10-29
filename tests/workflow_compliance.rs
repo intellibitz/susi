@@ -295,6 +295,48 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     assert_eq!(code, 0, "{err}");
 }
 
+/// `--ancestry-path` kept a commit only when a bottom of the range (the base,
+/// the cutover's parent) was reachable from it inside the listed commits.
+/// Once main moved past the branch point, the chain from a branch commit back
+/// to any bottom ran through commits main already had, so nothing was listed
+/// and every branch pushed while others merged passed with "every commit
+/// belongs to a claimed task" — including commits with no trailer at all.
+#[test]
+fn a_branch_behind_main_is_still_judged() {
+    let e = Env::new("behind");
+    std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
+        e.repo.join("scripts/check-workflow-compliance.sh"),
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "install the rule"]);
+    git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&e.repo, &["fetch", "--quiet", "origin"]);
+    // An unclaimed, untrailered commit on the branch...
+    e.commit("a", "feat: no task at all", None);
+    let (code, err) = e.check("origin/main");
+    assert_ne!(code, 0, "refused while the branch is at main's head: {err}");
+    assert!(err.contains("no 'Task:"), "{err}");
+    // ...and main moves on underneath it (another agent's merge).
+    let branch_head = e.head();
+    git(&e.repo, &["checkout", "--quiet", "--detach", "origin/main"]);
+    std::fs::write(e.repo.join("elsewhere.txt"), "someone else merged\n").unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "another merge"]);
+    git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&e.repo, &["checkout", "--quiet", "main"]);
+    git(&e.repo, &["fetch", "--quiet", "origin"]);
+    assert_eq!(e.head(), branch_head);
+    let (code, err) = e.check("origin/main");
+    assert_ne!(
+        code, 0,
+        "a branch behind main must still be judged, not certified on an empty range: {err}"
+    );
+    assert!(err.contains("no 'Task:"), "{err}");
+}
+
 #[test]
 fn a_closed_task_cannot_be_cited_again() {
     let e = Env::new("closed");

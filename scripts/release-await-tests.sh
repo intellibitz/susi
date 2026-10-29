@@ -26,9 +26,14 @@ wait_max=${RELEASE_TESTS_WAIT_MAX:-2700}
 poll=${RELEASE_TESTS_POLL:-15}
 find_max=${RELEASE_TESTS_FIND_MAX:-120}
 
-# test.yml's `lint` job. Every full-gate dispatch runs it (the code-tree stamp
-# only ever skips it on a push to main), and a `gate=branch` dispatch skips it
-# with the shards and e2e. `gh run list` does not report a dispatch's inputs,
+# test.yml's `lint` job. Every full-gate dispatch that ran its suite ran it; a
+# dispatched run on main the code-tree stamp proved by identity, or that
+# reached no crate, skipped it with the shards (and is then not reused here:
+# the suite is dispatched on the tag instead, which is what a release wants on
+# a sha no run executed), and a `gate=branch` dispatch skips it with the
+# shards and e2e. A push run on main is reused on its conclusion alone, as
+# before: main takes no direct pushes (the ruleset allows pull requests only),
+# so such a run is a hand push outside the loop and its reuse is unchanged. `gh run list` does not report a dispatch's inputs,
 # so a green dispatch run whose job did not pass is taken for what it is: a
 # branch gate that compiled and linted. tests/release_await_tests.rs pins the
 # name against test.yml.
