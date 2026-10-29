@@ -229,7 +229,10 @@ impl EvidenceRecord {
                     crate::susi_core::capture::EvidenceSession::for_workspace(workspace)
                 {
                     if session.receipts().iter().any(|r| {
-                        r.tool == *command && r.output_hash == *output_hash && r.successful && *exit_code == 0
+                        r.tool == *command
+                            && r.output_hash == *output_hash
+                            && r.successful
+                            && *exit_code == 0
                     }) {
                         return Verified;
                     }
