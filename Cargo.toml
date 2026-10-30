@@ -1,0 +1,9 @@
+# The patched crates susi's root Cargo.toml names in [patch.crates-io], as a
+# git source: `reqwest = { git = "https://github.com/intellibitz/susi", rev = "<this commit>" }`.
+# A git source is keyed by its revision on every machine and in every worktree
+# (a path crate's build embeds the worktree's path), so these and every crate
+# above them sit in the seeded target snapshot and in the compiler cache.
+# README.md says what each patch changes and how to change it again.
+[workspace]
+members = ["reqwest", "esaxx-rs"]
+resolver = "2"
