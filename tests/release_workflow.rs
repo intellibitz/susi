@@ -193,6 +193,35 @@ fn the_windows_binary_is_checked_outside_the_checkout() {
     );
 }
 
+/// The Windows check ends with `exit 0`. Its last checks expect a refused
+/// command (exit 2), and the runner ends a pwsh step with `exit
+/// $LASTEXITCODE`, so v0.21.25's step printed `ok:` for every check, failed,
+/// and published no Windows binary. A failed check throws; nothing else may
+/// decide the step's exit code.
+#[test]
+fn the_windows_check_exits_zero_once_every_check_passed() {
+    let text = read(".github/workflows/release.yml");
+    let jobs = jobs(&text);
+    let build = job(&jobs, "build");
+    let steps = steps(&build.body);
+    let verify = steps
+        .iter()
+        .find(|s| s.contains("- name: Verify the Windows artifact answers offline\n"))
+        .expect("release.yml `build` checks the Windows artifact");
+    let last_check = verify.rfind("Check '").expect("the step runs its checks");
+    let after: Vec<&str> = verify[last_check..]
+        .lines()
+        .skip(1)
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    assert_eq!(
+        after.first().copied(),
+        Some("exit 0"),
+        "the step must end with `exit 0` after its last check: {after:?}"
+    );
+}
+
 /// Every binary the release publishes is cut with the release's version. The
 /// harness ships as its own asset, but the cut bumped only the engine's
 /// manifests, so a harness built for v0.21.23 said `susi-harness 0.21.20` - in

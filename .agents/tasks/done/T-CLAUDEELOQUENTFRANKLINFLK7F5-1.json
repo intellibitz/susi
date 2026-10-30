@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-1",
+  "title": "release.yml: the Windows e2e step exits 0 after its checks (pwsh exits with the last refused check's code)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793355198,
+  "closed": {
+    "at_unix": 1793355464,
+    "commit": "e082fdded0550f45be03102ba84edc1f680cc6c2",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}
