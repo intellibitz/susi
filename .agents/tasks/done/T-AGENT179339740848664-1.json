@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179339740848664-1",
+  "title": "Restore branch compile target cache after measured regression",
+  "goal": "Restore target artifact caching for the branch compile gate because the cache-targets=false experiment raised the measured hosted gate to 139 seconds.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "branch_compile_gate_restores_target_archive"
+    ]
+  },
+  "created_by": "AGENT179339740848664",
+  "created_unix": 1793397441,
+  "closed": {
+    "at_unix": 1793397980,
+    "commit": "f21f15e61bd71a0e5e83e07e4b407aa22e3049b3",
+    "by": "AGENT179339740848664"
+  }
+}
