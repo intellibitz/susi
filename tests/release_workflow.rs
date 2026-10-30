@@ -147,7 +147,7 @@ fn the_harness_ships_only_a_binary_that_passed_its_own_check() {
     let id = value_of(verify, "id").expect("the harness check needs an id for the upload to read");
     let gate = condition(upload);
     assert!(
-        gate.starts_with("github.event_name == 'push' && "),
+        gate.starts_with("needs.verify-tag.outputs.tag != '' && "),
         "a dispatch is a dry run and must publish nothing: `{gate}`"
     );
     assert!(
@@ -252,4 +252,145 @@ fn every_binary_the_release_publishes_is_bumped_by_the_cut() {
             "{manifest} must carry the release version its binary is published under"
         );
     }
+}
+
+/// Merging the version bump is the release: the merge bot tags a merged,
+/// untagged version and dispatches release.yml on that tag (a GITHUB_TOKEN
+/// merge or tag push starts no workflow), a dispatch on a tag ref publishes,
+/// and every publish step names the tag `verify-tag` decided on. `--cut` used
+/// to wait up to 30 minutes for its own merge and push the tag itself; it now
+/// ends at its branch push.
+#[test]
+fn a_merged_version_bump_publishes_itself() {
+    let bot = code(&read("scripts/auto-merge-pr.sh"));
+    assert!(
+        bot.contains("release-tag-merged-bump.sh\" \"$merge_sha\")")
+            && bot.contains("gh workflow run release.yml --repo \"$repo\" --ref \"$release_tag\""),
+        "the merge bot must tag a merged version bump and start release.yml on the tag"
+    );
+    let yml = read(".github/workflows/release.yml");
+    let code = code(&yml);
+    assert!(
+        code.contains("case \"$GITHUB_REF\" in refs/tags/*) tag=\"$GITHUB_REF_NAME\" ;; esac"),
+        "a run on a tag ref - pushed, or dispatched by the merge bot - must publish that tag"
+    );
+    let publishes = code.matches("softprops/action-gh-release").count();
+    assert!(publishes >= 3, "expected the three publish steps");
+    assert_eq!(
+        code.matches("tag_name: ${{ needs.verify-tag.outputs.tag }}")
+            .count(),
+        publishes,
+        "every publish step must name the tag verify-tag decided on"
+    );
+    let cut = read("crates/susi-gawd/src/admin/release.rs");
+    for waits in ["SUSI_RELEASE_MERGE_WAIT", "await_merged", "\"tag\", \"-a\""] {
+        assert!(
+            !cut.contains(waits),
+            "`susi admin release --cut` must end at its branch push (found `{waits}`): CI \
+             tags and publishes the merge, so the cut has nothing to wait for"
+        );
+    }
+}
+
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@t")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn tag_merged_bump(work: &std::path::Path, sha: &str) -> std::process::Output {
+    let script = root().join("scripts/release-tag-merged-bump.sh");
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("sh");
+        c.env("MSYS_NO_PATHCONV", "1");
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = std::process::Command::new("bash");
+    cmd.arg(script)
+        .arg(sha)
+        .current_dir(work)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .output()
+        .unwrap()
+}
+
+/// The script the merge bot runs on every merge: an untagged version is tagged on
+/// the merge commit and published; a version already tagged is left alone, so
+/// the merges after a release build nothing.
+#[test]
+fn a_merged_bump_is_tagged_once() {
+    let root_dir =
+        std::env::temp_dir().join(format!("susi-tag-merged-bump-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root_dir);
+    let (bare, work) = (root_dir.join("server.git"), root_dir.join("work"));
+    std::fs::create_dir_all(&bare).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
+    git(&work, &["init", "--quiet", "-b", "main"]);
+    for key in ["commit.gpgsign", "tag.gpgsign"] {
+        git(&work, &["config", key, "false"]);
+    }
+    git(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
+    std::fs::write(
+        work.join("Cargo.toml"),
+        "[workspace]\nmembers = []\n\n[package]\nname = \"x\"\nversion = \"9.9.9\"\n",
+    )
+    .unwrap();
+    git(&work, &["add", "Cargo.toml"]);
+    git(&work, &["commit", "--quiet", "-m", "chore: release v9.9.9"]);
+    git(&work, &["push", "--quiet", "origin", "HEAD:main"]);
+    let bump = git(&work, &["rev-parse", "HEAD"]);
+
+    let first = tag_merged_bump(&work, &bump);
+    assert!(first.status.success(), "{first:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout).trim(),
+        "v9.9.9",
+        "the new tag is what the merge bot dispatches release.yml on"
+    );
+    let tagged = git(
+        &work,
+        &["ls-remote", "--tags", "origin", "refs/tags/v9.9.9^{}"],
+    );
+    assert!(
+        tagged.starts_with(&bump),
+        "v9.9.9 must be published on the bump: {tagged}"
+    );
+
+    // The next merge carries the same version: nothing to release.
+    git(
+        &work,
+        &["commit", "--allow-empty", "--quiet", "-m", "later"],
+    );
+    git(&work, &["push", "--quiet", "origin", "HEAD:main"]);
+    let later = git(&work, &["rev-parse", "HEAD"]);
+    let second = tag_merged_bump(&work, &later);
+    let still = git(
+        &work,
+        &["ls-remote", "--tags", "origin", "refs/tags/v9.9.9^{}"],
+    );
+    let _ = std::fs::remove_dir_all(&root_dir);
+    assert!(second.status.success(), "{second:?}");
+    assert!(
+        String::from_utf8_lossy(&second.stderr).contains("already tagged")
+            && second.stdout.is_empty(),
+        "{second:?}"
+    );
+    assert!(
+        still.starts_with(&bump),
+        "an already-released version must not move: {still}"
+    );
 }

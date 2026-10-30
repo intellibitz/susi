@@ -38,8 +38,16 @@ if [ -x "$primary/scripts/cloud-session.sh" ] && (cd "$primary" && scripts/cloud
     exit 0
 fi
 # Serialize all watchers/hooks that mutate the primary index and branch.
+# --sync-only is best effort and runs from every check and hook, so it never
+# queues: if another sync holds the lock, that one is already bringing main
+# current. Blocking here made `susi workflow check` take minutes behind the
+# watcher and other agents' syncs.
 exec 7>"$common/susi-primary-update.lock"
-flock 7
+if [ "$sync_only" = 1 ]; then
+    flock -n 7 || exit 0
+else
+    flock 7
+fi
 cd "$primary"
 [ "$(git rev-parse --path-format=absolute --git-dir)" = "$common" ] \
     || { echo "park-primary: $primary is not the primary checkout" >&2; exit 2; }

@@ -946,7 +946,9 @@ seed_worktree() {
         rc=$?
         [ "$rc" -eq 1 ] || break
         [ "$waited" -gt 0 ] || say "waiting for the copy into $t that is already running"
-        if [ "$waited" -ge "${SUSI_SEED_WAIT_SECS:-1800}" ]; then
+        # Two minutes, not thirty: a copy still running after that is stuck
+        # or huge, and a cold build is cheaper than an agent held idle.
+        if [ "$waited" -ge "${SUSI_SEED_WAIT_SECS:-120}" ]; then
             say "gave up waiting after $waited s; this build goes ahead as it is"
             return 0
         fi

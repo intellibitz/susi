@@ -1,0 +1,17 @@
+{
+  "id": "T-RELEASECITAGS-1",
+  "title": "workflow speed: no blocking waits (check, worktree start, sync lock, finish, release cut), 4 merges in flight, merge bot publishes releases",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "RELEASECITAGS",
+  "created_unix": 1793344174
+}

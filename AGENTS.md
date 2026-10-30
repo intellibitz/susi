@@ -378,7 +378,12 @@ read by every agent; delegated agents also receive it in their task via
 - **53 Verified Release Gate** — releases only via `susi admin release --cut`, run from a
   worktree branch: the version commit is pushed to that branch and reaches `main` through
   its own pull request, so `--cut` refuses `main` and a detached HEAD;
-  the built binary runs `E2E_CHECKS`; fix forward with a new tag.
+  the built binary runs `E2E_CHECKS`; fix forward with a new tag. **The merge is
+  the release:** once the native gate passes, `--cut` pushes the branch and
+  returns; the merge bot tags the merged bump on `main`
+  (`scripts/release-tag-merged-bump.sh`) and starts `release.yml` on the tag, which builds and publishes every
+  platform in that run. Nobody waits on CI, dry-runs the release workflow
+  before cutting, or pushes a tag by hand; a leg that fails is fixed forward.
 - **54 Branch-Push Gate** — the branch-push `Test` run gates merges; no
   `pull_request` triggers; a red run is a defect.
 - **55 Commands Are Not Missions** — command-shaped input is refused, never
@@ -451,7 +456,7 @@ are three layers):
    blocks **moving or deleting** a release tag: re-pointing a published version
    at different code is exactly what pinning a version is for, and Mandate 53's
    "fix forward with a new tag" already forbids the legitimate case. Tag
-   *creation* stays open, because the release flow pushes its own tag; the
+   *creation* stays open, because the merge bot tags each merged version bump; the
    provenance of a new tag is enforced instead by `scripts/check-release-tag.sh`
    in the `Release Binaries` workflow — the tag must be `v` + the workspace
    version in `Cargo.toml` **and** the tagged commit must be an ancestor of

@@ -1113,7 +1113,7 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
         ),
         (
             "scripts/susi-worktree.sh",
-            "\"${BASH:-bash}\" \"$seeder\" \"$dest\"",
+            "\"${BASH:-bash}\" \"$seeder\" --background \"$dest\"",
         ),
         (
             "scripts/workflow-session-start.sh",
@@ -1799,7 +1799,9 @@ fn a_manual_dispatch_of_the_release_workflow_publishes_nothing() {
     // Without a tag, softprops/action-gh-release falls back to the ref name, so a
     // dispatch from a branch published a GitHub release named after the branch.
     // Every publishing step (and the retention prune that follows one) must be
-    // confined to a pushed tag, which leaves dispatch a build-only dry run.
+    // confined to the release tag verify-tag decided on (a pushed tag, or the
+    // tag of a version bump merged into main), which leaves dispatch - and every
+    // main push whose version is already released - publishing nothing.
     let text = read(".github/workflows/release.yml");
     let mut publishing = 0;
     for j in jobs(&text) {
@@ -1807,7 +1809,7 @@ fn a_manual_dispatch_of_the_release_workflow_publishes_nothing() {
         if prunes {
             publishing += 1;
             assert!(
-                j.body.contains("github.event_name == 'push'"),
+                j.body.contains("needs.verify-tag.outputs.tag != ''"),
                 "job `{}` prunes published releases on a dispatch that published none",
                 j.id
             );
@@ -1816,7 +1818,7 @@ fn a_manual_dispatch_of_the_release_workflow_publishes_nothing() {
             if step.contains("softprops/action-gh-release") {
                 publishing += 1;
                 assert!(
-                    step.contains("if: github.event_name == 'push'"),
+                    step.contains("if: needs.verify-tag.outputs.tag != ''"),
                     "job `{}` publishes on workflow_dispatch: a dispatch from a branch would \
                      create a release named after it. Gate the step on a pushed tag:\n{step}",
                     j.id
