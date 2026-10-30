@@ -105,7 +105,7 @@ fn path_with_prefix(prefix: &Path, include_host: bool) -> std::ffi::OsString {
 }
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
 fn read(rel: &str) -> String {
@@ -420,10 +420,9 @@ fn the_root_cli_shard_runs_in_partitions() {
     let matrix = shard_matrix("[]");
     let parts: Vec<String> = matrix
         .iter()
-        .filter(|leg| leg["name"] == "root-cli")
+        .filter(|leg| json_string_field(leg, "name") == Some("root-cli"))
         .map(|leg| {
-            leg["partition"]
-                .as_str()
+            json_string_field(leg, "partition")
                 .and_then(|p| p.strip_prefix("hash:"))
                 .expect("every root-cli leg carries `partition: hash:<k>/<n>`")
                 .to_string()
@@ -440,8 +439,8 @@ fn the_root_cli_shard_runs_in_partitions() {
     }
     let pkgs: std::collections::BTreeSet<&str> = matrix
         .iter()
-        .filter(|leg| leg["name"] == "root-cli")
-        .filter_map(|leg| leg["pkgs"].as_str())
+        .filter(|leg| json_string_field(leg, "name") == Some("root-cli"))
+        .filter_map(|leg| json_string_field(leg, "pkgs"))
         .collect();
     assert_eq!(
         pkgs.len(),
@@ -1373,8 +1372,11 @@ fn the_slow_all_features_build_is_not_a_serial_step_of_another_shard() {
     assert!(
         shard_matrix("[]")
             .iter()
-            .any(|leg| leg["name"] == "leaf-all-features"
-                && leg["pkgs"] == "-p susi-leaf-services --all-features"),
+            .any(
+                |leg| json_string_field(leg, "name") == Some("leaf-all-features")
+                    && json_string_field(leg, "pkgs")
+                        == Some("-p susi-leaf-services --all-features")
+            ),
         "susi-leaf-services --all-features (wasmtime's cranelift, ~7.5 min) runs as its own \
          parallel shard"
     );
@@ -1746,6 +1748,89 @@ fn zc_scope_script_runs_the_matrix_only_for_what_it_proves() {
         "a change to the root package runs the matrix"
     );
     assert_eq!(verdict("0000000000000000000000000000000000000000"), "true");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn xtask_package_changes_are_scoped_to_xtask() {
+    let dir = std::env::temp_dir().join(format!("susi-changed-crates-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let write = |rel: &str, body: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        set_script_executable(&path);
+    };
+    let commit = |message: &str| {
+        git(&["add", "-A", "."]);
+        git(&["commit", "--quiet", "-m", message]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "--quiet", "-b", "main", "."]);
+    for script in ["ci-changed-crates.sh", "posix-compat.sh"] {
+        write(
+            &format!("scripts/{script}"),
+            &read(&format!("scripts/{script}")),
+        );
+    }
+    write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\".\", \"xtask\"]\nresolver = \"2\"\n\
+         [package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("src/lib.rs", "pub fn f() {}\n");
+    write("tests/ci_workflow_perf.rs", "#[test] fn contract() {}\n");
+    write(
+        "xtask/Cargo.toml",
+        "[package]\nname = \"xtask\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("xtask/src/lib.rs", "pub fn f() {}\n");
+    let base = commit("main");
+    git(&["branch", "origin/main", &base]);
+    std::fs::remove_file(dir.join("tests/ci_workflow_perf.rs")).unwrap();
+    write(
+        "xtask/tests/ci_workflow_perf.rs",
+        "#[test] fn contract() {}\n",
+    );
+    write(".agents/tasks/done/T-X-1.json", "{}\n");
+    commit("task and its lightweight acceptance test");
+
+    let out = script_command(&dir.join("scripts/ci-changed-crates.sh"))
+        .arg("--dependents")
+        .current_dir(&dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "ci-changed-crates.sh failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "xtask",
+        "the task record is inert and the test file maps to the xtask package"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2339,19 +2424,24 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
         let (name, pkgs) = (cols.next().unwrap(), cols.next().unwrap());
         assert!(
             full.iter()
-                .any(|leg| leg["name"] == name && leg["pkgs"] == pkgs),
+                .any(|leg| json_string_field(leg, "name") == Some(name)
+                    && json_string_field(leg, "pkgs") == Some(pkgs)),
             "the matrix has no `{name}` leg with exactly `{pkgs}`"
         );
     }
     let skip = format!("[\"{}\"]", names[0]);
     let scoped = shard_matrix(&skip);
     assert!(
-        scoped.iter().all(|leg| leg["name"] != names[0]),
+        scoped
+            .iter()
+            .all(|leg| json_string_field(leg, "name") != Some(names[0])),
         "`--matrix {skip}` must leave the skipped shard out: {scoped:?}"
     );
     assert_eq!(
         scoped.len(),
-        full.iter().filter(|leg| leg["name"] != names[0]).count(),
+        full.iter()
+            .filter(|leg| json_string_field(leg, "name") != Some(names[0]))
+            .count(),
         "`--matrix` must keep every other leg"
     );
     let all: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
@@ -2444,7 +2534,7 @@ fn every_workspace_member_runs_in_a_shard() {
 /// (0xC0000005, a failed status and no stderr) — every test that read the
 /// matrix failed on Windows. Where the argument form is safe, it must say
 /// the same: it is the form test.yml uses.
-fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
+fn shard_matrix(skip: &str) -> Vec<String> {
     use std::io::Write as _;
     let mut child = script_command(&root().join("scripts/ci-test-shards.sh"))
         .args(["--matrix", "-"])
@@ -2478,16 +2568,31 @@ fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
             String::from_utf8_lossy(&by_arg.stderr)
         );
     }
-    let matrix: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "--matrix is not JSON ({e}): {}",
-            String::from_utf8_lossy(&out.stdout)
-        )
-    });
-    matrix["shard"]
-        .as_array()
-        .expect("the matrix is {\"shard\": [...]}")
-        .clone()
+    let matrix = String::from_utf8(out.stdout).expect("--matrix emits UTF-8 JSON");
+    let shards = matrix
+        .trim()
+        .strip_prefix("{\"shard\":[")
+        .and_then(|s| s.strip_suffix("]}"))
+        .unwrap_or_else(|| panic!("--matrix is not the expected JSON object: {matrix}"));
+    if shards.is_empty() {
+        return Vec::new();
+    }
+    shards
+        .split("},{")
+        .map(|object| {
+            format!(
+                "{{{}}}",
+                object.trim_start_matches('{').trim_end_matches('}')
+            )
+        })
+        .collect()
+}
+
+/// Read an unescaped string field from the flat shard objects emitted by jq.
+fn json_string_field<'a>(object: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("\"{name}\":\"");
+    let value = object.get(object.find(&prefix)? + prefix.len()..)?;
+    Some(&value[..value.find('"')?])
 }
 
 /// `codetree` must publish the scoping verdicts the shards, the e2e, the

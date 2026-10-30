@@ -15,12 +15,14 @@
 # Prints "ALL" when a workspace-wide input changed — the lockfile, workspace
 # Cargo.toml, the root build.rs (it compiles .agents/*.json into
 # susi-gawd-agents), toolchain/lint config, a vendored patch crate under
-# vendor/, or xtask/ — or when detection is impossible (missing/shallow base
+# vendor/ — or when detection is impossible (missing/shallow base
 # ref, metadata failure). A path under crates/ matching no package is also ALL.
 #
 # The root package's own trees (src/, tests/, benches/, examples/) map to the
 # root package rather than ALL: its test binaries are the gate for a
-# tests/-only change, and the other workspace members' tests are not.
+# tests/-only change, and the other workspace members' tests are not. Removing
+# a top-level integration-test file removes a test target but changes no code
+# to compile, so a moved test does not pull the entire root app into the gate.
 #
 # `.agents/tasks/` is exempt: it is the shared task queue, one file per task,
 # committed with every task's work. Only `.agents/{identity,roadmap,evidence}
@@ -77,10 +79,10 @@ changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
 # vendor/ holds the `[patch.crates-io]` path crates, compiled into nearly
-# every workspace crate, and xtask/ is a workspace member outside crates/:
-# neither maps to a package below, and both used to fall through as "no
-# crate", so a change there reached main with no compile and no test.
-if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|vendor/|xtask/)' <<<"$changed"; then
+# every workspace crate. Workspace members outside `crates/` (currently
+# `xtask/`) still map through Cargo metadata below, so they get their own
+# bounded gate instead of forcing a workspace-wide compile.
+if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|vendor/)' <<<"$changed"; then
     echo ALL
     exit 0
 fi
@@ -156,8 +158,11 @@ fi
 declare -A seen=()
 while IFS= read -r f; do
     case "$f" in
-        crates/*) ;;
+        crates/*|xtask/*) ;;
         src/*|tests/*|benches/*|examples/*)
+            if [[ "$f" == tests/*.rs && ! -f "$root/$f" ]]; then
+                continue
+            fi
             # The root package owns these trees; a change here gates that
             # package's targets, not the whole workspace.
             if [ -n "$rootpkg" ]; then
