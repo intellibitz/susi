@@ -22,8 +22,36 @@ set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 cd "$(git rev-parse --show-toplevel)"
 real_home="${HOME}"
-home=$(mktemp -d)
-testhome=$(mktemp -d)
+# On Windows the throwaway homes, and the temp dir the tests get (below), live
+# under the clone's common git dir (`.git/susi-hermetic/`, the primary
+# checkout's, shared by every linked worktree), not the user's temp: the tests
+# write thousands of small files there (scratch worktrees, copied fixture
+# trees, instance homes), and the user's temp is scanned on every write by
+# real-time protection while a developer's checkout is typically excluded from
+# it (one I/O-bound test: 180 s in the user's temp, 141 s in the checkout, 16 s
+# on a Linux runner). The git dir rather than the cargo target: `finish` stages
+# a copy of the running susi.exe in the temp dir precisely because it is
+# outside the target the gate rebuilds (src/cli/workflow_cli.rs). The place is
+# as hermetic as the user's temp (the tests never look for it; git ignores
+# what it did not write there), and the EXIT trap removes it. Linux keeps the
+# system temp: scripts/kill-leftover-service-runs.sh recognises a test's
+# daemon by a SUSI_HOME under it. SUSI_HERMETIC_TMP names another parent on
+# any platform; one that cannot be written falls back to mktemp's default.
+hermetic_parent=${SUSI_HERMETIC_TMP:-}
+if [ -z "$hermetic_parent" ]; then
+    case "${OSTYPE:-}" in
+    msys* | cygwin*)
+        hermetic_parent=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/susi-hermetic
+        ;;
+    esac
+fi
+if [ -n "$hermetic_parent" ] && mkdir -p "$hermetic_parent" 2>/dev/null && [ -w "$hermetic_parent" ]; then
+    home=$(mktemp -d "$hermetic_parent/home.XXXXXX")
+    testhome=$(mktemp -d "$hermetic_parent/user.XXXXXX")
+else
+    home=$(mktemp -d)
+    testhome=$(mktemp -d)
+fi
 cleanup_hermetic_dirs() {
     local status=$? attempt=0
     trap - EXIT
@@ -88,6 +116,18 @@ cargo-test)
     ;;
 nextest)
     if [ $# -gt 0 ]; then scope=("$@"); else scope=(--workspace); fi
+    # .config/nextest.toml's eight threads are sized for a 4-vCPU CI runner.
+    # The local gate runs one thread per logical core: most of the suite is
+    # in-process and short, and the process-spawning tests reserve two slots
+    # each there (`threads-required`), so at most half the threads run those
+    # at once - the CPU headroom their deadlines assume. The root package's
+    # 598 tests took 916 s on 8 threads of a 28-core machine (7 188 s of test
+    # time: Windows file I/O makes the fixture-copying tests 6x a Linux
+    # runner's), most of it waiting on I/O one test at a time.
+    if [ -z "${NEXTEST_TEST_THREADS:-}" ]; then
+        cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+        [ "$cores" -gt 8 ] 2>/dev/null && export NEXTEST_TEST_THREADS="$cores"
+    fi
     # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
     cargo nextest run --locked --no-fail-fast --no-tests=pass \
         --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}"

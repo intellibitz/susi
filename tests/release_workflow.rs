@@ -303,8 +303,10 @@ fn a_merged_version_bump_publishes_itself() {
         code.contains("case \"$GITHUB_REF\" in refs/tags/*) tag=\"$GITHUB_REF_NAME\" ;; esac"),
         "a run on a tag ref - pushed, or dispatched by the merge bot - must publish that tag"
     );
+    // One publish step: the legs store workflow artifacts and `publish`
+    // attaches them all once the suite has passed (tests/ci_workflow_perf.rs).
     let publishes = code.matches("softprops/action-gh-release").count();
-    assert!(publishes >= 3, "expected the three publish steps");
+    assert_eq!(publishes, 1, "expected the one publish step");
     assert_eq!(
         code.matches("tag_name: ${{ needs.verify-tag.outputs.tag }}")
             .count(),

@@ -69,6 +69,10 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
+      # As release.yml: thin LTO over 16 units, so the one `susi` unit is not a
+      # single-threaded 16 minute tail on every leg.
+      CARGO_PROFILE_DIST_LTO: thin
+      CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
