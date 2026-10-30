@@ -563,6 +563,13 @@ jobs:
           else
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
+          # xtask is a small standalone package: on its last branch gate the
+          # target archive restore took 15 s while cached clippy took 1 s.
+          # Keep sccache for its compile, and avoid restoring the workspace
+          # target archive when xtask alone is affected.
+          target_cache=true
+          if [ "$pkgs" = "xtask" ]; then target_cache=false; fi
+          echo "target_cache=$target_cache" >> "$GITHUB_OUTPUT"
           # The ONNX prefetch builds susi-vendor-fastembed only to warm its CDN
           # download; nothing else in the job can reach it. Pay for it only
           # when the affected set intersects the crates that can pull it in
@@ -600,7 +607,7 @@ jobs:
       # 139 s end-to-end (91 s Clippy); restoring target artifacts took 23 s
       # and reduced Clippy to 24 s, so keep the target archive enabled here.
       - name: Cache Cargo
-        if: steps.affected.outputs.lintcmd != ''
+        if: steps.affected.outputs.lintcmd != '' && steps.affected.outputs.target_cache != 'false'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
