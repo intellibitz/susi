@@ -214,9 +214,14 @@ pub const COOLDOWN_MS: u64 = 10 * 60 * 1000;
 ///
 /// Only provider failures count (`ModelFailed` rows, which the gateway
 /// writes), never rejected work: a rejection is about the task. Out of
-/// credit cools a provider at once; any other provider failure cools it at
-/// the second in a row. A completed call clears the record, because the
-/// provider has recovered. Only the last [`COOLDOWN_MS`] are read.
+/// credit cools a provider at once, and so does a rate limit: the one is a
+/// balance that will not refill inside this run, the other a window the
+/// provider closed on us, and a retry that spends the rest of the attempt on
+/// either is exactly how a live mission died — twenty-four served turns, one
+/// 429, then the next attempt met the same refusal. Any other provider
+/// failure cools it at the second in a row. A completed call clears the
+/// record, because the provider has recovered. Only the last
+/// [`COOLDOWN_MS`] are read.
 #[must_use]
 pub fn cooling_providers(entries: &[LedgerEntry], now_unix_ms: u64) -> BTreeSet<String> {
     let mut recent = entries
@@ -230,7 +235,7 @@ pub fn cooling_providers(entries: &[LedgerEntry], now_unix_ms: u64) -> BTreeSet<
             Outcome::ModelFailed { class } => {
                 let streak = streaks.entry(entry.provider.as_str()).or_default();
                 streak.0 = streak.0.saturating_add(1);
-                streak.1 |= *class == FailureClass::NoCredit;
+                streak.1 |= matches!(*class, FailureClass::NoCredit | FailureClass::RateLimited);
             }
             Outcome::Completed if !entry.cached => {
                 streaks.remove(entry.provider.as_str());
@@ -1295,7 +1300,7 @@ mod tests {
     }
 
     #[test]
-    fn providers_cool_down_on_no_credit_at_once_and_on_two_other_failures() {
+    fn providers_cool_down_at_once_on_no_credit_or_a_rate_limit_and_on_two_other_failures() {
         let now = 1_000_000_000;
         let entries = vec![
             row(
@@ -1317,6 +1322,15 @@ mod tests {
                 "b1",
                 "busy",
                 now - 2000,
+                failed(FailureClass::RateLimited),
+            ),
+            // One rate limit is enough: the provider closed its window, and a
+            // mission that kept retrying it lost every served turn before it.
+            row(
+                ("T", 1),
+                "g1",
+                "throttled",
+                now - 500,
                 failed(FailureClass::RateLimited),
             ),
             row(
@@ -1353,7 +1367,11 @@ mod tests {
         let cooling = cooling_providers(&entries, now);
         assert_eq!(
             cooling.into_iter().collect::<Vec<_>>(),
-            vec!["broke".to_string(), "busy".to_string()]
+            vec![
+                "broke".to_string(),
+                "busy".to_string(),
+                "throttled".to_string()
+            ]
         );
     }
 
