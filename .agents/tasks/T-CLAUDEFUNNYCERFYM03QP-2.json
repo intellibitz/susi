@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEFUNNYCERFYM03QP-2",
+  "title": "IDE configs name the clone's own build, not one laptop's",
+  "goal": "T-AGENT2026102817540410895-1 also checked in .vscode/settings.json (mcp.servers), .idea/mcp.json, .idea/externalTools.xml and .agents/susi-ide-harness.json naming F:/src/github.com/intellibitz/susi/target/debug/susi.exe and SUSI_HOME=C:/Users/user/.susi: every other clone (another laptop, a cloud session's container) gets a dead path. Point each at the clone's own target/debug/susi through the IDE's own project macro where it has one (VS Code ${workspaceFolder}, IntelliJ $ProjectFileDir$), drop the SUSI_HOME override, and extend tests/checked_in_mcp_config.rs so no quoted value in any of these files names a machine path.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "checked_in_mcp_config"
+    ]
+  },
+  "created_by": "CLAUDEFUNNYCERFYM03QP",
+  "created_unix": 1793332133
+}
