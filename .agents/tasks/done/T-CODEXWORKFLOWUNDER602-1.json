@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CODEXWORKFLOWUNDER602",
-  "created_unix": 1793388257
+  "created_unix": 1793388257,
+  "closed": {
+    "at_unix": 1793393359,
+    "commit": "d06ab0e5dcb82772d99e61ab25a51d185bc35121",
+    "by": "CODEXWORKFLOWUNDER602"
+  }
 }
