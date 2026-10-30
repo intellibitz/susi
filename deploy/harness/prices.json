@@ -31,6 +31,21 @@
       "input_miss": 400000,
       "output": 1200000
     },
+    "deepinfra-deepseek": {
+      "input_hit": 130000,
+      "input_miss": 260000,
+      "output": 380000
+    },
+    "deepinfra-llama": {
+      "input_hit": 100000,
+      "input_miss": 100000,
+      "output": 320000
+    },
+    "deepinfra-qwen-coder": {
+      "input_hit": 100000,
+      "input_miss": 300000,
+      "output": 1000000
+    },
     "deepseek-flash": {
       "input_hit": 3000,
       "input_miss": 150000,

@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179338547544288-2",
+  "title": "Rate limits and unfunded providers must not fail a mission",
+  "goal": "A live engine mission failed for two reasons that are not task failures. (1) SiliconFlow answered a provider-side 429 on turn 24 with no Retry-After; the worker's paced resends only cover the gateway's pacing, so the attempt died. (2) Escalation then picked claude-sonnet, whose provider has no credit (0 tokens, no_credit), so the fixer tier was silently empty while the budget report still called anthropic active. (3) A cooling or unfunded model is answered HTTP 400 by the gateway, which the adapter reports as a bare turn failure and hides the cause. Rate limits must cool the model for a window and escalate instead of failing the mission; an unfunded provider must be recorded and never lead or fix; a model that cannot serve must answer a retryable 429 with Retry-After, never 400.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "policy"
+    ]
+  },
+  "created_by": "AGENT179338547544288",
+  "created_unix": 1793392876
+}
