@@ -204,7 +204,7 @@ jobs:
             Write-Host "ok: $Name"
           }
           Check 'brain classify' 0 '"task_class": "code"' @('brain','classify','fix','this','bug','in','my','parser')
-          Check 'brain status' 0 'cooled_providers' @('brain')
+          Check 'brain status' 0 'cooled_providers' @('brain','status','--json')
           Check 'ecosystem scan' 0 '"engines"' @('ecosystem','scan')
           Check 'tasks' 0 '"open": []' @('tasks')
           Check 'workflow check' 1 'not ready' @('workflow','check')
@@ -293,7 +293,11 @@ jobs:
   build-cuda:
     name: Build linux-x86_64-cuda
     needs: [verify-tag, tests]
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: 26.04's apt CUDA is 12.4, which defines
+    # __hmax_nan/__hmin_nan itself, and candle-kernels' compatibility.cuh
+    # redefines them below compute capability 80 (we target 75), so every
+    # release from v0.21.22 shipped no CUDA build. 24.04 carries CUDA 12.0.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       SCCACHE_GHA_ENABLED: "true"

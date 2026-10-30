@@ -155,3 +155,44 @@ fn e2e_checks_do_not_reach_the_launching_profile() {
     );
     assert_eq!(after, before, "a check wrote into the launching profile");
 }
+
+/// `release.yml`'s Windows leg re-runs these checks by hand in PowerShell
+/// (`Check '<name>' <exit> '<needle>' @('<arg>', ...)`). Each line must be an
+/// `E2E_CHECKS` entry: v0.21.24 shipped no Windows binary because that leg
+/// still ran bare `susi brain` (a table for people) after the check moved to
+/// `brain status --json`.
+#[test]
+fn windows_release_checks_match_e2e_checks() {
+    let yml = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/release.yml"),
+    )
+    .unwrap();
+    let lines: Vec<&str> = yml
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("Check '"))
+        .collect();
+    assert!(!lines.is_empty(), "release.yml runs no Windows e2e checks");
+    for line in lines {
+        // Split on single quotes: quoted fields sit at odd indices.
+        let parts: Vec<&str> = line.split('\'').collect();
+        let quoted: Vec<&str> = parts.iter().skip(1).step_by(2).copied().collect();
+        let exit: i32 = parts[2].trim().parse().unwrap();
+        let (needle, args) = (quoted[1], &quoted[2..]);
+        let check = E2E_CHECKS
+            .iter()
+            .find(|c| c.args == args)
+            .unwrap_or_else(|| {
+                panic!(
+                    "release.yml runs `susi {}`, which no E2E_CHECKS entry runs",
+                    args.join(" ")
+                )
+            });
+        assert_eq!(check.exit, exit, "{line}");
+        assert!(
+            check.stdout_has.contains(&needle) || check.stderr_has.contains(&needle),
+            "release.yml expects {needle:?}, which E2E_CHECKS \"{}\" does not: {line}",
+            check.name
+        );
+    }
+}
