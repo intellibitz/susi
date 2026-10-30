@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXLOCALGATEUNDER60-1",
+  "title": "workflow: recheck post-merge acceptance queue before compiling",
+  "goal": "Avoid building the susi CLI in a main CI runner when another main run drained the merged-attestation queue during toolchain setup; preserve fail-closed verification when the queue read fails.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_verified_pending",
+      "skip_rechecks_owed_attestations_after_setup"
+    ]
+  },
+  "created_by": "CODEXLOCALGATEUNDER60",
+  "created_unix": 1793395684
+}
