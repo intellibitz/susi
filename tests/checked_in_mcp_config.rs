@@ -13,7 +13,17 @@
 //! `SUSI_HOME=C:/Users/user/.susi` — so every cloud session started with a
 //! failed `susi-harness` server and a prompt to have the operator fix it on
 //! their machine. A checked-in server names the clone's own build, relative
-//! to the clone, and no host's home.
+//! to the clone, and no host's home. The IDE configs checked in beside it
+//! (VS Code, IntelliJ / Android Studio, the harness descriptor) held the same
+//! paths and are held to the same rule.
+
+/// The IDE configs that name the susi binary; each is read by every clone.
+const IDE_CONFIGS: [&str; 4] = [
+    ".vscode/settings.json",
+    ".idea/mcp.json",
+    ".idea/externalTools.xml",
+    ".agents/susi-ide-harness.json",
+];
 
 fn mcp_servers() -> serde_json::Map<String, serde_json::Value> {
     let text = std::fs::read_to_string(".mcp.json").unwrap();
@@ -84,4 +94,69 @@ fn a_machine_path_is_told_from_a_clone_relative_one() {
     for path in ["target/debug/susi", "mcp", "scripts/susi-mcp.sh"] {
         assert!(!names_a_machine_path(path), "{path}");
     }
+}
+
+/// Every double-quoted value in `text`: JSON strings and XML attribute values
+/// alike.
+fn quoted_values(text: &str) -> Vec<&str> {
+    text.split('"').skip(1).step_by(2).collect()
+}
+
+#[test]
+fn checked_in_ide_configs_name_no_machine_path() {
+    for file in IDE_CONFIGS {
+        let text = std::fs::read_to_string(file).unwrap();
+        for value in quoted_values(&text) {
+            assert!(
+                !names_a_machine_path(value),
+                "{file} names one machine's path {value:?}: every other clone gets a dead path"
+            );
+        }
+        assert!(
+            !text.contains("SUSI_HOME"),
+            "{file}: SUSI_HOME is the host's to set"
+        );
+    }
+}
+
+#[test]
+fn ide_configs_run_the_clones_own_build() {
+    let read = |file: &str| std::fs::read_to_string(file).unwrap();
+    let vscode: serde_json::Value = serde_json::from_str(&read(".vscode/settings.json")).unwrap();
+    assert_eq!(
+        vscode["mcp.servers"]["susi-harness"]["command"],
+        "${workspaceFolder}/target/debug/susi"
+    );
+    let idea: serde_json::Value = serde_json::from_str(&read(".idea/mcp.json")).unwrap();
+    assert_eq!(
+        idea["mcpServers"]["susi-harness"]["command"],
+        "target/debug/susi"
+    );
+    let harness: serde_json::Value =
+        serde_json::from_str(&read(".agents/susi-ide-harness.json")).unwrap();
+    assert_eq!(harness["executable"], "target/debug/susi");
+    let tools = read(".idea/externalTools.xml");
+    let commands: Vec<&str> = tools
+        .lines()
+        .filter(|line| line.contains(r#"name="COMMAND""#))
+        .collect();
+    assert!(!commands.is_empty(), "externalTools.xml declares no tool");
+    for line in commands {
+        assert!(
+            line.contains(r#"value="$ProjectFileDir$/target/debug/susi""#),
+            "{line}"
+        );
+    }
+}
+
+#[test]
+fn quoted_values_reads_json_strings_and_xml_attributes() {
+    assert_eq!(
+        quoted_values(r#"{"command": "F:/x.exe", "args": ["mcp"]}"#),
+        ["command", "F:/x.exe", "args", "mcp"]
+    );
+    assert_eq!(
+        quoted_values(r#"<option name="COMMAND" value="$ProjectFileDir$/target/debug/susi" />"#),
+        ["COMMAND", "$ProjectFileDir$/target/debug/susi"]
+    );
 }
