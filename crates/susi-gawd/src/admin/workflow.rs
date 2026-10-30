@@ -279,19 +279,20 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
             "merge published",
             "nothing accepted is waiting on origin/main",
         ),
-        // One accepted-but-unmerged close is the pipeline: the agent may claim
-        // the next task while the merge machinery lands this one, so it is a
-        // warning to watch, not a blocker. Two owed merges is the pileup the
-        // receipts exist to refuse — success claimed repeatedly and never
-        // published — and the next claim is refused until one lands.
-        Ok(owed) if owed.len() == 1 => warn(
+        // Accepted-but-unmerged closes are the pipeline: the agent claims the
+        // next task while the merge machinery lands these, so up to
+        // `merges_in_flight()` is a warning to watch, not a blocker. Past it
+        // is the pileup the receipts exist to refuse — success claimed
+        // repeatedly and never published.
+        Ok(owed) if owed.len() <= tasks::merges_in_flight() => warn(
             "merge published",
             format!(
-                "{} was accepted and is awaiting its merge — one may be in flight while the next \
-                 task is claimed; a second outstanding close would be refused",
-                owed.join(", ")
+                "{} accepted and awaiting merge — up to {} may be in flight while the next task \
+                 is claimed",
+                owed.join(", "),
+                tasks::merges_in_flight()
             ),
-            "susi tasks audit   # the branch run lands it; a second owed merge would block",
+            "susi tasks audit   # the branch runs land them",
         ),
         Ok(owed) => {
             let first = owed.first().map(String::as_str).unwrap_or_default();
@@ -299,8 +300,9 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
                 "merge published",
                 format!(
                     "{} were accepted and their closes are not on origin/main; an accepted task \
-                     is not done until it is merged, and the pipeline is one task deep",
-                    owed.join(", ")
+                     is not done until it is merged, and at most {} may be in flight",
+                    owed.join(", "),
+                    tasks::merges_in_flight()
                 ),
                 format!(
                     "susi workflow finish {first}   # or: susi tasks release {first} --abandon <reason>"
@@ -886,8 +888,11 @@ fn seed_target(root: &Path, dest: &Path) {
     }
     // Its report goes to stderr, with this command's: stdout ends in the
     // `cd <path>` a caller reads.
+    // `--background`: the start never waits for the copy (it held every new
+    // worktree for minutes); a build that begins first waits inside the script.
     let _ = command
         .arg(&script)
+        .arg("--background")
         .arg(dest)
         .current_dir(dest)
         .stdin(std::process::Stdio::null())
@@ -1243,7 +1248,12 @@ mod tests {
         );
         std::fs::write(primary.join(".githooks").join("pre-push"), "exit 0\n").unwrap();
         std::fs::write(primary.join(".gitignore"), "/target\n").unwrap();
-        std::fs::write(primary.join("scripts").join("seed-target.sh"), seeder).unwrap();
+        // `start_worktree` passes `--background` before the destination.
+        std::fs::write(
+            primary.join("scripts").join("seed-target.sh"),
+            format!("[ \"$1\" != --background ] || shift\n{seeder}"),
+        )
+        .unwrap();
         git_ok(&primary, &["add", "-A"]);
         git_ok(&primary, &["commit", "--quiet", "-m", "init"]);
         git_ok(&primary, &["push", "--quiet", "origin", "HEAD:main"]);
@@ -1269,7 +1279,7 @@ mod tests {
         // The caller's own copy says otherwise: it is not the one that runs.
         std::fs::write(
             primary.join("scripts").join("seed-target.sh"),
-            "printf '%s %s' caller \"$1\" > \"$1/seeded\"\n",
+            "[ \"$1\" != --background ] || shift\nprintf '%s %s' caller \"$1\" > \"$1/seeded\"\n",
         )
         .unwrap();
         // The shared target v0.21.23 linked every new worktree to.
@@ -1527,26 +1537,29 @@ mod tests {
     }
 
     #[test]
-    fn an_accepted_task_that_did_not_merge_warns_and_two_fails() {
-        // One owed merge is the pipeline: a warning to watch, not a blocker.
+    fn accepted_tasks_awaiting_merge_warn_up_to_the_bound_and_fail_past_it() {
+        let owed =
+            |n: usize| -> Vec<String> { (7..7 + n).map(|i| format!("T-CLAUDE-{i}")).collect() };
+        let cap = tasks::merges_in_flight();
+        // Merges in flight are the pipeline: a warning to watch, not a blocker.
         let f = Facts {
-            owed: Ok(vec!["T-CLAUDE-7".into()]),
+            owed: Ok(owed(cap)),
             ..good()
         };
         let c = evaluate(&f);
         assert_eq!(state(&c, "merge published"), State::Warn);
-        assert!(ok(&c), "one merge in flight must not block the loop: {c:?}");
+        assert!(ok(&c), "merges in flight must not block the loop: {c:?}");
 
-        // Two is the pileup the receipts exist to refuse.
+        // One past the bound is the pileup the receipts exist to refuse.
         let f = Facts {
-            owed: Ok(vec!["T-CLAUDE-7".into(), "T-CLAUDE-8".into()]),
+            owed: Ok(owed(cap + 1)),
             ..good()
         };
         let c = evaluate(&f);
         assert_eq!(state(&c, "merge published"), State::Fail);
         assert!(
             !ok(&c),
-            "two acceptances nobody published is not a working pipeline: {c:?}"
+            "acceptances piling up unpublished is not a working pipeline: {c:?}"
         );
         assert!(
             c.iter()

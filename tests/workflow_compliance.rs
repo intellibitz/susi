@@ -151,13 +151,17 @@ impl Env {
     /// The branch being pushed is what a live claim's ownership is judged
     /// against, so tests can push as a branch other than the checked-out one.
     fn check_on(&self, base: &str, branch: &str) -> (i32, String) {
+        self.check_env(base, branch, &[])
+    }
+
+    fn check_env(&self, base: &str, branch: &str, envs: &[(&str, &str)]) -> (i32, String) {
         let script =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh");
         let (code, _, err) = run(
             &self.repo,
             script.to_str().unwrap(),
             &[base, "HEAD", "origin", branch],
-            &[],
+            envs,
         );
         (code, err)
     }
@@ -987,7 +991,7 @@ fn delete_ref(repo: &Path, name: &str) {
 /// another agent's receipt is not this branch's business, and a receipt whose
 /// close already reached `origin/main` is published work.
 #[test]
-fn a_second_owed_merge_is_refused_but_one_pipelines_at_the_server() {
+fn owed_merges_pipeline_up_to_the_bound_at_the_server() {
     let e = Env::new("owed");
     for t in ["first", "second", "third"] {
         assert_eq!(
@@ -1039,10 +1043,17 @@ fn a_second_owed_merge_is_refused_but_one_pipelines_at_the_server() {
     );
     e.commit("b", "feat: b", Some("T-TEST-3"));
     let after_b = e.head();
+    // The default bound pipelines several merges: two owed is fine.
     let (code, err) = e.check(&after_a);
     assert_eq!(
+        code, 0,
+        "two merges in flight are inside the default bound: {err}"
+    );
+    // Past the bound (here pinned to one) is the pileup.
+    let (code, err) = e.check_env(&after_a, "main", &[("SUSI_MERGES_IN_FLIGHT", "1")]);
+    assert_eq!(
         code, 1,
-        "the second owed merge must refuse the third task: {err}"
+        "past the bound, an owed merge must refuse the next task: {err}"
     );
     assert!(err.contains("owes the merge"), "{err}");
     assert!(

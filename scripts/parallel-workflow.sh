@@ -27,15 +27,18 @@ sync() {
         || [ "$(git rev-parse --path-format=absolute --git-dir)" != "$common" ] \
         || { echo 'Use your own linked worktree.' >&2; return 1; }
     [ "$(git symbolic-ref -q --short HEAD)" != main ] || { echo 'Use your own branch.' >&2; return 1; }
+    [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
+    # The clone-wide lock covers the fetch alone (two fetches into one .git
+    # race on ref locks). It used to cover the merge, the primary's sync, the
+    # watcher heal, the lease renewal, the owed-run report and the board, so
+    # every agent in the clone queued behind every other agent's whole sync.
     exec 9>"$lock"
     flock 9
-    [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
     git fetch --quiet origin
+    flock -u 9
+    exec 9>&-
     git merge --no-edit origin/main
     "$root/scripts/park-primary.sh" --sync-only || true
-    # Inside the lock: the watcher heal is cheap, and the board block is cached,
-    # so one sync pays for the checks and the rest read the verdict.
-    #
     # The watcher is a background process that dies with its session, and the
     # primary then stops converging until someone notices. Every agent crosses
     # this boundary, so the loop heals it here. Non-fatal either way.
@@ -46,9 +49,12 @@ sync() {
     # for its run; a run that then fails is reported here, where every agent
     # passes before its next claim (scripts/check-owed-runs.sh).
     "$root/scripts/check-owed-runs.sh" || true
-    # The board checks were only as reliable as the habit of running them.
-    [ "${SUSI_SYNC_SKIP_BOARD:-0}" = 1 ] || "$root/scripts/swarm-status.sh" || true
-    flock -u 9
+    # The board is for people watching the swarm, not for the agent's next
+    # step: it refreshes its cache in the background instead of holding the
+    # sync for up to four checks of a minute each.
+    if [ "${SUSI_SYNC_SKIP_BOARD:-0}" != 1 ]; then
+        nohup "$root/scripts/swarm-status.sh" >/dev/null 2>&1 </dev/null &
+    fi
     # The merge may have just brought this worktree the seeding: a target/
     # still linked to the clone's old shared one gets its own before anything
     # builds (seed_own_target). Outside the lock, which the copy would hold
@@ -226,10 +232,21 @@ gate() {
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
     gate_pkgs=$pkgs
-    if [ "$pkgs" = ALL ] || [ "${SUSI_LOCAL_GATE:-}" = full ]; then
+    if [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
         gate_tests --workspace
+        echo "$stamp" >"$okfile"
+        return
+    fi
+    if [ "$pkgs" = ALL ]; then
+        # A workspace-wide change (lockfile, toolchain, cargo config): lint it
+        # all, but leave the whole suite to main's post-merge run, which runs
+        # it on every merge anyway and attributes a failure to the PR. Running
+        # it here held the agent 15+ minutes per finish (SUSI_LOCAL_GATE=full
+        # restores it). gate_pkgs stays empty: no acceptance is "covered".
+        gate_pkgs=
+        cargo clippy --workspace --all-targets --locked -- -D warnings
         echo "$stamp" >"$okfile"
         return
     fi
@@ -372,17 +389,21 @@ finish)
     git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
     if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
-        if "$susi_bin" tasks release "$task" --force; then
-            cat >&2 <<MSG
+        # Never fall through into the wait below: a failed release used to
+        # park the agent in a 30-minute poll it never asked for.
+        if ! "$susi_bin" tasks release "$task" --force; then
+            echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi tasks release $task --force" >&2
+            exit 1
+        fi
+        cat >&2 <<MSG
 ✅ pushed $sha and published the close receipt — the merge is the machinery's now (no wait).
    The close receipt on the remote keeps the debt until $sha is on
    origin/main (\`susi workflow check\` shows it under "merge published"), and
    a red run for it is reported at your next \`susi workflow sync\`.
-   The next task is free to claim; a second outstanding close is refused.
+   Claim the next task now; up to SUSI_MERGES_IN_FLIGHT (default 4) may be in flight.
    (\`susi workflow finish <id> --wait\` polls the run in-line instead.)
 MSG
-            exit 0
-        fi
+        exit 0
     fi
     echo "Waiting for $sha's run or merge (Ctrl-C leaves work intact)."
     # The wait's only value after push is catching a failure fast, while the
@@ -441,7 +462,7 @@ MSG
 ✅ the run for $sha is green — handing the merge to the machinery.
    The close receipt on the remote keeps the debt until $sha is on
    origin/main (\`susi workflow check\` shows it under "merge published").
-   The next task is free to claim; a second outstanding close is refused.
+   Claim the next task now; up to SUSI_MERGES_IN_FLIGHT (default 4) may be in flight.
 MSG
                 exit 0
             fi
@@ -474,7 +495,7 @@ MSG
    not failed, so the claim is released and the merge machinery owns the rest.
    The close receipt on the remote keeps the debt: `susi workflow check` shows
    it under "merge published", and it clears when the merge lands. You may
-   claim the next task; a second outstanding close would be refused.
+   claim the next task (up to SUSI_MERGES_IN_FLIGHT merges may be in flight).
 MSG
                 exit 0
             fi

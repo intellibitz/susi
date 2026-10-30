@@ -1,10 +1,18 @@
 name: Release Binaries
 
-# A pushed `v*.*.*` tag builds and PUBLISHES. `workflow_dispatch` builds only: it
-# has no tag, and `softprops/action-gh-release` falls back to the ref name, so a
-# dispatch from any branch used to publish a GitHub release named after that
-# branch. A build-only dispatch is how a change to this pipeline is proven
-# (`gh workflow run release.yml --ref <branch>`) without releasing anything.
+# Merging a version bump into main PUBLISHES it. `susi admin release --cut`
+# runs the local gate and pushes the bump's branch, and returns: it never waits
+# for the merge or for CI, and nobody pushes a tag by hand. The merge bot
+# (scripts/auto-merge-pr.sh) tags a merged, untagged version
+# (scripts/release-tag-merged-bump.sh) and dispatches this workflow on the tag:
+# a GITHUB_TOKEN merge or tag push starts no workflow, so the bot must. A
+# dispatch on a `v*.*.*` tag ref, or a pushed tag, builds and PUBLISHES.
+#
+# A dispatch on a branch builds only: `softprops/action-gh-release` falls back
+# to the ref name, so a dispatch from any branch used to publish a GitHub
+# release named after that branch. A build-only dispatch is how a change to
+# this pipeline is proven (`gh workflow run release.yml --ref <branch>`)
+# without releasing anything.
 #
 # Wall time (v0.21.12, 31.7 min tag to published): macOS 31.2, CUDA 23.0, linux
 # x86_64 16.6, linux aarch64 14.8 - the slowest leg is the release. In every leg
@@ -23,14 +31,24 @@ on:
 permissions:
   contents: write
 
+# One release run per tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # A release tag is a claim — "this version, this code" — and this publishes
   # binaries on any `v*.*.*` tag. Verify the claim before building anything: the
   # tag ruleset protects tags that exist, not the truth of a new one.
+  #
+  # Output `tag`: the release this run publishes ('' for a branch dispatch,
+  # which builds and publishes nothing).
   verify-tag:
     name: Verify release tag
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -39,11 +57,17 @@ jobs:
           fetch-depth: 0
 
       - name: The tag must be this version, on main
-        # A manual dispatch has no tag to verify; the build still waits on this.
-        if: github.event_name == 'push'
+        id: tag
+        # A tag ref (pushed, or dispatched on by the merge bot) publishes; a
+        # branch dispatch is a dry run with no tag to verify.
         run: |
-          git fetch --quiet origin main
-          scripts/check-release-tag.sh "${GITHUB_REF_NAME}"
+          tag=""
+          case "$GITHUB_REF" in refs/tags/*) tag="$GITHUB_REF_NAME" ;; esac
+          if [ -n "$tag" ]; then
+            git fetch --quiet origin main
+            scripts/check-release-tag.sh "$tag"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   # Nothing builds until the commit the binaries come from has passed the full
   # suite. The cut's local gate is not that proof: bare `cargo test` at this
@@ -72,7 +96,9 @@ jobs:
       - name: The suite must pass on exactly this commit
         env:
           GH_TOKEN: ${{ github.token }}
-        run: scripts/release-await-tests.sh "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+          # A dispatch has no tag; it proves the branch it ran on.
+          REF: ${{ needs.verify-tag.outputs.tag || github.ref_name }}
+        run: scripts/release-await-tests.sh "$GITHUB_REPOSITORY" "$REF" "$GITHUB_SHA"
 
   build:
     name: Build ${{ matrix.name }}
@@ -214,9 +240,10 @@ jobs:
       - name: Upload Artifacts
         # A dispatch is a dry run: it has no tag, so this would publish a
         # release named after the branch.
-        if: github.event_name == 'push' && steps.build.outcome == 'success'
+        if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
           files: |
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
@@ -283,9 +310,10 @@ jobs:
       # under `always()`, a harness that failed the check above was still
       # attached to the release, and a cancelled run could still publish.
       - name: Upload Harness
-        if: github.event_name == 'push' && !cancelled() && steps.harness_verify.outcome == 'success'
+        if: needs.verify-tag.outputs.tag != '' && !cancelled() && steps.harness_verify.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
           files: |
             ${{ matrix.harness }}
             ${{ matrix.harness }}.sha256
@@ -396,9 +424,10 @@ jobs:
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
-        if: github.event_name == 'push' && steps.build.outcome == 'success'
+        if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
           files: |
             susi-linux-x86_64-cuda.tar.gz
             susi-linux-x86_64-cuda.tar.gz.sha256
@@ -408,12 +437,12 @@ jobs:
   # git tags are never removed so history stays intact.
   prune-old-releases:
     name: Prune old GitHub Releases
-    needs: [build, build-cuda]
+    needs: [verify-tag, build, build-cuda]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The Tier-1 build job publishes the Linux x86_64 binary; non-Tier-1 artifacts
     # (macOS, ARM64, CUDA) are non-blocking, so prune runs as long as Tier-1 succeeded.
-    if: "!cancelled() && needs.build.result == 'success' && github.event_name == 'push'"
+    if: "!cancelled() && needs.build.result == 'success' && needs.verify-tag.outputs.tag != ''"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6

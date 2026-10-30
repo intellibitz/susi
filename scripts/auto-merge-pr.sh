@@ -124,6 +124,20 @@ merge_head() {
     fi
     # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
     gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+    # A merged version bump is the release (`susi admin release --cut` only
+    # pushes the bump's branch): tag it and start release.yml on the tag. A
+    # dispatch on a tag ref publishes; nobody waits for this or tags by hand.
+    if [ -n "${merge_sha:-}" ]; then
+        git fetch --quiet origin "$merge_sha" 2>/dev/null || true
+        if release_tag=$("$(dirname "$0")/release-tag-merged-bump.sh" "$merge_sha") \
+            && [ -n "$release_tag" ]; then
+            if gh workflow run release.yml --repo "$repo" --ref "$release_tag"; then
+                echo "release $release_tag started"
+            else
+                echo "note: could not dispatch release.yml on $release_tag" >&2
+            fi
+        fi
+    fi
     # Main moved, so every other green PR may now be mergeable (or need its
     # behind head gated). Reconcile now instead of at the next scheduled pass,
     # which GitHub throttles to hours. A pass that merges dispatches the next

@@ -142,12 +142,12 @@ check_no_owed_merge() {
         return 0
     fi
     owed=$(owed_merges_of "$agent" "$task")
-    [ "$(printf '%s\n' "$owed" | grep -c .)" -le 1 ] && return 0
+    [ "$(printf '%s\n' "$owed" | grep -c .)" -le "${SUSI_MERGES_IN_FLIGHT:-4}" ] && return 0
     for id in $owed; do
         [ -n "$id" ] || continue
         case "$owed_reported" in *" $agent:$id "*) continue ;; esac
         owed_reported="$owed_reported$agent:$id "
-        err "commit $short works on $task while $agent still owes the merge of $id and another task — an accepted task is not done until its close is on origin/main, and one merge in flight is the bound. Publish one (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
+        err "commit $short works on $task while $agent still owes the merge of $id and another task — an accepted task is not done until its close is on origin/main, and SUSI_MERGES_IN_FLIGHT (default 4) merges in flight is the bound. Publish one (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
     done
 }
 

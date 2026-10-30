@@ -138,17 +138,18 @@ fi
 # pins .cargo/config.toml). A worktree made another way (the desktop app) is
 # seeded by the SessionStart hook, which runs the same script; and the
 # post-checkout hook has already started the copy in the background when
-# `git worktree add` above ran it, so this waits for that copy instead of
-# making a second. The copy takes about a minute and touches no shared ref or
-# config, so the start lock is let go first: another worktree's start does
-# not wait for it. The new worktree's own script runs (it is origin/main's),
-# else this checkout's, under this very bash: a bare `bash` can be WSL's.
+# `git worktree add` above ran it. This never waits for that copy: an agent
+# starts reading and editing at once, and a build that begins before the copy
+# lands waits for it inside seed-target.sh (or builds cold). Waiting here held
+# every new worktree for minutes. The start lock is let go first. The new
+# worktree's own script runs (it is origin/main's), else this checkout's,
+# under this very bash: a bare `bash` can be WSL's.
 flock -u 9 2>/dev/null || true
 exec 9>&-
 seeder=$dest/scripts/seed-target.sh
 [ -f "$seeder" ] || seeder=$root/scripts/seed-target.sh
 if [ -f "$seeder" ]; then
-    "${BASH:-bash}" "$seeder" "$dest" >&2 || true
+    "${BASH:-bash}" "$seeder" --background "$dest" >&2 </dev/null || true
 fi
 
 echo "ready: atomic loop — \`susi workflow check\`, then sync→claim one→work→commit→sync→push→sync" >&2

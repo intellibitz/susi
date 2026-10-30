@@ -2119,6 +2119,19 @@ pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
     ensure_synced_for(ws, None)
 }
 
+/// How many accepted-but-unmerged closes one agent may have outstanding while
+/// it claims more work (`SUSI_MERGES_IN_FLIGHT`, default 4). The merge
+/// machinery lands them while the agent keeps working; one in flight made a
+/// fast agent idle on a queue it cannot hurry. The bound still refuses the
+/// pileup: success reported again and again and never published.
+pub fn merges_in_flight() -> usize {
+    std::env::var("SUSI_MERGES_IN_FLIGHT")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(4)
+}
+
 /// [`ensure_synced`] with the task being claimed exempted from the
 /// "unpublished completion" bound.
 ///
@@ -2162,11 +2175,13 @@ pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
         .lines()
         .filter(|path| reassuming.as_deref() != Some(*path))
         .collect();
-    if pending.len() > 1 {
-        return Err(EaiError::config(
-            "claim refused: more than one completed task is still awaiting merge — \
-             publish one first (an accepted task may pipeline one merge in flight, not two)",
-        ));
+    if pending.len() > merges_in_flight() {
+        return Err(EaiError::config(format!(
+            "claim refused: {} completed tasks are still awaiting merge — publish one first \
+             (at most {} may be in flight; SUSI_MERGES_IN_FLIGHT)",
+            pending.len(),
+            merges_in_flight()
+        )));
     }
     match n.parse::<u64>() {
         Ok(0) | Err(_) => Ok(()),
@@ -2352,13 +2367,14 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     // accepted task is how `finish` keeps waiting, not a way to start
     // something new.
     let owed = owed_closes(ws, &agent, Some(id))?;
-    if owed.len() > 1 {
+    if owed.len() > merges_in_flight() {
         let list = owed.join(", ");
         let first = owed.first().map(String::as_str).unwrap_or("");
+        let cap = merges_in_flight();
         return Err(EaiError::config(format!(
-            "{agent} owes merges for {list} — one accepted task may await its merge while the \
-             next is claimed, not more. Publish one: `susi workflow finish {first}` (or, to give \
-             it up deliberately: `susi tasks release {first} --abandon <reason>`)"
+            "{agent} owes merges for {list} — {cap} accepted tasks may await their merges while \
+             the next is claimed, not more. Publish one: `susi workflow finish {first}` (or, to \
+             give it up deliberately: `susi tasks release {first} --abandon <reason>`)"
         )));
     }
     let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
@@ -4429,13 +4445,13 @@ mod tests {
         drop(r);
     }
 
-    /// The pipeline bound: an agent whose accepted task still awaits its merge
-    /// may claim the next one — nobody idles on a merge queue they cannot
-    /// hurry — but the second outstanding close is the pileup the receipt
-    /// exists to refuse. Neither releasing the claim nor a fresh clone
+    /// The pipeline bound: an agent whose accepted tasks still await their
+    /// merges may claim the next one — nobody idles on a merge queue they
+    /// cannot hurry — up to `merges_in_flight()`; one more is the pileup the
+    /// receipt exists to refuse. Neither releasing the claim nor a fresh clone
     /// launders the debt, and each merge that lands frees a slot.
     #[test]
-    fn one_unpublished_merge_pipelines_but_a_second_is_refused() {
+    fn merges_in_flight_pipeline_up_to_the_bound_and_one_more_is_refused() {
         let (r, a, b) = Repos::new("owed-clone");
         let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
         claim(&a, &first.id, "claude", 4, now_unix()).unwrap();
@@ -4471,36 +4487,42 @@ mod tests {
         )
         .unwrap();
 
-        // One merge in flight does not stall the queue: the next claim is fine.
-        let second = addt!(&b, "claude", "second", "", "s", &[], true_cmd()).unwrap();
-        claim(&b, &second.id, "claude", 4, now_unix())
-            .unwrap_or_else(|e| panic!("one merge in flight must not stall the queue: {e}"));
+        // Merges in flight do not stall the queue: up to the bound, every next
+        // claim is fine, and each accepted task adds one owed merge.
+        let mut later = Vec::new();
+        for n in 1..=merges_in_flight() {
+            let next = addt!(&b, "claude", format!("next-{n}"), "", "s", &[], true_cmd()).unwrap();
+            claim(&b, &next.id, "claude", 4, now_unix())
+                .unwrap_or_else(|e| panic!("merges in flight must not stall the queue: {e}"));
+            close(&b, &next.id, "claude").unwrap();
+            release(&b, &next.id, "claude", true).unwrap();
+            later.push(next.id);
+        }
 
-        // Accept the second task as well: two receipts are owed now, and that
-        // is where the pipeline ends.
-        close(&b, &second.id, "claude").unwrap();
-        release(&b, &second.id, "claude", true).unwrap();
-        let third = addt!(&b, "claude", "third", "", "s", &[], true_cmd()).unwrap();
-        let err = claim(&b, &third.id, "claude", 4, now_unix())
+        // The bound is full: the next claim is the pileup the receipts refuse.
+        let over = addt!(&b, "claude", "over", "", "s", &[], true_cmd()).unwrap();
+        let err = claim(&b, &over.id, "claude", 4, now_unix())
             .unwrap_err()
             .to_string();
         assert!(err.contains("owes merges"), "{err}");
         assert!(err.contains(&first.id), "{err}");
 
-        // The first merge lands: back to one in flight — inside the bound.
+        // The first merge lands: a slot frees.
         publish(&a);
-        let got = claim(&b, &third.id, "claude", 4, now_unix()).unwrap();
-        assert_eq!(got.task, third.id);
+        let got = claim(&b, &over.id, "claude", 4, now_unix()).unwrap();
+        assert_eq!(got.task, over.id);
 
-        // The last merge lands too: the receipts clear themselves at the next
+        // The rest land too: the receipts clear themselves at the next
         // boundary (`owed_closes` prunes the published ones it observes).
-        // `publish` fast-forwards main, so the second close lands through the
+        // `publish` fast-forwards main, so the later closes land through the
         // clone that published the first.
-        std::fs::copy(
-            done_dir(&b).join(format!("{}.json", second.id)),
-            done_dir(&a).join(format!("{}.json", second.id)),
-        )
-        .unwrap();
+        for id in &later {
+            std::fs::copy(
+                done_dir(&b).join(format!("{id}.json")),
+                done_dir(&a).join(format!("{id}.json")),
+            )
+            .unwrap();
+        }
         publish(&a);
         git(&b, &["fetch", "--quiet", "origin"]).unwrap();
         sync_queue_refs(&b).unwrap();
