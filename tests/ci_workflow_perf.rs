@@ -1147,12 +1147,16 @@ fn the_pre_push_hook_lints_the_gates_scoped_set_not_the_whole_workspace() {
     );
 }
 
-/// A release publishes binaries for half an hour of build time, and its gate was
-/// not the proof it read as: bare `cargo test` selects one package of 86, and
-/// release.yml ran no tests. Nothing builds until the full suite has passed on the
-/// tagged commit, so a red commit costs one job instead of four builds.
+/// A release publishes binaries from a commit the full suite has passed on, and
+/// its gate was not the proof it read as: bare `cargo test` selects one package
+/// of 86, and release.yml ran no tests. The suite is proven by the `tests` job;
+/// the legs build *while* it runs (they used to wait for it, which put the
+/// suite's 19 minutes in front of the slowest leg's 38) and publish nothing
+/// themselves: the one `publish` job attaches their artifacts, and it needs
+/// `tests` to have passed. A red commit then costs the legs' runner minutes,
+/// never a published binary.
 #[test]
-fn no_release_binary_is_built_before_the_suite_has_passed_on_the_tagged_commit() {
+fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_commit() {
     let text = read(".github/workflows/release.yml");
     let jobs = jobs(&text);
     let tests = job(&jobs, "tests");
@@ -1167,11 +1171,36 @@ fn no_release_binary_is_built_before_the_suite_has_passed_on_the_tagged_commit()
     for builder in ["build", "build-cuda"] {
         let b = job(&jobs, builder);
         assert!(
-            b.body.contains("needs: [verify-tag, tests]"),
-            "`{builder}` must wait for `tests`: its binaries are published from a commit that \
-             has not been shown to pass the suite otherwise"
+            b.body.contains("needs: [verify-tag]"),
+            "`{builder}` must start with the suite, not after it: the publish job is the \
+             gate, and waiting here only serialised the suite before the slowest leg"
+        );
+        assert!(
+            !b.body.contains("softprops/action-gh-release"),
+            "`{builder}` must not publish its own binary: the suite has not necessarily \
+             passed when it finishes. Upload a workflow artifact for `publish`"
+        );
+        assert!(
+            b.body.contains("actions/upload-artifact@"),
+            "`{builder}` must hand its binaries to `publish` as workflow artifacts"
         );
     }
+    let publish = job(&jobs, "publish");
+    assert!(
+        publish
+            .body
+            .contains("needs: [verify-tag, tests, build, build-cuda]"),
+        "`publish` must need the suite and every leg"
+    );
+    assert!(
+        publish.body.contains("needs.tests.result == 'success'"),
+        "`publish` must attach nothing unless the suite passed on this commit"
+    );
+    assert!(
+        publish.body.contains("actions/download-artifact@")
+            && publish.body.contains("softprops/action-gh-release"),
+        "`publish` collects the legs' artifacts and is the one step that touches the release"
+    );
 }
 
 /// release.yml dispatches the Test workflow on the tag. A run there restores the
@@ -1824,12 +1853,18 @@ fn a_manual_dispatch_of_the_release_workflow_publishes_nothing() {
                     j.id
                 );
             }
+            // The legs store their binaries for `publish`; a dry run has no
+            // release to publish them to, so it stores nothing either.
+            if step.contains("actions/upload-artifact@") {
+                assert!(
+                    step.contains("if: needs.verify-tag.outputs.tag != ''"),
+                    "job `{}` stores release artifacts on a dispatch that publishes none:\n{step}",
+                    j.id
+                );
+            }
         }
     }
-    assert!(
-        publishing >= 3,
-        "expected the three publish steps and the prune"
-    );
+    assert!(publishing >= 2, "expected the publish step and the prune");
 }
 
 #[test]
@@ -1968,6 +2003,10 @@ fn release_required_legs_carry_their_artifact() {
     assert!(
         prune.body.contains("needs.build.result == 'success'"),
         "release.yml: prune-old-releases must gate on Tier-1 build success rather than all legs"
+    );
+    assert!(
+        prune.body.contains("needs.publish.result == 'success'"),
+        "release.yml: prune-old-releases must follow a release that was actually published"
     );
     assert!(
         prune.body.contains("\"!cancelled()"),

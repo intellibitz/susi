@@ -81,30 +81,53 @@ if [ -n "$reusable" ]; then
     exit 0
 fi
 
-dispatch=(gh workflow run test.yml --repo "$repo" --ref "$ref" -f gate=full)
-case "$ref" in
-main | refs/heads/main)
-    tip=$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha 2>/dev/null) || tip=""
-    if [ "$tip" != "$sha" ]; then
-        echo "main is at ${tip:-a commit the API did not name}, not $sha: a dispatch on main would test that tree — release a tag on $sha instead" >&2
+# Dispatch the suite on $ref and note when, for the search that finds its run.
+dispatched=0
+dispatch_suite() {
+    local -a dispatch=(gh workflow run test.yml --repo "$repo" --ref "$ref" -f gate=full)
+    local tip
+    case "$ref" in
+    main | refs/heads/main)
+        tip=$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha 2>/dev/null) || tip=""
+        if [ "$tip" != "$sha" ]; then
+            echo "main is at ${tip:-a commit the API did not name}, not $sha: a dispatch on main would test that tree — release a tag on $sha instead" >&2
+            exit 1
+        fi
+        dispatch+=(-f prove=true)
+        ;;
+    esac
+    started=$(date +%s)
+    if ! "${dispatch[@]}"; then
+        echo "could not dispatch the Test workflow on $ref" >&2
         exit 1
     fi
-    dispatch+=(-f prove=true)
-    ;;
-esac
+    dispatched=1
+    echo "dispatched the Test workflow on $ref ($sha); waiting for it"
+}
+
+# A run for this commit that has not finished is watched before anything is
+# dispatched: when a version bump merges, the merge bot dispatches the
+# post-merge suite on main and then this workflow on the tag, so that suite is
+# nearly always still running when this starts. Dispatching a second one ran
+# the whole suite twice (v0.21.26: both runs started within 30 s, each took
+# 19 min, and the four release legs waited for the tag's copy while main's
+# finished first) and put two suites' worth of jobs in front of every branch
+# push queued behind them. The in-flight run is judged exactly as a dispatched
+# one is below: a green one that turns out to be a branch gate is passed over
+# and the suite is dispatched then.
 started=$(date +%s)
-if ! "${dispatch[@]}"; then
-    echo "could not dispatch the Test workflow on $ref" >&2
-    exit 1
+run=$(full_suite_runs | jq -r 'select(.status != "completed") | .databaseId' | head -n 1)
+if [ -n "$run" ]; then
+    echo "a run for $sha is still in flight (run $run) — watching it rather than dispatching the suite again"
+else
+    dispatch_suite
 fi
-echo "dispatched the Test workflow on $ref ($sha); waiting for it"
 
 # Runs this script watched to a green finish that turned out to be a branch-gate
 # retest dispatched on the same commit in the same window, not its own dispatch.
 passed_over=" "
 while :; do
     # The dispatch returns no run id: find the run it created for this commit.
-    run=""
     while [ -z "$run" ]; do
         run=$(gh run list --repo "$repo" --workflow test.yml --event workflow_dispatch \
             --limit 20 --json databaseId,headSha,createdAt 2>/dev/null |
@@ -133,8 +156,16 @@ while :; do
                 exit 0
                 ;;
             1)
-                echo "run $run passed without running the suite (a branch-gate retest of $sha) — looking for the dispatched suite"
                 passed_over="$passed_over$run "
+                if [ "$dispatched" = 1 ]; then
+                    echo "run $run passed without running the suite (a branch-gate retest of $sha) — looking for the dispatched suite"
+                else
+                    # The in-flight run was a branch gate, not the suite: now
+                    # there is nothing to wait for but a dispatch of our own.
+                    echo "run $run passed without running the suite (a branch-gate retest of $sha) — dispatching the suite"
+                    dispatch_suite
+                fi
+                run=""
                 break
                 ;;
             esac

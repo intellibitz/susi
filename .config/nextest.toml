@@ -1,7 +1,19 @@
 # Local and CI runs of the full suite must not starve the heavy requirement
 # tests: they spawn real stdio sessions with 120 s deadlines, and a machine
 # with 28 logical cores running 4 000 tests in parallel makes those deadlines
-# expire on scheduling alone. Eight test threads keep the suite fast while
-# leaving each spawned session enough CPU to answer.
+# expire on scheduling alone. Eight test threads is the default (the CI shards
+# run on 4-vCPU runners); the local gate raises it through NEXTEST_TEST_THREADS
+# (scripts/check-hermetic-tests.sh), and the reservations below keep the
+# process-spawning tests from filling every slot: each takes two, so at most
+# half the threads run one at a time, whatever the count.
 [profile.default]
 test-threads = 8
+
+# The tests that spawn `susi` (a stdio session, the daemon and its leaf
+# services, a scratch worktree) and run for 10-45 s each on a 4-vCPU runner:
+# 743 of the root package's 1177 s of test time are gmcp_requirements alone
+# (measured on main's root-cli shards). Two slots each: they get the CPU their
+# deadlines assume, and the in-process tests fill the rest of the threads.
+[[profile.default.overrides]]
+filter = 'binary(gmcp_requirements) | binary(audit_query_surface) | binary(audit_chain_verifies) | binary(parallel_workflow) | binary(workflow_compliance) | binary(worktree_target_dir) | binary(cloud_session)'
+threads-required = 2

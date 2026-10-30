@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT20261030230356251228-1",
+  "title": "workflow speed: hermetic temp under target, nextest parallelism, release builds overlap the suite",
+  "goal": "Bring the local gate and the release pipeline down from tens of minutes to minutes: hermetic test homes live under the excluded shared target, nextest runs more threads with reservations for the process-spawning tests, release legs build in parallel with the suite and publish only after it passes, the dist profile links with thin LTO, and a release reuses an in-flight main run instead of dispatching a duplicate.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261030230356251228",
+  "created_unix": 1793382587,
+  "closed": {
+    "at_unix": 1793384957,
+    "commit": "bfd6e551e3b48ec89008cdf22d9ba8a71a107404",
+    "by": "AGENT20261030230356251228"
+  }
+}

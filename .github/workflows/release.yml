@@ -14,14 +14,25 @@ name: Release Binaries
 # this pipeline is proven (`gh workflow run release.yml --ref <branch>`)
 # without releasing anything.
 #
-# Wall time (v0.21.12, 31.7 min tag to published): macOS 31.2, CUDA 23.0, linux
-# x86_64 16.6, linux aarch64 14.8 - the slowest leg is the release. In every leg
-# the single `susi` binary unit (fat LTO, one codegen unit) is the long pole: it
-# starts only after all ~700 dependency crates finish and runs on one thread
-# (988 s of a 1548 s cold build, measured on 28 cores). Caching dependencies would not shorten it, and
-# it cannot be bought here: a cache written by a tag run is readable only by that
-# tag, one written on main would need ~2 GB per leg against a 10 GB repository
-# quota that Test already fills (see test.yml).
+# Shape: `tests` proves the suite on the tagged commit while every build leg
+# compiles at the same time; `publish` attaches what the legs uploaded as
+# workflow artifacts once both have passed. The wall time is the slower of the
+# suite and the slowest leg, not their sum: v0.21.26 took 92 min tag to
+# published (19 min waiting for the suite, then the legs: macOS 38, Windows 30
+# after a 43 min wait for a runner, linux 16), and the legs could have run
+# during those 19 min. A red suite still publishes nothing; it only costs the
+# runner minutes the legs spent in parallel.
+#
+# Every leg builds with thin LTO over 16 codegen units (`CARGO_PROFILE_DIST_*`
+# below, overriding Cargo.toml's `[profile.dist]` fat LTO + one unit). The
+# single `susi` unit was the long pole of every leg: it starts only after all
+# ~700 dependency crates finish and, under fat LTO, runs on one thread (988 s of
+# a 1548 s cold build, measured on 28 cores). Thin LTO keeps the cross-crate
+# optimisation and runs that unit on every core; Cargo.toml's `[profile.release]`
+# note measured the runtime delta as small. Caching dependencies cannot be bought
+# here: a cache written by a tag run is readable only by that tag, one written on
+# main would need ~2 GB per leg against a 10 GB repository quota that Test
+# already fills (see test.yml).
 on:
   push:
     tags:
@@ -69,18 +80,19 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  # Nothing builds until the commit the binaries come from has passed the full
-  # suite. The cut's local gate is not that proof: bare `cargo test` at this
-  # workspace root selects one package of 86, and this workflow ran no tests at
-  # all, so the other 85 were covered for a release only by whatever main's run
-  # happened to do. scripts/release-await-tests.sh reuses a passed full-suite run
-  # for this exact sha (a push to main, or a dispatch whose suite ran - a branch
-  # push and the merge bot's `gate=branch` retest only compile and lint) and
-  # otherwise dispatches the Test workflow on this ref and waits:
-  # the sharded suite, lint and e2e, not the coverage ratchet or the Kani proofs,
-  # which gate merges to main. Waiting here costs the suite's wall time (about
-  # four to five minutes warm) before the 15-31 minute builds start, and saves all
-  # four builds' runner minutes when it is red.
+  # Nothing publishes until the commit the binaries come from has passed the
+  # full suite. The cut's local gate is not that proof: bare `cargo test` at
+  # this workspace root selects one package of 86, and this workflow ran no
+  # tests at all, so the other 85 were covered for a release only by whatever
+  # main's run happened to do. scripts/release-await-tests.sh reuses a passed
+  # full-suite run for this exact sha (a push to main, or a dispatch whose suite
+  # ran - a branch push and the merge bot's `gate=branch` retest only compile
+  # and lint), waits for one still running (the post-merge suite the merge bot
+  # dispatched on main is usually in flight when the tag lands - dispatching a
+  # second one doubled the runner load and the wait), and otherwise dispatches
+  # the Test workflow on this ref and waits: the sharded suite, lint and e2e,
+  # not the coverage ratchet or the Kani proofs, which gate merges to main.
+  # The legs below build while this waits; `publish` needs both.
   tests:
     name: Full suite on the tagged commit
     needs: [verify-tag]
@@ -100,9 +112,12 @@ jobs:
           REF: ${{ needs.verify-tag.outputs.tag || github.ref_name }}
         run: scripts/release-await-tests.sh "$GITHUB_REPOSITORY" "$REF" "$GITHUB_SHA"
 
+  # The legs start with the suite, not after it (see the header): a leg's
+  # artifact waits in the run's artifact store until `publish` has seen the
+  # suite pass. tests/ci_workflow_perf.rs pins that no leg publishes itself.
   build:
     name: Build ${{ matrix.name }}
-    needs: [verify-tag, tests]
+    needs: [verify-tag]
     runs-on: ${{ matrix.os }}
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
@@ -110,6 +125,10 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
+      # Thin LTO over 16 units for the published binaries (header): the one
+      # fat-LTO unit was 988 s of the leg on a single thread.
+      CARGO_PROFILE_DIST_LTO: thin
+      CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
     strategy:
       fail-fast: false
       matrix:
@@ -180,7 +199,7 @@ jobs:
         # release is contracted to work on. The arm64 and macOS legs stay soft
         # until they have the same standing.
         continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
-        # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
+        # [profile.dist], with the job's thin-LTO override above. The one-line
         # installer uses [profile.release] (thin LTO) for fast source builds.
         # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
         run: cargo build --profile dist
@@ -242,16 +261,18 @@ jobs:
           # and published no Windows binary.
           exit 0
 
+      # Into the run's artifact store, not the release: `publish` attaches it
+      # once the suite has passed. A dispatch is a dry run and stores nothing.
       - name: Upload Artifacts
-        # A dispatch is a dry run: it has no tag, so this would publish a
-        # release named after the branch.
         if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success'
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ needs.verify-tag.outputs.tag }}
-          files: |
+          name: release-${{ matrix.name }}
+          path: |
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
+          if-no-files-found: error
+          retention-days: 3
 
       # The harness ships on its own. It needs nothing else from susi (the
       # registry and price catalogue are compiled in), so it builds, is checked
@@ -316,16 +337,18 @@ jobs:
       # attached to the release, and a cancelled run could still publish.
       - name: Upload Harness
         if: needs.verify-tag.outputs.tag != '' && !cancelled() && steps.harness_verify.outcome == 'success'
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ needs.verify-tag.outputs.tag }}
-          files: |
+          name: release-harness-${{ matrix.name }}
+          path: |
             ${{ matrix.harness }}
             ${{ matrix.harness }}.sha256
+          if-no-files-found: error
+          retention-days: 3
 
   build-cuda:
     name: Build linux-x86_64-cuda
-    needs: [verify-tag, tests]
+    needs: [verify-tag]
     # Pinned, not ubuntu-latest: 26.04's apt CUDA is 12.4, which defines
     # __hmax_nan/__hmin_nan itself, and candle-kernels' compatibility.cuh
     # redefines them below compute capability 80 (we target 75), so every
@@ -336,6 +359,8 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
+      CARGO_PROFILE_DIST_LTO: thin
+      CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -430,24 +455,56 @@ jobs:
 
       - name: Upload Artifacts
         if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-cuda-linux-x86_64
+          path: |
+            susi-linux-x86_64-cuda.tar.gz
+            susi-linux-x86_64-cuda.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  # The one step that touches the GitHub release: every artifact the legs
+  # stored, attached once the suite has passed on this commit. The legs'
+  # results are not a gate here beyond "finished": a leg that failed uploaded
+  # nothing (its upload is on its own build's outcome), and the legs that
+  # passed ship, exactly as each used to publish itself - a red required leg
+  # still fails the run. `!cancelled()` so a cancelled run publishes nothing,
+  # and the tag so a dispatch (a dry run) publishes nothing.
+  publish:
+    name: Publish the release
+    needs: [verify-tag, tests, build, build-cuda]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && contains('success failure', needs.build.result) && contains('success failure', needs.build-cuda.result)"
+    steps:
+      - name: Collect the legs' artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish the release assets
+        if: needs.verify-tag.outputs.tag != ''
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify-tag.outputs.tag }}
-          files: |
-            susi-linux-x86_64-cuda.tar.gz
-            susi-linux-x86_64-cuda.tar.gz.sha256
+          fail_on_unmatched_files: true
+          files: release/*
 
   # Retention: keep rolling `dev` (other workflow) + newest 2 semver Releases.
   # Older GitHub Release *objects* (and their ~700MB assets) are deleted;
   # git tags are never removed so history stays intact.
   prune-old-releases:
     name: Prune old GitHub Releases
-    needs: [verify-tag, build, build-cuda]
+    needs: [verify-tag, build, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The Tier-1 build job publishes the Linux x86_64 binary; non-Tier-1 artifacts
-    # (macOS, ARM64, CUDA) are non-blocking, so prune runs as long as Tier-1 succeeded.
-    if: "!cancelled() && needs.build.result == 'success' && needs.verify-tag.outputs.tag != ''"
+    # The Tier-1 build job builds the Linux x86_64 binary; non-Tier-1 artifacts
+    # (macOS, ARM64, CUDA) are non-blocking, so prune runs as long as Tier-1
+    # succeeded and `publish` attached the assets.
+    if: "!cancelled() && needs.build.result == 'success' && needs.publish.result == 'success' && needs.verify-tag.outputs.tag != ''"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6

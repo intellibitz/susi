@@ -567,3 +567,75 @@ fn a_tag_dispatch_asks_nothing_about_main() {
         "{calls}"
     );
 }
+
+/// A run for the commit that has not finished is the post-merge suite the merge
+/// bot dispatched on main before it dispatched the release: the script watches
+/// it rather than dispatching a second suite (v0.21.26 ran the suite twice,
+/// within 30 s of each other, and the release legs waited for the slower copy).
+fn in_flight(id: u64, branch: &str) -> serde_json::Value {
+    serde_json::json!({ "databaseId": id, "event": "workflow_dispatch", "headBranch": branch,
+        "status": "in_progress", "conclusion": "", "headSha": SHA, "createdAt": LATER })
+}
+
+#[test]
+fn an_in_flight_run_for_the_commit_is_watched_not_dispatched_again() {
+    let f = Fake::new(
+        "inflight",
+        serde_json::json!([in_flight(95, "main")]),
+        serde_json::json!([]),
+        &["in_progress/", "completed/success"],
+    );
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("still in flight (run 95)"), "{out}");
+    assert!(out.contains("passed on abc1234 (run 95)"), "{out}");
+    assert!(
+        !f.calls().contains("workflow run"),
+        "the suite was dispatched beside the one already running: {}",
+        f.calls()
+    );
+}
+
+/// The in-flight run can be the merge bot's branch-gate retest of the same
+/// commit. Green, it proves no suite, and only then is one dispatched.
+#[test]
+fn an_in_flight_branch_gate_is_passed_over_and_the_suite_dispatched_then() {
+    let f = Fake::new(
+        "inflight-gate",
+        serde_json::json!([in_flight(96, "main")]),
+        serde_json::json!([dispatched(97, SHA)]),
+        &["completed/success", "completed/success"],
+    );
+    f.jobs(96, BRANCH_GATE);
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("still in flight (run 96)"), "{out}");
+    assert!(
+        out.contains("run 96 passed without running the suite"),
+        "{out}"
+    );
+    assert!(out.contains("passed on abc1234 (run 97)"), "{out}");
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref v1.2.3 -f gate=full"),
+        "{}",
+        f.calls()
+    );
+}
+
+/// A red in-flight run blocks the release like a red dispatched one: the tag's
+/// commit is what failed, and a second run of the same bytes would not pass.
+#[test]
+fn a_red_in_flight_run_blocks_the_release() {
+    let f = Fake::new(
+        "inflight-red",
+        serde_json::json!([in_flight(98, "main")]),
+        serde_json::json!([]),
+        &["in_progress/", "completed/failure"],
+    );
+    f.jobs(98, SHARD_FAILED);
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("did not pass"), "{out}");
+    assert!(!f.calls().contains("workflow run"), "{}", f.calls());
+}
