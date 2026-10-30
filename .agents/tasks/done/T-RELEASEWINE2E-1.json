@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "RELEASEWINE2E",
-  "created_unix": 1793341754
+  "created_unix": 1793341754,
+  "closed": {
+    "at_unix": 1793343557,
+    "commit": "41d97ec566f8871eaea81cc302564b6b110b4aa6",
+    "by": "RELEASEWINE2E"
+  }
 }
