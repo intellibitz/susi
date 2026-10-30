@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CODEXLOCALGATEUNDER60",
-  "created_unix": 1793395684
+  "created_unix": 1793395684,
+  "closed": {
+    "at_unix": 1793395808,
+    "commit": "c856a438cec9eedb12f3add69915fe7bd62b4e01",
+    "by": "CODEXLOCALGATEUNDER60"
+  }
 }
