@@ -115,7 +115,19 @@ chain above the patches is built once: it sits in the snapshot once the
 watcher refreshes it after the merge, and the compiler cache serves it to
 every worktree before then.
 
-PATCH_MEASUREMENT
+Measured on the branch that made the change, before its merge (so the
+snapshot still carried the old path patches and the chain still had to be
+compiled rather than copied): the first worktree built the chain and wrote
+it to the cache; a second worktree of the same commit then had 25 of its 26
+compile requests served from the cache (the one miss was the root crate),
+reqwest, esaxx-rs, ra2a, rmcp, tokenizers, fastembed and the three candle
+crates among the hits, where the same crates had been the 14 misses of
+2026-10-31's first measurement. Once the watcher refreshes the snapshot from
+a main that carries this change, those crates are copied with it and compile
+in no worktree at all; a snapshot behind main still has the cache. Wall time
+is not reported for that run: another agent's gate shared the machine while
+it ran, and the test build (the ~100 root test binaries, which no cache can
+hold) was slower than on an idle machine, not faster.
 
 ## What is not fixed here
 
