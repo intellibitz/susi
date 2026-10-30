@@ -862,9 +862,16 @@ fn a_new_worktree_gets_its_own_target_seeded_from_the_snapshot() {
     assert_eq!(code, 0, "{err}");
     let dest = cd_target(&out);
     assert!(!is_link(&dest.join("target")), "no link to a shared target");
+    // The start never waits for the copy: it runs in the background, and the
+    // agent's first foreground seed-target.sh (AGENTS.md step 1) waits for it.
+    assert!(
+        err.contains("target: copying") && err.contains("in the background"),
+        "it says the copy is under way: {err}"
+    );
+    let (code, _, seed_err) = w.seed_target(&[dest.to_str().unwrap()], &[]);
+    assert_eq!(code, 0, "{seed_err}");
     assert_seeded(&dest);
     assert_seed_untouched(&w);
-    assert!(err.contains("target: seeded"), "it says what it did: {err}");
     // Neither the target nor its staging is ever swept into a commit.
     assert!(git(&dest, &["status", "--porcelain"]).is_empty());
 }
