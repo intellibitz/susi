@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179338547544288-3",
+  "title": "A cooling or unfunded model must answer a retryable 429, never 400",
+  "goal": "Observed in a live engine mission: after SiliconFlow was rate-limited and escalation picked claude-sonnet (whose provider has no credit), the gateway answered HTTP 400 on turn 1 of every later attempt, and the adapter could only report 'gateway answered HTTP 400 on turn 1'. A model that cannot serve right now is a temporary condition, not a malformed request: it must answer 429 with a Retry-After carrying the cooldown, so the caller backs off or escalates and the reason survives into the failure record. 400 is reserved for a request the gateway cannot parse.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "gateway"
+    ]
+  },
+  "created_by": "AGENT179338547544288",
+  "created_unix": 1793393786
+}
