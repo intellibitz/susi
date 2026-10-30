@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CLAUDEFUNNYCERFYM03QP",
-  "created_unix": 1793332133
+  "created_unix": 1793332133,
+  "closed": {
+    "at_unix": 1793334729,
+    "commit": "61ecc9ff58e2d80a712847fdcb276e382ed9befc",
+    "by": "CLAUDEFUNNYCERFYM03QP"
+  }
 }
