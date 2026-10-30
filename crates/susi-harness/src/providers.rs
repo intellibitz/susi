@@ -1210,13 +1210,25 @@ const BUILTIN: &str = r#"
     {
       "id": "siliconflow",
       "wire": "openai",
-      "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
+      "endpoint": "https://api.siliconflow.com/v1/chat/completions",
       "key_env": ["SILICONFLOW_API_KEY"],
-      "key_url": "https://cloud.siliconflow.cn/account/ak",
+      "key_url": "https://cloud.siliconflow.com/account/ak",
       "models": [
-        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3-235B-A22B-Instruct-2507", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3.8-27B", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
         {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 128000, "tools": true, "streaming": true, "tier": "rescue"},
-        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen2.5-Coder-32B-Instruct", "context": 32768, "tools": true, "streaming": true, "tier": "worker"}
+        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "context": 128000, "tools": true, "streaming": true, "tier": "worker"}
+      ]
+    },
+    {
+      "id": "deepinfra",
+      "wire": "openai",
+      "endpoint": "https://api.deepinfra.com/v1/openai/chat/completions",
+      "key_env": ["DEEPINFRA_API_KEY"],
+      "key_url": "https://deepinfra.com/dash/api_keys",
+      "models": [
+        {"id": "deepinfra-llama", "backend": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "context": 131072, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "deepinfra-qwen-coder", "backend": "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo", "context": 262144, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "deepinfra-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 163840, "tools": true, "streaming": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -1401,12 +1413,68 @@ mod tests {
         );
         assert_eq!(
             registry.resolve("siliconflow-qwen-coder").unwrap().model_id,
-            "Qwen/Qwen2.5-Coder-32B-Instruct"
+            "Qwen/Qwen3-Coder-30B-A3B-Instruct"
         );
         assert_eq!(
             registry.resolve("claude-sonnet").unwrap().wire,
             Wire::Anthropic
         );
+    }
+
+    #[test]
+    fn providers_carry_the_payg_engines() {
+        let registry = Registry::builtin();
+
+        // SiliconFlow is a BYOK engine, but only on the .com host: the .cn host
+        // answers 401 for the key this deployment uses, which took the whole
+        // provider off the ladder.
+        let siliconflow = registry
+            .providers()
+            .iter()
+            .find(|provider| provider.id == "siliconflow")
+            .expect("siliconflow provider");
+        assert!(
+            siliconflow.endpoint.contains("api.siliconflow.com"),
+            "siliconflow must use the .com host, got {}",
+            siliconflow.endpoint
+        );
+        assert_eq!(siliconflow.key_envs, ["SILICONFLOW_API_KEY"]);
+
+        let deepinfra = registry
+            .providers()
+            .iter()
+            .find(|provider| provider.id == "deepinfra")
+            .expect("deepinfra provider");
+        assert!(
+            deepinfra.endpoint.contains("api.deepinfra.com"),
+            "deepinfra must keep its OpenAI-compatible endpoint, got {}",
+            deepinfra.endpoint
+        );
+        assert_eq!(deepinfra.key_envs, ["DEEPINFRA_API_KEY"]);
+
+        // Every engine model is dispatchable: it resolves, accepts tools,
+        // streams, and carries a context window a worker can use.
+        for id in [
+            "siliconflow-qwen",
+            "siliconflow-deepseek",
+            "siliconflow-qwen-coder",
+            "deepinfra-llama",
+            "deepinfra-qwen-coder",
+            "deepinfra-deepseek",
+        ] {
+            let model = registry.resolve(id).expect("payg engine model resolves");
+            assert!(
+                model.provider == "siliconflow" || model.provider == "deepinfra",
+                "{id} must resolve to a BYOK engine, got {}",
+                model.provider
+            );
+            assert!(model.capabilities.tools, "{id} must accept tools");
+            assert!(model.capabilities.streaming, "{id} must stream");
+            assert!(
+                model.capabilities.context.unwrap_or(0) >= 32_768,
+                "{id} must document a usable context window"
+            );
+        }
     }
 
     #[test]
