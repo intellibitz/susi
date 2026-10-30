@@ -97,16 +97,52 @@ the test build), same commit, same machine:
 
 The hits are the registry crates a `-p susi` gate unifies with other
 features than the snapshot's whole-workspace build (tokio-stream, tower,
-tower-http, axum). The misses that remain, and they are the heavy ones (49 s
-of compiler time each on average), are rmcp, ra2a, tokenizers, fastembed and
-the three candle crates: every one depends on `vendor/reqwest` or
-`vendor/esaxx-rs`, the two `[patch.crates-io]` path crates, whose rlibs embed
-the worktree's path, so their dependents' cache keys differ in every
-worktree (two different keys for rmcp, observed). The same two patches keep
-those crates out of the snapshot. Hosting the two patches as a pinned git
-revision instead of a path would put the whole chain in the snapshot and in
-the cache: that is the next change, and it touches `Cargo.toml` and
-`Cargo.lock` (a whole-workspace gate).
+tower-http, axum). The misses that remained, and they were the heavy ones
+(49 s of compiler time each on average), were rmcp, ra2a, tokenizers,
+fastembed and the three candle crates: every one depends on `reqwest` or
+`esaxx-rs`, the two `[patch.crates-io]` crates, which were path crates under
+`vendor/`; a path crate's rlib embeds the worktree's path, so their
+dependents' cache keys differed in every worktree (two different keys for
+rmcp, observed), and the same two path crates kept the chain out of the
+snapshot.
+
+## The patches as a pinned git revision (2026-10-31)
+
+The two patches now live on this repository's `nopr/vendor-patches` branch
+and the root `Cargo.toml` pins a revision of it (`vendor/README.md`). A git
+source is keyed the same in every worktree and on every machine, so the
+chain above the patches is built once: it sits in the snapshot once the
+watcher refreshes it after the merge, and the compiler cache serves it to
+every worktree before then.
+
+Measured on the branch that made the change, before its merge (so the
+snapshot still carried the old path patches and the chain still had to be
+compiled rather than copied): the first worktree built the chain and wrote
+it to the cache; a second worktree of the same commit then had 25 of its 26
+compile requests served from the cache (the one miss was the root crate),
+reqwest, esaxx-rs, ra2a, rmcp, tokenizers, fastembed and the three candle
+crates among the hits, where the same crates had been the 14 misses of
+2026-10-31's first measurement. Once the watcher refreshes the snapshot from
+a main that carries this change, those crates are copied with it and compile
+in no worktree at all; a snapshot behind main still has the cache. Wall time
+is not reported for that run: another agent's gate shared the machine while
+it ran, and the test build (the ~100 root test binaries, which no cache can
+hold) was slower than on an idle machine, not faster.
+
+**A hazard found on the way, and its guard.** sccache's client starts a
+server when none is running, and that server keeps the client's
+environment. Started by the first cargo of a hermetic test run, whose TMP is
+a throwaway directory, it kept writing temp files there after the run
+deleted it, and every compile on the machine failed with "Failed to create
+temp dir" until it idled out ten minutes later: one agent's whole-workspace
+gate failed on another agent's server. `scripts/setup-sccache.sh` now starts
+the server itself, from a sane environment, with no idle exit, every time it
+runs (enabling, and the silent runs at session start and worktree creation),
+so a dead server is replaced before a gate can start a bad one. The complete
+guard is for `scripts/check-hermetic-tests.sh` to start the server before it
+switches TMP (that script was under another agent's claim when this was
+found); a hermetic run that finds no server can still start a bad one until
+then.
 
 ## What is not fixed here
 
