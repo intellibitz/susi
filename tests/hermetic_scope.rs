@@ -264,3 +264,108 @@ fn an_unknown_runner_is_refused_before_anything_runs() {
     assert!(out.contains("SUSI_HERMETIC_RUNNER"), "{out}");
     assert_eq!(w.cargo_calls(), "", "no cargo call before the refusal");
 }
+
+/// sccache's client starts a server when none runs, and that server keeps the
+/// client's environment: one started by this run's first cargo kept the run's
+/// throwaway TMP and failed every compile on the machine once the EXIT trap
+/// removed it. So the script has the server started from the real environment
+/// (`scripts/setup-sccache.sh --ensure-server`) before it switches HOME and
+/// TMP: the fake records the TMP and the cache settings it was started with,
+/// and the order against the fake cargo.
+#[test]
+fn the_sccache_server_is_started_from_the_real_environment_before_the_switch() {
+    let w = World::new("sccache-server", false);
+    // The fake `sccache` sits beside the fake cargo in CARGO_HOME/bin, which the
+    // script puts first on PATH; it logs into the same file as cargo, so the
+    // order of the two is one list.
+    let fake = w.bins.join("sccache");
+    std::fs::write(
+        &fake,
+        "#!/usr/bin/env bash\necho \"sccache $* TMP=${TMP:-} DIR=${SCCACHE_DIR:-} SIZE=${SCCACHE_CACHE_SIZE:-} IDLE=${SCCACHE_IDLE_TIMEOUT:-}\" >>\"$TEST_CARGO_CALLS\"\nexit 0\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    // The block scripts/setup-sccache.sh writes, with a cache of this test's own.
+    let cache = w.root.join("cache");
+    let cache_toml = cache.to_string_lossy().replace('\\', "/");
+    std::fs::write(
+        w.bins.parent().unwrap().join("config.toml"),
+        format!(
+            "# >>> susi sccache (scripts/setup-sccache.sh) >>>\n[build]\nrustc-wrapper = \"sccache\"\n\n[env]\nSCCACHE_DIR = \"{cache_toml}\"\nSCCACHE_CACHE_SIZE = \"7G\"\n# <<< susi sccache <<<\n"
+        ),
+    )
+    .unwrap();
+    let real_tmp = w.root.join("real-tmp");
+    std::fs::create_dir_all(&real_tmp).unwrap();
+    let real_tmp_s = real_tmp.to_string_lossy().into_owned();
+    let (code, out) = w.run_with(
+        &[
+            ("TMP", real_tmp_s.as_str()),
+            ("TMPDIR", real_tmp_s.as_str()),
+        ],
+        &["-p", "susi"],
+    );
+    assert_eq!(code, 0, "{out}");
+    let calls = w.cargo_calls();
+    let lines: Vec<&str> = calls.lines().collect();
+    let server = lines
+        .iter()
+        .position(|l| l.starts_with("sccache --start-server"))
+        .unwrap_or_else(|| panic!("the server was not started: {calls}"));
+    let cargo = lines
+        .iter()
+        .position(|l| !l.starts_with("sccache"))
+        .unwrap_or_else(|| panic!("cargo never ran: {calls}"));
+    assert!(
+        server < cargo,
+        "the server must be started before any cargo: {calls}"
+    );
+    let started = lines[server];
+    // The shell may spell TMP its own way (MSYS turns a Windows path into a
+    // POSIX one), and this test itself may be running under the gate's own
+    // throwaway temp, so judge the directory's last name: the one this test
+    // passed in, not the run's `.../appdata/local/temp`.
+    assert!(
+        started.contains("real-tmp DIR="),
+        "the server must keep the real TMP, not the run's throwaway: {started}"
+    );
+    assert!(
+        started.contains(&format!("DIR={cache_toml}")) && started.contains("SIZE=7G"),
+        "the server takes the cache's place and size from the written block: {started}"
+    );
+    assert!(started.contains("IDLE=0"), "no idle exit: {started}");
+    assert_eq!(
+        lines.iter().filter(|l| l.starts_with("sccache")).count(),
+        1,
+        "started once, before the switch: {calls}"
+    );
+}
+
+/// Where the cache was never set up (no block in the cargo config), nothing
+/// starts a server: without the wrapper no cargo would use it.
+#[test]
+fn no_sccache_block_means_no_server_start() {
+    let w = World::new("sccache-no-block", false);
+    let fake = w.bins.join("sccache");
+    std::fs::write(
+        &fake,
+        "#!/usr/bin/env bash\necho \"sccache $*\" >>\"$TEST_CARGO_CALLS\"\nexit 0\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let (code, out) = w.run(&["-p", "susi"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        !w.cargo_calls().contains("sccache"),
+        "no block, no server: {}",
+        w.cargo_calls()
+    );
+}
