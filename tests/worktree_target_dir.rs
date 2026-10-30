@@ -1889,6 +1889,7 @@ fn the_scripts_people_run_directly_are_executable() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
     for script in [
         "scripts/seed-target.sh",
+        "scripts/setup-sccache.sh",
         "scripts/susi-worktree.sh",
         "scripts/target-guard.sh",
         "scripts/link-shared-target.sh",
@@ -3204,4 +3205,107 @@ fn the_copy_watcher_counts_an_unreaped_process_as_ended() {
         out, "ended",
         "an exited process nothing reaps must count as ended: {err}"
     );
+}
+
+/// The machine's compiler cache (`scripts/setup-sccache.sh`): what the
+/// snapshot cannot hold compiles once per machine, not once per worktree. It
+/// writes one marked block into the user's cargo config, writes it once, takes
+/// it out again on `--off`, and never adds a second `[build]` or `[env]` table
+/// to a config that has one (a TOML error that would break every cargo).
+#[test]
+fn setup_sccache_writes_one_removable_block_and_never_doubles_a_table() {
+    let root = std::env::temp_dir().join(format!("susi-sccache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("cargo-home");
+    let path = fake_tools(
+        &root.join("bin"),
+        &[(
+            "sccache",
+            "case \"$1\" in --show-stats) echo 'Compile requests 0' ;; esac\nexit 0\n",
+        )],
+    );
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/setup-sccache.sh");
+    let cache = root.join("cache");
+    let envs = |extra: &[(&str, &str)]| -> Vec<(String, String)> {
+        let mut v = vec![
+            ("PATH".to_string(), path.clone()),
+            (
+                "CARGO_HOME".to_string(),
+                home.to_string_lossy().into_owned(),
+            ),
+            (
+                "SUSI_SCCACHE_DIR".to_string(),
+                cache.to_string_lossy().into_owned(),
+            ),
+        ];
+        v.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        v
+    };
+    let run_setup = |args: &[&str], extra: &[(&str, &str)]| -> (i32, String, String) {
+        let envs = envs(extra);
+        let envs: Vec<(&str, &str)> = envs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        run(&root, script.to_str().unwrap(), args, &envs)
+    };
+    let config = home.join("config.toml");
+
+    let (code, out, err) = run_setup(&[], &[]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let text = std::fs::read_to_string(&config).unwrap();
+    assert!(text.contains("rustc-wrapper = \"sccache\""), "{text}");
+    assert!(text.contains("SCCACHE_CACHE_SIZE = \"50G\""), "{text}");
+    assert!(cache.is_dir(), "the cache directory is made");
+
+    // Once: the same settings again change nothing and say nothing.
+    let (code, out, _) = run_setup(&[], &[]);
+    assert_eq!(code, 0);
+    assert!(
+        out.is_empty(),
+        "a second run with the same settings is silent: {out}"
+    );
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
+
+    // A new size rewrites the one block rather than adding another.
+    let (code, _, err) = run_setup(&[], &[("SUSI_SCCACHE_SIZE", "20G")]);
+    assert_eq!(code, 0, "{err}");
+    let text = std::fs::read_to_string(&config).unwrap();
+    assert_eq!(text.matches("[build]").count(), 1, "{text}");
+    assert!(text.contains("SCCACHE_CACHE_SIZE = \"20G\""), "{text}");
+
+    // --off takes the block out; a config that was only the block goes too.
+    let (code, _, err) = run_setup(&["--off"], &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!config.exists(), "nothing but the block: no config is left");
+
+    // A [build] table this script did not write is never doubled.
+    write(&config, "[build]\njobs = 4\n");
+    let (code, _, err) = run_setup(&[], &[]);
+    assert_eq!(code, 1, "a foreign [build] table must be refused: {err}");
+    assert!(
+        err.contains("already has a [build] or [env] table"),
+        "{err}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&config).unwrap(),
+        "[build]\njobs = 4\n"
+    );
+
+    // Other settings are kept, the block goes after them.
+    write(&config, "[alias]\nb = \"build\"\n");
+    let (code, _, err) = run_setup(&[], &[]);
+    assert_eq!(code, 0, "{err}");
+    let text = std::fs::read_to_string(&config).unwrap();
+    assert!(text.starts_with("[alias]\nb = \"build\"\n"), "{text}");
+    assert!(text.contains("rustc-wrapper = \"sccache\""), "{text}");
+
+    // Without sccache on PATH nothing is written, and the way to install it is named.
+    let _ = std::fs::remove_file(&config);
+    let bare =
+        std::env::join_paths(std::env::split_paths(&path).filter(|p| p != &root.join("bin")))
+            .unwrap();
+    let (code, _, err) = run_setup(&[], &[("PATH", bare.to_str().unwrap())]);
+    if code != 0 {
+        assert!(err.contains("--install"), "{err}");
+        assert!(!config.exists());
+    } // else: a real sccache is on this machine's PATH, and enabling it in a scratch home is harmless.
+    let _ = std::fs::remove_dir_all(&root);
 }
