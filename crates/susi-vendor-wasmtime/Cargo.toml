@@ -14,11 +14,12 @@ susi-error = { workspace = true }
 # backend exposes no middleware API for fuel metering. wasmtime is
 # Apache-2.0, first-class on windows-msvc, and meters fuel natively
 # (Config::consume_fuel + Store::set_fuel).
-wasmtime = "49.0.2"
+# 49.0.5 carries the fixes for RUSTSEC-2026-0420/0422/0423/0424.
+wasmtime = "49.0.5"
 # `p0` adds the `wasi_unstable` (preview 0) import table: rustc's
 # wasm32-wasip1 emits `wasi_snapshot_preview1`, but hand-built probes still
 # speak the older spelling, and wasmer-wasix accepted both.
-wasmtime-wasi = { version = "49.0.2", features = ["p0"] }
+wasmtime-wasi = { version = "49.0.5", features = ["p0"] }
 # In-process cell runtime (`cell.rs`): the declared-max memory-cap rewrite of
 # the module's memory section, and WAT text accepted alongside binary
 # (`wat::parse_bytes` passes already-binary modules through).
