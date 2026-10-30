@@ -419,3 +419,34 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
     }
     assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), expected);
 }
+
+/// The mkdir lock fallback (scripts/posix-compat.sh, used where flock(1) is
+/// missing, as on Git Bash) reclaims a lock directory a killed locker left
+/// empty. One left between mkdir and writing its pid held the primary-update
+/// lock for a day, and every new worktree waited on it.
+#[test]
+fn flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker() {
+    let dir = std::env::temp_dir().join(format!("susi-flock-empty-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("lock.flock.d")).unwrap();
+    let compat = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/posix-compat.sh");
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg(
+            "set -euo pipefail; . \"$1\"; touch -d '1 minute ago' lock.flock.d
+             exec 7>lock; flock 7; echo locked",
+        )
+        .arg("bash")
+        .arg(compat.to_string_lossy().replace('\\', "/"))
+        .current_dir(&dir)
+        .env("SUSI_FLOCK_SHIM", "1")
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "locked",
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
