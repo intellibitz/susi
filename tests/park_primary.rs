@@ -430,13 +430,13 @@ fn flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("lock.flock.d")).unwrap();
     let compat = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/posix-compat.sh");
-    let out = Command::new("bash")
+    let out = Command::new("sh")
         .arg("-c")
         .arg(
             "set -euo pipefail; . \"$1\"; touch -d '1 minute ago' lock.flock.d
              exec 7>lock; flock 7; echo locked",
         )
-        .arg("bash")
+        .arg("sh")
         .arg(compat.to_string_lossy().replace('\\', "/"))
         .current_dir(&dir)
         .env("SUSI_FLOCK_SHIM", "1")
