@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179338547544288-1",
+  "title": "Harness engines: SiliconFlow and DeepInfra are servable PAYG BYOK providers",
+  "goal": "The harness must bootstrap on BYOK engines. SiliconFlow points at api.siliconflow.cn, which returns 401 for this account's key (the .com host serves 81 models), so the harness marks siliconflow INACTIVE and every model is off the ladder. DeepInfra is absent from the registry entirely. Point siliconflow at .com with model ids the key can serve, and add DeepInfra as a first-class provider with its own models, so the harness can run on PAYG engines without a monthly-subscription provider.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "providers"
+    ]
+  },
+  "created_by": "AGENT179338547544288",
+  "created_unix": 1793385930,
+  "closed": {
+    "at_unix": 1793393129,
+    "commit": "1564d9531def67cab7a1eed704c6b39f82a6ad4a",
+    "by": "AGENT179338547544288"
+  }
+}
