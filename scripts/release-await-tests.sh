@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# Block until the full Test suite has passed on <sha>, the commit a release tag
-# names; fail if it did not. The release builds four binaries for ~30 minutes and
-# publishes them, so nothing builds until the commit they are built from is known
-# to pass the suite on a clean machine.
+# Block release publication until the release-required Test jobs have passed on
+# <sha>, the commit a release tag names. The build legs run in parallel with
+# this check, so they do not wait idle for the suite.
 #
 #   release-await-tests.sh <owner/repo> <ref> <sha>
 #
-# 1. A passed full-suite run for <sha> is reused: a push run on main, or a
-#    `workflow_dispatch` run of the Test workflow whose suite actually ran (the
-#    post-merge suite auto-merge dispatches on main is one). A push run on any
-#    OTHER branch is not a full suite - it compiles and lints - so it never
-#    counts, and neither does the merge bot's `gate=branch` retest of a resynced
-#    head: that is a dispatch too, but it runs exactly what a branch push runs.
+# 1. A run on <sha> is reused once its release-required jobs have passed. The
+#    run may still be finishing merge-only coverage or Kani work. A branch push
+#    is not a full suite - it compiles and lints - so it never counts, and
+#    neither does the merge bot's `gate=branch` retest of a resynced head: that
+#    is a dispatch too, but it runs exactly what a branch push runs.
 # 2. Otherwise the Test workflow is dispatched on <ref> (the tag) with the full
 #    gate, which runs the sharded suite, lint and e2e - not the coverage ratchet
 #    or the Kani proofs, which gate merges to main and are skipped on a tag - and
@@ -21,8 +19,8 @@
 #    concurrency group of its own, where the merges' group would make it wait
 #    behind the running suite past wait_max, or replace it while pending.
 #
-# exit 0: the suite passed on <sha>
-# exit 1: it failed, was cancelled, never started, or did not finish in time
+# exit 0: release-required tests and repository checks passed on <sha>
+# exit 1: a required job failed, the suite never started, or it timed out
 set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo} ref=${2:?ref} sha=${3:?sha}
@@ -30,54 +28,76 @@ wait_max=${RELEASE_TESTS_WAIT_MAX:-2700}
 poll=${RELEASE_TESTS_POLL:-15}
 find_max=${RELEASE_TESTS_FIND_MAX:-120}
 
-# test.yml's `lint` job. Every full-gate dispatch that ran its suite ran it; a
-# dispatched run on main the code-tree stamp proved by identity, or that
-# reached no crate, skipped it with the shards (and is then not reused here:
-# the suite is dispatched on the tag instead, which is what a release wants on
-# a sha no run executed), and a `gate=branch` dispatch skips it with the
-# shards and e2e. A push run on main is reused on its conclusion alone, as
-# before: main takes no direct pushes (the ruleset allows pull requests only),
-# so such a run is a hand push outside the loop and its reuse is unchanged. `gh run list` does not report a dispatch's inputs,
-# so a green dispatch run whose job did not pass is taken for what it is: a
-# branch gate that compiled and linted. tests/release_await_tests.rs pins the
-# name against test.yml.
+# `Doc Tests + Clippy` runs with the shards, and a full-gate dispatch whose
+# code-tree stamp skipped the suite or a `gate=branch` retest skips both. Those
+# runs cannot prove the release. `gh run list` does not report dispatch inputs,
+# so the jobs themselves are the source of truth. tests/release_await_tests.rs
+# pins their names and conditions against test.yml.
 suite_job="Doc Tests + Clippy"
 
-# Runs of the Test workflow for $sha that may have executed the full suite.
+# Release proof is the test shards, doc-tests/clippy, and any live e2e job that
+# actually ran, plus the cheap repository checks. Coverage and Kani are merge
+# gates, not release gates; the tag run skips both. Waiting for the whole main
+# workflow kept release waiting for 11 minutes on the 2026-10-30 main run,
+# even though every release-required job was green by minute 6. Test
+# job names and their conditions are pinned by tests/release_await_tests.rs.
+release_jobs_state() {
+    local snapshot summary
+    run_status=unknown
+    run_conclusion=unknown
+    snapshot=$(gh run view "$1" --repo "$repo" --json status,conclusion,jobs \
+        --jq '
+          . as $run | ($run.jobs // []) as $jobs |
+          ($jobs | map(select(.name == "Doc Tests + Clippy")) | first // null) as $lint |
+          ($jobs | map(select(.name | startswith("Test (")))) as $shards |
+          ($jobs | map(select(.name == "capability_gap_e2e (live susi-native)")) | first // null) as $e2e |
+          ["Unsafe Exposure Ratchet", "Format Check", "Repository Invariants", "cargo deny (licenses + advisories)"] as $check_names |
+          [ $check_names[] as $name | ($jobs | map(select(.name == $name)) | first // null) ] as $checks |
+          [ $run.status, ($run.conclusion // "none"),
+          (if ($lint != null and $lint.conclusion == "success"
+              and ($shards | length) > 0
+              and all($shards[]; .conclusion == "success")
+              and all($checks[]; .conclusion == "success")
+              and ($e2e == null or $e2e.conclusion == "success" or $e2e.conclusion == "skipped")) then "ready"
+          elif (($lint != null and $lint.conclusion == "failure")
+                or any($shards[]; .conclusion == "failure")
+                or any($checks[]; .conclusion == "failure")
+                or ($e2e != null and $e2e.conclusion == "failure")) then "failed"
+          elif (($lint == null or $lint.conclusion == "skipped")
+                and (($shards | length) == 0 or all($shards[]; .conclusion == "skipped"))) then "no-suite"
+          else "pending" end) ] | @tsv
+        ' 2>/dev/null) || return 4
+    IFS=$'\t' read -r run_status run_conclusion summary <<<"$snapshot"
+    case "$summary" in
+    ready) return 0 ;;
+    failed) return 1 ;;
+    no-suite) return 2 ;;
+    *) return 3 ;;
+    esac
+}
+
+# Runs of the Test workflow for $sha that may have executed release-required jobs.
 full_suite_runs() {
     gh run list --repo "$repo" --workflow test.yml --commit "$sha" --limit 30 \
         --json databaseId,event,headBranch,status,conclusion 2>/dev/null |
         jq -c '.[] | select(.event == "workflow_dispatch" or (.event == "push" and .headBranch == "main"))'
 }
 
-# Whether dispatched run $1 executed the suite and it passed: 0 it did, 1 it
-# did not (a branch gate), 2 its jobs could not be read - which says nothing
-# either way, so it is never taken for a branch gate.
-ran_the_suite() {
-    local verdict
-    verdict=$(gh run view "$1" --repo "$repo" --json jobs \
-        --jq "any(.jobs[]; .name == \"$suite_job\" and .conclusion == \"success\")" 2>/dev/null) || return 2
-    [ "$verdict" = true ]
-}
-
 reusable=""
-for entry in $(full_suite_runs | jq -r 'select(.conclusion == "success") | "\(.databaseId):\(.event)"'); do
+for entry in $(full_suite_runs | jq -r 'select(.status == "completed") | "\(.databaseId):\(.event)"'); do
     id=${entry%%:*}
-    if [ "${entry#*:}" = push ]; then
-        reusable=$id
-        break
-    fi
-    ran_the_suite "$id"
+    release_jobs_state "$id"
     case $? in
     0)
         reusable=$id
         break
         ;;
-    1) echo "run $id passed without running the suite (a branch-gate retest) — not reused" ;;
+    1) echo "run $id did not pass the release-required jobs — not reused" ;;
+    2) echo "run $id finished without running the suite (a branch-gate or code-tree skip) — not reused" ;;
     esac
 done
 if [ -n "$reusable" ]; then
-    echo "the full suite already passed on $sha (run $reusable) — not run again"
+    echo "the release-required checks already passed on $sha (run $reusable) — not run again"
     exit 0
 fi
 
@@ -145,39 +165,49 @@ while :; do
     echo "watching run $run"
 
     while :; do
-        state=$(gh run view "$run" --repo "$repo" --json status,conclusion \
-            --jq '.status + "/" + (.conclusion // "")' 2>/dev/null || echo "unknown/")
-        case "$state" in
-        completed/success)
-            ran_the_suite "$run"
-            case $? in
-            0)
-                echo "the full suite passed on $sha (run $run)"
-                exit 0
-                ;;
-            1)
+        release_jobs_state "$run"
+        verdict=$?
+        state=${run_status:-unknown}
+        case "$verdict" in
+        0)
+            echo "the release-required checks passed on $sha (run $run)"
+            exit 0
+            ;;
+        1)
+            echo "the release-required checks did not pass on $sha (run $run, $state)" >&2
+            gh run view "$run" --repo "$repo" --json jobs \
+                --jq '.jobs[] | select(.conclusion == "failure") | "  failed job: " + .name' >&2 2>/dev/null || true
+            exit 1
+            ;;
+        2)
+            case "$run_status/$run_conclusion" in
+            completed/success)
                 passed_over="$passed_over$run "
                 if [ "$dispatched" = 1 ]; then
                     echo "run $run passed without running the suite (a branch-gate retest of $sha) — looking for the dispatched suite"
                 else
-                    # The in-flight run was a branch gate, not the suite: now
-                    # there is nothing to wait for but a dispatch of our own.
                     echo "run $run passed without running the suite (a branch-gate retest of $sha) — dispatching the suite"
                     dispatch_suite
                 fi
                 run=""
                 break
                 ;;
+            completed/*)
+                echo "run $run finished without a release suite; dispatching on $ref" >&2
+                if [ "$dispatched" = 1 ]; then exit 1; fi
+                dispatch_suite
+                run=""
+                break
+                ;;
             esac
-            # Its jobs could not be read: ask again on the next poll.
             ;;
-        completed/*)
-            echo "the full suite did not pass on $sha: run $run ${state#completed/}" >&2
+        esac
+        if [[ "$run_status" == completed && "$verdict" != 4 ]]; then
+            echo "the release-required checks did not pass on $sha: run $run ${run_conclusion:-unknown}" >&2
             gh run view "$run" --repo "$repo" --json jobs \
                 --jq '.jobs[] | select(.conclusion == "failure") | "  failed job: " + .name' >&2 2>/dev/null || true
             exit 1
-            ;;
-        esac
+        fi
         if [ $(($(date +%s) - started)) -ge "$wait_max" ]; then
             echo "run $run had not finished after ${wait_max}s ($state)" >&2
             exit 1
