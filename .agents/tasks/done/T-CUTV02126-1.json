@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CUTV02126",
-  "created_unix": 1793366836
+  "created_unix": 1793366836,
+  "closed": {
+    "at_unix": 1793374097,
+    "commit": "3eb0aa8e6bb3d63fec1e8e3a82c77bda50bf99ce",
+    "by": "CUTV02126"
+  }
 }
