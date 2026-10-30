@@ -984,7 +984,17 @@ jobs:
         if: steps.owed.outputs.pending == 'true'
         # Two per run: the backlog drains over merges, and the job stays short
         # enough that its budget is about the sweep rather than the build.
-        run: cargo run --locked -q -- tasks verify-merged --limit 2
+        # A `prove` dispatch has its own concurrency group and can verify these
+        # refs while this job installs the toolchain and restores its cache.
+        # Check again at the point of use so a queue drained during setup does
+        # not compile the `susi` CLI just to learn there is nothing to verify.
+        # The helper fails closed: a remote-read error still runs verification.
+        run: |
+          if ! scripts/ci-verified-pending.sh; then
+            echo "No merged attestations remain after setup; skipping the susi build."
+            exit 0
+          fi
+          cargo run --locked -q -- tasks verify-merged --limit 2
 
   # The capability-gap e2e executes a synthesized WASI reflex through a live
   # susi-native leaf service. It runs in its own job in parallel with `test`
