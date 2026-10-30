@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXLOCALGATEUNDER60-2",
+  "title": "ci: keep branch compile checks under 60 seconds",
+  "goal": "Reduce the measured 78-second branch Test workflow by eliminating the 23-second target archive restore from Compile Check when sccache already restores compiler units; retain clean-host clippy coverage and prove the change from job timings.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "branch_compile_gate_uses_sccache_without_restoring_target"
+    ]
+  },
+  "created_by": "CODEXLOCALGATEUNDER60",
+  "created_unix": 1793396957,
+  "closed": {
+    "at_unix": 1793397137,
+    "commit": "b963d0e753c2e31745714d64b96578677018a719",
+    "by": "CODEXLOCALGATEUNDER60"
+  }
+}

@@ -627,6 +627,31 @@ fn the_branch_gate_keeps_the_name_branch_protection_requires() {
     );
 }
 
+/// The branch clippy job already restores main's sccache entries. Restoring
+/// the much larger target archive cost almost as much as the compile itself,
+/// so the gate keeps Cargo's registry cache but leaves target artifacts to
+/// sccache.
+#[test]
+fn branch_compile_gate_uses_sccache_without_restoring_target() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    assert!(
+        check.body.contains("SCCACHE_GHA_ENABLED: \"true\"")
+            && check.body.contains("RUSTC_WRAPPER: \"sccache\"")
+            && check.body.contains("RUSTC_WORKSPACE_WRAPPER: \"sccache\""),
+        "the branch gate must use the shared main-owned sccache entries"
+    );
+    let cache = steps(&check.body)
+        .into_iter()
+        .find(|step| step.contains("name: Cache Cargo"))
+        .expect("branch compile gate has a Cargo cache step");
+    assert!(
+        cache.contains("shared-key: lint") && cache.contains("cache-targets: \"false\""),
+        "the branch gate restores the registry only; the target archive took 23 s to restore"
+    );
+}
+
 /// Taking tests off the branch gate is only sound while they still run
 /// somewhere on every merge: the sharded suite on main.
 #[test]
