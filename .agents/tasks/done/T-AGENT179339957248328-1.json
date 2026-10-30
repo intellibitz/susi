@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT179339957248328-1",
+  "title": "Batch roadmap verdict checks",
+  "goal": "Make the main-run repository invariant check index evidence once and evaluate all reachability verdicts in one production-source traversal instead of rescanning the checkout and production tree for each verdict.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "roadmap_verdict_batch_searches_evidence_once"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793399601,
+  "closed": {
+    "at_unix": 1793400414,
+    "commit": "0b06e7a2ae01d0f0898fab1bef6025ebb03e00aa",
+    "by": "AGENT179339957248328"
+  }
+}

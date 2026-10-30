@@ -189,6 +189,78 @@ def call_sites(symbol: str, root: Path, as_function: bool = False):
     return defining, sites
 
 
+def call_sites_many(checks, root: Path):
+    """Resolve many (symbol, as_function) checks while reading source once."""
+    keys = list(dict.fromkeys(checks))
+    symbols = sorted({symbol for symbol, _ in keys}, key=len, reverse=True)
+    matcher = re.compile(r"\b(?:" + "|".join(re.escape(symbol) for symbol in symbols) + r")\b")
+    keys_by_symbol = {}
+    for key in keys:
+        keys_by_symbol.setdefault(key[0], []).append(key)
+    results = {key: ([], []) for key in keys}
+    definitions = {
+        key: re.compile(rf"\b(?:fn|struct|enum|trait|type|const|static|impl)\s+{re.escape(key[0])}\b")
+        for key in keys
+    }
+    for path in source_files(root):
+        text = production_text(path)
+        for number, line in enumerate(text.splitlines(), 1):
+            matched = set()
+            for occurrence in matcher.finditer(line):
+                symbol = occurrence.group()
+                is_function = line[occurrence.end():].lstrip().startswith("(")
+                matched.update(
+                    key for key in keys_by_symbol[symbol]
+                    if not key[1] or is_function
+                )
+            for key in matched:
+                defining, sites = results[key]
+                if definitions[key].search(line) or DECLARATION.search(line):
+                    defining.append((path, number, line.strip()))
+                else:
+                    sites.append((path, number, line.strip()))
+    return results
+
+
+def check_passes(flag, symbol, result):
+    defining, sites = result
+    if flag == "--delivered":
+        return bool(sites)
+    if flag == "--refuted":
+        return not sites
+    raise ValueError(f"unsupported batched reachability check: {flag}")
+
+
+def batch(root: Path) -> int:
+    """Read argv arrays on stdin and return their results as JSON."""
+    try:
+        checks = json.load(sys.stdin)
+        parsed = []
+        for argv in checks:
+            function = "--function" in argv
+            flags = [flag for flag in ("--delivered", "--refuted") if flag in argv]
+            if len(flags) != 1:
+                raise ValueError(f"expected one delivered/refuted flag: {argv}")
+            flag = flags[0]
+            symbol = argv[argv.index(flag) + 1]
+            problem = is_distinctive(symbol)
+            if problem:
+                raise ValueError(problem)
+            parsed.append((argv, flag, symbol, function))
+        indexed = call_sites_many(((symbol, function) for _, _, symbol, function in parsed), root)
+        results = []
+        for argv, flag, symbol, function in parsed:
+            result = indexed[(symbol, function)]
+            passed = check_passes(flag, symbol, result)
+            results.append({"check": argv, "passed": passed})
+        json.dump({"results": results}, sys.stdout)
+        sys.stdout.write("\n")
+        return 0 if all(item["passed"] for item in results) else 1
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as err:
+        print(f"invalid reachability batch: {err}", file=sys.stderr)
+        return 2
+
+
 def report(symbol: str, root: Path, as_function: bool) -> int:
     defining, sites = call_sites(symbol, root, as_function)
     if not defining and not sites:
@@ -262,6 +334,27 @@ def self_test() -> int:
         cases.append(("common words are refused", is_distinctive("load") is not None))
         cases.append(("short names are refused", is_distinctive("run") is not None))
         cases.append(("distinctive names are accepted", is_distinctive("reserve_dispatch") is None))
+        traversals = 0
+        original_source_files = source_files
+
+        def counted_source_files(source_root):
+            nonlocal traversals
+            traversals += 1
+            yield from original_source_files(source_root)
+
+        globals()["source_files"] = counted_source_files
+        try:
+            batched = call_sites_many(
+                [("distinctive_alpha_call", False), ("orphaned_beta_call", True)], root
+            )
+        finally:
+            globals()["source_files"] = original_source_files
+        cases.append(("batch checks share one source traversal", traversals == 1))
+        cases.append(("batch checks preserve single-check results",
+                      batched[("distinctive_alpha_call", False)][1]
+                      == call_sites("distinctive_alpha_call", root)[1]
+                      and batched[("orphaned_beta_call", True)][1]
+                      == call_sites("orphaned_beta_call", root, True)[1]))
     failed = 0
     for name, ok in cases:
         print(f"  {'✅' if ok else '❌'} {name}")
@@ -278,12 +371,15 @@ def main() -> int:
     parser.add_argument("--function", action="store_true", help="count only SYMBOL( call sites")
     parser.add_argument("--audit-verdicts", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--batch", action="store_true", help="read JSON argv arrays from stdin")
     parser.add_argument("--root", default=str(ROOT))
     args = parser.parse_args()
     root = Path(args.root).resolve()
 
     if args.self_test:
         return self_test()
+    if args.batch:
+        return batch(root)
     if args.audit_verdicts:
         return audit_verdicts(root)
     for flag, symbol in (("--delivered", args.delivered), ("--refuted", args.refuted), ("--report", args.report)):

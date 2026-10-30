@@ -27,6 +27,15 @@ fn script_command(script: &Path) -> std::process::Command {
     command
 }
 
+fn python_command(script: &Path) -> std::process::Command {
+    #[cfg(windows)]
+    let mut command = std::process::Command::new("python");
+    #[cfg(not(windows))]
+    let mut command = std::process::Command::new("python3");
+    command.arg(script);
+    command
+}
+
 fn set_script_executable(path: &Path) {
     #[cfg(unix)]
     {
@@ -1832,6 +1841,57 @@ fn xtask_package_changes_are_scoped_to_xtask() {
         "the task record is inert and the test file maps to the xtask package"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn roadmap_verdict_batch_searches_evidence_once() {
+    let source = read("scripts/check-roadmap-verdict.py");
+    let check_all = source
+        .split("def check_all():")
+        .nth(1)
+        .expect("roadmap verdict checker defines check_all");
+    assert!(
+        check_all.contains("batch_evidence_hits(identifiers)")
+            && check_all.contains("--batch")
+            && check_all.contains("batched_checks=batched_checks"),
+        "check_all must batch identifier evidence and reachability checks before validating records"
+    );
+    let out = python_command(&root().join("scripts/check-roadmap-verdict.py"))
+        .arg("--self-test")
+        .current_dir(root())
+        .output()
+        .expect("Python runs the roadmap-verdict self-test");
+    assert!(
+        out.status.success(),
+        "roadmap-verdict self-test failed: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("batch evidence index"),
+        "the self-test exercises the batched evidence index"
+    );
+    let reachability = read("scripts/check-reachability.py");
+    assert!(
+        reachability.contains("def call_sites_many(")
+            && reachability.contains("indexed = call_sites_many("),
+        "reachability checks must share a single production-source traversal"
+    );
+    let out = python_command(&root().join("scripts/check-reachability.py"))
+        .arg("--self-test")
+        .current_dir(root())
+        .output()
+        .expect("Python runs the reachability self-test");
+    assert!(
+        out.status.success(),
+        "reachability self-test failed: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("batch checks share one source traversal"),
+        "the self-test proves the batched checker reads source once"
+    );
 }
 
 /// A branch push runs none of the jobs `codetree` scopes, so it must not pay
