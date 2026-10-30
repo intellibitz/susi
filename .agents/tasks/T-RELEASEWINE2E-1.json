@@ -1,0 +1,18 @@
+{
+  "id": "T-RELEASEWINE2E-1",
+  "title": "release legs ship on every platform: Windows e2e matches E2E_CHECKS, macOS links compiler-rt, CUDA on ubuntu-24.04",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_e2e_checks",
+      "windows_release_checks_match_e2e_checks"
+    ]
+  },
+  "created_by": "RELEASEWINE2E",
+  "created_unix": 1793341754
+}
