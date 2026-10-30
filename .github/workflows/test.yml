@@ -587,15 +587,15 @@ jobs:
       # and builds the same dependency closure (clippy over the workspace plus the
       # doc-test build), so read its cache and never write one of our own: saving
       # per branch only filled the cache quota with one entry per task. Compiled
-      # units are sccache's job now. The target archive took 23 s to restore on
-      # a measured branch run against 24 s for Clippy itself, so restore only
-      # Cargo's registry and let sccache supply the compiled units.
+      # units are sccache's job now. A registry-only cache experiment measured
+      # 139 s end-to-end (91 s Clippy); restoring target artifacts took 23 s
+      # and reduced Clippy to 24 s, so keep the target archive enabled here.
       - name: Cache Cargo
         if: steps.affected.outputs.lintcmd != ''
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
-          cache-targets: "false"
+          cache-targets: "true"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies

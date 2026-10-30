@@ -627,12 +627,11 @@ fn the_branch_gate_keeps_the_name_branch_protection_requires() {
     );
 }
 
-/// The branch clippy job already restores main's sccache entries. Restoring
-/// the much larger target archive cost almost as much as the compile itself,
-/// so the gate keeps Cargo's registry cache but leaves target artifacts to
-/// sccache.
+/// The branch clippy job restores main's target artifacts and sccache entries.
+/// A registry-only experiment took 139 s end-to-end and raised Clippy from 24 s
+/// to 91 s; restoring the target archive is faster overall.
 #[test]
-fn branch_compile_gate_uses_sccache_without_restoring_target() {
+fn branch_compile_gate_restores_target_archive() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
     let check = job(&jobs, "check");
@@ -647,8 +646,8 @@ fn branch_compile_gate_uses_sccache_without_restoring_target() {
         .find(|step| step.contains("name: Cache Cargo"))
         .expect("branch compile gate has a Cargo cache step");
     assert!(
-        cache.contains("shared-key: lint") && cache.contains("cache-targets: \"false\""),
-        "the branch gate restores the registry only; the target archive took 23 s to restore"
+        cache.contains("shared-key: lint") && cache.contains("cache-targets: \"true\""),
+        "the branch gate restores compiled artifacts; registry-only cache measured slower"
     );
 }
 
