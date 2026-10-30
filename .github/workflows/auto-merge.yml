@@ -144,7 +144,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2 # the default branch's scripts
         with:
-          fetch-depth: 0 # the merge gate needs origin/main and head history
+          # The common case only needs the current workflow scripts and remote
+          # refs. A stale green head needs ancestry for merge-tree; fetch it
+          # after the probe, only on that uncommon path.
+          fetch-depth: 1
       - name: Will a stale green head need the inline gate?
         id: probe
         env:
@@ -153,6 +156,9 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: echo "need_gate=$(scripts/merge-queue-probe.sh "$REPO" "$BRANCH" "$SHA")" >> "$GITHUB_OUTPUT"
+      - name: Fetch history for the stale merge gate
+        if: steps.probe.outputs.need_gate == 'true'
+        run: git fetch --unshallow origin
       - name: Install Rust
         if: steps.probe.outputs.need_gate == 'true'
         uses: dtolnay/rust-toolchain@stable
