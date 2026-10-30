@@ -1,0 +1,19 @@
+{
+  "id": "T-CUTV02126-1",
+  "title": "wasmtime 49.0.5 for RUSTSEC-2026-0420/0422-0424 (cargo deny blocks every merge)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-wasmtime",
+      "--lib",
+      "locked_wasmtime_carries_the_advisory_fixes"
+    ]
+  },
+  "created_by": "CUTV02126",
+  "created_unix": 1793366836
+}

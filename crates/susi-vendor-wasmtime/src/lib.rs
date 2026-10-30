@@ -30,3 +30,26 @@ pub use susi_error;
 
 pub mod cell;
 pub mod wasm;
+
+#[cfg(test)]
+mod tests {
+    /// cargo deny fails every branch while the lock carries a wasmtime with an
+    /// open advisory (RUSTSEC-2026-0420/0422/0423/0424 are fixed in 49.0.5).
+    #[test]
+    fn locked_wasmtime_carries_the_advisory_fixes() {
+        let lock = include_str!("../../../Cargo.lock");
+        for name in ["wasmtime", "wasmtime-wasi"] {
+            let entry = format!("name = \"{name}\"\nversion = \"");
+            let at = lock
+                .find(&entry)
+                .unwrap_or_else(|| panic!("{name} not in Cargo.lock"));
+            let rest = &lock[at + entry.len()..];
+            let version = &rest[..rest.find('"').unwrap()];
+            let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap()).collect();
+            assert!(
+                parts >= vec![49, 0, 5],
+                "{name} {version} predates the 49.0.5 advisory fixes"
+            );
+        }
+    }
+}
