@@ -203,7 +203,17 @@ def call_sites_many(checks, root: Path):
         for key in keys
     }
     for path in source_files(root):
-        text = production_text(path)
+        try:
+            raw = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        # Scrubbing comments, strings and test modules is deliberately precise
+        # but Python-heavy. Most Rust files cannot contain a call to any of the
+        # requested symbols, so avoid the scrubber when the raw file has no
+        # candidate occurrence. Candidates still pass through the full filter.
+        if not matcher.search(raw):
+            continue
+        text = _strip_cfg_test(_blank_comments(_blank_strings(raw)))
         for number, line in enumerate(text.splitlines(), 1):
             matched = set()
             for occurrence in matcher.finditer(line):
@@ -328,6 +338,9 @@ def self_test() -> int:
             "use crate::distinctive_alpha_call;\n"
             "pub fn go() -> u32 { distinctive_alpha_call(2) }\n"
         )
+        (root / "crates" / "demo" / "src" / "unused.rs").write_text(
+            "pub fn unrelated() -> u32 { 0 }\n"
+        )
         cases.append(("delivered finds a real call site", call_sites("distinctive_alpha_call", root)[1] != []))
         cases.append(("refuted ignores comments, strings and cfg(test)", call_sites("orphaned_beta_call", root)[1] == []))
         cases.append(("a use declaration is not a call site", len(call_sites("distinctive_alpha_call", root)[1]) == 1))
@@ -335,21 +348,31 @@ def self_test() -> int:
         cases.append(("short names are refused", is_distinctive("run") is not None))
         cases.append(("distinctive names are accepted", is_distinctive("reserve_dispatch") is None))
         traversals = 0
+        scrubbed_files = 0
         original_source_files = source_files
+        original_strip_cfg_test = _strip_cfg_test
 
         def counted_source_files(source_root):
             nonlocal traversals
             traversals += 1
             yield from original_source_files(source_root)
 
+        def counted_strip_cfg_test(text):
+            nonlocal scrubbed_files
+            scrubbed_files += 1
+            return original_strip_cfg_test(text)
+
         globals()["source_files"] = counted_source_files
+        globals()["_strip_cfg_test"] = counted_strip_cfg_test
         try:
             batched = call_sites_many(
                 [("distinctive_alpha_call", False), ("orphaned_beta_call", True)], root
             )
         finally:
             globals()["source_files"] = original_source_files
+            globals()["_strip_cfg_test"] = original_strip_cfg_test
         cases.append(("batch checks share one source traversal", traversals == 1))
+        cases.append(("batch checks scrub only candidate files", scrubbed_files == 2))
         cases.append(("batch checks preserve single-check results",
                       batched[("distinctive_alpha_call", False)][1]
                       == call_sites("distinctive_alpha_call", root)[1]
