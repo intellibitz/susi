@@ -3547,9 +3547,11 @@ mod tests {
     fn a_cargo_test_check_that_matches_nothing_does_not_close_the_task() {
         let (r, a, _) = Repos::new("vacuous");
         // A one-test crate, so `cargo test nomatch` exits 0 having run nothing.
+        // Empty `[workspace]` keeps cargo from walking up into the parent
+        // checkout's Cargo.toml when `TMP` lives under `.git/susi-hermetic`.
         std::fs::write(
             a.join("Cargo.toml"),
-            "[package]\nname = \"vac\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+            "[package]\nname = \"vac\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n",
         )
         .unwrap();
         std::fs::create_dir_all(a.join("src")).unwrap();
@@ -4362,7 +4364,12 @@ mod tests {
             "",
             "s",
             &[],
-            vec!["cargo".into(), "test".into(), "--workspace".into()],
+            vec![
+                "cargo".into(),
+                "test".into(),
+                "--manifest-path".into(),
+                "Cargo.toml".into(),
+            ],
         )
         .unwrap();
         claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
@@ -4388,7 +4395,12 @@ mod tests {
             "",
             "s",
             &[],
-            vec!["cargo".into(), "test".into(), "--workspace".into()],
+            vec![
+                "cargo".into(),
+                "test".into(),
+                "--manifest-path".into(),
+                "Cargo.toml".into(),
+            ],
         )
         .unwrap();
         claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
