@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT179339957248328-3",
+  "title": "Apply batched reachability results during verdict validation",
+  "goal": "Make check-roadmap-verdict --all consume the single batched reachability result map instead of falling through to one subprocess per verdict check.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "roadmap_verdict_batch_searches_evidence_once"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793401410,
+  "closed": {
+    "at_unix": 1793401564,
+    "commit": "356a7386f92bf050aeecf213106b340357e8e1aa",
+    "by": "AGENT179339957248328"
+  }
+}
