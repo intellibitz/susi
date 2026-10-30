@@ -78,4 +78,7 @@ unknown-git = "deny"
 # kernels/API surface we need; allow only this upstream, not arbitrary git deps.
 allow-git = [
     "https://github.com/huggingface/candle",
+    # The reqwest and esaxx-rs patches, on this repository's nopr/vendor-patches
+    # branch (vendor/README.md), pinned by revision in [patch.crates-io].
+    "https://github.com/intellibitz/susi",
 ]

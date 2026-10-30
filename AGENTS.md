@@ -43,22 +43,22 @@ The agent loop is **atomic per task** (own worktree, always synced with
    (a whole unstripped target took 64–72 s).
    The copy keeps timestamps, leaves out `incremental/`, and strips every unit
    not built from a registry or git source of your `Cargo.lock` (the
-   workspace members with their binaries and examples, and the path
-   dependencies `vendor/reqwest` and `vendor/esaxx-rs`), so nothing built in
-   the snapshot's checkout stands in for yours; a copy it cannot strip all the
-   way is dropped, and the target starts empty. Those two vendored path
-   crates, and the heavy crates above them (tokenizers, ra2a, rmcp, candle,
-   fastembed), recompile in every new worktree: about 100–150 s of that first
-   build (measured 341–389 s with them, 240 s without; a pinned git revision
-   of a fork in place of `path = "vendor/..."` would keep them warm, and is
-   not done — see `scripts/seed-target.sh`). **The machine's compiler cache**
-   takes that cost once per machine instead of once per worktree: with
+   workspace members with their binaries and examples, and any path
+   dependency), so nothing built in the snapshot's checkout stands in for
+   yours; a copy it cannot strip all the way is dropped, and the target starts
+   empty. The `reqwest` and `esaxx-rs` patches are a git source pinned by
+   revision (this repository's `nopr/vendor-patches` branch,
+   `vendor/README.md`), not path crates: as path crates they and the heavy
+   crates above them (tokenizers, ra2a, rmcp, candle, fastembed) recompiled
+   in every new worktree, about 100–150 s of that first build. **The
+   machine's compiler cache** takes what the snapshot is behind on once per
+   machine instead of once per worktree: with
    sccache installed, `scripts/susi-worktree.sh` and the SessionStart hook
    run `scripts/setup-sccache.sh`, which makes every cargo on the machine
    compile through sccache (a marked block in `~/.cargo/config.toml`; the
-   cache beside the snapshot, 50 GB), so a crate one worktree compiled —
-   those heavy crates above the path patches, or a registry crate a `-p`
-   gate unifies with other features — is served to every other.
+   cache beside the snapshot, 50 GB), so a crate one worktree compiled — a
+   registry crate a `-p` gate unifies with other features, or the patch
+   chain before the snapshot catches up — is served to every other.
    `scripts/setup-sccache.sh --install` installs sccache; `--status` shows
    the hit rate; `--off` removes the block; `SUSI_NO_SCCACHE=1` keeps the
    scripts from enabling it. See `docs/workflow-speed.md` for the

@@ -9,12 +9,12 @@
 #
 # Each worktree builds into a target of its own, copied from a snapshot of
 # origin/main's registry crates (scripts/seed-target.sh). What the snapshot
-# cannot hold still compiles in every new worktree: the vendored path patches
-# (vendor/reqwest, vendor/esaxx-rs) and everything above them (ra2a, rmcp,
-# tokenizers, fastembed, the candle crates: 100-150 s per worktree), and any
-# registry crate a `-p <crate>` gate unifies with features the snapshot's
-# whole-workspace build did not (tower, axum, tokio-stream and their
-# dependents, measured). sccache keys a compile by the compiler, its
+# cannot hold still compiles in every new worktree: any registry crate a
+# `-p <crate>` gate unifies with features the snapshot's whole-workspace build
+# did not (tower, axum, tokio-stream and their dependents, measured), and,
+# until the reqwest and esaxx-rs patches became a pinned git source
+# (vendor/README.md), everything above those two path crates (ra2a, rmcp,
+# tokenizers, fastembed, the candle crates: 100-150 s per worktree). sccache keys a compile by the compiler, its
 # arguments, the sources and the environment, so a crate one worktree
 # compiled is served to every other from a local disk cache instead of
 # compiled again. Workspace crates are passed through: cargo builds them
@@ -34,6 +34,19 @@
 # A config that already has a [build] or [env] table this script did not
 # write is left alone with the lines to add printed: a second table of the
 # same name is a TOML error that would break every cargo on the machine.
+#
+# The server is this script's to start. sccache's client starts a server when
+# none runs, and that server keeps the client's environment: started by the
+# first cargo of a hermetic test run (scripts/check-hermetic-tests.sh gives
+# the tests a throwaway TMP under the clone's git dir), it kept making its
+# temp files in a directory the run deleted at its end, and every compile on
+# the machine failed with "Failed to create temp dir" until it idled out ten
+# minutes later - another agent's gate, a whole-workspace one, was what
+# failed. So this script starts the server itself, from the environment it
+# runs in, with the cache's place and size and no idle exit, whenever it runs
+# (enabling, and the silent runs from scripts/susi-worktree.sh and the
+# SessionStart hook): a server already running is left alone, a dead one is
+# replaced before any gate can start a worse one. `--off` stops it.
 set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
@@ -113,6 +126,12 @@ $end
 EOF
 }
 
+# Start the server from this environment when none runs (a no-op otherwise):
+# the cache's place and size, and no idle exit (see the header).
+ensure_server() {
+    SCCACHE_DIR="$1" SCCACHE_CACHE_SIZE="$2" SCCACHE_IDLE_TIMEOUT=0         sccache --start-server >/dev/null 2>&1 || true
+}
+
 install_sccache() {
     command -v sccache >/dev/null 2>&1 && return 0
     if command -v scoop >/dev/null 2>&1; then
@@ -170,6 +189,7 @@ size=${SUSI_SCCACHE_SIZE:-50G}
 if written_block; then
     # Same place and size: nothing to do, quietly. Otherwise rewrite the block.
     if grep -qF "SCCACHE_DIR = \"$dir_native\"" "$config" && grep -qF "SCCACHE_CACHE_SIZE = \"$size\"" "$config"; then
+        ensure_server "$dir_native" "$size"
         exit 0
     fi
     remove_block
@@ -189,7 +209,8 @@ mkdir -p "$cargo_home"
     block "$dir_native" "$size"
 } >"$config.tmp"
 mv "$config.tmp" "$config"
-# A server already running was started with some other cache; the next cargo
-# starts one with this one.
+# A server already running was started with some other cache, or by whatever
+# environment ran the first cargo: replace it with one started here.
 sccache --stop-server >/dev/null 2>&1 || true
+ensure_server "$dir_native" "$size"
 echo "setup-sccache: every cargo on this machine now compiles through sccache (cache $dir_native, $size); --status shows the hit rate, --off removes it"

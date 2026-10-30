@@ -338,7 +338,7 @@ fn age(path: &Path, secs: u64) {
 }
 
 /// The fixture's Cargo.lock: the members `fixture-root` and `cell`, the path
-/// dependency `patched` (as the real one lists vendor/reqwest) and the
+/// dependency `patched` (as the real one once listed vendor/reqwest) and the
 /// registry crates `serde`, `cellar` and `cell-build`; the member `lone` is
 /// left out, so only `cargo metadata` names it, and nothing keeps it.
 fn fixture_lockfile() -> String {
@@ -421,7 +421,7 @@ const ENDED: &str = r#"ended() {
 /// `SUSI_TARGET_SEED` looks (`<primary>/../.susi-target-seed`).
 ///
 /// Cargo.lock lists the members `fixture-root` and `cell`, the path
-/// dependency `patched` (as it lists vendor/reqwest) and the registry crates
+/// dependency `patched` (as it once listed vendor/reqwest) and the registry crates
 /// `serde`, `cellar` and `cell-build`; it leaves the member `lone` out, so
 /// only `cargo metadata` names it, and nothing keeps it.
 struct World {

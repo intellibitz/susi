@@ -250,14 +250,22 @@ candle-nn = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b
 candle-transformers = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-metal-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
+# The two patched crates live on this repository's `nopr/vendor-patches`
+# branch (vendor/README.md), pinned here by revision. A git source, not a
+# path: a path crate's build embeds the worktree's path, so it and every
+# crate above it (ra2a, rmcp, tokenizers, fastembed, the candle crates)
+# recompiled in every new worktree and could sit in neither the seeded
+# target snapshot nor the machine's compiler cache. A revision is the same
+# key everywhere. tests/architecture_tests.rs pins that no patch is a path.
+#
 # reqwest's `rustls` feature hard-wires aws-lc-rs, and ra2a requests it
-# (reqwest default features) with no opt-out. The vendored copy maps
-# `rustls` to ring instead — see vendor/README.md.
-reqwest = { path = "vendor/reqwest" }
+# (reqwest default features) with no opt-out. The patched copy maps
+# `rustls` to ring instead.
+reqwest = { git = "https://github.com/intellibitz/susi", rev = "c69a90d60e8e7d96ce62d83c3e3d0d631b970480" }
 # esaxx-rs 0.1.10 (unmaintained) hardcodes `.static_crt(true)` → /MT on MSVC,
 # which LNK2038-conflicts with the /MD CRT the rest of the tree uses. The
-# vendored copy drops the flag — see vendor/README.md.
-esaxx-rs = { path = "vendor/esaxx-rs" }
+# patched copy drops the flag.
+esaxx-rs = { git = "https://github.com/intellibitz/susi", rev = "c69a90d60e8e7d96ce62d83c3e3d0d631b970480" }
 
 # GPU backends live in susi-vendor-candle. Root forwards features through
 # susi-gemi so `cargo build -p susi --features cuda|mkl|metal` enables the
