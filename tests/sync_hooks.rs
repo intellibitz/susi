@@ -168,6 +168,26 @@ impl World {
     fn server_main(&self) -> String {
         git(&self.other, &["rev-parse", "origin/main"])
     }
+
+    /// Keep wall-clock throttling deterministic even when the test host is
+    /// under enough load for a test to be descheduled past the 30-second
+    /// default between hook invocations.
+    fn fixed_clock_path(&self) -> String {
+        let bin = self.root.join("fixed-clock-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let date = bin.join("date");
+        std::fs::write(&date, "#!/bin/sh\necho 1000\n").unwrap();
+        make_executable(&date);
+        let paths = std::iter::once(bin)
+            .chain(std::env::split_paths(
+                &std::env::var_os("PATH").unwrap_or_default(),
+            ))
+            .collect::<Vec<_>>();
+        std::env::join_paths(paths)
+            .unwrap()
+            .into_string()
+            .expect("PATH must be valid Unicode for the test command")
+    }
 }
 
 impl Drop for World {
@@ -199,14 +219,19 @@ fn hooks_sync_primary_after_a_commit_in_any_worktree() {
 #[test]
 fn hooks_sync_primary_is_throttled_and_the_interval_is_configurable() {
     let w = World::new("throttle");
+    let fixed_path = w.fixed_clock_path();
+    let clock = ("PATH", fixed_path.as_str());
     w.origin_advances();
-    assert_eq!(w.commit_in_worktree(&[FG]), 0);
+    assert_eq!(w.commit_in_worktree(&[FG, clock]), 0);
     let synced = w.primary_head();
     w.origin_advances();
     // Within the default 30s window the second commit does not fetch again.
-    assert_eq!(w.commit_in_worktree(&[FG]), 0);
+    assert_eq!(w.commit_in_worktree(&[FG, clock]), 0);
     assert_eq!(w.primary_head(), synced, "throttled: no second sync");
-    assert_eq!(w.commit_in_worktree(&[FG, ("SUSI_SYNC_INTERVAL", "0")]), 0);
+    assert_eq!(
+        w.commit_in_worktree(&[FG, clock, ("SUSI_SYNC_INTERVAL", "0")]),
+        0
+    );
     assert_eq!(w.primary_head(), w.server_main(), "interval 0 syncs again");
 }
 

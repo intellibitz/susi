@@ -14,10 +14,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A full-gate run's jobs: the suite ran and passed.
-const SUITE_PASSED: &str = r#"{"jobs":[{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"success"},{"name":"Format Check","conclusion":"success"}]}"#;
+/// The release-required jobs passed; merge-only work may continue separately.
+const SUITE_PASSED: &str = r#"{"jobs":[{"name":"Unsafe Exposure Ratchet","conclusion":"success"},{"name":"Format Check","conclusion":"success"},{"name":"Repository Invariants","conclusion":"success"},{"name":"cargo deny (licenses + advisories)","conclusion":"success"},{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"success"},{"name":"capability_gap_e2e (live susi-native)","conclusion":"skipped"}]}"#;
+/// All release gates are green while merge-only gates are still in progress.
+const SUITE_BEFORE_MERGE_GATES: &str = r#"{"jobs":[{"name":"Unsafe Exposure Ratchet","conclusion":"success"},{"name":"Format Check","conclusion":"success"},{"name":"Repository Invariants","conclusion":"success"},{"name":"cargo deny (licenses + advisories)","conclusion":"success"},{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"success"},{"name":"capability_gap_e2e (live susi-native)","conclusion":"success"},{"name":"Coverage Ratchet","conclusion":null},{"name":"Kani Bounded Proofs","conclusion":null},{"name":"Post-merge acceptance","conclusion":null}]}"#;
+/// Release jobs are still running, while branch suite and lint remain pending.
+const SUITE_PENDING: &str = r#"{"jobs":[{"name":"Unsafe Exposure Ratchet","conclusion":"success"},{"name":"Format Check","conclusion":"success"},{"name":"Repository Invariants","conclusion":"success"},{"name":"cargo deny (licenses + advisories)","conclusion":"success"},{"name":"Doc Tests + Clippy","conclusion":null},{"name":"Test (gemi)","conclusion":null},{"name":"capability_gap_e2e (live susi-native)","conclusion":null}]}"#;
 /// A full-gate run with one red shard.
-const SHARD_FAILED: &str = r#"{"jobs":[{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"failure"},{"name":"Format Check","conclusion":"success"}]}"#;
+const SHARD_FAILED: &str = r#"{"jobs":[{"name":"Unsafe Exposure Ratchet","conclusion":"success"},{"name":"Format Check","conclusion":"success"},{"name":"Repository Invariants","conclusion":"success"},{"name":"cargo deny (licenses + advisories)","conclusion":"success"},{"name":"Doc Tests + Clippy","conclusion":"success"},{"name":"Test (gemi)","conclusion":"failure"}]}"#;
 /// The merge bot's `gate=branch` retest of a resynced head: green, but it ran
 /// what a branch push runs - the shards, lint and e2e were all skipped.
 const BRANCH_GATE: &str = r#"{"jobs":[{"name":"Compile Check (branch pushes)","conclusion":"success"},{"name":"Workflow Compliance","conclusion":"success"},{"name":"Doc Tests + Clippy","conclusion":"skipped"},{"name":"Merge the retested head","conclusion":"success"}]}"#;
@@ -55,7 +59,7 @@ impl Fake {
     /// `before`: what `gh run list` returns until the workflow is dispatched;
     /// `after`: what it returns afterwards; `states`: one `status/conclusion`
     /// per `gh run view` poll, the last repeating. Every run's jobs are a
-    /// passed suite unless [`Fake::jobs`] says otherwise.
+    /// passed suite unless [`Fake::jobs`] or [`Fake::jobs_sequence`] says otherwise.
     fn new(
         tag: &str,
         before: serde_json::Value,
@@ -88,6 +92,13 @@ case "$1 $2" in
   : > "$D/dispatched" ;;
 "run view")
   case "$*" in
+  *"--json status,conclusion,jobs"*)
+    if [ -f "$D/jobs_fail_once" ]; then rm -f "$D/jobs_fail_once"; echo "HTTP 502" >&2; exit 1; fi
+    n=$(cat "$D/n" 2>/dev/null || echo 0); echo $((n + 1)) > "$D/n"
+    line=$(sed -n "$((n + 1))p" "$D/states"); [ -n "$line" ] || line=$(tail -n 1 "$D/states")
+    status=${line%%/*}; conclusion=${line#*/}
+    f="$D/jobs-$3-$((n + 1)).json"; [ -f "$f" ] || f="$D/jobs-$3.json"; [ -f "$f" ] || f="$D/jobs.json"
+    jq -n --arg s "$status" --arg c "$conclusion" --slurpfile j "$f" '{status:$s, conclusion:(if $c == "" then null else $c end), jobs:$j[0].jobs}' | jq -r "$(jqexpr "$@")" ;;
   *"--json jobs"*)
     if [ -f "$D/jobs_fail_once" ]; then rm -f "$D/jobs_fail_once"; echo "HTTP 502" >&2; exit 1; fi
     f="$D/jobs-$3.json"; [ -f "$f" ] || f="$D/jobs.json"
@@ -149,6 +160,17 @@ esac
     /// What `gh run view <id> --json jobs` reports for run `id`.
     fn jobs(&self, id: u64, jobs: &str) {
         std::fs::write(self.dir.join(format!("jobs-{id}.json")), jobs).unwrap();
+    }
+
+    /// Job snapshots returned on successive polls; the last repeats.
+    fn jobs_sequence(&self, id: u64, snapshots: &[&str]) {
+        for (index, snapshot) in snapshots.iter().enumerate() {
+            std::fs::write(
+                self.dir.join(format!("jobs-{id}-{}.json", index + 1)),
+                snapshot,
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -277,7 +299,7 @@ fn a_branch_gate_retest_dispatched_beside_the_suite_is_passed_over() {
     let (code, out) = f.run(&[]);
     assert_eq!(code, 0, "{out}");
     assert!(
-        out.contains("the full suite passed on abc1234 (run 85)"),
+        out.contains("the release-required checks passed on abc1234 (run 85)"),
         "{out}"
     );
     assert!(
@@ -303,7 +325,7 @@ fn a_green_run_whose_jobs_cannot_be_read_is_asked_again_not_passed_over() {
     assert!(out.contains("passed on abc1234 (run 88)"), "{out}");
     assert_eq!(
         f.calls()
-            .matches("run view 88 --repo o/r --json jobs")
+            .matches("run view 88 --repo o/r --json status,conclusion,jobs")
             .count(),
         2,
         "{}",
@@ -374,6 +396,19 @@ fn the_job_that_proves_a_dispatch_ran_the_suite_is_skipped_exactly_with_the_shar
         "`{name}` must run exactly when the shards do, or its success no longer means the \
          suite ran"
     );
+    for name in [
+        "Unsafe Exposure Ratchet",
+        "Format Check",
+        "Repository Invariants",
+        "cargo deny (licenses + advisories)",
+        "capability_gap_e2e (live susi-native)",
+    ] {
+        assert!(
+            script.contains(&format!("\"{name}\""))
+                && workflow.contains(&format!("    name: {name}")),
+            "release-await-tests.sh and test.yml must both name the release check `{name}`"
+        );
+    }
 }
 
 #[test]
@@ -384,6 +419,7 @@ fn a_failed_earlier_run_does_not_count_and_the_suite_is_dispatched() {
         serde_json::json!([dispatched(78, SHA)]),
         &["completed/success"],
     );
+    f.jobs(14, SHARD_FAILED);
     let (code, out) = f.run(&[]);
     assert_eq!(code, 0, "{out}");
     assert!(f.calls().contains("workflow run"), "{}", f.calls());
@@ -402,6 +438,10 @@ fn it_waits_through_queued_and_in_progress_until_the_run_passes() {
             "completed/success",
         ],
     );
+    f.jobs_sequence(
+        79,
+        &[SUITE_PENDING, SUITE_PENDING, SUITE_PENDING, SUITE_PASSED],
+    );
     let (code, out) = f.run(&[]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("passed on abc1234"), "{out}");
@@ -409,12 +449,55 @@ fn it_waits_through_queued_and_in_progress_until_the_run_passes() {
     // see that its suite ran.
     assert_eq!(
         f.calls()
-            .matches("run view 79 --repo o/r --json status")
+            .matches("run view 79 --repo o/r --json status,conclusion,jobs")
             .count(),
         4,
         "one poll per state: {}",
         f.calls()
     );
+}
+
+#[test]
+fn release_qualifies_when_release_jobs_pass_before_merge_only_gates() {
+    let f = Fake::new(
+        "release-jobs-before-merge-gates",
+        serde_json::json!([in_flight(92, "main")]),
+        serde_json::json!([]),
+        &["in_progress/"],
+    );
+    f.jobs(92, SUITE_BEFORE_MERGE_GATES);
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("release-required checks passed on abc1234 (run 92)"),
+        "{out}"
+    );
+    assert!(!f.calls().contains("workflow run"), "{}", f.calls());
+    assert_eq!(
+        f.calls()
+            .matches("run view 92 --repo o/r --json status,conclusion,jobs")
+            .count(),
+        1,
+        "{}",
+        f.calls()
+    );
+}
+
+#[test]
+fn release_reuses_a_run_that_failed_only_merge_only_gates() {
+    let f = Fake::new(
+        "release-reuses-merge-gate-failure",
+        serde_json::json!([run_entry(93, "workflow_dispatch", "main", "failure")]),
+        serde_json::json!([]),
+        &["completed/failure"],
+    );
+    let jobs =
+        SUITE_BEFORE_MERGE_GATES.replace("\"conclusion\":null", "\"conclusion\":\"failure\"");
+    f.jobs(93, &jobs);
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("already passed on abc1234 (run 93)"), "{out}");
+    assert!(!f.calls().contains("workflow run"), "{}", f.calls());
 }
 
 #[test]
@@ -444,6 +527,7 @@ fn a_cancelled_run_blocks_the_release() {
         serde_json::json!([dispatched(81, SHA)]),
         &["completed/cancelled"],
     );
+    f.jobs(81, SUITE_PENDING);
     let (code, out) = f.run(&[]);
     assert_eq!(code, 1, "{out}");
 }
@@ -489,6 +573,7 @@ fn a_suite_that_never_finishes_is_not_waited_on_forever() {
         serde_json::json!([dispatched(83, SHA)]),
         &["in_progress/"],
     );
+    f.jobs(83, SUITE_PENDING);
     let (code, out) = f.run(&[("RELEASE_TESTS_WAIT_MAX", "0")]);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("had not finished"), "{out}");
