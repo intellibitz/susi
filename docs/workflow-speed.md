@@ -75,21 +75,46 @@ Also running: `SearchIndexer` (21 800 CPU-seconds) and `Everything`
 (20 300) index the same tree. Exclude `F:\src` from Windows Search, and from
 Everything's index if it is not needed there.
 
+## A compiler cache across worktrees (2026-10-31)
+
+Each worktree now builds into a target of its own, copied from a snapshot
+of origin/main's registry crates (`scripts/seed-target.sh`; the shared
+target and its guard are retired), so N agents build at once and nothing one
+worktree built stands in for another's. What the snapshot cannot hold still
+compiled cold in every new worktree. `scripts/setup-sccache.sh` makes every
+cargo on the machine compile through sccache, with the cache beside the
+snapshot (`<primary>/../.sccache`, 50 GB): `scripts/susi-worktree.sh` and the
+SessionStart hook run it where sccache is installed, `--install` installs
+sccache, `--status` shows the hit rate, `--off` removes it.
+
+A brand-new worktree's first gate build for the root package (clippy, then
+the test build), same commit, same machine:
+
+| | clippy | test build | total |
+| --- | --- | --- | --- |
+| cold cache | 2 m 28 s | 6 m 32 s | 9 m 00 s |
+| warm cache | 1 m 43 s | 4 m 46 s | 6 m 29 s |
+
+The hits are the registry crates a `-p susi` gate unifies with other
+features than the snapshot's whole-workspace build (tokio-stream, tower,
+tower-http, axum). The misses that remain, and they are the heavy ones (49 s
+of compiler time each on average), are rmcp, ra2a, tokenizers, fastembed and
+the three candle crates: every one depends on `vendor/reqwest` or
+`vendor/esaxx-rs`, the two `[patch.crates-io]` path crates, whose rlibs embed
+the worktree's path, so their dependents' cache keys differ in every
+worktree (two different keys for rmcp, observed). The same two patches keep
+those crates out of the snapshot. Hosting the two patches as a pinned git
+revision instead of a path would put the whole chain in the snapshot and in
+the cache: that is the next change, and it touches `Cargo.toml` and
+`Cargo.lock` (a whole-workspace gate).
+
 ## What is not fixed here
 
-- **One shared target serialises every agent's build.** Cargo locks the
-  build directory, so two worktrees never compile at once, and the guard
-  rebuilds a crate whenever the last worktree to build it had different
-  content. Per-worktree targets with a content-addressed compiler cache
-  (sccache, local disk) would let N agents build at once and still share
-  the ~630 registry crates; that is a separate change to
-  `scripts/link-shared-target.sh`, `scripts/target-guard.sh` and the tests
-  that pin them.
 - **`-p <crate>` builds unify features differently from `--workspace`**
-  (`tower`, `tokio-stream`), so the first `-p susi` gate after a workspace
-  build recompiles tower, axum, rmcp, candle and fastembed. Cargo's
-  `feature-unification = "workspace"` is still unstable on 1.99; the variants
-  stay cached once built.
+  (`tower`, `tokio-stream`), so a `-p susi` gate recompiles tower, axum and
+  their dependents in a seeded target. Cargo's
+  `feature-unification = "workspace"` is still unstable on 1.99; the cache
+  above serves those variants after the first worktree compiles them.
 - **Windows file I/O.** The fixture-copying tests are 6× slower per test than
   on Linux whatever the thread count; the exclusion above recovers part of
   that, a Linux build host the rest.

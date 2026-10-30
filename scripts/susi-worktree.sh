@@ -118,6 +118,14 @@ git -C "$dest" config --worktree user.email "$(printf '%s' "$worker" | tr '[:upp
 # Hooks + ledger merge driver for the clone (shared by every worktree of it).
 (cd "$dest" && scripts/setup-dev.sh) >&2
 
+# The machine's compiler cache (scripts/setup-sccache.sh): what the seeded
+# snapshot cannot hold compiles once on this machine, not once per worktree.
+# Only where sccache is installed; nothing is installed here, and
+# SUSI_NO_SCCACHE=1 leaves the user's cargo config alone.
+if [ "${SUSI_NO_SCCACHE:-0}" != 1 ] && [ -f "$dest/scripts/setup-sccache.sh" ] && command -v sccache >/dev/null 2>&1; then
+    (cd "$dest" && "${BASH:-bash}" scripts/setup-sccache.sh) >&2 || true
+fi
+
 # Keep the primary checkout parked at origin/main so it never drifts onto a
 # stale branch that invites work (non-fatal: it refuses if it has real work).
 "$root/scripts/park-primary.sh" >&2 || echo "note: primary checkout not parked (see above); it is still not for work" >&2

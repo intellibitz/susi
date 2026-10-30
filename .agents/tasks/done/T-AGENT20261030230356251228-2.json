@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT20261030230356251228-2",
+  "title": "workflow speed: a shared compiler cache (sccache) for every worktree's own target",
+  "goal": "Each worktree builds into its own seeded target; the crates the seed cannot hold (the vendored path patches and everything above them, feature variants) still compile cold in every new worktree. A local sccache, configured once per machine by scripts/setup-sccache.sh and enabled by the worktree scripts, serves them from a content-addressed cache so a new worktree's first gate build is minutes, and N worktrees build at once with no shared lock.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261030230356251228",
+  "created_unix": 1793386396,
+  "closed": {
+    "at_unix": 1793390280,
+    "commit": "5979d2dda73d4e6530d2bb706545f5e2f2a39569",
+    "by": "AGENT20261030230356251228"
+  }
+}
