@@ -13561,3 +13561,309 @@ fn gmcp_vc_203_013_mastery() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-010-06: operations and evidence for the resource server surface.
+///
+/// The retained evidence artifact is reproducible, the served stdio path
+/// exposes inspectable state, resources read back within bounded content, and
+/// the evidence is pinned to the vendored standards corpus so a changed
+/// dependency or standard invalidates stale proof and fails closed.
+#[test]
+fn gmcp_req_203_010_06_operations() {
+    fn copy_tree(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-010-06-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Retained evidence artifact: the pinned ledger report is
+    //    reproducible, complete and schema-valid ─────────────────────
+    let ledger_a = susi_json(root, &home, &["mcp", "ledger"]);
+    let ledger_b = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(ledger_a, ledger_b, "evidence report must be reproducible");
+    assert_eq!(
+        ledger_a["verified"], true,
+        "retained evidence must verify: {ledger_a}"
+    );
+    assert!(
+        ledger_a["rows"].as_u64().unwrap_or(0) > 0,
+        "the evidence artifact must classify its rows: {ledger_a}"
+    );
+    assert!(
+        ledger_a["revisions"]["2026-07-28"].as_u64().unwrap_or(0) > 0
+            && ledger_a["revisions"]["2025-11-25"].as_u64().unwrap_or(0) > 0,
+        "the evidence artifact must cover both revisions: {ledger_a}"
+    );
+
+    // ── The proof is pinned to the vendored standards corpus ──
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(".agents/gmcp/sources.json")).expect("sources manifest"),
+    )
+    .expect("sources manifest must be JSON");
+    let documents: Vec<String> = manifest["files"]
+        .as_array()
+        .expect("pinned files")
+        .iter()
+        .map(|file| file["document"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(!documents.is_empty(), "the corpus pin must be non-empty");
+
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let refetched_arg = refetched.to_str().expect("temp path must be unicode");
+    for document in &documents {
+        assert!(
+            refetched.join(document).is_file(),
+            "pinned document {document} must be present in the vendored corpus"
+        );
+    }
+
+    // ── Drift detection: a pristine corpus matches every pin, and the
+    //    pass is deterministic ──────────────────────────────────────
+    let pristine = susi_json(
+        root,
+        &home,
+        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
+    );
+    assert_eq!(
+        pristine["verified"], true,
+        "a pristine corpus must match every pin: {pristine}"
+    );
+    assert!(
+        pristine["findings"]
+            .as_array()
+            .is_some_and(std::vec::Vec::is_empty),
+        "a pristine corpus must produce no findings: {pristine}"
+    );
+    let checked = pristine["checked"].as_u64().unwrap_or(0);
+    assert!(
+        checked > 0 && pristine["matched"].as_u64() == Some(checked),
+        "every pin must match: {pristine}"
+    );
+    let pristine_again = susi_json(
+        root,
+        &home,
+        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
+    );
+    assert_eq!(
+        pristine, pristine_again,
+        "drift evidence must be reproducible"
+    );
+
+    // ── A changed standard invalidates the stale proof ──
+    let target = documents
+        .iter()
+        .find(|document| document.ends_with("server/resources.mdx"))
+        .expect("the resources standard must be pinned")
+        .clone();
+    let target_path = refetched.join(&target);
+    let original = std::fs::read(&target_path).expect("pinned document bytes");
+    let mut changed = original.clone();
+    changed.extend_from_slice(b"\n<!-- upstream revision -->\n");
+    std::fs::write(&target_path, &changed).unwrap();
+
+    let drifted = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
+    )
+    .output()
+    .expect("the drift check must run");
+    assert!(
+        !drifted.status.success(),
+        "a changed standard must fail the drift check closed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&drifted.stdout),
+        String::from_utf8_lossy(&drifted.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&drifted.stdout)
+        .expect("the drift check must still print its JSON diagnostics");
+    assert_eq!(report["verified"], false, "stale proof must not verify");
+    let findings = report["findings"].as_array().expect("findings array");
+    assert_eq!(
+        findings.len(),
+        1,
+        "only the changed document may be reported: {report}"
+    );
+    assert_eq!(findings[0]["document"].as_str(), Some(target.as_str()));
+    assert_eq!(findings[0]["kind"].as_str(), Some("hash_drift"));
+    assert_eq!(
+        report["matched"].as_u64(),
+        Some(checked - 1),
+        "the untouched pins must still match: {report}"
+    );
+
+    // ── Rollback guidance: restoring the pinned bytes restores the proof ──
+    std::fs::write(&target_path, &original).unwrap();
+    let rolled_back = susi_json(
+        root,
+        &home,
+        &["mcp", "ledger", "--drift", "--refetched", refetched_arg],
+    );
+    assert_eq!(
+        rolled_back, pristine,
+        "rollback to the pinned corpus must restore the identical proof"
+    );
+
+    // ── Diagnostics: an unreachable corpus fails closed, bounded ──
+    let absent = scratch.join("absent-corpus");
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            absent.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .expect("the drift check must run");
+    assert!(
+        !missing.status.success(),
+        "an unreachable corpus must fail closed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&missing.stdout),
+        String::from_utf8_lossy(&missing.stderr)
+    );
+    let missing_report: serde_json::Value = serde_json::from_slice(&missing.stdout)
+        .expect("a failing drift check must still print diagnostics");
+    assert_eq!(missing_report["verified"], false);
+    let missing_findings = missing_report["findings"]
+        .as_array()
+        .expect("findings array");
+    assert_eq!(
+        missing_findings.len() as u64,
+        checked,
+        "every pin must be reported unfetchable: {missing_report}"
+    );
+    assert!(
+        missing_findings
+            .iter()
+            .all(|finding| finding["kind"].as_str() == Some("unfetchable")),
+        "unreachable pins must be classified unfetchable: {missing_report}"
+    );
+
+    // ── Inspectable API state on the served stdio path ──
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "resources-ops", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(300),
+        )
+        .expect("initialize must be answered");
+    assert!(initialize["result"]["capabilities"]["resources"].is_object());
+    assert_ne!(
+        initialize["result"]["capabilities"]["resources"]["subscribe"],
+        serde_json::json!(false),
+        "the served surface must advertise resource subscriptions: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let list_a = wire.request("resources/list", serde_json::json!({}));
+    let list_b = wire.request("resources/list", serde_json::json!({}));
+    assert_eq!(list_a, list_b, "API state inspection must be deterministic");
+    let resources = list_a["resources"].as_array().expect("resources array");
+    assert!(!resources.is_empty(), "API state must be inspectable");
+
+    // Bounded reads: every resource answers for its own URI inside the
+    // published content bound.
+    for resource in resources.iter().take(4) {
+        let uri = resource["uri"].as_str().unwrap();
+        let read = wire.request("resources/read", serde_json::json!({"uri": uri}));
+        let content = &read["contents"][0];
+        assert_eq!(content["uri"].as_str(), Some(uri), "read of {uri}");
+        assert!(
+            content["text"].is_string() || content["blob"].is_string(),
+            "read of {uri} must carry text or blob content"
+        );
+        assert!(
+            content["text"]
+                .as_str()
+                .map_or(0, str::len)
+                .max(content["blob"].as_str().map_or(0, str::len))
+                <= 8 * 1024 * 1024,
+            "resource {uri} must stay inside the bounded streaming budget"
+        );
+    }
+
+    // Update notifications: subscription on a listed resource is
+    // acknowledged and cleanly released.
+    let subscribed_uri = "susi://tools";
+    let subscribe = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "sub", "method": "resources/subscribe",
+                "params": {"uri": subscribed_uri}
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("subscribe must answer");
+    assert!(
+        subscribe.get("error").is_none_or(|error| error.is_null()),
+        "subscribe must be acknowledged: {subscribe}"
+    );
+    let unsubscribe = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "unsub", "method": "resources/unsubscribe",
+                "params": {"uri": subscribed_uri}
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("unsubscribe must answer");
+    assert!(
+        unsubscribe.get("error").is_none_or(|error| error.is_null()),
+        "unsubscribe must be acknowledged: {unsubscribe}"
+    );
+
+    // Diagnostics: refusals are typed and the session recovers.
+    for (index, uri) in ["susi://tools/../../etc/passwd", "susi://missing-resource"]
+        .iter()
+        .enumerate()
+    {
+        let answer = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("ops-neg-{index}"),
+                    "method": "resources/read", "params": {"uri": uri}
+                }),
+                std::time::Duration::from_secs(180),
+            )
+            .expect("diagnostic read must answer");
+        let error = answer
+            .get("error")
+            .filter(|error| !error.is_null())
+            .unwrap_or_else(|| panic!("{uri} must be refused with a typed error: {answer}"));
+        assert!(
+            error["code"].is_number() && error["message"].is_string(),
+            "refusal of {uri} must be typed: {answer}"
+        );
+    }
+    let recovered = wire.request("resources/read", serde_json::json!({"uri": "susi://tools"}));
+    assert!(
+        recovered["contents"][0]["text"].is_string(),
+        "session must recover after refusals: {recovered}"
+    );
+    drop(wire);
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
