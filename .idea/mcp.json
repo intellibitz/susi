@@ -1,11 +1,8 @@
 {
   "mcpServers": {
     "susi-harness": {
-      "command": "F:/src/github.com/intellibitz/susi/target/debug/susi.exe",
-      "args": ["mcp"],
-      "env": {
-        "SUSI_HOME": "C:/Users/user/.susi"
-      }
+      "command": "target/debug/susi",
+      "args": ["mcp"]
     }
   }
 }

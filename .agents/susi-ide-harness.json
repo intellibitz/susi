@@ -1,7 +1,7 @@
 {
   "harness": "susi-harness",
   "version": "0.21.23",
-  "executable": "F:/src/github.com/intellibitz/susi/target/debug/susi.exe",
+  "executable": "target/debug/susi",
   "mcp_endpoint": "stdio",
   "capabilities": [
     "workflow",
