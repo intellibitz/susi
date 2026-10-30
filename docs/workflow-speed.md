@@ -129,6 +129,21 @@ is not reported for that run: another agent's gate shared the machine while
 it ran, and the test build (the ~100 root test binaries, which no cache can
 hold) was slower than on an idle machine, not faster.
 
+**A hazard found on the way, and its guard.** sccache's client starts a
+server when none is running, and that server keeps the client's
+environment. Started by the first cargo of a hermetic test run, whose TMP is
+a throwaway directory, it kept writing temp files there after the run
+deleted it, and every compile on the machine failed with "Failed to create
+temp dir" until it idled out ten minutes later: one agent's whole-workspace
+gate failed on another agent's server. `scripts/setup-sccache.sh` now starts
+the server itself, from a sane environment, with no idle exit, every time it
+runs (enabling, and the silent runs at session start and worktree creation),
+so a dead server is replaced before a gate can start a bad one. The complete
+guard is for `scripts/check-hermetic-tests.sh` to start the server before it
+switches TMP (that script was under another agent's claim when this was
+found); a hermetic run that finds no server can still start a bad one until
+then.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
