@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic)]
+
 //! Regression coverage for avoiding an unnecessary post-merge CLI build.
 
 #[test]
