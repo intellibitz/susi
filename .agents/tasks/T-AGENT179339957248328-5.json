@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT179339957248328-5",
+  "title": "Use a shallow checkout for the common auto-merge path",
+  "goal": "Reduce common-path PR-to-merge latency without weakening merge safety.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "common_merge_path_uses_shallow_checkout"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793402761
+}

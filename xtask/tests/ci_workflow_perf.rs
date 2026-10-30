@@ -872,6 +872,42 @@ fn the_retest_merge_job_gates_a_stale_head_in_place_and_never_resyncs() {
     );
 }
 
+/// The serialized merge job's common path does not need the repository's
+/// complete history. Fetch that history only after the API probe proves a
+/// stale green head needs the local merge-tree gate.
+#[test]
+fn common_merge_path_uses_shallow_checkout() {
+    let text = read(".github/workflows/auto-merge.yml");
+    let jobs = jobs(&text);
+    let merge = job(&jobs, "merge-pr");
+    let checkout = steps(&merge.body)
+        .into_iter()
+        .find(|step| step.contains("actions/checkout@"))
+        .expect("the merge job checks out its default-branch scripts");
+    assert!(
+        checkout.contains("fetch-depth: 1") && !checkout.contains("fetch-depth: 0"),
+        "the common merge path should use a shallow checkout"
+    );
+    let steps = steps(&merge.body);
+    let probe = steps
+        .iter()
+        .position(|step| step.contains("id: probe"))
+        .expect("the merge job probes whether history is needed");
+    let history = steps
+        .iter()
+        .position(|step| step.contains("git fetch --unshallow origin"))
+        .expect("the stale merge gate fetches complete ancestry");
+    assert!(
+        steps[history].contains("if: steps.probe.outputs.need_gate == 'true'"),
+        "history is fetched only when the probe requires the stale merge gate"
+    );
+    let merge_gate = steps
+        .iter()
+        .position(|step| step.contains("name: Install Rust"))
+        .expect("the inline gate toolchain is installed");
+    assert!(probe < history && history < merge_gate);
+}
+
 /// codetree lists main's green Test runs twice: the stamp, which reuses a
 /// green run of this very tree (a re-run of a green head is proven), and the
 /// scope, which diffs from the newest green head before this one. The
