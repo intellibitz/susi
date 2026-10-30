@@ -24,7 +24,8 @@ fi
 # mkdir is atomic on every filesystem we run on, and /proc/self/fd resolves
 # the fd to its lockfile path under MSYS2. The holder's pid is recorded so a
 # crashed locker's directory is reclaimed instead of deadlocking the loop.
-if ! command -v flock >/dev/null 2>&1; then
+# SUSI_FLOCK_SHIM=1 forces the fallback where flock exists, so tests reach it.
+if [ -n "${SUSI_FLOCK_SHIM:-}" ] || ! command -v flock >/dev/null 2>&1; then
     flock() {
         local nonblock=0 unlock=0 fd target dir owner
         while [ $# -gt 1 ]; do
@@ -50,6 +51,15 @@ if ! command -v flock >/dev/null 2>&1; then
             owner=$(cat "$dir/pid" 2>/dev/null) || owner=""
             if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
                 rm -f "$dir/pid"
+                rmdir "$dir" 2>/dev/null
+                continue
+            fi
+            # A locker killed between mkdir and writing its pid leaves an empty
+            # directory the pid check above can never reclaim, and every later
+            # caller would wait on it forever. Past the few seconds that gap
+            # takes, an empty directory has no live owner.
+            if [ -z "$owner" ] &&
+                [ $(($(date +%s) - $(stat -c %Y "$dir" 2>/dev/null || echo 0))) -ge "${SUSI_FLOCK_EMPTY_SECS:-5}" ]; then
                 rmdir "$dir" 2>/dev/null
                 continue
             fi

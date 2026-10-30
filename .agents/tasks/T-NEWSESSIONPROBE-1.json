@@ -1,0 +1,18 @@
+{
+  "id": "T-NEWSESSIONPROBE-1",
+  "title": "flock fallback reclaims an empty lock dir a killed locker left (stale primary-update lock blocked every new worktree)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "park_primary",
+      "flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker"
+    ]
+  },
+  "created_by": "NEWSESSIONPROBE",
+  "created_unix": 1793378156
+}
