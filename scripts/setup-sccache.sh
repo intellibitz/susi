@@ -9,12 +9,12 @@
 #
 # Each worktree builds into a target of its own, copied from a snapshot of
 # origin/main's registry crates (scripts/seed-target.sh). What the snapshot
-# cannot hold still compiles in every new worktree: the vendored path patches
-# (vendor/reqwest, vendor/esaxx-rs) and everything above them (ra2a, rmcp,
-# tokenizers, fastembed, the candle crates: 100-150 s per worktree), and any
-# registry crate a `-p <crate>` gate unifies with features the snapshot's
-# whole-workspace build did not (tower, axum, tokio-stream and their
-# dependents, measured). sccache keys a compile by the compiler, its
+# cannot hold still compiles in every new worktree: any registry crate a
+# `-p <crate>` gate unifies with features the snapshot's whole-workspace build
+# did not (tower, axum, tokio-stream and their dependents, measured), and,
+# until the reqwest and esaxx-rs patches became a pinned git source
+# (vendor/README.md), everything above those two path crates (ra2a, rmcp,
+# tokenizers, fastembed, the candle crates: 100-150 s per worktree). sccache keys a compile by the compiler, its
 # arguments, the sources and the environment, so a crate one worktree
 # compiled is served to every other from a local disk cache instead of
 # compiled again. Workspace crates are passed through: cargo builds them

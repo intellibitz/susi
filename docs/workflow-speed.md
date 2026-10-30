@@ -97,16 +97,25 @@ the test build), same commit, same machine:
 
 The hits are the registry crates a `-p susi` gate unifies with other
 features than the snapshot's whole-workspace build (tokio-stream, tower,
-tower-http, axum). The misses that remain, and they are the heavy ones (49 s
-of compiler time each on average), are rmcp, ra2a, tokenizers, fastembed and
-the three candle crates: every one depends on `vendor/reqwest` or
-`vendor/esaxx-rs`, the two `[patch.crates-io]` path crates, whose rlibs embed
-the worktree's path, so their dependents' cache keys differ in every
-worktree (two different keys for rmcp, observed). The same two patches keep
-those crates out of the snapshot. Hosting the two patches as a pinned git
-revision instead of a path would put the whole chain in the snapshot and in
-the cache: that is the next change, and it touches `Cargo.toml` and
-`Cargo.lock` (a whole-workspace gate).
+tower-http, axum). The misses that remained, and they were the heavy ones
+(49 s of compiler time each on average), were rmcp, ra2a, tokenizers,
+fastembed and the three candle crates: every one depends on `reqwest` or
+`esaxx-rs`, the two `[patch.crates-io]` crates, which were path crates under
+`vendor/`; a path crate's rlib embeds the worktree's path, so their
+dependents' cache keys differed in every worktree (two different keys for
+rmcp, observed), and the same two path crates kept the chain out of the
+snapshot.
+
+## The patches as a pinned git revision (2026-10-31)
+
+The two patches now live on this repository's `nopr/vendor-patches` branch
+and the root `Cargo.toml` pins a revision of it (`vendor/README.md`). A git
+source is keyed the same in every worktree and on every machine, so the
+chain above the patches is built once: it sits in the snapshot once the
+watcher refreshes it after the merge, and the compiler cache serves it to
+every worktree before then.
+
+PATCH_MEASUREMENT
 
 ## What is not fixed here
 

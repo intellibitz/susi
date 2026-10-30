@@ -47,9 +47,10 @@
 #      one with a link where cargo keeps builds (a profile, a target triple's
 #      directory, a profile's fingerprints), which cargo never makes.
 #   3. Every unit not built from a registry or git source of DIR's Cargo.lock
-#      is stripped from the copy: the workspace members, the path dependencies
-#      (vendor/reqwest, vendor/esaxx-rs: Cargo.lock lists them with no
-#      source), and any crate that lockfile does not name. Their builds are
+#      is stripped from the copy: the workspace members, any path dependency
+#      (Cargo.lock lists one with no source; the reqwest and esaxx-rs patches
+#      were two until they became a git source), and any crate that lockfile
+#      does not name. Their builds are
 #      named by their path relative to the workspace, so the snapshot's would
 #      read as fresh wherever this checkout's files are older than the
 #      snapshot, and its test binaries carry the snapshot checkout's
@@ -91,17 +92,18 @@
 # its copy longer, up to about the whole target's minute; measure it once the
 # watcher has published one.
 #
-# The vendored path crates cost every new worktree: cargo checks a path
-# dependency by its files' timestamps and a fresh checkout writes every file
-# new, so vendor/reqwest and vendor/esaxx-rs recompile (they are stripped here
-# anyway), and so does everything above them: ra2a, rmcp, tokenizers,
-# fastembed, the candle crates. Measured on the same host, a seeded worktree's
-# first `cargo build --workspace --all-targets` took 341-389 s with the path
-# patches and 240 s with those crates as registry sources: some 100-150 s
-# (about 1490 unit-seconds) per worktree. Pointing [patch.crates-io] at a
-# pinned git revision of a fork instead of `path = "vendor/..."` would keep
-# them warm in the snapshot; that needs a fork to host the two patches, and is
-# not done.
+# The reqwest and esaxx-rs patches used to be path crates (vendor/), and a
+# path crate cost every new worktree: cargo checks it by its files'
+# timestamps and a fresh checkout writes every file new, so the two recompiled
+# (they were stripped here anyway), and so did everything above them: ra2a,
+# rmcp, tokenizers, fastembed, the candle crates. Measured on the same host, a
+# seeded worktree's first `cargo build --workspace --all-targets` took 341-389 s
+# with the path patches and 240 s with those crates as registry sources: some
+# 100-150 s (about 1490 unit-seconds) per worktree. The patches are a git
+# source now, pinned by revision on this repository's nopr/vendor-patches
+# branch (vendor/README.md): keyed the same in every worktree, so the whole
+# chain stays in the snapshot, and the compiler cache
+# (scripts/setup-sccache.sh) serves what the snapshot is behind on.
 #
 # A target/ that holds anything is this worktree's own build and is left alone,
 # so running this again changes nothing: every path that runs cargo for an

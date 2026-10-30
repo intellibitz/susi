@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261030230356251228-3",
+  "title": "workflow speed: the reqwest and esaxx-rs patches as a pinned git revision, not path crates",
+  "goal": "The two [patch.crates-io] path crates under vendor/ keep rmcp, ra2a, tokenizers, fastembed and the candle crates out of the seed snapshot and out of the machine's compiler cache, because a path crate's rlib embeds the worktree's path. Host them on a no-PR branch of this repository and pin the patch table to its revision, so the whole chain is keyed by a stable source: in the snapshot, and a cache hit in every worktree.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "vendor_patches"
+    ]
+  },
+  "created_by": "AGENT20261030230356251228",
+  "created_unix": 1793390735
+}
