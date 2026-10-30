@@ -1,0 +1,17 @@
+{
+  "id": "T-AGENT20261031021059518379-1",
+  "title": "workflow speed: fast claim/renew, finish sync, target-scoped root test gate, and zero-overlap merge gate",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793393252
+}

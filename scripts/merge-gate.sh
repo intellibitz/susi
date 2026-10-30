@@ -22,7 +22,26 @@ cd "$(git rev-parse --show-toplevel)"
 "$here/check-test-harness-contract.sh" || exit 1
 cargo fmt --all --check || exit 1
 
-pkgs=$(BASE_REF="$base" "$here/ci-changed-crates.sh" --dependents || echo ALL)
+pr_pkgs=$(BASE_REF="$base" "$here/ci-changed-crates.sh" --dependents || echo ALL)
+# On a trial merge commit (`HEAD^1` = main, `HEAD^2` = the already-green PR
+# head), any crate that does not depend on what changed on `main` since the PR
+# branched (`BASE_REF=HEAD^2`) has the exact inputs the PR's own green `check`
+# job already proved; only the intersection of the two dependent closures can
+# interact across the merge.
+if git rev-parse --verify -q HEAD^2 >/dev/null 2>&1; then
+    main_pkgs=$(BASE_REF="HEAD^2" "$here/ci-changed-crates.sh" --dependents || echo ALL)
+else
+    main_pkgs=ALL
+fi
+if [ "$pr_pkgs" = ALL ]; then
+    pkgs=$main_pkgs
+elif [ "$main_pkgs" = ALL ]; then
+    pkgs=$pr_pkgs
+elif [ -z "$pr_pkgs" ] || [ -z "$main_pkgs" ]; then
+    pkgs=""
+else
+    pkgs=$(comm -12 <(sort -u <<<"$pr_pkgs") <(sort -u <<<"$main_pkgs"))
+fi
 case "$pkgs" in
     ALL)
         "$here/ci-prefetch-onnxruntime.sh" || exit 1
