@@ -138,11 +138,12 @@ temp dir" until it idled out ten minutes later: one agent's whole-workspace
 gate failed on another agent's server. `scripts/setup-sccache.sh` now starts
 the server itself, from a sane environment, with no idle exit, every time it
 runs (enabling, and the silent runs at session start and worktree creation),
-so a dead server is replaced before a gate can start a bad one. The complete
-guard is for `scripts/check-hermetic-tests.sh` to start the server before it
-switches TMP (that script was under another agent's claim when this was
-found); a hermetic run that finds no server can still start a bad one until
-then.
+so a dead server is replaced before a gate can start a bad one, and
+`scripts/check-hermetic-tests.sh` asks for the same
+(`scripts/setup-sccache.sh --ensure-server`) from the real environment before
+it switches TMP, so a hermetic run that finds no server starts a sane one.
+`tests/hermetic_scope.rs` pins the order and the environment the server is
+started with.
 
 ## What is not fixed here
 

@@ -6,6 +6,12 @@
 #                                        apt's cargo, or `cargo install`)
 #   scripts/setup-sccache.sh --status    hit rate and cache size
 #   scripts/setup-sccache.sh --off       remove what this script wrote
+#   scripts/setup-sccache.sh --ensure-server
+#                                        start the server from this environment
+#                                        when none runs and the config block is
+#                                        there (scripts/check-hermetic-tests.sh
+#                                        runs it before it switches TMP); quiet,
+#                                        never fails
 #
 # Each worktree builds into a target of its own, copied from a snapshot of
 # origin/main's registry crates (scripts/seed-target.sh). What the snapshot
@@ -45,8 +51,11 @@
 # failed. So this script starts the server itself, from the environment it
 # runs in, with the cache's place and size and no idle exit, whenever it runs
 # (enabling, and the silent runs from scripts/susi-worktree.sh and the
-# SessionStart hook): a server already running is left alone, a dead one is
-# replaced before any gate can start a worse one. `--off` stops it.
+# SessionStart hook), and scripts/check-hermetic-tests.sh asks for the same
+# (`--ensure-server`) before it switches its TMP, so a hermetic run that finds
+# no server starts a sane one, never one in its throwaway: a server already
+# running is left alone, a dead one is replaced before any gate can start a
+# worse one. `--off` stops it.
 set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
@@ -56,8 +65,9 @@ case "${1:-}" in
 --install) action=install ;;
 --status) action=status ;;
 --off) action=off ;;
+--ensure-server) action=ensure ;;
 *)
-    echo "usage: setup-sccache.sh [--install | --status | --off]" >&2
+    echo "usage: setup-sccache.sh [--install | --status | --off | --ensure-server]" >&2
     exit 2
     ;;
 esac
@@ -90,6 +100,14 @@ native_path() {
 
 written_block() {
     [ -f "$config" ] && grep -qF "$begin" "$config"
+}
+
+# The cache's place and size as the written block names them ('' when the
+# block is not there): the one reader of the block's format besides the
+# writer, for a server started outside cargo.
+block_value() {
+    [ -f "$config" ] || return 0
+    sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$config" | head -n 1
 }
 
 remove_block() {
@@ -151,6 +169,17 @@ install_sccache() {
 }
 
 case "$action" in
+ensure)
+    # Only where this script set the machine up: without the block no cargo
+    # uses sccache, and a server started here would be one nobody asked for.
+    command -v sccache >/dev/null 2>&1 || exit 0
+    written_block || exit 0
+    dir=$(block_value SCCACHE_DIR)
+    size=$(block_value SCCACHE_CACHE_SIZE)
+    [ -n "$dir" ] && [ -n "$size" ] || exit 0
+    ensure_server "$dir" "$size"
+    exit 0
+    ;;
 status)
     command -v sccache >/dev/null 2>&1 || {
         echo "sccache is not installed (scripts/setup-sccache.sh --install)"

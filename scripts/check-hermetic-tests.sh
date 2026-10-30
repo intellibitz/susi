@@ -76,6 +76,17 @@ export CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}"
 export RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}"
 # The real cargo shim must stay reachable after HOME is replaced.
 export PATH="${CARGO_HOME}/bin:${PATH}"
+# The machine's compiler cache server, started from THIS environment before
+# the switch below (scripts/setup-sccache.sh --ensure-server; a no-op when one
+# runs, or where the cache was never set up): sccache's client starts a server
+# when none runs, and that server keeps the client's environment. Started by
+# this run's first cargo, it kept this run's throwaway TMP, wrote its temp
+# files there after the EXIT trap removed it, and every compile on the machine
+# failed with "Failed to create temp dir" until it idled out: another agent's
+# gate was what failed.
+if command -v sccache >/dev/null 2>&1 && [ -f "$(dirname "${BASH_SOURCE[0]}")/setup-sccache.sh" ]; then
+    "${BASH:-bash}" "$(dirname "${BASH_SOURCE[0]}")/setup-sccache.sh" --ensure-server || true
+fi
 export HOME="$testhome"
 export USERPROFILE="$testhome"
 export XDG_CONFIG_HOME="$testhome/xdg-config"
