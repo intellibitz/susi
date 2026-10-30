@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT179339957248328-7",
+  "title": "Skip unsafe exposure scans for non-code pushes",
+  "goal": "Avoid running the 30-second unsafe exposure scan when changed files cannot affect its inputs; fail open on uncertain diffs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "unsafe_ratchet_skips_non_code_pushes"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793403626,
+  "closed": {
+    "at_unix": 1793403874,
+    "commit": "d43b12d4c6ebfbdd24d3186b53e7c614f2d01d36",
+    "by": "AGENT179339957248328"
+  }
+}

@@ -1459,6 +1459,61 @@ fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
 }
 
 #[test]
+fn unsafe_ratchet_skips_non_code_pushes() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let ratchet = job(&jobs, "unsafe-ratchet");
+    let steps = steps(&ratchet.body);
+    let scope = steps
+        .iter()
+        .find(|step| step.contains("id: scope"))
+        .expect("the ratchet classifies changed inputs before setup");
+    assert!(
+        scope.contains("BEFORE: ${{ github.event.before }}")
+            && scope.contains("git fetch --quiet --no-tags origin \"$BEFORE\"")
+            && scope.contains("git diff --name-only \"$BEFORE\" \"$GITHUB_SHA\""),
+        "pushes must compare the complete diff against the event's before SHA"
+    );
+    for needle in [
+        "run=true",
+        "run=false",
+        "Cargo\\.lock",
+        "Cargo\\.toml",
+        "unsafe-default",
+        "src/.*",
+        "unsafe-exposure-ratchet",
+    ] {
+        assert!(
+            scope.contains(needle),
+            "uncertain diffs run the ratchet; scope is missing {needle}"
+        );
+    }
+    for name in [
+        "Install Rust",
+        "Cache Cargo",
+        "Cache cargo-geiger",
+        "Install cargo-geiger",
+        "Save cargo-geiger",
+        "Run unsafe exposure ratchet",
+    ] {
+        let step = steps
+            .iter()
+            .find(|step| step.contains(&format!("name: {name}")))
+            .unwrap_or_else(|| panic!("the unsafe ratchet has no `{name}` step"));
+        assert!(
+            step.contains("steps.scope.outputs.run == 'true'"),
+            "`{name}` must wait for the fail-open scope result"
+        );
+    }
+    assert!(
+        job(&jobs, "merge")
+            .body
+            .contains("needs: [unsafe-ratchet, fmt, codetree, invariants, workflow, deny, check]"),
+        "the required unsafe-ratchet check remains in the branch merge dependencies"
+    );
+}
+
+#[test]
 fn the_slow_all_features_build_is_not_a_serial_step_of_another_shard() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
