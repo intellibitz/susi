@@ -945,6 +945,25 @@ fn the_merge_queue_probe_answers_true_whenever_it_cannot_tell() {
 
     f.flag("prlist_fail", "1");
     assert_eq!(probe(&f, &["o/r"]), "true", "a failed PR listing");
+
+    // Two green PRs in one sweep: even when both are currently ahead of main,
+    // merging the first makes the second green-but-behind inside the same
+    // `reconcile` pass, so the probe must answer `true` to install the gate.
+    let f2 = Fake::new(
+        "probe-two-green",
+        serde_json::json!([
+            pr(1, "feat-a", "s1", NOW, false),
+            pr(2, "feat-b", "s2", NOW, false)
+        ]),
+        serde_json::json!({"s1": green(), "s2": green()}),
+    );
+    f2.flag("cmp-main___s1", "ahead");
+    f2.flag("cmp-main___s2", "ahead");
+    assert_eq!(
+        probe(&f2, &["o/r"]),
+        "true",
+        "two green PRs need the gate for the second after the first merges"
+    );
 }
 
 #[test]
