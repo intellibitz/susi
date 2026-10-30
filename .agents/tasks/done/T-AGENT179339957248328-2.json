@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT179339957248328-2",
+  "title": "Prefilter roadmap reachability source files",
+  "goal": "Reduce Repository Invariants latency by avoiding the expensive comment/string/test scrubber on Rust files that contain none of the symbols being checked, while preserving identical call-site results.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "roadmap_verdict_batch_searches_evidence_once"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793400788,
+  "closed": {
+    "at_unix": 1793401041,
+    "commit": "72a6b54857ed132058d1ca5efdc22d5785ede3c8",
+    "by": "AGENT179339957248328"
+  }
+}
