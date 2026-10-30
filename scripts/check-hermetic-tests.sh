@@ -133,26 +133,32 @@ nextest)
         --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}"
     # Doc-tests: `-p` on a package with no library target is an error, so name only
     # the selected packages that have one. A selection with no `-p` (`--workspace`)
-    # is passed through: cargo skips the bin-only members itself.
+    # is passed through: cargo skips the bin-only members itself. When `--test`
+    # narrows the run to named integration-test binaries, doc-tests are not part
+    # of the target set (and `cargo test --doc` rejects `--test`).
+    has_test_filter=0
     wanted=()
     prev=""
     for arg in "${scope[@]}"; do
+        if [ "$arg" = --test ]; then has_test_filter=1; fi
         if [ "$prev" = -p ]; then wanted+=("$arg"); fi
         prev="$arg"
     done
-    if [ "${#wanted[@]}" -eq 0 ]; then
-        cargo test --locked --doc "${scope[@]}"
-    else
-        libs=$(cargo metadata --no-deps --format-version 1 | jq -r --argjson want \
-            "$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s .)" '
-            .packages[]
-            | select(.name as $n | $want | index($n))
-            | select(any(.targets[]; any(.kind[]; . == "lib" or . == "rlib" or . == "proc-macro")))
-            | .name')
-        doc_scope=()
-        for lib in $libs; do doc_scope+=(-p "$lib"); done
-        if [ "${#doc_scope[@]}" -gt 0 ]; then
-            cargo test --locked --doc "${doc_scope[@]}"
+    if [ "$has_test_filter" -eq 0 ]; then
+        if [ "${#wanted[@]}" -eq 0 ]; then
+            cargo test --locked --doc "${scope[@]}"
+        else
+            libs=$(cargo metadata --no-deps --format-version 1 | jq -r --argjson want \
+                "$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s .)" '
+                .packages[]
+                | select(.name as $n | $want | index($n))
+                | select(any(.targets[]; any(.kind[]; . == "lib" or . == "rlib" or . == "proc-macro")))
+                | .name')
+            doc_scope=()
+            for lib in $libs; do doc_scope+=(-p "$lib"); done
+            if [ "${#doc_scope[@]}" -gt 0 ]; then
+                cargo test --locked --doc "${doc_scope[@]}"
+            fi
         fi
     fi
     ;;

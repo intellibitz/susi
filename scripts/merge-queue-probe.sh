@@ -35,6 +35,7 @@ prs=$(gh pr list --repo "$repo" --base main --state open \
     --json number,headRefName,headRefOid,isDraft \
     --jq '.[] | [.number, .headRefName, .headRefOid, .isDraft] | @tsv' 2>/dev/null) \
     || { echo true; exit 0; }
+green_count=0
 while IFS=$'\t' read -r _num branch sha draft; do
     [ -n "$sha" ] || continue
     case "$branch" in wip/* | nopr/* | dependabot/*) continue ;; esac
@@ -45,6 +46,10 @@ while IFS=$'\t' read -r _num branch sha draft; do
         || { echo true; exit 0; }
     [ "${green%$'\r'}" = "yes" ] || continue
     stale_green "$sha" && { echo true; exit 0; }
+    green_count=$((green_count + 1))
+    # Two or more green PRs in the same sweep: merging the first advances main
+    # and makes the second green-but-behind inside the same `reconcile` run.
+    [ "$green_count" -ge 2 ] && { echo true; exit 0; }
 done < <(printf '%s\n' "$prs" | tr -d '\r')
 
 echo false
