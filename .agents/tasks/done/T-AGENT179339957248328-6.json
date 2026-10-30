@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT179339957248328-6",
+  "title": "Skip the heavyweight Cargo target cache for xtask-only checks",
+  "goal": "Cut cache restore time for small xtask-only pushes while preserving the compile gate.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "xtask_only_gate_skips_target_cache"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793403211,
+  "closed": {
+    "at_unix": 1793403375,
+    "commit": "f6c45996be8708caf4cb7b867705601b7f434da9",
+    "by": "AGENT179339957248328"
+  }
+}

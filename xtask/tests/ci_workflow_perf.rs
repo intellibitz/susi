@@ -677,6 +677,37 @@ fn branch_compile_gate_restores_target_archive() {
     );
 }
 
+/// The target archive is useful for large compile closures, but it can take
+/// longer to restore than the standalone xtask package takes to check.
+#[test]
+fn xtask_only_gate_skips_target_cache() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    assert!(
+        check
+            .body
+            .contains("if [ \"$pkgs\" = \"xtask\" ]; then target_cache=false; fi")
+            && check
+                .body
+                .contains("echo \"target_cache=$target_cache\" >> \"$GITHUB_OUTPUT\""),
+        "an xtask-only change should skip restoring the heavyweight target archive"
+    );
+    let cache = steps(&check.body)
+        .into_iter()
+        .find(|step| step.contains("name: Cache Cargo"))
+        .expect("branch compile gate has a Cargo cache step");
+    assert!(
+        cache.contains("steps.affected.outputs.target_cache != 'false'"),
+        "the target archive restore should remain enabled for other affected sets"
+    );
+    assert!(
+        check.body.contains("RUSTC_WRAPPER: \"sccache\"")
+            && check.body.contains("RUSTC_WORKSPACE_WRAPPER: \"sccache\""),
+        "the xtask compile still uses shared sccache entries"
+    );
+}
+
 /// Taking tests off the branch gate is only sound while they still run
 /// somewhere on every merge: the sharded suite on main.
 #[test]
