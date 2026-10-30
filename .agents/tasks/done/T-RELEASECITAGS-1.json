@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "RELEASECITAGS",
-  "created_unix": 1793344174
+  "created_unix": 1793344174,
+  "closed": {
+    "at_unix": 1793350873,
+    "commit": "a0ed8696672b8224164a930341609e7e242ec6d2",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
 }
