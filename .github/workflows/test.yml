@@ -109,7 +109,28 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
+      # The ratchet only depends on Rust source/build inputs, the resolved
+      # dependency graph, its baseline and this gate script. Keep it required
+      # for workflow_dispatch and fail open if the before-SHA cannot be read.
+      - name: Check whether unsafe exposure inputs changed
+        id: scope
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          run=true
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ -n "$BEFORE" ] \
+            && ! grep -Eq '^0+$' <<<"$BEFORE"; then
+            if git fetch --quiet --no-tags origin "$BEFORE"; then
+              if changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA"); then
+                if ! grep -Eq '(^|/)(src/.*\.rs|build\.rs|Cargo\.toml)$|^Cargo\.lock$|^rust-toolchain(\.toml)?$|^\.cargo/config(\.toml)?$|^\.agents/baseline/unsafe-default\.json$|^vendor/|^\.github/workflows/unsafe-exposure-ratchet\.sh$' <<<"$changed"; then
+                  run=false
+                fi
+              fi
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
       - name: Install Rust
+        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
       # Branches read main's entries and never write their own. A cache entry is
       # saved under the ref that wrote it, and the default (save on every push)
@@ -118,11 +139,13 @@ jobs:
       # eviction kept removing entries - the geiger one among them, which broke
       # every push (see "Install cargo-geiger"). Same policy as `check` below.
       - name: Cache Cargo
+        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Cache cargo-geiger
         id: geiger
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/cargo-geiger
@@ -137,7 +160,7 @@ jobs:
       # version; otherwise install over it. tests/ci_cached_tool_install.rs
       # requires `--force` on every `cargo install` in a rust-cache job.
       - name: Install cargo-geiger
-        if: steps.geiger.outputs.cache-hit != 'true'
+        if: steps.scope.outputs.run == 'true' && steps.geiger.outputs.cache-hit != 'true'
         run: |
           if cargo geiger --version 2>/dev/null | grep -qx 'cargo-geiger 0.13.0'; then
             echo "cargo-geiger 0.13.0 restored with the cargo cache"
@@ -147,12 +170,13 @@ jobs:
       # Saved right after the install, not at job end, so a ratchet failure on
       # main (a real unsafe regression) does not also lose the entry.
       - name: Save cargo-geiger
-        if: github.ref == 'refs/heads/main' && steps.geiger.outputs.cache-hit != 'true'
+        if: steps.scope.outputs.run == 'true' && github.ref == 'refs/heads/main' && steps.geiger.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.cargo/bin/cargo-geiger
           key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
       - name: Run unsafe exposure ratchet
+        if: steps.scope.outputs.run == 'true'
         run: .github/workflows/unsafe-exposure-ratchet.sh
 
   fmt:
