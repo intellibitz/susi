@@ -188,7 +188,20 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     let _ = fs::remove_dir_all(config_dir);
 }
 
+/// A killed process stays a zombie until its parent reaps it, and `kill -0`
+/// answers for a zombie too. The descendant's parent is the group the test
+/// just killed, so the container's init reaps it — a cloud container's init
+/// takes over a second to, so on Linux a zombie counts as exited.
 fn process_is_alive(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+        // The state follows the parenthesized command name, which may itself
+        // contain spaces or parentheses.
+        let state = stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().next());
+        return state != Some("Z");
+    }
     std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(std::process::Stdio::null())
