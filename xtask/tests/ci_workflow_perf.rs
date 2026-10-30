@@ -105,7 +105,7 @@ fn path_with_prefix(prefix: &Path, include_host: bool) -> std::ffi::OsString {
 }
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
 fn read(rel: &str) -> String {
@@ -420,10 +420,9 @@ fn the_root_cli_shard_runs_in_partitions() {
     let matrix = shard_matrix("[]");
     let parts: Vec<String> = matrix
         .iter()
-        .filter(|leg| leg["name"] == "root-cli")
+        .filter(|leg| json_string_field(leg, "name") == Some("root-cli"))
         .map(|leg| {
-            leg["partition"]
-                .as_str()
+            json_string_field(leg, "partition")
                 .and_then(|p| p.strip_prefix("hash:"))
                 .expect("every root-cli leg carries `partition: hash:<k>/<n>`")
                 .to_string()
@@ -440,8 +439,8 @@ fn the_root_cli_shard_runs_in_partitions() {
     }
     let pkgs: std::collections::BTreeSet<&str> = matrix
         .iter()
-        .filter(|leg| leg["name"] == "root-cli")
-        .filter_map(|leg| leg["pkgs"].as_str())
+        .filter(|leg| json_string_field(leg, "name") == Some("root-cli"))
+        .filter_map(|leg| json_string_field(leg, "pkgs"))
         .collect();
     assert_eq!(
         pkgs.len(),
@@ -1373,8 +1372,11 @@ fn the_slow_all_features_build_is_not_a_serial_step_of_another_shard() {
     assert!(
         shard_matrix("[]")
             .iter()
-            .any(|leg| leg["name"] == "leaf-all-features"
-                && leg["pkgs"] == "-p susi-leaf-services --all-features"),
+            .any(
+                |leg| json_string_field(leg, "name") == Some("leaf-all-features")
+                    && json_string_field(leg, "pkgs")
+                        == Some("-p susi-leaf-services --all-features")
+            ),
         "susi-leaf-services --all-features (wasmtime's cranelift, ~7.5 min) runs as its own \
          parallel shard"
     );
@@ -2339,19 +2341,24 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
         let (name, pkgs) = (cols.next().unwrap(), cols.next().unwrap());
         assert!(
             full.iter()
-                .any(|leg| leg["name"] == name && leg["pkgs"] == pkgs),
+                .any(|leg| json_string_field(leg, "name") == Some(name)
+                    && json_string_field(leg, "pkgs") == Some(pkgs)),
             "the matrix has no `{name}` leg with exactly `{pkgs}`"
         );
     }
     let skip = format!("[\"{}\"]", names[0]);
     let scoped = shard_matrix(&skip);
     assert!(
-        scoped.iter().all(|leg| leg["name"] != names[0]),
+        scoped
+            .iter()
+            .all(|leg| json_string_field(leg, "name") != Some(names[0])),
         "`--matrix {skip}` must leave the skipped shard out: {scoped:?}"
     );
     assert_eq!(
         scoped.len(),
-        full.iter().filter(|leg| leg["name"] != names[0]).count(),
+        full.iter()
+            .filter(|leg| json_string_field(leg, "name") != Some(names[0]))
+            .count(),
         "`--matrix` must keep every other leg"
     );
     let all: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
@@ -2444,7 +2451,7 @@ fn every_workspace_member_runs_in_a_shard() {
 /// (0xC0000005, a failed status and no stderr) — every test that read the
 /// matrix failed on Windows. Where the argument form is safe, it must say
 /// the same: it is the form test.yml uses.
-fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
+fn shard_matrix(skip: &str) -> Vec<String> {
     use std::io::Write as _;
     let mut child = script_command(&root().join("scripts/ci-test-shards.sh"))
         .args(["--matrix", "-"])
@@ -2478,16 +2485,31 @@ fn shard_matrix(skip: &str) -> Vec<serde_json::Value> {
             String::from_utf8_lossy(&by_arg.stderr)
         );
     }
-    let matrix: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "--matrix is not JSON ({e}): {}",
-            String::from_utf8_lossy(&out.stdout)
-        )
-    });
-    matrix["shard"]
-        .as_array()
-        .expect("the matrix is {\"shard\": [...]}")
-        .clone()
+    let matrix = String::from_utf8(out.stdout).expect("--matrix emits UTF-8 JSON");
+    let shards = matrix
+        .trim()
+        .strip_prefix("{\"shard\":[")
+        .and_then(|s| s.strip_suffix("]}"))
+        .unwrap_or_else(|| panic!("--matrix is not the expected JSON object: {matrix}"));
+    if shards.is_empty() {
+        return Vec::new();
+    }
+    shards
+        .split("},{")
+        .map(|object| {
+            format!(
+                "{{{}}}",
+                object.trim_start_matches('{').trim_end_matches('}')
+            )
+        })
+        .collect()
+}
+
+/// Read an unescaped string field from the flat shard objects emitted by jq.
+fn json_string_field<'a>(object: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("\"{name}\":\"");
+    let value = object.get(object.find(&prefix)? + prefix.len()..)?;
+    Some(&value[..value.find('"')?])
 }
 
 /// `codetree` must publish the scoping verdicts the shards, the e2e, the

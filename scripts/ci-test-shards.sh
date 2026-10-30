@@ -11,7 +11,7 @@
 # ~100 small test binaries evenly, where counted partitioning goes binary by
 # binary and piles the first test of each onto partition 1. The legs keep the
 # shard's name, so scoping and the cache key (`test-<name>`) are per shard.
-# tests/ci_workflow_perf.rs pins this file against test.yml.
+# xtask/tests/ci_workflow_perf.rs pins this file against test.yml.
 #
 #   scripts/ci-test-shards.sh                  name<TAB>pkgs<TAB>partitions per line
 #   scripts/ci-test-shards.sh --json           [{"name", "pkgs", "partitions"}, ...]
@@ -29,7 +29,7 @@
 # this happens.
 #
 # Every workspace member is in some shard: a member in none has its tests run
-# by no CI job at all (tests/ci_workflow_perf.rs checks the members against
+# by no CI job at all (xtask checks the members against
 # this map). Keep shards roughly balanced: gemi pulls the candle/ort vendors,
 # and holds susi-harness, whose closure (susi-adapters-llm, the HTTP transport)
 # it already builds; daemon the service shells, gawd the swarm crates, and
