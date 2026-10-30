@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT20261030230356251228-4",
+  "title": "workflow speed: a hermetic test run never starts the cache server from its throwaway TMP",
+  "goal": "sccache's client starts a server when none runs and that server keeps the client's environment; one started by the first cargo of a hermetic run kept the run's deleted TMP and failed every compile on the machine. check-hermetic-tests.sh starts the server from the real environment before it switches TMP, through one ensure-server mode of setup-sccache.sh that knows the config block.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "hermetic_scope",
+      "sccache"
+    ]
+  },
+  "created_by": "AGENT20261030230356251228",
+  "created_unix": 1793397420,
+  "closed": {
+    "at_unix": 1793398679,
+    "commit": "a77c00216a93b45c2f5a269321bb0e2ee209394e",
+    "by": "AGENT20261030230356251228"
+  }
+}
