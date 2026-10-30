@@ -1751,6 +1751,89 @@ fn zc_scope_script_runs_the_matrix_only_for_what_it_proves() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn xtask_package_changes_are_scoped_to_xtask() {
+    let dir = std::env::temp_dir().join(format!("susi-changed-crates-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let write = |rel: &str, body: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        set_script_executable(&path);
+    };
+    let commit = |message: &str| {
+        git(&["add", "-A", "."]);
+        git(&["commit", "--quiet", "-m", message]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "--quiet", "-b", "main", "."]);
+    for script in ["ci-changed-crates.sh", "posix-compat.sh"] {
+        write(
+            &format!("scripts/{script}"),
+            &read(&format!("scripts/{script}")),
+        );
+    }
+    write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\".\", \"xtask\"]\nresolver = \"2\"\n\
+         [package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("src/lib.rs", "pub fn f() {}\n");
+    write("tests/ci_workflow_perf.rs", "#[test] fn contract() {}\n");
+    write(
+        "xtask/Cargo.toml",
+        "[package]\nname = \"xtask\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("xtask/src/lib.rs", "pub fn f() {}\n");
+    let base = commit("main");
+    git(&["branch", "origin/main", &base]);
+    std::fs::remove_file(dir.join("tests/ci_workflow_perf.rs")).unwrap();
+    write(
+        "xtask/tests/ci_workflow_perf.rs",
+        "#[test] fn contract() {}\n",
+    );
+    write(".agents/tasks/done/T-X-1.json", "{}\n");
+    commit("task and its lightweight acceptance test");
+
+    let out = script_command(&dir.join("scripts/ci-changed-crates.sh"))
+        .arg("--dependents")
+        .current_dir(&dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "ci-changed-crates.sh failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "xtask",
+        "the task record is inert and the test file maps to the xtask package"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A branch push runs none of the jobs `codetree` scopes, so it must not pay
 /// a runner for the stamp; and the three static checks that used to be three
 /// runner allocations per push run in one job.

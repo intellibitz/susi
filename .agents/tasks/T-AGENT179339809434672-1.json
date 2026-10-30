@@ -1,7 +1,7 @@
 {
   "id": "T-AGENT179339809434672-1",
-  "title": "Run CI workflow contracts in the lightweight xtask test target",
-  "goal": "Move CI workflow contract tests out of the SUSI root integration-test target so a single workflow assertion does not compile the entire app.",
+  "title": "Keep CI workflow contracts inside the package-scoped local gate",
+  "goal": "Move CI workflow contract tests out of the SUSI root integration-test target and map xtask changes to their package so ordinary task commits do not trigger workspace-wide Clippy.",
   "size": "m",
   "deps": [],
   "accept": {
@@ -13,7 +13,7 @@
       "xtask",
       "--test",
       "ci_workflow_perf",
-      "branch_compile_gate_restores_target_archive"
+      "xtask_package_changes_are_scoped_to_xtask"
     ]
   },
   "created_by": "AGENT179339809434672",
