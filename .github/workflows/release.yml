@@ -236,6 +236,11 @@ jobs:
           Check 'workflow check' 1 'not ready' @('workflow','check')
           Check 'release --help refused' 2 'looks like a command' @('release','--help')
           Check 'nested command refused' 2 'susi ecosystem scan' @('scan')
+          # Every check passed (a failure throws). The runner ends a pwsh step
+          # with `exit $LASTEXITCODE`, which still holds the refused command's
+          # expected 2: v0.21.25 printed seven `ok:` lines, failed this step,
+          # and published no Windows binary.
+          exit 0
 
       - name: Upload Artifacts
         # A dispatch is a dry run: it has no tag, so this would publish a
