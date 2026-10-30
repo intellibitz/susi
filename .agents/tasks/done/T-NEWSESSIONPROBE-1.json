@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "NEWSESSIONPROBE",
-  "created_unix": 1793378156
+  "created_unix": 1793378156,
+  "closed": {
+    "at_unix": 1793380559,
+    "commit": "ef39245e439cb4499e101a176eb01d655177f960",
+    "by": "NEWSESSIONPROBE"
+  }
 }
