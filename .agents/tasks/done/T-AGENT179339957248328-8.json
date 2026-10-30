@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT179339957248328-8",
+  "title": "Use shared sccache for the unsafe exposure ratchet",
+  "goal": "Use main's shared sccache entries to shorten the unsafe-ratchet compile without changing its scan or comparator.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "unsafe_ratchet_uses_shared_sccache"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793404149,
+  "closed": {
+    "at_unix": 1793404296,
+    "commit": "8a744cd7263ba7acc459a7c2da577d3f65ed2049",
+    "by": "AGENT179339957248328"
+  }
+}
