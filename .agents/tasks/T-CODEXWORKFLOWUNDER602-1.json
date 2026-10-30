@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXWORKFLOWUNDER602-1",
+  "title": "release: stop waiting on merge-only coverage and Kani gates",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_await_tests",
+      "release_qualifies_when_release_jobs_pass_before_merge_only_gates"
+    ]
+  },
+  "created_by": "CODEXWORKFLOWUNDER602",
+  "created_unix": 1793388257
+}
