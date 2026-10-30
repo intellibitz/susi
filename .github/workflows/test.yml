@@ -106,6 +106,10 @@ jobs:
     name: Unsafe Exposure Ratchet
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -122,7 +126,7 @@ jobs:
             && ! grep -Eq '^0+$' <<<"$BEFORE"; then
             if git fetch --quiet --no-tags origin "$BEFORE"; then
               if changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA"); then
-                if ! grep -Eq '(^|/)(src/.*\.rs|build\.rs|Cargo\.toml)$|^Cargo\.lock$|^rust-toolchain(\.toml)?$|^\.cargo/config(\.toml)?$|^\.agents/baseline/unsafe-default\.json$|^vendor/|^\.github/workflows/unsafe-exposure-ratchet\.sh$' <<<"$changed"; then
+                if ! grep -Eq '(^|/)(src/.*\.rs|build\.rs|Cargo\.toml)$|^Cargo\.lock$|^rust-toolchain(\.toml)?$|^\.cargo/config(\.toml)?$|^\.agents/baseline/unsafe-default\.json$|^vendor/|^\.github/workflows/unsafe-exposure-ratchet\.sh$|^\.github/workflows/test\.yml$' <<<"$changed"; then
                   run=false
                 fi
               fi
@@ -132,6 +136,11 @@ jobs:
       - name: Install Rust
         if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
+      - name: Install sccache
+        if: steps.scope.outputs.run == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: "v0.16.0"
       # Branches read main's entries and never write their own. A cache entry is
       # saved under the ref that wrote it, and the default (save on every push)
       # put a 321 MB rust-cache entry plus the 10 MB geiger entry under every task
