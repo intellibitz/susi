@@ -414,7 +414,7 @@ def check_all():
             )
             payload = json.loads(proc.stdout)
             batched_checks = {
-                tuple(item["check"]): bool(item["passed"])
+                ("scripts/check-reachability.py", *item["check"]): bool(item["passed"])
                 for item in payload["results"]
             }
             if len(batched_checks) != len(reachability_checks):

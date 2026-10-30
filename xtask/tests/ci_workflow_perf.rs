@@ -1853,6 +1853,7 @@ fn roadmap_verdict_batch_searches_evidence_once() {
     assert!(
         check_all.contains("batch_evidence_hits(identifiers)")
             && check_all.contains("--batch")
+            && check_all.contains("(\"scripts/check-reachability.py\", *item[\"check\"])")
             && check_all.contains("batched_checks=batched_checks"),
         "check_all must batch identifier evidence and reachability checks before validating records"
     );
