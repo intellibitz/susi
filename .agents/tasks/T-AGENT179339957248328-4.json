@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT179339957248328-4",
+  "title": "Install cargo-deny from its prebuilt release in branch CI",
+  "goal": "Reduce required branch CI latency by avoiding a Docker action image build and redundant Rust component installation for cargo-deny, while retaining the all-features dependency policy check.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "cargo_deny_uses_prebuilt_tool"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793401777
+}

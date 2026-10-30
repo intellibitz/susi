@@ -482,6 +482,24 @@ fn every_test_workflow_job_is_bounded() {
 }
 
 #[test]
+fn cargo_deny_uses_prebuilt_tool() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let deny = job(&jobs, "deny");
+    assert!(
+        deny.body.contains("taiki-e/install-action@v2")
+            && deny.body.contains("tool: cargo-deny")
+            && deny.body.contains("RUSTUP_TOOLCHAIN: stable")
+            && deny.body.contains("run: cargo deny --all-features check"),
+        "the branch dependency gate should download cargo-deny's release binary and run the same all-features check"
+    );
+    assert!(
+        !deny.body.contains("EmbarkStudios/cargo-deny-action"),
+        "the container action rebuilds its image on every branch run"
+    );
+}
+
+#[test]
 fn matrix_jobs_keep_one_cargo_cache_per_shard() {
     for (name, text) in workflows() {
         for j in jobs(&text) {
