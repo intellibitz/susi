@@ -326,9 +326,11 @@ fn the_sccache_server_is_started_from_the_real_environment_before_the_switch() {
     );
     let started = lines[server];
     // The shell may spell TMP its own way (MSYS turns a Windows path into a
-    // POSIX one), so judge the directory's name, not its spelling.
+    // POSIX one), and this test itself may be running under the gate's own
+    // throwaway temp, so judge the directory's last name: the one this test
+    // passed in, not the run's `.../appdata/local/temp`.
     assert!(
-        started.contains("real-tmp") && !started.contains("appdata") && !started.contains("/tmp."),
+        started.contains("real-tmp DIR="),
         "the server must keep the real TMP, not the run's throwaway: {started}"
     );
     assert!(
