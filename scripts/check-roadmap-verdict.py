@@ -27,6 +27,7 @@ branch for a day).
     scripts/check-roadmap-verdict.py --self-test     # pin all four cases
 """
 import json
+import os
 import pathlib
 import re
 import shlex
@@ -54,7 +55,7 @@ def cited_path(evidence):
     return first if first.endswith(".rs") else ""
 
 
-def evidence_exists(evidence, root=None):
+def evidence_exists(evidence, root=None, known_hits=None):
     """Does this evidence name something real in the checkout?
 
     The checkout, not the index: the loop closes a task *before* it commits, so
@@ -67,16 +68,92 @@ def evidence_exists(evidence, root=None):
     cited = cited_path(evidence)
     if cited:
         return (root / cited).is_file()
-    found = subprocess.run(
-        ["grep", "-rIl", "--exclude-dir=.git", "--exclude-dir=target", "-F", evidence, "."],
-        cwd=root, capture_output=True, text=True,
-    )
+    if known_hits is not None:
+        return evidence in known_hits
+    try:
+        found = subprocess.run(
+            ["grep", "-rIl", "--exclude-dir=.git", "--exclude-dir=target", "-F", evidence, "."],
+            cwd=root, capture_output=True, text=True,
+        )
+    except OSError:
+        return evidence in python_evidence_hits([evidence], root)
     for line in found.stdout.splitlines():
         rel = line.lstrip("./")
         if rel.startswith((".agents/roadmap-verdicts/", ".agents/tasks/")) or rel == "scripts/check-roadmap-verdict.py":
             continue
         return True
     return False
+
+
+def python_evidence_hits(identifiers, root):
+    """Portable one-pass fallback for hosts without grep (notably Windows)."""
+    identifiers = set(identifiers)
+    hits = set()
+    for directory, names, files in os.walk(root):
+        current = Path(directory)
+        relative = current.relative_to(root).as_posix()
+        names[:] = [name for name in names if name not in (".git", "target")]
+        for name in files:
+            path = current / name
+            normalized = (f"{relative}/{name}" if relative != "." else name).lstrip("./")
+            if normalized == "scripts/check-roadmap-verdict.py":
+                continue
+            if normalized.startswith((".agents/tasks/", ".agents/roadmap-verdicts/")):
+                continue
+            try:
+                content = path.read_bytes()
+                if b"\0" in content[:4096]:
+                    continue
+                text = content.decode("utf-8", errors="ignore")
+            except OSError:
+                continue
+            hits.update(identifier for identifier in identifiers if identifier in text)
+            if hits == identifiers:
+                return hits
+    return hits
+
+
+def batch_evidence_hits(evidence, root=None):
+    """Find identifier evidence with one recursive scan of the checkout.
+
+    `check_all` used to start one recursive grep for every identifier-only
+    verdict. Fixed-string grep accepts multiple `-e` patterns and emits only
+    the matching strings, so one traversal answers all of them.
+    """
+    root = root or ROOT
+    identifiers = sorted(set(evidence))
+    if not identifiers:
+        return set()
+    command = [
+        "grep", "-rIl", "--exclude-dir=.git", "--exclude-dir=target", "-F",
+    ]
+    for identifier in identifiers:
+        command.extend(("-e", identifier))
+    command.append(".")
+    try:
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    except OSError:
+        return python_evidence_hits(identifiers, root)
+    if result.returncode not in (0, 1):
+        return None  # Preserve the old per-record fallback if grep is unavailable.
+    hits = set()
+    for name in result.stdout.splitlines():
+        # Match evidence_exists' historical path normalization exactly: its
+        # `lstrip("./")` strips characters, not a prefix, so `./.agents/...`
+        # normalizes to `agents/...` and remains eligible evidence.
+        normalized = name.lstrip("./")
+        if normalized.startswith((".agents/tasks/", ".agents/roadmap-verdicts/")):
+            continue
+        if normalized == "scripts/check-roadmap-verdict.py":
+            continue
+        try:
+            content = (root / name.removeprefix("./")).read_text(errors="ignore")
+        except OSError:
+            continue
+        hits.update(identifier for identifier in identifiers if identifier in content)
+        if hits == set(identifiers):
+            return hits
+    return hits
 
 
 def declared_in(text, stem, filename):
@@ -124,7 +201,7 @@ def evidence_can_run(cited, root=None):
 REQUIRE_CHECK = "--require-check" in sys.argv
 
 
-def validate(record, vector):
+def validate(record, vector, evidence_hits=None, batched_checks=None):
     """What is missing from this verdict record, if anything."""
     problems = []
     if record.get("vector") != vector:
@@ -136,7 +213,7 @@ def validate(record, vector):
         evidence = str(record.get("evidence") or "").strip()
         if not evidence:
             problems.append("a delivered verdict needs evidence: the test or record that proves it")
-        elif not evidence_exists(evidence):
+        elif not evidence_exists(evidence, known_hits=evidence_hits):
             problems.append(
                 f"evidence `{evidence}` names nothing in this checkout (a path that does not "
                 f"exist, or an identifier no file contains)"
@@ -170,9 +247,15 @@ def validate(record, vector):
                 "anything the repository does not contain"
             )
         else:
-            proc = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
-            if proc.returncode != 0:
+            batch_key = tuple(argv)
+            if batched_checks is not None and argv[0] == "scripts/check-reachability.py" and batch_key in batched_checks:
+                passed = batched_checks[batch_key]
+                detail = []
+            else:
+                proc = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
+                passed = proc.returncode == 0
                 detail = (proc.stdout or proc.stderr or "").strip().splitlines()
+            if not passed:
                 problems.append(
                     f"the verdict's check failed ({' '.join(argv)}): "
                     f"{detail[0] if detail else 'no output'} — a verdict must be a check that passes"
@@ -264,6 +347,17 @@ def self_test():
             if not ok:
                 failures += 1
             print(f"  self-test: {name} → {got} (expected {want}) {'ok' if ok else 'WRONG'}")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "src").mkdir()
+            (base / "src/evidence.rs").write_text("alpha_evidence beta_evidence\n")
+            hits = batch_evidence_hits(
+                ["alpha_evidence", "beta_evidence", "missing_evidence"], root=base
+            )
+            ok = hits == {"alpha_evidence", "beta_evidence"}
+            if not ok:
+                failures += 1
+            print(f"  self-test: batch evidence index → {hits} {'ok' if ok else 'WRONG'}")
         if failures:
             print(f"self-test FAILED: {failures} case(s) wrong")
             return 1
@@ -283,6 +377,7 @@ def check_all():
         print("✅ no verdicts recorded yet")
         return 0
     failures = 0
+    loaded = []
     for path in records:
         try:
             record = json.loads(path.read_text())
@@ -291,7 +386,46 @@ def check_all():
             print(f"❌ {path.name}: not valid JSON ({err})")
             continue
         vector = record.get("vector") or path.stem
-        problems = validate(record, vector)
+        loaded.append((path, record, vector))
+    identifiers = [
+        str(record.get("evidence") or "").strip()
+        for _, record, _ in loaded
+        if record.get("verdict") == "delivered"
+        and str(record.get("evidence") or "").strip()
+        and not cited_path(str(record.get("evidence") or "").strip())
+    ]
+    evidence_hits = batch_evidence_hits(identifiers)
+    reachability_checks = []
+    for _, record, _ in loaded:
+        check = record.get("check")
+        if check:
+            argv = check if isinstance(check, list) else shlex.split(str(check))
+            if argv and argv[0] == "scripts/check-reachability.py":
+                reachability_checks.append(argv)
+    batched_checks = None
+    if reachability_checks:
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/check-reachability.py"), "--batch"],
+                cwd=ROOT,
+                input=json.dumps([argv[1:] for argv in reachability_checks]),
+                capture_output=True,
+                text=True,
+            )
+            payload = json.loads(proc.stdout)
+            batched_checks = {
+                tuple(item["check"]): bool(item["passed"])
+                for item in payload["results"]
+            }
+            if len(batched_checks) != len(reachability_checks):
+                batched_checks = None
+        except (OSError, ValueError, KeyError, TypeError):
+            # An unsupported host/tool version keeps the old per-record behavior.
+            batched_checks = None
+    for path, record, vector in loaded:
+        problems = validate(
+            record, vector, evidence_hits=evidence_hits, batched_checks=batched_checks
+        )
         if problems:
             failures += 1
             print(f"❌ {path.name}:")
