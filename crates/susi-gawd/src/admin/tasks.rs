@@ -2504,7 +2504,9 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
     let agent_old = listed.split_whitespace().next().unwrap_or("").to_string();
     if !agent_old.is_empty() {
-        git(ws, &["fetch", "--quiet", &remote(), &agent_ref])?;
+        if git(ws, &["cat-file", "-e", &format!("{agent_old}^{{blob}}")]).is_err() {
+            git(ws, &["fetch", "--quiet", &remote(), &agent_ref])?;
+        }
         let body = git(ws, &["cat-file", "-p", &agent_old])?;
         let owner: Claim = serde_json::from_str(&body)?;
         if !owner.expired(now) {
@@ -2599,9 +2601,6 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
         return Err(EaiError::config("invalid task id"));
     }
     let r = remote();
-    let generation_ref = "refs/claim-generation/current";
-    let generation = git(ws, &["ls-remote", &r, generation_ref])?;
-    let generation_old = generation.split_whitespace().next().unwrap_or("");
     sync_queue_refs(ws)?;
     let (old, mut claim) =
         read_claim(ws, id).ok_or_else(|| EaiError::config("no claim to renew"))?;
@@ -2638,18 +2637,20 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
     if !agent_old.is_empty() && agent_old != old {
         return Err(EaiError::config("agent ownership changed; cannot renew"));
     }
+    // Renewing an existing lease never alters `claim.scopes`, so it does not
+    // touch the global `refs/claim-generation/current` ref (saving a remote
+    // `ls-remote` round-trip and eliminating false CAS collisions with other
+    // agents' concurrent claims and renewals).
     queue_relay::push(
         ws,
         &r,
         &[
             (claim_ref(id), old),
             (agent_ref.clone(), agent_old.to_string()),
-            (generation_ref.to_string(), generation_old.to_string()),
         ],
         &[
             (claim_ref(id), Some(blob.clone())),
             (agent_ref, Some(blob.clone())),
-            (generation_ref.to_string(), Some(blob.clone())),
         ],
         &format!("renewal of {id} raced {CAS_RENEW_PHRASE}; retry"),
     )?;
@@ -2947,8 +2948,11 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             }
         }
     }
-    // Acceptance may outlive a lease; re-check before mutating the queue.
-    verify_owner()?;
+    // Acceptance may outlive a lease; re-check before mutating the queue when
+    // an acceptance command actually ran (`covered` took zero time).
+    if !covered {
+        verify_owner()?;
+    }
     // Publish the receipt before the record moves. From here the task is
     // accepted and its agent may not claim anything else until this head is on
     // origin/main; a failed push leaves the task open, so close is retried
@@ -3543,9 +3547,11 @@ mod tests {
     fn a_cargo_test_check_that_matches_nothing_does_not_close_the_task() {
         let (r, a, _) = Repos::new("vacuous");
         // A one-test crate, so `cargo test nomatch` exits 0 having run nothing.
+        // Empty `[workspace]` keeps cargo from walking up into the parent
+        // checkout's Cargo.toml when `TMP` lives under `.git/susi-hermetic`.
         std::fs::write(
             a.join("Cargo.toml"),
-            "[package]\nname = \"vac\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+            "[package]\nname = \"vac\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n",
         )
         .unwrap();
         std::fs::create_dir_all(a.join("src")).unwrap();
@@ -4358,7 +4364,12 @@ mod tests {
             "",
             "s",
             &[],
-            vec!["cargo".into(), "test".into(), "--workspace".into()],
+            vec![
+                "cargo".into(),
+                "test".into(),
+                "--manifest-path".into(),
+                "Cargo.toml".into(),
+            ],
         )
         .unwrap();
         claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
@@ -4384,7 +4395,12 @@ mod tests {
             "",
             "s",
             &[],
-            vec!["cargo".into(), "test".into(), "--workspace".into()],
+            vec![
+                "cargo".into(),
+                "test".into(),
+                "--manifest-path".into(),
+                "Cargo.toml".into(),
+            ],
         )
         .unwrap();
         claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();

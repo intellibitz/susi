@@ -587,14 +587,15 @@ jobs:
       # and builds the same dependency closure (clippy over the workspace plus the
       # doc-test build), so read its cache and never write one of our own: saving
       # per branch only filled the cache quota with one entry per task. Compiled
-      # units are sccache's job now; restore the main-owned target too so fresh
-      # branches reuse the warm workspace instead of rebuilding it from zero.
+      # units are sccache's job now. The target archive took 23 s to restore on
+      # a measured branch run against 24 s for Clippy itself, so restore only
+      # Cargo's registry and let sccache supply the compiled units.
       - name: Cache Cargo
         if: steps.affected.outputs.lintcmd != ''
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
-          cache-targets: "true"
+          cache-targets: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
@@ -984,7 +985,17 @@ jobs:
         if: steps.owed.outputs.pending == 'true'
         # Two per run: the backlog drains over merges, and the job stays short
         # enough that its budget is about the sweep rather than the build.
-        run: cargo run --locked -q -- tasks verify-merged --limit 2
+        # A `prove` dispatch has its own concurrency group and can verify these
+        # refs while this job installs the toolchain and restores its cache.
+        # Check again at the point of use so a queue drained during setup does
+        # not compile the `susi` CLI just to learn there is nothing to verify.
+        # The helper fails closed: a remote-read error still runs verification.
+        run: |
+          if ! scripts/ci-verified-pending.sh; then
+            echo "No merged attestations remain after setup; skipping the susi build."
+            exit 0
+          fi
+          cargo run --locked -q -- tasks verify-merged --limit 2
 
   # The capability-gap e2e executes a synthesized WASI reflex through a live
   # susi-native leaf service. It runs in its own job in parallel with `test`

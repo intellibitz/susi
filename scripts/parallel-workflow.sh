@@ -44,11 +44,17 @@ sync() {
     # this boundary, so the loop heals it here. Non-fatal either way.
     "$root/scripts/ensure-watcher.sh" || true
     # A working agent crosses this boundary but not `finish`, so top the lease up.
-    renew_owned_claims
-    # `finish` hands a pushed branch to the merge machinery without waiting
-    # for its run; a run that then fails is reported here, where every agent
-    # passes before its next claim (scripts/check-owed-runs.sh).
-    "$root/scripts/check-owed-runs.sh" || true
+    # Inside `finish`, `renew_or_readopt` already renewed on entry and `release`
+    # frees the claim at the end, while `check-owed-runs.sh` is for the boundary
+    # before the next claim — skipping both inside `finish`'s two `sync` calls
+    # saves 8-10 redundant remote round-trips per finish.
+    if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ]; then
+        renew_owned_claims
+        # `finish` hands a pushed branch to the merge machinery without waiting
+        # for its run; a run that then fails is reported here, where every agent
+        # passes before its next claim (scripts/check-owed-runs.sh).
+        "$root/scripts/check-owed-runs.sh" || true
+    fi
     # The board is for people watching the swarm, not for the agent's next
     # step: it refreshes its cache in the background instead of holding the
     # sync for up to four checks of a minute each.
@@ -215,18 +221,53 @@ gate_stamp() {
     } | git hash-object --stdin
 }
 
+# When the root package is in $pkgs solely because top-level `tests/<name>.rs`
+# integration test files changed (no `src/`, `benches/`, `examples/`, `config/`
+# or `deploy/` changes), prints the `<name>` targets one per line. Running all
+# 102 root integration test binaries when a task only touched one or two
+# `tests/*.rs` files held the local gate for ~15 minutes on Windows.
+root_only_test_targets() {
+    local rootpkg=$1 f name mb
+    [ -n "$rootpkg" ] || return 1
+    mb=$(git merge-base origin/main HEAD 2>/dev/null || echo origin/main)
+    local -a targets=()
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+        tests/*.rs)
+            name=${f#tests/}
+            case "$name" in */*) return 1 ;; esac
+            [ -f "$root/$f" ] || return 1
+            targets+=("${name%.rs}")
+            ;;
+        *)
+            return 1
+            ;;
+        esac
+    done < <(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
+        diff --no-renames --no-color --name-only "$mb" HEAD \
+        -- src tests benches examples config deploy 2>/dev/null | sort -u)
+    [ "${#targets[@]}" -gt 0 ] || return 1
+    printf '%s\n' "${targets[@]}"
+}
+
 # The gate's cargo builds into this worktree's own target, made so first
 # (seed_own_target: a link to the old shared target is replaced), so plain cargo
 # judges this branch's code: no other worktree builds there, and there is no
 # shared target to lock or guard.
 gate() {
-    local okfile stamp pkgs lint sel lsel
+    local okfile stamp pkgs lint sel lsel rootpkg root_tests other_pkgs
     seed_own_target
+    gate_root_tests=
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
     stamp=$(gate_stamp)
     if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
         gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
+        rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
+        if printf '%s\n' $gate_pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
+            gate_root_tests=$root_tests
+        fi
         return 0
     fi
     cargo fmt --all --check
@@ -260,8 +301,18 @@ gate() {
     # The pre-push hook lints this exact set with this exact command line, so
     # its run is a cache hit rather than a second compile of other crates.
     cargo clippy --locked --all-targets $lsel -- -D warnings
-    sel=$(printf ' -p %s' $pkgs)
-    gate_tests $sel
+    rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
+    if printf '%s\n' $pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
+        gate_root_tests=$root_tests
+        other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
+        if [ -n "$other_pkgs" ]; then
+            gate_tests $(printf ' -p %s' $other_pkgs)
+        fi
+        gate_tests -p "$rootpkg" $(printf ' --test %s' $root_tests)
+    else
+        sel=$(printf ' -p %s' $pkgs)
+        gate_tests $sel
+    fi
     echo "$stamp" >"$okfile"
 }
 
@@ -270,7 +321,7 @@ gate() {
 # things no cargo suite does — and only when the gate's package selection
 # contains the package the command tests (ALL covers everything).
 acceptance_covered() {
-    local cmd=$1 pkg
+    local cmd=$1 pkg rootpkg t
     case "$cmd" in
     "cargo test "*|"cargo nextest run "*) ;;
     *) return 1 ;;
@@ -282,9 +333,18 @@ acceptance_covered() {
     # The package under test: an explicit -p/--package wins; a bare
     # `cargo test --test x` at the root exercises the root package.
     pkg=$(printf '%s\n' "$cmd" | grep -oE '(-p |--package[ =])[a-zA-Z0-9_-]+' | head -1 | grep -oE '[a-zA-Z0-9_-]+$')
-    [ -n "$pkg" ] || pkg=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1)
+    rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1)
+    [ -n "$pkg" ] || pkg=$rootpkg
     [ -n "$pkg" ] || return 1
-    printf '%s\n' $gate_pkgs | grep -qx "$pkg"
+    printf '%s\n' $gate_pkgs | grep -qx "$pkg" || return 1
+    if [ "$pkg" = "$rootpkg" ] && [ -n "${gate_root_tests:-}" ]; then
+        # The root gate narrowed to the touched `tests/<name>.rs` binaries; only
+        # an acceptance naming one of those `--test <name>` targets was covered.
+        t=$(printf '%s\n' "$cmd" | grep -oE -- '--test[ =][a-zA-Z0-9_-]+' | head -1 | grep -oE '[a-zA-Z0-9_-]+$')
+        [ -n "$t" ] || return 1
+        printf '%s\n' $gate_root_tests | grep -qx "$t" || return 1
+    fi
+    return 0
 }
 
 renew_owned_claims() {
@@ -347,6 +407,7 @@ finish)
         esac
     done
     export SUSI_SYNC_SKIP_BOARD=1
+    export SUSI_SYNC_IN_FINISH=1
     renew_or_readopt
     sync
     gate

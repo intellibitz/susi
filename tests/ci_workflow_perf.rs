@@ -627,6 +627,31 @@ fn the_branch_gate_keeps_the_name_branch_protection_requires() {
     );
 }
 
+/// The branch clippy job already restores main's sccache entries. Restoring
+/// the much larger target archive cost almost as much as the compile itself,
+/// so the gate keeps Cargo's registry cache but leaves target artifacts to
+/// sccache.
+#[test]
+fn branch_compile_gate_uses_sccache_without_restoring_target() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    assert!(
+        check.body.contains("SCCACHE_GHA_ENABLED: \"true\"")
+            && check.body.contains("RUSTC_WRAPPER: \"sccache\"")
+            && check.body.contains("RUSTC_WORKSPACE_WRAPPER: \"sccache\""),
+        "the branch gate must use the shared main-owned sccache entries"
+    );
+    let cache = steps(&check.body)
+        .into_iter()
+        .find(|step| step.contains("name: Cache Cargo"))
+        .expect("branch compile gate has a Cargo cache step");
+    assert!(
+        cache.contains("shared-key: lint") && cache.contains("cache-targets: \"false\""),
+        "the branch gate restores the registry only; the target archive took 23 s to restore"
+    );
+}
+
 /// Taking tests off the branch gate is only sound while they still run
 /// somewhere on every merge: the sharded suite on main.
 #[test]
@@ -2869,5 +2894,53 @@ fn the_branch_gate_prefetches_onnx_only_when_the_closure_can_reach_it() {
     assert!(
         prefetch.contains("steps.affected.outputs.onnx == 'true'"),
         "the prefetch must be gated on the resolved intersection:\n{prefetch}"
+    );
+}
+
+#[test]
+fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trips() {
+    let pw = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let sync_fn = shell_function(&pw, "sync");
+    assert!(
+        sync_fn.contains("SUSI_SYNC_IN_FINISH") && pw.contains("export SUSI_SYNC_IN_FINISH=1"),
+        "`finish` must set SUSI_SYNC_IN_FINISH=1 so its two internal `sync` calls skip \
+         redundant `renew_owned_claims` and `check-owed-runs.sh` remote round-trips"
+    );
+    let gate_fn = shell_function(&pw, "gate");
+    assert!(
+        gate_fn.contains("root_only_test_targets")
+            && gate_fn.contains("gate_tests -p \"$rootpkg\" $(printf ' --test %s' $root_tests)"),
+        "when the root package is gated only because top-level `tests/<name>.rs` files changed, \
+         the local gate must run only those `--test <name>` binaries instead of all 102 root test binaries"
+    );
+    let hermetic = read("scripts/check-hermetic-tests.sh");
+    assert!(
+        hermetic.contains("if [ \"$arg\" = --test ]; then has_test_filter=1; fi")
+            && hermetic.contains("if [ \"$has_test_filter\" -eq 0 ]; then"),
+        "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries"
+    );
+    let mg = read("scripts/merge-gate.sh");
+    assert!(
+        mg.contains("BASE_REF=\"HEAD^2\" \"$here/ci-changed-crates.sh\" --dependents")
+            && mg.contains("comm -12 <(sort -u <<<\"$pr_pkgs\") <(sort -u <<<\"$main_pkgs\")"),
+        "`merge-gate.sh` must intersect the PR's and upstream main's dependent crate closures \
+         on a trial merge commit so disjoint merges skip redundant clippy recompilation"
+    );
+    let tasks_rs = read("crates/susi-gawd/src/admin/tasks.rs").replace("\r\n", "\n");
+    let renew_body = tasks_rs
+        .split("fn renew_once(")
+        .nth(1)
+        .and_then(|s| s.split("\npub fn release(").next())
+        .expect("renew_once exists in tasks.rs");
+    assert!(
+        !renew_body
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .any(|l| l.contains("claim-generation")),
+        "`renew_once` must not contend on `refs/claim-generation/current`: renewals do not alter file scopes"
+    );
+    assert!(
+        tasks_rs.contains("if !covered {\n        verify_owner()?;\n    }"),
+        "`tasks close` must skip the second `verify_owner()` remote fetch when `covered` skipped running a command"
     );
 }
