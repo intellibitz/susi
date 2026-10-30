@@ -51,7 +51,18 @@ The agent loop is **atomic per task** (own worktree, always synced with
    fastembed), recompile in every new worktree: about 100–150 s of that first
    build (measured 341–389 s with them, 240 s without; a pinned git revision
    of a fork in place of `path = "vendor/..."` would keep them warm, and is
-   not done — see `scripts/seed-target.sh`). A worktree the desktop app made
+   not done — see `scripts/seed-target.sh`). **The machine's compiler cache**
+   takes that cost once per machine instead of once per worktree: with
+   sccache installed, `scripts/susi-worktree.sh` and the SessionStart hook
+   run `scripts/setup-sccache.sh`, which makes every cargo on the machine
+   compile through sccache (a marked block in `~/.cargo/config.toml`; the
+   cache beside the snapshot, 50 GB), so a crate one worktree compiled —
+   those heavy crates above the path patches, or a registry crate a `-p`
+   gate unifies with other features — is served to every other.
+   `scripts/setup-sccache.sh --install` installs sccache; `--status` shows
+   the hit rate; `--off` removes the block; `SUSI_NO_SCCACHE=1` keeps the
+   scripts from enabling it. See `docs/workflow-speed.md` for the
+   measurements. A worktree the desktop app made
    is seeded by the post-checkout hook as `git worktree add` makes it, and by
    the SessionStart hook, in the background. One still linked to the old
    shared target (made before seeding) has the link replaced (the link only,

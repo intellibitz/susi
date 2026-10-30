@@ -51,6 +51,12 @@ else
             esac
         fi
     fi
+    # The machine's compiler cache, where sccache is installed: a worktree the
+    # desktop app made never ran scripts/susi-worktree.sh, which enables it.
+    # Quiet once enabled; never installs anything.
+    if [ "${SUSI_NO_SCCACHE:-0}" != 1 ] && [ -f scripts/setup-sccache.sh ] && command -v sccache >/dev/null 2>&1; then
+        "${BASH:-bash}" scripts/setup-sccache.sh 2>&1 || true
+    fi
     # Keep the primary checkout's main current (silent unless it advanced).
     [ -x scripts/park-primary.sh ] && scripts/park-primary.sh --sync-only 2>/dev/null
 fi
