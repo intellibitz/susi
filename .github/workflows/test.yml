@@ -476,8 +476,17 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v6
 
+      - name: Install cargo-deny from a prebuilt release
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
       - name: cargo deny check
-        uses: EmbarkStudios/cargo-deny-action@v2
+        env:
+          # Dependency graph validation does not compile the workspace; avoid
+          # rustup installing every component and target in rust-toolchain.toml.
+          RUSTUP_TOOLCHAIN: stable
+        run: cargo deny --all-features check
 
   # The merge gate for a branch push: it compiles and lints, it does not run
   # tests. Executing the affected crates' tests here (nextest, then the hermetic
