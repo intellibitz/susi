@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT179339957248328-13",
+  "title": "Scope unsafe ratchet to actual baseline inputs",
+  "goal": "The unsafe exposure ratchet runs only when a changed input can change cargo-geiger --forbid-only or its comparator: dependency manifests/lock, toolchain/build configuration, crate entry points, baseline, or the ratchet script. Ordinary module edits like admin/release.rs skip this multi-minute install+scan safely, while ambiguous scope continues to run.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_unsafe_exposure_scope"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793407363
+}
