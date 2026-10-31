@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT2026103116245245927-2",
+  "title": "Native Win32 hardware telemetry, cross-platform os runtime discovery, and CUDA xtask path resolution",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "hardware"
+    ]
+  },
+  "created_by": "AGENT2026103116245245927",
+  "created_unix": 1793447380
+}
