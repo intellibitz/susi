@@ -51,22 +51,25 @@ while IFS= read -r id; do
         case "$ref" in "refs/remotes/$remote/main" | "refs/remotes/$remote/HEAD") continue ;; esac
         tip=$(git rev-parse --verify --quiet "$ref" 2>/dev/null) || continue
         branch=${ref#refs/remotes/$remote/}
-        state=$(gh run list --workflow Test --commit "$tip" --limit 5 \
-            --json headSha,status,conclusion,url 2>/dev/null |
-            jq -r --arg sha "$tip" \
-                '[.[] | select(.headSha == $sha and .status == "completed")][0] | select(. != null) | .conclusion + " " + .url' \
-                2>/dev/null || true)
-        case "$state" in
-        failure* | timed_out* | startup_failure*)
-            cat >&2 <<MSG
+        (
+            state=$(gh run list --workflow Test --commit "$tip" --limit 5 \
+                --json headSha,status,conclusion,url 2>/dev/null |
+                jq -r --arg sha "$tip" \
+                    '[.[] | select(.headSha == $sha and .status == "completed")][0] | select(. != null) | .conclusion + " " + .url' \
+                    2>/dev/null || true)
+            case "$state" in
+            failure* | timed_out* | startup_failure*)
+                cat >&2 <<MSG
 ❌ the branch run for $id ($branch at ${tip:0:12}) did not pass: ${state#* }
    The task is accepted but will not merge until this is fixed. Commit the
    repair on that branch and run \`susi workflow finish $id\` again (if the
    acceptance was already published, revert the close and fix under the same
    claim); or give it up on the record: susi tasks release $id --abandon <reason>
 MSG
-            ;;
-        esac
+                ;;
+            esac
+        ) &
     done < <(git for-each-ref --format='%(refname)' --contains "$head" "refs/remotes/$remote/" 2>/dev/null || true)
 done < <("$root/scripts/owed-task-receipts.sh" "$agent" "$remote")
+wait
 exit 0

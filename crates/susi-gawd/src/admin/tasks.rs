@@ -203,6 +203,14 @@ fn remote() -> String {
         .unwrap_or_else(|| DEFAULT_REMOTE.into())
 }
 
+/// Whether the task queue remote is the default `origin`.
+/// When true, [`sync_queue`] already mirrors `+refs/heads/*:refs/remotes/origin/*`,
+/// so callers need no separate `git fetch origin`.
+#[must_use]
+pub fn is_default_remote() -> bool {
+    remote() == DEFAULT_REMOTE
+}
+
 /// `T-<AGENT>-<n>`: agent is `[A-Z0-9]+`, so ids are safe in paths and refs.
 pub fn valid_id(id: &str) -> bool {
     let mut parts = id.splitn(3, '-');
@@ -249,13 +257,35 @@ pub fn accept_allowed(cmd: &[String]) -> bool {
 }
 
 fn read_dir_tasks(dir: &Path) -> Vec<Task> {
-    let mut out: Vec<Task> = std::fs::read_dir(dir)
+    let paths: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .filter_map(Result::ok)
-        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-        .filter_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
         .collect();
+    let parse_one =
+        |p: &PathBuf| -> Option<Task> { serde_json::from_slice(&std::fs::read(p).ok()?).ok() };
+    let mut out: Vec<Task> = if paths.len() < 16 {
+        paths.iter().filter_map(parse_one).collect()
+    } else {
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get().clamp(2, 8))
+            .unwrap_or(4);
+        let chunk_size = paths.len().div_ceil(workers);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = paths
+                .chunks(chunk_size)
+                .map(|chunk| {
+                    scope.spawn(move || chunk.iter().filter_map(parse_one).collect::<Vec<_>>())
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap_or_default())
+                .collect()
+        })
+    };
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
 }
@@ -280,20 +310,26 @@ fn find_open(ws: &Path, id: &str) -> EaiResult<Task> {
         .ok_or_else(|| EaiError::config(format!("no open task {id}")))
 }
 
-/// Next `T-<AGENT>-<n>` across open and done tasks.
-pub fn next_id(ws: &Path, agent: &str) -> EaiResult<String> {
+fn next_id_from_ids<'a>(ids: impl IntoIterator<Item = &'a str>, agent: &str) -> EaiResult<String> {
     let token = agent_token(agent)?;
     let prefix = format!("T-{token}-");
-    let max = list_open(ws)
+    let max = ids
         .into_iter()
-        .chain(list_done(ws))
-        .filter_map(|t| {
-            t.id.strip_prefix(&prefix)
-                .and_then(|n| n.parse::<u64>().ok())
-        })
+        .filter_map(|id| id.strip_prefix(&prefix).and_then(|n| n.parse::<u64>().ok()))
         .max()
         .unwrap_or(0);
     Ok(format!("{prefix}{}", max + 1))
+}
+
+/// Next `T-<AGENT>-<n>` across open and done tasks.
+pub fn next_id(ws: &Path, agent: &str) -> EaiResult<String> {
+    let (open, done) = std::thread::scope(|scope| {
+        let open = scope.spawn(|| list_open(ws));
+        let done = list_done(ws);
+        (open.join().unwrap_or_default(), done)
+    });
+    let all: Vec<String> = open.into_iter().chain(done).map(|t| t.id).collect();
+    next_id_from_ids(all.iter().map(String::as_str), agent)
 }
 
 /// A task to create; the id, author and timestamp are filled in by [`add`].
@@ -333,14 +369,16 @@ fn add_inner(ws: &Path, agent: &str, new: NewTask, authored: bool) -> EaiResult<
         deps.as_slice(),
     );
     check_task_fields(title, size, &accept_cmd)?;
-    let known: std::collections::HashSet<String> = list_open(ws)
-        .into_iter()
-        .chain(list_done(ws))
-        .map(|t| t.id)
-        .collect();
+    let (open, done) = std::thread::scope(|scope| {
+        let open = scope.spawn(|| list_open(ws));
+        let done = list_done(ws);
+        (open.join().unwrap_or_default(), done)
+    });
+    let known: std::collections::HashSet<String> =
+        open.into_iter().chain(done).map(|t| t.id).collect();
     check_task_deps(deps, &known)?;
     let task = Task {
-        id: next_id(ws, agent)?,
+        id: next_id_from_ids(known.iter().map(String::as_str), agent)?,
         title: title.trim().to_string(),
         goal: goal.trim().to_string(),
         size: size.to_string(),
@@ -1053,6 +1091,7 @@ fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
             &heads,
             "+refs/claims/*:refs/claims/*",
             "+refs/claim-agents/*:refs/claim-agents/*",
+            "+refs/claim-generation/*:refs/claim-generation/*",
             "+refs/closed/*:refs/closed/*",
             "+refs/abandoned/*:refs/abandoned/*",
             "+refs/merged/*:refs/merged/*",
@@ -2627,23 +2666,13 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     let generation_ref = "refs/claim-generation/current";
     let agent_ref = format!("refs/claim-agents/{agent}");
     let r = remote();
-    // Read the generation and this agent's lease ref in one `ls-remote` BEFORE
-    // the snapshot; any concurrent successful claim invalidates our transaction,
-    // including a claim on a different task.
-    let preflight = git(ws, &["ls-remote", &r, generation_ref, &agent_ref])?;
-    let mut generation_old = "";
-    let mut agent_old = String::new();
-    for line in preflight.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(sha) = parts.next() else { continue };
-        match parts.next() {
-            Some(name) if name == generation_ref => generation_old = sha,
-            Some(name) if name == agent_ref => agent_old = sha.to_string(),
-            _ => {}
-        }
-    }
-    let generation_old = generation_old.to_string();
+    // `claims(ws)` runs `sync_queue_refs(ws)`, which mirrors `+refs/claims/*`,
+    // `+refs/claim-agents/*` and `+refs/claim-generation/*` in a single atomic
+    // `git fetch` snapshot, avoiding a separate preflight `ls-remote` round-trip.
     let live = claims(ws)?;
+    let generation_old =
+        git(ws, &["rev-parse", "--verify", "--quiet", generation_ref]).unwrap_or_default();
+    let agent_old = git(ws, &["rev-parse", "--verify", "--quiet", &agent_ref]).unwrap_or_default();
     let all_receipts = closed_receipts(ws)?;
     let mut origin_fetched = r == DEFAULT_REMOTE;
     let mut ensure_origin_fetched = |ws: &Path| -> EaiResult<()> {
@@ -2840,22 +2869,26 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     let stale_agent = match &existing {
         Some((sha, old)) if old.agent != mine.agent => {
             let stale = format!("refs/claim-agents/{}", old.agent);
-            let listed = git(ws, &["ls-remote", &r, &stale])?;
-            let current = listed.split_whitespace().next().unwrap_or("");
-            (current == sha).then(|| (stale, sha.clone()))
+            let current =
+                git(ws, &["rev-parse", "--verify", "--quiet", &stale]).unwrap_or_default();
+            (current == *sha).then(|| (stale, sha.clone()))
         }
         _ => None,
     };
     let mut leases: Vec<queue_relay::Lease> = vec![
         (claim_ref(id), task_old.to_string()),
         (agent_ref.clone(), agent_old),
-        (generation_ref.to_string(), generation_old),
     ];
     let mut updates: Vec<queue_relay::Update> = vec![
         (claim_ref(id), Some(blob.clone())),
         (agent_ref, Some(blob.clone())),
-        (generation_ref.to_string(), Some(blob.clone())),
     ];
+    // Unscoped claims reserve zero file paths (`scopes_conflict(&[], _)` is
+    // always false), so they never contend on the global scope-generation ref.
+    if !scopes.is_empty() {
+        leases.push((generation_ref.to_string(), generation_old));
+        updates.push((generation_ref.to_string(), Some(blob.clone())));
+    }
     if let Some((stale, sha)) = stale_agent {
         leases.push((stale.clone(), sha));
         updates.push((stale, None));
