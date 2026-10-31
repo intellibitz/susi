@@ -244,36 +244,6 @@ gate_stamp() {
     } | git hash-object --stdin
 }
 
-# When the root package is in $pkgs solely because top-level `tests/<name>.rs`
-# integration test files changed (no `src/`, `benches/`, `examples/`, `config/`
-# or `deploy/` changes), prints the `<name>` targets one per line. Running all
-# 102 root integration test binaries when a task only touched one or two
-# `tests/*.rs` files held the local gate for ~15 minutes on Windows.
-root_only_test_targets() {
-    local rootpkg=$1 f name mb
-    [ -n "$rootpkg" ] || return 1
-    mb=$(git merge-base origin/main HEAD 2>/dev/null || echo origin/main)
-    local -a targets=()
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        case "$f" in
-        tests/*.rs)
-            name=${f#tests/}
-            case "$name" in */*) return 1 ;; esac
-            [ -f "$root/$f" ] || return 1
-            targets+=("${name%.rs}")
-            ;;
-        *)
-            return 1
-            ;;
-        esac
-    done < <(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
-        diff --no-renames --no-color --name-only "$mb" HEAD \
-        -- src tests benches examples config deploy 2>/dev/null | sort -u)
-    [ "${#targets[@]}" -gt 0 ] || return 1
-    printf '%s\n' "${targets[@]}"
-}
-
 # Refuse a diff that deletes tests.
 #
 # An engine worker satisfied a task's acceptance by overwriting
@@ -317,27 +287,46 @@ gate_tests_kept() {
 # (seed_own_target: a link to the old shared target is replaced), so plain cargo
 # judges this branch's code: no other worktree builds there, and there is no
 # shared target to lock or guard.
+resolve_gate_plan() {
+    local plan kind value
+    gate_pkgs= gate_lint= gate_root_tests= gate_rootpkg=
+    plan=$("$root/scripts/ci-changed-crates.sh" --plan)
+    if [ "$plan" = ALL ]; then
+        gate_pkgs=ALL
+        gate_lint=ALL
+        return
+    fi
+    while IFS=: read -r kind value; do
+        case "$kind" in
+        test) gate_pkgs+="$value"$'\n' ;;
+        lint) gate_lint+="$value"$'\n' ;;
+        root-test) gate_root_tests+="$value"$'\n' ;;
+        root-package) gate_rootpkg=$value ;;
+        "") ;;
+        *) gate_pkgs=ALL; gate_lint=ALL; gate_root_tests=; return ;;
+        esac
+    done <<<"$plan"
+    # Match command-substitution output used by existing package comparisons.
+    gate_pkgs=${gate_pkgs%$'\n'}
+    gate_lint=${gate_lint%$'\n'}
+    gate_root_tests=${gate_root_tests%$'\n'}
+}
+
 gate() {
     local okfile stamp pkgs lint sel lsel rootpkg root_tests other_pkgs
     # Before the cache: a stamp written before this check existed must not
     # wave a test-deleting diff through.
     gate_tests_kept || return 1
     seed_own_target
-    gate_root_tests=
+    resolve_gate_plan
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
     stamp=$(gate_stamp)
     if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
-        gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
-        rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
-        if printf '%s\n' $gate_pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
-            gate_root_tests=$root_tests
-        fi
         return 0
     fi
     cargo fmt --all --check
-    pkgs=$("$root/scripts/ci-changed-crates.sh")
-    gate_pkgs=$pkgs
+    pkgs=$gate_pkgs
     if [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -361,12 +350,12 @@ gate() {
         echo "$stamp" >"$okfile"
         return
     fi
-    lint=$("$root/scripts/ci-changed-crates.sh" --dependents)
+    lint=$gate_lint
     lsel=$(printf ' -p %s' $lint)
     # The pre-push hook lints this exact set with this exact command line, so
     # its run is a cache hit rather than a second compile of other crates.
-    rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
-    root_test_targets=$("$root/scripts/ci-changed-crates.sh" --root-test-targets)
+    rootpkg=$gate_rootpkg
+    root_test_targets=$gate_root_tests
     if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
         local -a test_args=()
         while IFS= read -r target; do
@@ -376,8 +365,8 @@ gate() {
     else
         cargo clippy --locked --all-targets $lsel -- -D warnings
     fi
-    if printf '%s\n' $pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
-        gate_root_tests=$root_tests
+    if [ -n "$gate_root_tests" ]; then
+        root_tests=$gate_root_tests
         other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
         if [ -n "$other_pkgs" ]; then
             gate_tests $(printf ' -p %s' $other_pkgs)

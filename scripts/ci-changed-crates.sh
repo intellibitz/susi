@@ -5,6 +5,9 @@
 #   ci-changed-crates.sh               the packages whose files the diff touched
 #   ci-changed-crates.sh --dependents  those plus every workspace package that
 #                                      depends on one of them, transitively
+#   ci-changed-crates.sh --plan        test:<package>, lint:<package>,
+#                                      root-package:<name>, root-test:<target>
+#                                      for one complete local gate selection
 #
 # Tests belong to the crate that changed; a compile break does not. A signature
 # change in susi-core leaves susi-core's own tests green and breaks whichever of
@@ -49,12 +52,14 @@ set -euo pipefail
 
 with_dependents=0
 root_test_targets=0
+gate_plan=0
 case "${1:-}" in
     "") ;;
     --dependents) with_dependents=1 ;;
     --root-test-targets) root_test_targets=1 ;;
+    --plan) gate_plan=1; with_dependents=1; root_test_targets=1 ;;
     *)
-        echo "usage: ci-changed-crates.sh [--dependents|--root-test-targets]" >&2
+        echo "usage: ci-changed-crates.sh [--dependents|--root-test-targets|--plan]" >&2
         exit 2
         ;;
 esac
@@ -103,13 +108,18 @@ if [ "$root_test_targets" = 1 ]; then
                 esac
                 ;;
             .agents/tasks/*|scripts/*|.github/*|docs/*|*.md) ;;
-            *) target_uncertain=1; break ;;
+            src/*|benches/*|examples/*|config/*|deploy/*) target_uncertain=1; break ;;
+            *)
+                # The gate can focus root tests alongside edits in other
+                # packages; their own tests and lint closure are listed below.
+                [ "$gate_plan" = 1 ] || { target_uncertain=1; break; }
+                ;;
         esac
     done <<<"$changed"
-    if [ "$target_uncertain" = 0 ] && [ "${#target_tests[@]}" -gt 0 ]; then
+    if [ "$gate_plan" != 1 ] && [ "$target_uncertain" = 0 ] && [ "${#target_tests[@]}" -gt 0 ]; then
         printf '%s\n' "${target_tests[@]}" | sort -u
     fi
-    exit 0
+    [ "$gate_plan" = 1 ] || exit 0
 fi
 
 # A test-only diff cannot break the packages that consume this crate: the
@@ -308,6 +318,7 @@ while IFS= read -r f; do
     seen[$best]=1
 done <<<"$changed"
 
+test_packages=("${!seen[@]}")
 if [ "$with_dependents" = 1 ] && [ "$test_only" = 0 ] && [ "${#seen[@]}" -gt 0 ]; then
     # dependent|dependency, restricted to edges between workspace packages. A
     # dependency's `name` is the package name, never a `package = ` rename.
@@ -333,6 +344,17 @@ if [ "$with_dependents" = 1 ] && [ "$test_only" = 0 ] && [ "${#seen[@]}" -gt 0 ]
     done
 fi
 
-for p in "${!seen[@]}"; do
-    echo "$p"
-done | sort
+if [ "$gate_plan" = 1 ]; then
+    # Resolve the local gate from one diff and one metadata snapshot. Keep test
+    # owners before growing the lint closure, and emit only after all reads pass.
+    {
+        printf 'root-package:%s\n' "$rootpkg"
+        for p in "${test_packages[@]}"; do printf 'test:%s\n' "$p"; done
+        for p in "${!seen[@]}"; do printf 'lint:%s\n' "$p"; done
+        if [ "$target_uncertain" = 0 ]; then
+            for p in "${target_tests[@]}"; do printf 'root-test:%s\n' "$p"; done
+        fi
+    } | sort -u
+else
+    for p in "${!seen[@]}"; do echo "$p"; done | sort
+fi

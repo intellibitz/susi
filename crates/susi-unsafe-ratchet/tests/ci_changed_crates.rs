@@ -607,6 +607,44 @@ fn compliance_uses_single_remote_ref_snapshot() {
 }
 
 #[test]
+fn combined_gate_plan_matches_individual_modes() {
+    let ws = Workspace::new("combined-plan");
+    ws.change("crates/base/src/lib.rs");
+    let plan = ws.pkgs(&["--plan"]);
+    let entries = |plan: &[String], kind: &str| -> Vec<String> {
+        let prefix = format!("{kind}:");
+        plan.iter()
+            .filter_map(|line| line.strip_prefix(&prefix).map(str::to_owned))
+            .collect()
+    };
+    assert_eq!(entries(&plan, "test"), ws.pkgs(&[]));
+    assert_eq!(entries(&plan, "lint"), ws.pkgs(&["--dependents"]));
+    assert_eq!(entries(&plan, "root-package"), ["fixture-root"]);
+    assert!(entries(&plan, "root-test").is_empty());
+
+    git(&ws.root, &["reset", "--hard", "main"]);
+    ws.change("tests/focused.rs");
+    let plan = ws.pkgs(&["--plan"]);
+    assert_eq!(entries(&plan, "test"), ["fixture-root"]);
+    assert_eq!(entries(&plan, "lint"), ["fixture-root"]);
+    assert_eq!(
+        entries(&plan, "root-test"),
+        ws.pkgs(&["--root-test-targets"])
+    );
+    ws.change("crates/base/tests/focused.rs");
+    let plan = ws.pkgs(&["--plan"]);
+    assert_eq!(entries(&plan, "root-test"), ["focused"]);
+    assert_eq!(entries(&plan, "test"), ["base", "fixture-root"]);
+    assert_eq!(entries(&plan, "lint"), ["base", "fixture-root"]);
+    ws.change("src/lib.rs");
+    assert!(entries(&ws.pkgs(&["--plan"]), "root-test").is_empty());
+    ws.change("rust-toolchain.toml");
+    assert_eq!(ws.pkgs(&["--plan"]), ["ALL"]);
+    git(&ws.root, &["reset", "--hard", "main"]);
+    assert!(ws.pkgs(&["--plan"]).is_empty());
+}
+
+#[test]
 fn finish_reuses_live_lease_and_fetched_refs() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let workflow = std::fs::read_to_string(repo.join("scripts/parallel-workflow.sh")).unwrap();

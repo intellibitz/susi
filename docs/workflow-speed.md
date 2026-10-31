@@ -222,6 +222,16 @@ pre-push retain their authoritative remote ownership checks. Finish prints
 elapsed seconds for lease, sync, gate, close, push and release to identify the
 remaining cost. These changes need a new complete finish measurement.
 
+PR #1110's measured finish was 107.8 s: lease 1 s, initial sync 11 s, gate
+33 s, close 19 s, publication sync 8 s, push 15 s and release 15 s, plus
+bookkeeping. The 31 gate tests took 11.5 s. The local gate was still invoking
+the affected-crate selector three times, each rereading the diff and resolving
+metadata. `--plan` now returns test owners, lint closure, root package and
+focused root targets together; the gate consumes that single selection and
+removes its second implementation of root-test selection. Full-workspace and
+uncertain inputs still select `ALL`. Remeasure this gate before attributing
+wall-time savings to the combined pass.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
