@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hash complete source and tool inputs in one native process. Git owns all
 # index/ref interpretation; Python frames the data without shell subprocesses.
-exec python3 - "$@" <<'PY'
+exec python3 -B - "${BASH_SOURCE[0]}" "$@" <<'PY'
 import hashlib
 import os
 from pathlib import Path
@@ -9,24 +9,13 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(sys.argv.pop(1)).resolve().parent))
+from workflow_git import git_executable
+
 kind = sys.argv[1] if len(sys.argv) > 1 else "gate"
 if kind not in ("gate", "--format"):
     sys.exit(2)
-git_bin = shutil.which("git") or "git"
-shell = None
-if os.name == "nt":
-    exe = Path(git_bin)
-    candidates = [exe.parent.parent, exe.parent.parent.parent]
-    root = next((p for p in candidates if (p / "usr/bin/bash.exe").is_file()), None)
-    if root is None:
-        output = subprocess.check_output([git_bin, "--exec-path"])
-        root = Path(os.fsdecode(output).strip()).parents[2]
-    shell = root / "usr/bin/bash.exe"
-    for arch in ("ucrt64", "mingw64", "clang64", "clangarm64", "mingw32"):
-        native = root / arch / "bin/git.exe"
-        if native.is_file():
-            git_bin = str(native)
-            break
+git_bin, shell = git_executable()
 
 repo = Path(os.fsdecode(subprocess.check_output([git_bin, "rev-parse", "--show-toplevel"]).rstrip(b"\r\n")))
 digest = hashlib.sha256()

@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT20261031021059518379-6",
+  "title": "Publish branches and release their claims in one atomic transaction",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793444050
+}
