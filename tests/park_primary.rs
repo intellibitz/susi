@@ -267,6 +267,45 @@ fn sync_only_fast_forwards_a_clean_main_and_says_so() {
 }
 
 #[test]
+fn sync_only_reuses_fetched_refs_and_standalone_fetches() {
+    let w = World::new("sync-fetched");
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    git(&w.primary, &["fetch", "--quiet", "origin"]);
+    let trace = w.root.join("park-trace.log");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh");
+    let call = |refs_fetched: bool| {
+        let mut cmd = Command::new("sh");
+        cmd.arg(&script)
+            .arg("--sync-only")
+            .current_dir(&w.primary)
+            .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
+            .env("GIT_TRACE", &trace)
+            .env_remove("SUSI_PRIMARY_SYNC_ACTIVE");
+        if refs_fetched {
+            cmd.env("SUSI_PARK_REFS_FETCHED", "1");
+        } else {
+            cmd.env_remove("SUSI_PARK_REFS_FETCHED");
+        }
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    call(true);
+    assert!(w.on_main_at_origin_main());
+    assert!(!std::fs::read_to_string(&trace)
+        .unwrap()
+        .contains("git fetch"));
+    std::fs::write(&trace, "").unwrap();
+    call(false);
+    assert!(std::fs::read_to_string(trace)
+        .unwrap()
+        .contains("git fetch --quiet origin"));
+}
+
+#[test]
 fn sync_only_never_switches_branches_or_touches_work() {
     let w = World::new("sync-safe");
     // On a (stale) feature branch: must stay there, silently.

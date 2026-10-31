@@ -781,47 +781,9 @@ fn finish_reuses_live_lease_and_fetched_refs() {
     assert_eq!(timed.status.code(), Some(1));
     assert!(timed.stdout.is_empty());
 
-    // A sync caller has just refreshed origin/main in the shared Git dir.
-    // Parking must fast-forward from that snapshot without another fetch.
-    ws.write("published.txt", "new main\n");
-    git(&ws.root, &["add", "published.txt"]);
-    git(&ws.root, &["commit", "-qm", "upstream advance"]);
-    git(
-        &ws.root,
-        &["update-ref", "refs/remotes/origin/main", "HEAD"],
-    );
-    git(&ws.root, &["checkout", "-q", "main"]);
-    let trace = ws.root.join("park-trace.log");
-    let parked = script_command(&repo.join("scripts/park-primary.sh"))
-        .arg("--sync-only")
-        .current_dir(&ws.root)
-        .env("SUSI_PARK_REFS_FETCHED", "1")
-        .env("GIT_TRACE", &trace)
-        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
-        .output()
-        .unwrap();
-    assert!(
-        parked.status.success(),
-        "{}",
-        String::from_utf8_lossy(&parked.stderr)
-    );
-    assert!(ws.root.join("published.txt").exists());
-    assert!(!std::fs::read_to_string(&trace)
-        .unwrap()
-        .contains("git fetch"));
+    // The actual parking behavior is tested in the root package, where Cargo
+    // builds the susi binary required by the park-primary script.
     assert!(workflow.contains("SUSI_PARK_REFS_FETCHED=1 \"$root/scripts/park-primary.sh\""));
-    let standalone = script_command(&repo.join("scripts/park-primary.sh"))
-        .arg("--sync-only")
-        .current_dir(&ws.root)
-        .env_remove("SUSI_PARK_REFS_FETCHED")
-        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
-        .env("GIT_TRACE", &trace)
-        .output()
-        .unwrap();
-    assert!(standalone.status.success());
-    assert!(std::fs::read_to_string(trace)
-        .unwrap()
-        .contains("git fetch --quiet origin"));
 }
 
 #[test]
