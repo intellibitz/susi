@@ -199,8 +199,15 @@ each pushed commit. The close-receipt check now reads all blobs in one batch and
 memoizes the unpublished set per agent for the hook run. Its focused test creates
 90 close refs, including another agent's receipts and a close already on
 `origin/main`, and verifies that only this agent's unpublished tasks are
-reported. Measure the next finish/push to see whether the hook is now under a
-minute.
+reported. PR #1108 merged 51 s after its push: branch compile took 36 s and
+workflow compliance took 14 s. With the ref snapshot already fetched, a local
+compliance run against its two commits took 3.9 s, and the standalone receipt
+helper took 2.8 s including shell startup. These are separate measurements;
+the full local finish remained over a minute, with a stale watcher restart and
+a shared Cargo package-cache lock wait. All 30 gate tests passed in 43 s; the
+90-ref fixture was the slowest because it launched Git twice per receipt.
+Its setup now writes all receipt files and uses one `hash-object --stdin-paths`
+and one `update-ref --stdin`, preserving the same cases.
 
 ## What is not fixed here
 

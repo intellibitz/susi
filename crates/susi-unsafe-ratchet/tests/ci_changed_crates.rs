@@ -640,6 +640,8 @@ fn compliance_batches_close_receipt_scan() {
 
     // Many unrelated receipts ensure the helper handles the same ref volume
     // that made the old per-receipt process loop slow.
+    let mut receipt_paths = String::new();
+    let mut receipt_ids = Vec::new();
     for index in 0..90 {
         let (id, agent) = match index {
             0 => ("T-PUBLISHED-1".to_owned(), "WORKFLOWINERTTESTGATES"),
@@ -651,28 +653,43 @@ fn compliance_batches_close_receipt_scan() {
         // occupies an extra line after every blob.
         let newline = if index % 2 == 0 { "\n" } else { "" };
         let receipt = format!("{{\"agent\":\"{agent}\",\"task\":\"{id}\"}}{newline}");
-        let mut hash = Command::new("git")
-            .args(["hash-object", "-w", "--stdin"])
+        let path = format!("receipts/{index}.json");
+        ws.write(&path, &receipt);
+        receipt_paths.push_str(&format!("{path}\n"));
+        receipt_ids.push(id);
+    }
+    // Two Git processes prepare all 90 refs. Per-ref hash-object/update-ref
+    // launches dominated this fixture under the parallel Windows gate.
+    let git_input = |args: &[&str], input: &str| {
+        let mut child = Command::new("git")
+            .args(args)
             .current_dir(&ws.root)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()
             .unwrap();
         use std::io::Write as _;
-        hash.stdin
+        child
+            .stdin
             .take()
             .unwrap()
-            .write_all(receipt.as_bytes())
+            .write_all(input.as_bytes())
             .unwrap();
-        let output = hash.wait_with_output().unwrap();
+        let output = child.wait_with_output().unwrap();
         assert!(output.status.success());
-        let object = String::from_utf8(output.stdout).unwrap();
-        let object = object.trim();
-        git(
-            &ws.root,
-            &["update-ref", &format!("refs/closed/{id}"), object],
-        );
-    }
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let objects = git_input(&["hash-object", "-w", "--stdin-paths"], &receipt_paths);
+    let updates: String = receipt_ids
+        .iter()
+        .zip(objects.lines())
+        .map(|(id, object)| format!("update refs/closed/{id} {object}\n"))
+        .collect();
+    assert_eq!(objects.lines().count(), receipt_ids.len());
+    git_input(&["update-ref", "--stdin"], &updates);
 
     let output = script_command(&helper)
         .current_dir(&ws.root)

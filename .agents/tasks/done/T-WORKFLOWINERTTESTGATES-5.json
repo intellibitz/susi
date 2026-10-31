@@ -1,0 +1,26 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-5",
+  "title": "Batch Git setup in the close receipt fixture",
+  "goal": "Remove per-receipt Git setup process launches from the 90-ref regression fixture and record observed workflow timings.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "compliance_batches_close_receipt_scan"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793426444,
+  "closed": {
+    "at_unix": 1793426645,
+    "commit": "dff72ca2bf4c1672622f947511408962b7a10160",
+    "by": "WORKFLOWINERTTESTGATES"
+  }
+}
