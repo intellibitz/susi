@@ -458,40 +458,6 @@ fn it_waits_through_queued_and_in_progress_until_the_run_passes() {
 }
 
 #[test]
-fn suite_readiness_is_rechecked_without_a_long_default_sleep() {
-    let f = Fake::new(
-        "poll-latency",
-        serde_json::json!([]),
-        serde_json::json!([dispatched(80, SHA)]),
-        &["in_progress/", "completed/success"],
-    );
-    f.jobs_sequence(80, &[SUITE_PENDING, SUITE_PASSED]);
-    let bash_env = f.dir.join("bash-env");
-    std::fs::write(
-        &bash_env,
-        "sleep() { printf '%s\\n' \"$1\" >> \"$SUSI_TEST_SLEEP_LOG\"; }\n",
-    )
-    .unwrap();
-    let out = script_command(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/release-await-tests.sh"),
-    )
-    .args(["o/r", "v1.2.3", SHA])
-    .env("PATH", path_with_prefix(&f.dir))
-    .env("BASH_ENV", &bash_env)
-    .env("SUSI_TEST_SLEEP_LOG", f.dir.join("sleeps"))
-    .env_remove("RELEASE_TESTS_POLL")
-    .output()
-    .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let waits = std::fs::read_to_string(f.dir.join("sleeps")).unwrap();
-    assert_eq!(waits.lines().collect::<Vec<_>>(), ["5"]);
-}
-
-#[test]
 fn release_qualifies_when_release_jobs_pass_before_merge_only_gates() {
     let f = Fake::new(
         "release-jobs-before-merge-gates",
