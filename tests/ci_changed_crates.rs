@@ -262,6 +262,23 @@ fn mixed_source_and_test_changes_keep_reverse_dependents() {
 }
 
 #[test]
+fn root_test_targets_include_only_changed_root_test_files() {
+    let ws = Workspace::new("root-test-targets");
+    ws.change("tests/ci_changed_crates.rs");
+    ws.change("scripts/ci-changed-crates.sh");
+    ws.change(".agents/tasks/T-1.json");
+    assert_eq!(ws.pkgs(&["--root-test-targets"]), ["ci_changed_crates"]);
+}
+
+#[test]
+fn root_test_targets_fail_closed_when_production_sources_change() {
+    let ws = Workspace::new("root-test-targets-source");
+    ws.change("tests/ci_changed_crates.rs");
+    ws.change("src/lib.rs");
+    assert!(ws.pkgs(&["--root-test-targets"]).is_empty());
+}
+
+#[test]
 fn a_leaf_lists_itself_and_the_crates_above_it_but_not_those_below() {
     let ws = Workspace::new("leaf");
     ws.change("crates/top/src/lib.rs");

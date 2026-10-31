@@ -300,8 +300,17 @@ gate() {
     lsel=$(printf ' -p %s' $lint)
     # The pre-push hook lints this exact set with this exact command line, so
     # its run is a cache hit rather than a second compile of other crates.
-    cargo clippy --locked --all-targets $lsel -- -D warnings
     rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
+    root_test_targets=$("$root/scripts/ci-changed-crates.sh" --root-test-targets)
+    if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
+        local -a test_args=()
+        while IFS= read -r target; do
+            [ -n "$target" ] && test_args+=(--test "$target")
+        done <<<"$root_test_targets"
+        cargo clippy --locked -p "$rootpkg" "${test_args[@]}" -- -D warnings
+    else
+        cargo clippy --locked --all-targets $lsel -- -D warnings
+    fi
     if printf '%s\n' $pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
         gate_root_tests=$root_tests
         other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
