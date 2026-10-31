@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261031021059518379-12",
+  "title": "Skip unrelated catalog discovery before the release gate",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--bin",
+      "susi",
+      "release_skips_cli_catalog_composition"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793448912
+}

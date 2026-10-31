@@ -618,6 +618,17 @@ pub(crate) fn command_skips_composition(command: &Commands) -> bool {
     )
 }
 
+/// The release gate needs the plane bus and audit hooks, but not the CLI's
+/// background indexer or catalog discovery; smoke missions compose separately.
+pub(crate) fn command_uses_release_composition(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Admin {
+            subcommand: AdminCommands::Release { .. }
+        }
+    )
+}
+
 /// Mandate 32: only ensure the daemon for commands that need the background
 /// substrate. Local-only admin/workspace ops must return without blocking on
 /// binary integrity checks or daemon restart.
@@ -739,5 +750,23 @@ mod tests {
         for cmd in [&["susi", "mcp", "serve"][..], &["susi", "models", "local"]] {
             assert!(!skips(cmd), "{cmd:?} composes the substrate");
         }
+    }
+
+    #[test]
+    fn release_skips_cli_catalog_composition() {
+        for args in [
+            &["susi", "admin", "release"][..],
+            &["susi", "admin", "release", "--cut", "patch"],
+        ] {
+            let command = Cli::try_parse_from(args).unwrap().command.unwrap();
+            assert!(super::command_uses_release_composition(&command));
+            assert!(!command_skips_composition(&command));
+            assert!(super::command_requires_daemon(&command));
+        }
+        let audit = Cli::try_parse_from(["susi", "admin", "audit"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert!(!super::command_uses_release_composition(&audit));
     }
 }
