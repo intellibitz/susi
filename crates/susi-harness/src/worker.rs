@@ -92,7 +92,7 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
         ];
 
         let mut resent = 0;
-        let call = loop {
+        let (status, buf) = loop {
             let call = match susi_http_transport::http_call_with_body(
                 "POST",
                 &gateway_url,
@@ -108,24 +108,36 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
                     });
                 }
             };
-            match paced_wait(&call, deadline, resent) {
+            let status = call.status;
+            let retry_after = call
+                .header("retry-after")
+                .and_then(crate::ratelimit::retry_after_ms);
+            let buf = call.into_bytes(16 * 1024 * 1024).map_err(|e| {
+                EaiError::internal(format!("unreadable answer on turn {turn}: {e}"))
+            })?;
+            match paced_wait(status, retry_after, &buf, deadline, resent) {
                 Some(wait) => {
                     resent += 1;
                     std::thread::sleep(wait);
                 }
-                None => break call,
+                None => break (status, buf),
             }
         };
 
-        if call.status != 200 {
+        if status != 200 {
+            // The gateway's words go with the status: "HTTP 429" alone told
+            // the ladder a provider was busy when its account was empty, and
+            // nothing of why reached the failure record.
+            let reason = error_message(&buf);
             return Ok(RunOutcome::Failed {
-                message: format!("gateway answered HTTP {} on turn {turn}", call.status),
+                message: match reason {
+                    Some(reason) => {
+                        format!("gateway answered HTTP {status} on turn {turn}: {reason}")
+                    }
+                    None => format!("gateway answered HTTP {status} on turn {turn}"),
+                },
             });
         }
-
-        let buf = call
-            .into_bytes(16 * 1024 * 1024)
-            .map_err(|e| EaiError::internal(format!("unreadable answer on turn {turn}: {e}")))?;
 
         let reply: Value = serde_json::from_slice(&buf)
             .map_err(|e| EaiError::internal(format!("unparseable answer on turn {turn}: {e}")))?;
@@ -230,11 +242,12 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
 /// away. The attempt's deadline bounds the waits; this bounds the calls.
 const PACED_RESENDS: usize = 8;
 
-/// How long to wait before sending a turn again, when `call` is the
-/// gateway's answer that the provider's paced queue is full: 429 with a
-/// `Retry-After` (a provider's own 429 reaches the worker without one).
-/// `None` when the call is to be read as it is, including when the wait
-/// would run past the attempt's `deadline`.
+/// How long to wait before sending a turn again, when the answer (`status`,
+/// its `Retry-After` in milliseconds, `body`) is the gateway's that the
+/// provider's paced queue is full: 429 with a `Retry-After` (a provider's
+/// own 429 reaches the worker without one). `None` when the answer is to be
+/// read as it is, including when the wait would run past the attempt's
+/// `deadline`.
 ///
 /// The gateway queues a paced call only as long as its upstream timeout, and
 /// answers a call whose slot is further off with that 429 at once. The
@@ -243,23 +256,60 @@ const PACED_RESENDS: usize = 8;
 /// on a provider paced to one call a minute, the fourth task could fail
 /// without a single call being served, where it had waited and been served
 /// when the queue had no cap.
+///
+/// A 429 whose code is `insufficient_quota` is the gateway's answer for an
+/// account that cannot pay ([`crate::gateway`]): its `Retry-After` is the
+/// provider's cooldown, which waiting out changes nothing, so the attempt
+/// fails at once and the ladder goes to another model.
 fn paced_wait(
-    call: &susi_http_transport::HttpCall,
+    status: u16,
+    retry_after_ms: Option<u64>,
+    body: &[u8],
     deadline: Instant,
     resent: usize,
 ) -> Option<std::time::Duration> {
-    if call.status != 429 || resent >= PACED_RESENDS {
+    if status != 429 || resent >= PACED_RESENDS || has_error_code(body, "insufficient_quota") {
         return None;
     }
-    let wait_ms = call
-        .header("retry-after")
-        .and_then(crate::ratelimit::retry_after_ms)?;
+    let wait_ms = retry_after_ms?;
     // Never sooner than a second: a zero wait would only hammer the queue.
     let wait = std::time::Duration::from_millis(wait_ms.max(1_000));
     Instant::now()
         .checked_add(wait)
         .is_some_and(|resend_at| resend_at < deadline)
         .then_some(wait)
+}
+
+/// Whether an OpenAI-shaped error answer carries `code` as its `error.code`.
+fn has_error_code(body: &[u8], code: &str) -> bool {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| value.pointer("/error/code")?.as_str().map(|c| c == code))
+        .unwrap_or(false)
+}
+
+/// The `error.message` of an OpenAI-shaped error answer, or the body's first
+/// line when it is not one; at most 240 characters, as the failure record
+/// keeps. `None` for an empty body.
+fn error_message(body: &[u8]) -> Option<String> {
+    let text = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/error/message")
+                .or_else(|| value.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            String::from_utf8_lossy(body)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        });
+    let text: String = text.trim().chars().take(240).collect();
+    (!text.is_empty()).then_some(text)
 }
 
 /// Append one assistant message to the attempt transcript, so a loop is
@@ -483,6 +533,23 @@ mod tests {
         std::net::SocketAddr,
         std::sync::Arc<std::sync::atomic::AtomicUsize>,
     ) {
+        refusing_gateway(
+            paced,
+            retry_after,
+            r#"{"error":{"message":"paced","code":"rate_limit_exceeded"}}"#,
+        )
+        .await
+    }
+
+    /// [`paced_gateway`] with the refusal's body as `refusal`.
+    async fn refusing_gateway(
+        paced: usize,
+        retry_after: &'static str,
+        refusal: &'static str,
+    ) -> (
+        std::net::SocketAddr,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
         use axum::http::{header, StatusCode};
         use axum::response::IntoResponse;
         use std::sync::atomic::Ordering;
@@ -507,7 +574,7 @@ mod tests {
                                 (header::RETRY_AFTER, retry_after),
                                 (header::CONNECTION, "close"),
                             ],
-                            r#"{"error":{"message":"paced","code":"rate_limit_exceeded"}}"#,
+                            refusal,
                         )
                             .into_response();
                     }
@@ -601,6 +668,79 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_secs(6));
         let _ = fs::remove_dir_all(&workspace);
         let _ = fs::remove_dir_all(&state_dir);
+    }
+
+    /// The gateway answers a provider whose account cannot pay with 429
+    /// `insufficient_quota` and the cooldown as `Retry-After`. That wait
+    /// changes nothing, so it is not slept: the attempt fails at once, as a
+    /// 429 the ladder reads as transient, with the gateway's words in the
+    /// message so the failure record says why.
+    #[tokio::test]
+    async fn an_unfunded_answer_fails_the_attempt_at_once_with_its_reason() {
+        let (addr, calls) = refusing_gateway(
+            usize::MAX,
+            "1",
+            r#"{"error":{"message":"anthropic cannot pay for claude-sonnet right now (anthropic answered HTTP 400: Your credit balance is too low)","type":"insufficient_quota","code":"insufficient_quota"}}"#,
+        )
+        .await;
+        let config = paced_config(addr, "unfunded", 32);
+        let (workspace, state_dir) = (config.workspace.clone(), config.state_dir.clone());
+
+        let started = Instant::now();
+        let outcome = tokio::task::spawn_blocking(move || run_agent_loop(&config, 5))
+            .await
+            .unwrap()
+            .unwrap();
+
+        match outcome {
+            RunOutcome::Failed { message } => {
+                assert!(message.contains("HTTP 429"), "{message}");
+                assert!(message.contains("credit balance is too low"), "{message}");
+                assert_eq!(
+                    crate::policy::FailureKind::classify(&message),
+                    crate::policy::FailureKind::Transient,
+                    "{message}"
+                );
+            }
+            other => panic!("expected the refusal to fail the attempt, got {other:?}"),
+        }
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "not sent again"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(900),
+            "the Retry-After was not waited out"
+        );
+        let _ = fs::remove_dir_all(&workspace);
+        let _ = fs::remove_dir_all(&state_dir);
+    }
+
+    #[test]
+    fn a_gateway_errors_words_are_read_from_its_body() {
+        assert_eq!(
+            error_message(br#"{"error":{"message":"  paced  ","code":"rate_limit_exceeded"}}"#),
+            Some("paced".to_string())
+        );
+        assert_eq!(
+            error_message(
+                b"plain text first line
+second"
+            ),
+            Some("plain text first line".to_string())
+        );
+        assert_eq!(error_message(b""), None);
+        assert_eq!(error_message(b"   "), None);
+        assert!(has_error_code(
+            br#"{"error":{"code":"insufficient_quota"}}"#,
+            "insufficient_quota"
+        ));
+        assert!(!has_error_code(
+            br#"{"error":{"code":"rate_limit_exceeded"}}"#,
+            "insufficient_quota"
+        ));
+        assert!(!has_error_code(b"not json", "insufficient_quota"));
     }
 
     #[tokio::test]
