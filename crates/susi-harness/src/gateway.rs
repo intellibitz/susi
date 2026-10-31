@@ -2812,7 +2812,12 @@ mod tests {
             r#"{"model":"deepseek-flash","messages":[]}"#,
             "",
         ));
-        for _ in 0..100 {
+        // Up to 30 s: the call reaches the provider in milliseconds on an
+        // idle machine, but the finish gate runs this beside 1 600 other
+        // tests and a compile, where 5 s was not always enough (three
+        // tries red, the gate red with them). The bound only needs to be
+        // longer than the slowest scheduling; nothing here depends on it.
+        for _ in 0..600 {
             if asked.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
