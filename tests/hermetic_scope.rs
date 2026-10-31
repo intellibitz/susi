@@ -207,7 +207,7 @@ fn the_nextest_runner_retries_per_test_and_runs_doc_tests_for_library_crates_onl
     let calls = w.cargo_calls();
     assert!(
         calls.contains(
-            "nextest run --locked --no-fail-fast --no-tests=pass --status-level slow --final-status-level slow --retries 2 -p susi-paths -p xtask"
+            "nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p susi-paths -p xtask"
         ),
         "one hermetic nextest pass over the selection, a crate with no tests passing: {calls}"
     );
