@@ -31,7 +31,6 @@ command -v python3 >/dev/null 2>&1 && python3 -c 'import tomllib' >/dev/null 2>&
 }
 
 result=$(RUST_CHANGED="$rust_changed" python3 - "$root" <<'PY'
-import glob
 import os
 import pathlib
 import sys
@@ -96,7 +95,19 @@ for manifest in root.glob("**/Cargo.toml"):
     if build is not False and build and (directory / build).is_file():
         add_path(directory, build if isinstance(build, str) else "build.rs")
 
-print("true" if changed & targets else "false")
+if changed & targets:
+    print("true")
+else:
+    # An unrecognized path outside a nested src module may be a custom Cargo
+    # target or a future input convention. Only a clearly nested module file
+    # is safe to skip; ambiguity runs the full ratchet.
+    def ordinary_module(path):
+        parts = pathlib.PurePosixPath(path).parts
+        if not path.endswith(".rs") or "src" not in parts:
+            return False
+        return len(parts) - parts.index("src") - 1 >= 2
+
+    print("true" if any(not ordinary_module(path) for path in changed) else "false")
 PY
 ) || {
   echo true
