@@ -5,7 +5,7 @@
   "size": "m",
   "deps": [],
   "accept": {
-      "cmd": [
+    "cmd": [
       "cargo",
       "test",
       "--locked",
@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "AGENT179339957248328",
-  "created_unix": 1793405927
+  "created_unix": 1793405927,
+  "closed": {
+    "at_unix": 1793406244,
+    "commit": "cfff9d00984f67a745a714318a29a74b010dbaa1",
+    "by": "AGENT179339957248328"
+  }
 }
