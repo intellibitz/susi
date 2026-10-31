@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-4",
+  "title": "release --cut refuses a version already tagged or already being cut by another branch's open PR",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::version"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793475797,
+  "closed": {
+    "at_unix": 1793476303,
+    "commit": "0e6ad6d5b7be54629a25613f2d5a376d5607ea05",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}

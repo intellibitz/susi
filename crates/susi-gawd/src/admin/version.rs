@@ -379,6 +379,104 @@ impl SusiAdmin {
 
         Ok(())
     }
+
+    /// Why `v{version}` must not be cut from this checkout, or `None` when no
+    /// one else holds it. Two agents cut v0.21.26 within an hour of each
+    /// other: both ran the whole gate, both pushed a bump, and one of the two
+    /// pull requests was thrown away. The cut asks first:
+    ///
+    /// * `v{version}` is tagged on origin: that version is released;
+    /// * origin has a `cut-v{version}` branch other than this one;
+    /// * an open pull request titled `chore: release v{version}` comes from
+    ///   another branch (`gh api`; when `gh` cannot list them the cut says so
+    ///   and goes on, since only the tag and branch checks remain).
+    pub fn release_already_cut(workspace: &Path, version: &str) -> Option<String> {
+        let tag = format!("v{version}");
+        let own_branch =
+            git_stdout(workspace, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+        if git_stdout(
+            workspace,
+            &["ls-remote", "--tags", "origin", &format!("refs/tags/{tag}")],
+        )
+        .is_some_and(|out| !out.is_empty())
+        {
+            return Some(format!("{tag} is already tagged on origin: it is released"));
+        }
+        let cut_branch = format!("cut-{tag}");
+        if cut_branch != own_branch
+            && git_stdout(
+                workspace,
+                &[
+                    "ls-remote",
+                    "--heads",
+                    "origin",
+                    &format!("refs/heads/{cut_branch}"),
+                ],
+            )
+            .is_some_and(|out| !out.is_empty())
+        {
+            return Some(format!(
+                "origin already has the branch {cut_branch}: another cut of {tag} is in flight"
+            ));
+        }
+        let listing = Command::new("gh")
+            .args([
+                "api",
+                "--paginate",
+                "repos/{owner}/{repo}/pulls?state=open&per_page=100",
+                "--jq",
+                r#".[] | "\(.number)\t\(.head.ref)\t\(.title)""#,
+            ])
+            .current_dir(workspace)
+            .env("GH_PROMPT_DISABLED", "1")
+            .output();
+        match listing {
+            Ok(out) if out.status.success() => {
+                open_release_prs(&String::from_utf8_lossy(&out.stdout), version, &own_branch)
+                    .into_iter()
+                    .next()
+                    .map(|pr| {
+                        format!("{pr} already cuts {tag}: let it merge, then cut the next version")
+                    })
+            }
+            _ => {
+                eprintln!(
+                    "[Release Gatekeeper] note: could not list open pull requests (gh); \
+                     a cut of {tag} from another branch would go unnoticed"
+                );
+                None
+            }
+        }
+    }
+}
+
+/// `git <args>` in `dir`, trimmed stdout on success.
+fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The open pull requests in `listing` (`number<TAB>head branch<TAB>title`
+/// lines) that cut `version` from a branch other than `own_branch`, as
+/// "pull request #N (branch)".
+fn open_release_prs(listing: &str, version: &str, own_branch: &str) -> Vec<String> {
+    let title = format!("chore: release v{version}");
+    listing
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(3, '\t');
+            let (number, head, pr_title) = (fields.next()?, fields.next()?, fields.next()?);
+            (pr_title.trim() == title && head != own_branch)
+                .then(|| format!("pull request #{number} ({head})"))
+        })
+        .collect()
 }
 
 /// Replace a sync target whole. `susi admin sync` rewrites Cargo.toml, the
@@ -608,5 +706,95 @@ mod tests {
             None
         };
         assert_eq!(SusiAdmin::cuda_version_clamp_env(), expected);
+    }
+
+    #[test]
+    fn open_release_prs_names_another_branchs_cut_of_the_same_version() {
+        let listing = "1058\tclaude/one\tchore: release v0.21.26\n\
+                       1059\tcut-v0.21.26\tchore: release v0.21.26\n\
+                       1060\tcut-v0.21.27\tchore: release v0.21.27\n\
+                       1061\tfeature\tfix: release v0.21.26 notes\n\
+                       garbage line\n";
+        assert_eq!(
+            open_release_prs(listing, "0.21.26", "claude/one"),
+            vec!["pull request #1059 (cut-v0.21.26)".to_string()],
+            "this branch's own PR never counts; another version's or another title never counts"
+        );
+        assert!(open_release_prs(listing, "0.21.28", "x").is_empty());
+    }
+
+    fn git_ok(dir: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    /// A clone of a fresh bare origin, on `branch`, with one commit pushed.
+    fn release_fixture(name: &str, branch: &str) -> (PathBuf, PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("susi_cut_guard_{name}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (origin, work) = (root.join("origin.git"), root.join("work"));
+        fs::create_dir_all(&origin).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        git_ok(&origin, &["init", "-q", "--bare"]);
+        git_ok(&work, &["init", "-q", "-b", branch]);
+        for (k, v) in [
+            ("user.name", "t"),
+            ("user.email", "t@t"),
+            ("commit.gpgsign", "false"),
+            ("tag.gpgsign", "false"),
+        ] {
+            git_ok(&work, &["config", k, v]);
+        }
+        git_ok(
+            &work,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        );
+        git_ok(&work, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        git_ok(
+            &work,
+            &["push", "-q", "origin", &format!("HEAD:refs/heads/{branch}")],
+        );
+        (root, work)
+    }
+
+    #[test]
+    fn a_version_tagged_on_origin_is_refused() {
+        let (root, work) = release_fixture("tagged", "cut-mine");
+        assert_eq!(
+            SusiAdmin::release_already_cut(&work, "1.2.3"),
+            None,
+            "nothing holds 1.2.3 yet"
+        );
+        git_ok(&work, &["tag", "v1.2.3"]);
+        git_ok(&work, &["push", "-q", "origin", "refs/tags/v1.2.3"]);
+        let why =
+            SusiAdmin::release_already_cut(&work, "1.2.3").expect("a released version is refused");
+        assert!(why.contains("v1.2.3 is already tagged"), "{why}");
+        assert_eq!(SusiAdmin::release_already_cut(&work, "1.2.4"), None);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn another_branchs_cut_branch_is_refused_and_ones_own_is_not() {
+        let (root, work) = release_fixture("branch", "cut-v1.2.3");
+        assert_eq!(
+            SusiAdmin::release_already_cut(&work, "1.2.3"),
+            None,
+            "this checkout's own cut-v1.2.3 is the cut being made"
+        );
+        git_ok(&work, &["checkout", "-q", "-b", "agent-other"]);
+        let why = SusiAdmin::release_already_cut(&work, "1.2.3")
+            .expect("another branch's cut is refused");
+        assert!(
+            why.contains("cut-v1.2.3") && why.contains("in flight"),
+            "{why}"
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }
