@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT2026103116245245927-3",
+  "title": "Cross-platform os runtime process discovery and fast root-package local gate",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--bin",
+      "susi",
+      "os_runtime"
+    ]
+  },
+  "created_by": "AGENT2026103116245245927",
+  "created_unix": 1793450440
+}
