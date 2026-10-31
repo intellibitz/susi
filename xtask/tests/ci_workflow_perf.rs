@@ -1277,9 +1277,12 @@ fn the_pre_push_hook_lints_the_gates_scoped_set_not_the_whole_workspace() {
 /// of 86, and release.yml ran no tests. The suite is proven by the `tests` job;
 /// the legs build *while* it runs (they used to wait for it, which put the
 /// suite's 19 minutes in front of the slowest leg's 38) and publish nothing
-/// themselves: the one `publish` job attaches their artifacts, and it needs
-/// `tests` to have passed. A red commit then costs the legs' runner minutes,
-/// never a published binary.
+/// themselves. `publish` attaches the contracted platforms once `tests` and
+/// `build` (linux-x86_64 and Windows) have finished. arm64, macOS and CUDA are
+/// `build-extra` / `build-cuda` and must not be in that `needs` list: v0.21.29
+/// waited 25 min on the whole matrix, and a warm Windows leg would otherwise
+/// sit behind an 19 min macOS runner. `publish-extra` attaches those assets
+/// later and still requires the suite. A red commit publishes nothing.
 #[test]
 fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_commit() {
     let text = read(".github/workflows/release.yml");
@@ -1310,12 +1313,21 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
             "`{builder}` must hand its binaries to `publish` as workflow artifacts"
         );
     }
+    let extra = job(&jobs, "build-extra");
+    assert!(
+        extra.body.contains("needs: [verify-tag]")
+            && extra.body.contains("steps: *release-steps")
+            && !extra.body.contains("softprops/action-gh-release"),
+        "`build-extra` reuses the build steps, starts with the suite, and does not publish"
+    );
     let publish = job(&jobs, "publish");
     assert!(
-        publish
-            .body
-            .contains("needs: [verify-tag, tests, build, build-cuda]"),
-        "`publish` must need the suite and every leg"
+        publish.body.contains("needs: [verify-tag, tests, build]"),
+        "`publish` must need the suite and the contracted legs"
+    );
+    assert!(
+        !publish.body.contains("build-cuda") && !publish.body.contains("build-extra"),
+        "`publish` must not wait on arm64, macOS or CUDA"
     );
     assert!(
         publish.body.contains("needs.tests.result == 'success'"),
@@ -1324,7 +1336,16 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
     assert!(
         publish.body.contains("actions/download-artifact@")
             && publish.body.contains("softprops/action-gh-release"),
-        "`publish` collects the legs' artifacts and is the one step that touches the release"
+        "`publish` collects the legs' artifacts and is the step that opens the release"
+    );
+    let later = job(&jobs, "publish-extra");
+    assert!(
+        later
+            .body
+            .contains("needs: [verify-tag, tests, publish, build-extra, build-cuda]")
+            && later.body.contains("needs.tests.result == 'success'")
+            && later.body.contains("softprops/action-gh-release"),
+        "`publish-extra` attaches optional assets only after the suite and the release exist"
     );
 }
 

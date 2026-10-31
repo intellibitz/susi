@@ -42,7 +42,7 @@ jobs:
         with:
           shared-key: release-windows-x86_64
           cache-targets: "true"
+      # One invocation: a second cargo waits on the target lock, so the harness
+      # dependency graph used to compile only after the engine had finished.
       - name: Build the release dependency graph
-        run: cargo build --locked --profile dist
-      - name: Build harness dependencies
-        run: cargo build --locked --profile dist -p susi-harness --bin susi-harness
+        run: cargo build --locked --profile dist -p susi-harness -p susi
