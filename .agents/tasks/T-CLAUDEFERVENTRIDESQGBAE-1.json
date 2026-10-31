@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEFERVENTRIDESQGBAE-1",
+  "title": "Port scripts/seed-target.sh into susi workflow seed-target",
+  "goal": "A worktree's own cargo target is seeded, stripped and locked by Rust (susi workflow seed-target, with --background and --refresh) through std::process::Command: git, robocopy on Windows with its 0-7 success codes and /XJ, cp -a --reflink=auto elsewhere, tasklist for Windows pid liveness; junction and symlink removal, the mkdir-pid lock, SUSI_NO_SEED, waiting for a copy in progress and never failing the caller all survive; scripts/seed-target.sh is a stub that execs susi so branches cut before the port keep working; tests/worktree_target_dir.rs pins the Rust behaviour and a Windows test runs with Git's usr/bin off PATH",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "worktree_target_dir"
+    ]
+  },
+  "created_by": "CLAUDEFERVENTRIDESQGBAE",
+  "created_unix": 1793434036
+}
