@@ -397,16 +397,34 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// A worktree that is reused across mission attempts can be many commits
     /// behind; the claim refuses a stale branch, so sync before claiming.
     ///
+    /// Ensure the worktree is current before a claim.
+    ///
+    /// A failed or killed attempt leaves the edits its worker made
+    /// uncommitted, and `workflow sync` refuses a dirty tree. The worktree is
+    /// the harness's own, and the next attempt starts from `origin/main`
+    /// anyway, so those leftovers are discarded and the sync retried once
+    /// rather than failing the whole task on them. Any other refusal is
+    /// reported as it is.
+    ///
     /// # Errors
     ///
-    /// Returns an error when the worktree cannot be synced (for example, it
-    /// has uncommitted work from a failed attempt).
+    /// Returns an error when the worktree still cannot be synced.
     pub fn sync(&self, worktree: &Path) -> EaiResult<()> {
         let output = self.susi(vec!["workflow".to_string(), "sync".to_string()], worktree)?;
-        if !output.success() {
+        if output.success() {
+            return Ok(());
+        }
+        let tail = output.tail();
+        if !tail.to_ascii_lowercase().contains("commit or stash") {
+            return Err(EaiError::process(format!("workflow sync failed: {tail}")));
+        }
+        self.git(worktree, &["reset", "--hard", "HEAD"])?;
+        self.git(worktree, &["clean", "-fd"])?;
+        let retry = self.susi(vec!["workflow".to_string(), "sync".to_string()], worktree)?;
+        if !retry.success() {
             return Err(EaiError::process(format!(
                 "workflow sync failed: {}",
-                output.tail()
+                retry.tail()
             )));
         }
         Ok(())
@@ -2290,6 +2308,89 @@ mod tests {
                 at + crate::policy::COOLDOWN_MS + 1
             ),
             vec!["deepseek-flash", "deepseek-pro"]
+        );
+    }
+
+    /// A failed attempt leaves its worker's edits in the harness's own
+    /// worktree, and `workflow sync` refuses a dirty tree. The next attempt
+    /// starts from origin/main anyway, so those edits are discarded and the
+    /// sync retried, instead of the task failing before the worker runs.
+    #[test]
+    fn sync_discards_a_failed_attempts_edits_and_retries() {
+        let runner = FakeRunner::with(vec![
+            RunOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: "Commit or stash your work before syncing.".to_string(),
+            },
+            RunOutput {
+                status: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            RunOutput {
+                status: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            RunOutput {
+                status: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+        ]);
+        let target = SusiTarget {
+            repo: PathBuf::from("/repo"),
+            susi_program: PathBuf::from("/bin/susi"),
+            runner,
+        };
+        target
+            .sync(Path::new("/worktree"))
+            .expect("sync retries after clearing the leftovers");
+        let calls = target.runner.calls.lock().unwrap();
+        let argv: Vec<Vec<String>> = calls.iter().map(|(_, args, _)| args.clone()).collect();
+        assert_eq!(
+            argv[1],
+            vec![
+                "reset".to_string(),
+                "--hard".to_string(),
+                "HEAD".to_string()
+            ],
+            "the leftovers are discarded first: {argv:?}"
+        );
+        assert_eq!(
+            argv[2],
+            vec!["clean".to_string(), "-fd".to_string()],
+            "and removed, untracked files included: {argv:?}"
+        );
+        assert_eq!(
+            argv[3],
+            vec!["workflow".to_string(), "sync".to_string()],
+            "then the sync is retried once: {argv:?}"
+        );
+    }
+
+    /// Any other refusal is the caller's to see: retrying would hide it.
+    #[test]
+    fn sync_reports_a_refusal_that_is_not_leftovers() {
+        let runner = FakeRunner::with(vec![RunOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "this worktree is behind origin/main and cannot merge".to_string(),
+        }]);
+        let target = SusiTarget {
+            repo: PathBuf::from("/repo"),
+            susi_program: PathBuf::from("/bin/susi"),
+            runner,
+        };
+        let error = target
+            .sync(Path::new("/worktree"))
+            .expect_err("a real failure is not retried");
+        assert!(format!("{error}").contains("cannot merge"), "{error}");
+        assert_eq!(
+            target.runner.calls.lock().unwrap().len(),
+            1,
+            "no reset is attempted for a failure that is not leftovers"
         );
     }
 }
