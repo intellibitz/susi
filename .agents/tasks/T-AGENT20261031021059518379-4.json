@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT20261031021059518379-4",
+  "title": "Bound fixture contention and remove finish housekeeping waits",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793439467
+}

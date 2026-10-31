@@ -3421,6 +3421,156 @@ push_closed_branch work
 }
 
 #[test]
+fn compliance_counts_live_claims_from_one_byte_counted_snapshot() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let f = Fakes::new("live-claim-snapshot");
+    let run = |args: &[&str], input: &[u8]| {
+        let mut child = Command::new("git")
+            .args(args)
+            .current_dir(&f.dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    run(&["init", "--quiet", "--template="], b"");
+    let mut files = String::new();
+    for n in 0..94 {
+        let body = match n {
+            0 => "{\n  \"agent\": \"OWN\",\n  \"task\": \"wrong-body-id\",\n  \"lease_until_unix\": 2000\n}".to_string(),
+            1 => r#"{"agent":"OWN","lease_until_unix":2000}"#.into(),
+            2 => r#"{"agent":"OWN","lease_until_unix":1000}"#.into(),
+            3 => r#"{"agent":"SINGLE","lease_until_unix":2000}"#.into(),
+            4 => "not json\n".into(),
+            5 => "[]".into(),
+            _ => r#"{"agent":"OTHER","lease_until_unix":2000}"#.into(),
+        };
+        std::fs::write(f.dir.join(format!("claim{n}.json")), body).unwrap();
+        files.push_str(&format!("claim{n}.json\n"));
+    }
+    let ids = run(&["hash-object", "-w", "--stdin-paths"], files.as_bytes());
+    let refs: String = ids
+        .lines()
+        .enumerate()
+        .map(|(n, id)| format!("create refs/claims/T-TEST-{n} {id}\n"))
+        .collect();
+    run(&["update-ref", "--stdin"], refs.as_bytes());
+    let source = read("scripts/check-workflow-compliance.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n. \"$COMPAT\"\n");
+    script.push_str(&shell_function(&source, "load_live_claim_index"));
+    script.push_str(&shell_function(&source, "check_one_live_claim"));
+    script.push_str(
+        r#"
+now=1000
+live_claim_index=
+agents_checked=' '
+fail=0
+err() { printf '%s\n' "$*" >> errors; fail=1; }
+git() {
+    printf '%s\n' "$*" >> calls
+    command git "$@"
+}
+check_one_live_claim SINGLE abc T-TEST-3
+[ "$fail" = 0 ]
+check_one_live_claim ABSENT abc T-TEST-99
+[ "$fail" = 0 ]
+check_one_live_claim OWN abc T-TEST-0
+[ "$fail" = 1 ]
+check_one_live_claim OWN abc T-TEST-0
+"#,
+    );
+    let path = f.dir.join("check.sh");
+    std::fs::write(&path, script).unwrap();
+    let output = script_command(&path)
+        .current_dir(&f.dir)
+        .env("COMPAT", root().join("scripts/posix-compat.sh"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let errors = std::fs::read_to_string(f.dir.join("errors")).unwrap();
+    assert_eq!(errors.lines().count(), 1);
+    assert!(
+        errors.contains("holds 2 live claims:T-TEST-0 T-TEST-1"),
+        "{errors}"
+    );
+    let calls = std::fs::read_to_string(f.dir.join("calls")).unwrap();
+    assert_eq!(calls.lines().count(), 2, "{calls}");
+    assert!(calls.contains("cat-file --batch="));
+}
+
+#[test]
+fn scratch_cleanup_preserves_failure_and_stops_services_before_background_deletion() {
+    let f = Fakes::new("async-scratch-cleanup");
+    f.fake(
+        "kill-leftover-service-runs.sh",
+        "echo stopped > service-stopped",
+    );
+    let source = read("scripts/check-hermetic-tests.sh").replace("\r\n", "\n");
+    let mut script = String::from(". \"$COMPAT\"\n");
+    script.push_str(&shell_function(&source, "cleanup_hermetic_dirs"));
+    script.push_str(
+        r#"
+git() { printf '%s\n' "$PWD"; }
+remove_hermetic_dirs() {
+    [ -f service-stopped ] || exit 9
+    printf '%s\n' "$BASHPID" > deleter.pid
+}
+parent=$BASHPID
+(exit 23)
+cleanup_hermetic_dirs
+status=$?
+[ "$status" = 23 ] || exit 8
+[ -f service-stopped ] || exit 7
+wait
+[ "$(cat deleter.pid)" != "$parent" ] || exit 6
+"#,
+    );
+    let path = f.dir.join("cleanup.sh");
+    std::fs::write(&path, script).unwrap();
+    let output = script_command(&path)
+        .current_dir(&f.dir)
+        .env("COMPAT", root().join("scripts/posix-compat.sh"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn finish_hooks_leave_primary_maintenance_to_the_finish_cleanup() {
+    let f = Fakes::new("finish-hook-cleanup");
+    f.fake("git", "echo unexpected-git >&2; exit 91");
+    let out = script_command(&root().join(".githooks/sync-primary"))
+        .env("SUSI_SYNC_IN_FINISH", "1")
+        .env("PATH", path_with_prefix(&f.dir, true))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(
+        out.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn normal_sync_finds_its_owned_claim_without_remote_renewal_lookup() {
     assert_eq!(
         read("scripts/parallel-workflow.sh")

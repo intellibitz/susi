@@ -158,21 +158,18 @@ renew_owned_claims() {
 # the common path; if main advanced during the gate, integrate the hook's fresh
 # snapshot and retry once. Other push failures retain their original error.
 push_closed_branch() {
-    local branch=$1 attempt before output
+    local branch=$1 attempt before
     for attempt in 1 2; do
         before=$(git rev-parse HEAD)
-        if output=$(git push origin "HEAD:refs/heads/$branch" 2>&1); then
-            printf '%s\n' "$output" >&2
+        if git push origin "HEAD:refs/heads/$branch"; then
             return 0
         fi
         if [ "$attempt" = 2 ] || [ "$before" != "$(git rev-parse HEAD)" ] \
             || git merge-base --is-ancestor origin/main HEAD; then
-            printf '%s\n' "$output" >&2
             return 1
         fi
         echo 'workflow: main advanced; integrating the fetched snapshot and retrying push' >&2
         if ! git merge --no-edit origin/main; then
-            printf '%s\n' "$output" >&2
             return 1
         fi
         if [ "${SUSI_FINISH_REGATE:-0}" = 1 ]; then
@@ -364,21 +361,21 @@ gate() {
     local okfile stamp pkgs lint sel lsel rootpkg root_tests other_pkgs
     # Before the cache: a stamp written before this check existed must not
     # wave a test-deleting diff through.
-    gate_tests_kept || return 1
-    seed_own_target
-    resolve_gate_plan
+    timed_step test-integrity gate_tests_kept || return 1
+    timed_step target seed_own_target
+    timed_step scope resolve_gate_plan
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
     stamp=$(gate_stamp)
     if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
         return 0
     fi
-    cargo fmt --all --check
+    timed_step format cargo fmt --all --check
     pkgs=$gate_pkgs
     if [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
-        cargo clippy --workspace --all-targets --locked -- -D warnings
-        gate_tests --workspace
+        timed_step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+        timed_step tests gate_tests --workspace
         echo "$stamp" >"$okfile"
         return
     fi
@@ -389,7 +386,7 @@ gate() {
         # it here held the agent 15+ minutes per finish (SUSI_LOCAL_GATE=full
         # restores it). gate_pkgs stays empty: no acceptance is "covered".
         gate_pkgs=
-        cargo clippy --workspace --all-targets --locked -- -D warnings
+        timed_step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
         echo "$stamp" >"$okfile"
         return
     fi
@@ -409,20 +406,20 @@ gate() {
         while IFS= read -r target; do
             [ -n "$target" ] && test_args+=(--test "$target")
         done <<<"$root_test_targets"
-        cargo clippy --locked -p "$rootpkg" "${test_args[@]}" -- -D warnings
+        timed_step clippy cargo clippy --locked -p "$rootpkg" "${test_args[@]}" -- -D warnings
     else
-        cargo clippy --locked --all-targets $lsel -- -D warnings
+        timed_step clippy cargo clippy --locked --all-targets $lsel -- -D warnings
     fi
     if [ -n "$gate_root_tests" ]; then
         root_tests=$gate_root_tests
         other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
         if [ -n "$other_pkgs" ]; then
-            gate_tests $(printf ' -p %s' $other_pkgs)
+            timed_step tests gate_tests $(printf ' -p %s' $other_pkgs)
         fi
-        gate_tests -p "$rootpkg" $(printf ' --test %s' $root_tests)
+        timed_step tests gate_tests -p "$rootpkg" $(printf ' --test %s' $root_tests)
     else
         sel=$(printf ' -p %s' $pkgs)
-        gate_tests $sel
+        timed_step tests gate_tests $sel
     fi
     echo "$stamp" >"$okfile"
 }

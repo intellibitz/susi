@@ -177,6 +177,39 @@ check_no_owed_merge() {
 }
 
 agents_checked=" "
+live_claim_index=
+
+# Parse one byte-counted Git batch for the whole snapshot. Scanning each ref
+# through separate Git and jq processes made a push scale with the swarm size.
+load_live_claim_index() {
+    [ -z "$live_claim_index" ] || return 0
+    live_claim_index=$(git for-each-ref --format='%(objectname) %(refname:strip=2)' refs/claims/ |
+        git cat-file --batch='%(rest) %(objecttype) %(objectsize)' |
+        python3 -c '
+import json, sys
+now = int(sys.argv[1])
+index = {}
+stream = sys.stdin.buffer
+while line := stream.readline():
+    header = line.decode("utf-8", "replace").split()
+    if len(header) != 3:
+        continue
+    task, kind, size = header
+    body = stream.read(int(size))
+    stream.read(1)
+    if kind != "blob":
+        continue
+    try:
+        claim = json.loads(body)
+        agent = claim.get("agent")
+        lease = int(claim.get("lease_until_unix", 0))
+        if isinstance(agent, str) and agent and lease > now:
+            index.setdefault(agent, []).append(task)
+    except (ValueError, TypeError, AttributeError):
+        continue
+print(json.dumps(index))
+' "$now") || { err 'cannot read live claim snapshot'; return 1; }
+}
 # One task at a time, per agent. `susi tasks claim` refuses to create a second
 # live claim for one agent (an atomic `refs/claim-agents/<AGENT>` lease plus the
 # live-claim scan), but a hand-pushed `refs/claims/<id>` can, and then two
@@ -185,21 +218,12 @@ agents_checked=" "
 # is live. Only NON-EXPIRED claims count: an agent that let a lease lapse and
 # claimed something else is a legitimate state the takeover path exists for.
 check_one_live_claim() {
-    local agent=$1 short=$2 task=$3 name id body owner lease held n
+    local agent=$1 short=$2 task=$3 held n
     [ -n "$agent" ] || return 0
     case "$agents_checked" in *" $agent "*) return 0 ;; esac
     agents_checked="$agents_checked$agent "
-    held=""
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
-        id=${name#refs/claims/}
-        body=$(git cat-file -p "$name" 2>/dev/null || true)
-        owner=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
-        [ "$owner" = "$agent" ] || continue
-        lease=$(jq -r '.lease_until_unix // 0' <<<"$body" 2>/dev/null || echo 0)
-        [ "${lease:-0}" -gt "$now" ] || continue
-        held="$held $id"
-    done < <(git for-each-ref --format='%(refname)' refs/claims/ 2>/dev/null || true)
+    load_live_claim_index || return 1
+    held=$(jq -r --arg agent "$agent" '.[$agent] // [] | join(" ")' <<<"$live_claim_index")
     n=0
     for _ in $held; do n=$((n + 1)); done
     [ "$n" -gt 1 ] && err "commit $short works on $task, but $agent holds $n live claims:$held — one task at a time: finish each with susi workflow finish <id> (or give it up with susi tasks release <id> --abandon <reason>) before claiming another"
