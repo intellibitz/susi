@@ -122,9 +122,7 @@ jobs:
             && ! grep -Eq '^0+$' <<<"$BEFORE"; then
             if git fetch --quiet --no-tags origin "$BEFORE"; then
               if changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA"); then
-                if ! grep -Eq '(^|/)(src/.*\.rs|build\.rs|Cargo\.toml)$|^Cargo\.lock$|^rust-toolchain(\.toml)?$|^\.cargo/config(\.toml)?$|^\.agents/baseline/unsafe-default\.json$|^vendor/|^\.github/workflows/unsafe-exposure-ratchet\.sh$' <<<"$changed"; then
-                  run=false
-                fi
+                run=$(printf '%s\n' "$changed" | .github/workflows/unsafe-exposure-scope.sh)
               fi
             fi
           fi
