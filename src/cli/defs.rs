@@ -615,6 +615,9 @@ pub(crate) fn command_skips_composition(command: &Commands) -> bool {
             | Commands::Stop
             | Commands::Restart
             | Commands::Status
+            | Commands::Audit {
+                action: Some(AuditCommands::Verify { .. } | AuditCommands::Query { .. }),
+            }
     )
 }
 
@@ -768,5 +771,18 @@ mod tests {
             .command
             .unwrap();
         assert!(!super::command_uses_release_composition(&audit));
+    }
+
+    #[test]
+    fn audit_file_commands_skip_composition() {
+        for args in [
+            &["susi", "audit", "verify"][..],
+            &["susi", "audit", "query", "--json"],
+        ] {
+            let command = Cli::try_parse_from(args).unwrap().command.unwrap();
+            assert!(command_skips_composition(&command));
+            assert!(!super::command_requires_daemon(&command));
+        }
+        assert!(!skips(&["susi", "audit"]));
     }
 }
