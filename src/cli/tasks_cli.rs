@@ -205,7 +205,7 @@ fn agent_from_branch(root: &Path) -> Option<String> {
 /// `refs/claim-agents/INTELLIBITZ`, one `T-INTELLIBITZ-<n>` namespace, and
 /// (before release was bound to its branch) the ability to free each other's
 /// live claims. The process tree is where the tool actually is, so ask it.
-fn agent_from_tool_process() -> Option<String> {
+pub(crate) fn agent_from_tool_process() -> Option<String> {
     susi_gawd::zc_agent_identity::detect_agent_from_chain(&tool_process_chain(&process_chain()))
 }
 
