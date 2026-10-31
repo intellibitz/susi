@@ -249,6 +249,7 @@ impl World {
         for var in SCRUBBED {
             cmd.env_remove(var);
         }
+        cmd.env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"));
         cmd.env("SUSI_TEST_RELAY", "1");
         cmd
     }
