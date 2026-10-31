@@ -408,6 +408,7 @@ fn auto_config(
     evidence: &Evidence,
 ) -> crate::providers::AutoConfig {
     let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
+    let preferred = crate::providers::preferred_providers();
     registry.auto_config_ranked(
         &crate::secrets::is_set,
         catalogue,
@@ -415,6 +416,7 @@ fn auto_config(
         &ProviderGate {
             active: &active,
             use_first: &|provider| budgets.use_first(provider),
+            prefer: &|provider| preferred.iter().position(|id| id == provider),
             latency: &|model| evidence.latency.get(model).copied(),
             live: &|model| !evidence.failed.contains_key(model) && !budgets.absent(model),
         },
@@ -1129,6 +1131,13 @@ pub fn environment() -> Vec<Variable> {
         set: overlay.is_some(),
         value: overlay,
     });
+    let prefer = crate::secrets::setting(crate::providers::PREFER_ENV);
+    variables.push(Variable {
+        name: crate::providers::PREFER_ENV.to_string(),
+        purpose: "provider ids, comma-separated, whose models lead their tier and orchestrate (siliconflow,deepinfra)".to_string(),
+        set: prefer.is_some(),
+        value: prefer,
+    });
     variables
 }
 
@@ -1153,6 +1162,7 @@ pub fn available_report(
             "orchestrator": auto.orchestrator,
             "workers": auto.workers,
             "use_first": auto.use_first,
+            "preferred": auto.preferred,
             "latency_ms": &evidence.latency,
             "failed": auto.failed,
             "cooling": &evidence.cooling,
@@ -1375,6 +1385,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &|_| None,
+                prefer: &|_| None,
                 latency: &|_| None,
                 live: &|model| !evidence.failed.contains_key(model),
             },
@@ -1734,6 +1745,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &|_| None,
+                prefer: &|_| None,
                 latency: &|_| None,
                 live: &|_| true,
             },
@@ -1824,6 +1836,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &|_| None,
+                prefer: &|_| None,
                 latency: &|_| None,
                 live: &|model| !evidence.failed.contains_key(model),
             },
@@ -1888,6 +1901,7 @@ mod tests {
             "SUSI_HARNESS_RPM_DEEPSEEK",
             "SUSI_HARNESS_TPM_GEMINI",
             crate::providers::OVERLAY_ENV,
+            crate::providers::PREFER_ENV,
         ] {
             assert!(variables.iter().any(|v| v.name == name), "{name} missing");
         }

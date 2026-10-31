@@ -215,12 +215,17 @@ pub enum HarnessCommands {
         events: Option<PathBuf>,
     },
     /// Print the provider registry, models and aliases as JSON (no network)
+    #[command(group(clap::ArgGroup::new("live").args(["verify", "discover"])))]
     Models {
         /// Check each selected provider's live models endpoint for drift
         #[arg(long)]
         verify: bool,
-        /// Limit the check to one provider id (requires --verify)
-        #[arg(long, requires = "verify")]
+        /// List the chat models each keyed provider serves beyond the
+        /// registry, as an overlay with the prices it publishes
+        #[arg(long)]
+        discover: bool,
+        /// Limit the check to one provider id (requires --verify or --discover)
+        #[arg(long, requires = "live")]
         provider: Option<String>,
         /// Filter for models with valid API keys present and sort by budget cost
         #[arg(long)]
@@ -275,10 +280,13 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
         }
         HarnessCommands::Models {
             verify,
+            discover,
             provider,
             available,
         } => {
-            if verify {
+            if discover {
+                models_discover(provider.as_deref())
+            } else if verify {
                 models_verify(provider.as_deref())
             } else if available {
                 models_available(cwd)
@@ -984,6 +992,19 @@ fn models_verify(provider: Option<&str>) -> Result<()> {
     bail!("model verification failed for: {}", failed.join(", "));
 }
 
+/// The chat models the keyed providers serve beyond the registry, as an
+/// overlay document with the prices they publish; the notes go to stderr so
+/// the document on stdout can be saved as it is.
+fn models_discover(provider: Option<&str>) -> Result<()> {
+    let discovery = susi_harness::verify::discover(Registry::builtin(), provider, &fetch_http)
+        .context("discover the providers' models")?;
+    for note in &discovery.notes {
+        eprintln!("{note}");
+    }
+    println!("{}", serde_json::to_string_pretty(&discovery)?);
+    Ok(())
+}
+
 fn models_available(cwd: &Path) -> Result<()> {
     let catalogue = default_catalogue(cwd).ok();
     let ledger = fleet::default_ledger(cwd);
@@ -1169,10 +1190,12 @@ mod tests {
         match action {
             HarnessCommands::Models {
                 verify,
+                discover,
                 provider,
                 available,
             } => {
                 assert!(!verify);
+                assert!(!discover);
                 assert!(!available);
                 assert!(provider.is_none());
             }
@@ -1282,10 +1305,44 @@ mod tests {
     }
 
     #[test]
-    fn models_provider_requires_verify() {
+    fn models_provider_requires_verify_or_discover() {
         assert!(
             Cli::try_parse_from(["susi", "harness", "models", "--provider", "gemini"]).is_err()
         );
+        assert!(Cli::try_parse_from([
+            "susi",
+            "harness",
+            "models",
+            "--verify",
+            "--discover",
+            "--provider",
+            "gemini"
+        ])
+        .is_err());
+        let cli = Cli::try_parse_from([
+            "susi",
+            "harness",
+            "models",
+            "--discover",
+            "--provider",
+            "deepinfra",
+        ])
+        .unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        match action {
+            HarnessCommands::Models {
+                discover,
+                verify,
+                provider,
+                ..
+            } => {
+                assert!(discover && !verify);
+                assert_eq!(provider.as_deref(), Some("deepinfra"));
+            }
+            _ => panic!("expected harness models --discover"),
+        }
     }
     #[test]
     fn daily_cap_sums_only_todays_priced_entries() {

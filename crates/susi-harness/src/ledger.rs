@@ -106,6 +106,14 @@ pub struct LedgerEntry {
     /// spend occurred. The tokens still describe the cached answer.
     #[serde(default)]
     pub cached: bool,
+    /// True when `cost` is the figure the provider itself stated for the call
+    /// (DeepInfra's `usage.estimated_cost`), not the catalogue's price applied
+    /// to the tokens. The provider's bill is the fact the catalogue
+    /// approximates, so where a provider states it, the row carries it and a
+    /// stale price cannot misstate the spend. `price` still records the rate
+    /// the call was admitted at.
+    #[serde(default)]
+    pub reported: bool,
     /// Start, milliseconds since the Unix epoch.
     pub started_unix_ms: u64,
     /// End, milliseconds since the Unix epoch.
@@ -129,10 +137,24 @@ impl LedgerEntry {
             price: dispatch.price,
             cost,
             cached: false,
+            reported: false,
             started_unix_ms: dispatch.started_unix_ms,
             ended_unix_ms: dispatch.ended_unix_ms,
             outcome: dispatch.outcome,
         }
+    }
+
+    /// Settle the row at the cost the provider stated for the call, when it
+    /// stated one ([`crate::usage::provider_cost_from_json`]); `None` keeps
+    /// the catalogue's figure. A cached row is settled before it is marked
+    /// cached, so the cache's zero still wins.
+    #[must_use]
+    pub fn at_provider_cost(mut self, stated: Option<MicroUsd>) -> Self {
+        if let Some(cost) = stated {
+            self.cost = cost;
+            self.reported = true;
+        }
+        self
     }
 
     /// Mark the row as served by the proxy's cache: the provider was not

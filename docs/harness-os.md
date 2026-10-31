@@ -46,9 +46,14 @@ Four invariants hold the model together:
 - **A metering gateway.** Buffered and streamed completions are priced from the
   provider's own usage (cache hits included) before the answer is returned.
 - **Native routing.** [`router.rs`](../crates/susi-harness/src/router.rs) reaches
-  DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic and OpenRouter directly —
-  no Python proxy — and falls back to the configured upstream for any model it
-  does not know.
+  DeepSeek, SiliconFlow, DeepInfra, DashScope, Gemini, Moonshot, Anthropic,
+  OpenAI and OpenRouter directly — no Python proxy — and falls back to the
+  configured upstream for any model it does not know. `SUSI_HARNESS_PREFER`
+  names the providers that lead the ladder (SiliconFlow and DeepInfra for the
+  open models); `models --discover` reads what a provider serves beyond the
+  registry, with the prices it publishes, as an overlay to adopt; and a
+  provider that states a call's cost (DeepInfra) has that figure, not the
+  catalogue's, on the ledger row.
 - **A native worker.** [`worker.rs`](../crates/susi-harness/src/worker.rs) is an
   in-process tool loop (`view_file`, `write_to_file`, `replace_file_content`,
   `run_command`, `list_dir`), 25 turns, sanitized paths. It is the only
