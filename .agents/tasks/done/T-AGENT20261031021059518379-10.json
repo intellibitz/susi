@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT20261031021059518379-10",
+  "title": "Preserve established nextest arguments while keeping concise output",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "hermetic_scope"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793447885,
+  "closed": {
+    "at_unix": 1793447998,
+    "commit": "f836fa71d5c93168be86150aef2b64d0e0c98899",
+    "by": "AGENT20261031021059518379"
+  }
+}
