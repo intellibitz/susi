@@ -498,7 +498,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     ToolRegistry::register_meta_tool(
         registry,
         "browser_automate",
-        "DOM access and web automation via headless_chrome",
+        "DOM access and web automation via headless Chrome",
         MetaCategory::AssistantSpecialist,
         adapt(CoreTools::browser_automate),
     );

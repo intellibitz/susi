@@ -4,11 +4,10 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "Headless Chrome (CDP) page capture: screenshot + DOM"
+description = "Headless Chrome/Chromium page capture: screenshot + DOM"
 
 [dependencies]
 susi-error = { workspace = true }
-headless_chrome = "1.0.22"
 
 [lints]
 workspace = true

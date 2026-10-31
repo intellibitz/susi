@@ -48,22 +48,8 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
-    "0BSD",
-    "CC0-1.0",
     "CDLA-Permissive-2.0",
-    "BSL-1.0",
-    "MPL-2.0",
-    "Unlicense",
 ]
-
-[[licenses.exceptions]]
-# auto_generate_cdp is a BUILD-only dependency of headless_chrome (used to
-# generate Chrome DevTools Protocol bindings at compile time) - its code
-# never ships in the distributed susi binary, only its generated
-# output does. Scoped to this one crate rather than allow-listing GPL
-# project-wide; revisit if headless_chrome's dependency on it changes.
-name = "auto_generate_cdp"
-allow = ["GPL-3.0-or-later"]
 
 [bans]
 multiple-versions = "allow"
@@ -71,10 +57,7 @@ multiple-versions = "allow"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# Pinned candle git rev (workspace Cargo.toml) — crates.io candle lags the
-# kernels/API surface we need; allow only this upstream, not arbitrary git deps.
 allow-git = [
-    "https://github.com/huggingface/candle",
     # The reqwest and esaxx-rs patches, on this repository's nopr/vendor-patches
     # branch (vendor/README.md), pinned by revision in [patch.crates-io].
     "https://github.com/intellibitz/susi",

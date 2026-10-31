@@ -1959,3 +1959,83 @@ fn release_sync_downloads_the_published_binary_and_falls_back_to_a_build() {
         "a failed download falls back to the build"
     );
 }
+
+/// Susi is licensed under Apache-2.0 and admits only Apache-2.0, MIT, and
+/// BSD-family permissive licenses into its dependency graph. Strong copyleft
+/// (GPL-2.0, GPL-3.0, AGPL), weak copyleft (LGPL, MPL-2.0), and license
+/// exceptions (such as `auto_generate_cdp` under `GPL-3.0-or-later` or
+/// `option-ext` under `MPL-2.0`) are strictly excluded, and every workspace
+/// manifest explicitly declares `license = "Apache-2.0"`.
+#[test]
+fn workspace_enforces_apache_mit_bsd_license_policy() {
+    let root = workspace_root();
+
+    // 1. Every workspace crate manifest explicitly declares `license = "Apache-2.0"`.
+    let mut manifests = vec![
+        root.join("Cargo.toml"),
+        root.join("xtask/Cargo.toml"),
+        root.join("fuzz/Cargo.toml"),
+    ];
+    for entry in std::fs::read_dir(root.join("crates")).expect("crates/") {
+        let entry = entry.expect("entry");
+        let p = entry.path().join("Cargo.toml");
+        if p.is_file() {
+            manifests.push(p);
+        }
+    }
+    for path in manifests {
+        let text = std::fs::read_to_string(&path).expect("read Cargo.toml");
+        assert!(
+            text.lines()
+                .any(|line| line.trim() == "license = \"Apache-2.0\""),
+            "{} must explicitly declare `license = \"Apache-2.0\"`",
+            path.display()
+        );
+    }
+
+    // 2. deny.toml has no license exceptions and admits no copyleft or
+    //    non-Apache/MIT/BSD licenses.
+    let deny = std::fs::read_to_string(root.join("deny.toml")).expect("read deny.toml");
+    assert!(
+        !deny.contains("[[licenses.exceptions]]"),
+        "deny.toml must not grant [[licenses.exceptions]]"
+    );
+    for forbidden in [
+        "GPL",
+        "AGPL",
+        "LGPL",
+        "MPL-2.0",
+        "BSL-1.0",
+        "CC0-1.0",
+        "Unlicense",
+        "0BSD",
+        "auto_generate_cdp",
+    ] {
+        assert!(
+            !deny.contains(forbidden),
+            "deny.toml must not admit {forbidden}"
+        );
+    }
+    for required in [
+        "\"Apache-2.0\"",
+        "\"MIT\"",
+        "\"BSD-2-Clause\"",
+        "\"BSD-3-Clause\"",
+    ] {
+        assert!(
+            deny.contains(required),
+            "deny.toml must allow permissive license {required}"
+        );
+    }
+
+    // 3. Cargo.lock contains no reachable GPL/MPL dependencies (`auto_generate_cdp`,
+    //    `headless_chrome`, `hf-hub`, `dirs`).
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("read Cargo.lock");
+    for excluded_pkg in ["auto_generate_cdp", "headless_chrome", "hf-hub", "dirs"] {
+        let needle = format!("name = \"{excluded_pkg}\"\n");
+        assert!(
+            !lock.contains(&needle),
+            "Cargo.lock must not contain excluded package {excluded_pkg}"
+        );
+    }
+}
