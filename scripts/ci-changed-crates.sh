@@ -12,8 +12,8 @@
 # (normal, dev and build dependencies all count: a dev-dependency edge is a test
 # target that stops compiling) while a gate that runs tests takes the bare list.
 #
-# Prints "ALL" when a workspace-wide input changed — the lockfile, workspace
-# Cargo.toml, the root build.rs (it compiles .agents/*.json into
+# Prints "ALL" when a workspace-wide input changed — external lockfile
+# resolution, workspace Cargo.toml, the root build.rs (it compiles .agents/*.json into
 # susi-gawd-agents), toolchain/lint config, a vendored patch crate under
 # vendor/ — or when detection is impossible (missing/shallow base
 # ref, metadata failure). A path under crates/ matching no package is also ALL.
@@ -82,9 +82,57 @@ changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 # every workspace crate. Workspace members outside `crates/` (currently
 # `xtask/`) still map through Cargo metadata below, so they get their own
 # bounded gate instead of forcing a workspace-wide compile.
-if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|vendor/)' <<<"$changed"; then
+if grep -Eq '^(Cargo\.toml|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|vendor/)' <<<"$changed"; then
     echo ALL
     exit 0
+fi
+
+# A lockfile diff that only changes path packages (for example, a local crate
+# adds a workspace dependency) is already scoped by the changed Cargo.toml
+# below. Keep the broad gate for any registry/git package or lock format change:
+# those can alter the resolved build graph for every workspace member.
+if grep -qx 'Cargo.lock' <<<"$changed"; then
+    base_lock=$(git show "$BASE:Cargo.lock" 2>/dev/null) || {
+        echo ALL
+        exit 0
+    }
+    external_lock_packages() {
+        awk '
+            function flush() {
+                if (has_package && has_source) print package
+            }
+            /^version = / {
+                if (lock_version == "") lock_version = $0
+            }
+            /^\[\[package\]\]$/ {
+                flush()
+                package = $0
+                has_package = 1
+                has_source = 0
+                next
+            }
+            {
+                if ($0 ~ /^source = /) has_source = 1
+                if (has_package) package = package "\n" $0
+            }
+            END {
+                flush()
+                print lock_version
+            }
+        '
+    }
+    base_external=$(external_lock_packages <<<"$base_lock")
+    current_external=$(external_lock_packages <Cargo.lock)
+    if [ "$base_external" != "$current_external" ]; then
+        echo ALL
+        exit 0
+    fi
+    changed=$(grep -vx 'Cargo.lock' <<<"$changed" || true)
+    # A lockfile-only diff has no changed package manifest to scope it to.
+    [ -n "$changed" ] || {
+        echo ALL
+        exit 0
+    }
 fi
 
 meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {

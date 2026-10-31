@@ -2025,6 +2025,118 @@ fn xtask_package_changes_are_scoped_to_xtask() {
 }
 
 #[test]
+fn local_workspace_lockfile_scope_preserves_full_gate_for_external_changes() {
+    let dir = std::env::temp_dir().join(format!("susi-lockfile-scope-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let write = |rel: &str, body: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    };
+    let commit = |message: &str| {
+        git(&["add", "-A", "."]);
+        git(&["commit", "--quiet", "-m", message]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "--quiet", "-b", "main", "."]);
+    for script in ["ci-changed-crates.sh", "posix-compat.sh"] {
+        let path = dir.join("scripts").join(script);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, read(&format!("scripts/{script}"))).unwrap();
+        set_script_executable(&path);
+    }
+    write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/a\"]\nresolver = \"2\"\n",
+    );
+    write(
+        "crates/a/Cargo.toml",
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("crates/a/src/lib.rs", "pub fn f() {}\n");
+    write(
+        "Cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"a\"\nversion = \"0.1.0\"\n\n\
+         [[package]]\nname = \"serde\"\nversion = \"1.0.0\"\n\
+         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n\
+         checksum = \"1111111111111111111111111111111111111111111111111111111111111111\"\n",
+    );
+    let base = commit("base lockfile");
+    git(&["branch", "origin/main", &base]);
+
+    write(
+        "crates/a/Cargo.toml",
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [dependencies]\nserde = \"1.0.0\"\n",
+    );
+    write(
+        "Cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"a\"\nversion = \"0.1.0\"\n\
+         dependencies = [\"serde\"]\n\n[[package]]\nname = \"serde\"\n\
+         version = \"1.0.0\"\n\
+         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n\
+         checksum = \"1111111111111111111111111111111111111111111111111111111111111111\"\n",
+    );
+    commit("add a local package dependency");
+
+    let run = || {
+        let out = script_command(&dir.join("scripts/ci-changed-crates.sh"))
+            .arg("--dependents")
+            .current_dir(&dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "ci-changed-crates.sh failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    assert_eq!(
+        run(),
+        "a",
+        "a path-package lock row should be covered by its changed manifest"
+    );
+
+    write(
+        "Cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"a\"\nversion = \"0.1.0\"\n\
+         dependencies = [\"serde\"]\n\n[[package]]\nname = \"serde\"\n\
+         version = \"1.0.1\"\n\
+         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n\
+         checksum = \"2222222222222222222222222222222222222222222222222222222222222222\"\n",
+    );
+    commit("change an external package resolution");
+    assert_eq!(
+        run(),
+        "ALL",
+        "a registry package version or checksum change must retain the workspace-wide gate"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn roadmap_verdict_batch_searches_evidence_once() {
     let source = read("scripts/check-roadmap-verdict.py");
     let check_all = source

@@ -43,7 +43,7 @@ set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 shards=$(cat <<'SHARDS'
-foundation	-p susi-paths -p susi-error -p susi-config -p susi-abi -p susi-core -p susi-sandbox -p susi-sandbox-client -p susi-http-transport -p susi-native-client -p susi-leaf-services
+foundation	-p susi-paths -p susi-error -p susi-config -p susi-abi -p susi-core -p susi-sandbox -p susi-sandbox-client -p susi-http-transport -p susi-native-client -p susi-leaf-services -p susi-unsafe-ratchet
 daemon	-p susi-daemon -p susi-server -p susi-gmcp -p susi-tools
 gawd	-p susi-gawd -p susi-gawd-agents -p susi-gawd-swarm -p susi-gawd-a2a -p susi-agents
 gemi	-p susi-gemi -p susi-gemi-models -p susi-adapters-llm -p susi-harness
