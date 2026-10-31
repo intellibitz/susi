@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "SUSIRELEASE20261101",
-  "created_unix": 1793478119
+  "created_unix": 1793478119,
+  "closed": {
+    "at_unix": 1793478386,
+    "commit": "228a74d9f64639d24302bf199ea5f150967eab05",
+    "by": "SUSIRELEASE20261101"
+  }
 }
