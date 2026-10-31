@@ -1723,6 +1723,27 @@ fn done_on_main(ws: &Path, id: &str) -> bool {
     .is_ok()
 }
 
+/// Whether `id` has a verified merge attestation (`refs/merged/<id>`) whose
+/// merge commit and tested head are on `origin/main`.
+fn merged_on_main(ws: &Path, id: &str) -> bool {
+    read_record::<MergedTask>(ws, &format!("{MERGED_NAMESPACE}{id}"))
+        .ok()
+        .flatten()
+        .is_some_and(|record| merged_is_real(ws, &record))
+}
+
+/// Whether `claim` is a leftover reservation for work that has already landed
+/// on `origin/main` (via its done record, a settled close receipt after a
+/// re-adopted lease, or a verified merge attestation).
+fn claim_settled_on_main(ws: &Path, claim: &Claim, all_receipts: &[(String, CloseRecord)]) -> bool {
+    closed_on_main_at(ws, &claim.task).is_some_and(|at| claim.claimed_unix <= at)
+        || all_receipts
+            .iter()
+            .find(|(task, _)| task == &claim.task)
+            .is_some_and(|(_, receipt)| !receipt_owed(ws, receipt))
+        || merged_on_main(ws, &claim.task)
+}
+
 /// Publish `refs/closed/<id>` before the task record moves: from here on the
 /// task is accepted, and nothing may claim it — or let its agent claim anything
 /// else — until this head is on `origin/main`. Pushing first means a failed push
@@ -2602,11 +2623,16 @@ pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
 /// file per id under `.agents/tasks`, so a claim on that directory (or on one
 /// record) never conflicts with another task's own record — otherwise one
 /// worker's directory-wide record scope would serialize the whole swarm.
+/// Shared workspace manifests and ledgers (`Cargo.toml`, `Cargo.lock`,
+/// `.agents/evidence.json`, `.agents/roadmap.json`) are likewise exempt from
+/// cross-agent overlap checks: commit hooks still require each worker to
+/// declare them when staged, and `.gitattributes` union/roadmap merge drivers
+/// (plus the merge gate) reconcile concurrent additions on `origin/main`.
 fn scopes_conflict(left: &[String], right: &[String]) -> bool {
     left.iter().any(|a| {
         right.iter().any(|b| {
             (a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/")))
-                && !(is_task_record(a) && is_task_record(b))
+                && !(is_shared_surface(a) && is_shared_surface(b))
         })
     })
 }
@@ -2614,6 +2640,18 @@ fn scopes_conflict(left: &[String], right: &[String]) -> bool {
 /// True for a task-record path: the directory itself or one record under it.
 fn is_task_record(scope: &str) -> bool {
     scope == ".agents/tasks" || scope.starts_with(".agents/tasks/")
+}
+
+/// True for a shared workspace surface (`Cargo.toml`, `Cargo.lock`,
+/// `.agents/evidence.json`, `.agents/roadmap.json`, or a task record under
+/// `.agents/tasks`) that multiple concurrent tasks legitimately declare
+/// without serializing one another.
+fn is_shared_surface(scope: &str) -> bool {
+    is_task_record(scope)
+        || matches!(
+            scope,
+            "Cargo.toml" | "Cargo.lock" | ".agents/evidence.json" | ".agents/roadmap.json"
+        )
 }
 
 pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {
@@ -2844,7 +2882,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         // a clone's own view of the queue, so a clone behind main can mint an
         // id main already closed, and a live claim on the re-minted id is
         // real work, not a leftover.
-        if closed_on_main_at(ws, &other.task).is_some_and(|at| other.claimed_unix <= at) {
+        if claim_settled_on_main(ws, other, &all_receipts) {
             continue;
         }
         return Err(EaiError::config(format!(
@@ -2869,7 +2907,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         ensure_origin_fetched(ws)?;
     }
     for (task, receipt) in overlapping {
-        if done_on_main(ws, task) || !receipt_owed(ws, receipt) {
+        if done_on_main(ws, task) || !receipt_owed(ws, receipt) || merged_on_main(ws, task) {
             continue;
         }
         return Err(EaiError::config(format!(
@@ -2986,9 +3024,10 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         (claim_ref(id), Some(blob.clone())),
         (agent_ref, Some(blob.clone())),
     ];
-    // Unscoped claims reserve zero file paths (`scopes_conflict(&[], _)` is
+    // Unscoped claims and claims that declare only shared workspace surfaces
+    // reserve zero exclusive file paths (`scopes_conflict(scopes, _)` is
     // always false), so they never contend on the global scope-generation ref.
-    if !scopes.is_empty() {
+    if scopes.iter().any(|s| !is_shared_surface(s)) {
         leases.push((generation_ref.to_string(), generation_old));
         updates.push((generation_ref.to_string(), Some(blob.clone())));
     }
@@ -5984,5 +6023,105 @@ mod tests {
         for needle in ["from_failures", "author_from_failures("] {
             assert!(src.contains(needle), "tasks_cli.rs is missing `{needle}`");
         }
+    }
+
+    #[test]
+    fn shared_workspace_scopes_and_merged_claims_do_not_block_sibling_agents() {
+        let scoped =
+            |scopes: &[&str]| -> Vec<String> { scopes.iter().map(|s| (*s).to_string()).collect() };
+        let shared = scoped(&[
+            "Cargo.toml",
+            "Cargo.lock",
+            ".agents/evidence.json",
+            ".agents/roadmap.json",
+            ".agents/tasks",
+        ]);
+        assert!(
+            !scopes_conflict(&shared, &shared),
+            "shared workspace manifests and ledgers must not serialize concurrent agents"
+        );
+        assert!(
+            scopes_conflict(
+                &scoped(&["Cargo.toml", "crates/susi-gawd/src/admin/tasks.rs"]),
+                &scoped(&["Cargo.lock", "crates/susi-gawd/src/admin"]),
+            ),
+            "exclusive code paths still conflict when shared surfaces are also present"
+        );
+
+        let (r, a, b) = Repos::new("shared-and-merged");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let second = addt!(&b, "devin", "second", "", "s", &[], true_cmd()).unwrap();
+        let now = now_unix();
+        claim_scoped(
+            &a,
+            &first.id,
+            "claude",
+            ClaimOptions {
+                hours: 4,
+                now,
+                scopes: &scoped(&["Cargo.toml", "Cargo.lock", "crates/a/src/lib.rs"]),
+            },
+        )
+        .unwrap();
+        // Sibling agent claiming shared workspace manifests alongside a disjoint crate
+        // succeeds without waiting on the first agent's claim or merge.
+        claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 4,
+                now,
+                scopes: &scoped(&["Cargo.toml", "Cargo.lock", "crates/b/src/lib.rs"]),
+            },
+        )
+        .unwrap();
+        release(&b, &second.id, "devin", false).unwrap();
+
+        // Close and publish `first`, then simulate a re-adopted/renewed claim whose
+        // `claimed_unix` is newer than `closed.at_unix` (as well as a `refs/merged/<id>`
+        // attestation): sibling agent claiming `crates/a` must not be blocked.
+        close(&a, &first.id, "claude").unwrap();
+        publish(&a);
+        let main_head = git(&a, &["rev-parse", "origin/main"]).unwrap();
+        put_record(
+            &a,
+            &format!("refs/claims/{}", first.id),
+            &serde_json::json!({
+                "branch": "agent-claude",
+                "scopes": ["crates/a/src/lib.rs"],
+                "task": first.id,
+                "agent": "CLAUDE",
+                "claimed_unix": now_unix() + 600,
+                "lease_until_unix": now_unix() + 7_200,
+            }),
+            "claim raced",
+        )
+        .unwrap();
+        put_ref(
+            &a,
+            &format!("refs/merged/{}", first.id),
+            &serde_json::json!({
+                "task": first.id,
+                "head": main_head,
+                "merge": main_head,
+                "pr": 42,
+                "merged_unix": now_unix() + 300,
+            }),
+        );
+        claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &scoped(&["crates/a"]),
+            },
+        )
+        .unwrap_or_else(|e| {
+            panic!("a settled/merged task claim must not block sibling agents: {e}")
+        });
+        drop(r);
     }
 }
