@@ -1223,3 +1223,128 @@ fn the_board_summary_is_cached_between_syncs() {
         "a forced run must not serve the cache: {text}"
     );
 }
+
+/// A diff that deletes tests fails the gate before anything is built: an
+/// engine worker once made an acceptance pass by overwriting a 13,869-line
+/// requirements test file with one new test, and nothing between the worker
+/// and auto-merge counted. The gate compares the `#[test]` attributes of the
+/// changed files against the merge base, so moving a test keeps the total.
+#[test]
+fn a_diff_that_deletes_tests_fails_the_gate() {
+    let w = World::new("testsdrop");
+    seed_two_tests_on_main(&w);
+
+    // The worker keeps one test and drops the other.
+    std::fs::write(
+        w.work.join("tests/kept.rs"),
+        "#[test]
+fn one() {}
+",
+    )
+    .unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &[
+            "commit",
+            "-qm",
+            "drop a test
+
+Task: T-WORKER-1",
+        ],
+    );
+    let out = w.finish(false);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{err}");
+    assert!(err.contains("this diff deletes tests"), "{err}");
+    assert!(err.contains("tests/kept.rs: 2 test(s)"), "{err}");
+    assert!(
+        w.work.join(".agents/tasks/T-WORKER-1.json").exists(),
+        "the task stays open"
+    );
+    assert!(
+        !std::fs::read_to_string(w.root.join("gates"))
+            .unwrap_or_default()
+            .contains("clippy"),
+        "the refusal comes before any build"
+    );
+
+    // Moving the test to another changed file keeps the total: the gate runs.
+    std::fs::write(
+        w.work.join("src/lib.rs"),
+        "pub fn fixture() {}
+
+#[cfg(test)]
+mod t {
+    #[tokio::test]
+    async fn two() {}
+}
+",
+    )
+    .unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &[
+            "commit",
+            "-qm",
+            "move the test
+
+Task: T-WORKER-1",
+        ],
+    );
+    let moved = w.finish(false);
+    let err = String::from_utf8_lossy(&moved.stderr);
+    assert!(moved.status.success(), "{err}");
+    assert!(!err.contains("this diff deletes tests"), "{err}");
+}
+
+/// Deleting a test on purpose is an operator's explicit decision:
+/// `SUSI_GATE_ALLOW_TEST_REMOVAL=1` lets the diff through, in the open.
+#[test]
+fn an_allowed_test_removal_passes_the_gate() {
+    let w = World::new("testsallow");
+    seed_two_tests_on_main(&w);
+    std::fs::write(
+        w.work.join("tests/kept.rs"),
+        "#[test]
+fn one() {}
+",
+    )
+    .unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &[
+            "commit",
+            "-qm",
+            "drop a test on purpose
+
+Task: T-WORKER-1",
+        ],
+    );
+    let out = w.finish_env(false, &[("SUSI_GATE_ALLOW_TEST_REMOVAL", "1")]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{err}");
+    assert!(!err.contains("this diff deletes tests"), "{err}");
+}
+
+/// Two tests on main, merged into the worker's branch before it touches them.
+fn seed_two_tests_on_main(w: &World) {
+    std::fs::create_dir_all(w.primary.join("tests")).unwrap();
+    std::fs::write(
+        w.primary.join("tests/kept.rs"),
+        "#[test]
+fn one() {}
+
+#[tokio::test]
+async fn two() {}
+",
+    )
+    .unwrap();
+    git(&w.primary, &["add", "-A"]);
+    git(&w.primary, &["commit", "-qm", "seed tests"]);
+    git(&w.primary, &["push", "-q", "origin", "main"]);
+    git(&w.work, &["fetch", "-q", "origin"]);
+    git(&w.work, &["merge", "-q", "origin/main"]);
+}

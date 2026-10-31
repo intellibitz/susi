@@ -251,12 +251,54 @@ root_only_test_targets() {
     printf '%s\n' "${targets[@]}"
 }
 
+# Refuse a diff that deletes tests.
+#
+# An engine worker satisfied a task's acceptance by overwriting
+# tests/gmcp_requirements.rs: one new #[test] kept, 75 requirement tests and
+# 13,764 lines gone. The acceptance passed (its one test ran), the gate passed
+# (the file compiled and linted), and the branch was pushed for auto-merge; no
+# CI job counts tests, so the merge would have been green. The gate now counts
+# the test attributes (`#[test]`, `#[tokio::test]`) in every .rs file this
+# branch changed against the merge base with origin/main, and refuses the diff
+# when the total fell: a test moved between changed files keeps the total, a
+# deleted one does not. Deleting a test on purpose is a decision an operator
+# makes in the open: SUSI_GATE_ALLOW_TEST_REMOVAL=1 lets the diff through, and
+# the refusal names the files so the override is never a guess.
+gate_tests_kept() {
+    local mb file before after total_before=0 total_after=0 dropped=
+    [ -n "${SUSI_GATE_ALLOW_TEST_REMOVAL:-}" ] && return 0
+    mb=$(git merge-base origin/main HEAD 2>/dev/null) || return 0
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        before=$(git show "$mb:$file" 2>/dev/null | grep -cE '^[[:space:]]*#\[(tokio::)?test([]\(]|$)' || true)
+        if [ -f "$file" ]; then
+            after=$(grep -cE '^[[:space:]]*#\[(tokio::)?test([]\(]|$)' "$file" || true)
+        else
+            after=0
+        fi
+        before=${before:-0}
+        after=${after:-0}
+        total_before=$((total_before + before))
+        total_after=$((total_after + after))
+        [ "$after" -lt "$before" ] && dropped="$dropped
+   $file: $before test(s) at the merge base, $after now"
+    done < <(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
+        diff --no-renames --no-color --name-only "$mb" HEAD -- '*.rs' 2>/dev/null | sort -u)
+    [ "$total_after" -lt "$total_before" ] || return 0
+    echo "❌ gate: this diff deletes tests — $total_before test(s) in the changed files at the merge base, $total_after now:$dropped" >&2
+    echo "   A change that makes an acceptance pass by removing other tests is refused. Deleting a test on purpose: SUSI_GATE_ALLOW_TEST_REMOVAL=1 susi workflow finish <id>" >&2
+    return 1
+}
+
 # The gate's cargo builds into this worktree's own target, made so first
 # (seed_own_target: a link to the old shared target is replaced), so plain cargo
 # judges this branch's code: no other worktree builds there, and there is no
 # shared target to lock or guard.
 gate() {
     local okfile stamp pkgs lint sel lsel rootpkg root_tests other_pkgs
+    # Before the cache: a stamp written before this check existed must not
+    # wave a test-deleting diff through.
+    gate_tests_kept || return 1
     seed_own_target
     gate_root_tests=
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
