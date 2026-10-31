@@ -54,23 +54,15 @@ pub mod memory_replicate;
 pub mod memory_tombstone;
 pub mod pii_redaction;
 pub mod privacy_profiles;
-pub mod retrieval_eval;
 pub mod skill_artifacts;
 pub mod untrusted_content;
-pub mod vertical_workflow;
 pub mod wasm_grants;
 pub mod zc_consent_jit;
-pub mod zc_consent_renewal;
 pub mod zc_egress_allowlist;
-pub mod zc_log_retention;
 pub mod zc_privacy_default;
-pub mod zc_privacy_suggest;
-pub mod zc_redaction_default;
-pub mod zc_risk_patterns_update;
 pub use susi_adapters_llm::inference_wire;
 pub mod intent_bus;
 pub mod intent_plan;
-pub mod jit_credentials;
 pub mod mac_policy;
 pub mod manifold;
 pub mod mcp_client;
@@ -106,18 +98,6 @@ mod telemetry_tests;
 pub mod truth;
 pub mod verification;
 
-#[cfg(test)]
-#[path = "tests/eco_nist_rmf.rs"]
-mod eco_nist_rmf_tests;
-#[cfg(test)]
-#[path = "tests/eco_owasp_llm.rs"]
-mod eco_owasp_llm_tests;
-#[cfg(test)]
-#[path = "tests/eco_risk_answers.rs"]
-mod eco_risk_answers_tests;
-#[cfg(test)]
-#[path = "tests/jit_credentials.rs"]
-mod jit_credentials_tests;
 #[cfg(test)]
 #[path = "tests/otel_export.rs"]
 mod otel_export_tests;
@@ -198,12 +178,6 @@ mod vc_201_081_mastery_tests;
 #[path = "tests/vc_201_081.rs"]
 mod vc_201_081_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_082_mastery.rs"]
-mod vc_201_082_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_082.rs"]
-mod vc_201_082_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_083_mastery.rs"]
 mod vc_201_083_mastery_tests;
 #[cfg(test)]
@@ -227,6 +201,3 @@ mod vc_201_089_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_089.rs"]
 mod vc_201_089_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_090.rs"]
-mod vc_201_090_tests;

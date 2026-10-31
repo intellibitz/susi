@@ -147,8 +147,6 @@ pub mod audit_chain;
 pub mod audit_fidelity;
 pub mod daemon_state;
 pub mod manager;
-pub mod mission_sandbox_limits;
-pub mod zc_sandbox_image;
 
 pub use manager::SandboxManager;
 pub use susi_config::extensions;

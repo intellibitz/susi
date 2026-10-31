@@ -72,7 +72,6 @@ pub mod action_history;
 pub mod admin;
 pub mod audit_evidence;
 pub mod autonomous_builder;
-pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod brain_gap_audit;
 pub mod brain_gap_dedup;
@@ -102,12 +101,10 @@ pub mod experiment_memory;
 pub mod formal_invariants;
 pub mod gap_priority;
 pub mod genome_distiller;
-pub mod intent_invariants;
 pub mod intent_ladder;
 pub mod kernel_loader;
 pub mod lane_overlap_warning;
 pub mod model_rate_arbitration;
-pub mod ops_slo;
 pub mod orchestrator_tier;
 pub mod paired_regression;
 pub mod patch_cycle;
@@ -127,21 +124,13 @@ pub mod rsi_generations;
 pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
-pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
 pub mod telemetry;
 pub mod tenant_isolation;
-pub mod update_health;
 pub mod worker_identity;
-pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
-pub mod zc_gh_auth_auto;
-pub mod zc_task_scaffold;
 pub mod zc_tasks_next;
-pub mod zc_toolchain_auto;
-pub mod zc_updates_default;
-pub mod zc_worktree_gc;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]
@@ -155,9 +144,6 @@ mod vc_200_002_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_001_mastery.rs"]
 mod vc_201_001_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_002.rs"]
-mod vc_201_002_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_003_mastery.rs"]
 mod vc_201_003_mastery_tests;
@@ -182,9 +168,6 @@ mod vc_201_007_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_007.rs"]
 mod vc_201_007_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_008.rs"]
-mod vc_201_008_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_009_mastery.rs"]
 mod vc_201_009_mastery_tests;
@@ -251,9 +234,6 @@ mod vc_201_078_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_092.rs"]
-mod vc_201_092_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_093.rs"]
 mod vc_201_093_tests;

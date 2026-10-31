@@ -44,12 +44,8 @@ pub mod action_executor;
 pub mod placement_uses_task_class;
 pub mod plane_handler;
 
-pub mod batch_api;
 pub mod benchmark;
-pub mod brain_decay;
-pub mod brain_experiments;
 pub mod brain_explain;
-pub mod brain_exploration;
 pub mod brain_export;
 pub mod brain_per_workspace;
 pub mod capability_matrix;
@@ -57,14 +53,11 @@ pub mod coding_models_ext;
 pub mod confidence_escalation;
 pub mod consensus_mode;
 pub mod context_assembly;
-pub mod context_length_routing;
 pub mod credential_scout;
-pub mod embedding_routing;
 pub mod engine_benchmark;
 pub mod eval;
 pub mod frontier_ext;
 pub mod key_arbitration;
-pub mod latency_slo;
 pub mod learned_classifier;
 pub mod local_tool_calls;
 pub mod model_preload;
@@ -74,38 +67,21 @@ pub mod orchestration;
 pub mod primary_election;
 pub mod provider_contract;
 pub mod pulse;
-pub mod rate_limit_scheduler;
 pub mod region_eligibility;
 pub mod region_failover;
 pub mod retry_policy;
 pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
-pub mod speculative_routing;
 pub mod spend_tracker;
 pub mod sse_streaming;
-pub mod status_pages;
 pub mod structured_output;
 pub mod thermal_routing;
 pub mod tool_call_normalisation;
 pub mod tui_top;
 pub mod usage_accounting;
-pub mod verifier_escalation;
-pub mod vision_routing;
 pub mod worker;
-pub mod zc_budget_derived;
-pub mod zc_chat_templates;
-pub mod zc_cost_from_catalog;
-pub mod zc_eos_tokens;
-pub mod zc_generation_defaults;
-pub mod zc_gpu_asset;
-pub mod zc_gpu_build_auto;
-pub mod zc_idle_adaptive;
 pub mod zc_kv_auto;
-pub mod zc_local_first_default;
-pub mod zc_preferred_auto;
-pub mod zc_speculative_auto;
-pub mod zc_timeouts_measured;
 
 #[cfg(test)]
 #[path = "tests/availability_not_capability.rs"]
@@ -137,12 +113,6 @@ mod capability_matrix_by_class_tests;
 #[cfg(test)]
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
-pub mod eco_capability_routing;
-pub mod eco_compat_gate;
-pub mod eco_limits_lookup;
-pub mod eco_migration_planner;
-pub mod eco_protocol_negotiation;
-pub mod eco_qa_cited;
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
@@ -182,9 +152,6 @@ mod quota_window_accounting_tests;
 #[cfg(test)]
 #[path = "tests/ranking_by_marginal_cost.rs"]
 mod ranking_by_marginal_cost_tests;
-#[cfg(test)]
-#[path = "tests/rate_limit_scheduler.rs"]
-mod rate_limit_scheduler_tests;
 #[cfg(test)]
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;

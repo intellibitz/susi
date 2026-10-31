@@ -43,8 +43,5 @@ pub mod intent;
 mod lifecycle;
 pub mod model_cache;
 pub mod zc_first_model;
-pub mod zc_ladder_edges;
-pub mod zc_ladder_live;
-pub mod zc_limits_derived;
 
 pub use lifecycle::*;
