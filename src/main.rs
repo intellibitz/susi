@@ -351,6 +351,14 @@ fn run() -> std::process::ExitCode {
 
     let mut exit_code = std::process::ExitCode::SUCCESS;
 
+    // A release cut that must not happen is refused before the daemon starts.
+    if let Some(cli::defs::Commands::Admin { subcommand }) = &command {
+        if let Some(why) = cli::admin_cli::release_preflight(subcommand, &cwd) {
+            eprintln!("Release refused: {why}");
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+
     let needs_daemon = match &command {
         Some(cmd) => command_requires_daemon(cmd),
         None => true, // bare intent, stdin pipe, or interactive shell
