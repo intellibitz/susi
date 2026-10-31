@@ -107,7 +107,7 @@ if [ "$root_test_targets" = 1 ]; then
                     ;;
                 esac
                 ;;
-            .agents/tasks/*|scripts/*|.github/*|docs/*|*.md) ;;
+            .agents/tasks/*|scripts/*|.github/*|.config/*|docs/*|*.md) ;;
             src/*|benches/*|examples/*|config/*|deploy/*) target_uncertain=1; break ;;
             *)
                 # The gate can focus root tests alongside edits in other
@@ -132,7 +132,7 @@ fi
 test_only=1
 while IFS= read -r f; do
     case "$f" in
-        crates/*/tests/*|xtask/tests/*|tests/*.rs|.agents/tasks/*|scripts/*|.github/*|.githooks/*|docs/*|*.md) ;;
+        crates/*/tests/*|xtask/tests/*|tests/*.rs|.agents/tasks/*|scripts/*|.github/*|.config/*|.githooks/*|docs/*|*.md) ;;
         *) test_only=0; break ;;
     esac
 done <<<"$changed"

@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179346916637424-3",
+  "title": "Stop tests from poisoning host sccache and speed up git-heavy test fixtures",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "a_spent_budget_defers_the_rest_of_the_sweep"
+    ]
+  },
+  "created_by": "AGENT179346916637424",
+  "created_unix": 1793475752
+}

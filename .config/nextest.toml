@@ -15,5 +15,5 @@ test-threads = 8
 # (measured on main's root-cli shards). Two slots each: they get the CPU their
 # deadlines assume, and the in-process tests fill the rest of the threads.
 [[profile.default.overrides]]
-filter = 'binary(gmcp_requirements) | binary(audit_query_surface) | binary(audit_chain_verifies) | binary(parallel_workflow) | binary(workflow_compliance) | binary(worktree_target_dir) | binary(cloud_session)'
+filter = 'binary(gmcp_requirements) | binary(audit_query_surface) | binary(audit_chain_verifies) | binary(parallel_workflow) | binary(workflow_compliance) | binary(worktree_target_dir) | binary(cloud_session) | (package(susi-gawd) & test(/^admin::tasks::tests::/))'
 threads-required = 2

@@ -430,6 +430,14 @@ impl SusiAdmin {
                 .or_else(|| env::var_os("SUSI_SCCACHE_DIR"))
                 .map(std::path::PathBuf::from);
             let ort_cache = gate_home.join("AppData").join("Local").join("ort-cache");
+            let setup_sccache = workspace.join("scripts").join("setup-sccache.sh");
+            if setup_sccache.is_file() {
+                let _ = super::tasks::posix_shell_command("bash")
+                    .arg(&setup_sccache)
+                    .arg("--ensure-server")
+                    .current_dir(workspace)
+                    .status();
+            }
             for args in workspace_test_commands() {
                 eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
                 let mut test_cmd = Command::new("cargo");
@@ -440,6 +448,7 @@ impl SusiAdmin {
                     .env("CARGO_HOME", &cargo_home)
                     .env("RUSTUP_HOME", &rustup_home)
                     .env("ORT_CACHE_DIR", &ort_cache)
+                    .env("SCCACHE_IGNORE_SERVER_IO_ERROR", "1")
                     .env("TMP", gate_home.join("AppData").join("Local").join("temp"))
                     .env("TEMP", gate_home.join("AppData").join("Local").join("temp"));
                 if let Some(ref dir) = sccache_dir {

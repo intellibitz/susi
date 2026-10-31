@@ -3488,14 +3488,16 @@ fn setup_sccache_writes_one_removable_block_and_never_doubles_a_table() {
     assert!(text.contains("rustc-wrapper = \"sccache\""), "{text}");
 
     // Without sccache on PATH nothing is written, and the way to install it is named.
+    // Strip any real host sccache from PATH too so this test never stops or
+    // restarts the machine's live sccache daemon against `root/cache`.
     let _ = std::fs::remove_file(&config);
-    let bare =
-        std::env::join_paths(std::env::split_paths(&path).filter(|p| p != &root.join("bin")))
-            .unwrap();
+    let bare = std::env::join_paths(std::env::split_paths(&path).filter(|p| {
+        p != &root.join("bin") && !p.join("sccache").is_file() && !p.join("sccache.exe").is_file()
+    }))
+    .unwrap();
     let (code, _, err) = run_setup(&[], &[("PATH", bare.to_str().unwrap())]);
-    if code != 0 {
-        assert!(err.contains("--install"), "{err}");
-        assert!(!config.exists());
-    } // else: a real sccache is on this machine's PATH, and enabling it in a scratch home is harmless.
+    assert_ne!(code, 0, "without sccache on PATH, setup-sccache must fail");
+    assert!(err.contains("--install"), "{err}");
+    assert!(!config.exists());
     let _ = std::fs::remove_dir_all(&root);
 }
