@@ -315,3 +315,159 @@ fn simultaneous_workers_get_distinct_worktrees_and_local_identities() {
         git(&b, &["config", "--worktree", "--get", "susi.agent"])
     );
 }
+
+/// `susi workflow start` as the binary, with the stub out of the way: the
+/// same worktree, the same identity, the same parked primary, the same
+/// refusals with the script's exit codes, and `cd <path>` last on stdout.
+#[test]
+fn the_binary_starts_a_worktree_as_the_script_did() {
+    let w = World::new("binary");
+    let susi = env!("CARGO_BIN_EXE_susi");
+    let envs = [
+        ("SUSI_AGENT", "Codex Agent"),
+        ("SUSI_PRIMARY_WATCH_DISABLE", "1"),
+    ];
+    let (code, out, err) = run(&w.primary, susi, &["workflow", "start"], &envs);
+    assert_eq!(code, 0, "{err}");
+    let dest = cd_target(&out);
+    assert!(dest.is_dir(), "{dest:?}");
+    let branch = git(&dest, &["symbolic-ref", "--short", "HEAD"]);
+    assert!(branch.starts_with("codex-agent-"), "{branch}");
+    // The script's date form, with the pid last: <slug>-<yyyymmdd>-<hhmmss>-<pid>.
+    let tail = branch.strip_prefix("codex-agent-").unwrap();
+    let parts: Vec<&str> = tail.split('-').collect();
+    assert_eq!(parts.len(), 3, "{branch}");
+    assert!(
+        parts[0].len() == 8 && parts[0].bytes().all(|b| b.is_ascii_digit()),
+        "{branch}"
+    );
+    assert!(
+        parts[1].len() == 6 && parts[1].bytes().all(|b| b.is_ascii_digit()),
+        "{branch}"
+    );
+    assert!(parts[2].parse::<u64>().is_ok(), "{branch}");
+    assert_eq!(
+        git(&dest, &["config", "--worktree", "--get", "susi.agent"]),
+        "CODEXAGENT".to_string() + &parts.join("").to_ascii_uppercase()
+    );
+    assert_eq!(
+        git(&dest, &["config", "--get", "core.hooksPath"]),
+        ".githooks"
+    );
+    assert!(err.contains("worktree:"), "{err}");
+    // The primary checkout was parked.
+    assert_eq!(
+        git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
+        "main"
+    );
+    // A base other than origin/main.
+    let (code, out, err) = run(
+        &w.primary,
+        susi,
+        &["workflow", "start", "from-first", "origin/main~1"],
+        &envs,
+    );
+    assert_eq!(code, 0, "{err}");
+    let dest = cd_target(&out);
+    assert_eq!(
+        git(&dest, &["rev-parse", "HEAD"]),
+        git(&w.primary, &["rev-parse", "origin/main~1"])
+    );
+    // The script's exit codes: 2 for a name that is no branch name.
+    let (code, _, err) = run(&w.primary, susi, &["workflow", "start", "HEAD"], &envs);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("refusing branch name"), "{err}");
+}
+
+/// Two starts at once never share a directory, a token or a branch: the
+/// start lock serialises them, and each gets its own name.
+#[test]
+fn simultaneous_binary_starts_are_serialised_and_distinct() {
+    let w = World::new("binary-parallel");
+    let susi = env!("CARGO_BIN_EXE_susi");
+    let envs = [
+        ("SUSI_AGENT", "shared"),
+        ("SUSI_PRIMARY_WATCH_DISABLE", "1"),
+    ];
+    let (left, right) = std::thread::scope(|scope| {
+        let left = scope.spawn(|| run(&w.primary, susi, &["workflow", "start"], &envs));
+        let right = scope.spawn(|| run(&w.primary, susi, &["workflow", "start"], &envs));
+        (left.join().unwrap(), right.join().unwrap())
+    });
+    assert_eq!(left.0, 0, "{}", left.2);
+    assert_eq!(right.0, 0, "{}", right.2);
+    let (a, b) = (cd_target(&left.1), cd_target(&right.1));
+    assert_ne!(a, b, "two workers must never share a directory");
+    assert_ne!(
+        git(&a, &["config", "--worktree", "--get", "susi.agent"]),
+        git(&b, &["config", "--worktree", "--get", "susi.agent"])
+    );
+    let common = git(
+        &w.primary,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    );
+    assert!(
+        !Path::new(&common)
+            .join("susi-worktree-start.lockdir")
+            .exists(),
+        "the start lock is let go of after"
+    );
+}
+
+/// On Windows an installed `susi.exe` makes a worktree with no Git userland
+/// on PATH: only Git's `cmd` (git itself), System32 and the Windows
+/// directory. The bash version needed `flock`, `awk`, `sed`, `tr` and
+/// `cygpath` from Git's `usr/bin`. Returns at once where Git for Windows is
+/// not installed.
+#[test]
+fn the_start_needs_no_git_userland_on_windows() {
+    let Ok(out) = Command::new("git").arg("--exec-path").output() else {
+        return;
+    };
+    let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let Some(git_root) = exec_path.ancestors().nth(3).map(Path::to_path_buf) else {
+        return;
+    };
+    if !git_root.join("cmd").join("git.exe").is_file() {
+        return; // not Git for Windows' layout
+    }
+    let windows = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let path = std::env::join_paths([
+        git_root.join("cmd"),
+        windows.join("System32"),
+        windows.clone(),
+    ])
+    .unwrap();
+    assert!(
+        !path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .contains("usr\\bin"),
+        "the narrowed PATH must not carry Git's userland: {path:?}"
+    );
+    let w = World::new("nouserland");
+    let (code, out, err) = run(
+        &w.primary,
+        env!("CARGO_BIN_EXE_susi"),
+        &["workflow", "start", "bare-path"],
+        &[
+            ("PATH", path.to_str().unwrap()),
+            ("SUSI_AGENT", "claude"),
+            ("SUSI_PRIMARY_WATCH_DISABLE", "1"),
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let dest = cd_target(&out);
+    assert!(dest.is_dir(), "{dest:?}");
+    assert_eq!(
+        git(&dest, &["symbolic-ref", "--short", "HEAD"]),
+        "bare-path"
+    );
+    assert_eq!(
+        git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
+        "main",
+        "the primary was parked without a shell"
+    );
+}

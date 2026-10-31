@@ -927,13 +927,47 @@ fn seed_target(dest: &Path) {
     super::seed::seed_worktree(Some(dest), true);
 }
 
-/// Native implementation of worktree creation:
-/// creates a linked worktree and branch off origin/main, configures unique
-/// worker identity, seeds its own cargo target, and installs infrastructure.
+/// The lock serialising worktree starts within one clone (shared refs and
+/// config move), in the common git dir.
+const START_LOCK: &str = "susi-worktree-start.lockdir";
+
+/// The script's agent slug: lowercased, every character outside `[a-z0-9]`
+/// made a dash (`tr -c 'a-z0-9\n' '-'`), the dashes at the ends dropped.
+/// `Codex Agent` names a `codex-agent-…` worktree.
+fn agent_slug(agent: &str) -> String {
+    agent
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+/// The script's default worktree name: `<agent>-<yyyymmdd>-<hhmmss>-<pid>`.
+fn default_worktree_name(agent: &str) -> String {
+    // "YYYY-MM-DD HH:MM:SS" -> "YYYYMMDD-HHMMSS"
+    let compact = super::seed::timestamp()
+        .replace(':', "")
+        .replace(' ', "-")
+        .replacen('-', "", 2);
+    format!("{agent}-{compact}-{}", std::process::id())
+}
+
+/// Native implementation of worktree creation, what `scripts/susi-worktree.sh`
+/// did (the script is its stub now): under the clone's start lock, create a
+/// linked worktree and branch off `base` (origin/main), configure a unique
+/// worker identity, install the hooks and the ledger merge driver, enable the
+/// machine's compiler cache where sccache is installed, park the primary
+/// checkout, start the primary watcher, and seed the worktree's own cargo
+/// target in the background. Every step after the worktree exists is best
+/// effort, as it was in the script: the worktree is handed back whatever the
+/// park or the watcher said.
 pub fn start_worktree(
     root: &Path,
     name: Option<&str>,
     agent_override: Option<&str>,
+    base: Option<&str>,
 ) -> Result<WorktreeResult, String> {
     let common = git(
         root,
@@ -972,30 +1006,48 @@ pub fn start_worktree(
         });
     }
 
+    // Startup changes shared refs and config; serialize it within this clone.
+    // A holder is judged by its pid; a start that died keeps nobody waiting.
+    let lock = common.join(START_LOCK);
+    let held = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        loop {
+            match super::seed::take_lock(&lock, 900) {
+                super::seed::Lock::Taken => break super::seed::HeldLock(lock.clone()),
+                super::seed::Lock::Impossible => {
+                    return Err(format!("cannot make the start lock {}", lock.display()));
+                }
+                super::seed::Lock::Held => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "another worktree start has held {} for five minutes; giving up",
+                            lock.display()
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        }
+    };
+
     let agent = agent_override
         .map(str::to_string)
         .or_else(|| std::env::var("SUSI_AGENT").ok())
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "agent".to_string());
-    let mut agent_clean: String = agent
-        .to_ascii_lowercase()
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-        .collect();
+    let mut agent_clean = agent_slug(&agent);
     if agent_clean.is_empty() {
         agent_clean = "agent".to_string();
     }
 
     let name = match name {
         Some(n) if !n.trim().is_empty() => n.trim().to_string(),
-        _ => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            format!("{agent_clean}-{now}-{}", std::process::id())
-        }
+        _ => default_worktree_name(&agent_clean),
     };
+    let base = base
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .unwrap_or("origin/main");
 
     if name == "main" || name == "HEAD" || name.is_empty() {
         return Err(format!("refusing branch name '{name}'"));
@@ -1045,7 +1097,7 @@ pub fn start_worktree(
                 "-b",
                 &name,
                 &dest.to_string_lossy(),
-                "origin/main",
+                base,
             ])
             .current_dir(root)
             .output()
@@ -1065,12 +1117,89 @@ pub fn start_worktree(
     let email = format!("{}@localhost", worker.to_ascii_lowercase());
     let _ = git(&dest, &["config", "--worktree", "user.email", &email]);
 
+    // What scripts/setup-dev.sh does, once per clone (the config is shared by
+    // every worktree of it): the repo's git hooks and the ledger and roadmap
+    // merge drivers, so parallel agents converge cleanly. Set whether or not
+    // this checkout carries a .githooks directory yet, as the script did.
+    for (key, value) in [
+        ("core.hooksPath", ".githooks"),
+        (
+            "merge.ledger.name",
+            "union of appended .agents/evidence.json entries",
+        ),
+        (
+            "merge.ledger.driver",
+            "python3 scripts/merge-ledger.py %O %A %B",
+        ),
+        (
+            "merge.roadmap.name",
+            "per-vector merge of .agents/roadmap.json",
+        ),
+        (
+            "merge.roadmap.driver",
+            "python3 scripts/merge-roadmap.py %O %A %B",
+        ),
+    ] {
+        let _ = git(&dest, &["config", key, value]);
+    }
+    eprintln!("hooks: .githooks; merge drivers: ledger, roadmap");
     ensure_infrastructure(&dest);
 
-    // Last, as scripts/susi-worktree.sh does it: the copy takes about a
-    // minute, and until the identity above is written the worktree has no
-    // owner, so a concurrent `workflow start` with the same name would take
-    // the reuse path and claim this directory too.
+    // The machine's compiler cache: what the seeded snapshot cannot hold
+    // compiles once on this machine, not once per worktree. Only where
+    // sccache is installed; nothing is installed here, and SUSI_NO_SCCACHE=1
+    // leaves the user's cargo config alone. The setup is a bash script still
+    // (not one this binary runs for the loop), so it goes through Git's shell.
+    if std::env::var("SUSI_NO_SCCACHE").ok().as_deref() != Some("1")
+        && dest.join("scripts").join("setup-sccache.sh").is_file()
+        && on_path("sccache")
+    {
+        let mut setup = tasks::posix_shell_command("bash");
+        let _ = setup
+            .arg(dest.join("scripts").join("setup-sccache.sh"))
+            .current_dir(&dest)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+    }
+
+    // Keep the primary checkout parked at origin/main so it never drifts onto
+    // a stale branch that invites work (non-fatal: it refuses if it has real
+    // work, and says so).
+    let parked = super::park::park_primary(root, super::park::Mode::Park);
+    if !parked.out.is_empty() {
+        eprintln!("{}", parked.out);
+    }
+    if !parked.err.is_empty() {
+        eprintln!("{}", parked.err);
+    }
+    if parked.code != 0 {
+        eprintln!("note: primary checkout not parked (see above); it is still not for work");
+    }
+
+    // A remote merge cannot invoke local hooks: keep a local singleton
+    // watcher (scripts/parallel-workflow.sh start-watch, bash until that
+    // script is ported). SUSI_PRIMARY_WATCH_DISABLE=1 leaves it to the host.
+    let watcher = dest.join("scripts").join("parallel-workflow.sh");
+    if watcher.is_file() && std::env::var_os("SUSI_PRIMARY_WATCH_DISABLE").is_none() {
+        let mut start_watch = tasks::posix_shell_command("bash");
+        let _ = start_watch
+            .arg(&watcher)
+            .arg("start-watch")
+            .current_dir(&dest)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+    }
+
+    // Last, as the script did it: the copy takes about a minute, and until
+    // the identity above is written the worktree has no owner, so a
+    // concurrent `workflow start` with the same name would take the reuse
+    // path and claim this directory too. The start lock is let go first: the
+    // copy runs in the background and holds nothing of this start's.
+    drop(held);
     seed_target(&dest);
 
     Ok(WorktreeResult {
@@ -1078,6 +1207,14 @@ pub fn start_worktree(
         branch: name,
         agent: worker,
         reused,
+    })
+}
+
+/// Whether `program` is on this process's PATH.
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path)
+            .any(|dir| dir.join(program).is_file() || dir.join(format!("{program}.exe")).is_file())
     })
 }
 
@@ -1387,7 +1524,7 @@ mod tests {
         // The shared target v0.21.23 linked every new worktree to.
         std::fs::create_dir_all(primary.join("target").join("debug")).unwrap();
         std::fs::write(primary.join("target").join("sentinel"), "the primary's").unwrap();
-        let made = start_worktree(&primary, Some("worker"), Some("tester")).unwrap();
+        let made = start_worktree(&primary, Some("worker"), Some("tester"), None).unwrap();
         let target = made.dest.join("target");
         let meta = target
             .symlink_metadata()
@@ -1856,8 +1993,8 @@ mod tests {
     fn prune_worktrees_keeps_active_claimed_worktrees_and_reclaims_finished_ones() {
         let dir = tempfile::tempdir().unwrap();
         let primary = primary_with_seeder(dir.path());
-        let active = start_worktree(&primary, Some("active"), Some("agent1")).unwrap();
-        let finished = start_worktree(&primary, Some("done"), Some("agent2")).unwrap();
+        let active = start_worktree(&primary, Some("active"), Some("agent1"), None).unwrap();
+        let finished = start_worktree(&primary, Some("done"), Some("agent2"), None).unwrap();
 
         let task = tasks::add(
             &active.dest,

@@ -125,7 +125,7 @@ fn now_secs() -> u64 {
 }
 
 /// `YYYY-MM-DD HH:MM:SS` (UTC) for the refresh log.
-fn timestamp() -> String {
+pub(crate) fn timestamp() -> String {
     let secs = now_secs();
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;

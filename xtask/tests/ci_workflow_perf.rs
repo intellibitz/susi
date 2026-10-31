@@ -1107,9 +1107,10 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     assert!(gate.contains("cargo clippy --locked --all-targets $lsel -- -D warnings"));
     let hook = read(".githooks/pre-push");
     assert!(hook.contains("cargo clippy --workspace --all-targets --locked -- -D warnings"));
-    // Worktrees are seeded, by the scripts and by `workflow start` alike.
+    // Worktrees are seeded, by the scripts and by `workflow start` alike;
+    // scripts/susi-worktree.sh is the stub for `workflow start`, which seeds
+    // in process.
     for path in [
-        "scripts/susi-worktree.sh",
         "scripts/workflow-session-start.sh",
         "crates/susi-gawd/src/admin/workflow.rs",
         "crates/susi-harness/src/adapter.rs",
@@ -1119,6 +1120,10 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
             "{path} must seed the worktree's own target"
         );
     }
+    assert!(
+        read("scripts/susi-worktree.sh").contains("exec \"$bin\" workflow start \"$@\""),
+        "scripts/susi-worktree.sh is the stub for `susi workflow start`"
+    );
     assert!(
         !read("crates/susi-gawd/src/admin/workflow.rs").contains("symlink_dir"),
         "`workflow start` must not link the primary's target"
@@ -1230,8 +1235,10 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
             "\"${BASH:-bash}\" \"$top/scripts/seed-target.sh\"",
         ),
         (
+            // The stub execs `susi workflow start`, which seeds in the
+            // background itself (crates/susi-gawd/src/admin/workflow.rs).
             "scripts/susi-worktree.sh",
-            "\"${BASH:-bash}\" \"$seeder\" --background \"$dest\"",
+            "exec \"$bin\" workflow start \"$@\"",
         ),
         (
             "scripts/workflow-session-start.sh",
