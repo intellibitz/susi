@@ -34,8 +34,6 @@ pub use susi_config;
 
 pub use susi_abi;
 
-pub mod abi_bridge;
-
 pub mod a2a_wire;
 pub mod adapter_upgrade;
 pub mod agent_tx;
