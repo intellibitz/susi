@@ -180,18 +180,5 @@
       "import_name": "haystack",
       "config_env": "SUSI_HAYSTACK_CONFIG"
     }
-  },
-  {
-    "id": "n8n",
-    "name": "n8n",
-    "peer_name": "N8nEngine",
-    "rank": 15,
-    "documentation": "https://docs.n8n.io/",
-    "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "urllib",
-      "config_env": "SUSI_N8N_CONFIG"
-    }
   }
 ]

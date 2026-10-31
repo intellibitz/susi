@@ -284,7 +284,6 @@ pub(crate) fn dispatch(
         Some(Commands::Temporal { action }) => (&susi_agents::external::TEMPORAL_PROFILE, action),
         Some(Commands::E2b { action }) => (&susi_agents::external::E2B_PROFILE, action),
         Some(Commands::Haystack { action }) => (&susi_agents::external::HAYSTACK_PROFILE, action),
-        Some(Commands::N8n { action }) => (&susi_agents::external::N8N_PROFILE, action),
         other => return Err(other),
     };
     Ok(run_plane_cwd(PlanePrep::None, |cwd| {

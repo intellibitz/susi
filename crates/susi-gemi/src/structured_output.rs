@@ -34,8 +34,8 @@ pub enum SchemaMode {
 pub fn mode_for_vendor(vendor: &str) -> SchemaMode {
     match vendor {
         "openai" | "azure-openai" | "openrouter" | "deepseek" | "groq" | "together" | "mistral"
-        | "perplexity" | "cerebras" | "sambanova" | "nim" | "hyperbolic" | "ollama"
-        | "lm-studio" | "vllm" | "sglang" => SchemaMode::OpenAiJsonSchema,
+        | "perplexity" | "cerebras" | "sambanova" | "nim" | "hyperbolic" | "ollama" | "vllm"
+        | "sglang" => SchemaMode::OpenAiJsonSchema,
         "gemini" | "vertex" => SchemaMode::GeminiResponseSchema,
         "anthropic" | "bedrock" => SchemaMode::AnthropicTool,
         _ => SchemaMode::Repair,

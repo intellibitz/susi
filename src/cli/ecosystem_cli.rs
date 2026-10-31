@@ -15,7 +15,7 @@ pub enum EcosystemCommands {
     Scan,
     /// Show what the last startup scan found
     Status,
-    /// Start an installed engine that needs no further input (e.g. ollama, lm-studio)
+    /// Start an installed engine that needs no further input (e.g. ollama, local-ai)
     Start {
         /// Engine id from `susi ecosystem scan`
         id: String,

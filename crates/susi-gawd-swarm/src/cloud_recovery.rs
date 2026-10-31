@@ -770,10 +770,7 @@ async fn recover_with_providers(
     eprintln!("[FAILOVER] Trying external agent fallbacks");
     let fallback_agents = [
         "antigravity",
-        "cursor",
         "codex",
-        "claude",
-        "devin",
         "deepseek_harness",
         "aider",
         "openhands",
@@ -786,7 +783,7 @@ async fn recover_with_providers(
             break;
         }
         // Try IDE delegation protocol for IDE agents
-        if ["antigravity", "cursor", "codex", "claude", "devin"].contains(&agent) {
+        if ["antigravity", "codex"].contains(&agent) {
             let delegations_dir = susi_paths::SusiDirs::data_dir().join("delegations");
             let _ = std::fs::create_dir_all(&delegations_dir);
             let ts = std::time::SystemTime::now()

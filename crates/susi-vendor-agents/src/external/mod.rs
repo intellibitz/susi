@@ -16,7 +16,6 @@ mod git_identity;
 mod haystack;
 mod langgraph;
 mod llamaindex;
-mod n8n;
 mod openai_agents;
 mod openhands;
 mod openhands_server;
@@ -54,7 +53,6 @@ pub use gemini_cli::{
 pub use haystack::PROFILE as HAYSTACK_PROFILE;
 pub use langgraph::PROFILE as LANGGRAPH_PROFILE;
 pub use llamaindex::PROFILE as LLAMAINDEX_PROFILE;
-pub use n8n::PROFILE as N8N_PROFILE;
 pub use openai_agents::PROFILE as OPENAI_AGENTS_PROFILE;
 pub use openhands::{
     doctor as openhands_doctor, setup as openhands_setup, status as openhands_status,
@@ -86,7 +84,7 @@ pub enum RunStatus {
     Succeeded,
     Failed,
     Cancelled,
-    /// Provider stopped without certifying success (e.g. Manus "stopped").
+    /// Provider stopped without certifying success.
     Stopped,
     /// Worker or transport lost; do not resubmit a potentially billable cloud task.
     Unknown,

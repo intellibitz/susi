@@ -12,7 +12,7 @@
 )]
 
 //! Third-party agent integrations — external task executors and framework
-//! adapters (aider, autogen, crewai, openhands, e2b, gemini-cli, n8n,
+//! adapters (aider, autogen, crewai, openhands, e2b, gemini-cli, haystack,
 //! temporal, …). Provider output is evidence of execution, never proof that
 //! the requested change is correct. SUSI crates consume this surface through
 //! `susi_agents::external` (re-export) or this crate directly.
@@ -27,8 +27,6 @@ pub mod a2a_streaming_client;
 pub mod acp_discovery;
 pub mod agent_scoreboard;
 pub mod agent_trace_import;
-pub mod cloud_agent_cost_guard;
-pub mod cursor_json_results;
 pub mod delegation_ingress;
 #[cfg(test)]
 mod eco_acp_ibm;
@@ -47,6 +45,5 @@ pub mod zc_agent_autodetect;
 pub mod zc_agent_flags;
 pub mod zc_cloud_agent_autoenable;
 pub mod zc_delegation_dir;
-pub mod zc_devin_org;
 pub mod zc_openhands_docker;
 pub mod zc_workspace_trust;
