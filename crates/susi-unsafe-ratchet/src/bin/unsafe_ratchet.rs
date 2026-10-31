@@ -17,7 +17,7 @@
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use susi_gawd::unsafe_ratchet::{
+use susi_unsafe_ratchet::{
     ratchet_unsafe, sbom_changes, GeigerVerdict, SbomEntry, UnsafeBaseline, UnsafeExposure,
 };
 

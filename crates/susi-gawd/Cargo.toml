@@ -25,6 +25,7 @@ sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
 [dev-dependencies]
+susi-unsafe-ratchet = { workspace = true }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 # Test-only: reflex_synth's end-to-end test exercises the in-process Wasmer
 # host. Production `susi-gawd` reaches `susi-native` over IPC only.

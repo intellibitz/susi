@@ -1,6 +1,4 @@
-use crate::unsafe_ratchet::{
-    ratchet_unsafe, sbom_changes, GeigerVerdict, SbomEntry, UnsafeExposure,
-};
+use susi_unsafe_ratchet::{ratchet_unsafe, sbom_changes, GeigerVerdict, SbomEntry, UnsafeExposure};
 
 #[test]
 fn vc_201_097_mastery_records_transitive_changes_and_gates_new_exposure() {
@@ -49,11 +47,11 @@ fn vc_201_097_mastery_records_transitive_changes_and_gates_new_exposure() {
 #[test]
 fn vc_201_097_mastery_gate_is_on_the_ci_path() {
     // The production gate must reach ratchet_unsafe: CI runs the workflow
-    // script, the script invokes the susi-gawd binary, and the binary is
+    // script, the script invokes the small ratchet binary, and the binary is
     // the comparator's production call site.
     let bin = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/bin/unsafe_ratchet.rs"
+        "/../susi-unsafe-ratchet/src/bin/unsafe_ratchet.rs"
     ))
     .expect("unsafe_ratchet binary present");
     assert!(
@@ -94,7 +92,7 @@ fn vc_201_097_mastery_pinned_baseline_exists_for_the_default_feature_set() {
         "/../../.agents/baseline/unsafe-default.json"
     ))
     .expect("pinned baseline recorded");
-    let baseline: crate::unsafe_ratchet::UnsafeBaseline =
+    let baseline: susi_unsafe_ratchet::UnsafeBaseline =
         serde_json::from_str(&text).expect("baseline parses as UnsafeBaseline");
     assert_eq!(baseline.features, "default");
     assert!(

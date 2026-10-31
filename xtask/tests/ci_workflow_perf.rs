@@ -1483,6 +1483,23 @@ fn unsafe_ratchet_keeps_stable_target_cache_key() {
 }
 
 #[test]
+fn unsafe_ratchet_runner_uses_small_dependency_crate() {
+    let script = read(".github/workflows/unsafe-exposure-ratchet.sh");
+    assert!(
+        script.contains("cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet")
+            && !script.contains("cargo run -q -p susi-gawd"),
+        "the CI comparator must not pull in the full susi-gawd dependency graph"
+    );
+    let manifest = read("crates/susi-unsafe-ratchet/Cargo.toml");
+    assert!(
+        manifest.contains("susi-vendor-serde")
+            && manifest.contains("susi-vendor-serde-json")
+            && !manifest.contains("susi-gawd"),
+        "the ratchet runner should depend only on its serialization crates"
+    );
+}
+
+#[test]
 fn unsafe_ratchet_skips_non_code_pushes() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);

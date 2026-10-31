@@ -1,4 +1,4 @@
-use crate::unsafe_ratchet::{ratchet_unsafe, GeigerVerdict, SbomEntry, UnsafeExposure};
+use susi_unsafe_ratchet::{ratchet_unsafe, GeigerVerdict, SbomEntry, UnsafeExposure};
 
 #[test]
 fn vc_201_097_flags_new_unsafe_for_review() {

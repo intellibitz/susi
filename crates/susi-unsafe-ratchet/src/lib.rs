@@ -194,3 +194,45 @@ impl GeigerRunner {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ratchet_unsafe, GeigerVerdict, SbomEntry, UnsafeExposure};
+
+    #[test]
+    fn flags_new_exposure_and_ignores_first_party_exceptions() {
+        let baseline = [UnsafeExposure {
+            crate_name: "known".into(),
+            unsafe_fns: 1,
+            first_party_exception: false,
+        }];
+        let current = [
+            baseline[0].clone(),
+            UnsafeExposure {
+                crate_name: "new".into(),
+                unsafe_fns: 1,
+                first_party_exception: false,
+            },
+            UnsafeExposure {
+                crate_name: "first-party".into(),
+                unsafe_fns: 10,
+                first_party_exception: true,
+            },
+        ];
+        assert_eq!(
+            ratchet_unsafe(
+                &baseline,
+                &current,
+                &[],
+                &[SbomEntry {
+                    crate_name: "new".into(),
+                    version: "1.0.0".into(),
+                    provenance: "registry".into(),
+                }]
+            ),
+            GeigerVerdict::NeedsReview {
+                new_crates: vec!["new".into()]
+            }
+        );
+    }
+}
