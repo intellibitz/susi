@@ -147,6 +147,15 @@ EOF
 # Start the server from this environment when none runs (a no-op otherwise):
 # the cache's place and size, and no idle exit (see the header).
 ensure_server() {
+    case "${TMP:-}${TEMP:-}" in
+    *susi-release-gate-home*)
+        mkdir -p "$1/tmp" 2>/dev/null || true
+        TMP="$1/tmp" TEMP="$1/tmp" TMPDIR="$1/tmp" \
+            SCCACHE_DIR="$1" SCCACHE_CACHE_SIZE="$2" SCCACHE_IDLE_TIMEOUT=0 \
+            sccache --start-server >/dev/null 2>&1 || true
+        return
+        ;;
+    esac
     SCCACHE_DIR="$1" SCCACHE_CACHE_SIZE="$2" SCCACHE_IDLE_TIMEOUT=0         sccache --start-server >/dev/null 2>&1 || true
 }
 
