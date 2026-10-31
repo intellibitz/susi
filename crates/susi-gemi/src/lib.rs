@@ -67,6 +67,7 @@ pub mod orchestration;
 pub mod primary_election;
 pub mod provider_contract;
 pub mod pulse;
+pub mod rate_limit_scheduler;
 pub mod region_eligibility;
 pub mod region_failover;
 pub mod retry_policy;
@@ -113,6 +114,7 @@ mod capability_matrix_by_class_tests;
 #[cfg(test)]
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
+pub mod eco_compat_gate;
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
@@ -152,6 +154,9 @@ mod quota_window_accounting_tests;
 #[cfg(test)]
 #[path = "tests/ranking_by_marginal_cost.rs"]
 mod ranking_by_marginal_cost_tests;
+#[cfg(test)]
+#[path = "tests/rate_limit_scheduler.rs"]
+mod rate_limit_scheduler_tests;
 #[cfg(test)]
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;

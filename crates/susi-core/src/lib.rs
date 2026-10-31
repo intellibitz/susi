@@ -54,8 +54,10 @@ pub mod memory_replicate;
 pub mod memory_tombstone;
 pub mod pii_redaction;
 pub mod privacy_profiles;
+pub mod retrieval_eval;
 pub mod skill_artifacts;
 pub mod untrusted_content;
+pub mod vertical_workflow;
 pub mod wasm_grants;
 pub mod zc_consent_jit;
 pub mod zc_egress_allowlist;
@@ -178,6 +180,12 @@ mod vc_201_081_mastery_tests;
 #[path = "tests/vc_201_081.rs"]
 mod vc_201_081_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_082_mastery.rs"]
+mod vc_201_082_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_082.rs"]
+mod vc_201_082_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_083_mastery.rs"]
 mod vc_201_083_mastery_tests;
 #[cfg(test)]
@@ -201,3 +209,6 @@ mod vc_201_089_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_089.rs"]
 mod vc_201_089_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_090.rs"]
+mod vc_201_090_tests;
