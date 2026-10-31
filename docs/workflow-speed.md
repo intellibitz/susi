@@ -161,6 +161,18 @@ pins it with a git shim that lands the release right after the first
 fetch). The same fix removes a remote round-trip per claim read from every
 pre-push hook and compliance job.
 
+## Lightweight branch gates skip the workspace target archive (2026-10-31)
+
+PR #1098's branch run took 48 s in `Compile Check`: the affected-package
+clippy took 9 s, while restoring Cargo's workspace target archive took 14 s.
+Its `Unsafe Exposure Ratchet` job took 26 s, including a 12 s Cargo target
+restore for a 5 s ratchet run. The `susi-unsafe-ratchet` crate is a small,
+standalone tool package, so both target restores cost more than their checks.
+The branch clippy keeps sccache and skips the workspace target archive when
+that package alone is affected; the existing standalone `xtask` exception is
+kept. Broader package sets still restore the main-built archive because their
+warm clippy savings exceed its download time.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
