@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT20261031202228247920-1",
+  "title": "Make susi workflow and tasks multi-threaded, lock-free, and non-blocking across parallel agents",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "workflow"
+    ]
+  },
+  "created_by": "AGENT20261031202228247920",
+  "created_unix": 1793458551
+}

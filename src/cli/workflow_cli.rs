@@ -161,10 +161,12 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         .chars()
         .filter(char::is_ascii_alphanumeric)
         .collect::<String>();
-    // Keep the primary checkout's main current (silent unless it advanced;
-    // never switches a branch or touches a dirty tree).
-    sync_primary(&root);
     let facts = workflow::gather(&root, &agent);
+    // Keep the primary checkout's main current (silent unless it advanced;
+    // never switches a branch or touches a dirty tree). Runs after `gather`
+    // with `SUSI_PARK_REFS_FETCHED=1` so it reuses the refs `gather` just
+    // fetched instead of paying for a second remote round-trip.
+    sync_primary(&root);
     let mut checks = workflow::evaluate(&facts);
     // Right after "own worktree": whose worktree it is comes before anything else.
     checks.insert(1.min(checks.len()), worker_identity::check(&identity));
@@ -324,6 +326,7 @@ fn sync_primary(root: &Path) {
     let mut command = workflow_script_command(&script, &["--sync-only"]);
     if let Ok(out) = command
         .current_dir(root)
+        .env("SUSI_PARK_REFS_FETCHED", "1")
         .stderr(std::process::Stdio::null())
         .output()
     {
