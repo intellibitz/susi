@@ -6,6 +6,9 @@
 # `park-primary.sh --sync-only`, which only ever fast-forwards a clean `main`
 # with no local commits. SUSI_SYNC_FOREGROUND=1 waits for it (tests).
 # Hooks run with GIT_DIR/GIT_INDEX_FILE set for the calling worktree.
+[ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ] || exit 0
+# Finish maintains the primary once, after publication. A hook here would
+# start another fetch alongside its authoritative push checks.
 unset GIT_INDEX_FILE GIT_PREFIX
 script=$(git rev-parse --show-toplevel 2>/dev/null)/scripts/park-primary.sh
 [ -x "$script" ] || exit 0
