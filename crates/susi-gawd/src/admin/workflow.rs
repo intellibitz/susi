@@ -1297,9 +1297,10 @@ pub fn prune_worktrees(
         }
     }
 
-    if apply {
-        let _ = git(root, &["worktree", "prune"]);
-    }
+    // Admin entries for directories that are already gone: housekeeping a
+    // report run does too, as the script did; nothing of a worktree that
+    // exists is touched by it.
+    let _ = git(root, &["worktree", "prune"]);
 
     Ok(report)
 }

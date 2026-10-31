@@ -277,6 +277,12 @@ fn prune(cwd: &Path, apply: bool, all: bool) -> Result<()> {
     if !apply {
         println!("(dry-run: pass `--apply` to remove reclaimable worktrees)");
     }
+    // A worktree that could not be removed is a failure, as the script's exit
+    // status said: a caller that reads only the status must not take it for
+    // a clean sweep.
+    if report.failed > 0 {
+        bail!("{} worktree(s) could not be removed", report.failed);
+    }
     Ok(())
 }
 
