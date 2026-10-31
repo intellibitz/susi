@@ -126,6 +126,30 @@ fn save_stays_visible_when_the_rewrite_keeps_its_mtime() {
 }
 
 #[test]
+fn load_sees_a_same_tick_rewrite_when_its_length_changes() {
+    let dir = TestDir::new();
+    let path = dir.0.join("config.json");
+    let store = VersionedJsonStore::<u32>::new();
+    std::fs::write(&path, "1").unwrap();
+    let first = store
+        .load_with_healing(&path, || Ok(0), |_| false, true)
+        .unwrap();
+    assert_eq!(first, 1);
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    std::fs::write(&path, "100").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    let second = store
+        .load_with_healing(&path, || Ok(0), |_| false, true)
+        .unwrap();
+    assert_eq!(second, 100);
+}
+
+#[test]
 fn load_arc_shares_cache_hit_without_cloning_value() {
     let dir = TestDir::new();
     let path = dir.0.join("config.json");
@@ -208,7 +232,7 @@ fn failed_modify_does_not_report_success_or_cache_unsaved_value() {
             }
         )
         .is_err());
-    assert_eq!(*store.cache.read().as_ref().unwrap().2, 1);
+    assert_eq!(*store.cache.read().as_ref().unwrap().value, 1);
 }
 
 #[test]
