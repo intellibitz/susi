@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "AGENT179339957248328RATCHETREQUEUE2",
-  "created_unix": 1793411699
+  "created_unix": 1793411699,
+  "closed": {
+    "at_unix": 1793412379,
+    "commit": "3d46402d520d4fc9107fb729f2f4c6eac6ecac25",
+    "by": "AGENT179339957248328RATCHETREQUEUE2"
+  }
 }
