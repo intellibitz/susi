@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT20261031021059518379-5",
+  "title": "Reuse exact source format proofs and remove per-worktree hook launches",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793440641,
+  "closed": {
+    "at_unix": 1793443582,
+    "commit": "3769e98f07fe6cf57f32191aa0b4b168f802c95d",
+    "by": "AGENT20261031021059518379"
+  }
+}

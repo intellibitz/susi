@@ -41,16 +41,12 @@ PUSHED_RUST_FILES=$(git diff --no-renames --name-only origin/main..HEAD -- '*.rs
 
 if [ -n "$PUSHED_RUST_FILES" ]; then
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
-    stamp=$({
-        git diff origin/main -- . ':(exclude).agents'
-        git ls-files --others --exclude-standard -- . ':(exclude).agents' |
-            while IFS= read -r f; do
-                [ -f "$f" ] && git hash-object -- "$f"
-            done
-    } | git hash-object --stdin)
+    helper="$(git rev-parse --show-toplevel)/scripts/gate-input-stamp.sh"
+    stamp=
+    if [ -x "$helper" ]; then stamp=$("$helper") || stamp=; fi
     if [ "${SUSI_RELEASE_PUSH:-}" = 1 ] && [ -z "${SUSI_GATE_NOCACHE:-}" ]; then
         echo "✅ Release gate already verified this tree — skipping pre-push clippy rerun."
-    elif [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
+    elif [ -n "$stamp" ] && [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "✅ Clippy already passed in local gate for this exact diff — skipping pre-push rerun."
     else
         # The crates the push touches and their dependents - the same set, and the

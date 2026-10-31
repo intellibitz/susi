@@ -18,26 +18,79 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 set -uo pipefail
 
-token_of() {  # a worktree's own token, never a borrowed one
-    local path=$1 gitdir token
-    gitdir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null) || return 0
-    token=$(sed -n 's/^[[:space:]]*agent[[:space:]]*=[[:space:]]*//p' "$gitdir/config.worktree" 2>/dev/null | tail -1)
-    if [ -z "$token" ]; then
-        token=$(git -C "$path" config --get susi.agent 2>/dev/null)
+# Return small values through globals: command substitution would fork a shell
+# per field per worktree, even after removing the external tools.
+gitdir_of() {
+    local path=$1 line gitdir
+    resolved_gitdir=
+    if [ -d "$path/.git" ]; then
+        resolved_gitdir=$path/.git
+    elif [ -f "$path/.git" ] && IFS= read -r line <"$path/.git" && [[ "$line" = 'gitdir: '* ]]; then
+        gitdir=${line#gitdir: }
+        gitdir=${gitdir%$'\r'}
+        if [[ "$gitdir" = /* || "$gitdir" =~ ^[A-Za-z]: || "$gitdir" = \\\\* ]]; then
+            resolved_gitdir=$gitdir
+        else
+            resolved_gitdir=$path/$gitdir
+        fi
+    else
+        resolved_gitdir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
     fi
-    printf '%s' "$token"
+}
+
+# Match the existing local-value rule without starting sed and tail for every
+# worktree. Git still resolves inherited configuration when no local token exists.
+worktree_value() {
+    local file=$1 key=$2 line
+    worktree_result=
+    [ -f "$file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+            worktree_result=${BASH_REMATCH[1]}
+        fi
+    done <"$file"
+}
+
+canonicalize() {
+    local LC_ALL=C
+    canonical=${1^^}
+    canonical=${canonical//[^A-Z0-9]/}
+}
+
+token_of() {  # a worktree's own token, never a borrowed one
+    local path=$1 LC_ALL=C
+    worker_token=
+    worker_token_present=0
+    gitdir_of "$path" || return 0
+    worktree_value "$resolved_gitdir/config.worktree" agent
+    worker_token=$worktree_result
+    if [[ ! "$worker_token" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        worker_token=$(git -C "$path" config --get susi.agent 2>/dev/null)
+    fi
+    [ -z "$worker_token" ] || worker_token_present=1
+    canonicalize "$worker_token"
+    worker_token=$canonical
+    return 0
 }
 
 author_of() {  # the git author this worktree's own config sets, never the clone-wide one
-    local gitdir
-    gitdir=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || return 0
-    sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*//p' "$gitdir/config.worktree" 2>/dev/null | tail -1
+    worker_author=
+    gitdir_of "$1" || return 0
+    worktree_value "$resolved_gitdir/config.worktree" name
+    worker_author=$worktree_result
+    if [ -n "$worker_author" ] && [[ ! "$worker_author" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        worker_author=$(git -C "$1" config --worktree --get user.name 2>/dev/null)
+    fi
 }
 
-norm() { tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9\n'; }
-
 here=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-mine=$(token_of "$here")
+token_of "$here"
+mine=$worker_token
+here_gitdir=$resolved_gitdir
+if [ -z "$mine" ] && [ "$worker_token_present" = 1 ]; then
+    echo '❌ invalid worker token — run: susi workflow own-identity' >&2
+    exit 1
+fi
 [ -n "$mine" ] || exit 0
 
 # Whose worktree this is comes before who else shares it. The git login
@@ -48,13 +101,22 @@ mine=$(token_of "$here")
 # except a cloud session's clone, which is its worker's own and only checkout
 # (scripts/cloud-session.sh) and is judged like any worktree.
 cloud_session() { [ -x "$here/scripts/cloud-session.sh" ] && "$here/scripts/cloud-session.sh"; }
-if [ "$(realpath "$(git rev-parse --absolute-git-dir)")" != "$(realpath "$(git rev-parse --path-format=absolute --git-common-dir)")" ] || cloud_session; then
-    logins=$( { for scope in --system --global --local; do git config "$scope" --get-all user.name 2>/dev/null; done; } | norm)
-    me=$(printf '%s\n' "$mine" | norm)  # compared as the tokens susi mints: upper-case alphanumerics
+if [ ! "$here_gitdir" -ef "$(git rev-parse --path-format=absolute --git-common-dir)" ] || cloud_session; then
+    logins=' '
+    while IFS= read -r -d '' scope && IFS= read -r -d '' login; do
+        case "$scope" in
+        system|global|local)
+            canonicalize "$login"
+            [ -z "$canonical" ] || logins+="$canonical " ;;
+        esac
+    done < <(git config --show-scope --null --get-all user.name 2>/dev/null || true)
+    me=$mine
     reserved=""
     case " PRIMARY MAIN MASTER AGENT USER SUSI " in *" $me "*) reserved=1 ;; esac
-    printf '%s\n' "$logins" | grep -qx "$me" && reserved=1
-    author=$(author_of "$here" | norm)
+    case "$logins" in *" $me "*) reserved=1 ;; esac
+    author_of "$here"
+    canonicalize "$worker_author"
+    author=$canonical
     if [ -n "$reserved" ] || [ "$author" != "$me" ]; then
         if [ -n "$reserved" ]; then
             printf '❌ this worktree answers to %s, which is the shared git login or a role, not a worker\n' "$mine" >&2
@@ -78,11 +140,16 @@ EOF
 fi
 
 others=""
-while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    [ "$(realpath "$path")" = "$(realpath "$here")" ] && continue
-    [ "$(token_of "$path")" = "$mine" ] && others="$others $path"
-done < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
+while IFS= read -r -d '' row; do
+    case "$row" in 'worktree '*) path=${row#worktree } ;; *) continue ;; esac
+    [ "$path/.git" -ef "$here/.git" ] && continue
+    token_of "$path"
+    [ "$worker_token" = "$mine" ] && others="$others $path"
+done < <(git worktree list --porcelain -z)
+if ! wait "$!"; then
+    echo '❌ cannot verify the worktree identity index' >&2
+    exit 1
+fi
 
 if [ -n "$others" ]; then
     printf '❌ one token per worker: this worktree and%s both answer to %s\n' "$others" "$mine" >&2

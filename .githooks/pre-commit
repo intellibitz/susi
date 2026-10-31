@@ -13,12 +13,26 @@ fi
 
 echo "🛡️ Running SUSI Code Compliance Checks..."
 
+# Bind the proof before validation, as finish does. A concurrent change after
+# this snapshot then causes a cache miss instead of receiving an unearned proof.
+top=$(git rev-parse --show-toplevel)
+stamp=
+if [ -x "$top/scripts/gate-input-stamp.sh" ]; then
+    stamp=$("$top/scripts/gate-input-stamp.sh" --format) || stamp=
+fi
+
 echo "- Checking Rustfmt..."
 cargo fmt --all -- --check
 if [ $? -ne 0 ]; then
     echo "❌ Compliance Violation: Code formatting is not compliant."
     echo "👉 Run 'cargo fmt --all' to fix."
     exit 1
+fi
+
+# The finish gate can reuse this successful format check while the complete
+# source identity and formatter stay identical. No test/clippy proof is written.
+if [ -n "$stamp" ]; then
+    printf '%s\n' "$stamp" >"$(git rev-parse --git-dir)/susi-fmt-ok"
 fi
 
 echo "✅ SUSI Compliance Pre-Commit Check Passed."
