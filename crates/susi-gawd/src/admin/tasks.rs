@@ -1872,6 +1872,31 @@ pub fn merged_is_real(ws: &Path, record: &MergedTask) -> bool {
     contains(&record.head, &record.merge) && contains(&record.merge, "origin/main")
 }
 
+/// Check a full object-ID attestation against one immutable main-history walk.
+/// Being on main is insufficient: the tested head must precede this merge.
+fn attestation_in_history(
+    parents: &std::collections::HashMap<&str, Vec<&str>>,
+    head: &str,
+    merge: &str,
+) -> bool {
+    if !parents.contains_key(head) || !parents.contains_key(merge) {
+        return false;
+    }
+    let mut pending = vec![merge];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(commit) = pending.pop() {
+        if commit == head {
+            return true;
+        }
+        if seen.insert(commit) {
+            if let Some(previous) = parents.get(commit) {
+                pending.extend(previous.iter().copied());
+            }
+        }
+    }
+    false
+}
+
 /// One agent's standing in the queue: whoever accepted work still owes the
 /// merge that publishes it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1922,16 +1947,59 @@ pub fn audit(ws: &Path) -> EaiResult<AuditReport> {
 
     let merged = records_under::<MergedTask>(ws, MERGED_NAMESPACE)?;
     let verified = records_under::<VerifiedTask>(ws, "refs/verified/")?;
-    let real: Vec<MergedTask> = merged
-        .iter()
-        .filter(|m| merged_is_real(ws, m))
-        .cloned()
+    // Audits used four Git processes per attestation, repeating both ancestry
+    // checks while partitioning real/forged records. Walk the snapshot once;
+    // no persistent proof survives a new audit or an advance of main.
+    let history = if merged.is_empty() {
+        String::new()
+    } else {
+        git(
+            ws,
+            &[
+                "rev-list",
+                "--full-history",
+                "--parents",
+                "origin/main",
+                "--",
+            ],
+        )?
+    };
+    let parents: std::collections::HashMap<&str, Vec<&str>> = history
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            Some((fields.next()?, fields.collect()))
+        })
         .collect();
-    let forged: Vec<MergedTask> = merged
-        .iter()
-        .filter(|m| !merged_is_real(ws, m))
-        .cloned()
-        .collect();
+    let full_id =
+        |id: &str| matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_hexdigit());
+    let mut real = Vec::new();
+    let mut forged = Vec::new();
+    let mut checked = std::collections::HashMap::new();
+    for record in merged {
+        let canonical = full_id(&record.head) && full_id(&record.merge);
+        let key = if canonical {
+            (
+                record.head.to_ascii_lowercase(),
+                record.merge.to_ascii_lowercase(),
+            )
+        } else {
+            (record.head.clone(), record.merge.clone())
+        };
+        let valid = *checked.entry(key.clone()).or_insert_with(|| {
+            if canonical {
+                attestation_in_history(&parents, &key.0, &key.1)
+            } else {
+                // Preserve legacy abbreviated IDs/ref spellings through Git.
+                merged_is_real(ws, &record)
+            }
+        });
+        if valid {
+            real.push(record);
+        } else {
+            forged.push(record);
+        }
+    }
     let verified_ids: std::collections::HashSet<&str> =
         verified.iter().map(|v| v.task.as_str()).collect();
     let unverified: Vec<MergedTask> = real
@@ -3648,6 +3716,18 @@ mod tests {
         git(ws, &["update-ref", name, &blob]).unwrap();
     }
 
+    /// Seed a fresh producer snapshot in one real remote and local transaction.
+    fn put_new_refs(ws: &Path, records: Vec<(String, serde_json::Value)>) {
+        let mut leases = Vec::new();
+        let mut updates = Vec::new();
+        for (name, value) in records {
+            leases.push((name.clone(), String::new()));
+            updates.push((name, Some(blob_of(ws, &value).unwrap())));
+        }
+        queue_relay::push(ws, "origin", &leases, &updates, "fixture refs raced").unwrap();
+        mirror_updates(ws, &leases, &updates).unwrap();
+    }
+
     /// Rewrite the acceptance in a `done/` record: a task that passed on its
     /// branch, and does (or cannot) run later on the merged tree.
     fn rewrite_accept(ws: &Path, id: &str, argv: serde_json::Value) {
@@ -5209,23 +5289,82 @@ mod tests {
         };
         assert!(!merged_is_real(&a, &forged));
 
+        let duplicate = MergedTask {
+            task: "T-CLAUDE-2".into(),
+            ..real.clone()
+        };
+        let unpublished = MergedTask {
+            task: "T-CLAUDE-3".into(),
+            ..forged.clone()
+        };
+        put_new_refs(
+            &a,
+            [&real, &duplicate, &unpublished]
+                .into_iter()
+                .map(|record| {
+                    (
+                        format!("refs/merged/{}", record.task),
+                        serde_json::to_value(record).unwrap(),
+                    )
+                })
+                .collect(),
+        );
+        let before = audit(&a).unwrap();
+        assert_eq!(
+            before.merged.len(),
+            2,
+            "duplicate attestations must retain both tasks"
+        );
+        assert_eq!(before.forged, vec![unpublished.clone()]);
+
         // Nor does a head the named merge does not contain.
         let unrelated = MergedTask {
             head: merge.clone(),
             merge,
-            ..real
+            ..real.clone()
         };
         git(&a, &["commit", "--allow-empty", "-m", "after"]).unwrap();
         let after = git(&a, &["rev-parse", "HEAD"]).unwrap();
         git(&a, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
         git(&a, &["fetch", "--quiet", "origin"]).unwrap();
         let ahead = MergedTask {
+            task: "T-CLAUDE-4".into(),
             head: after,
             ..unrelated
         };
         assert!(
             !merged_is_real(&a, &ahead),
             "a later head is not in that merge"
+        );
+        let abbreviated = MergedTask {
+            task: "T-CLAUDE-5".into(),
+            head: real.head[..12].to_string(),
+            merge: real.merge[..12].to_string(),
+            ..real
+        };
+        put_new_refs(
+            &a,
+            [&ahead, &abbreviated]
+                .into_iter()
+                .map(|record| {
+                    (
+                        format!("refs/merged/{}", record.task),
+                        serde_json::to_value(record).unwrap(),
+                    )
+                })
+                .collect(),
+        );
+        let after = audit(&a).unwrap();
+        assert_eq!(
+            after.merged.len(),
+            4,
+            "a new audit must observe main advancing and retain legacy IDs"
+        );
+        assert!(after.merged.contains(&unpublished));
+        assert_eq!(
+            after.forged,
+            vec![ahead],
+            "both commits are on main, but this merge cannot attest a later head"
         );
         drop(r);
     }
@@ -5372,9 +5511,26 @@ mod tests {
         let (r, a, _b) = Repos::new("verify");
         let mut ids = Vec::new();
         for (agent, title) in [("claude", "ok"), ("devin", "broken"), ("gemini", "scripts")] {
-            let task = addt!(&a, agent, title, "", "s", &[], true_cmd()).unwrap();
-            claim(&a, &task.id, agent, 4, now_unix()).unwrap();
-            close(&a, &task.id, agent).unwrap();
+            let mut task = addt!(&a, agent, title, "", "s", &[], true_cmd()).unwrap();
+            if ids.is_empty() {
+                claim(&a, &task.id, agent, 4, now_unix()).unwrap();
+                close(&a, &task.id, agent).unwrap();
+            } else {
+                // One actual acceptance establishes the lifecycle. The sweep
+                // consumes committed done records and merger attestations;
+                // replaying two more claims/acceptances only retests setup.
+                task.closed = Some(Closed {
+                    at_unix: now_unix(),
+                    commit: git(&a, &["rev-parse", "HEAD"]).unwrap(),
+                    by: agent_token(agent).unwrap(),
+                });
+                std::fs::write(
+                    done_dir(&a).join(format!("{}.json", task.id)),
+                    serde_json::to_vec(&task).unwrap(),
+                )
+                .unwrap();
+                std::fs::remove_file(tasks_dir(&a).join(format!("{}.json", task.id))).unwrap();
+            }
             ids.push(task.id);
         }
         let (ok, broken, scripts) = (&ids[0], &ids[1], &ids[2]);
@@ -5390,15 +5546,20 @@ mod tests {
         );
         publish(&a);
         let head = git(&a, &["rev-parse", "HEAD"]).unwrap();
-        for (id, pr) in [(ok, 1u64), (broken, 2), (scripts, 3)] {
-            put_ref(
-                &a,
-                &format!("refs/merged/{id}"),
-                &serde_json::json!({
-                    "task": id, "head": head, "merge": head, "pr": pr, "merged_unix": 1
-                }),
-            );
-        }
+        put_new_refs(
+            &a,
+            [(ok, 1u64), (broken, 2), (scripts, 3)]
+                .into_iter()
+                .map(|(id, pr)| {
+                    (
+                        format!("refs/merged/{id}"),
+                        serde_json::json!({
+                            "task": id, "head": head, "merge": head, "pr": pr, "merged_unix": 1
+                        }),
+                    )
+                })
+                .collect(),
+        );
 
         let outcomes = verify_merged(&a, 5).unwrap();
         assert_eq!(outcomes.len(), 3, "{outcomes:?}");
