@@ -1,6 +1,6 @@
 [package]
 name = "susi-server"
-version = "0.21.26"
+version = "0.21.27"
 license = "Apache-2.0"
 edition = "2024"
 
