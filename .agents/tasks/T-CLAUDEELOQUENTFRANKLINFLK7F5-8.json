@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-8",
+  "title": "release --cut refuses a tagged or reserved version before the daemon starts; built-binary e2e checks for both refusals",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_e2e_checks"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793478616
+}
