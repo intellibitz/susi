@@ -666,6 +666,11 @@ fn finish_reuses_live_lease_and_fetched_refs() {
         .unwrap();
     let ws = Workspace::new("finish-coordination");
     git(&ws.root, &["config", "susi.agent", "TESTAGENT"]);
+    // A renewal is skipped only while the remote still advertises the very
+    // claim blob the checkout holds (a local ref can be stale), so the
+    // fixture has a remote and publishes each claim there before the check.
+    git(&ws.root, &["init", "-q", "--bare", "remote.git"]);
+    git(&ws.root, &["remote", "add", "origin", "remote.git"]);
     ws.write("lease-check.sh", &format!(
         "set -euo pipefail\n. \"$SUSI_TEST_COMPAT\"\nrenew_or_readopt() {{{renew}\n}}\n\
          stub() {{ echo \"$*\" >> calls; [ \"${{FAIL_RENEW:-0}}\" != 1 ] || [ \"$2\" != renew ]; }}\n\
@@ -692,6 +697,16 @@ fn finish_reuses_live_lease_and_fetched_refs() {
         git(
             &ws.root,
             &["update-ref", "refs/claims/T-TEST-1", object.trim()],
+        );
+        git(
+            &ws.root,
+            &[
+                "push",
+                "--quiet",
+                "--force",
+                "origin",
+                "refs/claims/T-TEST-1:refs/claims/T-TEST-1",
+            ],
         );
         ws.write("calls", "");
         let output = script_command(&ws.root.join("lease-check.sh"))
