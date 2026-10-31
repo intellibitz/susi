@@ -9,6 +9,8 @@
       "cargo",
       "test",
       "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
       "--test",
       "ci_unsafe_exposure_scope"
     ]
