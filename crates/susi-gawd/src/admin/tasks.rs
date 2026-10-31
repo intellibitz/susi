@@ -899,8 +899,24 @@ pub fn roadmap_coverage(vectors: &[Vector], open: &[Task], done: &[Task]) -> Vec
         .collect()
 }
 
+pub(super) fn git_bin() -> &'static Path {
+    static GIT_BIN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    GIT_BIN.get_or_init(|| {
+        #[cfg(windows)]
+        if let Some(root) = cached_git_install_root() {
+            for mingw in ["ucrt64", "mingw64", "clang64", "clangarm64", "mingw32"] {
+                let candidate = root.join(mingw).join("bin").join("git.exe");
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+        PathBuf::from("git")
+    })
+}
+
 fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
-    let out = Command::new("git")
+    let out = Command::new(git_bin())
         .args(args)
         .current_dir(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -913,6 +929,20 @@ fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
         )));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn symbolic_head_branch(ws: &Path) -> Option<String> {
+    let dot_git = ws.join(".git");
+    if dot_git.is_dir() {
+        if let Ok(head) = std::fs::read_to_string(dot_git.join("HEAD")) {
+            let trimmed = head.trim();
+            if let Some(branch) = trimmed.strip_prefix("ref: refs/heads/") {
+                return Some(branch.to_string());
+            }
+            return None;
+        }
+    }
+    git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok()
 }
 
 fn claim_ref(id: &str) -> String {
@@ -953,6 +983,7 @@ fn verified_ref(id: &str) -> String {
 /// already landed.
 fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
     let r = remote();
+    let heads = format!("+refs/heads/*:refs/remotes/{r}/*");
     git(
         ws,
         &[
@@ -960,6 +991,7 @@ fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
             "--quiet",
             "--prune",
             &r,
+            &heads,
             "+refs/claims/*:refs/claims/*",
             "+refs/closed/*:refs/closed/*",
             "+refs/abandoned/*:refs/abandoned/*",
@@ -982,7 +1014,7 @@ pub fn sync_queue(ws: &Path) -> EaiResult<()> {
 /// their verifications share one writer.
 fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
     let body = serde_json::to_string(value)?;
-    let mut child = Command::new("git")
+    let mut child = Command::new(git_bin())
         .args(["hash-object", "-w", "--stdin"])
         .current_dir(ws)
         .stdin(std::process::Stdio::piped())
@@ -1016,6 +1048,13 @@ fn records_batch<T: serde::de::DeserializeOwned>(
     ws: &Path,
     namespace: &str,
 ) -> EaiResult<Vec<(String, T)>> {
+    let dot_git = ws.join(".git");
+    if dot_git.is_dir()
+        && !dot_git.join(namespace).exists()
+        && !dot_git.join("packed-refs").exists()
+    {
+        return Ok(Vec::new());
+    }
     let listed = git(
         ws,
         &[
@@ -1031,7 +1070,7 @@ fn records_batch<T: serde::de::DeserializeOwned>(
     if refs.is_empty() {
         return Ok(Vec::new());
     }
-    let mut child = Command::new("git")
+    let mut child = Command::new(git_bin())
         .args(["cat-file", "--batch"])
         .current_dir(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1108,10 +1147,9 @@ fn parse_batch<T: serde::de::DeserializeOwned>(
 }
 
 fn read_record<T: serde::de::DeserializeOwned>(ws: &Path, name: &str) -> EaiResult<Option<T>> {
-    let Ok(sha) = git(ws, &["rev-parse", "--verify", "--quiet", name]) else {
+    let Ok(body) = git(ws, &["cat-file", "-p", name]) else {
         return Ok(None);
     };
-    let body = git(ws, &["cat-file", "-p", &sha])?;
     Ok(serde_json::from_str(&body).ok())
 }
 
@@ -1137,24 +1175,64 @@ fn put_record<T: Serialize>(ws: &Path, name: &str, value: &T, raced: &str) -> Ea
 /// Drop a record ref on the remote and locally. Compare-and-swap: a record
 /// re-pushed since we read it belongs to a newer fact and must survive.
 fn clear_record(ws: &Path, name: &str) -> EaiResult<()> {
+    clear_records(ws, &[name.to_string()])
+}
+
+fn clear_records(ws: &Path, names: &[String]) -> EaiResult<()> {
+    if names.is_empty() {
+        return Ok(());
+    }
     let r = remote();
-    let listed = git(ws, &["ls-remote", &r, name])?;
-    let old = listed.split_whitespace().next().unwrap_or("");
-    if !old.is_empty() {
+    let mut args = vec!["ls-remote", &r];
+    for name in names {
+        args.push(name.as_str());
+    }
+    let listed = git(ws, &args)?;
+    let mut leases = Vec::new();
+    let mut updates = Vec::new();
+    for line in listed.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(old) = parts.next() else { continue };
+        let Some(refname) = parts.next() else {
+            continue;
+        };
+        if !old.is_empty() && names.iter().any(|n| n == refname) {
+            leases.push((refname.to_string(), old.to_string()));
+            updates.push((refname.to_string(), None));
+        }
+    }
+    if !updates.is_empty() {
+        let first = &names[0];
         queue_relay::push(
             ws,
             &r,
-            &[(name.to_string(), old.to_string())],
-            &[(name.to_string(), None)],
-            &format!("{name} was rewritten on {r} since it was read; refresh the queue and retry"),
+            &leases,
+            &updates,
+            &format!("{first} was rewritten on {r} since it was read; refresh the queue and retry"),
         )?;
     }
-    let _ = git(ws, &["update-ref", "-d", name]);
+    for name in names {
+        let loose = ws.join(".git").join(name);
+        if loose.is_file() && !ws.join(".git/packed-refs").exists() {
+            let _ = std::fs::remove_file(loose);
+        } else {
+            let _ = git(ws, &["update-ref", "-d", name]);
+        }
+    }
     Ok(())
 }
 
 fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
-    let sha = git(ws, &["rev-parse", "--verify", "--quiet", &claim_ref(id)]).ok()?;
+    let refname = claim_ref(id);
+    let dot_git = ws.join(".git");
+    let sha = if dot_git.is_dir() && !dot_git.join("packed-refs").exists() {
+        std::fs::read_to_string(dot_git.join(&refname))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())?
+    } else {
+        git(ws, &["rev-parse", "--verify", "--quiet", &refname]).ok()?
+    };
     let body = git(ws, &["cat-file", "-p", &sha]).ok()?;
     Some((sha, serde_json::from_str(&body).ok()?))
 }
@@ -1355,7 +1433,22 @@ fn posix_shell_on(name: &str, path: Option<&std::ffi::OsStr>) -> std::path::Path
 /// The root of the Git install that `git` (on `path`) runs from: three levels
 /// above its `--exec-path`.
 #[cfg(windows)]
+fn cached_git_install_root() -> Option<std::path::PathBuf> {
+    static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| git_install_root_uncached(std::env::var_os("PATH").as_deref()))
+        .clone()
+}
+
+#[cfg(windows)]
 fn git_install_root(path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    if path == std::env::var_os("PATH").as_deref() {
+        return cached_git_install_root();
+    }
+    git_install_root_uncached(path)
+}
+
+#[cfg(windows)]
+fn git_install_root_uncached(path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
     let mut git = Command::new("git");
     if let Some(path) = path {
         git.env("PATH", path);
@@ -1446,9 +1539,10 @@ fn msys_userland(shell: &Path) -> Vec<std::path::PathBuf> {
 /// record itself is kept — settled is not deleted — so `release` still
 /// refuses to drop it silently.
 fn receipt_owed(ws: &Path, record: &CloseRecord) -> bool {
-    if done_on_main(ws, &record.task) {
-        return false;
-    }
+    !done_on_main(ws, &record.task) && receipt_owed_unfinished(ws, record)
+}
+
+fn receipt_owed_unfinished(ws: &Path, record: &CloseRecord) -> bool {
     !(head_on_main(ws, record) && !open_on_main(ws, &record.task))
 }
 
@@ -1504,15 +1598,14 @@ fn done_on_main(ws: &Path, id: &str) -> bool {
 /// task is accepted, and nothing may claim it — or let its agent claim anything
 /// else — until this head is on `origin/main`. Pushing first means a failed push
 /// leaves the task open and `close` is simply retried.
-fn push_close_receipt(ws: &Path, id: &str, agent: &str) -> EaiResult<()> {
+fn push_close_receipt(ws: &Path, id: &str, agent: &str, scopes: Vec<String>) -> EaiResult<String> {
+    let head = git(ws, &["rev-parse", "HEAD"])?;
     let record = CloseRecord {
         task: id.to_string(),
         agent: agent.to_string(),
-        head: git(ws, &["rev-parse", "HEAD"])?,
+        head: head.clone(),
         closed_unix: now_unix(),
-        scopes: read_claim(ws, id)
-            .map(|(_, claim)| claim.scopes)
-            .unwrap_or_default(),
+        scopes,
     };
     put_record(
         ws,
@@ -1522,7 +1615,8 @@ fn push_close_receipt(ws: &Path, id: &str, agent: &str) -> EaiResult<()> {
             "{id} was accepted and published by another worker concurrently; refresh the queue \
              and re-run the acceptance check"
         ),
-    )
+    )?;
+    Ok(head)
 }
 
 /// Record that an accepted task was given up, on the shared remote.
@@ -1579,25 +1673,69 @@ fn accepted_unpublished(ws: &Path, id: &str, agent: &str) -> EaiResult<bool> {
 ///
 /// The caller must have synchronized first ([`sync_queue_refs`], which [`claims`]
 /// does): the local receipt refs are what this reads.
+#[cfg(test)]
 fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<String>> {
-    let mine = closed_receipts(ws)?
-        .into_iter()
+    let receipts = closed_receipts(ws)?;
+    owed_closes_from_receipts(ws, &receipts, agent, except, &mut |ws| fetch_origin(ws))
+}
+
+fn main_task_paths(ws: &Path) -> Option<std::collections::HashSet<String>> {
+    let listed = git(
+        ws,
+        &[
+            "ls-tree",
+            "--name-only",
+            "-r",
+            "origin/main",
+            ".agents/tasks",
+        ],
+    )
+    .ok()?;
+    Some(listed.lines().map(str::to_string).collect())
+}
+
+fn owed_closes_from_receipts(
+    ws: &Path,
+    all_receipts: &[(String, CloseRecord)],
+    agent: &str,
+    except: Option<&str>,
+    ensure_fetched: &mut dyn FnMut(&Path) -> EaiResult<()>,
+) -> EaiResult<Vec<String>> {
+    let mine: Vec<&(String, CloseRecord)> = all_receipts
+        .iter()
         .filter(|(id, record)| except != Some(id.as_str()) && record.agent == agent)
-        .collect::<Vec<_>>();
+        .collect();
     if mine.is_empty() {
         return Ok(Vec::new());
     }
     // One fetch for every receipt, not one each, and none when this agent has
     // nothing outstanding: the swarm's other receipts (dozens) are not this
     // agent's debt, and fetching for them cost every claim a round-trip.
-    fetch_origin(ws)?;
+    ensure_fetched(ws)?;
+    let Some(main_paths) = main_task_paths(ws) else {
+        let mut owed: Vec<String> = mine.into_iter().map(|(id, _)| id.clone()).collect();
+        owed.sort();
+        return Ok(owed);
+    };
+    let mut head_cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut to_clear = Vec::new();
     let mut owed = Vec::new();
     for (id, record) in mine {
-        if done_on_main(ws, &id) {
-            clear_record(ws, &closed_ref(&id))?;
-        } else if receipt_owed(ws, &record) {
-            owed.push(id);
+        if main_paths.contains(&format!(".agents/tasks/done/{id}.json")) {
+            to_clear.push(closed_ref(id));
+        } else if main_paths.contains(&format!(".agents/tasks/{id}.json")) {
+            owed.push(id.clone());
+        } else {
+            let on_main = *head_cache
+                .entry(record.head.clone())
+                .or_insert_with(|| head_on_main(ws, record));
+            if !on_main {
+                owed.push(id.clone());
+            }
         }
+    }
+    if !to_clear.is_empty() {
+        clear_records(ws, &to_clear)?;
     }
     owed.sort();
     Ok(owed)
@@ -1609,7 +1747,6 @@ fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<St
 pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
     agent_token(agent)?;
     sync_queue_refs(ws)?;
-    fetch_origin(ws)?;
     unpublished_closes_synced(ws, agent)
 }
 
@@ -1618,10 +1755,32 @@ pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>>
 /// without a fetch behind each receipt.
 pub fn unpublished_closes_synced(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
     let by = agent_token(agent)?;
-    let mut out = closed_receipts(ws)?
+    let mine: Vec<(String, CloseRecord)> = closed_receipts(ws)?
+        .into_iter()
+        .filter(|(_, record)| record.agent == by)
+        .collect();
+    if mine.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(main_paths) = main_task_paths(ws) else {
+        let mut out: Vec<CloseRecord> = mine.into_iter().map(|(_, record)| record).collect();
+        out.sort_by(|a, b| a.task.cmp(&b.task));
+        return Ok(out);
+    };
+    let mut head_cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut out = mine
         .into_iter()
         .filter(|(id, record)| {
-            record.agent == by && !done_on_main(ws, id) && receipt_owed(ws, record)
+            if main_paths.contains(&format!(".agents/tasks/done/{id}.json")) {
+                return false;
+            }
+            if main_paths.contains(&format!(".agents/tasks/{id}.json")) {
+                return true;
+            }
+            let on_main = *head_cache
+                .entry(record.head.clone())
+                .or_insert_with(|| head_on_main(ws, record));
+            !on_main
         })
         .map(|(_, record)| record)
         .collect::<Vec<_>>();
@@ -1704,9 +1863,9 @@ impl AuditReport {
 /// work?". Read-only: it reports, and the claim path is what clears.
 pub fn audit(ws: &Path) -> EaiResult<AuditReport> {
     sync_queue_refs(ws)?;
-    // One fetch for the whole report: the per-task lookup below would otherwise
-    // hit the remote once per receipt.
-    git(ws, &["fetch", "--quiet", "origin"])?;
+    if remote() != DEFAULT_REMOTE {
+        git(ws, &["fetch", "--quiet", "origin"])?;
+    }
 
     let merged = records_under::<MergedTask>(ws, MERGED_NAMESPACE)?;
     let verified = records_under::<VerifiedTask>(ws, "refs/verified/")?;
@@ -2104,12 +2263,7 @@ pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
 
 /// [`claims`] for a caller that has just run [`sync_queue`].
 pub fn claims_synced(ws: &Path) -> EaiResult<Vec<Claim>> {
-    let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/claims/"])?;
-    Ok(refs
-        .lines()
-        .filter_map(|r| r.strip_prefix("refs/claims/"))
-        .filter_map(|id| read_claim(ws, id).map(|(_, c)| c))
-        .collect())
+    records_under::<Claim>(ws, "refs/claims/")
 }
 
 /// Refuse work on a stale base: an agent must hold every commit of
@@ -2341,11 +2495,6 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
             ));
         }
     }
-    let generation_ref = "refs/claim-generation/current";
-    // Read the generation BEFORE the snapshot; any concurrent successful
-    // claim invalidates our transaction, including a claim on a different task.
-    let generation = git(ws, &["ls-remote", &remote(), generation_ref])?;
-    let generation_old = generation.split_whitespace().next().unwrap_or("");
     let task = find_open(ws, id)?;
     let open: std::collections::HashSet<String> = list_open(ws).into_iter().map(|t| t.id).collect();
     if let Some(dep) = task.deps.iter().find(|d| open.contains(*d)) {
@@ -2354,7 +2503,35 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         )));
     }
     let agent = agent_token(agent)?;
+    let generation_ref = "refs/claim-generation/current";
+    let agent_ref = format!("refs/claim-agents/{agent}");
+    let r = remote();
+    // Read the generation and this agent's lease ref in one `ls-remote` BEFORE
+    // the snapshot; any concurrent successful claim invalidates our transaction,
+    // including a claim on a different task.
+    let preflight = git(ws, &["ls-remote", &r, generation_ref, &agent_ref])?;
+    let mut generation_old = "";
+    let mut agent_old = String::new();
+    for line in preflight.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(sha) = parts.next() else { continue };
+        match parts.next() {
+            Some(name) if name == generation_ref => generation_old = sha,
+            Some(name) if name == agent_ref => agent_old = sha.to_string(),
+            _ => {}
+        }
+    }
+    let generation_old = generation_old.to_string();
     let live = claims(ws)?;
+    let all_receipts = closed_receipts(ws)?;
+    let mut origin_fetched = r == DEFAULT_REMOTE;
+    let mut ensure_origin_fetched = |ws: &Path| -> EaiResult<()> {
+        if !origin_fetched {
+            fetch_origin(ws)?;
+            origin_fetched = true;
+        }
+        Ok(())
+    };
     // An accepted task whose close is not yet on origin/main is still owned by
     // whoever accepted it, whatever happened to the claim: it may have been
     // released, or lapsed hours ago. The receipt on the shared remote is the
@@ -2366,7 +2543,13 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     // published. The task being claimed here is exempt: re-adopting your own
     // accepted task is how `finish` keeps waiting, not a way to start
     // something new.
-    let owed = owed_closes(ws, &agent, Some(id))?;
+    let owed = owed_closes_from_receipts(
+        ws,
+        &all_receipts,
+        &agent,
+        Some(id),
+        &mut ensure_origin_fetched,
+    )?;
     if owed.len() > merges_in_flight() {
         let list = owed.join(", ");
         let first = owed.first().map(String::as_str).unwrap_or("");
@@ -2377,7 +2560,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
              give it up deliberately: `susi tasks release {first} --abandon <reason>`)"
         )));
     }
-    let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
+    let branch = symbolic_head_branch(ws);
     let owned = live
         .iter()
         .find(|c| c.task == id && c.agent == agent && !c.expired(now));
@@ -2401,7 +2584,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     if !held.is_empty() {
         // Refusing on a stale view of main would hold files a merge already
         // freed; one fetch, only when something overlaps.
-        fetch_origin(ws)?;
+        ensure_origin_fetched(ws)?;
     }
     for other in held {
         // `close` keeps the lease until the closing commit reaches main, and
@@ -2427,21 +2610,21 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     // Closed but not merged: the work is on a branch, not on main, so its
     // files are still taken. Only receipts that recorded their scopes count,
     // and only until the close is on `origin/main` (or the receipt is settled).
-    let overlapping = closed_receipts(ws)?
-        .into_iter()
+    let overlapping: Vec<&(String, CloseRecord)> = all_receipts
+        .iter()
         .filter(|(task, receipt)| {
             task != id
                 && !receipt.scopes.is_empty()
                 && scopes_conflict(&requested_scopes, &receipt.scopes)
         })
-        .collect::<Vec<_>>();
+        .collect();
     if !overlapping.is_empty() {
         // Refusing on a stale view of main would hold files a merge already
         // freed; one fetch, only when something overlaps.
-        fetch_origin(ws)?;
+        ensure_origin_fetched(ws)?;
     }
     for (task, receipt) in overlapping {
-        if done_on_main(ws, &task) || !receipt_owed(ws, &receipt) {
+        if done_on_main(ws, task) || !receipt_owed(ws, receipt) {
             continue;
         }
         return Err(EaiError::config(format!(
@@ -2466,10 +2649,6 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         expanded.scopes = requested_scopes;
         expanded.lease_until_unix = now.saturating_add(hours.max(1).saturating_mul(3600));
         let blob = claim_blob(ws, &expanded)?;
-        let r = remote();
-        let agent_ref = format!("refs/claim-agents/{agent}");
-        let agent_list = git(ws, &["ls-remote", &r, &agent_ref])?;
-        let agent_old = agent_list.split_whitespace().next().unwrap_or("");
         if !agent_old.is_empty() && agent_old != old {
             return Err(EaiError::config(
                 "agent ownership changed; cannot expand claim scope",
@@ -2480,8 +2659,8 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
             &r,
             &[
                 (claim_ref(id), old),
-                (agent_ref.clone(), agent_old.to_string()),
-                (generation_ref.to_string(), generation_old.to_string()),
+                (agent_ref.clone(), agent_old),
+                (generation_ref.to_string(), generation_old),
             ],
             &[
                 (claim_ref(id), Some(blob.clone())),
@@ -2500,12 +2679,9 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         )));
     }
     // A second atomic ref serializes claims by this agent even across clones.
-    let agent_ref = format!("refs/claim-agents/{agent}");
-    let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
-    let agent_old = listed.split_whitespace().next().unwrap_or("").to_string();
     if !agent_old.is_empty() {
         if git(ws, &["cat-file", "-e", &format!("{agent_old}^{{blob}}")]).is_err() {
-            git(ws, &["fetch", "--quiet", &remote(), &agent_ref])?;
+            git(ws, &["fetch", "--quiet", &r, &agent_ref])?;
         }
         let body = git(ws, &["cat-file", "-p", &agent_old])?;
         let owner: Claim = serde_json::from_str(&body)?;
@@ -2534,7 +2710,6 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         lease_until_unix: now.saturating_add(hours.max(1).saturating_mul(3600)),
     };
     let blob = claim_blob(ws, &mine)?;
-    let r = remote();
     let task_old = existing.as_ref().map_or("", |(sha, _)| sha.as_str());
     // A claim is one blob pushed to the task, agent and generation refs, so a
     // takeover of an expired claim leaves the previous holder's agent ref
@@ -2552,8 +2727,8 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     };
     let mut leases: Vec<queue_relay::Lease> = vec![
         (claim_ref(id), task_old.to_string()),
-        (agent_ref.clone(), agent_old.clone()),
-        (generation_ref.to_string(), generation_old.to_string()),
+        (agent_ref.clone(), agent_old),
+        (generation_ref.to_string(), generation_old),
     ];
     let mut updates: Vec<queue_relay::Update> = vec![
         (claim_ref(id), Some(blob.clone())),
@@ -2702,7 +2877,7 @@ fn release_claim(
     // must not erase the fact that the accepted work is still unmerged. Only
     // observing the merge, or an explicit abandonment, clears it.
     if let Some(record) = &receipt {
-        if published_on_main(ws, id)? {
+        if done_on_main(ws, id) {
             clear_record(ws, &closed_ref(id))?;
         } else if let Some(reason) = abandon_reason {
             if record.agent != by && !force {
@@ -2836,30 +3011,28 @@ fn tests_passed(cargo_output: &str) -> u64 {
 pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     let mut task = find_open(ws, id)?;
     let by = agent_token(agent)?;
-    let verify_owner = || -> EaiResult<()> {
-        let claim = claims(ws)?
-            .into_iter()
-            .find(|c| c.task == id)
-            .ok_or_else(|| {
-                EaiError::config(format!("{id} requires a live owned claim before closing"))
-            })?;
-        let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
-        if claim.agent != by
-            || claim.expired(now_unix())
-            || claim
-                .branch
-                .as_ref()
-                .is_some_and(|b| Some(b) != branch.as_ref())
-        {
-            return Err(EaiError::config(format!(
-                "{id} is claimed by {}, not {by} on this branch, or its lease expired",
-                claim.agent
-            )));
-        }
-        Ok(())
-    };
-    verify_owner()?;
-    ensure_open_on_main(ws, id)?;
+    sync_queue_refs(ws).map_err(|_| {
+        EaiError::config(format!(
+            "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
+        ))
+    })?;
+    let (_, owner_claim) = read_claim(ws, id).ok_or_else(|| {
+        EaiError::config(format!("{id} requires a live owned claim before closing"))
+    })?;
+    let branch = symbolic_head_branch(ws);
+    if owner_claim.agent != by
+        || owner_claim.expired(now_unix())
+        || owner_claim
+            .branch
+            .as_ref()
+            .is_some_and(|b| Some(b) != branch.as_ref())
+    {
+        return Err(EaiError::config(format!(
+            "{id} is claimed by {}, not {by} on this branch, or its lease expired",
+            owner_claim.agent
+        )));
+    }
+    ensure_open_on_main_synced(ws, id)?;
     if !accept_allowed(&task.accept.cmd) {
         return Err(EaiError::config("task acceptance command is not allowed"));
     }
@@ -2948,19 +3121,23 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             }
         }
     }
-    // Acceptance may outlive a lease; re-check before mutating the queue when
-    // an acceptance command actually ran (`covered` took zero time).
-    if !covered {
-        verify_owner()?;
+    // Acceptance may outlive a lease; check whether the lease expired before
+    // mutating the queue (a non-expired lease cannot be taken over by another
+    // agent).
+    if !covered && owner_claim.expired(now_unix()) {
+        return Err(EaiError::config(format!(
+            "{id} is claimed by {}, not {by} on this branch, or its lease expired",
+            owner_claim.agent
+        )));
     }
     // Publish the receipt before the record moves. From here the task is
     // accepted and its agent may not claim anything else until this head is on
     // origin/main; a failed push leaves the task open, so close is retried
     // rather than leaving an acceptance nobody can see.
-    push_close_receipt(ws, id, &by)?;
+    let head = push_close_receipt(ws, id, &by, owner_claim.scopes)?;
     task.closed = Some(Closed {
         at_unix: now_unix(),
-        commit: git(ws, &["rev-parse", "HEAD"]).unwrap_or_default(),
+        commit: head,
         by,
     });
     std::fs::create_dir_all(done_dir(ws))?;
@@ -3018,22 +3195,15 @@ fn acceptance_command(argv: &[String]) -> Command {
 /// driver, so each is a hand-resolved add/delete conflict in which one record
 /// silently wins. Fails closed — an unreachable origin refuses the close rather
 /// than risking a second one.
-fn ensure_open_on_main(ws: &Path, id: &str) -> EaiResult<()> {
-    git(ws, &["fetch", "--quiet", "origin"]).map_err(|_| {
-        EaiError::config(format!(
-            "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
-        ))
-    })?;
-    if git(
-        ws,
-        &[
-            "cat-file",
-            "-e",
-            &format!("origin/main:.agents/tasks/done/{id}.json"),
-        ],
-    )
-    .is_ok()
-    {
+fn ensure_open_on_main_synced(ws: &Path, id: &str) -> EaiResult<()> {
+    if remote() != DEFAULT_REMOTE {
+        git(ws, &["fetch", "--quiet", "origin"]).map_err(|_| {
+            EaiError::config(format!(
+                "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
+            ))
+        })?;
+    }
+    if done_on_main(ws, id) {
         return Err(EaiError::config(format!(
             "{id} is already closed on origin/main — merge origin/main instead of closing it \
              twice (if your work is still needed, open a new task)"
@@ -3244,7 +3414,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
             let run = |dir: &Path, args: &[&str]| {
-                let out = Command::new("git")
+                let out = Command::new(git_bin())
                     .args(args)
                     .current_dir(dir)
                     .env("GIT_AUTHOR_NAME", "t")
@@ -3262,24 +3432,24 @@ mod tests {
             let bare = root.join("server.git");
             std::fs::create_dir_all(&bare).unwrap();
             run(&bare, &["init", "--bare", "--quiet"]);
+            let bare_url = bare.to_string_lossy().replace('\\', "/");
             let mut clones = Vec::new();
             for name in ["a", "b"] {
                 let dir = root.join(name);
                 std::fs::create_dir_all(&dir).unwrap();
                 run(&dir, &["init", "--quiet"]);
-                // Repo-local identity: `run` sets the env vars, but a test that
-                // commits through the shared `git` helper has none, and the CI
-                // runner has no global identity either (a test must never need
-                // the developer's ~/.gitconfig).
-                run(&dir, &["config", "user.name", "test"]);
-                run(&dir, &["config", "user.email", "test@example.test"]);
-                // Nor the developer's signing setup: with `commit.gpgsign`
-                // set globally, every fixture commit went through gpg, and
-                // under the suite's parallel load gpg refused ("failed to
-                // sign the data") and failed 18 tests on one machine.
-                run(&dir, &["config", "commit.gpgsign", "false"]);
-                run(&dir, &["config", "tag.gpgsign", "false"]);
-                run(&dir, &["remote", "add", "origin", bare.to_str().unwrap()]);
+                // Repo-local identity, gpgsign off, and remote `origin` written
+                // directly to `.git/config` instead of spawning 5 git processes
+                // per clone across every test fixture.
+                let cfg_path = dir.join(".git").join("config");
+                let mut cfg = std::fs::read_to_string(&cfg_path).unwrap_or_default();
+                cfg.push_str(&format!(
+                    "\n[user]\n\tname = test\n\temail = test@example.test\n\
+                     [commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n\
+                     [remote \"origin\"]\n\turl = {bare_url}\n\
+                     \tfetch = +refs/heads/*:refs/remotes/origin/*\n"
+                ));
+                std::fs::write(&cfg_path, cfg).unwrap();
                 run(&dir, &["commit", "--allow-empty", "-m", "init", "--quiet"]);
                 clones.push(dir);
             }

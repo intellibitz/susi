@@ -43,6 +43,9 @@ fn release_branch(workspace: &Path) -> EaiResult<String> {
 /// aim a release at main by accident.
 fn push_release_branch(workspace: &Path) -> EaiResult<()> {
     let branch = release_branch(workspace)?;
+    // Steps 1-5b already ran the release gate (and any version cut only updates
+    // the version strings in the engine manifests), so tell `.githooks/pre-push`
+    // not to re-run `cargo clippy --workspace` a second time during the push.
     let out = Command::new("git")
         .args([
             "push",
@@ -51,6 +54,7 @@ fn push_release_branch(workspace: &Path) -> EaiResult<()> {
             &format!("HEAD:refs/heads/{branch}"),
         ])
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("SUSI_RELEASE_PUSH", "1")
         .current_dir(workspace)
         .output()?;
     if !out.status.success() {
@@ -119,8 +123,44 @@ fn green_main_shas(workspace: &Path, head_sha: &str) -> Option<Vec<String>> {
     if !out.status.success() {
         return None;
     }
+    let exact: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(String::from)
+        .collect();
+    if !exact.is_empty() {
+        return Some(exact);
+    }
+    // When main's newest commit is still running or was a task-only merge that
+    // did not change the code tree, fall back to the recent green main runs so
+    // `proven_by_green_run` can match an ancestor with the identical code tree.
+    let recent = Command::new("gh")
+        .args([
+            "run",
+            "list",
+            "--workflow",
+            "test.yml",
+            "--branch",
+            "main",
+            "--status",
+            "success",
+            "--limit",
+            "20",
+            "--json",
+            "headSha",
+            "--jq",
+            ".[].headSha",
+        ])
+        .env("GH_PROMPT_DISABLED", "1")
+        .current_dir(workspace)
+        .output()
+        .ok()?;
+    if !recent.status.success() {
+        return Some(exact);
+    }
     Some(
-        String::from_utf8_lossy(&out.stdout)
+        String::from_utf8_lossy(&recent.stdout)
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
@@ -129,15 +169,36 @@ fn green_main_shas(workspace: &Path, head_sha: &str) -> Option<Vec<String>> {
     )
 }
 
-/// True when `head_tree` equals the tree of any `green_shas` entry: a commit
-/// whose `main`-branch `Test` run concluded success has already proven those
-/// bytes — the tree-identity argument the merge machinery uses to skip a
-/// redundant suite. An absent object or failed resolve is a sha that does
-/// not match, never an error.
+/// True when `head_tree` equals the tree of any `green_shas` entry, or differs
+/// from an ancestor green SHA only under `.agents/tasks/` (the task queue, which
+/// is inert at build/test time): a commit whose `main`-branch `Test` run
+/// concluded success has already proven those code bytes — the tree-identity
+/// argument the merge machinery uses to skip a redundant suite. An absent
+/// object or failed resolve is a sha that does not match, never an error.
 fn proven_by_green_run(workspace: &Path, head_tree: &str, green_shas: &[String]) -> bool {
-    green_shas
-        .iter()
-        .any(|sha| git_tree(workspace, sha).as_deref() == Some(head_tree))
+    green_shas.iter().any(|sha| {
+        if git_tree(workspace, sha).as_deref() == Some(head_tree) {
+            return true;
+        }
+        Command::new("git")
+            .args(["cat-file", "-e", &format!("{sha}^{{commit}}")])
+            .current_dir(workspace)
+            .output()
+            .is_ok_and(|out| out.status.success())
+            && Command::new("git")
+                .args([
+                    "diff",
+                    "--no-renames",
+                    "--name-only",
+                    sha,
+                    head_tree,
+                    "--",
+                    ":(exclude).agents/tasks",
+                ])
+                .current_dir(workspace)
+                .output()
+                .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
+    })
 }
 
 /// The gate tests the working tree, so evidence recorded for HEAD applies
@@ -338,9 +399,11 @@ impl SusiAdmin {
         eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
         // Build once, then invoke the binary directly for each mission —
         // 3x `cargo run` re-resolves/relinks per invocation for no benefit.
-        eprintln!("[Release Gatekeeper]    -> cargo build (once for all smoke missions)");
+        eprintln!(
+            "[Release Gatekeeper]    -> cargo build --bin susi (once for all smoke missions)"
+        );
         let mut build = Command::new("cargo")
-            .args(["build", "--quiet"])
+            .args(["build", "--quiet", "--bin", "susi"])
             .current_dir(workspace)
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -355,28 +418,43 @@ impl SusiAdmin {
             .join("debug")
             .join(if cfg!(windows) { "susi.exe" } else { "susi" });
         // Bare mission commands persist intent evidence in their current
-        // workspace. Run release smoke checks in an ignored scratch workspace
-        // so validating a clean source tree cannot dirty `.agents/evidence.json`
-        // and then fail the cut's clean-tree gate.
+        // workspace. Run release smoke checks in parallel in isolated scratch
+        // workspaces so validating a clean source tree cannot dirty
+        // `.agents/evidence.json` and then fail the cut's clean-tree gate.
         let smoke_workspace = workspace.join("target").join("release-smoke-workspace");
         std::fs::create_dir_all(&smoke_workspace)?;
         let missions = ["identity", "status", "models"];
-        for mission in missions {
-            let mut mission_out = Command::new(&susi_bin)
-                .arg(mission)
-                .current_dir(&smoke_workspace)
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?;
-            let status = mission_out.wait()?;
-            if !status.success() {
-                return Err(EaiError::process(format!(
-                    "Release aborted: Ephemeral mission '{}' failed.",
-                    mission
-                )));
-            }
-        }
+        let mission_outcomes = std::thread::scope(|scope| {
+            let handles: Vec<_> = missions
+                .iter()
+                .map(|mission| {
+                    let bin = &susi_bin;
+                    let dir = smoke_workspace.join(mission);
+                    scope.spawn(move || -> EaiResult<()> {
+                        std::fs::create_dir_all(&dir)?;
+                        let out = Command::new(bin).arg(mission).current_dir(&dir).output()?;
+                        if !out.status.success() {
+                            return Err(EaiError::process(format!(
+                                "Release aborted: Ephemeral mission '{}' failed.",
+                                mission
+                            )));
+                        }
+                        Ok(())
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join()
+                        .unwrap_or_else(|_| Err(EaiError::process("smoke mission panicked")))
+                })
+                .collect::<Vec<_>>()
+        });
         let _ = std::fs::remove_dir_all(&smoke_workspace);
+        for outcome in mission_outcomes {
+            outcome?;
+        }
 
         eprintln!("[Release Gatekeeper] 5b. Running the built binary on its own new behaviour (e2e checks)...");
         let e2e_scratch = workspace.join("target").join("release-e2e-scratch");
@@ -716,33 +794,57 @@ impl SusiAdmin {
         // released: without a ceiling, git in a check walks up, finds that repo
         // and `susi tasks` lists its real queue instead of an empty one.
         let ceiling = scratch.canonicalize()?;
-        let mut passed = Vec::new();
-        for (i, check) in E2E_CHECKS.iter().enumerate() {
-            let root = scratch.join(format!("check-{i}"));
-            let home = root.join("home");
-            let cwd = root.join("cwd");
-            std::fs::create_dir_all(&home)?;
-            std::fs::create_dir_all(&cwd)?;
-            let out = e2e_command(susi_bin, check.args, &home, &cwd, &ceiling).output()?;
-            let files: Vec<String> = std::fs::read_dir(&cwd)?
-                .filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+        // Each check uses its own isolated `check-<i>` subdirectory and runs
+        // offline against its own scratch HOME, so running them in parallel
+        // cuts the 7 sequential process spawns to the wall time of the single
+        // slowest check while preserving deterministic result ordering.
+        let results = std::thread::scope(|scope| {
+            let handles: Vec<_> = E2E_CHECKS
+                .iter()
+                .enumerate()
+                .map(|(i, check)| {
+                    let ceiling = &ceiling;
+                    scope.spawn(move || -> EaiResult<String> {
+                        let root = scratch.join(format!("check-{i}"));
+                        let home = root.join("home");
+                        let cwd = root.join("cwd");
+                        std::fs::create_dir_all(&home)?;
+                        std::fs::create_dir_all(&cwd)?;
+                        let out =
+                            e2e_command(susi_bin, check.args, &home, &cwd, ceiling).output()?;
+                        let files: Vec<String> = std::fs::read_dir(&cwd)?
+                            .filter_map(Result::ok)
+                            .map(|e| e.file_name().to_string_lossy().into_owned())
+                            .collect();
+                        e2e_verdict(
+                            check,
+                            out.status.code(),
+                            &String::from_utf8_lossy(&out.stdout),
+                            &String::from_utf8_lossy(&out.stderr),
+                            &files,
+                        )
+                        .map_err(|why| {
+                            EaiError::process(format!(
+                                "Release aborted: e2e check `{}` (susi {}) failed: {why}",
+                                check.name,
+                                check.args.join(" ")
+                            ))
+                        })?;
+                        Ok(check.name.to_string())
+                    })
+                })
                 .collect();
-            e2e_verdict(
-                check,
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stdout),
-                &String::from_utf8_lossy(&out.stderr),
-                &files,
-            )
-            .map_err(|why| {
-                EaiError::process(format!(
-                    "Release aborted: e2e check `{}` (susi {}) failed: {why}",
-                    check.name,
-                    check.args.join(" ")
-                ))
-            })?;
-            passed.push(check.name.to_string());
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join()
+                        .unwrap_or_else(|_| Err(EaiError::process("e2e check panicked")))
+                })
+                .collect::<Vec<_>>()
+        });
+        let mut passed = Vec::with_capacity(E2E_CHECKS.len());
+        for res in results {
+            passed.push(res?);
         }
         Ok(passed)
     }

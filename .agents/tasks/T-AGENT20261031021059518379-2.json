@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT20261031021059518379-2",
+  "title": "Accelerate tasks claim/close, workflow check/sync, and release cut under 60s",
+  "goal": "Batch claims_synced with cat-file --batch, deduplicate sync_queue_refs in claim_once, parallelize E2E_CHECKS and smoke missions in release.rs, bypass redundant pre-push clippy on release cut, parallelize workflow check post-fetch checks, and fix MSYS path conversion and redundant fetch in check-owed-runs.sh",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793411753
+}

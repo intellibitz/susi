@@ -48,7 +48,9 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
                 [ -f "$f" ] && git hash-object -- "$f"
             done
     } | git hash-object --stdin)
-    if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
+    if [ "${SUSI_RELEASE_PUSH:-}" = 1 ] && [ -z "${SUSI_GATE_NOCACHE:-}" ]; then
+        echo "✅ Release gate already verified this tree — skipping pre-push clippy rerun."
+    elif [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "✅ Clippy already passed in local gate for this exact diff — skipping pre-push rerun."
     else
         # The crates the push touches and their dependents - the same set, and the
