@@ -496,7 +496,7 @@ pub fn ok(checks: &[Check]) -> bool {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let out = Command::new(tasks::git_bin())
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -594,8 +594,10 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .unwrap_or_else(|| dir.to_path_buf());
     let abs =
         |arg: &str| git(&root, &["rev-parse", "--path-format=absolute", arg]).map(PathBuf::from);
-    let primary = match (abs("--git-dir"), abs("--git-common-dir")) {
-        (Some(gd), Some(cd)) => canonical(&gd) == canonical(&cd),
+    let git_dir = abs("--git-dir");
+    let common_dir = abs("--git-common-dir");
+    let primary = match (&git_dir, &common_dir) {
+        (Some(gd), Some(cd)) => canonical(gd) == canonical(cd),
         _ => false,
     };
     let branch = git(&root, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
@@ -614,7 +616,6 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     // network round-trips instead of after them, against the origin/main this
     // clone already has: a worktree that merged a moment ago is counted on
     // the next check.
-    let common_dir = abs("--git-common-dir");
     let ((behind, queue_synced), (stale_mine, stale_others)) = std::thread::scope(|scope| {
         let stale = scope.spawn(|| match &common_dir {
             Some(dir) => {
@@ -678,22 +679,35 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     mark("owed closes");
     // What blocks `sync` and the gate, which used to be invisible here.
     let porcelain = git(&root, &["status", "--porcelain"]);
-    let merging = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
-        .iter()
-        .any(|m| git(&root, &["rev-parse", "--verify", "--quiet", m]).is_some())
-        || ["rebase-merge", "rebase-apply"].iter().any(|d| {
-            git(
-                &root,
-                &["rev-parse", "--path-format=absolute", "--git-path", d],
-            )
-            .is_some_and(|p| Path::new(&p).exists())
-        });
+    let merging = git_dir.as_ref().map_or_else(
+        || {
+            ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
+                .iter()
+                .any(|m| git(&root, &["rev-parse", "--verify", "--quiet", m]).is_some())
+                || ["rebase-merge", "rebase-apply"].iter().any(|d| {
+                    git(
+                        &root,
+                        &["rev-parse", "--path-format=absolute", "--git-path", d],
+                    )
+                    .is_some_and(|p| Path::new(&p).exists())
+                })
+        },
+        |gd| {
+            ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
+                .iter()
+                .any(|m| gd.join(m).exists())
+                || ["rebase-merge", "rebase-apply"]
+                    .iter()
+                    .any(|d| gd.join(d).exists())
+        },
+    );
 
     mark("tree state");
     // The watcher writes this every loop; a stale stamp is how a dead watcher
     // becomes visible, since the log file stays empty while things go well.
     let now = tasks::now_unix();
-    let watcher_age = abs("--git-common-dir")
+    let watcher_age = common_dir
+        .as_ref()
         .map(|c| c.join("susi-primary-watch.stamp"))
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| s.trim().parse::<u64>().ok())
@@ -1212,7 +1226,7 @@ mod tests {
     /// `git args` in `dir`, with a test identity and none of the caller's
     /// repository settings.
     fn git_ok(dir: &Path, args: &[&str]) {
-        let out = Command::new("git")
+        let out = Command::new(tasks::git_bin())
             .args(args)
             .current_dir(dir)
             .env("GIT_AUTHOR_NAME", "t")

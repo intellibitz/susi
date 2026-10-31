@@ -17,6 +17,7 @@
 #
 #   scripts/check-owed-runs.sh            # exit 0 always; ❌ lines name red runs
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$root" || exit 0
 command -v gh >/dev/null 2>&1 || exit 0
@@ -29,19 +30,19 @@ agent=$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 [ -n "$agent" ] || exit 0
 remote=${SUSI_TASK_REMOTE:-origin}
 
-git fetch --quiet --prune "$remote" '+refs/closed/*:refs/closed/*' 2>/dev/null || exit 0
-# The branches `finish` pushes: their tips are what the runs are keyed on.
-git fetch --quiet --prune "$remote" 2>/dev/null || exit 0
-while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    id=${name#refs/closed/}
-    body=$(git cat-file -p "$name" 2>/dev/null || true)
-    [ "$(jq -r '.agent // ""' <<<"$body" 2>/dev/null)" = "$agent" ] || continue
+git fetch --quiet --prune "$remote" "+refs/heads/*:refs/remotes/$remote/*" '+refs/closed/*:refs/closed/*' 2>/dev/null || exit 0
+while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    body=$(git cat-file -p "refs/closed/$id" 2>/dev/null || true)
     head=$(jq -r '.head // ""' <<<"$body" 2>/dev/null)
     [ -n "$head" ] || continue
-    # Published work: the close is on main, the record just has not been
-    # cleaned up yet.
+    # Published work: the close is on main (or the tested head itself is an
+    # ancestor of main), the record just has not been cleaned up yet.
     git cat-file -e "$remote/main:.agents/tasks/done/$id.json" 2>/dev/null && continue
+    if git merge-base --is-ancestor "$head" "$remote/main" 2>/dev/null \
+        && ! git cat-file -e "$remote/main:.agents/tasks/$id.json" 2>/dev/null; then
+        continue
+    fi
     # Every remote branch (main aside) whose history holds the accepted head
     # is a branch finish pushed for this task; judge the run for its tip.
     while IFS= read -r ref; do
@@ -66,5 +67,5 @@ MSG
             ;;
         esac
     done < <(git for-each-ref --format='%(refname)' --contains "$head" "refs/remotes/$remote/" 2>/dev/null || true)
-done < <(git for-each-ref --format='%(refname)' refs/closed/ 2>/dev/null || true)
+done < <("$root/scripts/owed-task-receipts.sh" "$agent" "$remote")
 exit 0
