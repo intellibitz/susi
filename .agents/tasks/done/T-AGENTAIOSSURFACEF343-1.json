@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "AGENTAIOSSURFACEF343",
-  "created_unix": 1793477472
+  "created_unix": 1793477472,
+  "closed": {
+    "at_unix": 1793478254,
+    "commit": "453854633eeb79f130e359dfaed82ae5d5b301f1",
+    "by": "AGENTAIOSSURFACEF343"
+  }
 }
