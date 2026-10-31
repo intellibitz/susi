@@ -1,4 +1,4 @@
-//! Haystack (deepset) E2E management via shared Python engine helpers.
+//! Haystack (deepset) peer via an operator-supplied script. The OS ships no sample program.
 
 use super::python_engine::EngineProfile;
 
@@ -12,42 +12,9 @@ pub const PROFILE: EngineProfile = EngineProfile {
     import_name: IMPORT_NAME,
     package_hint: "pip/uv install haystack-ai",
     documentation: "https://docs.haystack.deepset.ai/",
-    scaffold_subdir: "haystack",
-    example_script: r#"#!/usr/bin/env python3
-"""Minimal Haystack pipeline entry used by SUSI. Replace with your document pipeline."""
-from __future__ import annotations
-
-import json
-import os
-import sys
-
-from haystack import Pipeline
-from haystack.components.builders import PromptBuilder
-from haystack.components.generators import OpenAIGenerator
-
-
-def main() -> None:
-    prompt = os.environ.get("SUSI_AGENT_PROMPT", "")
-    model = os.environ.get("HAYSTACK_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
-    pipe = Pipeline()
-    pipe.add_component("prompt", PromptBuilder(template="Answer concisely: {{query}}"))
-    pipe.add_component("llm", OpenAIGenerator(model=model))
-    pipe.connect("prompt.prompt", "llm.prompt")
-    result = pipe.run({"prompt": {"query": prompt}})
-    replies = result.get("llm", {}).get("replies") or []
-    answer = replies[0] if replies else str(result)
-    print(json.dumps({"prompt": prompt, "answer": str(answer)}, ensure_ascii=False), flush=True)
-
-
-if __name__ == "__main__":
-    main()
-    sys.stdout.flush()
-"#,
-    example_filename: "agent.py",
     credential_envs: &["OPENAI_API_KEY", "OPENROUTER_API_KEY"],
     credential_hint: "export OPENAI_API_KEY=… (or OPENROUTER_API_KEY + OPENAI_API_BASE)",
     process_banner: "susi-haystack",
-    cli_name: "haystack",
 };
 
 #[cfg(test)]
@@ -55,8 +22,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn example_mentions_haystack() {
-        assert!(PROFILE.example_script.contains("from haystack import"));
-        assert!(PROFILE.example_script.contains("SUSI_AGENT_PROMPT"));
+    fn profile_points_at_operator_config() {
+        assert_eq!(PROFILE.engine_id, ENGINE_ID);
+        assert_eq!(PROFILE.config_env, CONFIG_ENV);
+        let source = include_str!("haystack.rs");
+        assert!(!source.contains(&["#!", "/usr/bin/env python3"].concat()));
+        assert!(!source.contains(&["example", "_script"].concat()));
+        assert!(!source.contains(&["init", "_workspace"].concat()));
     }
 }

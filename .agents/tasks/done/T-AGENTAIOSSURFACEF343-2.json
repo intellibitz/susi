@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENTAIOSSURFACEF343-2",
+  "title": "Remove shipped Python framework scaffolds",
+  "goal": "Stop embedding and writing sample Python programs for CrewAI, LangGraph, AutoGen, Haystack, LlamaIndex, smolagents, OpenAI Agents, Temporal, and E2B. susi frameworks run still launches an operator-supplied script via the config env.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "profile_points_at_operator_config"
+    ]
+  },
+  "created_by": "AGENTAIOSSURFACEF343",
+  "created_unix": 1793478851,
+  "closed": {
+    "at_unix": 1793479105,
+    "commit": "a8d570f311f226a123e9aafcd799569d86669b33",
+    "by": "AGENTAIOSSURFACEF343"
+  }
+}

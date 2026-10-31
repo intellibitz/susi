@@ -67,25 +67,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::OpenWeight { .. }
         | Commands::Frontier { .. }
         | Commands::OpenRouter { .. }
-        | Commands::OpenHands { .. }
-        | Commands::Gemini { .. }
-        | Commands::Aider { .. }
-        | Commands::SweAgent { .. }
-        | Commands::BrowserUse { .. }
-        | Commands::OpenViking { .. }
-        | Commands::DeerFlow { .. }
-        | Commands::LangGraph { .. }
-        | Commands::OpenAiAgents { .. }
-        | Commands::AutoGen { .. }
-        | Commands::SmolAgents { .. }
-        | Commands::CrewAi { .. }
-        | Commands::LlamaIndex { .. }
-        | Commands::Temporal { .. }
-        | Commands::E2b { .. }
-        | Commands::Haystack { .. }
         | Commands::Run { .. }
-        | Commands::Chat { .. }
-        | Commands::Code { .. }
         | Commands::Top { .. } => {}
         Commands::Models {
             action: Some(super::model_cli::ModelCommands::Local),

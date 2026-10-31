@@ -28,17 +28,10 @@ name: Release Binaries
 # single `susi` unit was the long pole of every leg: it starts only after all
 # ~700 dependency crates finish and, under fat LTO, runs on one thread (988 s of
 # a 1548 s cold build, measured on 28 cores). Thin LTO keeps the cross-crate
-# optimisation and runs that unit on every core; Cargo.toml's `[profile.release]`
-# note measured the runtime delta as small. Caching dependencies cannot be bought
-# here: a cache written by a tag run is readable only by that tag, one written on
-# main would need ~2 GB per leg against a 10 GB repository quota that Test
-# already fills (see test.yml). Measured on v0.21.27 (2026-10-31): sccache hit 0
-# of 892 compiles on the Windows leg, whose cold `cargo build --profile dist`
-# took 23.6 of the leg's 28 minutes (Linux: 8.3 of 9). So the legs save no
-# target cache (`cache-targets: "false"` below): the ~1 GB a tag run wrote per
-# leg could never be read again and only evicted Test's caches, the ones that
-# carry every pull request. The sccache wiring stays for a dispatch on a
-# branch, which is how a change to this pipeline is proven.
+# optimisation and runs that unit on every core. The Windows leg restores a
+# dependency-only dist target from release-warm.yml on main; tag runs never
+# save a target or thousands of sccache objects that later tags cannot read.
+# Other platforms remain cold until their cache cost and benefit are measured.
 on:
   push:
     tags:
@@ -128,7 +121,7 @@ jobs:
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
     env:
-      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
       # Thin LTO over 16 units for the published binaries (header): the one
@@ -184,8 +177,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.name }}
-          # A tag run's target cache is readable by that tag alone (header).
-          cache-targets: "false"
+          # Only Windows has a main-branch dist warmer. Never save from a tag:
+          # its cache is not readable by the next tag.
+          cache-targets: ${{ matrix.name == 'windows-x86_64' && 'true' || 'false' }}
+          save-if: "false"
 
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
@@ -363,7 +358,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
       CARGO_PROFILE_DIST_LTO: thin
@@ -384,6 +379,7 @@ jobs:
           shared-key: release-cuda-linux-x86_64
           # A tag run's target cache is readable by that tag alone (header).
           cache-targets: "false"
+          save-if: "false"
 
       - name: Install System Dependencies
         run: |

@@ -70,7 +70,7 @@ pub fn doctor() -> Result<String> {
     let detail = def.adapter.preflight()?;
     if !config_present() {
         bail!(
-            "DeerFlow config.yaml missing — run `susi deerflow init`, or set \
+            "DeerFlow config.yaml missing — set \
              DEER_FLOW_CONFIG_PATH / DEER_FLOW_PROJECT_ROOT (clone + `make setup`); see {INSTALL_DOCS}"
         );
     }
@@ -109,11 +109,9 @@ pub fn setup() -> serde_json::Value {
             .unwrap_or(json!(null)),
         "instructions": [
             "1) Install CLI: `uv pip install deerflow-harness`  (optional TUI: `uv pip install 'deerflow-harness[tui]'`)",
-            "2a) Quick scaffold: `susi deerflow init` then export DEER_FLOW_CONFIG_PATH / DEER_FLOW_HOME as printed",
-            "2b) Full harness: clone https://github.com/bytedance/deer-flow → `make setup` (or Install.md)",
+            "2) Full harness: clone https://github.com/bytedance/deer-flow → `make setup` (or Install.md), then export DEER_FLOW_CONFIG_PATH / DEER_FLOW_HOME",
             "3) Auth: export OPENAI_API_KEY=… (or keys referenced by config.yaml models)",
-            "4) `susi deerflow doctor` then `susi deerflow run --wait \"summarize this repo\"`",
-            "5) Also: `susi agents run deerflow`",
+            "4) `susi agents doctor deerflow` then `susi agents run deerflow --wait \"summarize this repo\"`",
             "Headless: `deerflow --json \"…\"`  (or `deerflow --print \"…\"`)",
             "No packages or subscriptions are provisioned implicitly."
         ],

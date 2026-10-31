@@ -315,7 +315,7 @@
   },
   {
     "name": "OpenHandsAgent",
-    "description": "OpenHands managed executor; setup and task lifecycle via `susi openhands` / `susi agents`.",
+    "description": "OpenHands managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -351,7 +351,7 @@
   },
   {
     "name": "AiderAgent",
-    "description": "Aider managed executor; setup and task lifecycle via `susi aider` / `susi agents`.",
+    "description": "Aider managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -369,7 +369,7 @@
   },
   {
     "name": "SweAgent",
-    "description": "SWE-agent managed executor; setup and task lifecycle via `susi swe-agent` / `susi agents`.",
+    "description": "SWE-agent managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -388,7 +388,7 @@
   },
   {
     "name": "BrowserUseAgent",
-    "description": "Browser Use managed executor; setup and task lifecycle via `susi browser-use` / `susi agents`.",
+    "description": "Browser Use managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -407,7 +407,7 @@
   },
   {
     "name": "OpenVikingAgent",
-    "description": "OpenViking managed context DB; setup and retrieval via `susi openviking` / `susi agents`.",
+    "description": "OpenViking managed context DB; setup and retrieval via `susi agents`.",
     "categories": [
       "peer",
       "context",
@@ -426,7 +426,7 @@
   },
   {
     "name": "DeerFlowAgent",
-    "description": "DeerFlow managed SuperAgent harness; setup and task lifecycle via `susi deerflow` / `susi agents`.",
+    "description": "DeerFlow managed SuperAgent harness; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -462,7 +462,7 @@
   },
   {
     "name": "GeminiCliAgent",
-    "description": "Gemini CLI managed executor; setup and task lifecycle via `susi gemini` / `susi agents`.",
+    "description": "Gemini CLI managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -516,7 +516,7 @@
   },
   {
     "name": "LangGraphEngine",
-    "description": "LangGraph managed agent framework; setup via `susi langgraph` (or `susi frameworks`).",
+    "description": "LangGraph managed agent framework; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -534,7 +534,7 @@
   },
   {
     "name": "OpenAIAgentsEngine",
-    "description": "OpenAI Agents SDK managed framework; setup via `susi openai-agents` (or `susi frameworks`).",
+    "description": "OpenAI Agents SDK managed framework; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -552,7 +552,7 @@
   },
   {
     "name": "AutoGenEngine",
-    "description": "AutoGen managed agent framework; setup via `susi autogen` (or `susi frameworks`).",
+    "description": "AutoGen managed agent framework; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -570,7 +570,7 @@
   },
   {
     "name": "CrewAIEngine",
-    "description": "CrewAI managed agent framework; setup via `susi crewai` (or `susi frameworks`).",
+    "description": "CrewAI managed agent framework; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -673,7 +673,7 @@
   },
   {
     "name": "LlamaIndexEngine",
-    "description": "LlamaIndex Agent Framework managed engine; setup via `susi llamaindex` (or `susi frameworks`).",
+    "description": "LlamaIndex Agent Framework managed engine; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -691,7 +691,7 @@
   },
   {
     "name": "SmolAgentsEngine",
-    "description": "Hugging Face smolagents managed framework; setup via `susi smolagents` (or `susi frameworks`).",
+    "description": "Hugging Face smolagents managed framework; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -709,7 +709,7 @@
   },
   {
     "name": "TemporalEngine",
-    "description": "Temporal durable workflow engine; setup via `susi temporal` (or `susi frameworks`).",
+    "description": "Temporal durable workflow engine; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -727,7 +727,7 @@
   },
   {
     "name": "E2bEngine",
-    "description": "E2B cloud sandbox runtime; setup via `susi e2b` (or `susi frameworks`).",
+    "description": "E2B cloud sandbox runtime; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",
@@ -745,7 +745,7 @@
   },
   {
     "name": "HaystackEngine",
-    "description": "Haystack document/RAG pipeline engine; setup via `susi haystack` (or `susi frameworks`).",
+    "description": "Haystack document/RAG pipeline engine; setup via `susi frameworks`.",
     "categories": [
       "peer",
       "framework",

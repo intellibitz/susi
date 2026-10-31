@@ -45,8 +45,54 @@ fn is_top_level(root: &Command, word: &str) -> bool {
 
 /// `Some(suggestions)` when `intent` must be refused (empty suggestions =
 /// refuse without a specific hint), `None` when it may become a mission.
+/// Application commands removed from the OS surface, with the plane that
+/// still does the job. A bare `susi aider` must not become a swarm mission.
+const RETIRED_APPLICATION_COMMANDS: &[(&str, &str)] = &[
+    (
+        "chat",
+        "`susi run` executes one completion; quote a sentence to run a mission",
+    ),
+    (
+        "code",
+        "`susi patch` applies a tested edit; coding peers are `susi agents`",
+    ),
+    ("aider", "`susi agents run aider`"),
+    ("openhands", "`susi agents run openhands`"),
+    ("oh", "`susi agents run openhands`"),
+    ("gemini", "`susi agents run gemini-cli`"),
+    ("gcli", "`susi agents run gemini-cli`"),
+    ("swe-agent", "`susi agents run swe-agent`"),
+    ("sweagent", "`susi agents run swe-agent`"),
+    ("browser-use", "`susi agents run browser-use`"),
+    ("bu", "`susi agents run browser-use`"),
+    ("openviking", "`susi agents run openviking`"),
+    ("viking", "`susi agents run openviking`"),
+    ("deerflow", "`susi agents run deerflow`"),
+    ("deer", "`susi agents run deerflow`"),
+    ("langgraph", "`susi frameworks run langgraph`"),
+    ("lg", "`susi frameworks run langgraph`"),
+    ("openai-agents", "`susi frameworks run openai-agents`"),
+    ("oas", "`susi frameworks run openai-agents`"),
+    ("autogen", "`susi frameworks run autogen`"),
+    ("ag", "`susi frameworks run autogen`"),
+    ("smolagents", "`susi frameworks run smolagents`"),
+    ("smol", "`susi frameworks run smolagents`"),
+    ("crewai", "`susi frameworks run crewai`"),
+    ("llamaindex", "`susi frameworks run llamaindex`"),
+    ("llama", "`susi frameworks run llamaindex`"),
+    ("temporal", "`susi frameworks run temporal`"),
+    ("e2b", "`susi frameworks run e2b`"),
+    ("haystack", "`susi frameworks run haystack`"),
+];
+
 pub(crate) fn refuse(root: &Command, intent: &[String]) -> Option<Vec<String>> {
     let first = intent.first()?;
+    if let Some((_, hint)) = RETIRED_APPLICATION_COMMANDS
+        .iter()
+        .find(|(name, _)| *name == first)
+    {
+        return Some(vec![(*hint).to_string()]);
+    }
     let argv_like = intent.iter().all(|t| !t.chars().any(char::is_whitespace));
     if !argv_like {
         return None; // a quoted sentence is prose
@@ -107,6 +153,24 @@ mod tests {
         assert!(refuse(&root(), &["explain --release to me".to_string()]).is_none());
         assert!(refuse(&root(), &args("identity")).is_none());
         assert!(refuse(&root(), &[]).is_none());
+    }
+
+    #[test]
+    fn retired_application_commands_point_at_the_os_plane() {
+        let chat = refuse(&root(), &args("chat")).unwrap();
+        assert!(chat.iter().any(|h| h.contains("susi run")), "{chat:?}");
+        let aider = refuse(&root(), &args("aider")).unwrap();
+        assert!(
+            aider.iter().any(|h| h.contains("susi agents run aider")),
+            "{aider:?}"
+        );
+        let crew = refuse(&root(), &args("crewai")).unwrap();
+        assert!(
+            crew.iter()
+                .any(|h| h.contains("susi frameworks run crewai")),
+            "{crew:?}"
+        );
+        assert!(refuse(&root(), &args("fix the login bug")).is_none());
     }
 
     #[test]

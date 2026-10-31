@@ -11,9 +11,10 @@
     )
 )]
 
-//! Public web API integrations (Open-Meteo weather, DuckDuckGo instant
-//! answers). Zero-config, no vendor keys; outbound HTTP goes through
-//! `susi-http-transport` and every request is egress-gated.
+//! Search-evidence dispatch for admitted tools.
+//!
+//! The OS does not embed a weather provider or a search engine. Live evidence
+//! comes only from a search tool the operator has admitted.
 
 pub use susi_core;
 pub use susi_error;

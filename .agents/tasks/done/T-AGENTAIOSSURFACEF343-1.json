@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENTAIOSSURFACEF343-1",
+  "title": "Keep the AI OS surface and drop application commands",
+  "goal": "Remove chatbot, coding-app, and per-product CLI commands, and stop shipping weather and instant-answer clients. Peers stay on susi agents and susi frameworks. Model exec stays on susi run.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi",
+      "application_commands_are_not_os_commands"
+    ]
+  },
+  "created_by": "AGENTAIOSSURFACEF343",
+  "created_unix": 1793477472,
+  "closed": {
+    "at_unix": 1793478254,
+    "commit": "453854633eeb79f130e359dfaed82ae5d5b301f1",
+    "by": "AGENTAIOSSURFACEF343"
+  }
+}

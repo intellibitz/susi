@@ -1452,7 +1452,7 @@ mod tests {
     }
 
     #[test]
-    fn test_search_agent_is_native_and_fetches_live_weather() {
+    fn test_search_agent_does_not_ship_a_weather_client() {
         let agent = instantiate_native_agent("SearchAgent")
             .expect("SearchAgent must have a real native implementation");
         assert_eq!(agent.name(), "SearchAgent");
@@ -1464,17 +1464,15 @@ mod tests {
                 &blackboard,
             )
             .unwrap();
-        // Prefer live observation; if offline, still must not invent conditions.
         assert!(
-            res.contains("Live weather observation")
-                || res.contains("Live search/weather data unavailable"),
+            res.contains("Live search data unavailable")
+                || res.contains("Live search evidence via"),
             "unexpected SearchAgent output: {res}"
         );
-        if res.contains("Live weather observation") {
-            assert!(res.contains("Open-Meteo"));
-            assert!(res.contains("Observation time:"));
-            assert!(res.contains("Temperature:"));
-        }
+        assert!(
+            !res.contains("Open-Meteo") && !res.contains("DuckDuckGo"),
+            "the OS must not call a built-in web API: {res}"
+        );
         assert_eq!(blackboard.get("SearchAgent").as_deref(), Some(res.as_str()));
     }
 
