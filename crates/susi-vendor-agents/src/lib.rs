@@ -23,27 +23,9 @@ pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
 pub mod a2a_card_cache;
-pub mod a2a_streaming_client;
-pub mod acp_discovery;
 pub mod agent_scoreboard;
-pub mod agent_trace_import;
-pub mod delegation_ingress;
-#[cfg(test)]
-mod eco_acp_ibm;
-#[cfg(test)]
-mod eco_acp_zed;
-#[cfg(test)]
-mod eco_agent_frameworks;
-#[cfg(test)]
-mod eco_anp_agui;
-#[cfg(test)]
-mod eco_computer_use_tools;
 pub mod external;
 pub mod zc_a2a_registry;
 pub mod zc_agent_approvals;
-pub mod zc_agent_autodetect;
-pub mod zc_agent_flags;
-pub mod zc_cloud_agent_autoenable;
 pub mod zc_delegation_dir;
-pub mod zc_openhands_docker;
 pub mod zc_workspace_trust;

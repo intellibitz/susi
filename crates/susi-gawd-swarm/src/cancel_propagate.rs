@@ -445,6 +445,35 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
+        // MSYS2 background jobs (`sh -c "cmd &"`) fork via an intermediate
+        // process that exits immediately, breaking the Win32 ParentProcessId
+        // chain before `taskkill /T` runs. Reap any MSYS2 child whose MSYS2
+        // PPID was just terminated by `taskkill` (PPID > 1 and no longer in
+        // `ps`) so neither the descendant nor its inherited stdio pipes outlive
+        // cancellation.
+        if let Ok(out) = Command::new("ps").stderr(Stdio::null()).output() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let rows: Vec<(u32, u32)> = text
+                .lines()
+                .skip(1)
+                .filter_map(|line| {
+                    let mut nums = line
+                        .split_whitespace()
+                        .filter_map(|tok| tok.parse::<u32>().ok());
+                    Some((nums.next()?, nums.next()?))
+                })
+                .collect();
+            let live: std::collections::BTreeSet<u32> = rows.iter().map(|(pid, _)| *pid).collect();
+            for (pid, ppid) in rows {
+                if ppid > 1 && !live.contains(&ppid) {
+                    let _ = Command::new("kill")
+                        .args(["-9", &pid.to_string()])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
+            }
+        }
     }
     let _ = child.kill();
 }

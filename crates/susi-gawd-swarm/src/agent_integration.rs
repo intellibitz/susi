@@ -859,7 +859,9 @@ mod tests {
         }
         // Nothing silently overwritten: main still has its line, no merge left behind.
         assert_eq!(
-            std::fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            std::fs::read_to_string(repo.join("shared.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "main-edit\nline2\n"
         );
         assert!(!q.is_done("j1"));

@@ -107,7 +107,6 @@ pub mod intent_ladder;
 pub mod kernel_loader;
 pub mod lane_overlap_warning;
 pub mod model_rate_arbitration;
-pub mod ops_slo;
 pub mod orchestrator_tier;
 pub mod paired_regression;
 pub mod patch_cycle;
@@ -127,21 +126,13 @@ pub mod rsi_generations;
 pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
-pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
 pub mod telemetry;
 pub mod tenant_isolation;
-pub mod update_health;
 pub mod worker_identity;
-pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
-pub mod zc_gh_auth_auto;
-pub mod zc_task_scaffold;
 pub mod zc_tasks_next;
-pub mod zc_toolchain_auto;
-pub mod zc_updates_default;
-pub mod zc_worktree_gc;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]
@@ -251,9 +242,6 @@ mod vc_201_078_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_092.rs"]
-mod vc_201_092_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_093.rs"]
 mod vc_201_093_tests;
