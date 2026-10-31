@@ -389,7 +389,7 @@ impl SusiAdmin {
     ///   that fails (network, auth, no `origin`) refuses too: the cut would
     ///   otherwise push a version it never proved free;
     /// * an open pull request titled `chore: release v{version}` comes from
-    ///   another branch (`gh api`; when `gh` cannot list them the cut says so
+    ///   another branch of this repository, never a fork's (`gh api`; when `gh` cannot list them the cut says so
     ///   and goes on). A leftover `cut-v{version}` branch is not asked about:
     ///   a cut closed without merging leaves one behind for good.
     pub fn release_already_cut(workspace: &Path, version: &str) -> Option<String> {
@@ -417,7 +417,11 @@ impl SusiAdmin {
                 "--paginate",
                 "repos/{owner}/{repo}/pulls?state=open&per_page=100",
                 "--jq",
-                r#".[] | "\(.number)\t\(.head.ref)\t\(.title)""#,
+                // Only a branch of this repository holds a version: pushing
+                // one takes write access, the same trust a cut needs. A fork's
+                // PR titled like a cut would let anyone block the release.
+                r#".[] | select(.head.repo.full_name == .base.repo.full_name)
+                    | "\(.number)\t\(.head.ref)\t\(.title)""#,
             ])
             .current_dir(workspace)
             .env("GH_PROMPT_DISABLED", "1")
