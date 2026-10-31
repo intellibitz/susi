@@ -1,10 +1,14 @@
-//! Shared E2E helpers for Python agent-engine adapters (doctor / setup / init / bind).
+//! Shared helpers for Python agent-engine adapters (doctor / setup).
+//!
+//! The OS does not ship or write sample Python programs. An operator who
+//! already has a script points `config_env` at absolute JSON with `script`
+//! or `entrypoint`.
 
 use super::catalog::{definition, Adapter, CatalogKind};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
-use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 #[derive(Debug, Clone, Copy)]
 pub struct EngineProfile {
@@ -13,31 +17,9 @@ pub struct EngineProfile {
     pub import_name: &'static str,
     pub package_hint: &'static str,
     pub documentation: &'static str,
-    pub scaffold_subdir: &'static str,
-    pub example_script: &'static str,
-    pub example_filename: &'static str,
     pub credential_envs: &'static [&'static str],
     pub credential_hint: &'static str,
     pub process_banner: &'static str,
-}
-
-/// The Python-engine profile for `engine_id`, when that framework has a scaffold.
-pub fn profile(engine_id: &str) -> Option<&'static EngineProfile> {
-    const PROFILES: &[&EngineProfile] = &[
-        &super::autogen::PROFILE,
-        &super::crewai::PROFILE,
-        &super::e2b::PROFILE,
-        &super::haystack::PROFILE,
-        &super::langgraph::PROFILE,
-        &super::llamaindex::PROFILE,
-        &super::openai_agents::PROFILE,
-        &super::smolagents::PROFILE,
-        &super::temporal::PROFILE,
-    ];
-    PROFILES
-        .iter()
-        .copied()
-        .find(|profile| profile.engine_id == engine_id)
 }
 
 #[derive(Debug, Clone)]
@@ -74,11 +56,8 @@ impl EngineDoctor {
             )
         } else {
             format!(
-                "install: {}; {}; then susi frameworks init {} (or point {} at absolute JSON with script/entrypoint)",
-                profile.package_hint,
-                profile.credential_hint,
-                profile.engine_id,
-                profile.config_env
+                "install: {}; {}; point {} at absolute JSON with script or entrypoint",
+                profile.package_hint, profile.credential_hint, profile.config_env
             )
         };
         Self {
@@ -170,8 +149,8 @@ fn check_config_env(profile: &EngineProfile) -> (bool, String) {
         return (
             false,
             format!(
-                "{} unset — run: susi frameworks init {}",
-                profile.config_env, profile.engine_id
+                "{} unset — point it at absolute JSON with script or entrypoint",
+                profile.config_env
             ),
         );
     };
@@ -233,11 +212,7 @@ pub fn setup_report(profile: &EngineProfile, adapter: &Adapter) -> Result<serde_
             format!("Install: {}", profile.package_hint),
             format!("Auth: {}", profile.credential_hint),
             format!(
-                "Init workspace scaffold: susi frameworks init {}",
-                profile.engine_id
-            ),
-            format!(
-                "Or set {} to an absolute JSON with {{\"script\":\"/abs/path.py\"}} or {{\"entrypoint\":\"module:callable\"}}",
+                "Set {} to an absolute JSON with {{\"script\":\"/abs/path.py\"}} or {{\"entrypoint\":\"module:callable\"}}",
                 profile.config_env
             ),
             "Callable/script receives the task via SUSI_AGENT_PROMPT",
@@ -249,62 +224,6 @@ pub fn setup_report(profile: &EngineProfile, adapter: &Adapter) -> Result<serde_
             "Lifecycle: susi frameworks tasks | status <id> | logs <id> | cancel <id>",
         ],
     }))
-}
-
-pub fn init_workspace(profile: &EngineProfile, workspace: &Path) -> Result<serde_json::Value> {
-    let dir = workspace.join(".susi").join(profile.scaffold_subdir);
-    std::fs::create_dir_all(&dir).with_context(|| format!("mkdir {}", dir.display()))?;
-    let script = dir.join(profile.example_filename);
-    let config = dir.join("config.json");
-    if !script.exists() {
-        std::fs::write(&script, profile.example_script)
-            .with_context(|| format!("write {}", script.display()))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&script)?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&script, perms)?;
-        }
-    }
-    let script_abs = script.canonicalize().unwrap_or_else(|_| script.clone());
-    let body = json!({ "script": script_abs.to_string_lossy() });
-    std::fs::write(&config, serde_json::to_vec_pretty(&body)?)
-        .with_context(|| format!("write {}", config.display()))?;
-    let config_abs = config.canonicalize().unwrap_or_else(|_| config.clone());
-    Ok(json!({
-        "engine": profile.engine_id,
-        "script": script_abs,
-        "config": config_abs,
-        "export": format!("export {}={}", profile.config_env, config_abs.display()),
-        "next": [
-            format!("export {}={}", profile.config_env, config_abs.display()),
-            profile.package_hint,
-            profile.credential_hint,
-            format!("susi frameworks doctor {}", profile.engine_id),
-            format!(
-                "susi frameworks run {} \"say hello\" --wait",
-                profile.engine_id
-            ),
-        ]
-    }))
-}
-
-pub fn bind_workspace_config(profile: &EngineProfile, workspace: &Path) -> Option<PathBuf> {
-    if std::env::var_os(profile.config_env).is_some() {
-        return None;
-    }
-    let config = workspace
-        .join(".susi")
-        .join(profile.scaffold_subdir)
-        .join("config.json");
-    if config.is_file() {
-        let abs = config.canonicalize().unwrap_or(config);
-        std::env::set_var(profile.config_env, &abs);
-        Some(abs)
-    } else {
-        None
-    }
 }
 
 pub fn ensure_process_banner(profile: &EngineProfile, cmd: &mut Command) {
