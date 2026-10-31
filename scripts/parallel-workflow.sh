@@ -38,11 +38,12 @@ sync() {
     flock -u 9
     exec 9>&-
     git merge --no-edit origin/main
-    SUSI_PARK_REFS_FETCHED=1 "$root/scripts/park-primary.sh" --sync-only || true
+    if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ]; then
+        maintain_primary
+    fi
     # The watcher is a background process that dies with its session, and the
     # primary then stops converging until someone notices. Every agent crosses
     # this boundary, so the loop heals it here. Non-fatal either way.
-    "$root/scripts/ensure-watcher.sh" || true
     # A working agent crosses this boundary but not `finish`, so top the lease up.
     # Inside `finish`, `renew_or_readopt` already renewed on entry and `release`
     # frees the claim at the end, while `check-owed-runs.sh` is for the boundary
@@ -65,7 +66,14 @@ sync() {
     # still linked to the clone's old shared one gets its own before anything
     # builds (seed_own_target). Outside the lock, which the copy would hold
     # for a minute.
-    seed_own_target
+    # Finish's gate seeds immediately before Cargo. Other sync callers still
+    # need the foreground seed here.
+    [ "${SUSI_SYNC_IN_FINISH:-0}" = 1 ] || seed_own_target
+}
+
+maintain_primary() {
+    SUSI_PARK_REFS_FETCHED=1 "$root/scripts/park-primary.sh" --sync-only || true
+    "$root/scripts/ensure-watcher.sh" || true
 }
 
 # Every cargo the loop runs builds into this worktree's own target. A worktree
@@ -125,19 +133,59 @@ timed_step() {
 # is the boundary a working agent does cross, so the lease is topped up here.
 # Without it a lapsed lease is taken over and the same task is handed to a
 # second agent while this one still holds the work.
-# Evidence is a convention, not a gate: the ledger is what ranks providers by
-# recorded outcomes, so an entry minted to satisfy a check is noise. Ask once,
-# only for work that touched code, and only when no entry names the task.
-evidence_prompt() {
-    local task=$1 agent scopes
-    command -v jq >/dev/null 2>&1 || return 0
-    scopes=$(git cat-file -p "refs/claims/$task" 2>/dev/null | jq -r '.scopes[]?' 2>/dev/null || true)
-    printf '%s\n' "$scopes" | grep -q '^crates/' || return 0
-    grep -q "\"$task\"" .agents/evidence.json 2>/dev/null && return 0
-    agent=$(git config --get susi.agent 2>/dev/null || echo AGENT)
-    echo "ℹ️  $task changed crates/ but no evidence entry names it — if it changed a design decision"
-    echo "   or produced a measurement, record it as EV-$agent-<n> in .agents/evidence.json."
-    echo "   Not required: an entry minted to satisfy a check is worse than none."
+renew_owned_claims() {
+    local agent branch body task refs
+    agent=${SUSI_AGENT:-$(git config --get susi.agent 2>/dev/null || true)}
+    agent=$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
+    [ -n "$agent" ] || return 0
+    branch=$(git symbolic-ref -q --short HEAD || true)
+    body=$(git cat-file -p "refs/claim-agents/$agent" 2>/dev/null || true)
+    if [ -z "$body" ]; then
+        # Legacy leases predate the agent index. Read their blobs as one batch.
+        refs=$(git for-each-ref --format='%(objectname)' refs/claims/)
+        body=$(printf '%s\n' "$refs" | git cat-file --batch 2>/dev/null |
+            awk 'NF && !/^[0-9a-f]+ blob [0-9]+$/ { print }')
+    fi
+    while IFS= read -r task; do
+        [ -n "$task" ] || continue
+        git cat-file -e "origin/main:.agents/tasks/done/$task.json" 2>/dev/null && continue
+        renew_or_readopt
+    done < <(jq -r --arg agent "$agent" --arg branch "$branch" \
+        'select(.agent == $agent and (.branch == null or .branch == $branch)) | .task' <<<"$body" 2>/dev/null || true)
+}
+
+# The push hook already fetches and checks main. Avoid a second full sync on
+# the common path; if main advanced during the gate, integrate the hook's fresh
+# snapshot and retry once. Other push failures retain their original error.
+push_closed_branch() {
+    local branch=$1 attempt before output
+    for attempt in 1 2; do
+        before=$(git rev-parse HEAD)
+        if output=$(git push origin "HEAD:refs/heads/$branch" 2>&1); then
+            printf '%s\n' "$output" >&2
+            return 0
+        fi
+        if [ "$attempt" = 2 ] || [ "$before" != "$(git rev-parse HEAD)" ] \
+            || git merge-base --is-ancestor origin/main HEAD; then
+            printf '%s\n' "$output" >&2
+            return 1
+        fi
+        echo 'workflow: main advanced; integrating the fetched snapshot and retrying push' >&2
+        if ! git merge --no-edit origin/main; then
+            printf '%s\n' "$output" >&2
+            return 1
+        fi
+        if [ "${SUSI_FINISH_REGATE:-0}" = 1 ]; then
+            SUSI_GATE_NOCACHE=1 gate
+        fi
+    done
+}
+
+finish_cleanup() {
+    "$root/scripts/kill-leftover-service-runs.sh" >/dev/null 2>&1 || true
+    # Updating another checkout and healing its watcher are housekeeping. They
+    # must not extend the validated task's critical path or hold its streams.
+    (trap - EXIT; trap '' HUP; maintain_primary) >>"$common/susi-primary-maintenance.log" 2>&1 </dev/null &
 }
 
 # Run the changed crates' tests: ONCE, hermetically, with per-test retries.
@@ -452,7 +500,7 @@ finish)
     # children (`service-run`) would otherwise outlive this run and keep
     # `target\debug\susi.exe` locked on Windows. Runs on every exit path —
     # including a failing gate — scoped to this checkout's target dir.
-    trap "\"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
+    trap finish_cleanup EXIT
     # The default is not to wait: the branch-push run and the merge are the
     # machinery's (auto-merge, the reconciler), and nothing the agent does
     # after the push speeds either up. `--wait` (or SUSI_FINISH_WAIT=1) keeps
@@ -494,23 +542,12 @@ finish)
         else
             timed_step close "$susi_bin" tasks close "$task"
         fi
-        evidence_prompt "$task"
         git add -- ".agents/tasks/$task.json" ".agents/tasks/done/$task.json"
         git commit -m "Close $task after acceptance" -m "Task: $task"
     fi
     [ -f ".agents/tasks/done/$task.json" ] || { echo 'No completed task record.' >&2; exit 1; }
-    verified=$(git rev-parse HEAD)
-    timed_step publication-sync sync
-    if [ "$verified" != "$(git rev-parse HEAD)" ]; then
-        # The head moved because another merge landed while the gate ran.
-        # Repushing the merged head starts a fresh branch run, and nothing
-        # merges without a green run on that exact sha — re-running the local
-        # gate here multiplied the suite by every merge in the window.
-        # SUSI_FINISH_REGATE=1 restores the old belt-and-suspenders check.
-        [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && SUSI_GATE_NOCACHE=1 gate
-    fi
     branch=$(git symbolic-ref --short HEAD)
-    timed_step push git push origin "HEAD:refs/heads/$branch"
+    timed_step push push_closed_branch "$branch"
     sha=$(git rev-parse HEAD)
     if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
         # Never fall through into the wait below: a failed release used to

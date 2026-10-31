@@ -30,8 +30,8 @@ msys* | cygwin*)
     command -v powershell.exe >/dev/null 2>&1 || exit 0
     target_win=$(cygpath -aw "$target" 2>/dev/null) || target_win="$target"
     SUSI_SWEEP_TARGET="$target_win" powershell.exe -NoProfile -NonInteractive -Command '
-        $t = $env:SUSI_SWEEP_TARGET
-        Get-CimInstance Win32_Process |
+        $t = [IO.Path]::GetFullPath($env:SUSI_SWEEP_TARGET).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+        Get-CimInstance Win32_Process -Filter "Name = '\''susi.exe'\''" |
             Where-Object {
                 $_.Name -eq "susi.exe" -and $_.ExecutablePath -and
                 ($_.ExecutablePath -like ($t + "*")) -and
