@@ -398,7 +398,11 @@ nextest ran 1,039 tests in 87.945 s: 1,038 passed, one failed and three were
 skipped. The failure was the format-proof fixture inheriting the diagnostic's
 `SUSI_GATE_NOCACHE=1`, rather than isolating the cache policy it tests. That
 fixture now removes the caller's override; its focused check passes with the
-outer bypass explicitly enabled. The broader gate still needs a clean rerun.
+outer bypass explicitly enabled. The clean fresh rerun passed all 1,039 tests
+in 84.122 s, plus doc tests; its complete gate took 105.782 s with no compiler
+cache. Three tests remained skipped. PR #1121 merged with the 92-test affected
+gate also green: source commit 19.603 s, finish 54.339 s, and commit through
+merge 150.000 s. The full commit-through-merge target remains unmet.
 
 Workflow and standalone hermetic builds now default
 `SCCACHE_IGNORE_SERVER_IO_ERROR=1`, while preserving an explicit `0`. This uses
@@ -408,6 +412,30 @@ shared server. An isolated TCP fixture against installed sccache 0.19.0 sent
 `CompileStarted` and reset its connection: strict mode failed with exit 2,
 fallback compiled valid Rust with exit 0, and invalid Rust still failed with
 exit 1. No machine-wide configuration was changed for this recovery.
+
+## Audit history traversal and verification setup (2026-10-31)
+
+The clean diagnostic's slowest cases were post-merge verification (71.358 s)
+and the in-flight queue boundary (67.619 s). The verification fixture now keeps
+one real claim/acceptance lifecycle and seeds its other accepted records,
+publishing merger attestations in one real atomic transaction. All checks of
+success, failure, host-specific skipping and retry remain. Its initial focused
+run passed in 7.43 s; this isolated result is not comparable with the loaded
+whole-suite duration.
+
+Inspection also found a production multiplier: `tasks audit` ran both Git
+ancestry checks twice for each attestation, once for the real partition and
+again for the forged partition. This checkout held 557 merge refs, allowing
+over two thousand ancestry subprocesses per audit. The audit now walks main's
+full parent history once, checks each unique full-ID pair in memory and retains
+all task records sharing a pair. Abbreviated IDs and legacy ref spellings still
+go through Git. Each audit reads a new history snapshot; no ancestry proof
+persists across main advancing.
+
+The real-Git attestation regression now also exercises duplicate records, a
+previously unpublished merge reaching main, legacy abbreviated IDs and a head
+that is on main but lies after the attested merge. Live before/after audit and
+complete gate measurements must still establish this change's total savings.
 
 ## What is not fixed here
 
