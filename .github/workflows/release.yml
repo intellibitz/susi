@@ -23,12 +23,16 @@ name: Release Binaries
 # once its dependency cache hits, macOS (~19 min) and CUDA (~17 min) would
 # become the wait. A red suite still publishes nothing.
 #
-# Every leg builds with thin LTO over 16 codegen units (`CARGO_PROFILE_DIST_*`
-# below, overriding Cargo.toml's `[profile.dist]` fat LTO + one unit). The
-# single `susi` unit was the long pole of every leg: it starts only after all
-# ~700 dependency crates finish and, under fat LTO, runs on one thread (988 s of
-# a 1548 s cold build, measured on 28 cores). Thin LTO keeps the cross-crate
-# optimisation and runs that unit on every core. The Windows leg restores a
+# Every leg builds with thin-local LTO over 16 codegen units
+# (`CARGO_PROFILE_DIST_LTO: "false"`, `CARGO_PROFILE_DIST_CODEGEN_UNITS`, below,
+# overriding Cargo.toml's `[profile.dist]` fat LTO + one unit): each crate is
+# optimised across its own units, and nothing runs after the last crate
+# compiles but the link. Fat LTO ran the single `susi` unit on one thread (988 s
+# of a 1548 s cold build, on 28 cores); thin LTO spread it over every core but
+# still left a cross-crate stage after the last crate: 8 min 21 s of the
+# v0.21.29 Windows leg (20 min 19 s) and 5 min 40 s of macOS (15 min 29 s),
+# with no output while it ran. Releases ship faster; the binary gives up
+# cross-crate inlining (operator's call, 2026-10-31). The Windows leg restores a
 # dependency-only dist target from release-warm.yml on main; tag runs never
 # save a target or thousands of sccache objects that later tags cannot read.
 # Other platforms remain cold until their cache cost and benefit are measured.
@@ -124,9 +128,9 @@ jobs:
       SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
-      # Thin LTO over 16 units for the published binaries (header): the one
-      # fat-LTO unit was 988 s of the leg on a single thread.
-      CARGO_PROFILE_DIST_LTO: thin
+      # Thin-local LTO over 16 units for the published binaries (header): no
+      # cross-crate LTO stage after the last crate compiles.
+      CARGO_PROFILE_DIST_LTO: "false"
       CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
     strategy:
       fail-fast: false
@@ -381,7 +385,7 @@ jobs:
       SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
-      CARGO_PROFILE_DIST_LTO: thin
+      CARGO_PROFILE_DIST_LTO: "false"
       CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
     steps:
       - name: Checkout Source
