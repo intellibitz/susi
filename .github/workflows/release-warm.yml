@@ -1,0 +1,48 @@
+name: Warm Windows release dependencies
+
+# A tag cannot write a cache visible to a later tag. A successful Test run on
+# main warms the same dependency-only dist target the Windows release restores.
+# One run finishes even when main moves; newer runs collapse to the latest.
+on:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-warm-windows-main
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'))
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      SCCACHE_GHA_ENABLED: "false"
+      RUSTC_WRAPPER: sccache
+      RUSTC_WORKSPACE_WRAPPER: sccache
+      CARGO_PROFILE_DIST_LTO: thin
+      CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
+    steps:
+      - name: Checkout the proven main commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Restore and save Windows dist dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-windows-x86_64
+          cache-targets: "true"
+      - name: Build the release dependency graph
+        run: cargo build --locked --profile dist
+      - name: Build harness dependencies
+        run: cargo build --locked --profile dist -p susi-harness --bin susi-harness
