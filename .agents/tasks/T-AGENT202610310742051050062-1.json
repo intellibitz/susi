@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT202610310742051050062-1",
+  "title": "Avoid reverse-dependency clippy fan-out for test-only changes",
+  "goal": "Reduce SUSI task-to-merge handoff latency below 60 seconds without weakening code coverage",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_changed_crates",
+      "test_only_changes_skip_reverse_dependents"
+    ]
+  },
+  "created_by": "AGENT202610310742051050062",
+  "created_unix": 1793413039
+}
