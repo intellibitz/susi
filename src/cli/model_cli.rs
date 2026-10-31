@@ -28,11 +28,9 @@ pub enum ModelCommands {
         #[arg(default_value = "Reply with exactly: ok")]
         prompt: String,
     },
-    /// List local/scanned GGUF models (legacy mission path)
-    Local,
 }
 
-pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
+pub fn execute(action: Option<ModelCommands>, _workspace: &Path) -> Result<()> {
     let action = action.unwrap_or(ModelCommands::List);
     let manager = CodingModelManager::new()?;
     match action {
@@ -94,11 +92,6 @@ pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
                 "model": model,
                 "output": output
             }))?;
-        }
-        ModelCommands::Local => {
-            // Handled by caller with AMA when returning LocalNeedsMission — keep pure here.
-            let _ = workspace;
-            bail!("LOCAL_MODELS_MISSION");
         }
     }
     Ok(())
