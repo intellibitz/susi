@@ -915,7 +915,7 @@ impl SusiDaemon {
                     Ok(())
                 });
             }
-            if let Ok(mut child) = cmd.spawn() {
+            if let Ok(mut child) = Self::spawn_without_inheriting_stdio(&mut cmd) {
                 let _ = child.wait();
             }
             if !Self::wait_for_host_contract(Duration::from_secs(10)) {
