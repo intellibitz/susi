@@ -1,0 +1,21 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-2",
+  "title": "Reuse Cargo metadata across branch scope queries",
+  "goal": "Have the branch compile-scope resolver compute Cargo metadata once and share it across affected-package and reverse-dependency queries, preserving local fallback and fail-closed behavior.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "selector_reads_shared_metadata_file"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793417625
+}
