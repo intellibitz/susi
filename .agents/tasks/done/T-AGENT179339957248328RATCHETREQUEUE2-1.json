@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT179339957248328RATCHETREQUEUE2-1",
+  "title": "Scope unsafe ratchet to real baseline inputs",
+  "goal": "The ratchet scope selector is executable and checks only cargo-geiger target roots and baseline/config inputs. Ordinary nested Rust module edits skip the cold cargo-geiger install; unknown paths fail open. This is the clean-branch requeue after the previous accepted task was abandoned due to a CI execution-mode error.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_unsafe_exposure_scope"
+    ]
+  },
+  "created_by": "AGENT179339957248328RATCHETREQUEUE2",
+  "created_unix": 1793411699,
+  "closed": {
+    "at_unix": 1793412379,
+    "commit": "3d46402d520d4fc9107fb729f2f4c6eac6ecac25",
+    "by": "AGENT179339957248328RATCHETREQUEUE2"
+  }
+}
