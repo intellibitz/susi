@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179346916637424-2",
+  "title": "Stop agents from blocking each other on shared workspace scopes and settled claims",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "shared_workspace_scopes_and_merged_claims_do_not_block_sibling_agents"
+    ]
+  },
+  "created_by": "AGENT179346916637424",
+  "created_unix": 1793474221,
+  "closed": {
+    "at_unix": 1793475007,
+    "commit": "0c34c8c979d55b379d8e57bf8a4d9883d53c1b9b",
+    "by": "AGENT179346916637424"
+  }
+}
