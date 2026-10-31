@@ -133,7 +133,6 @@ pub mod tasks_from_brain;
 pub mod tasks_from_ci;
 pub mod telemetry;
 pub mod tenant_isolation;
-pub mod unsafe_ratchet;
 pub mod update_health;
 pub mod worker_identity;
 pub mod zc_agent_files_gen;

@@ -32,7 +32,7 @@ cargo geiger --forbid-only --output-format Json >"$tmp/geiger.json"
 cargo metadata --format-version 1 --locked >"$tmp/metadata.json"
 
 if [ -n "$write_baseline" ]; then
-  exec cargo run -q -p susi-gawd --locked --bin unsafe_ratchet -- \
+  exec cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet -- \
     --geiger "$tmp/geiger.json" \
     --metadata "$tmp/metadata.json" \
     --baseline "$baseline" \
@@ -40,7 +40,7 @@ if [ -n "$write_baseline" ]; then
     --features default
 fi
 
-exec cargo run -q -p susi-gawd --locked --bin unsafe_ratchet -- \
+exec cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet -- \
   --geiger "$tmp/geiger.json" \
   --metadata "$tmp/metadata.json" \
   --baseline "$baseline" \

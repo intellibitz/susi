@@ -36,7 +36,7 @@ members = [
     "crates/susi-gawd-agents",
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
-    "crates/susi-gawd", "crates/susi-daemon", "crates/susi-server",
+    "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-dsh-cell",
     "crates/susi-harness",
     "crates/susi-universal-cell",
@@ -169,6 +169,7 @@ susi-gawd-agents = { path = "crates/susi-gawd-agents" }
 susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
 susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
+susi-unsafe-ratchet = { path = "crates/susi-unsafe-ratchet" }
 susi-agents = { path = "crates/susi-agents" }
 susi-tools = { path = "crates/susi-tools" }
 susi-server = { path = "crates/susi-server" }
