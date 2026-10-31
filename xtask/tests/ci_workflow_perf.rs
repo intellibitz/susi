@@ -1144,9 +1144,8 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     let gate = gate.replace("\r\n", "\n");
     let gate_fn = shell_function(&gate, "gate");
     assert!(
-        at(&gate_fn, "seed_own_target", "the gate")
-            < at(&gate_fn, "cargo fmt --all --check", "the gate"),
-        "the finish gate must seed before its first cargo"
+        at(&gate_fn, "seed_own_target", "the gate") < at(&gate_fn, "gate_format", "the gate"),
+        "the finish gate must seed before formatting or proof reuse"
     );
     let sync_fn = shell_function(&gate, "sync");
     assert!(
@@ -3421,6 +3420,552 @@ push_closed_branch work
 }
 
 #[test]
+fn finish_atomic_publication_falls_back_only_when_explicitly_requested() {
+    let f = Fakes::new("finish-atomic-publication");
+    let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n");
+    script.push_str(&shell_function(&workflow, "push_closed_branch"));
+    script.push_str(
+        r#"
+root=$SOURCE_ROOT
+task=T-TEST-1
+wait=$WAIT_MODE
+git() {
+    case "$1" in
+    rev-parse) printf '%s\n' original ;;
+    push) echo separate-push >> log ;;
+    merge-base) return 0 ;;
+    *) return 9 ;;
+    esac
+}
+python3() { echo atomic-push >> log; return "$PUBLISH_STATUS"; }
+push_closed_branch work
+printf 'released=%s\n' "$released_with_push" >> log
+"#,
+    );
+    let path = f.dir.join("publication-check.sh");
+    std::fs::write(&path, script).unwrap();
+    for (status, wait, success, expected) in [
+        ("0", "0", true, "atomic-push\nreleased=1\n"),
+        ("1", "0", false, "atomic-push\n"),
+        ("75", "0", true, "atomic-push\nseparate-push\nreleased=0\n"),
+        ("0", "1", true, "separate-push\nreleased=0\n"),
+    ] {
+        std::fs::write(f.dir.join("log"), "").unwrap();
+        let out = script_command(&path)
+            .current_dir(&f.dir)
+            .env("SOURCE_ROOT", root())
+            .env("PUBLISH_STATUS", status)
+            .env("WAIT_MODE", wait)
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.success(),
+            success,
+            "{status}/{wait}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(f.dir.join("log")).unwrap(),
+            expected
+        );
+    }
+}
+
+struct ProofRepo {
+    _fakes: Fakes,
+    repo: PathBuf,
+    cargo_home: PathBuf,
+    global: PathBuf,
+    version: PathBuf,
+    tool: PathBuf,
+}
+
+impl ProofRepo {
+    fn new(tag: &str) -> Self {
+        let fakes = Fakes::new(tag);
+        let repo = fakes.dir.join("repo");
+        let cargo_home = fakes.dir.join("cargo-home");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&cargo_home).unwrap();
+        let global = fakes.dir.join("gitconfig");
+        std::fs::write(&global, "").unwrap();
+        let version = fakes.dir.join("formatter-version");
+        std::fs::write(&version, "formatter 1\n").unwrap();
+        #[cfg(windows)]
+        let tool = {
+            let path = fakes.dir.join("formatter.cmd");
+            std::fs::write(&path, "@echo off\r\ntype \"%VERSION_FILE%\"\r\n").unwrap();
+            path
+        };
+        #[cfg(not(windows))]
+        let tool = {
+            fakes.fake("rustfmt", "cat \"$VERSION_FILE\"");
+            fakes.dir.join("rustfmt")
+        };
+        let this = Self {
+            _fakes: fakes,
+            repo,
+            cargo_home,
+            global,
+            version,
+            tool,
+        };
+        this.git(&["init", "--quiet", "--template=", "-b", "main"]);
+        std::fs::create_dir_all(this.repo.join(".agents/tasks")).unwrap();
+        for (path, data) in [
+            (".agents/tasks/T-TEST-1.json", "{}\n"),
+            (".agents/identity.json", "{}\n"),
+            ("a.rs", "fn a() {}\n"),
+            ("b.rs", "fn b() {}\n"),
+        ] {
+            std::fs::write(this.repo.join(path), data).unwrap();
+        }
+        this.git(&["add", "."]);
+        this.git(&["commit", "--quiet", "-m", "base"]);
+        this.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        this
+    }
+
+    fn isolate(&self, command: &mut std::process::Command) {
+        command
+            .current_dir(&self.repo)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_COMMON_DIR")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", &self.global);
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let mut command = std::process::Command::new("git");
+        self.isolate(&mut command);
+        let output = command
+            .args([
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@localhost",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "maintenance.auto=false",
+                "-c",
+                "gc.auto=0",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    fn stamp(&self, format: bool) -> String {
+        let mut command = script_command(&root().join("scripts/gate-input-stamp.sh"));
+        self.isolate(&mut command);
+        command
+            .env("CARGO_HOME", &self.cargo_home)
+            .env("RUSTFMT", &self.tool)
+            .env("RUSTC", &self.tool)
+            .env("VERSION_FILE", &self.version);
+        if format {
+            command.arg("--format");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+}
+
+struct PublicationRepo {
+    world: ProofRepo,
+    server: PathBuf,
+    claim: String,
+    receipt: String,
+    accepted_head: String,
+    head: String,
+}
+
+impl PublicationRepo {
+    fn new(tag: &str) -> Self {
+        let world = ProofRepo::new(tag);
+        let server = world._fakes.dir.join("server.git");
+        world.git(&[
+            "init",
+            "--bare",
+            "--quiet",
+            "--template=",
+            server.to_str().unwrap(),
+        ]);
+        let config = server.join("config");
+        let mut contents = std::fs::read_to_string(&config).unwrap();
+        contents
+            .push_str("\n[receive]\n\tautogc = false\n[gc]\n\tauto = 0\n[pack]\n\tthreads = 1\n");
+        std::fs::write(config, contents).unwrap();
+        world.git(&["remote", "add", "origin", server.to_str().unwrap()]);
+        world.git(&["push", "--quiet", "origin", "HEAD:main"]);
+        world.git(&["checkout", "--quiet", "-b", "work"]);
+        world.git(&["config", "susi.agent", "TEST"]);
+        std::fs::write(world.repo.join("a.rs"), "fn accepted_change() {}\n").unwrap();
+        world.git(&["commit", "--quiet", "-am", "accepted source"]);
+        let accepted_head = world.git(&["rev-parse", "HEAD"]).trim().to_string();
+        std::fs::create_dir_all(world.repo.join(".agents/tasks/done")).unwrap();
+        std::fs::write(
+            world.repo.join(".agents/tasks/done/T-TEST-1.json"),
+            format!(r#"{{"id":"T-TEST-1","closed":{{"by":"TEST","commit":"{accepted_head}"}}}}"#),
+        )
+        .unwrap();
+        std::fs::remove_file(world.repo.join(".agents/tasks/T-TEST-1.json")).unwrap();
+        world.git(&["add", ".agents/tasks"]);
+        world.git(&["commit", "--quiet", "-m", "completion"]);
+        let head = world.git(&["rev-parse", "HEAD"]).trim().to_string();
+        let mut this = Self {
+            world,
+            server,
+            claim: String::new(),
+            receipt: String::new(),
+            accepted_head,
+            head,
+        };
+        this.claim = this.blob(
+            false,
+            r#"{"task":"T-TEST-1","agent":"TEST","branch":"work","scopes":["a.rs"]}"#,
+        );
+        this.receipt = this.blob(false, &format!(r#"{{"task":"T-TEST-1","agent":"TEST","head":"{}","closed_unix":1,"scopes":["a.rs"]}}"#, this.accepted_head));
+        this.refs(false, &format!("update refs/claims/T-TEST-1 {}\nupdate refs/claim-agents/TEST {}\nupdate refs/closed/T-TEST-1 {}\n", this.claim, this.claim, this.receipt));
+        this.world.git(&[
+            "push",
+            "--quiet",
+            "--atomic",
+            "origin",
+            "refs/claims/T-TEST-1",
+            "refs/claim-agents/TEST",
+            "refs/closed/T-TEST-1",
+        ]);
+        this
+    }
+
+    fn remote(&self, args: &[&str]) -> String {
+        let mut all = vec!["-C", self.server.to_str().unwrap()];
+        all.extend_from_slice(args);
+        self.world.git(&all)
+    }
+
+    fn blob(&self, remote: bool, body: &str) -> String {
+        let file = self.world._fakes.dir.join("blob.json");
+        std::fs::write(&file, body).unwrap();
+        let args = ["hash-object", "-w", file.to_str().unwrap()];
+        (if remote {
+            self.remote(&args)
+        } else {
+            self.world.git(&args)
+        })
+        .trim()
+        .to_string()
+    }
+
+    fn refs(&self, remote: bool, transaction: &str) {
+        let file = self.world._fakes.dir.join("refs.in");
+        std::fs::write(&file, transaction).unwrap();
+        let mut command = std::process::Command::new("git");
+        self.world.isolate(&mut command);
+        if remote {
+            command.args(["-C", self.server.to_str().unwrap()]);
+        }
+        let output = command
+            .args(["update-ref", "--stdin"])
+            .stdin(std::fs::File::open(file).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn race(&self, transaction: &str) {
+        let file = self.world._fakes.dir.join("race.in");
+        std::fs::write(file, transaction).unwrap();
+        let hooks = self.world.repo.join(".git/hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let hook = hooks.join("pre-push");
+        std::fs::write(&hook, "#!/bin/sh\nwhile IFS= read -r line; do :; done\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR\ngit --git-dir \"$RACE_SERVER\" update-ref --stdin <\"$RACE_INPUT\"\n").unwrap();
+        set_script_executable(&hook);
+    }
+
+    fn run(&self, cloud: &str) -> std::process::Output {
+        let mut command = python_command(&root().join("scripts/publish-task-branch.py"));
+        self.world.isolate(&mut command);
+        command
+            .args(["T-TEST-1", "work"])
+            .env_remove("SUSI_AGENT")
+            .env("SUSI_CLOUD_SESSION", cloud)
+            .env("SUSI_TASK_REMOTE", "origin")
+            .env("SUSI_QUEUE_TRANSPORT", "direct")
+            .env("RACE_SERVER", &self.server)
+            .env("RACE_INPUT", self.world._fakes.dir.join("race.in"))
+            .output()
+            .unwrap()
+    }
+
+    fn remote_ref(&self, name: &str) -> String {
+        self.remote(&["for-each-ref", "--format=%(objectname)", name])
+            .trim()
+            .to_string()
+    }
+}
+
+#[test]
+fn publication_updates_packed_refs_and_republication_always_rewrites_the_receipt() {
+    let f = PublicationRepo::new("atomic-publish-packed");
+    f.world.git(&["pack-refs", "--all"]);
+    f.remote(&["pack-refs", "--all"]);
+    for revision in [1, 2] {
+        if revision == 2 {
+            let transaction = format!(
+                "update refs/claims/T-TEST-1 {}\nupdate refs/claim-agents/TEST {}\n",
+                f.claim, f.claim
+            );
+            f.refs(false, &transaction);
+            f.refs(true, &transaction);
+        }
+        let before = f.remote_ref("refs/closed/T-TEST-1");
+        let out = f.run("0");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(f.remote_ref("refs/heads/work"), f.head);
+        assert!(f.remote_ref("refs/claims/T-TEST-1").is_empty());
+        assert!(f.remote_ref("refs/claim-agents/TEST").is_empty());
+        assert_ne!(f.remote_ref("refs/closed/T-TEST-1"), before);
+        let receipt = f.remote(&["cat-file", "-p", "refs/closed/T-TEST-1"]);
+        assert!(
+            receipt.contains(&format!(r#""revision":{revision}"#)),
+            "{receipt}"
+        );
+        assert!(receipt.contains(&f.accepted_head) && receipt.contains(&f.head));
+        assert!(receipt.contains(r#""scopes":["a.rs"]"#));
+    }
+}
+
+#[test]
+fn publication_claim_reassignment_rejects_the_whole_transaction() {
+    let f = PublicationRepo::new("atomic-publish-owner-race");
+    let new = f.blob(
+        true,
+        r#"{"task":"T-TEST-1","agent":"OTHER","branch":"other"}"#,
+    );
+    f.race(&format!("update refs/claims/T-TEST-1 {new}\ndelete refs/claim-agents/TEST\ncreate refs/claim-agents/OTHER {new}\n"));
+    let out = f.run("0");
+    assert!(!out.status.success());
+    assert!(f.remote_ref("refs/heads/work").is_empty());
+    assert_eq!(f.remote_ref("refs/claims/T-TEST-1"), new);
+    assert_eq!(f.remote_ref("refs/claim-agents/OTHER"), new);
+    assert_eq!(f.remote_ref("refs/closed/T-TEST-1"), f.receipt);
+}
+
+#[test]
+fn publication_agent_index_change_cannot_release_another_task() {
+    let f = PublicationRepo::new("atomic-publish-index-race");
+    let new = f.blob(
+        true,
+        r#"{"task":"T-TEST-2","agent":"TEST","branch":"other"}"#,
+    );
+    f.race(&format!("update refs/claim-agents/TEST {new}\n"));
+    let out = f.run("0");
+    assert!(!out.status.success());
+    assert!(f.remote_ref("refs/heads/work").is_empty());
+    assert_eq!(f.remote_ref("refs/claims/T-TEST-1"), f.claim);
+    assert_eq!(f.remote_ref("refs/claim-agents/TEST"), new);
+    assert_eq!(f.remote_ref("refs/closed/T-TEST-1"), f.receipt);
+}
+
+#[test]
+fn publication_changed_receipt_keeps_the_claim_and_branch_untouched() {
+    let f = PublicationRepo::new("atomic-publish-receipt-race");
+    let new = f.blob(
+        true,
+        &format!(
+            r#"{{"task":"T-TEST-1","agent":"TEST","head":"{}","closed_unix":2}}"#,
+            f.accepted_head
+        ),
+    );
+    f.race(&format!("update refs/closed/T-TEST-1 {new}\n"));
+    let out = f.run("0");
+    assert!(!out.status.success());
+    assert!(f.remote_ref("refs/heads/work").is_empty());
+    assert_eq!(f.remote_ref("refs/claims/T-TEST-1"), f.claim);
+    assert_eq!(f.remote_ref("refs/claim-agents/TEST"), f.claim);
+    assert_eq!(f.remote_ref("refs/closed/T-TEST-1"), new);
+}
+
+#[test]
+fn publication_leases_never_force_the_code_branch_backwards() {
+    let f = PublicationRepo::new("atomic-publish-history");
+    let newer = f
+        .world
+        .git(&[
+            "commit-tree",
+            "HEAD^{tree}",
+            "-p",
+            "HEAD",
+            "-m",
+            "published later",
+        ])
+        .trim()
+        .to_string();
+    f.world.git(&[
+        "push",
+        "--quiet",
+        "origin",
+        &format!("{newer}:refs/heads/work"),
+    ]);
+    let out = f.run("0");
+    assert!(!out.status.success());
+    assert_eq!(f.remote_ref("refs/heads/work"), newer);
+    assert_eq!(f.remote_ref("refs/claims/T-TEST-1"), f.claim);
+    assert_eq!(f.remote_ref("refs/claim-agents/TEST"), f.claim);
+    assert_eq!(f.remote_ref("refs/closed/T-TEST-1"), f.receipt);
+}
+
+#[test]
+fn publication_cloud_transport_selects_the_existing_path_without_writes() {
+    let f = PublicationRepo::new("atomic-publish-cloud");
+    let out = f.run("1");
+    assert_eq!(out.status.code(), Some(75));
+    assert!(f.remote_ref("refs/heads/work").is_empty());
+    assert_eq!(f.remote_ref("refs/claims/T-TEST-1"), f.claim);
+    assert_eq!(f.remote_ref("refs/closed/T-TEST-1"), f.receipt);
+}
+
+#[test]
+fn source_proof_changes_when_upstream_code_changes_but_the_branch_diff_does_not() {
+    let f = ProofRepo::new("proof-upstream");
+    f.git(&["checkout", "--quiet", "-b", "work"]);
+    std::fs::write(f.repo.join("a.rs"), "fn branch_change() {}\n").unwrap();
+    f.git(&["commit", "--quiet", "-am", "branch"]);
+    let diff = f.git(&[
+        "diff",
+        "origin/main",
+        "HEAD",
+        "--",
+        ".",
+        ":(exclude).agents/tasks",
+    ]);
+    let before = f.stamp(false);
+    std::fs::write(
+        f.repo.join(".agents/tasks/T-TEST-1.json"),
+        "{\"closed\":true}\n",
+    )
+    .unwrap();
+    f.git(&["add", ".agents/tasks"]);
+    assert_eq!(before, f.stamp(false));
+    std::fs::write(f.repo.join(".agents/tasks/T-TEST-1.json"), "{}\n").unwrap();
+    f.git(&["add", ".agents/tasks"]);
+    f.git(&["checkout", "--quiet", "main"]);
+    std::fs::write(f.repo.join("b.rs"), "fn upstream_change() {}\n").unwrap();
+    f.git(&["commit", "--quiet", "-am", "upstream"]);
+    f.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    f.git(&["checkout", "--quiet", "work"]);
+    f.git(&["merge", "--quiet", "--no-edit", "main"]);
+    assert_eq!(
+        diff,
+        f.git(&[
+            "diff",
+            "origin/main",
+            "HEAD",
+            "--",
+            ".",
+            ":(exclude).agents/tasks"
+        ])
+    );
+    assert_ne!(before, f.stamp(false));
+}
+
+#[test]
+fn format_proof_tracks_formatter_and_external_cargo_config() {
+    let f = ProofRepo::new("proof-tools");
+    let before = f.stamp(true);
+    std::fs::write(f.cargo_home.join("config.toml"), "[build]\njobs=2\n").unwrap();
+    assert_ne!(before, f.stamp(true));
+    std::fs::remove_file(f.cargo_home.join("config.toml")).unwrap();
+    std::fs::write(&f.version, "formatter 2\n").unwrap();
+    assert_ne!(before, f.stamp(true));
+}
+
+#[test]
+fn source_proof_tracks_untracked_names_contents_and_compiled_agent_data() {
+    let f = ProofRepo::new("proof-untracked");
+    let before = f.stamp(false);
+    std::fs::write(f.repo.join("extra.rs"), "fn extra() {}\n").unwrap();
+    let extra = f.stamp(false);
+    assert_ne!(before, extra);
+    std::fs::rename(f.repo.join("extra.rs"), f.repo.join("renamed.rs")).unwrap();
+    let renamed = f.stamp(false);
+    assert_ne!(extra, renamed);
+    std::fs::write(f.repo.join("renamed.rs"), "fn different() {}\n").unwrap();
+    assert_ne!(renamed, f.stamp(false));
+    std::fs::remove_file(f.repo.join("renamed.rs")).unwrap();
+    std::fs::write(f.repo.join(".agents/identity.json"), "{\"changed\":true}\n").unwrap();
+    assert_ne!(before, f.stamp(false));
+}
+
+#[test]
+fn format_proof_reuse_never_turns_a_failed_formatter_into_a_success() {
+    let f = Fakes::new("format-proof");
+    std::fs::create_dir_all(f.dir.join("scripts")).unwrap();
+    std::fs::create_dir_all(f.dir.join("cache")).unwrap();
+    let helper = f.dir.join("scripts/gate-input-stamp.sh");
+    std::fs::write(&helper, "#!/bin/sh\ncat \"$STAMP_FILE\"\n").unwrap();
+    set_script_executable(&helper);
+    let source = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n");
+    script.push_str(&shell_function(&source, "gate_format"));
+    script.push_str(
+        r#"
+root=$PWD
+STAMP_FILE=$PWD/stamp
+export STAMP_FILE
+printf 'first\n' > stamp
+git() { printf '%s\n' "$PWD/cache"; }
+cargo() { printf 'format\n' >> calls; [ "${FAIL:-0}" = 0 ]; }
+gate_format
+gate_format
+[ "$(wc -l < calls)" = 1 ]
+printf 'second\n' > stamp
+FAIL=1
+if gate_format; then exit 9; fi
+[ "$(cat cache/susi-fmt-ok)" = first ]
+FAIL=0
+gate_format
+[ "$(cat cache/susi-fmt-ok)" = second ]
+[ "$(wc -l < calls)" = 3 ]
+[ ! -f cache/susi-gate-ok ]
+"#,
+    );
+    let path = f.dir.join("format-check.sh");
+    std::fs::write(&path, script).unwrap();
+    let output = script_command(&path).current_dir(&f.dir).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compliance_counts_live_claims_from_one_byte_counted_snapshot() {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -3429,6 +3974,10 @@ fn compliance_counts_live_claims_from_one_byte_counted_snapshot() {
         let mut child = Command::new("git")
             .args(args)
             .current_dir(&f.dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_COMMON_DIR")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

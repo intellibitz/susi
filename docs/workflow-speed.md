@@ -308,6 +308,80 @@ and home validation remain synchronous; deletion of the invocation's validated
 scratch paths runs with detached streams afterward. Push output streams while
 the bounded retry retains its existing refusal rules.
 
+## Reuse format proofs and bound identity scans (2026-10-31)
+
+PR #1116 passed 81 affected tests and merged. The measured script/xtask finish
+was 151.4 s: gate 74 s, close 12 s, push 21 s and release 11 s, plus entry,
+sync and bookkeeping. This is a narrower workload than PR #1115's 559 tests,
+so those end-to-end totals are not a controlled before/after comparison.
+The stage timers identified 25 s spent formatting source the commit hook had
+just checked, and a separate identity-hook measurement took 29.6 s.
+
+The commit hook now records a format-only proof, which finish reuses for the
+same source and formatter. The shared source stamp binds all indexed sources,
+working edits, untracked names and contents, Cargo/Rust environment and external
+Cargo configuration, and tool versions. Gate proofs additionally bind the
+selected diff and full-gate policy. Only `.agents/tasks/` bookkeeping is exempt;
+compiled identity, roadmap and evidence data remain inputs. This corrects the
+old diff-only key: an upstream edit in another file could leave the branch diff
+unchanged and incorrectly reuse the prior result. Older standalone script copies
+without the helper run their checks without reusing a proof.
+
+Identity checks read Git's worktree indirection files and local configuration
+with shell builtins, falling back to Git for inherited or quoted values. One
+scoped config read finds shared login names, and a NUL-delimited worktree listing
+preserves spaces and relative Git paths. Normalized tokens detect equivalent
+spellings such as `scan-native` and `SCANNATIVE`. The checkout's check measured
+3.5 s after the initial change, versus 29.6 s before; host saturation later
+made even tiny Git commands take around a second. A host snapshot recorded
+100% CPU use while another full gate ran, with ample free memory and no disk
+queue. The new complete finish remains to be measured.
+
+The four source/format proof regressions and the existing performance checks
+pass (72 total), as does the new identity-path case. A separate eight-thread
+libtest experiment passed all 481 active gawd tests but took 428.5 s in the
+saturated host; it is not adopted as the runner default. No sub-60 full Rust gate
+or binary release is claimed from these experiments.
+
+## Atomic branch publication and claim release (2026-10-31)
+
+PR #1117 passed 85 xtask tests and all six identity tests. Its complete finish
+took 272.6 s: gate 137 s, close 15 s, push 37 s and release 25 s, plus lease,
+sync and bookkeeping. Reusing the commit hook's format proof took 3 s, versus
+the earlier 25 s repeat check. Two separate hermetic runs still cost 38 s and
+49 s for xtask and the focused root tests. Host load and the different test
+selection prevent treating these totals as a controlled speedup comparison.
+
+Direct, non-waiting finish now publishes its frozen branch head and releases
+its claim in one atomic push. The transaction pins the claim, agent index and
+accepted receipt to their observed object IDs; a concurrent reassignment or
+receipt change rejects every update. The receipt retains its accepted source
+head, scopes and acceptance time, with an additional publication revision so
+even a same-head retry requires a real compare-and-swap update. Local mirrors
+use Git's own ref transaction and never replace a newer concurrent snapshot.
+
+Cloud relay, another queue remote, an already released claim and explicit
+`--wait` retain the existing separate path. A rejected atomic push never falls
+back to releasing ownership. Real bare-server regressions cover packed refs,
+same-head republication, claim/index/receipt races and refusal to rewind the
+code branch. PR #1118 passed all 92 affected tests (8.0 s test execution) and
+merged with all required branch checks green. Its full affected gate took
+23 s; finish took 62.025 s, including lease 1 s, sync 5 s, close 9 s and atomic
+push/release 15 s, plus bookkeeping. The source commit took another 10.338 s.
+The required remote checks completed 37 s after starting, and the merge landed
+16 s after that. These are measured boundaries, not a sub-60 commit-through-
+merge claim or a comparison with the original 552-test workload.
+
+Two mixed-run experiments were also measured on the same checkout. Building
+the selected package and focused root binaries separately, merging nextest's
+binary metadata and executing their union passed 100 tests in 25.891 s for the
+complete hermetic wrapper. The separate wrappers passed the same 100 tests in
+27.202 s. A smaller shared-home wrapper passed 99 tests in 27.272 s; its test
+selection differed by the experiment's own regression tests. Neither result
+establishes a worthwhile, stable improvement. Both implementations were
+discarded before publication; the existing Cargo selections, cleanup boundaries
+and runner remain. No sub-60 broader Rust gate or binary release is claimed.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

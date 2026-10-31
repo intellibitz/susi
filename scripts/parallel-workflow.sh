@@ -158,11 +158,25 @@ renew_owned_claims() {
 # the common path; if main advanced during the gate, integrate the hook's fresh
 # snapshot and retry once. Other push failures retain their original error.
 push_closed_branch() {
-    local branch=$1 attempt before
+    local branch=$1 attempt before status
+    released_with_push=0
     for attempt in 1 2; do
         before=$(git rev-parse HEAD)
-        if git push origin "HEAD:refs/heads/$branch"; then
-            return 0
+        status=75
+        if [ "${wait:-0}" != 1 ] && [ -n "${task:-}" ] && [ -f "$root/scripts/publish-task-branch.py" ]; then
+            if python3 -B "$root/scripts/publish-task-branch.py" "$task" "$branch"; then
+                released_with_push=1
+                return 0
+            else
+                status=$?
+            fi
+        fi
+        # Relay transports and older standalone copies retain the separate
+        # publication/release path. A failed atomic transaction never falls back.
+        if [ "$status" = 75 ]; then
+            if git push origin "HEAD:refs/heads/$branch"; then
+                return 0
+            fi
         fi
         if [ "$attempt" = 2 ] || [ "$before" != "$(git rev-parse HEAD)" ] \
             || git merge-base --is-ancestor origin/main HEAD; then
@@ -270,23 +284,36 @@ gate_tests_cargo() {
 # detection cannot tell, and `SUSI_LOCAL_GATE=full` forces it. A docs/CI-only
 # diff has nothing local to prove beyond fmt: the branch-push run gates the
 # merge, and main re-runs the full suite after it.
-# The gate's verdict is a pure function of the diff it judges: the same
-# diff-vs-main produces the same fmt/clippy/test outcome. finish used to pay
+# The gate's proof is bound to its source inputs and selected scope. finish used to pay
 # the suite again on every re-invocation — a push rejection, a stale remote
 # head whose merge only moves task JSON — even when the gate-relevant content
-# was untouched. The stamp hashes the working tree's diff to origin/main with
-# `.agents/` excluded (task bookkeeping is never gate input) plus the content
-# of untracked code files, and on a hit the suite is skipped. A merge that
-# pulls in real upstream changes moves the diff the other way and re-gates;
+# was untouched. The shared stamp includes all indexed sources, working edits,
+# untracked inputs and scope, excluding only task bookkeeping. Changes pulled
+# from main invalidate it even when they leave this branch's diff unchanged;
 # SUSI_GATE_NOCACHE=1 forces a run regardless.
 gate_stamp() {
-    {
-        git diff origin/main -- . ':(exclude).agents'
-        git ls-files --others --exclude-standard -- . ':(exclude).agents' |
-            while IFS= read -r f; do
-                [ -f "$f" ] && git hash-object -- "$f"
-            done
-    } | git hash-object --stdin
+    if [ -x "$root/scripts/gate-input-stamp.sh" ]; then
+        "$root/scripts/gate-input-stamp.sh"
+    else
+        # Older standalone copies still run every check, without proof reuse.
+        printf 'uncached\n'
+    fi
+}
+
+gate_format() {
+    local stamp okfile
+    if [ ! -x "$root/scripts/gate-input-stamp.sh" ]; then
+        cargo fmt --all --check
+        return
+    fi
+    stamp=$("$root/scripts/gate-input-stamp.sh" --format) || return 1
+    okfile="$(git rev-parse --git-dir)/susi-fmt-ok"
+    if [ "$stamp" != uncached ] && [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
+        echo 'format: this source and formatter already passed' >&2
+        return 0
+    fi
+    cargo fmt --all --check || return 1
+    printf '%s\n' "$stamp" >"$okfile"
 }
 
 # Refuse a diff that deletes tests.
@@ -365,12 +392,12 @@ gate() {
     timed_step target seed_own_target
     timed_step scope resolve_gate_plan
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
-    stamp=$(gate_stamp)
-    if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
+    stamp=$(gate_stamp) || return 1
+    if [ "$stamp" != uncached ] && [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
         return 0
     fi
-    timed_step format cargo fmt --all --check
+    timed_step format gate_format
     pkgs=$gate_pkgs
     if [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
@@ -534,7 +561,9 @@ finish)
     if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
         # Never fall through into the wait below: a failed release used to
         # park the agent in a 30-minute poll it never asked for.
-        if ! timed_step release "$susi_bin" tasks release "$task" --force; then
+        if [ "${released_with_push:-0}" = 1 ]; then
+            echo 'workflow: release included in the atomic branch push' >&2
+        elif ! timed_step release "$susi_bin" tasks release "$task" --force; then
             echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi tasks release $task --force" >&2
             exit 1
         fi
