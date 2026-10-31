@@ -573,12 +573,17 @@ jobs:
         id: affected
         run: |
           pkgs=$(./scripts/ci-changed-crates.sh --dependents)
+          root_test_targets=$(./scripts/ci-changed-crates.sh --root-test-targets)
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
             echo 'AFFECTED_EOF'
           } >> "$GITHUB_OUTPUT"
-          if [ "$pkgs" = "ALL" ]; then
+          rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
+            lintcmd="cargo clippy -p $rootpkg$(printf ' --test %s' $root_test_targets) --locked -- -D warnings"
+            echo "lintcmd=$lintcmd" >> "$GITHUB_OUTPUT"
+          elif [ "$pkgs" = "ALL" ]; then
             echo "lintcmd=cargo clippy --workspace --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           elif [ -z "$pkgs" ]; then
             echo "lintcmd=" >> "$GITHUB_OUTPUT"

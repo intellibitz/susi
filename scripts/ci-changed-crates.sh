@@ -48,11 +48,13 @@ set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 with_dependents=0
+root_test_targets=0
 case "${1:-}" in
     "") ;;
     --dependents) with_dependents=1 ;;
+    --root-test-targets) root_test_targets=1 ;;
     *)
-        echo "usage: ci-changed-crates.sh [--dependents]" >&2
+        echo "usage: ci-changed-crates.sh [--dependents|--root-test-targets]" >&2
         exit 2
         ;;
 esac
@@ -77,6 +79,38 @@ changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
 [ -n "$changed" ] || exit 0
 # The task queue is inert at build time; see the header.
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
+
+# A top-level root integration-test-only diff can be linted by target. This is
+# deliberately a narrow opt-in result: any production/build input, deleted or
+# nested test target, or unrecognized path prints nothing so callers retain
+# their conservative all-targets path. Workflow/docs/task-only paths are inert
+# to Rust target compilation and may accompany a focused test edit.
+if [ "$root_test_targets" = 1 ]; then
+    repo_root=$(git rev-parse --show-toplevel)
+    target_tests=()
+    target_uncertain=0
+    while IFS= read -r f; do
+        case "$f" in
+            tests/*.rs)
+                name=${f#tests/}
+                case "$name" in */*) target_uncertain=1 ;; *)
+                    if [ -f "$repo_root/$f" ]; then
+                        target_tests+=("${name%.rs}")
+                    else
+                        target_uncertain=1
+                    fi
+                    ;;
+                esac
+                ;;
+            .agents/tasks/*|scripts/*|.github/*|docs/*|*.md) ;;
+            *) target_uncertain=1; break ;;
+        esac
+    done <<<"$changed"
+    if [ "$target_uncertain" = 0 ] && [ "${#target_tests[@]}" -gt 0 ]; then
+        printf '%s\n' "${target_tests[@]}" | sort -u
+    fi
+    exit 0
+fi
 
 # A test-only diff cannot break the packages that consume this crate: the
 # branch gate runs clippy with --all-targets for the owning package, which

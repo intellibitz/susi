@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT202610310807401085648-1",
+  "title": "Lint only changed root integration-test targets for test-only diffs",
+  "goal": "Reduce SUSI task-to-merge handoff latency below 60 seconds without weakening code coverage",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_changed_crates",
+      "root_test_targets_include_only_changed_root_test_files"
+    ]
+  },
+  "created_by": "AGENT202610310807401085648",
+  "created_unix": 1793414346,
+  "closed": {
+    "at_unix": 1793414970,
+    "commit": "eed12774c1fd8022ce612857a58532d5c1b548a2",
+    "by": "AGENT202610310807401085648"
+  }
+}
