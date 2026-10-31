@@ -3205,6 +3205,117 @@ fn the_copy_watcher_counts_an_unreaped_process_as_ended() {
     assert!(!lock.exists(), "the lock is let go of after: {err}");
 }
 
+/// Until a release that carries the verb is installed, the stub can find no
+/// susi to exec: the installed one is older (its `--help` probe fails), and a
+/// worktree just made has no build of its own. It must still do what cannot
+/// wait for a release: unlink a target/ that is still a link to the clone's
+/// old shared target (the link only), and make a missing target/ as an empty
+/// directory, so neither the caller's cargo nor v0.21.23's `workflow start`
+/// (which links a target/ that does not exist) builds in the shared target.
+/// Nothing is copied, the primary checkout is never touched, and `--refresh`
+/// has nothing to fall back on.
+#[test]
+fn the_stub_still_unlinks_and_makes_an_empty_target_without_a_capable_susi() {
+    let w = World::new("stubfallback");
+    w.make_seed();
+    // An installed release from before the verb: it refuses `workflow
+    // seed-target --help`, as clap does with a usage error.
+    let old = w.root.join("old-susi");
+    write(&old, "#!/bin/sh\nexit 2\n");
+    executable(&old);
+    let mut path = vec![w.root.join("nowhere")];
+    path.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let path = std::env::join_paths(path).unwrap();
+    let envs: Vec<(&str, &str)> = vec![
+        ("SUSI_WORKFLOW_BIN", old.to_str().unwrap()),
+        ("PATH", path.to_str().unwrap()),
+    ];
+    let shared = w.root.join("shared-target");
+    write(&shared.join("sentinel"), "another worktree's build");
+    let dest = w.app_worktree("app");
+    link_dir(&shared, &dest.join("target"));
+    let (code, _, err) = w.seed_target(&[dest.to_str().unwrap()], &envs);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("no susi with"), "{err}");
+    assert!(err.contains("replaced the link"), "{err}");
+    assert!(
+        is_empty_dir(&dest.join("target")),
+        "an empty target of the worktree's own, nothing copied: {err}"
+    );
+    assert_no_staging(&dest);
+    assert_eq!(
+        std::fs::read_to_string(shared.join("sentinel")).unwrap(),
+        "another worktree's build"
+    );
+    // A worktree with no target/ at all, through the hooks' `--background`.
+    let other = w.app_worktree("other");
+    let (code, _, err) = w.seed_target(&["--background", other.to_str().unwrap()], &envs);
+    assert_eq!(code, 0, "{err}");
+    assert!(is_empty_dir(&other.join("target")), "{err}");
+    // The primary checkout keeps the target it has, and gets none.
+    let (code, _, err) = w.seed_target(&[], &envs);
+    assert_eq!(code, 0, "{err}");
+    assert!(!w.primary.join("target").exists(), "{err}");
+    // A build is never touched, and --refresh does nothing.
+    write(&other.join("target/debug/built-here"), "mine");
+    let (code, _, _) = w.seed_target(&[other.to_str().unwrap()], &envs);
+    assert_eq!(code, 0);
+    assert!(other.join("target/debug/built-here").is_file());
+    let (code, _, _) = w.seed_target(&["--refresh", "--force"], &envs);
+    assert_eq!(code, 0);
+    assert!(!w.seed_src().exists());
+    assert_seed_untouched(&w);
+}
+
+/// The detached copy is this very binary, which has the verb, not whatever
+/// `SUSI_WORKFLOW_BIN` names: the stub passes over a release older than the
+/// verb and execs a checkout's build, but the environment reaches the binary
+/// unchanged, and spawning that release would report a copy under way and
+/// leave the target cold. And a relative `CARGO_TARGET_DIR` is the
+/// worktree's, not this process's: `workflow start` seeds from the primary
+/// checkout for a cargo that runs after its `cd`.
+#[test]
+fn the_background_copy_is_this_binary_and_a_relative_target_dir_is_the_worktrees() {
+    let w = World::new("selfspawn");
+    w.make_seed();
+    let old = w.root.join("old-susi");
+    write(&old, "#!/bin/sh\nexit 2\n");
+    executable(&old);
+    let dest = w.app_worktree("app");
+    let (code, _, err) = susi(
+        &w.primary,
+        &[
+            "workflow",
+            "seed-target",
+            "--background",
+            dest.to_str().unwrap(),
+        ],
+        &[("SUSI_WORKFLOW_BIN", old.to_str().unwrap())],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("in the background"), "{err}");
+    assert!(
+        wait_for(&dest.join("target/.susi-seeded"), 120),
+        "the detached copy never ran: {err}"
+    );
+    wait_for_seeders(&dest);
+    assert_seeded(&dest);
+    // From the primary checkout, `CARGO_TARGET_DIR=target` names the
+    // worktree's own target: copied, not read as the primary's.
+    let other = w.app_worktree("other");
+    let (code, _, err) = susi(
+        &w.primary,
+        &["workflow", "seed-target", other.to_str().unwrap()],
+        &[("CARGO_TARGET_DIR", "target")],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("nothing is copied"), "{err}");
+    assert_seeded(&other);
+    assert!(!w.primary.join("target").exists());
+}
+
 /// On Windows an installed `susi.exe` seeds a worktree with no Git userland
 /// on PATH: only Git's `cmd` (git itself), System32 (robocopy) and the
 /// Windows directory. The bash version needed `cp`, `find`, `awk`, `cygpath`

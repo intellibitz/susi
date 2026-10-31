@@ -19,9 +19,15 @@
 # target/debug; not through a target/ that is still a link to the shared one,
 # which the seeding is about to remove) — and execs it, holding none of the
 # caller's descriptors (a lock on fd 9, a pipe a hook reads to its end). A susi
-# older than the verb is passed over, not run into. With none, it says so and
-# exits 0: the seeding never fails its caller, and that first build is cold.
-# Nothing here needs more than sh and git.
+# older than the verb is passed over, not run into. With none (the installed
+# release predates the verb and the worktree has no build of its own yet), it
+# still does the one thing that cannot wait for a release: a worktree's
+# target/ that is a link to the clone's old shared target is unlinked (the
+# link only), and a missing one is made, empty, so neither the cargo the
+# caller runs next nor v0.21.23's `workflow start` (which links a target/ that
+# does not exist) builds where a sibling's build can stand in for this
+# branch's. Nothing is copied: that first build is cold. It says so and exits
+# 0: the seeding never fails its caller. Nothing here needs more than sh and git.
 set -u
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 own=
@@ -36,5 +42,41 @@ for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
         exec "$bin" workflow seed-target "$@" 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
     fi
 done
-echo "target: no susi with \`workflow seed-target\` found (SUSI_WORKFLOW_BIN, the installed susi, this checkout's target/): nothing is seeded, and the first build compiles everything. Install the current release: scripts/susi-release-sync.sh" >&2
+echo "target: no susi with \`workflow seed-target\` found (SUSI_WORKFLOW_BIN, the installed susi, this checkout's target/): nothing is copied, and the first build compiles everything. Install the current release: scripts/susi-release-sync.sh" >&2
+# The worktree named (the last argument that is no flag), else this one;
+# --refresh has nothing to fall back on.
+dir=
+for arg in "$@"; do
+    case "$arg" in
+    --refresh) exit 0 ;;
+    --log) dir=-- ;;
+    -*) ;;
+    *) [ "$dir" = -- ] && dir= || dir=$arg ;;
+    esac
+done
+[ "$dir" != -- ] || dir=
+[ -n "$dir" ] || dir=$top
+[ -n "$dir" ] && [ -d "$dir" ] || exit 0
+top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || exit 0
+# Never the primary checkout: its target is the one worktrees still link.
+gitdir=$(git -C "$top" rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
+common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+[ "$gitdir" != "$common" ] || exit 0
+t=$top/target
+if [ -L "$t" ]; then
+    rm -f -- "$t" 2>/dev/null
+    if [ -L "$t" ]; then
+        # Git for Windows' rm may refuse a junction; cmd's rmdir without /s
+        # removes the junction only. The path is its own argument.
+        case "$(uname -s 2>/dev/null)" in
+        MSYS* | MINGW* | CYGWIN*) MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c rmdir "$(cygpath -aw "$t" 2>/dev/null || printf '%s' "$t")" >/dev/null 2>&1 ;;
+        esac
+    fi
+    if [ -L "$t" ]; then
+        echo "target: could not remove the link at $t; it still points at a shared target" >&2
+        exit 0
+    fi
+    echo "target: replaced the link to a shared target with this worktree's own ($t)" >&2
+fi
+[ -e "$t" ] || mkdir "$t" 2>/dev/null
 exit 0

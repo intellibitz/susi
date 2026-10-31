@@ -372,9 +372,12 @@ fn usable_seed(seed: &Path, primary: &Path) -> bool {
 }
 
 /// The directory the environment has cargo build into, when that is not the
-/// target `t`: `CARGO_TARGET_DIR`, else `CARGO_BUILD_TARGET_DIR` (a relative
-/// one is taken from where cargo runs, which is where this runs). `None` when
-/// neither is set, or it names `t` itself, however spelled.
+/// target `t`: `CARGO_TARGET_DIR`, else `CARGO_BUILD_TARGET_DIR`. A relative
+/// one is taken from the worktree (`t`'s parent), where the cargo this is
+/// for runs: the hooks, the gate and `tasks close` run there, and `workflow
+/// start` runs from the primary checkout for a cargo that runs after its `cd`,
+/// so this process's own directory would read `target` as the primary's.
+/// `None` when neither is set, or it names `t` itself, however spelled.
 fn builds_elsewhere(t: &Path) -> Option<(String, &'static str)> {
     let (var, named) = ["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"]
         .into_iter()
@@ -388,8 +391,8 @@ fn builds_elsewhere(t: &Path) -> Option<(String, &'static str)> {
     let absolute = named.starts_with('/')
         || (named.len() >= 3 && named.as_bytes()[0].is_ascii_alphabetic() && &named[1..3] == ":/");
     if !absolute {
-        let cwd = std::env::current_dir().ok()?;
-        named = format!("{}/{named}", slashes(&cwd));
+        let worktree = t.parent()?;
+        named = format!("{}/{named}", slashes(worktree));
     }
     while named.len() > 1 && named.ends_with('/') {
         named.pop();
@@ -1226,13 +1229,18 @@ fn note_shared_primary(primary: &Path) {
     ));
 }
 
-/// The susi that runs the background copy: `SUSI_WORKFLOW_BIN` (what the
-/// hooks are told to run), else this executable.
+/// The susi that runs the background copy: this executable, which has the
+/// verb (it is running it), else `SUSI_WORKFLOW_BIN`. Not the other way
+/// round: the stub passes over a `SUSI_WORKFLOW_BIN` naming a release older
+/// than the verb and execs a checkout's own build instead, and that
+/// environment reaches here unchanged; spawning the old release would
+/// succeed, report the copy under way, and leave the target cold.
 fn self_program() -> Option<PathBuf> {
-    std::env::var_os("SUSI_WORKFLOW_BIN")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_exe().ok())
+    std::env::current_exe().ok().or_else(|| {
+        std::env::var_os("SUSI_WORKFLOW_BIN")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    })
 }
 
 /// Start the copy into `top` in a process of its own, detached from this one
