@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Mandate 49: keep the primary checkout's main current (see sync-primary).
 "$(dirname "$0")/sync-primary"
+# Mandate 49, sync after every feature: the branch catches up with origin/main
+# now, when the merge is clean, and the agent is told to merge now when it is
+# not (see sync-branch). Fixtures that carry only some hooks skip it.
+[ ! -x "$(dirname "$0")/sync-branch" ] || "$(dirname "$0")/sync-branch"
 # A worktree whose target/ is still a link to the clone's old shared target
 # gets one of its own at once. Git runs no post-merge for a merge that stops
 # on conflicts: the commit that concludes it (`git commit`, `git merge

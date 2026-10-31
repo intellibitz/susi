@@ -111,7 +111,17 @@ The agent loop is **atomic per task** (own worktree, always synced with
    claim at a time. Nobody starts a claimed task.
 3. **Do the work; every commit ends with** `Task: T-<AGENT>-<n>`. The
    commit-msg hook, the pre-push hook and the CI job "Workflow Compliance"
-   reject commits without it.
+   reject commits without it. **Every commit is a sync:** the post-commit
+   hook (`.githooks/sync-branch`) fetches `origin/main` and merges it into
+   your branch when the merge is clean, so a feature is on top of everyone
+   else's work the moment it is committed, and nobody waits for anybody. When
+   the merge conflicts it is aborted and the hook says so: run `git merge
+   origin/main` and resolve it then, while the conflict is one commit small,
+   instead of at push time with every other agent's work piled on top. It
+   never runs in the primary checkout, on `main`, mid-merge, in a dirty tree,
+   inside `workflow finish` (which syncs itself) or with
+   `SUSI_NO_BRANCH_SYNC=1`; offline it does nothing, and the push guard still
+   refuses a branch that is behind.
 4. **Sync again, then push:** `git fetch && git merge origin/main`, pass the
    gate — `cargo fmt --all --check`, then clippy for the crates the branch
    touches **and their dependents**, and **their tests, once**
@@ -354,7 +364,10 @@ this for the panic-path lints.
   (only merges of `origin/main`-current branches), and `main` is only ever
   fast-forwarded — never force-pushed or deleted. The agent loop is **atomic
   per task**: sync → claim/complete one task → commit → sync → push → sync
-  again, so parallel agents always build on latest `origin/main`. Enforced by
+  again, so parallel agents always build on latest `origin/main`; and every
+  commit on the branch merges `origin/main` when that merge is clean
+  (`.githooks/sync-branch`, from post-commit), so the sync before the push is
+  already done and a conflict surfaces one commit after it arises. Enforced by
   `.githooks/workflow-guard` (called from `pre-commit`, `pre-merge-commit`,
   `pre-push`; a stub that execs `susi workflow guard`, so the rules run in
   Rust with git alone — no shell userland), enabled by `scripts/setup-dev.sh`
