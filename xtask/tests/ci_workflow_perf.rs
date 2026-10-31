@@ -2407,9 +2407,15 @@ fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
             cuda.body.contains("RUSTC_WRAPPER: sccache"),
             "{wf}: build-cuda installs sccache but does not set RUSTC_WRAPPER: sccache in its env"
         );
+        let expected = if wf.ends_with("dev-release.yml") {
+            "true"
+        } else {
+            "false"
+        };
         assert!(
-            cuda.body.contains("SCCACHE_GHA_ENABLED: \"true\""),
-            "{wf}: build-cuda must enable SCCACHE_GHA_ENABLED"
+            cuda.body
+                .contains(&format!("SCCACHE_GHA_ENABLED: \"{expected}\"")),
+            "{wf}: build-cuda must use the intended cache scope"
         );
         let key = value_of(&cuda.body, "shared-key").unwrap_or_default();
         assert!(
@@ -2421,6 +2427,55 @@ fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
             "{wf}: build-cuda must declare a non-empty cargo cache key"
         );
     }
+}
+
+#[test]
+fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
+    let release = read(".github/workflows/release.yml");
+    let warm = read(".github/workflows/release-warm.yml");
+    let release_jobs = jobs(&release);
+    let build = job(&release_jobs, "build");
+    let warm_jobs = jobs(&warm);
+    let warmer = job(&warm_jobs, "warm");
+    assert!(warm.contains("workflow_run:") && warm.contains("branches: [main]"));
+    assert!(warmer
+        .body
+        .contains("github.event.workflow_run.conclusion == 'success'"));
+    assert!(warmer
+        .body
+        .contains("github.event.workflow_run.head_sha || github.sha"));
+    assert!(warm.contains("cancel-in-progress: false"));
+    for setting in [
+        "runs-on: windows-latest",
+        "SCCACHE_GHA_ENABLED: \"false\"",
+        "RUSTC_WRAPPER: sccache",
+        "RUSTC_WORKSPACE_WRAPPER: sccache",
+        "CARGO_PROFILE_DIST_LTO: thin",
+        "CARGO_PROFILE_DIST_CODEGEN_UNITS: \"16\"",
+        "shared-key: release-windows-x86_64",
+        "cache-targets: \"true\"",
+        "cargo build --locked --profile dist",
+    ] {
+        assert!(warmer.body.contains(setting), "warmer lacks {setting}");
+    }
+    for setting in [
+        "SCCACHE_GHA_ENABLED: \"false\"",
+        "RUSTC_WRAPPER: sccache",
+        "RUSTC_WORKSPACE_WRAPPER: sccache",
+        "CARGO_PROFILE_DIST_LTO: thin",
+        "CARGO_PROFILE_DIST_CODEGEN_UNITS: \"16\"",
+        "shared-key: release-${{ matrix.name }}",
+        "matrix.name == 'windows-x86_64'",
+        "save-if: \"false\"",
+    ] {
+        assert!(
+            build.body.contains(setting),
+            "release build lacks {setting}"
+        );
+    }
+    assert!(job(&release_jobs, "build-cuda")
+        .body
+        .contains("save-if: \"false\""));
 }
 
 /// A release publishes the platforms it is contracted on and tolerates the

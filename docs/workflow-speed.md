@@ -488,6 +488,24 @@ the Windows leg. Two findings:
 The local cut (`susi admin release --cut patch`) is measured in the next
 section when the next release is cut.
 
+### Windows release cache experiment (2026-11-01)
+
+v0.21.29 published 25 min 18 s after the release workflow started. Its
+Windows engine took 20 min 21 s, its harness another 2 min 31 s, and the
+publish job 41 s; the full tagged-commit suite ran in parallel. A snapshot of
+the repository's Actions caches held about 10.65 GiB in 926 entries, many
+scoped to that single tag. Such entries cannot warm the next tag.
+
+`release-warm.yml` now builds the Windows dist dependency graph after a green
+main Test run and saves its dependency-only target under the same rust-cache
+key that the Windows release restores. Runs finish rather than being cancelled
+by every new main commit. The release reads that cache but writes no tag-scoped
+rust-cache or GitHub sccache entries. Other platform legs stay cold; the warm
+cache competes with Test for the repository's cache quota. Its size, hit rate,
+impact on Test caches, Windows time and complete release time must be measured
+on the first subsequent warm release; these changes do not establish a
+sub-60-second release.
+
 ## The loop's scripts as susi subcommands (2026-10-31)
 
 `scripts/seed-target.sh`, `scripts/park-primary.sh`, `scripts/prune-worktrees.sh`

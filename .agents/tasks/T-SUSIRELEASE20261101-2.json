@@ -1,0 +1,20 @@
+{
+  "id": "T-SUSIRELEASE20261101-2",
+  "title": "Reuse main Windows release dependency builds across tags",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "windows_release_cache"
+    ]
+  },
+  "created_by": "SUSIRELEASE20261101",
+  "created_unix": 1793478119
+}
