@@ -50,6 +50,7 @@ use super::workflow_cli;
 
 use std::env;
 use std::path::Path;
+use susi_daemon::discovery_pipeline::Catalogs;
 use susi_daemon::SusiDaemon;
 
 /// Dispatch control-plane commands that must run before substrate boot.
@@ -60,6 +61,13 @@ use susi_daemon::SusiDaemon;
 pub(crate) fn dispatch(
     command: Option<Commands>,
 ) -> Result<std::process::ExitCode, Option<Commands>> {
+    // The catalogs this command reads, taken before its arm consumes it:
+    // an Ecosystem plane primes exactly these and nothing else.
+    let ecosystem = PlanePrep::Ecosystem(
+        command
+            .as_ref()
+            .map_or(Catalogs::ALL, super::defs::command_catalogs),
+    );
     // Leaf-service mode: the daemon re-execs this binary as
     // `service-run <name>`; it must serve before anything else touches
     // the substrate (no daemon ensure, no mission pipeline).
@@ -194,12 +202,12 @@ pub(crate) fn dispatch(
         }));
     }
     if let Some(Commands::Agents { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Ecosystem, |cwd| {
+        return Ok(run_plane_cwd(ecosystem, |cwd| {
             agent_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Frameworks { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Ecosystem, |cwd| {
+        return Ok(run_plane_cwd(ecosystem, |cwd| {
             framework_cli::execute(action, cwd)
         }));
     }
@@ -211,7 +219,7 @@ pub(crate) fn dispatch(
         }
         Some(Commands::Models { .. }) => {
             if let Some(Commands::Models { action }) = command {
-                return Ok(run_plane_cwd(PlanePrep::Ecosystem, |cwd| {
+                return Ok(run_plane_cwd(ecosystem, |cwd| {
                     model_cli::execute(action, cwd)
                 }));
             }
@@ -219,14 +227,10 @@ pub(crate) fn dispatch(
         _ => {}
     }
     if let Some(Commands::OpenWeight { action }) = command {
-        return Ok(run_plane(PlanePrep::Ecosystem, || {
-            open_weight_cli::execute(action)
-        }));
+        return Ok(run_plane(ecosystem, || open_weight_cli::execute(action)));
     }
     if let Some(Commands::Frontier { action }) = command {
-        return Ok(run_plane(PlanePrep::Ecosystem, || {
-            frontier_cli::execute(action)
-        }));
+        return Ok(run_plane(ecosystem, || frontier_cli::execute(action)));
     }
     if let Some(Commands::OpenRouter { action }) = command {
         return Ok(run_plane(PlanePrep::None, || {
@@ -304,11 +308,8 @@ pub(crate) fn dispatch_mcp(
         })
         | Some(Commands::Mcp { action: None }) => Err(command),
         Some(Commands::Mcp { action }) => {
-            // Ledger verification reads the pinned corpus directly. Discovering
-            // external launchers and model catalogs cannot affect its result.
-            if !matches!(&action, Some(mcp_cli::McpCommands::Ledger { .. })) {
-                apply_plane_prep(PlanePrep::Ecosystem);
-            }
+            let catalogs = super::defs::mcp_catalogs(action.as_ref());
+            apply_plane_prep(PlanePrep::Ecosystem(catalogs));
             Ok(plane_exit(
                 env::current_dir()
                     .map_err(anyhow::Error::from)

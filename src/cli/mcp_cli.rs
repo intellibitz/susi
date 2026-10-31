@@ -93,7 +93,7 @@ fn default_bearer(addr: &str) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-fn is_network_endpoint(addr: &str) -> bool {
+pub(crate) fn is_network_endpoint(addr: &str) -> bool {
     if addr.starts_with("http://") || addr.starts_with("https://") {
         return true;
     }
