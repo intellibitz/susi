@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT20261031204841253437-3",
+  "title": "Release legs stop saving tag-scoped target caches; record the v0.21.27 leg timings",
+  "goal": "Measured on the v0.21.27 release run (2026-10-31): sccache hit 0 of 892 compiles on the Windows leg, whose cold dist build took 23.6 of its 28 minutes; a GitHub Actions cache written on a tag ref is readable only by that tag, and the ~1 GB target cache each leg saved was never read again while evicting Test's shard caches (9 of the 10 GB quota). release.yml's build and build-cuda legs set cache-targets false and the header says why; docs/workflow-speed.md gains the measured release-leg table, the macOS cancellation that left v0.21.27 unpublished, and the remaining levers.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "AGENT20261031204841253437",
+  "created_unix": 1793463835,
+  "closed": {
+    "at_unix": 1793463984,
+    "commit": "5e8aa7fb368d420a897fd7a37d78c09b90046c96",
+    "by": "AGENT20261031204841253437"
+  }
+}
