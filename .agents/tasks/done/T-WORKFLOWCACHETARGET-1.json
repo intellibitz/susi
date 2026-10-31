@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "WORKFLOWCACHETARGET",
-  "created_unix": 1793416137
+  "created_unix": 1793416137,
+  "closed": {
+    "at_unix": 1793416625,
+    "commit": "d222c53f630fd6d665c43a39c3653cbc05497f36",
+    "by": "WORKFLOWCACHETARGET"
+  }
 }
