@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT202610310754411067899-1",
+  "title": "Harness precheck must judge acceptance on origin/main's tree, never on a reused worktree's branch",
+  "goal": "Observed 2026-10-31 in a live engine mission: 'susi workflow start' reused the worktree an earlier run left behind (susi-worktree.sh: 'already exists - reusing it'), whose branch carried the earlier worker's commit efa6fa3f6 replacing tests/gmcp_requirements.rs (13,869 lines) with 200 lines holding one new test. The adapter's precheck ran the acceptance there, saw that lone test pass, closed T-CODEXGMCPROADMAP-83 as 'already passes on the untouched base', published a close receipt and reported 'merged' with zero model calls. The precheck must only close when the worktree's HEAD tree equals origin/main plus at most the task record (git diff origin/main --stat is empty apart from .agents/tasks), and a reused worktree whose branch is ahead with code must be reset to origin/main before any attempt or precheck runs. In the same adapter: before commit_work, close or finish, compare every changed .rs file against the base and reject the attempt when its #[test] count drops (recording the rejection as a failure the ladder reads, never a success), the in-process counterpart of the gate check scripts/parallel-workflow.sh gained under T-AGENT202610310754411067899-2.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT202610310754411067899",
+  "created_unix": 1793416657,
+  "closed": {
+    "at_unix": 1793421417,
+    "commit": "4b3557d2475170b3a08d73bb987e920f37a60bc2",
+    "by": "CLAUDEMAINLUS9Z6"
+  }
+}
