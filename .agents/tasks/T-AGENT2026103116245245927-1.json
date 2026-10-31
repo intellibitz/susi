@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT2026103116245245927-1",
+  "title": "Pass SUSI_WORKFLOW_BIN to relay git commands in cloud_session tests",
+  "goal": "Ensure World::as_relay in tests/cloud_session.rs exports SUSI_WORKFLOW_BIN so .githooks/pre-push finds susi workflow guard on clean CI runners without an installed susi",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session"
+    ]
+  },
+  "created_by": "AGENT2026103116245245927",
+  "created_unix": 1793445290
+}
