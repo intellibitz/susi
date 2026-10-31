@@ -333,7 +333,7 @@ mod tests {
     fn worker_declares_the_registry_tools() {
         let declarations = crate::tools::Registry::builtin().declarations();
         assert!(declarations.as_array().is_some());
-        assert_eq!(declarations.as_array().unwrap().len(), 5);
+        assert_eq!(declarations.as_array().unwrap().len(), 6);
     }
 
     #[tokio::test]

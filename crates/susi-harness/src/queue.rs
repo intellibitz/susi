@@ -219,10 +219,12 @@ fn prompt_for(task: &TaskRecord) -> String {
         Some(accept) => requirement_order(&accept).map_or_else(default_order, |name| {
             format!(
                 "Order (do not survey the repository): `git grep -n \"fn {prefix}\"` finds the sibling \
-test one requirement earlier; read only that function. In your FIRST five turns, append a new \
-`#[test] fn {name}` to the END of tests/gmcp_requirements.rs, copying the sibling's shape and the \
-real GMCP APIs it uses. Then run the acceptance command from the task file and iterate on the real \
-output. Read no more than three windows over 200 lines.",
+test one requirement earlier; read only that function. In your FIRST five turns, add a new \
+`#[test] fn {name}` to the END of tests/gmcp_requirements.rs with the append_to_file tool (the file \
+is far larger than one answer can carry: never write_to_file it, and replace_file_content only to \
+change a line you have read), copying the sibling's shape and the real GMCP APIs it uses. Then run \
+the acceptance command from the task file and iterate on the real output. Read no more than three \
+windows over 200 lines.",
                 prefix = requirement_prefix(&name),
                 name = name
             )
