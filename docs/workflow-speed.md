@@ -451,3 +451,39 @@ complete gate measurements must still establish this change's total savings.
   minutes needs warm dependency caches those tag runs cannot read (the
   repository is at its 10 GB Actions cache quota) or larger runners
   (`vars.CI_RUNNER`).
+
+## Release legs, measured on v0.21.27 (2026-10-31)
+
+The tag-to-published path of release.yml, from the run's own job timings:
+
+| step | v0.21.27 | note |
+|---|---|---|
+| verify the tag | 13 s | |
+| full suite on the tagged commit | 7 min | reused the post-merge suite |
+| build linux-x86_64 / aarch64 | 9 / 10 min | `cargo build --profile dist` 8.3 min cold, mold |
+| build linux-x86_64-cuda | 16 min | |
+| build windows-x86_64 | 28 min | `cargo build --profile dist` 23.6 min cold, harness 2.9 min, saving the target cache 1 min |
+| build macos-aarch64 | cancelled after 1 s | unsupported runner label; fixed on main the same evening (98a93b3f9) |
+| publish | skipped | a cancelled leg cancels the run, and a cancelled run publishes nothing (by design, tests/release_workflow.rs) |
+
+So v0.21.27 was tagged but never published, and the wall time of a release is
+the Windows leg. Two findings:
+
+- **No release leg has ever hit its compiler cache.** sccache answered 0 of 892
+  compiles on the Windows leg (0 of its C/C++ ones too). A GitHub Actions cache
+  written by a run on a tag ref is readable only by that tag; the next tag
+  starts cold. Only caches written on `main` are shared, and nothing on `main`
+  builds the dist profile. The legs no longer save their target directories
+  (`cache-targets: "false"`): the ~1 GB a tag run wrote per leg was never read
+  again and only evicted Test's shard caches, which carry every pull request
+  and already hold 9 of the repository's 10 GB.
+- **The Windows leg is a cold 4-core MSVC build of ~700 crates with thin LTO.**
+  Nothing in the workflow shortens it without a readable cache. The levers that
+  would are a decision, not a tweak: a warm dist cache written on `main` (about
+  2 GB per leg against the full quota, so Test's shards would have to shrink),
+  a larger Windows runner (paid), or cross-compiling the Windows binary from a
+  Linux leg (`cargo-xwin`, 8-9 min there), which has not been tried against the
+  native dependencies (ort, candle) this binary carries.
+
+The local cut (`susi admin release --cut patch`) is measured in the next
+section when the next release is cut.
