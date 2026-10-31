@@ -459,33 +459,80 @@ gate() {
     # its run is a cache hit rather than a second compile of other crates.
     rootpkg=$gate_rootpkg
     root_test_targets=$gate_root_tests
+    local -a clippy_args=()
     if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
         local -a test_args=()
         while IFS= read -r target; do
             [ -n "$target" ] && test_args+=(--test "$target")
         done <<<"$root_test_targets"
-        timed_step clippy cargo clippy --locked -p "$rootpkg" "${test_args[@]}" -- -D warnings
+        clippy_args=(--locked -p "$rootpkg" "${test_args[@]}" -- -D warnings)
     else
-        timed_step clippy cargo clippy --locked --all-targets $lsel -- -D warnings
+        clippy_args=(--locked --all-targets $lsel -- -D warnings)
     fi
+    # The lint and the tests overlap: see gate_lint_and_test. The test steps
+    # run in a subshell of this function, so they read its selection as before.
+    gate_lint_and_test "${clippy_args[@]}" || return 1
+    echo "$stamp" >"$okfile"
+}
+
+# The gate's test steps, for the selection resolve_gate_plan left in the
+# gate_* variables: the changed crates' suites, with the root package narrowed
+# to its touched `tests/<name>.rs` binaries when the diff allows.
+gate_test_steps() {
+    local pkgs=$gate_pkgs rootpkg=$gate_rootpkg root_tests other_pkgs sel
     if [ -n "$gate_root_tests" ]; then
         root_tests=$gate_root_tests
         other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
         if [ -n "$other_pkgs" ]; then
-            timed_step tests gate_tests $(printf ' -p %s' $other_pkgs)
+            timed_step tests gate_tests $(printf ' -p %s' $other_pkgs) || return 1
         fi
         timed_step tests gate_tests -p "$rootpkg" $(printf ' --test %s' $root_tests)
     elif [ -n "$rootpkg" ] && printf '%s\n' $pkgs | grep -qx "$rootpkg"; then
         other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
         if [ -n "$other_pkgs" ]; then
-            timed_step tests gate_tests $(printf ' -p %s' $other_pkgs)
+            timed_step tests gate_tests $(printf ' -p %s' $other_pkgs) || return 1
         fi
         timed_step tests gate_tests -p "$rootpkg" --lib --bins
     else
         sel=$(printf ' -p %s' $pkgs)
         timed_step tests gate_tests $sel
     fi
-    echo "$stamp" >"$okfile"
+}
+
+# Clippy and the tests, overlapped. Both start with a cargo build into the same
+# target, and cargo's lock on the build directory serializes those; but the
+# test *run* holds no lock, so once the test binaries are built clippy compiles
+# while they execute, instead of after. The tests are started first and clippy
+# a moment later, so the lock usually falls to the test build: the sequence is
+# then build tests → (run tests ∥ clippy), and the lint's wall time disappears
+# into the run's. The other order (clippy took the lock first) is the old
+# serial gate, no slower than before. Clippy's output is held and printed once
+# it ends, so a lint failure reads whole instead of interleaved with the test
+# lines; the test output streams as it always did. Both verdicts are waited
+# for, so a failing lint is reported even when the tests passed and the other
+# way round. The gate's clippy argv follows `cargo clippy`.
+# SUSI_GATE_SERIAL=1 keeps the old one-after-the-other gate (a machine whose
+# timing-sensitive tests cannot spare the cores a concurrent clippy takes).
+gate_lint_and_test() {
+    local clippy_log test_status=0 lint_status=0 tpid
+    if [ "${SUSI_GATE_SERIAL:-0}" = 1 ]; then
+        timed_step clippy cargo clippy "$@" || return 1
+        gate_test_steps
+        return
+    fi
+    clippy_log=$(mktemp)
+    gate_test_steps &
+    tpid=$!
+    sleep "${SUSI_GATE_LINT_DELAY:-2}"
+    timed_step clippy cargo clippy "$@" >"$clippy_log" 2>&1 || lint_status=$?
+    wait "$tpid" || test_status=$?
+    cat "$clippy_log" >&2
+    rm -f "$clippy_log"
+    if [ "$lint_status" -ne 0 ]; then
+        echo "❌ gate: clippy failed (exit $lint_status); see its output above" >&2
+        return "$lint_status"
+    fi
+    return "$test_status"
 }
 
 # Whether the gate run above already covered a task's acceptance command. Only
@@ -569,6 +616,21 @@ finish)
     done
     export SUSI_SYNC_SKIP_BOARD=1
     export SUSI_SYNC_IN_FINISH=1
+    # Without --wait the branch is published and the claim released seconds
+    # after the close, so the close receipt rides that transaction instead of
+    # a push of its own: one atomic push on a laptop (publish-task-branch.py
+    # creates the receipt with the branch, the claim and the agent index), and
+    # in a cloud session — where every queue write is an Actions run relaying
+    # the push — one relayed run instead of two (`tasks release` publishes it,
+    # SUSI_RELEASE_PUBLISH_RECEIPT). The claim is held until that transaction
+    # lands, so nothing can take the task in between; a finish that dies after
+    # the close leaves it closed under the claim, and the next finish publishes.
+    # `--wait` keeps the close publishing its receipt first: its wait reads the
+    # debt from the remote before the release.
+    if [ "$wait" != 1 ]; then
+        export SUSI_CLOSE_DEFER_RECEIPT="$task@$root"
+        export SUSI_RELEASE_PUBLISH_RECEIPT="$task@$root"
+    fi
     timed_step lease renew_or_readopt
     timed_step initial-sync sync
     timed_step gate gate

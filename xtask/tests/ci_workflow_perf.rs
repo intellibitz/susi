@@ -1093,9 +1093,10 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
             .any(|line| line.trim() == ".env_remove(\"SUSI_TARGET_GUARD_HELD\")"),
         "the staged finish must drop an outer guard's hold"
     );
-    // The gates run plain cargo.
+    // The gates run plain cargo: the gate's clippy argv, run as `cargo clippy "$@"`.
     let gate = read("scripts/parallel-workflow.sh");
-    assert!(gate.contains("cargo clippy --locked --all-targets $lsel -- -D warnings"));
+    assert!(gate.contains("clippy_args=(--locked --all-targets $lsel -- -D warnings)"));
+    assert!(gate.contains("timed_step clippy cargo clippy \"$@\""));
     let hook = read(".githooks/pre-push");
     assert!(hook.contains("cargo clippy --workspace --all-targets --locked -- -D warnings"));
     // Worktrees are seeded, by the scripts and by `workflow start` alike;
@@ -1258,7 +1259,8 @@ fn the_pre_push_hook_lints_the_gates_scoped_set_not_the_whole_workspace() {
     );
     let gate = read("scripts/parallel-workflow.sh");
     assert!(
-        gate.contains("cargo clippy --locked --all-targets $lsel -- -D warnings"),
+        gate.contains("clippy_args=(--locked --all-targets $lsel -- -D warnings)")
+            && gate.contains("timed_step clippy cargo clippy \"$@\""),
         "the gate's scoped lint changed; the hook must change with it so the run stays a cache hit"
     );
 }
@@ -4394,12 +4396,27 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
          redundant `renew_owned_claims` and `check-owed-runs.sh` remote round-trips"
     );
     let gate_fn = shell_function(&pw, "gate");
+    let test_steps = shell_function(&pw, "gate_test_steps");
     assert!(
         gate_fn.contains("resolve_gate_plan")
             && shell_function(&pw, "resolve_gate_plan").contains("root-test) gate_root_tests")
-            && gate_fn.contains("gate_tests -p \"$rootpkg\" $(printf ' --test %s' $root_tests)"),
+            && test_steps.contains("gate_tests -p \"$rootpkg\" $(printf ' --test %s' $root_tests)"),
         "when the root package is gated only because top-level `tests/<name>.rs` files changed, \
          the local gate must run only those `--test <name>` binaries instead of all 102 root test binaries"
+    );
+    // Clippy and the test run overlap: the test steps start first (in the
+    // background), clippy follows once the test build holds cargo's lock, and
+    // the gate waits for both verdicts. The lint's wall time then disappears
+    // into the test run's instead of being paid before it.
+    let overlap = shell_function(&pw, "gate_lint_and_test");
+    assert!(
+        gate_fn.contains("gate_lint_and_test \"${clippy_args[@]}\"")
+            && overlap.contains("gate_test_steps &")
+            && overlap.contains("timed_step clippy cargo clippy \"$@\"")
+            && overlap.contains("wait \"$tpid\" || test_status=$?")
+            && overlap.contains("SUSI_GATE_SERIAL"),
+        "the gate must run clippy alongside the test run (tests first, clippy after they take \
+         the build lock), wait for both, and keep SUSI_GATE_SERIAL=1 as the one-after-the-other path"
     );
     let hermetic = read("scripts/check-hermetic-tests.sh");
     assert!(
