@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
-  "created_unix": 1793484903
+  "created_unix": 1793484903,
+  "closed": {
+    "at_unix": 1793488615,
+    "commit": "60751d9058dfa1e406d6dfe48186f039d089aacc",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
 }
