@@ -184,10 +184,21 @@ if grep -qx 'Cargo.lock' <<<"$changed"; then
     }
 fi
 
-meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
+if [ -n "${SUSI_CARGO_METADATA_FILE:-}" ]; then
+    meta=$(cat "$SUSI_CARGO_METADATA_FILE" 2>/dev/null) || {
+        echo ALL
+        exit 0
+    }
+else
+    meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
+        echo ALL
+        exit 0
+    }
+fi
+if [ -z "$meta" ]; then
     echo ALL
     exit 0
-}
+fi
 
 # name|crate-dir per workspace package.
 pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | gsub("\\\\"; "/") | sub("/Cargo.toml$"; ""))' <<<"$meta") || {

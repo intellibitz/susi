@@ -572,6 +572,12 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
+          # The affected-package and reverse-dependency selectors need the
+          # same workspace graph. Resolve it once instead of launching Cargo
+          # metadata separately in each helper.
+          metadata_file="$RUNNER_TEMP/susi-cargo-metadata.json"
+          cargo metadata --no-deps --format-version 1 > "$metadata_file"
+          export SUSI_CARGO_METADATA_FILE="$metadata_file"
           pkgs=$(./scripts/ci-changed-crates.sh --dependents)
           root_test_targets=$(./scripts/ci-changed-crates.sh --root-test-targets)
           {

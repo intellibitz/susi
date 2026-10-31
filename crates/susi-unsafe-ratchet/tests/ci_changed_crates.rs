@@ -177,8 +177,32 @@ impl Workspace {
         git(&self.root, &["commit", "-qm", "change"]);
     }
 
+    fn cargo_metadata_file(&self) -> PathBuf {
+        let out = Command::new("cargo")
+            .args(["metadata", "--no-deps", "--format-version", "1"])
+            .current_dir(&self.root)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "cargo metadata: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let path = self.root.join("cargo-metadata.json");
+        std::fs::write(&path, out.stdout).unwrap();
+        path
+    }
+
     /// The script's output lines, and its exit code.
     fn run(&self, args: &[&str]) -> (i32, Vec<String>) {
+        self.run_with_metadata_file(args, None)
+    }
+
+    fn run_with_metadata_file(
+        &self,
+        args: &[&str],
+        metadata_file: Option<&Path>,
+    ) -> (i32, Vec<String>) {
         let mut command = script_command(&script());
         command
             .args(args)
@@ -187,6 +211,9 @@ impl Workspace {
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE");
+        if let Some(metadata_file) = metadata_file {
+            command.env("SUSI_CARGO_METADATA_FILE", metadata_file);
+        }
         if self.hostile.get() {
             with_git_config(&mut command, &HOSTILE_GIT_CONFIG);
         }
@@ -199,7 +226,11 @@ impl Workspace {
     }
 
     fn pkgs(&self, args: &[&str]) -> Vec<String> {
-        let (code, lines) = self.run(args);
+        self.pkgs_with_metadata_file(args, None)
+    }
+
+    fn pkgs_with_metadata_file(&self, args: &[&str], metadata_file: Option<&Path>) -> Vec<String> {
+        let (code, lines) = self.run_with_metadata_file(args, metadata_file);
         assert_eq!(code, 0, "script failed: {lines:?}");
         lines
     }
@@ -435,11 +466,21 @@ fn an_unknown_argument_is_refused_rather_than_silently_ignored() {
 /// it, plus the package itself. The branch gate intersects this set with the
 /// affected crates to decide whether a push can reach the ONNX download.
 fn revdeps(dir: &Path, pkg: &str) -> Vec<String> {
+    revdeps_with_metadata_file(dir, pkg, None)
+}
+
+fn revdeps_with_metadata_file(dir: &Path, pkg: &str, metadata_file: Option<&Path>) -> Vec<String> {
     let out = script_command(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci-reverse-deps.sh"),
     )
     .arg(pkg)
     .current_dir(dir)
+    .envs(
+        metadata_file
+            .map(|path| [("SUSI_CARGO_METADATA_FILE", path)])
+            .into_iter()
+            .flatten(),
+    )
     .output()
     .unwrap();
     assert!(
@@ -467,6 +508,22 @@ fn reverse_deps_of_a_leaf_is_itself_and_reverse_deps_of_root_is_just_root() {
     let ws = Workspace::new("rev-leaf");
     assert_eq!(revdeps(&ws.root, "lone"), ["lone"]);
     assert_eq!(revdeps(&ws.root, "fixture-root"), ["fixture-root"]);
+}
+
+#[test]
+fn selector_reads_shared_metadata_file() {
+    let ws = Workspace::new("shared-metadata");
+    let metadata_file = ws.cargo_metadata_file();
+    ws.change("crates/base/src/lib.rs");
+    let expected = ["base", "devuser", "fixture-root", "mid", "top"];
+    assert_eq!(
+        ws.pkgs_with_metadata_file(&["--dependents"], Some(&metadata_file)),
+        expected
+    );
+    assert_eq!(
+        revdeps_with_metadata_file(&ws.root, "base", Some(&metadata_file)),
+        expected
+    );
 }
 
 /// The changed-crates scan reads `git grep` as "<path>:<literal>". A user's

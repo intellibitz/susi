@@ -176,6 +176,12 @@ the reverse-dependent closure. This follow-up keeps inert paths out of that
 decision. The cache exception should then apply to test-only changes to this
 crate; remeasure the next matching branch run before claiming the saved time.
 
+PR #1101's corrected compile job passed in 51 s. Its `Resolve affected crates`
+step still took 11 s because the affected-package and ONNX reverse-dependency
+helpers each launched `cargo metadata` for the same graph. The gate now writes
+one metadata file and passes its path to both helpers; direct script use still
+falls back to Cargo. Measure the next branch run to confirm the saved time.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
