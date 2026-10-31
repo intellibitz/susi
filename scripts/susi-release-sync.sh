@@ -6,16 +6,22 @@
 # builds without installing). This script is the one path that updates it:
 #
 #   1. resolve the newest vX.Y.Z tag on the release remote
-#   2. build that tag natively for this host's GPU in a private checkout
+#   2. take the tag's published binary for this host when the build would
+#      carry no accelerator (the CI leg built exactly that), else build the
+#      tag natively for this host's GPU in a private checkout
 #      (~/.susi/release-src) with a private target dir — never the dev tree
 #   3. verify the binary reports the tag's version
 #   4. wait until no susi client is mid-mission, then swap it in atomically,
 #      keeping the previous binary as susi.prev
 #   5. restart the daemon on the new binary; roll back if it fails health
 #
-# It builds locally rather than downloading the CI asset because the CI CUDA
-# binary targets compute capability 7.5 (no GPU on the runner), which drops
-# candle's sm_80+ kernels (bf16); a native build targets this GPU exactly.
+# A GPU host builds locally rather than downloading the CI asset because the CI
+# CUDA binary targets compute capability 7.5 (no GPU on the runner), which drops
+# candle's sm_80+ kernels (bf16); a native build targets this GPU exactly. A
+# host without an accelerator gets the same binary either way, and the download
+# is the cheaper path by an order of magnitude (2026-10-31, Windows, 28 cores:
+# native CPU build of v0.21.28 12+ min; the 88 MB asset about one).
+# SUSI_RELEASE_BUILD=1 insists on the build.
 #
 # Usage:
 #   susi-release-sync.sh                 sync to the newest release if newer
@@ -138,6 +144,54 @@ build_tag() {
 
     log "building ${tag} (features: ${features:-none}) in ${SRC}"
     (cd "$SRC" && CARGO_TARGET_DIR="$TARGET" nice -n 10 cargo "${args[@]}")
+}
+
+# ---- download ---------------------------------------------------------------
+
+# `owner/repo` of the release remote, for `gh release download`.
+release_repo_slug() {
+    printf '%s' "$REMOTE" | sed -E 's#^(https?://github\.com/|git@github\.com:)##; s#\.git$##'
+}
+
+# The published asset for this host when the build would carry no accelerator;
+# empty when the host has no published leg, or when SUSI_RELEASE_BUILD=1.
+release_asset_name() {
+    [ -z "${SUSI_RELEASE_BUILD:-}" ] || return 0
+    case "$(uname -s)/$(uname -m)" in
+        MINGW*/x86_64 | MSYS*/x86_64 | CYGWIN*/x86_64) printf 'susi-windows-x86_64.exe' ;;
+        Linux/x86_64) printf 'susi-linux-x86_64' ;;
+        Linux/aarch64) printf 'susi-linux-aarch64' ;;
+        Darwin/arm64) printf 'susi-macos-aarch64' ;;
+        *) ;;
+    esac
+}
+
+# Fetch the tag's published binary and its checksum into $TARGET/download and
+# print the binary's path. Prints nothing when anything is missing or does not
+# match, and the caller builds instead: the download is a shortcut, never a
+# different outcome.
+download_release_asset() {
+    local tag="$1" asset="$2" dir="${TARGET}/download/${tag}"
+    command -v gh >/dev/null 2>&1 || return 0
+    rm -rf "$dir" && mkdir -p "$dir" || return 0
+    if ! gh release download "$tag" --repo "$(release_repo_slug)" --dir "$dir" \
+        --pattern "$asset" --pattern "${asset}.sha256" >/dev/null 2>&1; then
+        log "no published ${asset} for ${tag}; building instead"
+        return 0
+    fi
+    if [ ! -s "$dir/$asset" ] || [ ! -s "$dir/${asset}.sha256" ]; then
+        log "incomplete download of ${asset}; building instead"
+        return 0
+    fi
+    local want have
+    want="$(awk '{print tolower($1)}' "$dir/${asset}.sha256")"
+    have="$(sha256sum "$dir/$asset" | awk '{print tolower($1)}')"
+    if [ -z "$want" ] || [ "$want" != "$have" ]; then
+        log "checksum mismatch for ${asset}; building instead"
+        return 0
+    fi
+    chmod 0755 "$dir/$asset"
+    printf '%s' "$dir/$asset"
 }
 
 # ---- liveness ---------------------------------------------------------------
@@ -265,12 +319,19 @@ sync_release() {
         return 0
     fi
 
-    local features commit built
+    local features commit
     features="$(detect_features)"
     checkout_tag "$tag"
     commit="$(git -C "$SRC" rev-parse HEAD)"
-    build_tag "$tag" "$features"
-    built="${TARGET}/release/susi"
+    local asset built=""
+    if [ -z "$features" ] && asset="$(release_asset_name)" && [ -n "$asset" ]; then
+        built="$(download_release_asset "$tag" "$asset")"
+        [ -z "$built" ] || log "using the published ${asset} for ${tag}"
+    fi
+    if [ -z "$built" ]; then
+        build_tag "$tag" "$features"
+        built="${TARGET}/release/susi"
+    fi
 
     local got
     # SUSI_HOME pins the release root so this probe never provisions ~/.susi-dev.
