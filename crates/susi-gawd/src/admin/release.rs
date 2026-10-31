@@ -822,7 +822,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
 /// with the home, as it does for every test that launches `susi`.
 fn e2e_command(susi_bin: &Path, args: &[&str], home: &Path, cwd: &Path, ceiling: &Path) -> Command {
     let mut cmd = Command::new(susi_bin);
-    susi_paths::test_env::isolate_home(&mut cmd, &home);
+    susi_paths::test_env::isolate_home(&mut cmd, home);
     cmd.args(args)
         .current_dir(cwd)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
