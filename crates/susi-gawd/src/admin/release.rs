@@ -372,11 +372,43 @@ impl SusiAdmin {
                         .to_string(),
                 ));
             }
+            // Scratch HOME for the whole suite: without it, in-process HTTP
+            // tests read the operator's seeded `~/.susi/api_token` and turn
+            // every unauthenticated loopback call into 401 — the finish gate
+            // already wraps nextest in a throwaway home; the cut must too.
+            // Keep CARGO_HOME/RUSTUP_HOME on the real profile (same as
+            // `scripts/check-hermetic-tests.sh`): isolate_home moves
+            // USERPROFILE, and cargo would otherwise look for the registry
+            // under the throwaway.
+            let gate_home = workspace.join("target").join("susi-release-gate-home");
+            let _ = std::fs::remove_dir_all(&gate_home);
+            std::fs::create_dir_all(gate_home.join(".susi"))
+                .map_err(|e| EaiError::io(format!("create release-gate scratch HOME: {e}")))?;
+            let real_home = env::var_os("USERPROFILE")
+                .or_else(|| env::var_os("HOME"))
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .unwrap_or_else(|| {
+                    susi_paths::SusiDirs::substrate_home()
+                        .parent()
+                        .map(std::path::Path::to_path_buf)
+                        .unwrap_or_else(|| gate_home.clone())
+                });
+            let cargo_home = env::var_os("CARGO_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| real_home.join(".cargo"));
+            let rustup_home = env::var_os("RUSTUP_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| real_home.join(".rustup"));
             for args in workspace_test_commands() {
                 eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
                 let mut test_cmd = Command::new("cargo");
                 test_cmd.args(&args).current_dir(workspace);
+                susi_paths::test_env::isolate_home(&mut test_cmd, &gate_home);
                 scrub_instance_env(&mut test_cmd);
+                test_cmd
+                    .env("CARGO_HOME", &cargo_home)
+                    .env("RUSTUP_HOME", &rustup_home);
                 let mut test = test_cmd
                     .stdout(std::process::Stdio::inherit())
                     .stderr(std::process::Stdio::inherit())
@@ -388,6 +420,7 @@ impl SusiAdmin {
                     ));
                 }
             }
+            let _ = std::fs::remove_dir_all(&gate_home);
         }
         phase_done("3 workspace tests", step3);
 
@@ -789,7 +822,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
 /// with the home, as it does for every test that launches `susi`.
 fn e2e_command(susi_bin: &Path, args: &[&str], home: &Path, cwd: &Path, ceiling: &Path) -> Command {
     let mut cmd = Command::new(susi_bin);
-    susi_paths::test_env::isolate_home(&mut cmd, home);
+    susi_paths::test_env::isolate_home(&mut cmd, &home);
     cmd.args(args)
         .current_dir(cwd)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
@@ -938,7 +971,9 @@ fn workspace_test_commands() -> Vec<Vec<&'static str>> {
 /// susi instance launched the release. A dev build isolates itself by setting
 /// `SUSI_HOME=~/.susi-dev` (+ `SUSI_PORT_OFFSET`), and an inherited value
 /// overrides the tests' HOME/XDG swap — `cluster_rekey` then rotated a key
-/// under the wrong directory and blocked the cut.
+/// under the wrong directory and blocked the cut. Scrub alone is not enough:
+/// the operator's seeded `~/.susi/api_token` still answers NetGuard until the
+/// test command also gets a throwaway HOME via [`susi_paths::test_env::isolate_home`].
 fn scrub_instance_env(cmd: &mut Command) {
     cmd.env_remove("SUSI_HOME").env_remove("SUSI_PORT_OFFSET");
 }
@@ -1200,6 +1235,40 @@ mod tests {
             .collect();
         assert!(removed.contains(&"SUSI_HOME".to_string()));
         assert!(removed.contains(&"SUSI_PORT_OFFSET".to_string()));
+    }
+
+    /// The workspace suite must not see the operator's seeded `api_token`:
+    /// scrub alone left HOME pointing at the real profile, and GMCP HTTP
+    /// tests then failed with 401 instead of the Origin/envelope statuses
+    /// they assert. The cut points cargo at a throwaway HOME the same way
+    /// the E2E checks and the finish hermetic wrapper do.
+    #[test]
+    fn gate_workspace_tests_run_under_a_scratch_home() {
+        let home = Path::new("scratch").join("release-gate-home");
+        let cargo_home = Path::new("real").join(".cargo");
+        let rustup_home = Path::new("real").join(".rustup");
+        let mut cmd = Command::new("cargo");
+        susi_paths::test_env::isolate_home(&mut cmd, &home);
+        scrub_instance_env(&mut cmd);
+        cmd.env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home);
+        let envs: std::collections::HashMap<String, Option<std::path::PathBuf>> = cmd
+            .get_envs()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(Into::into)))
+            .collect();
+        assert_eq!(envs.get("HOME"), Some(&Some(home.to_path_buf())));
+        assert_eq!(
+            envs.get("CARGO_HOME"),
+            Some(&Some(cargo_home.to_path_buf())),
+            "cargo must keep the real registry under a scratch HOME"
+        );
+        assert_eq!(
+            envs.get("RUSTUP_HOME"),
+            Some(&Some(rustup_home.to_path_buf()))
+        );
+        for var in ["SUSI_HOME", "SUSI_PORT_OFFSET"] {
+            assert_eq!(envs.get(var), Some(&None), "{var} must be scrubbed");
+        }
     }
 
     /// Every variable an E2E check's `susi` takes its home, config, data or
