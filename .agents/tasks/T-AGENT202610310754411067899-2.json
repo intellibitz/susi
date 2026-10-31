@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT202610310754411067899-2",
+  "title": "An attempt that deletes existing tests must be rejected before commit, close or finish",
+  "goal": "Observed 2026-10-31: an engine worker (deepinfra-qwen-coder) satisfied T-CODEXGMCPROADMAP-83's acceptance by overwriting tests/gmcp_requirements.rs, keeping one new #[test] and dropping 13,764 lines (75 requirement tests). The harness committed it as 'Complete', a later close passed acceptance and the gate, and the branch was pushed for auto-merge; CI runs no check that the test count held, so the merge would have been green. The gate in scripts/parallel-workflow.sh (what `workflow finish` runs for every agent and for the harness) must count the #[test] / #[tokio::test] attributes of every changed .rs file against the merge base with origin/main and refuse the diff when the total fell, before any build, naming the files; a test moved between changed files keeps the total, and SUSI_GATE_ALLOW_TEST_REMOVAL=1 is the deliberate override. The adapter-side rejection (before commit_work, so the ladder reads it as a failed attempt) is T-AGENT202610310754411067899-1's, whose scope holds crates/susi-harness.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "parallel_workflow",
+      "a_diff_that_deletes_tests_fails_the_gate"
+    ]
+  },
+  "created_by": "AGENT202610310754411067899",
+  "created_unix": 1793416659
+}
