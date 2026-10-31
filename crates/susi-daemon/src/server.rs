@@ -616,7 +616,74 @@ impl SusiDaemon {
         if substrate_home.is_dir() {
             cmd.current_dir(substrate_home);
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        }
         cmd
+    }
+
+    /// Spawn a detached background command without letting `CreateProcessW`'s
+    /// `bInheritHandles = TRUE` (enabled by `Stdio::null()`) copy the parent
+    /// CLI's own stdin/stdout/stderr pipe handles into the long-lived daemon.
+    /// Without clearing `HANDLE_FLAG_INHERIT` on the parent's std handles
+    /// around `spawn()`, any caller reading `susi`'s stdout/stderr pipe
+    /// (`Command::output()`, release smoke missions, `| Out-Null`) blocks
+    /// forever waiting for EOF after the CLI exits whenever `susi` started or
+    /// restarted the daemon.
+    #[allow(unsafe_code)]
+    pub(crate) fn spawn_without_inheriting_stdio(
+        cmd: &mut Command,
+    ) -> std::io::Result<std::process::Child> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use winapi::shared::minwindef::DWORD;
+            use winapi::um::handleapi::{GetHandleInformation, SetHandleInformation};
+            use winapi::um::winnt::HANDLE;
+
+            const HANDLE_FLAG_INHERIT: DWORD = 0x0000_0001;
+            let raw_handles: [HANDLE; 3] = [
+                std::io::stdin().as_raw_handle() as HANDLE,
+                std::io::stdout().as_raw_handle() as HANDLE,
+                std::io::stderr().as_raw_handle() as HANDLE,
+            ];
+            let mut restore: Vec<(HANDLE, DWORD)> = Vec::with_capacity(3);
+            for handle in raw_handles {
+                if handle.is_null() {
+                    continue;
+                }
+                let mut flags: DWORD = 0;
+                // SAFETY: `GetHandleInformation` and `SetHandleInformation`
+                // inspect and toggle the `HANDLE_FLAG_INHERIT` bit on the
+                // current process's standard handles; invalid or pseudo-handles
+                // simply return FALSE and are skipped.
+                unsafe {
+                    if GetHandleInformation(handle, &mut flags) != 0
+                        && (flags & HANDLE_FLAG_INHERIT) != 0
+                    {
+                        let _ = SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+                        restore.push((handle, flags & HANDLE_FLAG_INHERIT));
+                    }
+                }
+            }
+            let result = cmd.spawn();
+            for (handle, orig_inherit) in restore {
+                // SAFETY: restores the original `HANDLE_FLAG_INHERIT` bit on
+                // the same valid standard handle captured above.
+                unsafe {
+                    let _ = SetHandleInformation(handle, HANDLE_FLAG_INHERIT, orig_inherit);
+                }
+            }
+            result
+        }
+        #[cfg(not(windows))]
+        {
+            cmd.spawn()
+        }
     }
 
     /// Compares the running binary's SHA-256 against the digest last written to
@@ -858,7 +925,8 @@ impl SusiDaemon {
 
         #[cfg(not(unix))]
         {
-            let _ = Self::daemon_command(&bin_to_run, &substrate_home).spawn();
+            let mut cmd = Self::daemon_command(&bin_to_run, &substrate_home);
+            let _ = Self::spawn_without_inheriting_stdio(&mut cmd);
             if !Self::wait_for_host_contract(Duration::from_secs(10)) {
                 warn!("[SusiDaemon] daemon spawned but host contract never came up");
             }
@@ -2986,5 +3054,56 @@ mod tests {
     fn block_until_stdin_closes() {
         let mut line = String::new();
         let _ = std::io::stdin().read_line(&mut line);
+    }
+
+    #[test]
+    #[ignore = "helper: spawns a long-lived background child and exits so parent pipe EOF is tested"]
+    fn spawn_background_grandchild_and_exit() {
+        let exe = std::env::current_exe().unwrap();
+        let mut cmd = Command::new(exe);
+        cmd.args([
+            "--ignored",
+            "--exact",
+            "server::tests::sleep_briefly_for_pipe_test",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+        let child = SusiDaemon::spawn_without_inheriting_stdio(&mut cmd).unwrap();
+        println!("grandchild_pid={}", child.id());
+    }
+
+    #[test]
+    #[ignore = "helper: stays alive long enough to expose leaked parent stdio pipes"]
+    fn sleep_briefly_for_pipe_test() {
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    /// Regression: when a short-lived CLI invocation spawns `daemon-start` in
+    /// the background (`Stdio::null()`), the long-lived grandchild must not
+    /// inherit the CLI's own stdout/stderr pipe handles and block callers
+    /// (`Command::output()`, release smoke checks, shell pipes) waiting for EOF.
+    #[test]
+    fn spawn_without_inheriting_stdio_closes_parent_pipes_while_child_lives() {
+        let exe = std::env::current_exe().unwrap();
+        let started = Instant::now();
+        let out = Command::new(&exe)
+            .args([
+                "--ignored",
+                "--exact",
+                "server::tests::spawn_background_grandchild_and_exit",
+                "--nocapture",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
+        let elapsed = started.elapsed();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "helper failed: {stdout}");
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "parent pipe blocked for {elapsed:?} waiting for 5s background grandchild to exit"
+        );
     }
 }
