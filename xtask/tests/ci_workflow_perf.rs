@@ -627,7 +627,9 @@ fn the_branch_gate_lints_the_dependents_of_what_changed() {
     let jobs = jobs(&text);
     let check = job(&jobs, "check");
     assert!(
-        check.body.contains("ci-changed-crates.sh --dependents"),
+        check.body.contains("ci-changed-crates.sh --dependents")
+            || (check.body.contains("ci-changed-crates.sh --plan")
+                && check.body.contains("lint) pkgs+=")),
         "the branch gate must resolve `changed crates + their dependents`, not only the \
          changed crates: the crate that breaks is the one that calls the changed one"
     );
