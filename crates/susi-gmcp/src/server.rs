@@ -243,12 +243,53 @@ fn seal_each_chunk(
         .boxed()
 }
 
+/// MCP Streamable HTTP MUST refuse a present, disallowed `Origin` with 403
+/// before auth or body handling (DNS-rebinding defense). A missing Origin
+/// passes — non-browser clients do not send one. Policy matches
+/// [`http_service`]: wildcard CORS (`*`) is not an allowlist, so every
+/// present Origin is refused; an explicit origin must match exactly.
+fn origin_forbidden(headers: &hyper::HeaderMap, allow_origin: &str) -> bool {
+    let Some(raw) = headers
+        .get(hyper::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return false;
+    };
+    if allow_origin == "*" {
+        return true;
+    }
+    let presented = raw.trim();
+    if presented.eq_ignore_ascii_case("null") {
+        return !allow_origin.eq_ignore_ascii_case("null");
+    }
+    let Ok(uri) = presented.parse::<hyper::Uri>() else {
+        return true;
+    };
+    let (Some(scheme), Some(authority)) = (uri.scheme_str(), uri.authority()) else {
+        return true;
+    };
+    let Ok(allowed) = allow_origin.parse::<hyper::Uri>() else {
+        return true;
+    };
+    let (Some(a_scheme), Some(a_authority)) = (allowed.scheme_str(), allowed.authority()) else {
+        return true;
+    };
+    !(scheme.eq_ignore_ascii_case(a_scheme)
+        && authority.host().eq_ignore_ascii_case(a_authority.host())
+        && (a_authority.port_u16().is_none() || a_authority.port_u16() == authority.port_u16()))
+}
+
 async fn handle_request(
     req: Request<Incoming>,
     mut service: HttpService,
     peer: std::net::IpAddr,
 ) -> Result<Response<BoxBody>, Infallible> {
     let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+    // Origin before auth: a seeded api_auth_token must not turn a browser
+    // Origin refusal into 401 and hide the MCP-required 403.
+    if origin_forbidden(req.headers(), &cfg.allow_origin()) {
+        return Ok(response(StatusCode::FORBIDDEN, "Forbidden"));
+    }
     let hdr = |name: &str| {
         req.headers()
             .get(name)
