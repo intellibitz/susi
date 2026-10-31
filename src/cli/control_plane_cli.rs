@@ -305,7 +305,11 @@ pub(crate) fn dispatch_mcp(
         })
         | Some(Commands::Mcp { action: None }) => Err(command),
         Some(Commands::Mcp { action }) => {
-            apply_plane_prep(PlanePrep::Ecosystem);
+            // Ledger verification reads the pinned corpus directly. Discovering
+            // external launchers and model catalogs cannot affect its result.
+            if !matches!(&action, Some(mcp_cli::McpCommands::Ledger { .. })) {
+                apply_plane_prep(PlanePrep::Ecosystem);
+            }
             Ok(plane_exit(
                 env::current_dir()
                     .map_err(anyhow::Error::from)
