@@ -174,6 +174,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             state_dir: state,
             task: None,
             precheck: true,
+            net_deletion_allowance: susi_harness::adapter::net_deletion_allowance_from_env(),
         },
     })
 }

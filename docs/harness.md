@@ -484,9 +484,17 @@ something goes wrong; each is covered by tests in `crates/susi-harness`.
   `#[tokio::test]` attributes of every `.rs` file changed since the base are counted at the base
   and now, committed or not; a total that fell is a failed attempt the ladder reads (never a
   success), the tree is reset to the task record so the next model is not handed the deletion,
-  and the reason is written to the attempt's `tests-dropped.txt`. A test moved between changed
+  and the reason is written to the attempt's `rejection.txt`. A test moved between changed
   files keeps the total. This is the in-process counterpart of the finish gate's check, and it
   honours the same override, `SUSI_GATE_ALLOW_TEST_REMOVAL=1`.
+- **Rewrite rejection.** Over every file changed since the base, the lines an attempt deletes may
+  exceed the lines it adds by at most the net-deletion allowance (200 lines;
+  `SUSI_HARNESS_NET_DELETION_ALLOWANCE` sets another for a run). Beyond it the attempt is a
+  rewrite, not an edit: a failed attempt the ladder reads, the tree reset to the record, the files
+  that lost the most named with their counts in the message and in `rejection.txt`. A worker told
+  to append one test once replaced a 13,859-line acceptance file with 95 lines, and the acceptance
+  (only the new test) passed. A deliberate large rewrite runs with the allowance raised, in the
+  open.
 - **Zero-test refusal.** A `cargo test` acceptance whose output reports zero passed tests is
   refused: a filter that matches nothing exits zero and proves nothing, neither passing a ladder
   nor closing a task.
