@@ -5961,8 +5961,6 @@ version = "0.1.0"
 dependencies = [
  "susi-core",
  "susi-error",
- "susi-http-transport",
- "susi-paths",
  "susi-vendor-serde-json",
 ]
 

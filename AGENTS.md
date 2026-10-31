@@ -329,7 +329,7 @@ this for the panic-path lints.
   that speaks a third-party agent, model-provider, or web API must live in a
   `susi-vendor-*` crate: `susi-vendor-agents` (external agent executors +
   framework adapters), `susi-vendor-models` (cloud/frontier/OpenRouter/
-  open-weight/HF discovery), `susi-vendor-web` (Open-Meteo, DuckDuckGo),
+  open-weight/HF discovery), `susi-vendor-web` (admitted search-tool evidence; no built-in weather or search provider),
   `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs). susi crates
   consume them through re-exports; no third-party endpoint strings or
   vendor protocol logic in non-vendor crates.

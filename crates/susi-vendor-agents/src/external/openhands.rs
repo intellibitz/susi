@@ -103,7 +103,7 @@ pub fn setup() -> serde_json::Value {
         "adapter": definition(CatalogKind::Execution, AGENT_ID)
             .map(|d| serde_json::to_value(d.adapter).unwrap_or(json!(null)))
             .unwrap_or(json!(null)),
-        "instructions": "1) Install CLI: `uv tool install openhands` or `pip install openhands` (see install docs)\n2) Export LLM_MODEL + LLM_API_KEY (and optional LLM_BASE_URL for OpenRouter/local)\n   Example OpenRouter: LLM_MODEL=openrouter/anthropic/claude-sonnet-4 LLM_API_KEY=$OPENROUTER_API_KEY LLM_BASE_URL=https://openrouter.ai/api/v1\n3) `susi openhands doctor` then `susi openhands run --wait \"…\"`\n4) Optional Python runtime graph: `susi frameworks setup openhands-runtime`\nNo packages or subscriptions are provisioned implicitly."
+        "instructions": "1) Install CLI: `uv tool install openhands` or `pip install openhands` (see install docs)\n2) Export LLM_MODEL + LLM_API_KEY (and optional LLM_BASE_URL for OpenRouter/local)\n   Example OpenRouter: LLM_MODEL=openrouter/anthropic/claude-sonnet-4 LLM_API_KEY=$OPENROUTER_API_KEY LLM_BASE_URL=https://openrouter.ai/api/v1\n3) `susi agents doctor openhands` then `susi agents run openhands --wait \"…\"`\n4) Optional Python runtime graph: `susi frameworks setup openhands-runtime`\nNo packages or subscriptions are provisioned implicitly."
     })
 }
 

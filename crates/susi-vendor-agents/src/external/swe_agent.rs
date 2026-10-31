@@ -102,7 +102,7 @@ pub fn setup() -> serde_json::Value {
         "adapter": definition(CatalogKind::Execution, AGENT_ID)
             .map(|d| serde_json::to_value(d.adapter).unwrap_or(json!(null)))
             .unwrap_or(json!(null)),
-        "instructions": "1) Install: `pip install sweagent` (needs Docker for default sandbox)\n2) Export ANTHROPIC_API_KEY (or OPENAI_API_KEY / OPENROUTER_API_KEY)\n   Optional: SWE_AGENT_MODEL=claude-sonnet-4-20250514\n3) `susi swe-agent doctor` then `susi swe-agent run --wait \"fix the failing test\"`\n4) Also: `susi agents run swe-agent`\nHeadless local: problem_statement.text + env.repo.path=workspace + apply_patch_locally\nNote: upstream recommends mini-swe-agent for new work; this manages classic `sweagent` CLI\nNo packages or subscriptions are provisioned implicitly."
+        "instructions": "1) Install: `pip install sweagent` (needs Docker for default sandbox)\n2) Export ANTHROPIC_API_KEY (or OPENAI_API_KEY / OPENROUTER_API_KEY)\n   Optional: SWE_AGENT_MODEL=claude-sonnet-4-20250514\n3) `susi agents doctor swe-agent` then `susi agents run swe-agent --wait \"fix the failing test\"`\nHeadless local: problem_statement.text + env.repo.path=workspace + apply_patch_locally\nNote: upstream recommends mini-swe-agent for new work; this manages classic `sweagent` CLI\nNo packages or subscriptions are provisioned implicitly."
     })
 }
 

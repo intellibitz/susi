@@ -19,7 +19,25 @@ pub struct EngineProfile {
     pub credential_envs: &'static [&'static str],
     pub credential_hint: &'static str,
     pub process_banner: &'static str,
-    pub cli_name: &'static str,
+}
+
+/// The Python-engine profile for `engine_id`, when that framework has a scaffold.
+pub fn profile(engine_id: &str) -> Option<&'static EngineProfile> {
+    const PROFILES: &[&EngineProfile] = &[
+        &super::autogen::PROFILE,
+        &super::crewai::PROFILE,
+        &super::e2b::PROFILE,
+        &super::haystack::PROFILE,
+        &super::langgraph::PROFILE,
+        &super::llamaindex::PROFILE,
+        &super::openai_agents::PROFILE,
+        &super::smolagents::PROFILE,
+        &super::temporal::PROFILE,
+    ];
+    PROFILES
+        .iter()
+        .copied()
+        .find(|profile| profile.engine_id == engine_id)
 }
 
 #[derive(Debug, Clone)]
@@ -51,15 +69,15 @@ impl EngineDoctor {
         let ready = python_ok && package_ok && config_ok && credentials_ok;
         let hint = if ready {
             format!(
-                "ready — run with: susi {} run \"your task\"",
-                profile.cli_name
+                "ready — run with: susi frameworks run {} \"your task\"",
+                profile.engine_id
             )
         } else {
             format!(
-                "install: {}; {}; then susi {} init (or point {} at absolute JSON with script/entrypoint)",
+                "install: {}; {}; then susi frameworks init {} (or point {} at absolute JSON with script/entrypoint)",
                 profile.package_hint,
                 profile.credential_hint,
-                profile.cli_name,
+                profile.engine_id,
                 profile.config_env
             )
         };
@@ -152,8 +170,8 @@ fn check_config_env(profile: &EngineProfile) -> (bool, String) {
         return (
             false,
             format!(
-                "{} unset — run: susi {} init",
-                profile.config_env, profile.cli_name
+                "{} unset — run: susi frameworks init {}",
+                profile.config_env, profile.engine_id
             ),
         );
     };
@@ -214,25 +232,21 @@ pub fn setup_report(profile: &EngineProfile, adapter: &Adapter) -> Result<serde_
         "instructions": [
             format!("Install: {}", profile.package_hint),
             format!("Auth: {}", profile.credential_hint),
-            format!("Init workspace scaffold: susi {} init", profile.cli_name),
+            format!(
+                "Init workspace scaffold: susi frameworks init {}",
+                profile.engine_id
+            ),
             format!(
                 "Or set {} to an absolute JSON with {{\"script\":\"/abs/path.py\"}} or {{\"entrypoint\":\"module:callable\"}}",
                 profile.config_env
             ),
             "Callable/script receives the task via SUSI_AGENT_PROMPT",
-            format!("Doctor: susi {} doctor", profile.cli_name),
+            format!("Doctor: susi frameworks doctor {}", profile.engine_id),
             format!(
-                "Run: susi {} run \"your task\"   (add --wait to block)",
-                profile.cli_name
-            ),
-            format!(
-                "Lifecycle: susi {} tasks | status <id> | logs <id> | cancel <id>",
-                profile.cli_name
-            ),
-            format!(
-                "Also available under: susi frameworks … {}",
+                "Run: susi frameworks run {} \"your task\" --wait",
                 profile.engine_id
             ),
+            "Lifecycle: susi frameworks tasks | status <id> | logs <id> | cancel <id>",
         ],
     }))
 }
@@ -267,8 +281,11 @@ pub fn init_workspace(profile: &EngineProfile, workspace: &Path) -> Result<serde
             format!("export {}={}", profile.config_env, config_abs.display()),
             profile.package_hint,
             profile.credential_hint,
-            format!("susi {} doctor", profile.cli_name),
-            format!("susi {} run \"say hello\" --wait", profile.cli_name),
+            format!("susi frameworks doctor {}", profile.engine_id),
+            format!(
+                "susi frameworks run {} \"say hello\" --wait",
+                profile.engine_id
+            ),
         ]
     }))
 }

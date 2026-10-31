@@ -159,8 +159,9 @@ impl GawdAgent for DevOpsAgent {
     }
 }
 
-/// Live web / weather evidence agent. Fetches real HTTP evidence (Open-Meteo,
-/// linked MCP search tools, DuckDuckGo) instead of LLM-narrating a fake search.
+/// Search evidence agent. Reports only a search tool the operator admitted.
+/// It does not call a built-in weather or web-search client, and it does not
+/// invent an observation when no tool is linked.
 pub struct SearchAgent;
 
 impl GawdAgent for SearchAgent {

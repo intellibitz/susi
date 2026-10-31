@@ -47,7 +47,6 @@ if __name__ == "__main__":
     credential_envs: &["OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"],
     credential_hint: "export OPENAI_API_KEY=… (or OPENROUTER_API_KEY / ANTHROPIC_API_KEY)",
     process_banner: "susi-crewai",
-    cli_name: "crewai",
 };
 
 #[cfg(test)]

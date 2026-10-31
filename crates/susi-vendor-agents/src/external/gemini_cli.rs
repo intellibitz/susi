@@ -155,7 +155,7 @@ pub fn setup() -> serde_json::Value {
         "adapter": definition(CatalogKind::Execution, AGENT_ID)
             .map(|d| serde_json::to_value(d.adapter).unwrap_or(json!(null)))
             .unwrap_or(json!(null)),
-        "instructions": "1) Install: `npm install -g @google/gemini-cli`\n2) Auth for headless: export GEMINI_API_KEY=… from AI Studio\n   Or Vertex: GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_API_KEY / ADC + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION\n   Or interactive oauth-personal (not gateway) cached under ~/.gemini\n   Note: IDE gateway selectedType breaks headless — SUSI isolates with GEMINI_CLI_HOME when GEMINI_API_KEY is set\n3) `susi gemini doctor` then `susi gemini run --wait \"…\"`\n4) Also: `susi agents run gemini-cli`\nNo packages or subscriptions are provisioned implicitly."
+        "instructions": "1) Install: `npm install -g @google/gemini-cli`\n2) Auth for headless: export GEMINI_API_KEY=… from AI Studio\n   Or Vertex: GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_API_KEY / ADC + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION\n   Or interactive oauth-personal (not gateway) cached under ~/.gemini\n   Note: IDE gateway selectedType breaks headless — SUSI isolates with GEMINI_CLI_HOME when GEMINI_API_KEY is set\n3) `susi agents doctor gemini-cli` then `susi agents run gemini-cli --wait \"…\"`\nNo packages or subscriptions are provisioned implicitly."
     })
 }
 

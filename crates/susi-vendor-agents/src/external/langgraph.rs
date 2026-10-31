@@ -54,7 +54,6 @@ if __name__ == "__main__":
     credential_hint:
         "no API key required for local/stdlib entry (model keys stay in your graph script env)",
     process_banner: "susi-langgraph",
-    cli_name: "langgraph",
 };
 
 #[cfg(test)]

@@ -18,6 +18,10 @@ pub enum FrameworkCommands {
     Setup {
         engine: String,
     },
+    /// Write that engine's workspace scaffold under `.susi/<engine>/`
+    Init {
+        engine: String,
+    },
     /// Load an adapter JSON file into trusted host configuration
     Configure {
         engine: String,
@@ -66,6 +70,16 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
     let manager = AgentManager::frameworks(workspace)?;
     match action {
         FrameworkCommands::List => print_json(&catalog(CatalogKind::Framework)?)?,
+        FrameworkCommands::Init { engine } => {
+            let Some(profile) = susi_agents::external::python_engine::profile(&engine) else {
+                bail!(
+                    "framework '{engine}' has no workspace scaffold — `susi frameworks setup {engine}` prints its adapter"
+                );
+            };
+            print_json(&susi_agents::external::python_engine::init_workspace(
+                profile, workspace,
+            )?)?;
+        }
         FrameworkCommands::Setup { engine } => {
             let definition = susi_agents::external::definition(CatalogKind::Framework, &engine)?;
             print_json(&serde_json::json!({

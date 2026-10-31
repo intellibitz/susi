@@ -98,7 +98,7 @@ pub fn setup() -> serde_json::Value {
         "adapter": definition(CatalogKind::Execution, AGENT_ID)
             .map(|d| serde_json::to_value(d.adapter).unwrap_or(json!(null)))
             .unwrap_or(json!(null)),
-        "instructions": "1) Install: `python -m pip install aider-chat` (or uv/pipx)\n2) Export a provider key: OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY\n   Optional: AIDER_MODEL=openrouter/anthropic/claude-sonnet-4 (or openai/…)\n3) `susi aider doctor` then `susi aider run --wait \"…\"`\n4) Also: `susi agents run aider`\nHeadless flags: --message + --yes-always (no interactive confirmations)\nNo packages or subscriptions are provisioned implicitly."
+        "instructions": "1) Install: `python -m pip install aider-chat` (or uv/pipx)\n2) Export a provider key: OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY\n   Optional: AIDER_MODEL=openrouter/anthropic/claude-sonnet-4 (or openai/…)\n3) `susi agents doctor aider` then `susi agents run aider --wait \"…\"`\nHeadless flags: --message + --yes-always (no interactive confirmations)\nNo packages or subscriptions are provisioned implicitly."
     })
 }
 

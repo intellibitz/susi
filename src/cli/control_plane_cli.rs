@@ -4,45 +4,35 @@
 //! `restart` after boot.
 
 use super::agent_cli;
-use super::aider_cli;
 use super::ambient_cli;
 use super::auto_cli;
 use super::blackboard_cli;
 use super::brain_cli;
 use super::broker_cli;
-use super::browser_use_cli;
-use super::chat_cli;
-use super::code_cli;
 use super::commits_cli;
 use super::context_graph_cli;
 use super::crown_cli;
-use super::deerflow_cli;
 use super::defs::Commands;
 use super::ecosystem_cli;
 use super::extensions_cli;
 use super::framework_cli;
 use super::frontier_cli;
-use super::gemini_cli;
 use super::harness_cli;
 use super::intent_cli;
 use super::mcp_cli;
 use super::model_cli;
 use super::open_weight_cli;
-use super::openhands_cli;
 use super::openrouter_cli;
-use super::openviking_cli;
 use super::os_cli;
 use super::patch_cli;
 use super::peers_cli;
 use super::plan_cli;
 use super::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, PlanePrep};
 use super::privacy_cli;
-use super::python_engine_cli;
 use super::run_cli;
 use super::services_cli;
 use super::setup_cli;
 use super::substrate_cli;
-use super::swe_agent_cli;
 use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
@@ -77,16 +67,6 @@ pub(crate) fn dispatch(
     if let Some(Commands::Run(args)) = command {
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             run_cli::execute(args, cwd)
-        }));
-    }
-    if let Some(Commands::Chat(args)) = command {
-        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
-            chat_cli::execute(args, cwd)
-        }));
-    }
-    if let Some(Commands::Code(args)) = command {
-        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
-            code_cli::execute(args, cwd)
         }));
     }
     if let Some(Commands::Extensions { action }) = command {
@@ -237,62 +217,7 @@ pub(crate) fn dispatch(
             openrouter_cli::execute(action)
         }));
     }
-    if let Some(Commands::OpenHands { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            openhands_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Gemini { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            gemini_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::Aider { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            aider_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::SweAgent { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            swe_agent_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::BrowserUse { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            browser_use_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::OpenViking { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            openviking_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::DeerFlow { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            deerflow_cli::execute(action, cwd)
-        }));
-    }
-    let (profile, action) = match command {
-        Some(Commands::LangGraph { action }) => (&susi_agents::external::LANGGRAPH_PROFILE, action),
-        Some(Commands::OpenAiAgents { action }) => {
-            (&susi_agents::external::OPENAI_AGENTS_PROFILE, action)
-        }
-        Some(Commands::AutoGen { action }) => (&susi_agents::external::AUTOGEN_PROFILE, action),
-        Some(Commands::SmolAgents { action }) => {
-            (&susi_agents::external::SMOLAGENTS_PROFILE, action)
-        }
-        Some(Commands::CrewAi { action }) => (&susi_agents::external::CREWAI_PROFILE, action),
-        Some(Commands::LlamaIndex { action }) => {
-            (&susi_agents::external::LLAMAINDEX_PROFILE, action)
-        }
-        Some(Commands::Temporal { action }) => (&susi_agents::external::TEMPORAL_PROFILE, action),
-        Some(Commands::E2b { action }) => (&susi_agents::external::E2B_PROFILE, action),
-        Some(Commands::Haystack { action }) => (&susi_agents::external::HAYSTACK_PROFILE, action),
-        other => return Err(other),
-    };
-    Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-        python_engine_cli::execute(profile, action, cwd)
-    }))
+    Err(command)
 }
 
 /// Handle the `mcp` command pre-boot branch. Returns `Ok(exit_code)` when
