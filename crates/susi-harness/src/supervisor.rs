@@ -478,6 +478,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             state_dir: self.state_dir.join(&task.key),
             task: task.task.clone(),
             precheck: true,
+            net_deletion_allowance: crate::adapter::net_deletion_allowance_from_env(),
         };
         let guard = self
             .budget

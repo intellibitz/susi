@@ -1043,6 +1043,87 @@ impl<R: CommandRunner> SusiTarget<R> {
         )))
     }
 
+    /// Why the worktree's changes since `base` are a rewrite rather than an
+    /// edit, or `None` when they stay inside `allowance`.
+    ///
+    /// Over every file changed since `base`, committed or not, the lines
+    /// deleted may exceed the lines added by at most `allowance`
+    /// (`git diff --numstat`; binary files are not counted). A worker that
+    /// replaces a file instead of appending to it deletes the file's whole
+    /// body and adds its own few lines, and an acceptance that runs only the
+    /// new test never notices. The rejection names the files that lost the
+    /// most, with their counts, so the next attempt and the operator see
+    /// what was destroyed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot diff the worktree.
+    pub fn rewrite_beyond(
+        &self,
+        worktree: &Path,
+        base: &str,
+        allowance: usize,
+    ) -> EaiResult<Option<String>> {
+        if base.trim().is_empty() {
+            return Ok(None);
+        }
+        let diff = self.git(
+            worktree,
+            &[
+                "-c",
+                "core.quotePath=false",
+                "diff",
+                "--numstat",
+                "--no-renames",
+                base,
+                "--",
+            ],
+        )?;
+        if !diff.success() {
+            return Err(EaiError::process(format!(
+                "git diff --numstat {base} failed: {}",
+                diff.tail()
+            )));
+        }
+        let mut total_added = 0usize;
+        let mut total_deleted = 0usize;
+        let mut losses: Vec<(usize, usize, String)> = Vec::new();
+        for line in diff.stdout.lines() {
+            let mut fields = line.splitn(3, '\t');
+            let (Some(added), Some(deleted), Some(path)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            // Binary files report `-` for both counts and are not lines.
+            let (Ok(added), Ok(deleted)) = (
+                added.trim().parse::<usize>(),
+                deleted.trim().parse::<usize>(),
+            ) else {
+                continue;
+            };
+            total_added += added;
+            total_deleted += deleted;
+            if deleted > added {
+                losses.push((deleted - added, deleted, path.trim().to_string()));
+            }
+        }
+        if total_deleted <= total_added.saturating_add(allowance) {
+            return Ok(None);
+        }
+        losses.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+        let named: Vec<String> = losses
+            .iter()
+            .take(5)
+            .map(|(net, deleted, path)| format!("{path}: {deleted} line(s) deleted, {net} net"))
+            .collect();
+        Ok(Some(format!(
+            "{total_deleted} line(s) deleted against {total_added} added since the base, {} net, over the allowance of {allowance} ({}); a worker edits or appends, it does not replace files — a deliberate large rewrite runs with {NET_DELETION_ALLOWANCE_ENV} raised",
+            total_deleted - total_added,
+            named.join("; ")
+        )))
+    }
+
     fn git(&self, worktree: &Path, args: &[&str]) -> EaiResult<RunOutput> {
         let argv: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
         self.runner.run(Path::new("git"), &argv, worktree)
@@ -1124,6 +1205,38 @@ pub struct SusiTaskSpec {
     /// Close a task whose acceptance already passes on the untouched base
     /// instead of spending a worker ladder on work that cannot be committed.
     pub precheck: bool,
+    /// How many more lines than it adds an attempt may delete, over all the
+    /// files it changed since the base, before it is rejected as a rewrite
+    /// ([`SusiTarget::rewrite_beyond`]). [`DEFAULT_NET_DELETION_ALLOWANCE`]
+    /// unless the operator sets `SUSI_HARNESS_NET_DELETION_ALLOWANCE`
+    /// ([`net_deletion_allowance_from_env`]); a legitimate large rewrite is
+    /// run with the allowance raised, in the open.
+    pub net_deletion_allowance: usize,
+}
+
+/// The net lines an attempt may delete before it counts as a rewrite: a worker
+/// told to append one test replaced a 13,859-line acceptance file with 95
+/// lines, and the acceptance (which ran only the new test) passed. An edit
+/// that removes a few hundred lines more than it adds is still an edit; one
+/// that removes thousands is the file being replaced.
+pub const DEFAULT_NET_DELETION_ALLOWANCE: usize = 200;
+
+/// The environment variable that raises or lowers the allowance for a run.
+pub const NET_DELETION_ALLOWANCE_ENV: &str = "SUSI_HARNESS_NET_DELETION_ALLOWANCE";
+
+/// The allowance for this process: [`NET_DELETION_ALLOWANCE_ENV`] when it holds
+/// a number, else [`DEFAULT_NET_DELETION_ALLOWANCE`].
+#[must_use]
+pub fn net_deletion_allowance_from_env() -> usize {
+    parse_net_deletion_allowance(std::env::var(NET_DELETION_ALLOWANCE_ENV).ok().as_deref())
+}
+
+fn parse_net_deletion_allowance(value: Option<&str>) -> usize {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .and_then(|text| text.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_NET_DELETION_ALLOWANCE)
 }
 
 /// One model attempt inside a prepared task.
@@ -1332,22 +1445,29 @@ nothing outside the task.",
         })?;
         let history_rewritten = !target.base_is_ancestor(&worktree, &base)?;
         // Before anything is committed: a worker that made the acceptance
-        // pass by deleting the other tests is a failed attempt, whatever it
-        // reported, and its tree is not kept for the next model to build on.
-        let deleted_tests = if history_rewritten {
+        // pass by deleting the other tests, or by replacing a file instead of
+        // editing it, is a failed attempt, whatever it reported, and its tree
+        // is not kept for the next model to build on.
+        let rejection = if history_rewritten {
             None
+        } else if let Some(reason) = target.tests_dropped(&worktree, &base)? {
+            Some(format!("the attempt deletes tests: {reason}"))
         } else {
-            target.tests_dropped(&worktree, &base)?
+            target
+                .rewrite_beyond(&worktree, &base, spec.net_deletion_allowance)?
+                .map(|reason| {
+                    format!("the attempt rewrites files instead of editing them: {reason}")
+                })
         };
-        let agent = match (&agent, &deleted_tests) {
-            (RunOutcome::Succeeded { .. }, Some(reason)) => RunOutcome::Failed {
-                message: format!("the attempt deletes tests: {reason}"),
+        let agent = match (&agent, &rejection) {
+            (RunOutcome::Succeeded { .. }, Some(message)) => RunOutcome::Failed {
+                message: message.clone(),
             },
             _ => agent,
         };
         let attempt_committed = if matches!(&agent, RunOutcome::Succeeded { .. })
             && !history_rewritten
-            && deleted_tests.is_none()
+            && rejection.is_none()
         {
             let committed_now = target.commit_work(&worktree, &task)?;
             committed_now && target.worktree_has_work_after(&worktree, &base)?
@@ -1381,8 +1501,8 @@ nothing outside the task.",
         if let Ok(status) = target.git_status(&worktree) {
             let _ = std::fs::write(attempt_state.join("git-status.txt"), status);
         }
-        if let Some(reason) = &deleted_tests {
-            let _ = std::fs::write(attempt_state.join("tests-dropped.txt"), reason);
+        if let Some(message) = &rejection {
+            let _ = std::fs::write(attempt_state.join("rejection.txt"), message);
         }
         let acceptance = target.accept(&worktree, &task);
         match &acceptance {
@@ -1430,13 +1550,10 @@ nothing outside the task.",
                 FailureKind::Semantic,
                 "worker rewrote the branch history it was given".to_string(),
             )
-        } else if let Some(reason) = &deleted_tests {
+        } else if let Some(message) = &rejection {
             // Named here, not classified from the text: a deleted file called
             // `connection.rs` must not read as a transient provider failure.
-            (
-                FailureKind::Semantic,
-                format!("the attempt deletes tests: {reason}"),
-            )
+            (FailureKind::Semantic, message.clone())
         } else if let Some(tail) = gate_failure.take() {
             (
                 FailureKind::Semantic,
@@ -1467,10 +1584,11 @@ nothing outside the task.",
         }
         // Keep a rejected attempt's work for the next model to finish; only a
         // rewritten history makes the base unusable, and a tree that deleted
-        // tests is not handed on either (the next model cannot restore a
-        // 13,000-line file, and would be rejected for the same deletion). The
-        // next prompt names the acceptance or gate failure to fix.
-        if history_rewritten || deleted_tests.is_some() {
+        // tests or replaced a file is not handed on either (the next model
+        // cannot restore a 13,000-line file, and would be rejected for the
+        // same deletion). The next prompt names the acceptance or gate
+        // failure to fix.
+        if history_rewritten || rejection.is_some() {
             target.reset_to(&worktree, &base)?;
         }
         prompt = format!(
@@ -1903,6 +2021,7 @@ mod tests {
             ok(""),
             ok(""),
             ok(""),
+            ok(""),
             ok("M docs/harness.md\n"),
             ok(""),
             ok(""),
@@ -1929,6 +2048,7 @@ mod tests {
             state_dir: dir.path().join("state"),
             task: None,
             precheck: false,
+            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-1");
@@ -1962,6 +2082,7 @@ mod tests {
             ok(""),
             ok(""),
             ok(""),
+            ok(""),
             ok("M docs/harness.md\n"),
             ok(""),
             ok(""),
@@ -1988,6 +2109,7 @@ mod tests {
             state_dir: dir.path().join("state"),
             task: Some("T-EXIST-1".into()),
             precheck: false,
+            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-EXIST-1");
@@ -2041,6 +2163,7 @@ mod tests {
             state_dir: dir.path().join("state"),
             task: None,
             precheck: false,
+            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-2");
@@ -2092,6 +2215,7 @@ mod tests {
             state_dir: dir.path().join("state"),
             task: None,
             precheck: false,
+            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert!(!report.committed);
@@ -2415,6 +2539,7 @@ mod tests {
             state_dir: dir.join("state"),
             task: None,
             precheck: false,
+            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
         }
     }
 
@@ -2675,6 +2800,7 @@ mod tests {
             state_dir: dir.join("state"),
             task: task.map(str::to_string),
             precheck,
+            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
         }
     }
 
@@ -2964,7 +3090,7 @@ mod tests {
             .join("state")
             .join("T-AGENT-9")
             .join("attempt-1")
-            .join("tests-dropped.txt")
+            .join("rejection.txt")
             .is_file());
     }
 
@@ -3031,5 +3157,139 @@ mod tests {
             None
         );
         assert!(target.runner.calls.lock().unwrap().is_empty());
+    }
+    /// The observed failure: a worker told to append one test replaced the
+    /// 13,859-line acceptance file with 95 lines, and the acceptance (only
+    /// the new test) passed. The attempt is rejected before it is committed,
+    /// the message names the file and the counts, the tree goes back to the
+    /// record, and the ladder reads a failure.
+    #[test]
+    fn an_attempt_that_rewrites_a_file_is_rejected_before_it_is_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join(".agents").join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("T-AGENT-10.json"),
+            r#"{"accept":"cargo test -p susi-harness"}"#,
+        )
+        .unwrap();
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
+            ok(""),
+            ok("added T-AGENT-10 — commit\n"),
+            ok(""),
+            ok(""),
+            ok(""),
+            ok("base123\n"),
+            // merge-base: the base is still an ancestor; no .rs file lost a
+            // test attribute (the test check passes); then the numstat.
+            ok(""),
+            ok(""),
+            ok("95\t13764\ttests/gmcp_requirements.rs\n3\t1\tdocs/harness.md\n-\t-\tassets/logo.png\n"),
+        ]);
+        let exec = FakeExec {
+            outcome: RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: None,
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let report = run_task(
+            &target,
+            &spec_for(dir.path(), None, false),
+            &exec,
+            &SusiRunPolicy::unmetered(),
+        )
+        .unwrap();
+        assert!(!report.committed);
+        assert!(!report.accepted);
+        assert_eq!(report.attempts.len(), 1);
+        assert!(!report.attempts[0].accepted);
+        let RunOutcome::Failed { message } = &report.agent else {
+            panic!("a rewrite is a failure, got {:?}", report.agent);
+        };
+        assert!(message.contains("rewrites files"), "{message}");
+        assert!(
+            message.contains("13765 line(s) deleted against 98 added"),
+            "{message}"
+        );
+        assert!(
+            message.contains("tests/gmcp_requirements.rs: 13764 line(s) deleted, 13669 net"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("docs/harness.md"),
+            "only losses are named: {message}"
+        );
+        assert!(message.contains(NET_DELETION_ALLOWANCE_ENV), "{message}");
+        let calls = argv_of(&target);
+        assert!(
+            !calls.iter().any(|call| call.starts_with("cargo fmt")),
+            "the rejection comes before commit_work: {calls:?}"
+        );
+        assert!(
+            calls.iter().any(|call| call == "git reset --hard base123"),
+            "the tree is reset to the record: {calls:?}"
+        );
+        let saved = std::fs::read_to_string(
+            dir.path()
+                .join("state")
+                .join("T-AGENT-10")
+                .join("attempt-1")
+                .join("rejection.txt"),
+        )
+        .unwrap();
+        assert!(saved.contains("tests/gmcp_requirements.rs"), "{saved}");
+    }
+
+    /// An edit that removes somewhat more than it adds — dead code, a
+    /// shortened test — stays within the allowance and is judged on its
+    /// acceptance; a binary file's counts are not lines.
+    #[test]
+    fn a_change_within_the_deletion_allowance_is_not_a_rewrite() {
+        let target = target(vec![ok(
+            "10\t150\tcrates/x/src/lib.rs\n40\t0\tcrates/x/src/new.rs\n-\t-\tassets/a.png\n",
+        )]);
+        assert_eq!(
+            target
+                .rewrite_beyond(Path::new("wt"), "base123", DEFAULT_NET_DELETION_ALLOWANCE)
+                .unwrap(),
+            None,
+            "150 deleted against 50 added is 100 net, under 200"
+        );
+        let tight = SusiTarget {
+            repo: PathBuf::from("repo"),
+            susi_program: PathBuf::from("susi"),
+            runner: FakeRunner::with(vec![ok("10\t150\tcrates/x/src/lib.rs\n")]),
+        };
+        let reason = tight
+            .rewrite_beyond(Path::new("wt"), "base123", 100)
+            .unwrap()
+            .expect("140 net over an allowance of 100");
+        assert!(
+            reason.contains("crates/x/src/lib.rs: 150 line(s) deleted, 140 net"),
+            "{reason}"
+        );
+    }
+
+    /// The allowance is the operator's to raise for a deliberate rewrite;
+    /// anything that is not a number is the default.
+    #[test]
+    fn the_deletion_allowance_is_read_from_the_environment_value() {
+        assert_eq!(
+            parse_net_deletion_allowance(None),
+            DEFAULT_NET_DELETION_ALLOWANCE
+        );
+        assert_eq!(
+            parse_net_deletion_allowance(Some("")),
+            DEFAULT_NET_DELETION_ALLOWANCE
+        );
+        assert_eq!(
+            parse_net_deletion_allowance(Some("lots")),
+            DEFAULT_NET_DELETION_ALLOWANCE
+        );
+        assert_eq!(parse_net_deletion_allowance(Some(" 20000 ")), 20_000);
+        assert_eq!(parse_net_deletion_allowance(Some("0")), 0);
     }
 }
