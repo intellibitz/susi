@@ -379,6 +379,14 @@ pub fn run_cancellable_command(
             }
         }
     };
+    if handle.is_cancelled() {
+        drop(guard);
+        return Ok(CancellableResult::Cancelled);
+    }
+    if handle.deadline_exceeded() {
+        drop(guard);
+        return Ok(CancellableResult::DeadlineExceeded);
+    }
     let stdout = join_pipe_reader(stdout)?;
     let stderr = join_pipe_reader(stderr)?;
     drop(guard);
@@ -387,13 +395,7 @@ pub fn run_cancellable_command(
         stdout,
         stderr,
     };
-    if handle.is_cancelled() {
-        Ok(CancellableResult::Cancelled)
-    } else if handle.deadline_exceeded() {
-        Ok(CancellableResult::DeadlineExceeded)
-    } else {
-        Ok(CancellableResult::Completed(output))
-    }
+    Ok(CancellableResult::Completed(output))
 }
 
 fn spawn_pipe_reader<R>(mut pipe: R) -> std::thread::JoinHandle<std::io::Result<Vec<u8>>>
@@ -438,6 +440,7 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
     }
     #[cfg(windows)]
     {
+        let _ = child.kill();
         // taskkill /T kills the whole process tree — the Windows analogue
         // of the negative-pid group kill above.
         let _ = Command::new("taskkill")
@@ -449,8 +452,7 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
         // process that exits immediately, breaking the Win32 ParentProcessId
         // chain before `taskkill /T` runs. Reap any MSYS2 child whose MSYS2
         // PPID was just terminated by `taskkill` (PPID > 1 and no longer in
-        // `ps`) so neither the descendant nor its inherited stdio pipes outlive
-        // cancellation.
+        // `ps`) in a single `kill -9` call.
         if let Ok(out) = Command::new("ps").stderr(Stdio::null()).output() {
             let text = String::from_utf8_lossy(&out.stdout);
             let rows: Vec<(u32, u32)> = text
@@ -464,14 +466,18 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
                 })
                 .collect();
             let live: std::collections::BTreeSet<u32> = rows.iter().map(|(pid, _)| *pid).collect();
-            for (pid, ppid) in rows {
-                if ppid > 1 && !live.contains(&ppid) {
-                    let _ = Command::new("kill")
-                        .args(["-9", &pid.to_string()])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
+            let orphans: Vec<String> = rows
+                .into_iter()
+                .filter(|(_, ppid)| *ppid > 1 && !live.contains(ppid))
+                .map(|(pid, _)| pid.to_string())
+                .collect();
+            if !orphans.is_empty() {
+                let _ = Command::new("kill")
+                    .arg("-9")
+                    .args(&orphans)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
             }
         }
     }

@@ -11,22 +11,13 @@ WF="$ROOT/.github/workflows/zc-matrix.yml"
 [[ -f "$MATRIX" ]] || { echo "missing .github/zc-matrix/matrix.json" >&2; exit 1; }
 [[ -f "$WF" ]] || { echo "missing .github/workflows/zc-matrix.yml" >&2; exit 1; }
 
-python3 - "$MATRIX" <<'PY'
-import json, sys
-m = json.load(open(sys.argv[1]))
-profiles = {p["id"]: p for p in m["profiles"]}
-required = {"linux-cpu", "macos-cpu", "windows-cpu"}
-assert required <= set(profiles), f"missing profiles: {required - set(profiles)}"
-for pid, p in profiles.items():
-    assert p.get("runner"), f"{pid}: no runner"
-    assert "expect" in p, f"{pid}: no expected outcomes"
-    e = p["expect"]
-    assert e.get("installer_plan") is True, f"{pid}: must expect the installer plan"
-    assert e.get("lifecycle_smoke") is True, f"{pid}: must expect the lifecycle smoke"
-assert m["journey"]["script"], "journey script missing"
-assert isinstance(m["journey"]["budget_seconds"], int), "journey budget missing"
-print("matrix definition: ok")
-PY
+jq -e '
+  (["linux-cpu", "macos-cpu", "windows-cpu"] - [.profiles[].id] | length == 0) and
+  ([.profiles[] | (.runner | type == "string" and length > 0) and .expect.installer_plan == true and .expect.lifecycle_smoke == true] | all) and
+  (.journey.script | type == "string" and length > 0) and
+  (.journey.budget_seconds | type == "number")
+' "$MATRIX" >/dev/null || { echo "invalid matrix definition in $MATRIX" >&2; exit 1; }
+echo "matrix definition: ok"
 
 # The workflow must run the journey per declared profile.
 grep -q 'matrix:' "$WF"

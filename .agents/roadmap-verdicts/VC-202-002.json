@@ -8,7 +8,7 @@
  ],
  "recorded_unix": 1791182400,
  "check": [
-  "scripts/check-reachability.py",
+  "scripts/check-reachability.sh",
   "--delivered",
   "expected_task_cost_usd_in"
  ],

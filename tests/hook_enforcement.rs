@@ -131,7 +131,7 @@ impl Fixture {
             .unwrap();
         }
         std::fs::create_dir_all(work.join("scripts")).unwrap();
-        for name in ["check-task-scope.py", "check-worker-identity.sh"] {
+        for name in ["check-task-scope.sh", "check-worker-identity.sh"] {
             std::fs::copy(
                 src.join("scripts").join(name),
                 work.join("scripts").join(name),

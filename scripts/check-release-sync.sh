@@ -26,10 +26,8 @@ if [ ! -f "$marker" ]; then
     exit 1
 fi
 
-PY=python3
-command -v "$PY" >/dev/null 2>&1 || PY=python
-commit=$($PY -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit",""))' "$marker")
-version=$($PY -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","?"))' "$marker")
+commit=$(jq -r '.commit // ""' "$marker")
+version=$(jq -r '.version // "?"' "$marker")
 if [ -z "$commit" ]; then
     echo "❌ $marker names no commit — cannot tell which revision agents run"
     exit 1

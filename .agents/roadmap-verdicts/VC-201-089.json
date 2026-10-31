@@ -4,7 +4,7 @@
   "evidence": "vc_201_089_mastery_contract_checks_are_a_caller_supplied_flag (crates/susi-core/src/tests/vc_201_089_mastery.rs)",
   "missing": "",
   "tracked_by": [],
-  "check": ["scripts/check-reachability.py", "--delivered", "AdapterUpgrade"],
+  "check": ["scripts/check-reachability.sh", "--delivered", "AdapterUpgrade"],
   "recorded_by": "ANTIGRAVITY20261015214257121476",
   "recorded_unix": 1792127737
 }

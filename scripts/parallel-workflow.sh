@@ -192,8 +192,8 @@ push_closed_branch() {
     for attempt in 1 2; do
         before=$(git rev-parse HEAD)
         status=75
-        if [ "${wait:-0}" != 1 ] && [ -n "${task:-}" ] && [ -f "$root/scripts/publish-task-branch.py" ]; then
-            if python3 -B "$root/scripts/publish-task-branch.py" "$task" "$branch"; then
+        if [ "${wait:-0}" != 1 ] && [ -n "${task:-}" ] && [ -f "$root/scripts/publish-task-branch.sh" ]; then
+            if "$root/scripts/publish-task-branch.sh" "$task" "$branch"; then
                 released_with_push=1
                 return 0
             else

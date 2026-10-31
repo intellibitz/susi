@@ -3,29 +3,18 @@
 mod a2a;
 mod acp;
 mod aider;
-mod autogen;
 mod browser_use;
 mod byok;
 mod catalog;
 mod cloud;
-mod crewai;
 mod deerflow;
-mod e2b;
 mod gemini_cli;
 mod git_identity;
-mod haystack;
-mod langgraph;
-mod llamaindex;
-mod openai_agents;
 mod openhands;
 mod openhands_server;
 mod openviking;
 mod process;
-mod python_bridge;
-pub mod python_engine;
-mod smolagents;
 mod swe_agent;
-mod temporal;
 
 pub use acp::{
     drive as acp_drive, Outcome as AcpOutcome, Permission as AcpPermission, Task as AcpTask,
@@ -34,26 +23,19 @@ pub use aider::{
     doctor as aider_doctor, setup as aider_setup, status as aider_status,
     AGENT_ID as AIDER_AGENT_ID,
 };
-pub use autogen::PROFILE as AUTOGEN_PROFILE;
 pub use browser_use::{
     doctor as browser_use_doctor, setup as browser_use_setup, status as browser_use_status,
     AGENT_ID as BROWSER_USE_AGENT_ID,
 };
 pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
-pub use crewai::PROFILE as CREWAI_PROFILE;
 pub use deerflow::{
     doctor as deerflow_doctor, setup as deerflow_setup, status as deerflow_status,
     AGENT_ID as DEERFLOW_AGENT_ID,
 };
-pub use e2b::PROFILE as E2B_PROFILE;
 pub use gemini_cli::{
     doctor as gemini_cli_doctor, setup as gemini_cli_setup, status as gemini_cli_status,
     AGENT_ID as GEMINI_CLI_AGENT_ID,
 };
-pub use haystack::PROFILE as HAYSTACK_PROFILE;
-pub use langgraph::PROFILE as LANGGRAPH_PROFILE;
-pub use llamaindex::PROFILE as LLAMAINDEX_PROFILE;
-pub use openai_agents::PROFILE as OPENAI_AGENTS_PROFILE;
 pub use openhands::{
     doctor as openhands_doctor, setup as openhands_setup, status as openhands_status,
 };
@@ -61,9 +43,7 @@ pub use openviking::{
     doctor as openviking_doctor, setup as openviking_setup, status as openviking_status,
     AGENT_ID as OPENVIKING_AGENT_ID,
 };
-pub use python_engine::{EngineDoctor, EngineProfile};
 use serde::{Deserialize, Serialize};
-pub use smolagents::PROFILE as SMOLAGENTS_PROFILE;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -73,7 +53,6 @@ pub use swe_agent::{
     docker_present, doctor as swe_agent_doctor, setup as swe_agent_setup,
     status as swe_agent_status, AGENT_ID as SWE_AGENT_ID,
 };
-pub use temporal::PROFILE as TEMPORAL_PROFILE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,23 +101,9 @@ pub struct AgentManager {
     poll_interval: std::time::Duration,
 }
 
-/// A Python framework cannot become ready without its configured file.
-/// Verbose scans still run every preflight to retain its full diagnostics.
 fn should_probe_readiness(adapter: &Adapter, verbose: bool) -> bool {
-    if verbose {
-        return true;
-    }
-    match adapter {
-        Adapter::Python { config_env, .. } => std::env::var(config_env).is_ok_and(|value| {
-            let path = Path::new(&value);
-            !value.trim().is_empty() && path.is_absolute() && path.is_file()
-        }),
-        Adapter::Command { .. }
-        | Adapter::Qwen { .. }
-        | Adapter::A2a { .. }
-        | Adapter::OpenHandsServer { .. }
-        | Adapter::Acp { .. } => true,
-    }
+    let _ = (adapter, verbose);
+    true
 }
 
 /// Execution-catalog entries whose task text is a search query or browsing
@@ -418,10 +383,7 @@ impl AgentManager {
             .filter_map(|def| self.adapter(&def.id).ok().map(|adapter| (def, adapter)))
             .filter(|(_, adapter)| should_probe_readiness(adapter, verbose))
             .collect();
-        let adapters: Vec<Adapter> = defs.iter().map(|(_, adapter)| adapter.clone()).collect();
-        catalog::with_python_imports(&adapters, || {
-            self.register_ready(defs, register, &mut ready)
-        });
+        self.register_ready(defs, register, &mut ready);
         Ok(ready)
     }
 

@@ -27,15 +27,6 @@ fn script_command(script: &Path) -> std::process::Command {
     command
 }
 
-fn python_command(script: &Path) -> std::process::Command {
-    #[cfg(windows)]
-    let mut command = std::process::Command::new("python");
-    #[cfg(not(windows))]
-    let mut command = std::process::Command::new("python3");
-    command.arg(script);
-    command
-}
-
 fn set_script_executable(path: &Path) {
     #[cfg(unix)]
     {
@@ -2168,7 +2159,7 @@ fn local_workspace_lockfile_scope_preserves_full_gate_for_external_changes() {
 
 #[test]
 fn roadmap_verdict_batch_searches_evidence_once() {
-    let source = read("scripts/check-roadmap-verdict.py");
+    let source = read("scripts/check-roadmap-verdict.sh");
     let check_all = source
         .split("def check_all():")
         .nth(1)
@@ -2176,15 +2167,15 @@ fn roadmap_verdict_batch_searches_evidence_once() {
     assert!(
         check_all.contains("batch_evidence_hits(identifiers)")
             && check_all.contains("--batch")
-            && check_all.contains("(\"scripts/check-reachability.py\", *item[\"check\"])")
+            && check_all.contains("(\"scripts/check-reachability.sh\", *item[\"check\"])")
             && check_all.contains("batched_checks=batched_checks"),
         "check_all must batch identifier evidence and reachability checks before validating records"
     );
-    let out = python_command(&root().join("scripts/check-roadmap-verdict.py"))
+    let out = script_command(&root().join("scripts/check-roadmap-verdict.sh"))
         .arg("--self-test")
         .current_dir(root())
         .output()
-        .expect("Python runs the roadmap-verdict self-test");
+        .expect("shell runs the roadmap-verdict self-test");
     assert!(
         out.status.success(),
         "roadmap-verdict self-test failed: {}{}",
@@ -2195,17 +2186,17 @@ fn roadmap_verdict_batch_searches_evidence_once() {
         String::from_utf8_lossy(&out.stdout).contains("batch evidence index"),
         "the self-test exercises the batched evidence index"
     );
-    let reachability = read("scripts/check-reachability.py");
+    let reachability = read("scripts/check-reachability.sh");
     assert!(
         reachability.contains("def call_sites_many(")
             && reachability.contains("indexed = call_sites_many("),
         "reachability checks must share a single production-source traversal"
     );
-    let out = python_command(&root().join("scripts/check-reachability.py"))
+    let out = script_command(&root().join("scripts/check-reachability.sh"))
         .arg("--self-test")
         .current_dir(root())
         .output()
-        .expect("Python runs the reachability self-test");
+        .expect("shell runs the reachability self-test");
     assert!(
         out.status.success(),
         "reachability self-test failed: {}{}",
@@ -2252,8 +2243,8 @@ fn a_branch_push_takes_no_runner_it_does_not_need() {
         "scripts/check-roadmap-progress.sh",
         "scripts/check-release-actions.sh",
         "scripts/check-tracked-artifacts.sh",
-        "scripts/check-roadmap-queue.py --consistency-only",
-        "scripts/check-roadmap-verdict.py --all",
+        "scripts/check-roadmap-queue.sh --consistency-only",
+        "scripts/check-roadmap-verdict.sh --all",
     ] {
         assert!(
             invariants.body.contains(script),
@@ -2847,7 +2838,7 @@ fn cleanup_runs_applies_board_hygiene() {
     let jobs = jobs(&text);
     let hygiene = job(&jobs, "hygiene");
     assert!(
-        hygiene.body.contains("check-board-hygiene.py --apply"),
+        hygiene.body.contains("check-board-hygiene.sh --apply"),
         "report mode prints the debt; --apply is what removes it"
     );
     assert!(
@@ -3553,11 +3544,19 @@ push_closed_branch work
 fn finish_atomic_publication_falls_back_only_when_explicitly_requested() {
     let f = Fakes::new("finish-atomic-publication");
     let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    std::fs::create_dir_all(f.dir.join("scripts")).unwrap();
+    let mock_publish = f.dir.join("scripts/publish-task-branch.sh");
+    std::fs::write(
+        &mock_publish,
+        "#!/bin/sh\necho atomic-push >> log\nexit \"$PUBLISH_STATUS\"\n",
+    )
+    .unwrap();
+    set_script_executable(&mock_publish);
     let mut script = String::from("set -euo pipefail\n");
     script.push_str(&shell_function(&workflow, "push_closed_branch"));
     script.push_str(
         r#"
-root=$SOURCE_ROOT
+root=$PWD
 task=T-TEST-1
 wait=$WAIT_MODE
 git() {
@@ -3568,7 +3567,6 @@ git() {
     *) return 9 ;;
     esac
 }
-python3() { echo atomic-push >> log; return "$PUBLISH_STATUS"; }
 push_closed_branch work
 printf 'released=%s\n' "$released_with_push" >> log
 "#,
@@ -3834,7 +3832,7 @@ impl PublicationRepo {
     }
 
     fn run(&self, cloud: &str) -> std::process::Output {
-        let mut command = python_command(&root().join("scripts/publish-task-branch.py"));
+        let mut command = script_command(&root().join("scripts/publish-task-branch.sh"));
         self.world.isolate(&mut command);
         command
             .args(["T-TEST-1", "work"])

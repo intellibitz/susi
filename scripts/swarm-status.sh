@@ -112,9 +112,9 @@ run_check() {
   ${summary}"
 }
 
-run_check "board hygiene" scripts/check-board-hygiene.py
-run_check "roadmap queue" scripts/check-roadmap-queue.py
-run_check "swarm readiness" scripts/check-swarm-readiness.py
+run_check "board hygiene" scripts/check-board-hygiene.sh
+run_check "roadmap queue" scripts/check-roadmap-queue.sh
+run_check "swarm readiness" scripts/check-swarm-readiness.sh
 # The one check that is about other agents rather than this checkout: who
 # accepted work that never reached main. Visibility is the point — the debt
 # already blocks its own agent's next claim.

@@ -35,11 +35,11 @@ const HOOKS: [&str; 5] = [
 ];
 const SCRIPTS: [&str; 14] = [
     "cloud-session.sh",
-    "queue-relay.py",
+    "queue-relay.sh",
     "parallel-workflow.sh",
     "cloud-onnxruntime.sh",
     "check-worker-identity.sh",
-    "check-task-scope.py",
+    "check-task-scope.sh",
     "park-primary.sh",
     "ensure-watcher.sh",
     "susi-worktree.sh",
@@ -256,7 +256,7 @@ impl World {
 
     /// `.github/workflows/queue.yml`, as a thread: every request branch on the
     /// server is fetched into a checkout of its own, applied with
-    /// `scripts/queue-relay.py` and deleted, whatever the outcome; then the
+    /// `scripts/queue-relay.sh` and deleted, whatever the outcome; then the
     /// expired ones are swept. A [`Sabotage`] armed on the server lands
     /// another writer's ref just before or just after the next replay.
     fn relay_server(&self) -> RelayServer {
@@ -333,20 +333,18 @@ impl World {
                         land(s);
                     }
                     ok(command("git", &work).args(["fetch", "--quiet", "origin", name]));
-                    let (code, out, err) = finish(command("python3", &work).args([
-                        "-I",
-                        "scripts/queue-relay.py",
-                        sha,
-                    ]));
+                    let shell = if cfg!(windows) { "sh" } else { "bash" };
+                    let (code, out, err) =
+                        finish(command(shell, &work).args(["scripts/queue-relay.sh", sha]));
                     if let Some(s) = next.as_ref().filter(|s| s.after) {
                         land(s);
                     }
                     log.push(format!("{name}: exit {code}; {out} {err}"));
                     ok(command("git", &work).args(["push", "--quiet", "origin", "--delete", name]));
                 }
-                ok(command("python3", &work).args([
-                    "-I",
-                    "scripts/queue-relay.py",
+                let shell = if cfg!(windows) { "sh" } else { "bash" };
+                ok(command(shell, &work).args([
+                    "scripts/queue-relay.sh",
                     "--sweep",
                     "--grace",
                     "0",
@@ -1030,8 +1028,9 @@ fn queue_relay_applies_a_request_under_its_leases_and_only_to_the_queues_namespa
         commit
     };
     let relay = |args: &[&str]| -> (i32, String, String) {
-        let mut cmd = w.command("python3", &w.clone);
-        cmd.args(["-I", "scripts/queue-relay.py"]).args(args);
+        let shell = if cfg!(windows) { "sh" } else { "bash" };
+        let mut cmd = w.command(shell, &w.clone);
+        cmd.arg("scripts/queue-relay.sh").args(args);
         finish(&mut cmd)
     };
     let far = 4_102_444_800_u64;
