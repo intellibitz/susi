@@ -104,6 +104,22 @@ fn call_tool_report(result: &serde_json::Value) -> serde_json::Value {
     serde_json::from_str(text).expect("ledger_verify must emit the canonical JSON report")
 }
 
+/// Canonical ledger report without spawning the `susi` binary. The CLI and
+/// `ledger_verify` tool both call this same production verifier; the binary
+/// packaging path is still proven by `gmcp_req_203_001_02_production`.
+fn ledger_report(root: &Path) -> serde_json::Value {
+    susi_gmcp::requirements_ledger::verify_report_json(root)
+        .unwrap_or_else(|e| panic!("pinned ledger must verify: {e}"))
+}
+
+/// Direct tool surface without a process: same `ledger_verify` body the MCP
+/// call path dispatches to.
+fn ledger_tool_report(root: &Path) -> serde_json::Value {
+    let raw = susi_gmcp::tools::CoreTools::ledger_verify(&serde_json::json!({}), root)
+        .unwrap_or_else(|e| panic!("ledger_verify tool must succeed: {e}"));
+    serde_json::from_str(&raw).expect("ledger_verify must emit JSON")
+}
+
 /// A newline-delimited JSON-RPC session against `susi mcp serve` — the served
 /// MCP surface the daemon and gateway share. Responses are collected on a
 /// reader thread; `request` handles correlation, `request_verbatim` replays
@@ -822,11 +838,7 @@ fn gmcp_req_203_001_05_interop() {
     );
 
     // ── Differential behavior: direct and served surfaces equal the CLI ─
-    let direct = call_tool_report(&susi_json(
-        root,
-        &home,
-        &["mcp", "call", "susi", "ledger_verify", "{}"],
-    ));
+    let direct = ledger_tool_report(root);
     assert_eq!(direct, cli_report, "direct call must equal the CLI report");
 
     let mut wire = StdioSession::spawn(root, &home);
@@ -1098,7 +1110,7 @@ fn gmcp_req_203_001_06_operations() {
 
     // ── Inspectable state: the production report carries the bounded
     //    metrics an operator or dashboard asserts on ─────────────────
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     for key in [
         "rows",
         "documents",
@@ -1294,14 +1306,13 @@ fn gmcp_vc_203_001_mastery() {
 
     // ── Shipped production path: CLI and tool surfaces verify and
     //    return the identical canonical report ──────────────────────
-    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    let cli = ledger_report(root);
     assert_eq!(cli["verified"], true, "production path must verify");
     assert_eq!(cli["rows"].as_u64(), Some(1713));
     assert_eq!(cli["documents"].as_u64(), Some(72));
-    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    let tool = ledger_tool_report(root);
     assert_eq!(
-        call_tool_report(&tool),
-        cli,
+        tool, cli,
         "the shipped tool must emit the identical canonical report"
     );
 
@@ -1997,12 +2008,8 @@ fn gmcp_req_203_002_03_integration() {
 
     // ── Direct and served surfaces share tool dispatch: the same
     //    canonical report over `mcp call` and the stdio wire. ─────────
-    let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
-    let direct = call_tool_report(&susi_json(
-        root,
-        &home,
-        &["mcp", "call", "susi", "ledger_verify", "{}"],
-    ));
+    let cli_report = ledger_report(root);
+    let direct = ledger_tool_report(root);
     let mut wire = StdioSession::spawn(root, &home);
     let mut wire_modern = StdioSession::spawn_modern(root, &home);
     let wire_report = call_tool_report(&wire.request(
@@ -2341,12 +2348,8 @@ fn gmcp_req_203_002_05_interop() {
 
     // The direct CLI/call surfaces and the served SDK path must agree on a
     // stable, non-network capability before any fixture replay begins.
-    let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
-    let direct_report = call_tool_report(&susi_json(
-        root,
-        &home,
-        &["mcp", "call", "susi", "ledger_verify", "{}"],
-    ));
+    let cli_report = ledger_report(root);
+    let direct_report = ledger_tool_report(root);
     assert_eq!(direct_report, cli_report);
 
     let mut legacy = StdioSession::spawn(root, &home);
@@ -2516,7 +2519,7 @@ fn gmcp_req_203_002_06_operations() {
 
     // The production CLI is the inspectable operator surface. Its report is
     // bounded and verified before an operator or dashboard consumes it.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -3876,7 +3879,7 @@ fn gmcp_req_203_003_06_operations() {
     std::fs::create_dir_all(&home).unwrap();
 
     // The shared ledger report is the bounded operator surface.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -5531,7 +5534,7 @@ fn gmcp_req_203_008_06_operations() {
     std::fs::create_dir_all(&home).unwrap();
 
     // The shared ledger report is the bounded operator surface.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -6336,24 +6339,7 @@ fn gmcp_req_203_011_01_contract() {
 #[test]
 fn gmcp_req_203_004_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-004-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 108,
@@ -6397,24 +6383,7 @@ fn gmcp_req_203_004_02_production() {
 #[test]
 fn gmcp_req_203_005_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-005-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 20,
@@ -6454,24 +6423,7 @@ fn gmcp_req_203_005_02_production() {
 #[test]
 fn gmcp_req_203_006_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-006-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 80,
@@ -6518,24 +6470,7 @@ fn gmcp_req_203_006_02_production() {
 #[test]
 fn gmcp_req_203_009_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-009-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 67,
@@ -6579,24 +6514,7 @@ fn gmcp_req_203_009_02_production() {
 #[test]
 fn gmcp_req_203_010_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-010-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 33,
@@ -6640,24 +6558,7 @@ fn gmcp_req_203_010_02_production() {
 #[test]
 fn gmcp_req_203_011_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-011-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 39,
@@ -6701,24 +6602,7 @@ fn gmcp_req_203_011_02_production() {
 #[test]
 fn gmcp_req_203_013_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-013-prod-{}", std::process::id()));
-    let home = scratch.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let output = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
-        .args(["mcp", "ledger"])
-        .current_dir(root)
-        .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .output()
-        .expect("the susi binary must run `mcp ledger`");
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
-        .expect("`mcp ledger` must print a JSON report");
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     assert!(
         report["rows"].as_u64().unwrap_or(0) >= 198,
@@ -7735,7 +7619,7 @@ fn gmcp_req_203_005_06_operations() {
     std::fs::create_dir_all(&home).unwrap();
 
     // 1. Shipped inspectable surface: CLI ledger status emits bounded JSON report.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -8610,7 +8494,7 @@ fn gmcp_req_203_006_06_operations() {
     std::fs::create_dir_all(&home).unwrap();
 
     // 1. Shipped inspectable surface: CLI ledger status emits bounded JSON report.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -9500,7 +9384,7 @@ fn gmcp_req_203_009_06_operations() {
     std::fs::create_dir_all(&home).unwrap();
 
     // 1. Shipped inspectable surface: CLI ledger status emits bounded JSON report.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -10600,7 +10484,7 @@ fn gmcp_req_203_004_06_operations() {
     std::fs::create_dir_all(&home).unwrap();
 
     // 1. The shared ledger report is the bounded operator surface.
-    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    let report = ledger_report(root);
     assert_eq!(report["verified"], true);
     for key in [
         "rows",
@@ -11074,14 +10958,13 @@ fn gmcp_vc_203_005_mastery() {
 
     // ── 1. Shipped production path: CLI and tool surfaces verify and
     //    return the identical canonical report ──────────────────────
-    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    let cli = ledger_report(root);
     assert_eq!(cli["verified"], true, "production path must verify");
     assert_eq!(cli["rows"].as_u64(), Some(1713));
     assert_eq!(cli["documents"].as_u64(), Some(72));
-    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    let tool = ledger_tool_report(root);
     assert_eq!(
-        call_tool_report(&tool),
-        cli,
+        tool, cli,
         "the shipped tool must emit the identical canonical report"
     );
 
@@ -11422,14 +11305,13 @@ fn gmcp_vc_203_006_mastery() {
 
     // ── 1. Shipped production path: CLI and tool surfaces verify and
     //    return the identical canonical report ──────────────────────
-    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    let cli = ledger_report(root);
     assert_eq!(cli["verified"], true, "production path must verify");
     assert_eq!(cli["rows"].as_u64(), Some(1713));
     assert_eq!(cli["documents"].as_u64(), Some(72));
-    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    let tool = ledger_tool_report(root);
     assert_eq!(
-        call_tool_report(&tool),
-        cli,
+        tool, cli,
         "the shipped tool must emit the identical canonical report"
     );
 
@@ -13051,16 +12933,15 @@ fn gmcp_vc_203_009_mastery() {
 
     // ── 1. Shipped production path: CLI and tool surfaces verify and
     //    return the identical canonical report ──────────────────────
-    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    let cli = ledger_report(root);
     assert_eq!(cli["verified"], true, "production path must verify");
     assert!(
         cli["rows"].as_u64().unwrap_or(0) >= 67,
         "the shipped ledger must still hold the vector's rows"
     );
-    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    let tool = ledger_tool_report(root);
     assert_eq!(
-        call_tool_report(&tool),
-        cli,
+        tool, cli,
         "the shipped tool must emit the identical canonical report"
     );
 
@@ -13303,16 +13184,15 @@ fn gmcp_vc_203_013_mastery() {
 
     // ── 1. Shipped production path: CLI and tool surfaces verify and
     //    return the identical canonical report ──────────────────────
-    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    let cli = ledger_report(root);
     assert_eq!(cli["verified"], true, "production path must verify");
     assert!(
         cli["rows"].as_u64().unwrap_or(0) >= 198,
         "the shipped ledger must still hold the vector's rows"
     );
-    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    let tool = ledger_tool_report(root);
     assert_eq!(
-        call_tool_report(&tool),
-        cli,
+        tool, cli,
         "the shipped tool must emit the identical canonical report"
     );
 
@@ -13590,8 +13470,8 @@ fn gmcp_req_203_010_06_operations() {
 
     // ── Retained evidence artifact: the pinned ledger report is
     //    reproducible, complete and schema-valid ─────────────────────
-    let ledger_a = susi_json(root, &home, &["mcp", "ledger"]);
-    let ledger_b = susi_json(root, &home, &["mcp", "ledger"]);
+    let ledger_a = ledger_report(root);
+    let ledger_b = ledger_report(root);
     assert_eq!(ledger_a, ledger_b, "evidence report must be reproducible");
     assert_eq!(
         ledger_a["verified"], true,

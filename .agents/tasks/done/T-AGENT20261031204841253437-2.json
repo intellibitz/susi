@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT20261031204841253437-2",
+  "title": "Add the integration test the CLI per-command catalog priming draft carried untracked",
+  "goal": "tests/lazy_catalog_priming.rs was an untracked new file in the 2026-10-29 workflow worktree, so the tracked-only patch that landed T-AGENT20261031204841253437-1 (PR 1137) left it behind. It pins that CLI commands prime only the catalogs they use; it passes against the landed code.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lazy_catalog_priming"
+    ]
+  },
+  "created_by": "AGENT20261031204841253437",
+  "created_unix": 1793462665,
+  "closed": {
+    "at_unix": 1793462891,
+    "commit": "a59a354370c45ff2775cfdf10b73e203b34e1c77",
+    "by": "AGENT20261031204841253437"
+  }
+}
