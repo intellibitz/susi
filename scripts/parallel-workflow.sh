@@ -402,6 +402,7 @@ resolve_gate_plan() {
 
 gate() {
     local okfile stamp pkgs lint sel lsel rootpkg root_tests other_pkgs
+    command -v timed_step >/dev/null 2>&1 || timed_step() { shift; "$@"; }
     # Before the cache: a stamp written before this check existed must not
     # wave a test-deleting diff through.
     timed_step test-integrity gate_tests_kept || return 1
@@ -413,6 +414,7 @@ gate() {
         echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
         return 0
     fi
+    command -v gate_format >/dev/null 2>&1 || gate_format() { cargo fmt --all --check; }
     timed_step format gate_format
     pkgs=$gate_pkgs
     if [ "${SUSI_LOCAL_GATE:-}" = full ]; then
@@ -460,6 +462,12 @@ gate() {
             timed_step tests gate_tests $(printf ' -p %s' $other_pkgs)
         fi
         timed_step tests gate_tests -p "$rootpkg" $(printf ' --test %s' $root_tests)
+    elif [ -n "$rootpkg" ] && printf '%s\n' $pkgs | grep -qx "$rootpkg"; then
+        other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
+        if [ -n "$other_pkgs" ]; then
+            timed_step tests gate_tests $(printf ' -p %s' $other_pkgs)
+        fi
+        timed_step tests gate_tests -p "$rootpkg" --lib --bins
     else
         sel=$(printf ' -p %s' $pkgs)
         timed_step tests gate_tests $sel
@@ -488,12 +496,16 @@ acceptance_covered() {
     [ -n "$pkg" ] || pkg=$rootpkg
     [ -n "$pkg" ] || return 1
     printf '%s\n' $gate_pkgs | grep -qx "$pkg" || return 1
-    if [ "$pkg" = "$rootpkg" ] && [ -n "${gate_root_tests:-}" ]; then
-        # The root gate narrowed to the touched `tests/<name>.rs` binaries; only
-        # an acceptance naming one of those `--test <name>` targets was covered.
-        t=$(printf '%s\n' "$cmd" | grep -oE -- '--test[ =][a-zA-Z0-9_-]+' | head -1 | grep -oE '[a-zA-Z0-9_-]+$')
-        [ -n "$t" ] || return 1
-        printf '%s\n' $gate_root_tests | grep -qx "$t" || return 1
+    if [ "$pkg" = "$rootpkg" ]; then
+        if [ -n "${gate_root_tests:-}" ]; then
+            # The root gate narrowed to the touched `tests/<name>.rs` binaries; only
+            # an acceptance naming one of those `--test <name>` targets was covered.
+            t=$(printf '%s\n' "$cmd" | grep -oE -- '--test[ =][a-zA-Z0-9_-]+' | head -1 | grep -oE '[a-zA-Z0-9_-]+$')
+            [ -n "$t" ] || return 1
+            printf '%s\n' $gate_root_tests | grep -qx "$t" || return 1
+        else
+            case "$cmd" in *--test*) return 1 ;; esac
+        fi
     fi
     return 0
 }
