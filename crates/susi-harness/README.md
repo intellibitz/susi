@@ -66,12 +66,34 @@ waits that out and sends the turn again.
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-flash`, `deepseek-pro` |
 | Moonshot (Kimi) | `MOONSHOT_API_KEY` or `KIMI_API_KEY` | `kimi-flash`, `kimi-k3`, `kimi-k3-pro` |
 | OpenRouter | `OPENROUTER_API_KEY` | `or-deepseek-flash`, `or-qwen-flash`, `or-gemini-flash`, `or-claude-sonnet`, `or-gpt-sol`, `or-claude-opus` |
-| SiliconFlow | `SILICONFLOW_API_KEY` | `siliconflow-qwen`, `siliconflow-qwen-coder`, `siliconflow-deepseek` |
+| SiliconFlow | `SILICONFLOW_API_KEY` | `siliconflow-deepseek-flash`, `siliconflow-glm-flash`, `siliconflow-qwen`, `siliconflow-qwen-coder` (workers); `siliconflow-deepseek`, `siliconflow-deepseek-pro`, `siliconflow-glm`, `siliconflow-kimi-k3` (rescue) |
+| DeepInfra | `DEEPINFRA_API_KEY` | `deepinfra-deepseek-flash`, `deepinfra-qwen-flash`, `deepinfra-glm-flash`, `deepinfra-llama`, `deepinfra-qwen-coder` (workers); `deepinfra-deepseek`, `deepinfra-deepseek-pro`, `deepinfra-kimi-k3` (rescue) |
 | DashScope (Qwen) | `DASHSCOPE_API_KEY` | `dashscope-qwen-plus`, `dashscope-qwen-coder`, `dashscope-qwen-max` |
 
 Any one key gives a complete fleet: workers, rescue models and an
 orchestrator. A test enforces this for every provider. More keys give a
 deeper ladder, and to add a provider you write a registry file (see below).
+
+SiliconFlow and DeepInfra are the two providers that serve the open models
+(DeepSeek, Qwen, GLM, Kimi) on one key each, and their models were each
+checked with a live tool call when the registry was last refreshed. To make
+them the fleet's main routers, name them:
+
+```bash
+export SUSI_HARNESS_PREFER=siliconflow,deepinfra
+```
+
+Their models then lead every tier, SiliconFlow's first, and SiliconFlow's
+cheapest strong model orchestrates; the other keyed providers follow as
+fallbacks in the usual price order. The two publish what they serve
+differently: DeepInfra's model list carries each model's prices, context
+window and capabilities, which `susi-harness models --discover` turns into an
+overlay you can review and adopt, and DeepInfra states each call's cost in
+its answer, which the ledger records in place of the catalogue's estimate.
+SiliconFlow's list is ids alone (the registry knows which query narrows it
+to chat models), and its balance endpoint was retired in August 2026 with no
+replacement, so its budget is `SUSI_HARNESS_BUDGET_SILICONFLOW_USD` or,
+unset, "active while its models endpoint answers".
 
 ### As part of susi AI OS
 
@@ -88,6 +110,7 @@ anything, with any agent or tool that speaks the OpenAI API.
 | `susi-harness fleet [--workers auto\|m1,m2]` | Prints the orchestrator and the escalation ladder. |
 | `susi-harness models` | Lists the models your keys make usable, and the ranking evidence. |
 | `susi-harness models --verify [--provider ID]` | Checks each provider live: key accepted, models present. |
+| `susi-harness models --discover [--provider ID]` | Lists the chat models each keyed provider serves beyond the registry, as an overlay document with the prices the provider publishes; notes go to stderr. |
 | `susi-harness budget` | Prints the one-line budget report and any top-up or expiry alert. |
 | `susi-harness env` | Lists every variable the harness reads; keys are only marked as set. |
 | `susi-harness gateway [--port N] [--host H] [--accounts F]` | Runs the metering gateway. |
@@ -138,16 +161,24 @@ The ladder is rebuilt from the live environment on every run:
 2. **Expiring credit first**: a provider whose credit expires soon leads the
    ladder with all of its models, soonest expiry first. Its strongest rescue
    model orchestrates. Credit lost unused costs nothing to spend.
-3. **Cache, then price, then capability, then latency**: cached models come
+3. **Preferred providers next** (`SUSI_HARNESS_PREFER=siliconflow,deepinfra`):
+   their models lead each tier in the order named, ahead of cache and price,
+   and the first named provider's cheapest priced strong model orchestrates
+   unless expiring credit already chose one. A named provider with no key, no
+   budget or no working model changes nothing; `fleet` and `models` report
+   the ones in effect as `preferred`. An unpriced model never leads on a
+   preference alone.
+4. **Cache, then price, then capability, then latency**: cached models come
    first, because a task re-sends the same prompt every turn. Cost is the next
    key, priced at each model's cache rate. When prices are within about 10% of
    each other, the rescue tier prefers the more capable model and every tier
    prefers the faster one, measured from the ledger. A model with no price
    comes after every priced model of its tier.
-4. **Roles**: the fleet has three.
+5. **Roles**: the fleet has three.
    - **Orchestrator**: a strong model that plans and drives. It is the
-     strongest strong model on expiring credit, else DeepSeek Pro, else the
-     cheapest strong model.
+     strongest strong model on expiring credit, else the first preferred
+     provider's cheapest strong model, else DeepSeek Pro, else the cheapest
+     strong model.
    - **Workers**: light models (`deepseek-flash`, `gemini-flash`,
      `kimi-flash`, `claude-haiku`, …) that do the work. Every task starts
      on one, and tasks are spread across them.
@@ -218,6 +249,7 @@ Run `susi-harness env` to see what is set.
 | `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>` | `YYYY-MM-DD` the provider's credit expires. Its models run first until then, and each run alerts in the last 7 days. |
 | `SUSI_HARNESS_RPM_<PROVIDER>` | Requests per minute the gateway sends to the provider. Unset means no limit. |
 | `SUSI_HARNESS_TPM_<PROVIDER>` | Tokens per minute the gateway lets the provider serve. Unset means no limit. |
+| `SUSI_HARNESS_PREFER` | Provider ids, comma-separated, whose models lead their tier and whose first named orchestrates: `siliconflow,deepinfra`. Order matters; unknown or unkeyed ids are ignored. |
 | `SUSI_HARNESS_PROVIDERS` | Path to a registry file whose providers and models are added to the built-in ones. A missing or malformed file stops the harness. Read from the environment or `~/.susi/.env`, never `./.env`. A relative path in `~/.susi/.env` is relative to `~/.susi`; one in the environment is relative to the current folder. |
 | `ANTHROPIC_WORKSPACE_ID` | Workspace for an Anthropic console user key (process environment only). |
 
@@ -252,6 +284,17 @@ Write a registry file in the built-in registry's shape and point
 is treated as local: it has no budget to check. Any other `key_env` stops the
 harness.
 
+`models_query` names the query that narrows the provider's models endpoint
+to its chat models when the list mixes in other kinds
+(`"models_query": "type=text&sub_type=chat"` for SiliconFlow); only
+`--discover` sends it. `susi-harness models --discover` writes an overlay in
+this shape for you, with every chat model a keyed provider lists beyond the
+registry: save it, name it in `SUSI_HARNESS_PROVIDERS`, and copy its `prices`
+into the catalogue (`deploy/harness/prices.json`, or the file `--catalogue`
+names) so the models it adds are priced. It is a proposal to review: it takes
+tool calling and streaming as given for a chat model, and a model that
+refuses its first real call is taken off the ladder by that call.
+
 An overlay only adds. It may add models to a built-in provider by restating
 that provider's `id`, `wire` and `endpoint` unchanged, but it cannot change a
 provider or a model that already exists, reuse an existing model id or alias
@@ -284,7 +327,10 @@ append so that many agents can share it safely. Each row records:
 - tokens, with provider cache hits counted separately;
 - the price in force and the settled cost, in micro-dollars: zero, marked
   `cached`, for an answer the gateway's own response cache served, also when
-  it came through another susi gateway in front, buffered or streamed;
+  it came through another susi gateway in front, buffered or streamed; and
+  the provider's own figure, marked `reported`, when the provider states the
+  call's cost in its answer (DeepInfra's `usage.estimated_cost`), so a stale
+  catalogue price cannot misstate what that call cost;
 - start and end times;
 - the outcome: `completed`, `model_failed` (with its class), `accepted` or
   `rejected`.

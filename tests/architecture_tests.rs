@@ -1849,3 +1849,63 @@ fn vendor_patches_are_pinned_git_revisions_not_path_crates() {
         "the patched sources live on the nopr/vendor-patches branch, not in the tree"
     );
 }
+
+/// The lockfile carries no `zip` with GitHub's five Dependabot advisories
+/// (GHSA-m665-v7pm-7grj and four more, all fixed in 9.0.5), and the candle
+/// crates that pull it in come from crates.io, not a git revision: candle
+/// 0.11.1 wants zip ^9.1.3 and tokenizers ^0.23, which is why the git patch
+/// that kept the workspace on one tokenizers could go. A registry crate is
+/// also a compiler-cache hit where a git one never is.
+#[test]
+fn the_lockfile_carries_the_dependabot_fixed_zip_and_registry_candle() {
+    let lock = std::fs::read_to_string(workspace_root().join("Cargo.lock")).unwrap();
+    let packages: Vec<&str> = lock.split("[[package]]").collect();
+    let field = |package: &str, name: &str| -> Option<String> {
+        package
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{name} = ")))
+            .map(|value| value.trim_matches('"').to_string())
+    };
+    let named = |name: &str| -> Vec<&str> {
+        packages
+            .iter()
+            .copied()
+            .filter(|package| field(package, "name").as_deref() == Some(name))
+            .collect()
+    };
+    let zips = named("zip");
+    assert!(
+        !zips.is_empty(),
+        "candle-core depends on zip; the lockfile names it"
+    );
+    for zip in zips {
+        let version = field(zip, "version").unwrap();
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u64>().unwrap_or(0));
+        let triple = (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        );
+        assert!(
+            triple >= (9, 0, 5),
+            "zip {version} carries the Dependabot advisories fixed in 9.0.5"
+        );
+    }
+    for crate_name in ["candle-core", "candle-nn", "candle-transformers"] {
+        let found = named(crate_name);
+        assert_eq!(found.len(), 1, "one {crate_name} in the lockfile");
+        let source = field(found[0], "source").unwrap_or_default();
+        assert!(
+            source.starts_with("registry+"),
+            "{crate_name} comes from crates.io, not {source}"
+        );
+    }
+    let tokenizers = named("tokenizers");
+    assert_eq!(
+        tokenizers.len(),
+        1,
+        "one tokenizers in the graph, the reason the candle patch existed"
+    );
+}

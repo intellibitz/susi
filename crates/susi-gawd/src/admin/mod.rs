@@ -4,6 +4,7 @@
 pub mod guard;
 pub mod queue_relay;
 mod release;
+pub mod seed;
 pub mod tasks;
 mod version;
 pub mod workflow;

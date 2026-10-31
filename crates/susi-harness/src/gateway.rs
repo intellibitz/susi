@@ -908,6 +908,8 @@ fn settle_buffered(
             ended_unix_ms,
             usage.input.saturating_add(usage.output),
         );
+        // The provider's own figure for the call, where it states one, is
+        // the bill; the catalogue's price is what it was admitted at.
         let entry = LedgerEntry::settle(Dispatch {
             mission: tag.mission.clone(),
             task: tag.task.clone(),
@@ -919,7 +921,8 @@ fn settle_buffered(
             started_unix_ms,
             ended_unix_ms,
             outcome: Outcome::Completed,
-        });
+        })
+        .at_provider_cost(crate::usage::provider_cost_from_json(&value));
         // A starved answer is not this request's answer: cached, it was
         // replayed to every later identical call at no cost and no content.
         starved_answer = starved(&value);
@@ -1111,6 +1114,7 @@ async fn stream_upstream(
 
         let mut reader = std::io::BufReader::new(call.into_reader());
         let mut usage = None;
+        let mut stated_cost = None;
         loop {
             let mut line = Vec::new();
             match std::io::BufRead::read_until(&mut reader, b'\n', &mut line) {
@@ -1122,6 +1126,7 @@ async fn stream_upstream(
                 if let Ok(value) = serde_json::from_str::<Value>(data) {
                     if let Ok(parsed) = token_usage_from_json(&value) {
                         usage = Some(parsed);
+                        stated_cost = crate::usage::provider_cost_from_json(&value);
                     }
                 }
             }
@@ -1153,7 +1158,8 @@ async fn stream_upstream(
                     started_unix_ms,
                     ended_unix_ms,
                     outcome: Outcome::Completed,
-                });
+                })
+                .at_provider_cost(stated_cost);
                 let entry = if cached { entry.as_cached() } else { entry };
                 if let Err(error) = append_entry(&ledger_path, &entry) {
                     eprintln!("harness-gateway: ledger append failed: {error}");
@@ -2806,7 +2812,12 @@ mod tests {
             r#"{"model":"deepseek-flash","messages":[]}"#,
             "",
         ));
-        for _ in 0..100 {
+        // Up to 30 s: the call reaches the provider in milliseconds on an
+        // idle machine, but the finish gate runs this beside 1 600 other
+        // tests and a compile, where 5 s was not always enough (three
+        // tries red, the gate red with them). The bound only needs to be
+        // longer than the slowest scheduling; nothing here depends on it.
+        for _ in 0..600 {
             if asked.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }

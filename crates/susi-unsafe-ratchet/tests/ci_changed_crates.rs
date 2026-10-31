@@ -541,9 +541,18 @@ fn compliance_uses_single_remote_ref_snapshot() {
         assert!(helper_text.contains(refspec), "missing refspec {refspec}");
     }
 
-    let guard = std::fs::read_to_string(repo.join(".githooks/workflow-guard")).unwrap();
+    // The push guard is Rust (`susi workflow guard`, which the hook stub
+    // execs): its one fetch is the same snapshot the helper takes for CI, and
+    // the compliance script is told to read it rather than fetch again.
+    let guard = std::fs::read_to_string(repo.join("crates/susi-gawd/src/admin/guard.rs")).unwrap();
     assert!(guard.contains("fetch-workflow-refs.sh"));
-    assert!(guard.contains("SUSI_WORKFLOW_REFS_FETCHED=1"));
+    assert!(guard.contains("fn fetch_workflow_refs("));
+    for refspec in ["refs/heads/*", "refs/claims/*", "refs/closed/*"] {
+        assert!(guard.contains(refspec), "the guard must fetch {refspec}");
+    }
+    assert!(guard.contains(".env(\"SUSI_WORKFLOW_REFS_FETCHED\", \"1\")"));
+    let stub = std::fs::read_to_string(repo.join(".githooks/workflow-guard")).unwrap();
+    assert!(stub.contains("run-susi\" workflow guard"));
     let compliance =
         std::fs::read_to_string(repo.join("scripts/check-workflow-compliance.sh")).unwrap();
     assert_eq!(
@@ -657,6 +666,11 @@ fn finish_reuses_live_lease_and_fetched_refs() {
         .unwrap();
     let ws = Workspace::new("finish-coordination");
     git(&ws.root, &["config", "susi.agent", "TESTAGENT"]);
+    // A renewal is skipped only while the remote still advertises the very
+    // claim blob the checkout holds (a local ref can be stale), so the
+    // fixture has a remote and publishes each claim there before the check.
+    git(&ws.root, &["init", "-q", "--bare", "remote.git"]);
+    git(&ws.root, &["remote", "add", "origin", "remote.git"]);
     ws.write("lease-check.sh", &format!(
         "set -euo pipefail\n. \"$SUSI_TEST_COMPAT\"\nrenew_or_readopt() {{{renew}\n}}\n\
          stub() {{ echo \"$*\" >> calls; [ \"${{FAIL_RENEW:-0}}\" != 1 ] || [ \"$2\" != renew ]; }}\n\
@@ -683,6 +697,16 @@ fn finish_reuses_live_lease_and_fetched_refs() {
         git(
             &ws.root,
             &["update-ref", "refs/claims/T-TEST-1", object.trim()],
+        );
+        git(
+            &ws.root,
+            &[
+                "push",
+                "--quiet",
+                "--force",
+                "origin",
+                "refs/claims/T-TEST-1:refs/claims/T-TEST-1",
+            ],
         );
         ws.write("calls", "");
         let output = script_command(&ws.root.join("lease-check.sh"))

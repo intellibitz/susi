@@ -61,6 +61,31 @@ fn gemini_usage(usage: &Value) -> EaiResult<TokenUsage> {
     ))
 }
 
+/// The cost the provider itself states for the call, when it states one.
+///
+/// DeepInfra answers every completion with `usage.estimated_cost`, the call's
+/// price in dollars from its own meter. That figure is the bill, where the
+/// catalogue is an approximation of it, so the ledger settles at it when it
+/// is there ([`crate::ledger::LedgerEntry::at_provider_cost`]). It is read in
+/// dollars and rounded up to the micro-dollar, like every other cost; a value
+/// that is not a finite number at or above zero is ignored, never charged.
+#[must_use]
+pub fn provider_cost_from_json(body: &Value) -> Option<crate::money::MicroUsd> {
+    let stated = body.get("usage")?.get("estimated_cost")?;
+    let usd = match stated {
+        Value::Number(number) => number.as_f64()?,
+        Value::String(text) => text.trim().parse::<f64>().ok()?,
+        Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => return None,
+    };
+    if !usd.is_finite() || usd < 0.0 || usd > 1.0e9 {
+        return None;
+    }
+    // Round up: a ledger that rounds down undercounts spend, silently.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let micros = (usd * 1_000_000.0).ceil() as u64;
+    Some(crate::money::MicroUsd::from_micros(micros))
+}
+
 /// The output tokens a provider bills: the visible output, or whatever the
 /// total holds beyond the prompt when that is more. Gemini bills hidden
 /// thinking as output and its OpenAI endpoint reports it only in the total:
@@ -97,6 +122,35 @@ mod tests {
             parsed
         );
         assert_eq!(parsed.cache_miss(), 600_000);
+    }
+
+    /// DeepInfra states the call's cost in dollars beside the tokens; the
+    /// figure is read, rounded up, and anything that is not a dollar amount
+    /// is ignored rather than charged.
+    #[test]
+    fn a_provider_stated_cost_is_read_in_dollars_and_rounded_up() {
+        let body = serde_json::json!({
+            "usage": {"prompt_tokens": 241, "completion_tokens": 2, "estimated_cost": 7.109999998399999e-05}
+        });
+        assert_eq!(
+            provider_cost_from_json(&body).map(|cost| cost.micros()),
+            Some(72)
+        );
+        let text = serde_json::json!({"usage": {"prompt_tokens": 1, "estimated_cost": "0.25"}});
+        assert_eq!(
+            provider_cost_from_json(&text).map(|cost| cost.micros()),
+            Some(250_000)
+        );
+        for bad in [
+            serde_json::json!({"usage": {"prompt_tokens": 1}}),
+            serde_json::json!({"usage": {"prompt_tokens": 1, "estimated_cost": null}}),
+            serde_json::json!({"usage": {"prompt_tokens": 1, "estimated_cost": -0.5}}),
+            serde_json::json!({"usage": {"prompt_tokens": 1, "estimated_cost": "free"}}),
+            serde_json::json!({"usage": {"prompt_tokens": 1, "estimated_cost": [1]}}),
+            serde_json::json!({"no_usage": true}),
+        ] {
+            assert_eq!(provider_cost_from_json(&bad), None, "{bad}");
+        }
     }
 
     #[test]

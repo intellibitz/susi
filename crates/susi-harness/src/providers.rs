@@ -171,6 +171,10 @@ pub struct AutoConfig {
     /// Models left out because their last real call failed: the calls are the
     /// source of truth, whatever the provider's budget says.
     pub failed: Vec<String>,
+    /// The preferred providers ([`PREFER_ENV`]) that put a model on the
+    /// ladder, first preferred first. A preferred provider with no key, no
+    /// budget or no working model is not here: naming it changed nothing.
+    pub preferred: Vec<String>,
 }
 
 /// What the budget says of each keyed provider, for [`Registry::auto_config_ranked`].
@@ -180,6 +184,11 @@ pub struct ProviderGate<'a> {
     /// The day the provider's credit expires, when that credit should be
     /// spent before anything else: active, dated and not yet expired.
     pub use_first: &'a dyn Fn(&str) -> Option<u64>,
+    /// The provider's place among the preferred providers ([`PREFER_ENV`]):
+    /// `Some(0)` for the first named, and `None` for a provider that is not
+    /// preferred. Preferred providers lead their tier, after expiring
+    /// credit, and the first of them with a priced rescue model orchestrates.
+    pub prefer: &'a dyn Fn(&str) -> Option<usize>,
     /// A model's measured mean call latency in milliseconds, when the ledger
     /// has any ([`crate::policy::latencies`]).
     pub latency: &'a dyn Fn(&str) -> Option<u64>,
@@ -224,9 +233,52 @@ fn by_latency(a: Option<u64>, b: Option<u64>) -> std::cmp::Ordering {
     }
 }
 
+/// Preferred providers first, in the order the operator named them; the
+/// providers not named after them, in their usual order.
+fn by_preference(a: Option<usize>, b: Option<usize>) -> std::cmp::Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+/// The setting that names the providers to prefer: a comma-separated list of
+/// registry ids (`siliconflow,deepinfra`), first preferred first. Their models
+/// lead their tier, after expiring credit and before cache and price, and the
+/// first named with a priced rescue model orchestrates. A name the registry
+/// does not know is ignored, so a typo costs nothing but the preference.
+pub const PREFER_ENV: &str = "SUSI_HARNESS_PREFER";
+
+/// The preferred provider ids, in order, from [`PREFER_ENV`] (environment,
+/// then the `.env` files the harness reads). Empty when it is not set.
+#[must_use]
+pub fn preferred_providers() -> Vec<String> {
+    parse_preferred(crate::secrets::setting(PREFER_ENV).as_deref())
+}
+
+/// Parse a [`PREFER_ENV`] value: ids split on commas and whitespace, trimmed,
+/// lower-cased, each kept once at its first place. `None` or blank is empty.
+#[must_use]
+pub fn parse_preferred(raw: Option<&str>) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for part in raw.unwrap_or_default().split([',', ' ', '\t', ';']) {
+        let id = part.trim().to_ascii_lowercase();
+        if !id.is_empty() && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
 /// A ladder candidate whose position is not yet settled.
 struct Ranked {
     id: String,
+    /// The provider the model runs at.
+    provider: String,
+    /// The provider's place among the preferred providers, when it is one.
+    prefer: Option<usize>,
     /// Whether the catalogue prices the model; an unpriced one ranks after
     /// every priced one of its tier.
     priced: bool,
@@ -275,6 +327,11 @@ pub struct ProviderRecord {
     pub key_prefix: Option<String>,
     /// Where a user gets a key for this provider, for first-run guidance.
     pub key_url: Option<String>,
+    /// The query that narrows the provider's models endpoint to the chat
+    /// models, when the list mixes in other kinds (`type=text&sub_type=chat`
+    /// at SiliconFlow). Discovery ([`crate::verify::discover`]) sends it;
+    /// verification reads the whole list.
+    pub models_query: Option<String>,
     /// Models known by name.
     pub models: Vec<ModelRecord>,
 }
@@ -778,6 +835,7 @@ impl Registry {
         let gate = ProviderGate {
             active: provider_active,
             use_first: &|_| None,
+            prefer: &|_| None,
             latency: &|_| None,
             live: &|_| true,
         };
@@ -845,6 +903,8 @@ impl Registry {
                 };
                 let ranked = Ranked {
                     id: model.id.clone(),
+                    provider: provider.id.clone(),
+                    prefer: (gate.prefer)(&provider.id),
                     priced: price.is_some(),
                     cost,
                     cache: model.capabilities.cache,
@@ -896,12 +956,28 @@ impl Registry {
                     .then_with(|| b.id.cmp(&a.id))
             })
             .map(|ranked| ranked.id.clone());
+        // The preferred providers that are on the ladder, first preferred
+        // first.
+        let mut preferred = workers
+            .iter()
+            .chain(rescue.iter())
+            .filter_map(|ranked| ranked.prefer.map(|rank| (rank, ranked.provider.clone())))
+            .collect::<Vec<_>>();
+        preferred.sort();
+        preferred.dedup();
+        let preferred = preferred
+            .into_iter()
+            .map(|(_, provider)| provider)
+            .collect::<Vec<_>>();
         // Priced first: an unpriced model is ranked at an infinite cost, but
         // the keys before price (credit, cache) once put one that declares a
         // cache ahead of every priced model without one, and tasks started on
         // a model whose spend is recorded at zero and no budget can see.
         // `fleet` moved it back afterwards; this ranking, the library's, did
         // not, against its own documentation. Then expiring credit. Then
+        // the preferred providers, in the operator's order: the operator
+        // knows what the ledger cannot (a contract, a region, a quota), and
+        // the preference costs only the price difference it chooses. Then
         // cache, always: a cached prefix is the cheapest input a model can
         // take, and the harness re-sends the same prompt on every turn of a
         // task. Budget next. Capability decides only the rescue tier, where the
@@ -915,6 +991,7 @@ impl Registry {
                     .cmp(&a.priced)
                     // Expiring credit first within the tier, soonest expiry first.
                     .then_with(|| by_expiry(a.expires, b.expires))
+                    .then_with(|| by_preference(a.prefer, b.prefer))
                     .then_with(|| b.cache.cmp(&a.cache))
                     .then_with(|| a.band.cmp(&b.band))
                     .then_with(|| {
@@ -935,13 +1012,27 @@ impl Registry {
                 .collect::<Vec<_>>()
         };
         let workers = order(&mut workers, false);
-        let rescue = order(&mut rescue, true);
-        // The orchestrator is the primary when it is eligible, else the
-        // cheapest rescue model, else the cheapest worker. A fleet of workers
-        // alone, or one model of any tier, still has an orchestrator.
+        let rescue_ids = order(&mut rescue, true);
+        // The orchestrator the preferred providers give: the first rescue
+        // model of the sorted tier when it is theirs and priced, which is the
+        // first preferred provider's cheapest strong model, the same rule the
+        // fallback below applies to the whole fleet. An unpriced one never
+        // orchestrates on a preference: its spend is invisible to every cap.
+        let preferred_orchestrator = rescue
+            .first()
+            .filter(|ranked| ranked.prefer.is_some() && ranked.priced)
+            .map(|ranked| ranked.id.clone());
+        let rescue = rescue_ids;
+        // The orchestrator is the strongest rescue model on expiring credit,
+        // else the preferred providers' cheapest strong model, else the
+        // primary when it is eligible, else the cheapest rescue model, else
+        // the cheapest worker. A fleet of workers alone, or one model of any
+        // tier, still has an orchestrator.
         let primary = Self::primary_orchestrator();
         let orchestrator = if first_orchestrator.is_some() {
             first_orchestrator
+        } else if preferred_orchestrator.is_some() {
+            preferred_orchestrator
         } else if workers.iter().chain(rescue.iter()).any(|id| id == primary) {
             Some(primary.to_string())
         } else {
@@ -954,6 +1045,7 @@ impl Registry {
             rescue,
             unpriced,
             failed,
+            preferred,
         }
     }
 
@@ -1050,6 +1142,9 @@ fn changed_fields(
     if stated.contains(&"key_url") && existing.key_url != restated.key_url {
         changed.push("key_url");
     }
+    if restated.models_query.is_some() && existing.models_query != restated.models_query {
+        changed.push("models_query");
+    }
     changed
 }
 
@@ -1113,6 +1208,11 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
         .and_then(Value::as_str)
         .filter(|url| !url.is_empty())
         .map(str::to_string);
+    let models_query = raw
+        .get("models_query")
+        .and_then(Value::as_str)
+        .map(|query| query.trim().trim_start_matches('?').to_string())
+        .filter(|query| !query.is_empty());
     Ok(ProviderRecord {
         id,
         wire,
@@ -1120,6 +1220,7 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
         key_envs,
         key_prefix,
         key_url,
+        models_query,
         models,
     })
 }
@@ -1213,10 +1314,16 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.siliconflow.com/v1/chat/completions",
       "key_env": ["SILICONFLOW_API_KEY"],
       "key_url": "https://cloud.siliconflow.com/account/ak",
+      "models_query": "type=text&sub_type=chat",
       "models": [
-        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3.8-27B", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
-        {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 128000, "tools": true, "streaming": true, "tier": "rescue"},
-        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "context": 128000, "tools": true, "streaming": true, "tier": "worker"}
+        {"id": "siliconflow-deepseek-flash", "backend": "deepseek-ai/DeepSeek-V4.1-Flash", "context": 1048576, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "siliconflow-glm-flash", "backend": "zai-org/GLM-5.3-Flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3.8-27B", "context": 262144, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "context": 262144, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 163840, "tools": true, "streaming": true, "tier": "rescue", "cache": true},
+        {"id": "siliconflow-deepseek-pro", "backend": "deepseek-ai/DeepSeek-V4-Pro", "context": 1048576, "tools": true, "streaming": true, "tier": "rescue", "cache": true},
+        {"id": "siliconflow-glm", "backend": "zai-org/GLM-5.3", "context": 1048576, "tools": true, "streaming": true, "tier": "rescue", "cache": true},
+        {"id": "siliconflow-kimi-k3", "backend": "moonshotai/Kimi-K3", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -1226,9 +1333,14 @@ const BUILTIN: &str = r#"
       "key_env": ["DEEPINFRA_API_KEY"],
       "key_url": "https://deepinfra.com/dash/api_keys",
       "models": [
+        {"id": "deepinfra-deepseek-flash", "backend": "deepseek-ai/DeepSeek-V4.1-Flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "deepinfra-qwen-flash", "backend": "Qwen/Qwen3.8-Flash", "context": 1000000, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "deepinfra-glm-flash", "backend": "zai-org/GLM-5.3-Flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
         {"id": "deepinfra-llama", "backend": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "context": 131072, "tools": true, "streaming": true, "tier": "worker"},
         {"id": "deepinfra-qwen-coder", "backend": "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo", "context": 262144, "tools": true, "streaming": true, "tier": "worker", "cache": true},
-        {"id": "deepinfra-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 163840, "tools": true, "streaming": true, "tier": "rescue", "cache": true}
+        {"id": "deepinfra-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 163840, "tools": true, "streaming": true, "tier": "rescue", "cache": true},
+        {"id": "deepinfra-deepseek-pro", "backend": "deepseek-ai/DeepSeek-V4-Pro", "context": 1048576, "tools": true, "streaming": true, "tier": "rescue", "cache": true},
+        {"id": "deepinfra-kimi-k3", "backend": "moonshotai/Kimi-K3", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -1454,13 +1566,24 @@ mod tests {
 
         // Every engine model is dispatchable: it resolves, accepts tools,
         // streams, and carries a context window a worker can use.
+        // Every model here answered a live tool call on 2026-10-31.
         for id in [
+            "siliconflow-deepseek-flash",
+            "siliconflow-glm-flash",
             "siliconflow-qwen",
-            "siliconflow-deepseek",
             "siliconflow-qwen-coder",
+            "siliconflow-deepseek",
+            "siliconflow-deepseek-pro",
+            "siliconflow-glm",
+            "siliconflow-kimi-k3",
+            "deepinfra-deepseek-flash",
+            "deepinfra-qwen-flash",
+            "deepinfra-glm-flash",
             "deepinfra-llama",
             "deepinfra-qwen-coder",
             "deepinfra-deepseek",
+            "deepinfra-deepseek-pro",
+            "deepinfra-kimi-k3",
         ] {
             let model = registry.resolve(id).expect("payg engine model resolves");
             assert!(
@@ -1607,6 +1730,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &expiring,
+                prefer: &|_| None,
                 latency: &|_| None,
                 live: &|_| true,
             },
@@ -1647,6 +1771,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &expiring,
+                prefer: &|_| None,
                 latency: &|_| None,
                 live: &|_| true,
             },
@@ -1656,6 +1781,238 @@ mod tests {
         assert_eq!(
             auto.rescue,
             vec!["deepseek-pro", "claude-sonnet", "claude-opus"]
+        );
+    }
+
+    /// `SUSI_HARNESS_PREFER=siliconflow,deepinfra`: the two providers' models
+    /// lead each tier in that order, ahead of a cheaper DeepSeek model, and
+    /// the first preferred provider's cheapest strong model orchestrates in
+    /// place of the primary.
+    #[test]
+    fn preferred_providers_lead_their_tier_and_orchestrate() {
+        let prefer = |provider: &str| match provider {
+            "siliconflow" => Some(0),
+            "deepinfra" => Some(1),
+            _ => None,
+        };
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&[
+                "DEEPSEEK_API_KEY",
+                "SILICONFLOW_API_KEY",
+                "DEEPINFRA_API_KEY",
+            ]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &|_| None,
+                prefer: &prefer,
+                latency: &|_| None,
+                live: &|_| true,
+            },
+        );
+        assert_eq!(auto.preferred, vec!["siliconflow", "deepinfra"]);
+        let provider_of = |model: &str| Registry::builtin().resolve(model).unwrap().provider;
+        let providers = |models: &[String]| {
+            models
+                .iter()
+                .map(|model| provider_of(model))
+                .collect::<Vec<_>>()
+        };
+        for (tier, models) in [("workers", &auto.workers), ("rescue", &auto.rescue)] {
+            let order = providers(models);
+            let first_other = order
+                .iter()
+                .position(|provider| provider != "siliconflow" && provider != "deepinfra")
+                .unwrap_or(order.len());
+            let first_deepinfra = order.iter().position(|provider| provider == "deepinfra");
+            assert!(
+                order[..first_other]
+                    .iter()
+                    .all(|provider| provider == "siliconflow" || provider == "deepinfra"),
+                "{tier}: preferred providers lead, got {order:?}"
+            );
+            assert!(
+                order[first_other..]
+                    .iter()
+                    .all(|provider| provider == "deepseek"),
+                "{tier}: the rest follow, got {order:?}"
+            );
+            if let Some(first_deepinfra) = first_deepinfra {
+                assert!(
+                    order[..first_deepinfra]
+                        .iter()
+                        .all(|provider| provider == "siliconflow"),
+                    "{tier}: siliconflow before deepinfra, got {order:?}"
+                );
+            }
+        }
+        // The cheapest priced SiliconFlow rescue model orchestrates: DeepSeek
+        // V3.2 there is cheaper than V4 Pro, GLM 5.3 and Kimi K3.
+        assert_eq!(auto.orchestrator.as_deref(), Some("siliconflow-deepseek"));
+        // Without a preference the primary orchestrates and price decides.
+        let plain = Registry::builtin().auto_config_ranked(
+            &keys(&[
+                "DEEPSEEK_API_KEY",
+                "SILICONFLOW_API_KEY",
+                "DEEPINFRA_API_KEY",
+            ]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &|_| None,
+                prefer: &|_| None,
+                latency: &|_| None,
+                live: &|_| true,
+            },
+        );
+        assert!(plain.preferred.is_empty());
+        assert_eq!(plain.orchestrator.as_deref(), Some("deepseek-pro"));
+        assert_ne!(plain.workers, auto.workers);
+    }
+
+    /// Expiring credit still comes first: a preference reorders what the
+    /// budget does not already decide.
+    #[test]
+    fn expiring_credit_outranks_a_preferred_provider() {
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY", "SILICONFLOW_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &|provider| (provider == "deepseek").then_some(20_800),
+                prefer: &|provider| (provider == "siliconflow").then_some(0),
+                latency: &|_| None,
+                live: &|_| true,
+            },
+        );
+        assert_eq!(auto.workers[0], "deepseek-flash");
+        assert_eq!(auto.rescue[0], "deepseek-pro");
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
+        assert_eq!(auto.preferred, vec!["siliconflow"]);
+    }
+
+    /// A preferred provider with no key here changes nothing, and is not
+    /// reported as preferred: the preference names providers, the keys say
+    /// which of them exist.
+    #[test]
+    fn a_preferred_provider_without_a_key_changes_nothing() {
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &|_| None,
+                prefer: &|provider| (provider == "deepinfra").then_some(0),
+                latency: &|_| None,
+                live: &|_| true,
+            },
+        );
+        assert!(auto.preferred.is_empty());
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
+        assert_eq!(auto.workers, vec!["deepseek-flash"]);
+    }
+
+    /// An unpriced model of a preferred provider never orchestrates on the
+    /// preference alone: its spend is invisible to every cap.
+    #[test]
+    fn a_preferred_provider_orchestrates_only_with_a_priced_strong_model() {
+        let json = r#"{"providers":[{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[
+            {"id":"solo-flash","tools":true,"tier":"worker"},
+            {"id":"solo-pro","tools":true,"tier":"rescue"}]}]}"#;
+        let registry = Registry::builtin().merged(json).unwrap();
+        let gate = |prefer: &'static dyn Fn(&str) -> Option<usize>| ProviderGate {
+            active: &|_| true,
+            use_first: &|_| None,
+            prefer,
+            latency: &|_| None,
+            live: &|_| true,
+        };
+        let auto = registry.auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY", "SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &gate(&|provider| (provider == "solo").then_some(0)),
+        );
+        assert_eq!(auto.unpriced, vec!["solo-flash", "solo-pro"]);
+        assert_eq!(auto.preferred, vec!["solo"]);
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
+        // Priced models still lead the unpriced, preference or not.
+        assert_eq!(auto.workers, vec!["deepseek-flash", "solo-flash"]);
+    }
+
+    #[test]
+    fn preferred_provider_lists_are_split_trimmed_lower_cased_and_deduplicated() {
+        assert_eq!(
+            parse_preferred(Some(" SiliconFlow, deepinfra ;deepinfra\tsiliconflow,, ")),
+            vec!["siliconflow", "deepinfra"]
+        );
+        assert!(parse_preferred(None).is_empty());
+        assert!(parse_preferred(Some("  ,, ")).is_empty());
+        assert_eq!(PREFER_ENV, "SUSI_HARNESS_PREFER");
+    }
+
+    /// The SiliconFlow and DeepInfra records carry what the providers serve
+    /// and publish today: a chat filter for SiliconFlow's mixed list, prices
+    /// for every model, and a strong model of each tier at each provider.
+    #[test]
+    fn siliconflow_and_deepinfra_are_whole_priced_fleets_with_a_chat_filter() {
+        let registry = Registry::builtin();
+        let catalogue = builtin_catalogue();
+        let siliconflow = registry
+            .providers()
+            .iter()
+            .find(|provider| provider.id == "siliconflow")
+            .unwrap();
+        assert_eq!(
+            siliconflow.models_query.as_deref(),
+            Some("type=text&sub_type=chat")
+        );
+        for id in ["siliconflow", "deepinfra"] {
+            let provider = registry
+                .providers()
+                .iter()
+                .find(|provider| provider.id == id)
+                .unwrap();
+            let tiers = provider
+                .models
+                .iter()
+                .map(|model| model.tier)
+                .collect::<Vec<_>>();
+            assert!(tiers.contains(&Some(Tier::Worker)), "{id} has a worker");
+            assert!(
+                tiers.contains(&Some(Tier::Rescue)),
+                "{id} has a rescue model"
+            );
+            for model in &provider.models {
+                assert!(
+                    catalogue.price(&model.id).is_some(),
+                    "{} is priced",
+                    model.id
+                );
+            }
+        }
+        // An overlay may restate the filter, but not change it.
+        let restated = r#"{"providers":[{"id":"siliconflow","wire":"openai","endpoint":"https://api.siliconflow.com/v1/chat/completions","models_query":"type=text&sub_type=chat","models":[]}]}"#;
+        registry.merged(restated).unwrap();
+        let changed = r#"{"providers":[{"id":"siliconflow","wire":"openai","endpoint":"https://api.siliconflow.com/v1/chat/completions","models_query":"type=image","models":[]}]}"#;
+        let error = registry.merged(changed).unwrap_err().to_string();
+        assert!(error.contains("models_query"), "{error}");
+        let omitted = r#"{"providers":[{"id":"siliconflow","wire":"openai","endpoint":"https://api.siliconflow.com/v1/chat/completions","models":[]}]}"#;
+        assert!(
+            registry
+                .merged(omitted)
+                .unwrap()
+                .providers()
+                .iter()
+                .find(|provider| provider.id == "siliconflow")
+                .unwrap()
+                .models_query
+                .is_some(),
+            "an overlay that says nothing about the filter keeps it"
         );
     }
 
@@ -1686,6 +2043,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &|_| None,
+                prefer: &|_| None,
                 latency: &latency,
                 live: &|_| true,
             },
@@ -2214,6 +2572,7 @@ mod tests {
                 &ProviderGate {
                     active: &|_| true,
                     use_first: expiring,
+                    prefer: &|_| None,
                     latency: &|_| None,
                     live: &|_| true,
                 },
