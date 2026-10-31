@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-5",
+  "title": "release cut guard: fail closed when the tag lookup fails; drop the stale-prone cut-v branch check (review on #1167)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::version"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793476525
+}
