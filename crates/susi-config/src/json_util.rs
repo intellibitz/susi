@@ -214,6 +214,45 @@ pub fn atomic_replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     result
 }
 
+/// Which file `meta` describes, beyond its size and modification time: on
+/// Unix its device and inode, and for anything but a directory its change
+/// time (a rewrite in place whose mtime was then restored, as `cp -p` does,
+/// still moves it); on Windows its creation time (a file replaced by another
+/// — renamed over, or deleted and written again — is a new file). Two stats
+/// of one unchanged file give the same string; empty where neither is
+/// available. For identities that must not mistake a replaced file of the
+/// same size and mtime for the old one. A directory's change time is left
+/// out: [`create_private_dir`] re-applies its mode, which moves it, on every
+/// call.
+#[must_use]
+pub fn file_node(meta: &fs::Metadata) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.is_dir() {
+            format!("{}:{}", meta.dev(), meta.ino())
+        } else {
+            format!(
+                "{}:{}:{}.{}",
+                meta.dev(),
+                meta.ino(),
+                meta.ctime(),
+                meta.ctime_nsec()
+            )
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        format!("c{}", meta.creation_time())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = meta;
+        String::new()
+    }
+}
+
 /// Replaces `path` with `bytes` via a same-directory temp file + rename, so a
 /// concurrent reader — another process's CLI invocation, the daemon's own
 /// background cycle — never observes a torn/empty file. Each writer stages

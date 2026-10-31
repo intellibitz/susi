@@ -174,7 +174,7 @@ impl HardwareProfiler {
             .get_or_init(|| {
                 let (cpus, _) = Self::profile();
                 let ram_gb = Self::determine_total_ram_gb();
-                let gpu_vram_gb = Self::determine_gpu_vram_gb();
+                let gpu_vram_gb = Self::gpu_vram_gb();
                 let swap_gb = Self::determine_swap_gb();
                 let nvme_active = Self::is_nvme_active();
 
@@ -432,13 +432,17 @@ impl HardwareProfiler {
         // Headroom for the CUDA context, cuBLAS handle, and cudarc's own
         // allocator bookkeeping, none of which show up as tensor weights.
         const CUDA_CONTEXT_RESERVE_BYTES: u64 = 512 * 1024 * 1024;
+        // When the live free query fails, the total is asked afresh, never
+        // taken from `gpu_vram_gb`'s in-process memo: a failing or vanished
+        // `nvidia-smi` must leave a budget of 0 here, as it always did, not
+        // a remembered total presented as free memory.
         let free_bytes = Self::determine_gpu_vram_free_bytes()
-            .unwrap_or_else(|| Self::determine_gpu_vram_gb() as u64 * 1024 * 1024 * 1024);
+            .unwrap_or_else(|| Self::fresh_gpu_vram_gb() as u64 * 1024 * 1024 * 1024);
         free_bytes.saturating_sub(CUDA_CONTEXT_RESERVE_BYTES)
     }
 
     /// Live free VRAM in bytes via `nvidia-smi`, independent of
-    /// `determine_gpu_vram_gb`'s integer-GB display value (which truncates,
+    /// `gpu_vram_gb`'s integer-GB display value (which truncates,
     /// e.g. an 8188 MiB card reports as "7GB") and independent of total
     /// capacity, which doesn't reflect memory already in use.
     fn determine_gpu_vram_free_bytes() -> Option<u64> {
@@ -464,7 +468,7 @@ impl HardwareProfiler {
     pub fn get_dynamic_device(allocated_bytes_required: usize) -> Device {
         // Sub-2ms Heterogeneous Offloading Fallback
         if allocated_bytes_required > 0 {
-            let vram_limit = Self::determine_gpu_vram_gb() * 1024 * 1024 * 1024;
+            let vram_limit = Self::gpu_vram_gb() * 1024 * 1024 * 1024;
             if vram_limit > 0 && allocated_bytes_required as f64 > (vram_limit as f64 * 0.98) {
                 return Device::Cpu;
             }
@@ -520,26 +524,36 @@ impl HardwareProfiler {
         }
     }
 
-    fn determine_gpu_vram_gb() -> usize {
-        // NVIDIA's proprietary driver never populates the AMD-specific
-        // mem_info_vram_total sysfs attribute below, so query nvidia-smi
-        // directly for NVIDIA hardware first.
-        if let Ok(output) = crate::susi_core::bounded_cmd::output_within(
-            std::process::Command::new("nvidia-smi")
-                .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]),
-            std::time::Duration::from_secs(5),
-        ) {
-            if output.status.success() {
-                if let Some(first_line) = String::from_utf8_lossy(&output.stdout).lines().next() {
-                    if let Ok(mib) = first_line.trim().parse::<u64>() {
-                        if mib > 0 {
-                            return (mib / 1024) as usize;
-                        }
-                    }
-                }
-            }
-        }
+    /// Total GPU memory in GB: `nvidia-smi`'s total, else (no total from it)
+    /// the AMD sysfs attribute, else 0.
+    ///
+    /// A total from `nvidia-smi` is kept for the rest of the process (never
+    /// between processes, see [`gpu_probe_cache`]): the probe is a spawn that
+    /// took about two seconds on a Windows host. The trade-off: a
+    /// long-lived process (the daemon's [`Self::get_dynamic_device`], which
+    /// used to ask on every call) keeps a total for its whole life, even if
+    /// the card goes away under it — the profile's `OnceLock` already did.
+    /// Nothing else is kept: with no `nvidia-smi`, or one that gave no total
+    /// (timed out, failed, could not start), every call asks again — a
+    /// daemon sees a driver installed after it started, and one
+    /// `nvidia-smi` timeout at its start does not leave its `vram_limit` at
+    /// 0 for its whole life.
+    fn gpu_vram_gb() -> usize {
+        static TOTAL_GB: OnceLock<usize> = OnceLock::new();
+        gpu_probe_cache::memoized(&TOTAL_GB, nvidia_smi_total_probe, Self::sysfs_gpu_vram_gb)
+    }
 
+    /// [`Self::gpu_vram_gb`]'s answer without its memo: `nvidia-smi` is asked
+    /// now. Used where a failure of the live query must not be answered from
+    /// memory ([`Self::gpu_vram_budget_bytes`]).
+    fn fresh_gpu_vram_gb() -> usize {
+        nvidia_smi_total_probe().unwrap_or_else(Self::sysfs_gpu_vram_gb)
+    }
+
+    /// The AMD driver's total VRAM (Linux sysfs), else 0. NVIDIA's
+    /// proprietary driver never populates this attribute, which is why
+    /// `nvidia-smi` is asked first.
+    fn sysfs_gpu_vram_gb() -> usize {
         if cfg!(target_os = "linux") {
             if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
                 for entry in entries.flatten() {
@@ -895,6 +909,116 @@ pub struct ModelLadderStep {
     pub tokenizer_repo: String,
     pub min_bytes: u64,
     pub expected_bytes: u64,
+}
+
+/// `nvidia-smi --query-gpu=memory.total`: the first GPU's total in GB, or
+/// `None` when it gave no total — absent, failed, timed out, or could not
+/// start.
+fn nvidia_smi_total_probe() -> Option<usize> {
+    nvidia_smi_total_from(crate::susi_core::bounded_cmd::output_within(
+        std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]),
+        std::time::Duration::from_secs(5),
+    ))
+}
+
+/// The total an `nvidia-smi` run answered: a positive MiB count on its first
+/// line of a successful run.
+fn nvidia_smi_total_from(answer: std::io::Result<std::process::Output>) -> Option<usize> {
+    let output = answer.ok().filter(|output| output.status.success())?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .and_then(|line| line.trim().parse::<u64>().ok())
+        .filter(|mib| *mib > 0)
+        .map(|mib| (mib / 1024) as usize)
+}
+
+/// Keeping `nvidia-smi`'s GPU total in the process
+/// ([`HardwareProfiler::gpu_vram_gb`]). Nothing is kept between processes:
+/// a card can go away without a reboot (an eGPU unplugged, the adapter
+/// disabled, a driver that fails to load) while every cheap fact about the
+/// host stays the same, so only a fresh `nvidia-smi` run can say a total
+/// still holds.
+mod gpu_probe_cache {
+    /// `kept`'s total, else `probe`'s, kept for the rest of the process once
+    /// there is one; without one, `fallback` answers this call and the next
+    /// call probes again.
+    pub(super) fn memoized(
+        kept: &std::sync::OnceLock<usize>,
+        probe: impl FnOnce() -> Option<usize>,
+        fallback: impl FnOnce() -> usize,
+    ) -> usize {
+        if let Some(gb) = kept.get() {
+            return *gb;
+        }
+        match probe() {
+            // A concurrent first call may have kept its own total.
+            Some(gb) => *kept.get_or_init(|| gb),
+            None => fallback(),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Only a total is kept. No `nvidia-smi`, or one that gave no total,
+        /// is asked again by the next call (a daemon sees a driver installed
+        /// after it started); the fallback answers meanwhile.
+        #[test]
+        fn only_a_total_is_ever_kept() {
+            let kept = std::sync::OnceLock::new();
+            let probes = std::cell::Cell::new(0);
+            let probe = |found: Option<usize>| {
+                probes.set(probes.get() + 1);
+                found
+            };
+            assert_eq!(memoized(&kept, || probe(None), || 3), 3);
+            assert_eq!(memoized(&kept, || probe(None), || 3), 3);
+            assert_eq!(probes.get(), 2, "no total: every call asks again");
+            assert_eq!(memoized(&kept, || probe(Some(24)), || 3), 24);
+            assert_eq!(memoized(&kept, || probe(None), || 3), 24);
+            assert_eq!(probes.get(), 3, "a total is kept");
+        }
+
+        /// What counts as a total: a positive MiB count on the first line of
+        /// a run that succeeded. No program, a timeout, or a failed run is
+        /// no total.
+        #[test]
+        fn a_total_is_a_positive_count_from_a_run_that_succeeded() {
+            use super::super::nvidia_smi_total_from;
+            use std::io::{Error, ErrorKind};
+            let echo = |text: &str| {
+                if cfg!(windows) {
+                    std::process::Command::new("cmd")
+                        .args(["/d", "/c", &format!("echo {text}")])
+                        .output()
+                } else {
+                    std::process::Command::new("/bin/sh")
+                        .args(["-c", &format!("echo {text}")])
+                        .output()
+                }
+            };
+            assert_eq!(nvidia_smi_total_from(echo("8188")), Some(7));
+            assert_eq!(nvidia_smi_total_from(echo("512")), Some(0));
+            assert_eq!(nvidia_smi_total_from(echo("0")), None);
+            assert_eq!(nvidia_smi_total_from(echo("No devices were found")), None);
+            assert_eq!(
+                nvidia_smi_total_from(Err(Error::from(ErrorKind::NotFound))),
+                None
+            );
+            assert_eq!(
+                nvidia_smi_total_from(Err(Error::from(ErrorKind::TimedOut))),
+                None
+            );
+            let failed = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--susi-no-such-flag")
+                .output();
+            assert!(failed.as_ref().is_ok_and(|out| !out.status.success()));
+            assert_eq!(nvidia_smi_total_from(failed), None);
+        }
+    }
 }
 
 #[cfg(test)]
