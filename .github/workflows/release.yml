@@ -209,7 +209,12 @@ jobs:
         # [profile.dist], with the job's thin-LTO override above. The one-line
         # installer uses [profile.release] (thin LTO) for fast source builds.
         # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
-        run: cargo build --profile dist
+        # Schedule the harness alongside the engine while Cargo can share
+        # their dependencies. If either fails, retry the engine alone so a
+        # harness failure cannot hide a working engine; its own build and
+        # verification below still decide whether the harness is published.
+        shell: bash
+        run: cargo build --profile dist -p susi-harness -p susi || cargo build --profile dist
 
       - name: Rename Binary
         if: steps.build.outcome == 'success'
