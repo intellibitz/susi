@@ -377,6 +377,76 @@ fn starts(log: &Path) -> usize {
     fs::read_to_string(log).map_or(0, |s| s.lines().count())
 }
 
+#[test]
+fn python_imports_skip_unconfigured() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let key = format!(
+        "SUSI_SCAN_CONFIG_{}",
+        unique_id().unwrap().replace('-', "_")
+    );
+    let adapter = Adapter::Python {
+        python: "python3".into(),
+        import_name: "json".into(),
+        config_env: key.clone(),
+    };
+    std::env::remove_var(&key);
+    assert!(!should_probe_readiness(&adapter, false));
+    assert!(should_probe_readiness(&adapter, true));
+    std::env::set_var(&key, "relative-config.json");
+    assert!(!should_probe_readiness(&adapter, false));
+    let config = fixture.root.join("engine.json");
+    std::env::set_var(&key, &config);
+    assert!(!should_probe_readiness(&adapter, false));
+    fs::write(&config, "{}").unwrap();
+    assert!(should_probe_readiness(&adapter, false));
+    std::env::remove_var(&key);
+    assert!(should_probe_readiness(
+        &Adapter::Command {
+            program: "example".into(),
+            args: vec![]
+        },
+        false
+    ));
+}
+
+#[test]
+#[cfg(unix)]
+fn python_imports_skip_unconfigured_without_starting_interpreter() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let (python, log) = counting_python(&fixture.root);
+    let key = format!(
+        "SUSI_SCAN_MISSING_{}",
+        unique_id().unwrap().replace('-', "_")
+    );
+    std::env::remove_var(&key);
+    let mut python_ids = Vec::new();
+    for def in catalog(CatalogKind::Framework).unwrap() {
+        if let Adapter::Python { import_name, .. } = &def.adapter {
+            fixture
+                .manager
+                .configure(
+                    &def.id,
+                    &Adapter::Python {
+                        python: python.to_string_lossy().into_owned(),
+                        import_name: import_name.clone(),
+                        config_env: key.clone(),
+                    },
+                )
+                .unwrap();
+            python_ids.push(def.id);
+        }
+    }
+    assert!(!python_ids.is_empty());
+    let ready = fixture
+        .manager
+        .scan_ready_with_verbosity(&mut |_| {}, false)
+        .unwrap();
+    assert_eq!(starts(&log), 0);
+    assert!(ready
+        .iter()
+        .all(|entry| !python_ids.iter().any(|id| entry["id"] == id.as_str())));
+}
+
 /// The readiness scan used to start one interpreter per Python framework,
 /// sixteen on every susi command. It now probes all of a scan's imports in
 /// one interpreter, with the verdict the single `import` probe gives.

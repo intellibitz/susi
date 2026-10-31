@@ -53,6 +53,14 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             }
         },
         AdminCommands::Release { cut } => {
+            // Windows cannot replace a running image: the release gate's
+            // cargo test/clippy rebuild `target\debug\susi.exe` while this
+            // process still holds it open. Stage a copy and exit, same as
+            // `workflow finish` (see workflow_cli::hand_off_finish).
+            #[cfg(windows)]
+            if hand_off_release(cwd) {
+                return;
+            }
             match susi_gawd::admin::SusiAdmin::execute_release(cwd, cut) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
@@ -325,5 +333,85 @@ fn run_cargo(cwd: &std::path::Path, args: &[&str]) {
             eprintln!("could not run `cargo {}`: {e}", args.join(" "));
             std::process::exit(1);
         }
+    }
+}
+
+/// Set on the staged copy so it runs the release in place instead of
+/// staging itself again.
+#[cfg(windows)]
+const RELEASE_STAGED_ENV: &str = "SUSI_RELEASE_STAGED";
+
+/// Copy this process out of `target\` and re-run the same `admin release`
+/// argv from the copy. Returns `true` when the caller must exit so cargo
+/// can relink `target\debug\susi.exe`.
+#[cfg(windows)]
+fn hand_off_release(cwd: &Path) -> bool {
+    if std::env::var_os(RELEASE_STAGED_ENV).is_some() {
+        return false;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let in_target = exe.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("target")
+    });
+    if !in_target {
+        return false;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "susi-release-{}-{}-{}",
+        std::process::id(),
+        stamp,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0)
+    ));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return false;
+    }
+    let name = exe
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("susi.exe"));
+    let staged = dir.join(name);
+    if std::fs::copy(&exe, &staged).is_err() {
+        return false;
+    }
+    let Ok(mut child) = std::process::Command::new(&staged)
+        .args(std::env::args_os().skip(1))
+        .current_dir(cwd)
+        .env(RELEASE_STAGED_ENV, "1")
+        .spawn()
+    else {
+        return false;
+    };
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            eprintln!(
+                "susi: the staged release copy {} exited immediately ({status})",
+                staged.display()
+            );
+            false
+        }
+        Ok(None) => {
+            eprintln!(
+                "susi: running this release from the staged copy {} so the gate can relink {}",
+                staged.display(),
+                exe.display()
+            );
+            eprintln!(
+                "susi: this process exits now; the release continues in the staged copy above"
+            );
+            true
+        }
+        Err(_) => false,
     }
 }
