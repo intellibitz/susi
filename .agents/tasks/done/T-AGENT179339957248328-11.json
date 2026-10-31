@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT179339957248328-11",
+  "title": "Keep local workspace lockfile edits on the scoped CI gate",
+  "goal": "Cargo.lock currently forces workspace-wide linting and testing even when it only gains or changes path workspace package rows. Detect that case safely; keep external package-resolution changes workspace-wide, add the unsafe ratchet package to a test shard, and verify those workflow boundaries.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793405927,
+  "closed": {
+    "at_unix": 1793406244,
+    "commit": "cfff9d00984f67a745a714318a29a74b010dbaa1",
+    "by": "AGENT179339957248328"
+  }
+}
