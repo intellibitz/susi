@@ -1,0 +1,25 @@
+{
+  "id": "T-SUSIRELEASE20261101-1",
+  "title": "Restore standalone foundation release-gate fixture",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "finish_reuses_live_lease_and_fetched_refs"
+    ]
+  },
+  "created_by": "SUSIRELEASE20261101",
+  "created_unix": 1793474879,
+  "closed": {
+    "at_unix": 1793475465,
+    "commit": "9ce701d391dec01d24d4cf64a88946000899085e",
+    "by": "SUSIRELEASE20261101"
+  }
+}

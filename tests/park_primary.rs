@@ -16,6 +16,19 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn bash() -> PathBuf {
+    #[cfg(windows)]
+    {
+        let out = Command::new("git").arg("--exec-path").output().unwrap();
+        let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        exec_path.ancestors().nth(3).unwrap().join("bin/bash.exe")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("bash")
+    }
+}
+
 fn run(dir: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
     let mut command = if program.ends_with(".sh") {
         #[cfg(windows)]
@@ -42,6 +55,9 @@ fn run(dir: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
         .output()
         .unwrap();
     (
@@ -267,6 +283,45 @@ fn sync_only_fast_forwards_a_clean_main_and_says_so() {
 }
 
 #[test]
+fn sync_only_reuses_fetched_refs_and_standalone_fetches() {
+    let w = World::new("sync-fetched");
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    git(&w.primary, &["fetch", "--quiet", "origin"]);
+    let trace = w.root.join("park-trace.log");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh");
+    let call = |refs_fetched: bool| {
+        let mut cmd = Command::new("sh");
+        cmd.arg(&script)
+            .arg("--sync-only")
+            .current_dir(&w.primary)
+            .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
+            .env("GIT_TRACE", &trace)
+            .env_remove("SUSI_PRIMARY_SYNC_ACTIVE");
+        if refs_fetched {
+            cmd.env("SUSI_PARK_REFS_FETCHED", "1");
+        } else {
+            cmd.env_remove("SUSI_PARK_REFS_FETCHED");
+        }
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    call(true);
+    assert!(w.on_main_at_origin_main());
+    assert!(!std::fs::read_to_string(&trace)
+        .unwrap()
+        .contains("git fetch"));
+    std::fs::write(&trace, "").unwrap();
+    call(false);
+    assert!(std::fs::read_to_string(trace)
+        .unwrap()
+        .contains("git fetch --quiet origin"));
+}
+
+#[test]
 fn sync_only_never_switches_branches_or_touches_work() {
     let w = World::new("sync-safe");
     // On a (stale) feature branch: must stay there, silently.
@@ -441,7 +496,7 @@ fn flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker() {
     let compat = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/posix-compat.sh");
     // The shim is sourced by bash scripts (`set -o pipefail` is bash's; a
     // host whose `sh` is dash refuses it), so the probe runs under bash.
-    let out = Command::new("bash")
+    let out = Command::new(bash())
         .arg("-c")
         .arg(
             "set -euo pipefail; . \"$1\"; touch -d '1 minute ago' lock.flock.d
@@ -549,18 +604,29 @@ fn a_sync_never_queues_behind_another_and_a_dead_lock_is_taken_over() {
     ));
     let lock = common.join("susi-primary-update.lockdir");
     std::fs::create_dir_all(&lock).unwrap();
-    // This test process holds it: a live holder in this table.
+    // Windows checks the holder's image as well as its PID. A Git Bash child
+    // is a valid legacy holder; the test executable itself is not.
+    #[cfg(windows)]
+    let mut holder = Command::new(bash())
+        .args(["-c", "read -r _"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    #[cfg(windows)]
+    let holder_pid = holder.id();
+    #[cfg(not(windows))]
+    let holder_pid = std::process::id();
     std::fs::write(
         lock.join("owner"),
         format!(
             "{} {} {} {}\n",
-            std::process::id(),
+            holder_pid,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
             if cfg!(windows) {
-                std::process::id().to_string()
+                holder_pid.to_string()
             } else {
                 "-".to_string()
             },
@@ -570,6 +636,11 @@ fn a_sync_never_queues_behind_another_and_a_dead_lock_is_taken_over() {
     .unwrap();
     let before = git(&w.primary, &["rev-parse", "HEAD"]);
     let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    #[cfg(windows)]
+    {
+        let _ = holder.kill();
+        let _ = holder.wait();
+    }
     assert_eq!(
         (code, out.as_str()),
         (0, ""),
