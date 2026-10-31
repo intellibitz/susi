@@ -157,9 +157,9 @@ nextest)
         [ "$cores" -gt 8 ] 2>/dev/null && export NEXTEST_TEST_THREADS="$cores"
     fi
     # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
+    NEXTEST_STATUS_LEVEL="${NEXTEST_STATUS_LEVEL:-slow}" \
+    NEXTEST_FINAL_STATUS_LEVEL="${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
     cargo nextest run --locked --no-fail-fast --no-tests=pass \
-        --status-level "${NEXTEST_STATUS_LEVEL:-slow}" \
-        --final-status-level "${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
         --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}"
     echo "hermetic: build and tests took $((SECONDS - tests_started))s" >&2
     docs_started=$SECONDS
