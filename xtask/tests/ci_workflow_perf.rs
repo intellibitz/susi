@@ -954,7 +954,7 @@ fn codetree_lists_mains_runs_with_a_token_that_can_read_them() {
     let codetree = job(&jobs, "codetree");
     assert!(
         codetree.body.contains("    permissions:\n")
-            && codetree.body.contains("      actions: read\n")
+            && codetree.body.contains("      actions: write\n")
             && codetree.body.contains("      contents: read\n"),
         "codetree lists main's runs: its token needs `actions: read` (and keeps \
          `contents: read` for the checkout)"
@@ -1357,7 +1357,7 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
 fn a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
-    for gate in ["coverage", "kani"] {
+    for gate in ["kani"] {
         assert!(
             job(&jobs, gate).body.contains("refs/tags/"),
             "`{gate}` gates merges to main and must be skipped on a tag run: it is minutes a \
@@ -1825,7 +1825,7 @@ fn ci_builds_without_debug_info_to_fit_the_cache_quota() {
     // The hand-keyed instrumented-target cache is immutable once saved, so a
     // build-setting change needs a new key or the old entry is restored forever.
     assert!(
-        code(&text).contains("key: llvm-cov-v2-"),
+        code(&read(".github/workflows/coverage.yml")).contains("key: llvm-cov-v2-"),
         "the llvm-cov cache key must be versioned past the build that used debug info"
     );
 }
@@ -2513,6 +2513,41 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
         .contains("save-if: \"false\""));
 }
 
+#[test]
+fn coverage_runs_independently_on_the_exact_main_commit() {
+    let test = read(".github/workflows/test.yml");
+    let test_jobs = jobs(&test);
+    let stamp = job(&test_jobs, "codetree");
+    assert!(stamp.body.contains("gh workflow run coverage.yml"));
+    assert!(stamp.body.contains("-f sha=\"$GITHUB_SHA\""));
+    assert!(stamp
+        .body
+        .contains("steps.scope.outputs.affected != 'NONE'"));
+    assert!(!job(&test_jobs, "warm-release")
+        .body
+        .contains("needs: [fmt, invariants, deny, unsafe-ratchet, test, lint, coverage"));
+
+    let coverage = read(".github/workflows/coverage.yml");
+    let coverage_jobs = jobs(&coverage);
+    let ratchet = job(&coverage_jobs, "coverage");
+    for setting in [
+        "github.ref == 'refs/heads/main'",
+        "ref: ${{ inputs.sha }}",
+        "git merge-base --is-ancestor",
+        "SUSI_COV_PKGS: ${{ inputs.packages }}",
+        "run: scripts/coverage-ratchet.sh",
+        "actions/cache/restore@v4",
+        "save-if: \"false\"",
+    ] {
+        assert!(
+            ratchet.body.contains(setting),
+            "coverage workflow lacks {setting}"
+        );
+    }
+    assert!(coverage.contains("cancel-in-progress: false"));
+    assert!(!ratchet.body.contains("continue-on-error: true"));
+}
+
 /// A release publishes the platforms it is contracted on and tolerates the
 /// rest. Linux x86_64 and Windows are required: a red Windows leg must fail the
 /// tag, because `install.ps1` fetches that artifact. arm64 and macOS stay soft
@@ -2613,7 +2648,7 @@ fn code_proven_stamp_gates_the_expensive_main_jobs() {
         stamp_step.contains("PROVE_ANYWAY") && text.contains("prove:"),
         "a manual dispatch must be able to force the suite past the stamp (`prove: true`)"
     );
-    for id in ["test", "coverage", "lint", "e2e", "kani"] {
+    for id in ["test", "lint", "e2e", "kani"] {
         let j = job(&jobs, id);
         assert!(
             j.body.contains("needs: codetree")
@@ -3089,7 +3124,6 @@ fn the_main_suite_scopes_shards_and_e2e_to_the_merge() {
         ("test", "needs.codetree.outputs.run_shards == 'true'"),
         ("e2e", "needs.codetree.outputs.run_e2e == 'true'"),
         ("kani", "needs.codetree.outputs.run_kani == 'true'"),
-        ("coverage", "needs.codetree.outputs.affected != 'NONE'"),
     ] {
         assert!(
             job_if(id).contains(verdict),

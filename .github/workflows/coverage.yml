@@ -1,0 +1,82 @@
+name: Coverage Ratchet
+run-name: Coverage Ratchet on ${{ inputs.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact main commit to measure
+        required: true
+        type: string
+      packages:
+        description: Workspace or affected packages from the main test scope
+        required: true
+        default: --workspace
+        type: string
+
+permissions:
+  contents: read
+
+# One measurement finishes, with at most the newest main commit waiting.
+concurrency:
+  group: coverage-main
+  cancel-in-progress: false
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  coverage:
+    name: Coverage Ratchet
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout the exact commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - name: Verify main ancestry
+        env:
+          TESTED_SHA: ${{ inputs.sha }}
+          COVERAGE_PACKAGES: ${{ inputs.packages }}
+        run: |
+          [[ "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "expected a full commit SHA" >&2; exit 1; }
+          [[ "$COVERAGE_PACKAGES" == '--workspace' || "$COVERAGE_PACKAGES" =~ ^(-p\ [a-zA-Z0-9_-]+\ ?)+$ ]] || { echo "invalid coverage package scope" >&2; exit 1; }
+          tested=$(git rev-parse --verify --end-of-options "${TESTED_SHA}^{commit}")
+          git merge-base --is-ancestor "$tested" refs/remotes/origin/main
+      - name: Install Rust (llvm-tools)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
+          cache-targets: "false"
+          save-if: "false"
+      - name: Restore llvm-cov target dir
+        uses: actions/cache/restore@v4
+        with:
+          path: target/llvm-cov-target
+          key: llvm-cov-v2-${{ hashFiles('Cargo.lock') }}
+          restore-keys: llvm-cov-v2-
+      - name: Install Linux System Dependencies
+        run: scripts/ci-system-deps.sh
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
+      - name: Install wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+      - name: Install cargo-llvm-cov and cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        run: scripts/ci-prefetch-onnxruntime.sh
+      - name: Coverage ratchet
+        env:
+          TMPDIR: ${{ runner.temp }}
+          CARGO_TARGET_DIR: target/llvm-cov-target
+          SUSI_COV_PKGS: ${{ inputs.packages }}
+        run: scripts/coverage-ratchet.sh

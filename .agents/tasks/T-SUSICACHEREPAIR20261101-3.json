@@ -1,0 +1,20 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-3",
+  "title": "Move coverage ratchet off the main test critical path",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "coverage"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793482938
+}
