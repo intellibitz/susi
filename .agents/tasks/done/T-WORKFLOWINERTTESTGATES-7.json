@@ -1,0 +1,26 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-7",
+  "title": "Resolve the local gate plan in one selector pass",
+  "goal": "Select test packages, lint packages and focused root test targets from one Git/Cargo snapshot instead of three repeated scans.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "combined_gate_plan_matches_individual_modes"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793427142,
+  "closed": {
+    "at_unix": 1793427443,
+    "commit": "225f056a2d80ae4ab79a9d0ca164e237b3458c39",
+    "by": "WORKFLOWINERTTESTGATES"
+  }
+}
