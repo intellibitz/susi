@@ -52,6 +52,24 @@ pub enum WorkflowCommands {
     },
     #[command(name = "own-identity")]
     OwnIdentity,
+    /// Mandates 49/50 at the git hooks (`.githooks/workflow-guard` execs this):
+    /// refuse commits in the primary checkout or on main, and a push that
+    /// deletes, rewrites or is behind origin/main. `push` reads the refs git
+    /// hands the pre-push hook on stdin. Needs git only: no shell or coreutils.
+    Guard {
+        /// The hook that is running
+        #[arg(value_enum)]
+        stage: GuardStage,
+    },
+    /// Fetch branch tips, task claims and close receipts from the remote in
+    /// one round trip: the snapshot the push guard and CI's compliance job
+    /// judge from (`scripts/fetch-workflow-refs.sh` is CI's copy of it).
+    #[command(name = "fetch-refs")]
+    FetchRefs {
+        /// The remote to fetch from
+        #[arg(default_value = "origin")]
+        remote: String,
+    },
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
     Check {
         /// Machine-readable output
@@ -80,6 +98,8 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
         WorkflowCommands::Prune { apply, all } => return prune(cwd, apply, all),
         WorkflowCommands::OwnIdentity => return own_identity(cwd),
+        WorkflowCommands::Guard { stage } => return guard(cwd, stage),
+        WorkflowCommands::FetchRefs { remote } => return fetch_refs(cwd, &remote),
     };
     let root = crate::cli::tasks_cli::repo_root(cwd);
     // Hooks + ledger merge driver install themselves on any susi command —
@@ -175,6 +195,51 @@ fn prune(cwd: &Path, apply: bool, all: bool) -> Result<()> {
         println!("(dry-run: pass `--apply` to remove reclaimable worktrees)");
     }
     Ok(())
+}
+
+/// `workflow-guard <commit|merge|push>`, the hook's argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum GuardStage {
+    /// pre-commit
+    Commit,
+    /// pre-merge-commit
+    Merge,
+    /// pre-push (the pushed refs on stdin)
+    Push,
+}
+
+/// `susi workflow guard`: the hook's verdict, printed as the hook printed it.
+/// A refusal exits 1 with the reason on stderr; the hook's own usage error
+/// (an unknown stage) is clap's exit 2, which `.githooks/run-susi` reads as
+/// "this susi does not have the verb" and moves on to the next candidate.
+fn guard(cwd: &Path, stage: GuardStage) -> Result<()> {
+    use susi_gawd::admin::guard::{self, Overrides, Refused, Stage};
+    let root = crate::cli::tasks_cli::repo_root(cwd);
+    let stage = match stage {
+        GuardStage::Commit => Stage::Commit,
+        GuardStage::Merge => Stage::Merge,
+        GuardStage::Push => Stage::Push,
+    };
+    let mut pushed_refs = String::new();
+    if stage == Stage::Push {
+        use std::io::Read;
+        std::io::stdin().read_to_string(&mut pushed_refs)?;
+    }
+    match guard::run(&root, stage, &pushed_refs, Overrides::from_env()) {
+        Ok(()) => Ok(()),
+        Err(Refused(why)) => {
+            if !why.is_empty() {
+                eprintln!("{why}");
+            }
+            std::process::exit(1)
+        }
+    }
+}
+
+/// `susi workflow fetch-refs [remote]`.
+fn fetch_refs(cwd: &Path, remote: &str) -> Result<()> {
+    let root = crate::cli::tasks_cli::repo_root(cwd);
+    susi_gawd::admin::guard::fetch_workflow_refs(&root, remote).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// `--agent` or `SUSI_AGENT`: the operator named the worker.

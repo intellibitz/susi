@@ -43,6 +43,9 @@ fn command(
     let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(dir)
+        // The hooks exec `susi workflow guard` through `.githooks/run-susi`:
+        // the binary under test, not whatever susi the host has installed.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
@@ -114,7 +117,13 @@ impl Fixture {
         // The real hooks, and every script they call.
         let src = Path::new(env!("CARGO_MANIFEST_DIR"));
         std::fs::create_dir_all(work.join(".githooks")).unwrap();
-        for name in ["commit-msg", "pre-commit", "pre-push", "workflow-guard"] {
+        for name in [
+            "commit-msg",
+            "pre-commit",
+            "pre-push",
+            "workflow-guard",
+            "run-susi",
+        ] {
             std::fs::copy(
                 src.join(".githooks").join(name),
                 work.join(".githooks").join(name),
@@ -363,4 +372,161 @@ fn force_pushing_a_feature_branch_is_refused() {
         &[],
     );
     assert_eq!(code, 0, "{err}");
+}
+
+/// `susi workflow guard` run as the binary, not through the hook stub: the
+/// same verdicts, so a pre-push that execs it enforces exactly what the bash
+/// guard did.
+fn susi(repo: &Path, args: &[&str], stdin: &str, envs: &[(&str, &str)]) -> (i32, String, String) {
+    command(repo, env!("CARGO_BIN_EXE_susi"), args, stdin, envs)
+}
+
+#[test]
+fn the_binary_judges_a_push_as_the_hook_does() {
+    let f = Fixture::new("binary");
+    git(
+        &f.other,
+        &["commit", "--allow-empty", "--quiet", "-m", "on main"],
+    );
+    git(&f.other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let lsha = git_out(&f.work, &["rev-parse", "HEAD"]);
+    let zero = "0".repeat(40);
+    let refspec = format!("refs/heads/work {lsha} refs/heads/work {zero}\n");
+    let (code, _, err) = susi(&f.work, &["workflow", "guard", "push"], &refspec, &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("behind origin/main"), "{err}");
+    // The commit stage, and the override, through the binary too.
+    let (code, _, err) = susi(&f.work, &["workflow", "guard", "commit"], "", &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("do not commit in the primary checkout"),
+        "{err}"
+    );
+    let (code, _, err) = susi(
+        &f.work,
+        &["workflow", "guard", "merge"],
+        "",
+        &[("SUSI_ALLOW_PRIMARY", "1")],
+    );
+    assert_eq!(code, 0, "{err}");
+    // An unknown stage is clap's usage error (exit 2), never a verdict: that
+    // is what `.githooks/run-susi` reads as "not this susi".
+    let (code, _, _) = susi(&f.work, &["workflow", "guard", "rebase"], "", &[]);
+    assert_eq!(code, 2);
+}
+
+/// One `git fetch` brings the branch tips, the claims and the close receipts:
+/// the snapshot every judgement of the push reads (`fetch-workflow-refs.sh`
+/// makes the same call for CI; `tests/ci_changed_crates.rs` pins that script).
+#[test]
+fn fetch_refs_updates_all_three_namespaces_in_one_round_trip() {
+    let f = Fixture::new("fetchrefs");
+    git(
+        &f.other,
+        &["push", "--quiet", "origin", "HEAD:refs/claims/T-TEST-1"],
+    );
+    git(
+        &f.other,
+        &["push", "--quiet", "origin", "HEAD:refs/closed/T-TEST-1"],
+    );
+    git(
+        &f.other,
+        &["commit", "--allow-empty", "--quiet", "-m", "ahead"],
+    );
+    git(&f.other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let trace = f.root.join("fetch-trace.log");
+    let (code, _, err) = susi(
+        &f.work,
+        &["workflow", "fetch-refs", "origin"],
+        "",
+        &[("GIT_TRACE", trace.to_str().unwrap())],
+    );
+    assert_eq!(code, 0, "{err}");
+    let trace = std::fs::read_to_string(&trace).unwrap();
+    assert_eq!(
+        trace
+            .matches("built-in: git fetch --quiet --prune origin")
+            .count(),
+        1,
+        "one fetch must update all three ref namespaces: {trace}"
+    );
+    for reference in [
+        "refs/remotes/origin/main",
+        "refs/claims/T-TEST-1",
+        "refs/closed/T-TEST-1",
+    ] {
+        git_out(&f.work, &["rev-parse", "--verify", reference]);
+    }
+    assert_eq!(
+        git_out(&f.work, &["rev-parse", "origin/main"]),
+        git_out(&f.other, &["rev-parse", "HEAD"])
+    );
+}
+
+/// The point of the port on Windows: the guard and the fetch run with only
+/// Git's `cmd` (git.exe itself) and System32 on PATH — no `usr/bin`, so no sh,
+/// bash, coreutils, jq or flock — and still judge the push and fetch the
+/// snapshot.
+#[cfg(windows)]
+#[test]
+fn the_guard_and_the_fetch_need_no_git_userland_on_windows() {
+    let Ok(out) = Command::new("git").arg("--exec-path").output() else {
+        return;
+    };
+    let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let Some(git_root) = exec_path.ancestors().nth(3).map(Path::to_path_buf) else {
+        return;
+    };
+    if !git_root.join("cmd").join("git.exe").is_file() {
+        return; // not Git for Windows' layout
+    }
+    let windows = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let path = std::env::join_paths([
+        git_root.join("cmd"),
+        windows.join("System32"),
+        windows.clone(),
+    ])
+    .unwrap();
+    let path = path.to_str().unwrap().to_string();
+    assert!(
+        !path.to_ascii_lowercase().contains("usr\\bin"),
+        "the narrowed PATH must not carry Git's userland: {path}"
+    );
+
+    let f = Fixture::new("nouserland");
+    git(
+        &f.other,
+        &["push", "--quiet", "origin", "HEAD:refs/claims/T-TEST-1"],
+    );
+    git(
+        &f.other,
+        &["commit", "--allow-empty", "--quiet", "-m", "on main"],
+    );
+    git(&f.other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let envs: &[(&str, &str)] = &[("PATH", &path)];
+
+    let (code, _, err) = susi(&f.work, &["workflow", "fetch-refs", "origin"], "", envs);
+    assert_eq!(code, 0, "fetch-refs without Git's userland: {err}");
+    git_out(&f.work, &["rev-parse", "--verify", "refs/claims/T-TEST-1"]);
+
+    let lsha = git_out(&f.work, &["rev-parse", "HEAD"]);
+    let zero = "0".repeat(40);
+    let refspec = format!("refs/heads/work {lsha} refs/heads/work {zero}\n");
+    let (code, _, err) = susi(&f.work, &["workflow", "guard", "push"], &refspec, envs);
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("behind origin/main"), "{err}");
+    git(&f.work, &["fetch", "--quiet", "origin"]);
+    git(&f.work, &["merge", "--no-edit", "--quiet", "origin/main"]);
+    let lsha = git_out(&f.work, &["rev-parse", "HEAD"]);
+    let refspec = format!("refs/heads/work {lsha} refs/heads/work {zero}\n");
+    let (code, _, err) = susi(&f.work, &["workflow", "guard", "push"], &refspec, envs);
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = susi(&f.work, &["workflow", "guard", "commit"], "", envs);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("do not commit in the primary checkout"),
+        "{err}"
+    );
 }

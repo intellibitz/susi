@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEWORKFLOWSCRIPTSRUST6BAE7F-1",
+  "title": "Port fetch-workflow-refs and the push guard into susi workflow guard",
+  "goal": "The pre-push sync-before-push and fast-forward checks and the one-round-trip workflow ref fetch run in Rust (susi workflow guard, susi workflow fetch-refs) through std::process::Command, with no sh, bash, coreutils or jq; .githooks/workflow-guard becomes a stub that execs susi; tests pin the Rust behaviour and a Windows test runs with Git's usr/bin off PATH",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "hook_enforcement"
+    ]
+  },
+  "created_by": "CLAUDEWORKFLOWSCRIPTSRUST6BAE7F",
+  "created_unix": 1793427310
+}

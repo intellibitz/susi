@@ -1371,6 +1371,18 @@ fn worktree_workflow_guard_is_wired_into_every_hook() {
             "{hook} must call workflow-guard {stage} (Mandate 49)"
         );
     }
+    // The guard is a stub for `susi workflow guard`: the rules are Rust's,
+    // reached through `.githooks/run-susi`, which needs sh and git only.
+    let guard_body = std::fs::read_to_string(&guard).unwrap_or_default();
+    assert!(
+        guard_body.contains("run-susi\" workflow guard"),
+        "workflow-guard must exec `susi workflow guard` (Mandate 49)"
+    );
+    let runner = std::fs::metadata(root.join(".githooks/run-susi"))
+        .expect("run-susi missing (Mandate 49)")
+        .permissions()
+        .mode();
+    assert!(runner & 0o111 != 0, "run-susi must be executable");
     let setup = std::fs::read_to_string(root.join("scripts/setup-dev.sh")).unwrap_or_default();
     assert!(
         setup.contains("core.hooksPath .githooks"),
