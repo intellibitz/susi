@@ -1,0 +1,18 @@
+{
+  "id": "T-PRUNECLOSEDADAPTERS-2",
+  "title": "Speed GMCP contract tests by cutting redundant process boots",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_001_02_production"
+    ]
+  },
+  "created_by": "PRUNECLOSEDADAPTERS",
+  "created_unix": 1793461120
+}
