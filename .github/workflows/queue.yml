@@ -1,7 +1,8 @@
 name: Queue
 
 # The task queue's refs (refs/claims/*, refs/claim-agents/*,
-# refs/claim-generation/current, refs/closed/*, refs/abandoned/*) are written by
+# refs/claim-generation/current, refs/closed/*, refs/abandoned/*), and a release
+# cut's reservation of its version (refs/release-cuts/*), are written by
 # compare-and-swap pushes from the agent's own clone. A cloud session's git
 # proxy (Claude Code on the web) pushes branches and nothing else — no other
 # namespace, no deletion (docs/cloud-sessions.md, "GitHub from the
