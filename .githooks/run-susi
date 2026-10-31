@@ -1,0 +1,21 @@
+#!/bin/sh
+# run-susi <subcommand> <verb> [args...]: run `susi <subcommand> <verb> ...` for a
+# hook, with the first susi that has that verb: $SUSI_WORKFLOW_BIN (the susi that
+# is driving a `workflow finish`), the installed susi on PATH, then this checkout's
+# own build (target/release, target/debug). A susi older than the hook (a stale
+# installed release, a build from before a merge) is passed over, not run into:
+# its usage error would refuse every commit. Nothing here needs more than sh and
+# git; the hook's logic is susi's.
+set -u
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$(cd "$(dirname "$0")/.." && pwd)
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+    "$top/target/release/susi" "$top/target/release/susi.exe" \
+    "$top/target/debug/susi" "$top/target/debug/susi.exe"; do
+    [ -n "$bin" ] && [ -x "$bin" ] || continue
+    if "$bin" "$1" "$2" --help >/dev/null 2>&1 </dev/null; then
+        exec "$bin" "$@"
+    fi
+done
+echo "❌ no susi with \`$1 $2\` found (SUSI_WORKFLOW_BIN, the installed susi, this checkout's target/)." >&2
+echo "   Install the current release: scripts/susi-release-sync.sh — or build this checkout: cargo build" >&2
+exit 1

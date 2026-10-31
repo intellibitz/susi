@@ -356,8 +356,9 @@ this for the panic-path lints.
   per task**: sync → claim/complete one task → commit → sync → push → sync
   again, so parallel agents always build on latest `origin/main`. Enforced by
   `.githooks/workflow-guard` (called from `pre-commit`, `pre-merge-commit`,
-  `pre-push`), enabled by `scripts/setup-dev.sh` (run automatically by
-  `cargo xb build`). Overrides (`SUSI_ALLOW_PRIMARY`, `SUSI_ALLOW_MAIN`,
+  `pre-push`; a stub that execs `susi workflow guard`, so the rules run in
+  Rust with git alone — no shell userland), enabled by `scripts/setup-dev.sh`
+  (run automatically by `cargo xb build`). Overrides (`SUSI_ALLOW_PRIMARY`, `SUSI_ALLOW_MAIN`,
   `SUSI_ALLOW_FORCE`) are explicit env vars, never defaults. Hooks are
   client-side: `--no-verify` bypasses them, so the server-side backstop is
   GitHub branch protection on `main` (no force-push, no deletion, required
@@ -423,8 +424,10 @@ read by every agent; delegated agents also receive it in their task via
 are three layers):
 
 1. `.githooks/commit-msg` refuses a commit with no `Task: T-<AGENT>-<n>` trailer;
-   `.githooks/pre-push` (via `workflow-guard`) refuses a feature branch that is
-   behind `origin/main` (sync-before-push) and runs
+   `.githooks/pre-push` (via `workflow-guard`, which execs `susi workflow guard
+   push`) refuses a feature branch that is behind `origin/main`
+   (sync-before-push), fetches branch, claim and close refs in one round trip
+   (`susi workflow fetch-refs`) and runs
    `scripts/check-workflow-compliance.sh origin/main <pushed sha>` on every
    pushed branch. Exempt: merges, `chore: release vX.Y.Z`, github-actions[bot],
    and commits touching only `.agents/tasks/`. The rule binds commits made after

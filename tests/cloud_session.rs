@@ -26,7 +26,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use susi_paths::test_env::isolate_home;
 
-const HOOKS: [&str; 4] = ["commit-msg", "pre-commit", "pre-push", "workflow-guard"];
+const HOOKS: [&str; 5] = [
+    "commit-msg",
+    "pre-commit",
+    "pre-push",
+    "workflow-guard",
+    "run-susi",
+];
 const SCRIPTS: [&str; 14] = [
     "cloud-session.sh",
     "queue-relay.py",
@@ -145,6 +151,9 @@ impl World {
         let mut cmd = Command::new(program);
         isolate_home(&mut cmd, &self.home)
             .current_dir(dir)
+            // The hooks exec `susi workflow guard` (.githooks/run-susi): the
+            // binary under test, not whatever susi the host has installed.
+            .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
             .env("XDG_CONFIG_HOME", self.home.join("xdg"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("SUSI_PRIMARY_WATCH_DISABLE", "1");
