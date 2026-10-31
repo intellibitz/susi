@@ -2458,14 +2458,23 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     let build = job(&release_jobs, "build");
     let warm_jobs = jobs(&warm);
     let warmer = job(&warm_jobs, "warm");
-    assert!(warm.contains("workflow_run:") && warm.contains("branches: [main]"));
-    assert!(warmer
-        .body
-        .contains("github.event.workflow_run.conclusion == 'success'"));
-    assert!(warmer
-        .body
-        .contains("github.event.workflow_run.head_sha || github.sha"));
+    assert!(warm.contains("workflow_dispatch:"));
+    assert!(warmer.body.contains("github.ref == 'refs/heads/main'"));
     assert!(warm.contains("cancel-in-progress: false"));
+    let test = read(".github/workflows/test.yml");
+    let test_jobs = jobs(&test);
+    let dispatch = job(&test_jobs, "warm-release");
+    assert!(dispatch.body.contains("needs.test.result == 'success'"));
+    assert!(dispatch.body.contains("needs.lint.result == 'success'"));
+    assert!(dispatch
+        .body
+        .contains("!contains(needs.*.result, 'failure')"));
+    assert!(dispatch.body.contains("gh workflow run release-warm.yml"));
+    assert!(dispatch.body.contains("continue-on-error: true"));
+    assert!(warmer
+        .body
+        .contains("steps.dist-cache.outputs.cache-hit == 'true'"));
+    assert!(warmer.body.contains("lookup-only: \"true\""));
     for setting in [
         "runs-on: windows-latest",
         "SCCACHE_GHA_ENABLED: \"false\"",

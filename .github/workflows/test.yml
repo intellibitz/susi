@@ -936,6 +936,26 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  # Bot-dispatched Test runs do not reliably cascade workflow_run events. Once
+  # every main gate finishes, explicitly dispatch the release warmer, after the
+  # Test caches have been saved, so its cache is the newest rather than evicted
+  # while the suite is still writing. Cache warming is best effort and never
+  # changes the Test verdict.
+  warm-release:
+    name: Start Windows release cache warmer
+    needs: [fmt, invariants, deny, unsafe-ratchet, test, lint, coverage, kani, verify, e2e, windows]
+    if: always() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.lint.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the warmer without blocking Test on its build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release-warm.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   # The formal model is intentionally small and pure, so Kani can exhaust its
   # bounded inputs without starting the daemon or contacting a provider. Keep
   # the proof on main only: branch pushes already run the affected crate gate,
