@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT202610310822341108259-1",
+  "title": "Run CI selector fixture tests without building the root application",
+  "goal": "Reduce SUSI task-to-merge handoff latency below 60 seconds without weakening code coverage",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "root_test_targets_include_only_changed_root_test_files"
+    ]
+  },
+  "created_by": "AGENT202610310822341108259",
+  "created_unix": 1793415212,
+  "closed": {
+    "at_unix": 1793415666,
+    "commit": "890e0554bc2110fc582804ad8134227c733e9eee",
+    "by": "AGENT202610310822341108259"
+  }
+}
