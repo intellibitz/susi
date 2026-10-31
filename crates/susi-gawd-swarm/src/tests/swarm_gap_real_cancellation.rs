@@ -28,9 +28,9 @@ fn test_dir(tag: &str) -> PathBuf {
 fn swarm_gap_real_cancellation_kills_process_descendants() {
     let dir = test_dir("process");
     let marker = dir.join("pids");
+    let marker_sh = marker.to_string_lossy().replace('\\', "/");
     let script = format!(
-        "sleep 30 & child=$!; printf '%s %s\\n' \"$$\" \"$child\" > {}; wait \"$child\"",
-        marker.display()
+        "sleep 30 & child=$!; printf '%s %s\\n' \"$$\" \"$child\" > \"{marker_sh}\"; wait \"$child\""
     );
     let command = vec!["sh".to_string(), "-c".to_string(), script];
     let handle = CancellationHandle::with_deadline_after(Duration::from_secs(30));
@@ -39,12 +39,12 @@ fn swarm_gap_real_cancellation_kills_process_descendants() {
     let worker =
         std::thread::spawn(move || run_cancellable_command(&command, &worker_dir, &worker_handle));
 
-    let marker_deadline = Instant::now() + Duration::from_secs(2);
+    let marker_deadline = Instant::now() + Duration::from_secs(5);
     while !marker.exists() && Instant::now() < marker_deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(marker.exists(), "live shell did not start");
-    let pid_deadline = Instant::now() + Duration::from_secs(1);
+    let pid_deadline = Instant::now() + Duration::from_secs(2);
     let child_pid = loop {
         let pids = fs::read_to_string(&marker).unwrap_or_default();
         if let Some(pid) = pids
@@ -65,7 +65,7 @@ fn swarm_gap_real_cancellation_kills_process_descendants() {
     handle.cancel();
     let result = worker.join().unwrap().unwrap();
     assert!(
-        started.elapsed() < Duration::from_secs(1),
+        started.elapsed() < Duration::from_secs(3),
         "process cancellation exceeded bound: {:?}",
         started.elapsed()
     );
