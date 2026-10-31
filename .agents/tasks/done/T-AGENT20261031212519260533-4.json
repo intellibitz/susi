@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT20261031212519260533-4",
+  "title": "Release installer downloads the published binary when the host needs no accelerator",
+  "goal": "scripts/susi-release-sync.sh built every release natively even on a host whose build carries no accelerator, where the CI leg's published binary is the same thing: on the CEO's Windows box the CPU build of v0.21.28 took 24 minutes against about one minute for the 88 MB asset. The installer now takes the tag's published asset for this host (gh release download, sha256 verified) when detect_features is empty, falls back to the native build when the asset is missing, incomplete or mismatched, keeps the native build for GPU hosts and behind SUSI_RELEASE_BUILD=1, and an architecture test pins the order: download first, build as the fallback, GPU hosts untouched.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "release_sync"
+    ]
+  },
+  "created_by": "AGENT20261031212519260533",
+  "created_unix": 1793470567,
+  "closed": {
+    "at_unix": 1793470788,
+    "commit": "5e8325b218138815088be02840261dd3c49067cf",
+    "by": "AGENT20261031212519260533"
+  }
+}
