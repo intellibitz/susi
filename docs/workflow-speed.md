@@ -382,6 +382,33 @@ establishes a worthwhile, stable improvement. Both implementations were
 discarded before publication; the existing Cargo selections, cleanup boundaries
 and runner remain. No sub-60 broader Rust gate or binary release is claimed.
 
+## Compiler-cache failure recovery (2026-10-31)
+
+PR #1119 recorded the rejected mixed-run experiments and merged. Its measured
+source-commit-through-finish duration was 84.521 s, and source-commit-through-
+merge was 135.000 s. This documentation change also ran its 79-test acceptance;
+it does not establish the larger Rust workload's duration.
+
+A separate fresh diagnostic selected `susi-gawd`, `susi-harness`,
+`susi-unsafe-ratchet` and `xtask`, including more harness tests than the earlier
+559-test run. Clippy passed in 96 s; the test build then failed when the shared
+sccache server reset its connections (224.847 s total, no tests executed).
+An invocation-only compiler-cache bypass built the test binaries in 103 s;
+nextest ran 1,039 tests in 87.945 s: 1,038 passed, one failed and three were
+skipped. The failure was the format-proof fixture inheriting the diagnostic's
+`SUSI_GATE_NOCACHE=1`, rather than isolating the cache policy it tests. That
+fixture now removes the caller's override; its focused check passes with the
+outer bypass explicitly enabled. The broader gate still needs a clean rerun.
+
+Workflow and standalone hermetic builds now default
+`SCCACHE_IGNORE_SERVER_IO_ERROR=1`, while preserving an explicit `0`. This uses
+sccache's own local-compiler fallback after an interrupted compilation, retaining
+compiler failures. It does not suppress cache startup errors or restart the
+shared server. An isolated TCP fixture against installed sccache 0.19.0 sent
+`CompileStarted` and reset its connection: strict mode failed with exit 2,
+fallback compiled valid Rust with exit 0, and invalid Rust still failed with
+exit 1. No machine-wide configuration was changed for this recovery.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Safe boundaries for the per-task agent loop. Never merge into dirty worktrees.
 set -euo pipefail
+# A mid-compile cache disconnect must use the same local compiler rather than
+# discard a gate. Explicit 0 retains sccache's strict server-error behavior.
+export SCCACHE_IGNORE_SERVER_IO_ERROR=${SCCACHE_IGNORE_SERVER_IO_ERROR:-1}
 # Git for Windows' own usr/bin/sh.exe, started from PowerShell or the desktop
 # app, has no /usr/bin on PATH: `dirname` below failed, posix-compat.sh (and
 # its flock) was never loaded, and `sync` stopped at `flock 9`.
