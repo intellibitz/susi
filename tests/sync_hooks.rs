@@ -391,8 +391,12 @@ fn hooks_sync_branch_aborts_a_conflicting_merge_and_says_merge_now() {
         w.worktree_is_clean(),
         "the aborted merge leaves no MERGE_HEAD and no conflict markers"
     );
+    // Line endings normalised: the aborted merge checks the file out again,
+    // and a host's `core.autocrlf` may write it back with CRLF.
     assert_eq!(
-        std::fs::read_to_string(w.wt.join("shared.txt")).unwrap(),
+        std::fs::read_to_string(w.wt.join("shared.txt"))
+            .unwrap()
+            .replace("\r\n", "\n"),
         "mine\n",
         "the tree is as the commit left it"
     );
@@ -431,7 +435,9 @@ fn hooks_sync_branch_stays_out_of_the_way() {
         "a dirty tree is never merged into"
     );
     assert_eq!(
-        std::fs::read_to_string(w.wt.join("mine.txt")).unwrap(),
+        std::fs::read_to_string(w.wt.join("mine.txt"))
+            .unwrap()
+            .replace("\r\n", "\n"),
         "edited later\n"
     );
     git(&w.wt, &["checkout", "--", "mine.txt"]);
