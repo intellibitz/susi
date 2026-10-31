@@ -470,9 +470,23 @@ something goes wrong; each is covered by tests in `crates/susi-harness`.
   turns, and only then iterate on the acceptance output. Every other task is told to make its first
   write before reading more than ten files. A 9,000-line test file is otherwise read until the turn
   cap and nothing is written.
+- **Reused worktree reset.** `workflow start` hands back the worktree an earlier run left behind,
+  branch and all. Before the sync, the claim and anything that judges it, a branch or tree with
+  code ahead of `origin/main` (anything outside `.agents/tasks/`) is reset to `origin/main`: an
+  earlier worker's refused commit is not what the precheck or the first attempt sees.
 - **Acceptance precheck.** After the claim, the task's acceptance runs on the untouched base. If it
   passes on a clean tree the task is already delivered, so the mission closes and publishes it
-  instead of spending a ladder on work that can only produce an empty commit.
+  instead of spending a ladder on work that can only produce an empty commit. "Untouched" is
+  proven first: the tree must equal `origin/main` apart from the task record, or nothing is closed
+  (a reused branch once carried a commit that replaced the 13,869-line acceptance file with one
+  test, and the precheck closed the task on it with zero model calls).
+- **Test-deletion rejection.** Before an attempt's work is committed, the `#[test]` and
+  `#[tokio::test]` attributes of every `.rs` file changed since the base are counted at the base
+  and now, committed or not; a total that fell is a failed attempt the ladder reads (never a
+  success), the tree is reset to the task record so the next model is not handed the deletion,
+  and the reason is written to the attempt's `tests-dropped.txt`. A test moved between changed
+  files keeps the total. This is the in-process counterpart of the finish gate's check, and it
+  honours the same override, `SUSI_GATE_ALLOW_TEST_REMOVAL=1`.
 - **Zero-test refusal.** A `cargo test` acceptance whose output reports zero passed tests is
   refused: a filter that matches nothing exits zero and proves nothing, neither passing a ladder
   nor closing a task.
