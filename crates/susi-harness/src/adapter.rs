@@ -1080,7 +1080,7 @@ nothing outside the task.",
     // does when the budget runs out, and leaves the rest of its tasks for a
     // later run.
     let refused_all = ranked.is_empty();
-    let mut ladder = Ladder::new(ranked, policy.policy).with_contexts(contexts);
+    let mut ladder = Ladder::new(ranked.clone(), policy.policy).with_contexts(contexts);
     let mut attempts = Vec::new();
     let mut last_outcome = None;
     let mut last_model = spec.model.clone();
@@ -1247,6 +1247,16 @@ nothing outside the task.",
             },
         );
         ladder.record(&attempt.model, kind, &message);
+        // The gateway has just written this attempt's provider failure to the
+        // ledger, so the order rebuilt from it no longer lists a provider that
+        // refused (key, credit or rate limit). Re-seat the ladder only when
+        // that order actually drops the model just tried: otherwise the
+        // ladder's own retry accounting (a same-model retry, the attempt cap)
+        // must stand, and re-seating would hand it a fresh set of attempts.
+        let rearranged = rank_alternates(spec, policy);
+        if !rearranged.is_empty() && !rearranged.contains(&attempt.model) {
+            ladder.arrange(rearranged);
+        }
         // Keep a rejected attempt's work for the next model to finish; only a
         // rewritten history makes the base unusable. The next prompt names the
         // acceptance or gate failure to fix.
@@ -2283,6 +2293,27 @@ mod tests {
             panic!("expected a failure, got {:?}", report.agent);
         };
         assert!(message.contains("was refused"), "{message}");
+    }
+
+    #[test]
+    fn an_order_rebuilt_after_a_refusal_drops_that_provider() {
+        // The gateway records a refused provider's failure; the order rebuilt
+        // from the ledger must not offer the next attempt to a sibling of the
+        // same provider.
+        let ladder = vec!["claude-sonnet".to_string(), "deepseek-pro".to_string()];
+        let at = 1_000_000;
+        let entries = vec![gateway_row(
+            "claude-sonnet",
+            at,
+            Outcome::ModelFailed {
+                class: crate::ledger::FailureClass::NoCredit,
+            },
+        )];
+        assert_eq!(
+            order_from("claude-sonnet", &ladder, &entries, at + 1),
+            vec!["deepseek-pro"],
+            "an unfunded provider is not offered again"
+        );
     }
 
     #[test]

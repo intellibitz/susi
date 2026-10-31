@@ -675,6 +675,20 @@ impl Ladder {
         self.ranked.get(self.index).map(String::as_str)
     }
 
+    /// Replace the models still to try, keeping what this ladder has already
+    /// spent.
+    ///
+    /// An attempt's provider failure (a refused key, no credit, a rate limit)
+    /// is written to the ledger by the gateway, and the order rebuilt from it
+    /// no longer lists that provider. Offering the remaining attempts to it
+    /// again spends them before a worker starts: a funded mission lost two of
+    /// its three attempts to an unfunded fixer's sibling that way.
+    pub fn arrange(&mut self, ranked: Vec<String>) {
+        self.ranked = ranked;
+        self.index = 0;
+        self.pending_same_model = false;
+    }
+
     /// Attempts used so far.
     #[must_use]
     pub const fn used(&self) -> usize {
@@ -1373,6 +1387,24 @@ mod tests {
                 "throttled".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn arranging_a_ladder_again_keeps_the_attempts_it_spent() {
+        let mut ladder = Ladder::new(
+            vec!["claude-sonnet".to_string(), "deepseek-pro".to_string()],
+            Policy::default(),
+        );
+        let first = ladder.next_attempt();
+        assert!(
+            matches!(&first, NextAttempt::Attempt(attempt) if attempt.model == "claude-sonnet")
+        );
+        // The ledger now says anthropic has no credit: the rebuilt order drops
+        // it, and the spent attempt still counts.
+        ladder.arrange(vec!["deepseek-pro".to_string()]);
+        assert_eq!(ladder.used(), 1, "re-arranging does not refund an attempt");
+        let next = ladder.next_attempt();
+        assert!(matches!(&next, NextAttempt::Attempt(attempt) if attempt.model == "deepseek-pro"));
     }
 
     #[test]
