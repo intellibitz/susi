@@ -53,24 +53,36 @@ else
     home=$(mktemp -d)
     testhome=$(mktemp -d)
 fi
-cleanup_hermetic_dirs() {
-    local status=$? attempt=0 cleanup_started=$SECONDS
-    trap - EXIT
-    # Reclaim the leaf children of any daemon a test started: they hold the
-    # test binary's stdout pipe and, on Windows, `target\debug\susi.exe`.
-    "$(dirname "${BASH_SOURCE[0]}")/kill-leftover-service-runs.sh" || true
+cleanup_home=$(cd "$home" && pwd -P)
+cleanup_testhome=$(cd "$testhome" && pwd -P)
+cleanup_parent=$(dirname "$cleanup_home")
+cleanup_testparent=$(dirname "$cleanup_testhome")
+remove_hermetic_dirs() {
+    local attempt=0
+    # Only the two directories this invocation created, resolved before any
+    # background work. Refuse a recursive removal outside their parents.
+    case "$cleanup_home" in "$cleanup_parent"/*) ;; *) return 1 ;; esac
+    case "$cleanup_testhome" in "$cleanup_testparent"/*) ;; *) return 1 ;; esac
     while [ "$attempt" -lt 6 ]; do
-        if rm -rf "$home" "$testhome" 2>/dev/null; then
-            echo "hermetic: cleanup took $((SECONDS - cleanup_started))s" >&2
-            return "$status"
+        if rm -rf -- "$cleanup_home" "$cleanup_testhome" 2>/dev/null; then
+            return 0
         fi
         attempt=$((attempt + 1))
         sleep 1
     done
-    # Windows may recreate INetCache while a just-exited test process is
-    # flushing its native cache. Report the leftover, but preserve the actual
-    # test result instead of turning a passing hermetic run into a false fail.
     echo "warning: could not remove hermetic temporary directories after retries" >&2
+}
+cleanup_hermetic_dirs() {
+    local status=$? cleanup_started=$SECONDS
+    trap - EXIT
+    # Reclaim the leaf children of any daemon a test started: they hold the
+    # test binary's stdout pipe and, on Windows, `target\debug\susi.exe`.
+    "$(dirname "${BASH_SOURCE[0]}")/kill-leftover-service-runs.sh" || true
+    # Service termination and the hermetic check remain synchronous. Deleting
+    # their now-unused scratch trees is housekeeping, with no inherited streams.
+    (trap - EXIT; trap '' HUP; remove_hermetic_dirs) \
+        >>"$(git rev-parse --path-format=absolute --git-common-dir)/susi-hermetic-cleanup.log" 2>&1 </dev/null &
+    echo "hermetic: service cleanup took $((SECONDS - cleanup_started))s; scratch deletion continues in background" >&2
     return "$status"
 }
 trap cleanup_hermetic_dirs EXIT

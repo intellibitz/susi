@@ -287,6 +287,27 @@ mirror regression pass. A complete updated gate and finish measurement must
 still establish the end-to-end result. These source changes do not update an
 older installed release by themselves.
 
+## Live-claim scans and scratch cleanup (2026-10-31)
+
+PR #1115 passed 559 hermetic tests and merged. Its instrumented default-thread
+attempt was interrupted; the clean eight-thread experiment took 471.8 s end to
+end (gate 301 s, close 12 s, push 89 s, release 24 s). That experiment did not
+meet the target and is not adopted as the default. It also forced the pre-push
+clippy pass with the global cache-bypass flag; subsequent measurements keep a
+fresh gate's successful proof available to the push hook. The same pipeline
+fixture took 79.3 s alone on this resumed host, versus the earlier 12.2 s, so
+host conditions materially affect these timings as well as concurrency.
+
+The remaining live-claim check still launched Git and jq for each ref. It now
+reads the fetched snapshot through one byte-counted `cat-file` batch and parses
+it once, preserving ref-derived task IDs and handling multiline and malformed
+blobs. A real 94-ref fixture checks duplicate ownership, expiry at the boundary,
+an unrelated owner, and reuse of one snapshot across agents. Primary hooks defer
+their fetches to finish's existing maintenance step. Hermetic service termination
+and home validation remain synchronous; deletion of the invocation's validated
+scratch paths runs with detached streams afterward. Push output streams while
+the bounded retry retains its existing refusal rules.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
