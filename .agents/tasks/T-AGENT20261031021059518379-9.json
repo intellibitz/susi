@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261031021059518379-9",
+  "title": "Batch audit ancestry checks and streamline verification fixtures",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "admin::tasks::tests"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793446460
+}
