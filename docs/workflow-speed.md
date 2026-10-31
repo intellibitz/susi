@@ -364,8 +364,23 @@ Cloud relay, another queue remote, an already released claim and explicit
 `--wait` retain the existing separate path. A rejected atomic push never falls
 back to releasing ownership. Real bare-server regressions cover packed refs,
 same-head republication, claim/index/receipt races and refusal to rewind the
-code branch. The full updated gate and finish must still be measured; neither
-a sub-60 gate nor a sub-60 binary release has been demonstrated.
+code branch. PR #1118 passed all 92 affected tests (8.0 s test execution) and
+merged with all required branch checks green. Its full affected gate took
+23 s; finish took 62.025 s, including lease 1 s, sync 5 s, close 9 s and atomic
+push/release 15 s, plus bookkeeping. The source commit took another 10.338 s.
+The required remote checks completed 37 s after starting, and the merge landed
+16 s after that. These are measured boundaries, not a sub-60 commit-through-
+merge claim or a comparison with the original 552-test workload.
+
+Two mixed-run experiments were also measured on the same checkout. Building
+the selected package and focused root binaries separately, merging nextest's
+binary metadata and executing their union passed 100 tests in 25.891 s for the
+complete hermetic wrapper. The separate wrappers passed the same 100 tests in
+27.202 s. A smaller shared-home wrapper passed 99 tests in 27.272 s; its test
+selection differed by the experiment's own regression tests. Neither result
+establishes a worthwhile, stable improvement. Both implementations were
+discarded before publication; the existing Cargo selections, cleanup boundaries
+and runner remain. No sub-60 broader Rust gate or binary release is claimed.
 
 ## What is not fixed here
 
