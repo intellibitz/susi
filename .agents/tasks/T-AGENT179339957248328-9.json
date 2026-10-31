@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT179339957248328-9",
+  "title": "Keep the unsafe ratchet on its stable target cache",
+  "goal": "Revert the unsafe-ratchet sccache experiment after CI proved it invalidates the target cache and causes a multi-minute build.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "unsafe_ratchet_keeps_stable_target_cache_key"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793404741
+}

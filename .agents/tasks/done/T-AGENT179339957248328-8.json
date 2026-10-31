@@ -1,7 +1,7 @@
 {
   "id": "T-AGENT179339957248328-8",
-  "title": "Use shared sccache for the unsafe exposure ratchet",
-  "goal": "Use main's shared sccache entries to shorten the unsafe-ratchet compile without changing its scan or comparator.",
+  "title": "Measure and guard unsafe ratchet cache behavior",
+  "goal": "Evaluate shared sccache without invalidating restored target artifacts.",
   "size": "s",
   "deps": [],
   "accept": {
@@ -13,7 +13,7 @@
       "xtask",
       "--test",
       "ci_workflow_perf",
-      "unsafe_ratchet_uses_shared_sccache"
+      "unsafe_ratchet_keeps_stable_target_cache_key"
     ]
   },
   "created_by": "AGENT179339957248328",

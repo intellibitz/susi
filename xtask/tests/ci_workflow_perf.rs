@@ -1459,25 +1459,16 @@ fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
 }
 
 #[test]
-fn unsafe_ratchet_uses_shared_sccache() {
+fn unsafe_ratchet_keeps_stable_target_cache_key() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
     let ratchet = job(&jobs, "unsafe-ratchet");
-    for setting in [
-        "SCCACHE_GHA_ENABLED: \"true\"",
-        "RUSTC_WRAPPER: \"sccache\"",
-        "RUSTC_WORKSPACE_WRAPPER: \"sccache\"",
-    ] {
-        assert!(
-            ratchet.body.contains(setting),
-            "the ratchet should use main's shared compiler cache: missing `{setting}`"
-        );
-    }
+    assert!(
+        !ratchet.body.contains("RUSTC_WRAPPER:")
+            && !ratchet.body.contains("RUSTC_WORKSPACE_WRAPPER:"),
+        "wrapping changes the rust-cache fingerprint and forces a cold workspace rebuild"
+    );
     let steps = steps(&ratchet.body);
-    let sccache = steps
-        .iter()
-        .position(|step| step.contains("uses: mozilla-actions/sccache-action@v0.0.10"))
-        .expect("the ratchet installs sccache before compiling its comparator");
     let cargo_cache = steps
         .iter()
         .position(|step| step.contains("name: Cache Cargo"))
@@ -1486,8 +1477,9 @@ fn unsafe_ratchet_uses_shared_sccache() {
         .iter()
         .position(|step| step.contains(".github/workflows/unsafe-exposure-ratchet.sh"))
         .expect("the ratchet still runs its production comparator");
-    assert!(sccache < cargo_cache && cargo_cache < comparator);
-    assert!(steps[sccache].contains("steps.scope.outputs.run == 'true'"));
+    assert!(cargo_cache < comparator);
+    assert!(steps[cargo_cache].contains("uses: Swatinem/rust-cache@v2"));
+    assert!(steps[cargo_cache].contains("steps.scope.outputs.run == 'true'"));
 }
 
 #[test]
@@ -1514,7 +1506,6 @@ fn unsafe_ratchet_skips_non_code_pushes() {
         "unsafe-default",
         "src/.*",
         "unsafe-exposure-ratchet",
-        "test\\.yml",
     ] {
         assert!(
             scope.contains(needle),
