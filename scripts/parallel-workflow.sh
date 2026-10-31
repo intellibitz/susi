@@ -32,18 +32,27 @@ sync() {
     [ "$(git symbolic-ref -q --short HEAD)" != main ] || { echo 'Use your own branch.' >&2; return 1; }
     [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
     # The clone-wide lock covers the fetch alone (two fetches into one .git
-    # race on ref locks). It used to cover the merge, the primary's sync, the
-    # watcher heal, the lease renewal, the owed-run report and the board, so
-    # every agent in the clone queued behind every other agent's whole sync.
+    # race on ref locks). When several agents enter `sync` together, the
+    # holder's fetch updates `refs/remotes/origin/*` for the whole clone:
+    # waiters that observe `susi-fetch.seq` advance while queued reuse that
+    # completed fetch instead of running N back-to-back remote round-trips.
+    local fetch_seq="$common/susi-fetch.seq"
     exec 9>"$lock"
-    flock 9
-    git fetch --quiet origin
+    if flock -n 9; then
+        git fetch --quiet origin
+        printf '%s\n' "$(( $(cat "$fetch_seq" 2>/dev/null || echo 0) + 1 ))" >"$fetch_seq" 2>/dev/null || true
+    else
+        local before_seq
+        before_seq=$(cat "$fetch_seq" 2>/dev/null || echo 0)
+        flock 9
+        if [ "$(cat "$fetch_seq" 2>/dev/null || echo 0)" = "$before_seq" ]; then
+            git fetch --quiet origin
+            printf '%s\n' "$(( before_seq + 1 ))" >"$fetch_seq" 2>/dev/null || true
+        fi
+    fi
     flock -u 9
     exec 9>&-
     git merge --no-edit origin/main
-    if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ]; then
-        maintain_primary
-    fi
     # The watcher is a background process that dies with its session, and the
     # primary then stops converging until someone notices. Every agent crosses
     # this boundary, so the loop heals it here. Non-fatal either way.
@@ -53,11 +62,15 @@ sync() {
     # before the next claim — skipping both inside `finish`'s two `sync` calls
     # saves 8-10 redundant remote round-trips per finish.
     if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ]; then
-        renew_owned_claims
-        # `finish` hands a pushed branch to the merge machinery without waiting
-        # for its run; a run that then fails is reported here, where every agent
-        # passes before its next claim (scripts/check-owed-runs.sh).
-        "$root/scripts/check-owed-runs.sh" || true
+        maintain_primary &
+        local pid_primary=$!
+        renew_owned_claims &
+        local pid_renew=$!
+        "$root/scripts/check-owed-runs.sh" &
+        local pid_owed=$!
+        wait "$pid_primary" 2>/dev/null || true
+        wait "$pid_renew" 2>/dev/null || true
+        wait "$pid_owed" 2>/dev/null || true
     fi
     # The board is for people watching the swarm, not for the agent's next
     # step: it refreshes its cache in the background instead of holding the

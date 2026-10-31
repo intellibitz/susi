@@ -616,7 +616,12 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     // network round-trips instead of after them, against the origin/main this
     // clone already has: a worktree that merged a moment ago is counted on
     // the next check.
-    let ((behind, queue_synced), (stale_mine, stale_others)) = std::thread::scope(|scope| {
+    let (
+        (origin_ok, queue_synced),
+        (stale_mine, stale_others),
+        (configured, points_here, missing),
+        (porcelain, merging),
+    ) = std::thread::scope(|scope| {
         let stale = scope.spawn(|| match &common_dir {
             Some(dir) => {
                 let primary_dir = Path::new(dir)
@@ -627,82 +632,104 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
             }
             None => (0, 0),
         });
-        // An unreachable remote leaves whatever origin/main we last saw; report
-        // freshness as unknown rather than certifying a stale ref.
-        let origin = scope.spawn(|| {
-            git(&root, &["fetch", "--quiet", "origin"])
-                .and_then(|_| git(&root, &["rev-list", "--count", "HEAD..origin/main"]))
-                .and_then(|n| n.parse::<u64>().ok())
+        let hooks = scope.spawn(|| {
+            let configured =
+                git(&root, &["config", "--get", "core.hooksPath"]).filter(|s| !s.is_empty());
+            let hooks_dir = root.join(".githooks");
+            let points_here = configured.as_deref().is_some_and(|c| {
+                let p = Path::new(c);
+                let resolved = if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    root.join(p)
+                };
+                canonical(&resolved) == canonical(&hooks_dir)
+            });
+            let missing = HOOKS_REQUIRED
+                .iter()
+                .filter(|h| !executable(&hooks_dir.join(h)))
+                .map(|h| (*h).to_string())
+                .collect::<Vec<_>>();
+            (configured, points_here, missing)
         });
+        let tree = scope.spawn(|| {
+            let porcelain = git(&root, &["status", "--porcelain"]);
+            let merging = git_dir.as_ref().map_or_else(
+                || {
+                    ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
+                        .iter()
+                        .any(|m| git(&root, &["rev-parse", "--verify", "--quiet", m]).is_some())
+                        || ["rebase-merge", "rebase-apply"].iter().any(|d| {
+                            git(
+                                &root,
+                                &["rev-parse", "--path-format=absolute", "--git-path", d],
+                            )
+                            .is_some_and(|p| Path::new(&p).exists())
+                        })
+                },
+                |gd| {
+                    ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
+                        .iter()
+                        .any(|m| gd.join(m).exists())
+                        || ["rebase-merge", "rebase-apply"]
+                            .iter()
+                            .any(|d| gd.join(d).exists())
+                },
+            );
+            (porcelain, merging)
+        });
+        // When `remote() == "origin"` (the default), `tasks::sync_queue`
+        // already mirrors `+refs/heads/*:refs/remotes/origin/*` alongside the
+        // queue refs in a single atomic `git fetch`, avoiding a second
+        // concurrent SSH fetch that collides on `refs/remotes/origin/main.lock`.
+        let default_remote = tasks::is_default_remote();
+        let origin_extra = (!default_remote)
+            .then(|| scope.spawn(|| git(&root, &["fetch", "--quiet", "origin"]).is_some()));
         let queue = tasks::sync_queue(&root).map_err(|e| e.to_string());
+        let origin_ok = match origin_extra {
+            Some(handle) => handle.join().unwrap_or(false),
+            None => queue.is_ok(),
+        };
         (
-            (origin.join().ok().flatten(), queue),
+            (origin_ok, queue),
             stale.join().unwrap_or((0, 0)),
+            hooks.join().unwrap_or((None, false, Vec::new())),
+            tree.join().unwrap_or((None, false)),
         )
     });
-    mark("fetch origin + queue + stale worktrees");
+    mark("fetch origin + queue + stale worktrees + hooks + tree");
 
-    let configured = git(&root, &["config", "--get", "core.hooksPath"]).filter(|s| !s.is_empty());
-    let hooks_dir = root.join(".githooks");
-    let points_here = configured.as_deref().is_some_and(|c| {
-        let p = Path::new(c);
-        let resolved = if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            root.join(p)
-        };
-        canonical(&resolved) == canonical(&hooks_dir)
+    // Once `sync_queue` finishes, evaluate all post-fetch reads concurrently.
+    let (behind, claims, owed, release) = std::thread::scope(|scope| {
+        let behind = scope.spawn(|| {
+            origin_ok
+                .then(|| git(&root, &["rev-list", "--count", "HEAD..origin/main"]))
+                .flatten()
+                .and_then(|n| n.parse::<u64>().ok())
+        });
+        let claims = scope.spawn(|| match &queue_synced {
+            Ok(()) => tasks::claims_synced(&root).map_err(|e| e.to_string()),
+            Err(e) => Err(e.clone()),
+        });
+        let owed = scope.spawn(|| match &queue_synced {
+            Ok(()) => tasks::unpublished_closes_synced(&root, agent)
+                .map(|v| v.into_iter().map(|r| r.task).collect::<Vec<_>>())
+                .map_err(|e| e.to_string()),
+            Err(e) => Err(e.clone()),
+        });
+        let release = release_drift(&root);
+        (
+            behind.join().ok().flatten(),
+            claims
+                .join()
+                .unwrap_or_else(|_| Err("claims thread panicked".into())),
+            owed.join()
+                .unwrap_or_else(|_| Err("owed closes thread panicked".into())),
+            release,
+        )
     });
-    let missing = HOOKS_REQUIRED
-        .iter()
-        .filter(|h| !executable(&hooks_dir.join(h)))
-        .map(|h| (*h).to_string())
-        .collect();
+    mark("claims + owed closes + release drift");
 
-    // A failed queue sync fails both reads with its own error, exactly as each
-    // read did when it fetched for itself.
-    let claims = match &queue_synced {
-        Ok(()) => tasks::claims_synced(&root).map_err(|e| e.to_string()),
-        Err(e) => Err(e.clone()),
-    };
-    // Accepted but unpublished work: the close receipt `tasks close` pushes.
-    // Read-only here — clearing it is the claim path's job, so the checklist
-    // never changes state behind the agent's back.
-    mark("hooks + claims");
-    let owed = match &queue_synced {
-        Ok(()) => tasks::unpublished_closes_synced(&root, agent)
-            .map(|v| v.into_iter().map(|r| r.task).collect::<Vec<_>>())
-            .map_err(|e| e.to_string()),
-        Err(e) => Err(e.clone()),
-    };
-
-    mark("owed closes");
-    // What blocks `sync` and the gate, which used to be invisible here.
-    let porcelain = git(&root, &["status", "--porcelain"]);
-    let merging = git_dir.as_ref().map_or_else(
-        || {
-            ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
-                .iter()
-                .any(|m| git(&root, &["rev-parse", "--verify", "--quiet", m]).is_some())
-                || ["rebase-merge", "rebase-apply"].iter().any(|d| {
-                    git(
-                        &root,
-                        &["rev-parse", "--path-format=absolute", "--git-path", d],
-                    )
-                    .is_some_and(|p| Path::new(&p).exists())
-                })
-        },
-        |gd| {
-            ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
-                .iter()
-                .any(|m| gd.join(m).exists())
-                || ["rebase-merge", "rebase-apply"]
-                    .iter()
-                    .any(|d| gd.join(d).exists())
-        },
-    );
-
-    mark("tree state");
     // The watcher writes this every loop; a stale stamp is how a dead watcher
     // becomes visible, since the log file stays empty while things go well.
     let now = tasks::now_unix();
@@ -712,11 +739,6 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| s.trim().parse::<u64>().ok())
         .map(|stamp| now.saturating_sub(stamp));
-
-    // The tool the agent runs is part of the loop's state: a release that
-    // predates a merged fix enforces the older rules.
-    let release = release_drift(&root);
-    mark("release drift");
 
     Facts {
         root,
@@ -843,10 +865,22 @@ fn finished_worktrees(root: &Path, primary: &Path, me: &str) -> (u64, u64) {
     // worktrees). They are independent, so they are asked at once. Within one
     // worktree the cheap questions go first: the full working-tree scan of
     // `git status` runs only for a head already on main.
+    let now = tasks::now_unix();
+    let active_branches: std::collections::HashSet<String> = tasks::claims_synced(root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| !c.expired(now))
+        .filter_map(|c| c.branch)
+        .collect();
     let finished = |path: &PathBuf| -> Option<bool> {
         let head = git(path, &["rev-parse", "HEAD"])?;
         // `--is-ancestor` succeeds only when the commit is contained.
         git(path, &["merge-base", "--is-ancestor", &head, "origin/main"])?;
+        if let Some(branch) = git(path, &["symbolic-ref", "-q", "--short", "HEAD"]) {
+            if active_branches.contains(&branch) {
+                return None;
+            }
+        }
         if !git(path, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
             return None;
         }
@@ -1071,11 +1105,21 @@ pub fn prune_worktrees(
     all_agents: bool,
     me: &str,
 ) -> Result<PruneReport, String> {
-    if git(root, &["fetch", "--quiet", "origin"]).is_none() {
+    if tasks::sync_queue(root).is_err()
+        || (!tasks::is_default_remote() && git(root, &["fetch", "--quiet", "origin"]).is_none())
+    {
         return Err(
             "cannot reach origin: refusing to guess which worktrees are finished".to_string(),
         );
     }
+
+    let now = tasks::now_unix();
+    let active_claims: std::collections::HashMap<String, String> = tasks::claims_synced(root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| !c.expired(now))
+        .filter_map(|c| Some((c.branch?, c.task)))
+        .collect();
 
     let common = git(
         root,
@@ -1089,6 +1133,117 @@ pub fn prune_worktrees(
     let listed = git(root, &["worktree", "list", "--porcelain"])
         .ok_or_else(|| "git worktree list failed".to_string())?;
 
+    let wt_paths: Vec<PathBuf> = listed
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .collect();
+
+    enum Candidate {
+        Done(PrunedItem, &'static str),
+        Reclaimable(PathBuf, PathBuf),
+    }
+
+    let inspect = |wt: &PathBuf| -> Candidate {
+        let path = canonical(wt);
+        if path == primary {
+            return Candidate::Done(
+                PrunedItem {
+                    path: path.clone(),
+                    status: "primary",
+                    detail: path.display().to_string(),
+                },
+                "none",
+            );
+        }
+        if path == here {
+            return Candidate::Done(
+                PrunedItem {
+                    path: path.clone(),
+                    status: "current",
+                    detail: path.display().to_string(),
+                },
+                "none",
+            );
+        }
+
+        let Some(head) = git(wt, &["rev-parse", "HEAD"]) else {
+            return Candidate::Done(
+                PrunedItem {
+                    path: path.clone(),
+                    status: "unreadable",
+                    detail: path.display().to_string(),
+                },
+                "kept",
+            );
+        };
+
+        if let Some(branch) = git(wt, &["symbolic-ref", "-q", "--short", "HEAD"]) {
+            if let Some(task) = active_claims.get(&branch) {
+                return Candidate::Done(
+                    PrunedItem {
+                        path: path.clone(),
+                        status: "claimed",
+                        detail: format!("active claim ({task}): {}", path.display()),
+                    },
+                    "kept",
+                );
+            }
+        }
+
+        if !git(wt, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
+            return Candidate::Done(
+                PrunedItem {
+                    path: path.clone(),
+                    status: "uncommitted",
+                    detail: format!("uncommitted changes: {}", path.display()),
+                },
+                "kept",
+            );
+        }
+
+        if git(wt, &["merge-base", "--is-ancestor", &head, "origin/main"]).is_none() {
+            return Candidate::Done(
+                PrunedItem {
+                    path: path.clone(),
+                    status: "unmerged",
+                    detail: format!("unmerged commits: {}", path.display()),
+                },
+                "kept",
+            );
+        }
+
+        let owner = git(wt, &["config", "--get", "susi.agent"]).unwrap_or_default();
+        let mine = !me.is_empty() && owner.eq_ignore_ascii_case(me);
+        if !mine && !all_agents {
+            return Candidate::Done(
+                PrunedItem {
+                    path: path.clone(),
+                    status: "other_agent",
+                    detail: format!(
+                        "another agent ({}): {}",
+                        if owner.is_empty() { "no owner" } else { &owner },
+                        path.display()
+                    ),
+                },
+                "others",
+            );
+        }
+
+        Candidate::Reclaimable(wt.clone(), path)
+    };
+
+    let inspected = std::thread::scope(|scope| {
+        let handles: Vec<_> = wt_paths
+            .iter()
+            .map(|wt| scope.spawn(move || inspect(wt)))
+            .collect();
+        handles
+            .into_iter()
+            .filter_map(|h| h.join().ok())
+            .collect::<Vec<_>>()
+    });
+
     let mut report = PruneReport {
         items: Vec::new(),
         kept: 0,
@@ -1097,102 +1252,53 @@ pub fn prune_worktrees(
         failed: 0,
     };
 
-    for wt_line in listed.lines().filter_map(|l| l.strip_prefix("worktree ")) {
-        let wt = PathBuf::from(wt_line);
-        let path = canonical(&wt);
-        if path == primary {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "primary",
-                detail: path.display().to_string(),
-            });
-            continue;
-        }
-        if path == here {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "current",
-                detail: path.display().to_string(),
-            });
-            continue;
-        }
-
-        let Some(head) = git(&wt, &["rev-parse", "HEAD"]) else {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "unreadable",
-                detail: path.display().to_string(),
-            });
-            report.kept += 1;
-            continue;
-        };
-
-        if !git(&wt, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "uncommitted",
-                detail: format!("uncommitted changes: {}", path.display()),
-            });
-            report.kept += 1;
-            continue;
-        }
-
-        if git(&wt, &["merge-base", "--is-ancestor", &head, "origin/main"]).is_none() {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "unmerged",
-                detail: format!("unmerged commits: {}", path.display()),
-            });
-            report.kept += 1;
-            continue;
-        }
-
-        let owner = git(&wt, &["config", "--get", "susi.agent"]).unwrap_or_default();
-        let mine = !me.is_empty() && owner.eq_ignore_ascii_case(me);
-        if !mine && !all_agents {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "other_agent",
-                detail: format!(
-                    "another agent ({}): {}",
-                    if owner.is_empty() { "no owner" } else { &owner },
-                    path.display()
-                ),
-            });
-            report.others += 1;
-            continue;
-        }
-
-        if apply {
-            let out = Command::new("git")
-                .args(["worktree", "remove", &wt.to_string_lossy()])
-                .current_dir(root)
-                .output();
-            match out {
-                Ok(o) if o.status.success() => {
-                    report.items.push(PrunedItem {
-                        path: path.clone(),
-                        status: "reclaimed",
-                        detail: format!("reclaimed: {}", path.display()),
-                    });
-                    report.reclaimed += 1;
+    for candidate in inspected {
+        match candidate {
+            Candidate::Done(item, bucket) => {
+                match bucket {
+                    "kept" => report.kept += 1,
+                    "others" => report.others += 1,
+                    _ => {}
                 }
-                _ => {
+                report.items.push(item);
+            }
+            Candidate::Reclaimable(wt, path) => {
+                if apply {
+                    let out = Command::new(tasks::git_bin())
+                        .args(["worktree", "remove", &wt.to_string_lossy()])
+                        .current_dir(root)
+                        .output();
+                    match out {
+                        Ok(o) if o.status.success() => {
+                            report.items.push(PrunedItem {
+                                path: path.clone(),
+                                status: "reclaimed",
+                                detail: format!("reclaimed: {}", path.display()),
+                            });
+                            report.reclaimed += 1;
+                        }
+                        _ => {
+                            report.items.push(PrunedItem {
+                                path: path.clone(),
+                                status: "failed",
+                                detail: format!("failed to remove: {}", path.display()),
+                            });
+                            report.failed += 1;
+                        }
+                    }
+                } else {
                     report.items.push(PrunedItem {
                         path: path.clone(),
-                        status: "failed",
-                        detail: format!("failed to remove: {}", path.display()),
+                        status: "reclaimable",
+                        detail: format!("reclaimable: {}", path.display()),
                     });
-                    report.failed += 1;
                 }
             }
-        } else {
-            report.items.push(PrunedItem {
-                path: path.clone(),
-                status: "reclaimable",
-                detail: format!("reclaimable: {}", path.display()),
-            });
         }
+    }
+
+    if apply {
+        let _ = git(root, &["worktree", "prune"]);
     }
 
     Ok(report)
@@ -1241,7 +1347,11 @@ mod tests {
             &primary,
             &["remote", "add", "origin", server.to_str().unwrap()],
         );
-        std::fs::write(primary.join(".githooks").join("pre-push"), "exit 0\n").unwrap();
+        std::fs::write(
+            primary.join(".githooks").join("pre-push"),
+            "#!/bin/sh\nexit 0\n",
+        )
+        .unwrap();
         std::fs::write(primary.join(".gitignore"), "/target\n").unwrap();
         std::fs::write(
             primary.join("scripts").join("seed-target.sh"),
@@ -1730,5 +1840,57 @@ mod tests {
             .any(|x| x.detail.contains("belong to other agents")));
         // None at all.
         assert_eq!(state(&evaluate(&good()), "stale worktrees"), State::Pass);
+    }
+
+    #[test]
+    fn prune_worktrees_keeps_active_claimed_worktrees_and_reclaims_finished_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let primary = primary_with_seeder(dir.path());
+        let active = start_worktree(&primary, Some("active"), Some("agent1")).unwrap();
+        let finished = start_worktree(&primary, Some("done"), Some("agent2")).unwrap();
+
+        let task = tasks::add(
+            &active.dest,
+            "agent1",
+            tasks::NewTask {
+                title: "active job".into(),
+                goal: String::new(),
+                size: "s".into(),
+                deps: vec![],
+                accept: vec!["cargo".into(), "--version".into()],
+                roadmap: None,
+            },
+        )
+        .unwrap();
+        git_ok(&active.dest, &["add", "-A"]);
+        git_ok(&active.dest, &["commit", "--quiet", "-m", "add task"]);
+        git_ok(&active.dest, &["push", "--quiet", "origin", "HEAD:main"]);
+        git_ok(&active.dest, &["fetch", "--quiet", "origin"]);
+        tasks::claim_scoped(
+            &active.dest,
+            &task.id,
+            &active.agent,
+            tasks::ClaimOptions {
+                hours: 1,
+                now: tasks::now_unix(),
+                scopes: &[],
+            },
+        )
+        .unwrap();
+
+        let report = prune_worktrees(&primary, true, true, "PRIMARY").unwrap();
+        assert_eq!(report.reclaimed, 1, "{report:?}");
+        assert!(
+            active.dest.is_dir(),
+            "active claimed worktree must never be pruned"
+        );
+        assert!(
+            !finished.dest.is_dir(),
+            "finished unclaimed worktree must be reclaimed"
+        );
+        assert!(report
+            .items
+            .iter()
+            .any(|item| item.path == canonical(&active.dest) && item.status == "claimed"));
     }
 }

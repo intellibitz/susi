@@ -44,10 +44,21 @@ primary=$(cd "$(dirname "$common")" && pwd -P)
 here=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
 me=$(git config --get susi.agent 2>/dev/null || true)
 
-git fetch --quiet origin || {
+git fetch --quiet --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/claims/*:refs/claims/*' || {
     echo "❌ cannot reach origin: refusing to guess which worktrees are finished" >&2
     exit 1
 }
+
+now=$(date +%s)
+active_branches=$(
+    while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        body=$(git cat-file -p "$ref" 2>/dev/null || true)
+        if command -v jq >/dev/null 2>&1; then
+            jq -r --argjson now "$now" 'select((.lease_until_unix // 0) > $now) | .branch // empty' <<<"$body" 2>/dev/null || true
+        fi
+    done < <(git for-each-ref --format='%(refname)' refs/claims/ 2>/dev/null || true)
+)
 
 kept=0
 reclaimed=0
@@ -77,6 +88,12 @@ while IFS= read -r wt; do
         kept=$((kept + 1))
         continue
     }
+    branch=$(git -C "$git_path" symbolic-ref -q --short HEAD 2>/dev/null || true)
+    if [ -n "$branch" ] && printf '%s\n' "$active_branches" | grep -Fxq "$branch"; then
+        echo "  active claim         $path"
+        kept=$((kept + 1))
+        continue
+    fi
     if [ -n "$(git -C "$git_path" status --porcelain 2>/dev/null)" ]; then
         echo "  uncommitted changes  $path"
         kept=$((kept + 1))
