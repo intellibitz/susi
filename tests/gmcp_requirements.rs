@@ -14,9 +14,35 @@
 //! and fail-closed against upstream drift.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use susi_paths::test_env::isolate_home;
+use std::sync::Mutex;
+use susi_paths::test_env::{isolate_home, EnvGuard};
+
+/// Serialises in-process HTTP tests that swap this process's HOME so a
+/// parallel gmcp_requirements thread cannot race the env and re-expose the
+/// operator's seeded `api_token` mid-exchange.
+static GMCP_HTTP_HOME: Mutex<()> = Mutex::new(());
+
+/// Throwaway HOME for in-process `start_http_server` tests: NetGuard reads
+/// `<config_dir>/api_token`, and without this swap a developer's seeded
+/// host token turns every unauthenticated loopback call into 401 before
+/// Origin / envelope checks run.
+fn gmcp_http_home_guard(tag: &str) -> (std::sync::MutexGuard<'static, ()>, EnvGuard, PathBuf) {
+    let lock = GMCP_HTTP_HOME.lock().unwrap_or_else(|e| e.into_inner());
+    let home = std::env::temp_dir().join(format!(
+        "gmcp-http-home-{tag}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let _ = std::fs::create_dir_all(home.join(".susi"));
+    let mut env = EnvGuard::isolated();
+    env.set("HOME", &home);
+    (lock, env, home)
+}
 
 #[test]
 fn gmcp_req_203_001_01_contract() {
@@ -7799,8 +7825,9 @@ fn gmcp_req_203_006_03_integration() {
     use std::io::{Read, Write};
     use std::time::Duration;
 
+    let (_lock, _env, home) = gmcp_http_home_guard("006-int");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-006-int-{}", std::process::id()));
+    let scratch = home.join("scratch");
     std::fs::create_dir_all(&scratch).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
@@ -7959,8 +7986,9 @@ fn gmcp_req_203_006_04_adversarial() {
     use std::io::{Read, Write};
     use std::time::Duration;
 
+    let (_lock, _env, home) = gmcp_http_home_guard("006-adv");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-006-adv-{}", std::process::id()));
+    let scratch = home.join("scratch");
     std::fs::create_dir_all(&scratch).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
@@ -8263,8 +8291,9 @@ fn gmcp_req_203_006_05_interop() {
     use std::time::Duration;
     use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
 
+    let (_lock, _env, home) = gmcp_http_home_guard("006-interop");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-006-interop-{}", std::process::id()));
+    let scratch = home.join("scratch");
     std::fs::create_dir_all(&scratch).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
@@ -8488,8 +8517,9 @@ fn gmcp_req_203_006_05_interop() {
 /// complete operator runbook in contract-203-006.md, and retained signed evidence.
 #[test]
 fn gmcp_req_203_006_06_operations() {
+    let (_lock, _env, http_home) = gmcp_http_home_guard("006-ops");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-006-ops-{}", std::process::id()));
+    let scratch = http_home.join("scratch");
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
 
@@ -11298,8 +11328,9 @@ fn gmcp_vc_203_006_mastery() {
     use sha2::{Digest, Sha256};
     use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
 
+    let (_lock, _env, http_home) = gmcp_http_home_guard("006-mastery");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("gmcp-006-mastery-{}", std::process::id()));
+    let scratch = http_home.join("scratch");
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
 
