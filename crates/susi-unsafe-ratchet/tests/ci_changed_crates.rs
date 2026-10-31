@@ -54,7 +54,7 @@ fn script_command(script: &Path) -> Command {
 }
 
 fn script() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-changed-crates.sh")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci-changed-crates.sh")
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -391,12 +391,13 @@ fn an_unknown_argument_is_refused_rather_than_silently_ignored() {
 /// it, plus the package itself. The branch gate intersects this set with the
 /// affected crates to decide whether a push can reach the ONNX download.
 fn revdeps(dir: &Path, pkg: &str) -> Vec<String> {
-    let out =
-        script_command(&Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-reverse-deps.sh"))
-            .arg(pkg)
-            .current_dir(dir)
-            .output()
-            .unwrap();
+    let out = script_command(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci-reverse-deps.sh"),
+    )
+    .arg(pkg)
+    .current_dir(dir)
+    .output()
+    .unwrap();
     assert!(
         out.status.success(),
         "ci-reverse-deps {pkg}: {}",
