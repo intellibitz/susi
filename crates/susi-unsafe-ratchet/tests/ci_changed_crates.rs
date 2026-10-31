@@ -162,10 +162,17 @@ impl Workspace {
 
     /// Commit a change to `rel` on the working branch.
     fn change(&self, rel: &str) {
-        let path = self.root.join(rel);
-        let mut text = std::fs::read_to_string(&path).unwrap_or_default();
-        text.push_str("// changed\n");
-        self.write(rel, &text);
+        self.change_many(&[rel]);
+    }
+
+    /// Commit a related set of paths together on the working branch.
+    fn change_many(&self, rels: &[&str]) {
+        for rel in rels {
+            let path = self.root.join(rel);
+            let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+            text.push_str("// changed\n");
+            self.write(rel, &text);
+        }
         git(&self.root, &["add", "-A"]);
         git(&self.root, &["commit", "-qm", "change"]);
     }
@@ -245,6 +252,22 @@ fn test_only_changes_skip_reverse_dependents() {
     let ws = Workspace::new("test-only");
     ws.write("crates/base/tests/smoke.rs", "#[test] fn smoke() {}\n");
     ws.change("crates/base/tests/smoke.rs");
+    assert_eq!(ws.pkgs(&["--dependents"]), ["base"]);
+}
+
+/// Inert workflow, task, documentation, and script edits may accompany a
+/// test-only change without making its reverse dependents relevant to clippy.
+#[test]
+fn inert_changes_do_not_expand_test_only_dependents() {
+    let ws = Workspace::new("test-only-with-inert-files");
+    ws.write("crates/base/tests/smoke.rs", "#[test] fn smoke() {}\n");
+    ws.change_many(&[
+        "crates/base/tests/smoke.rs",
+        ".agents/tasks/T-1.json",
+        ".github/workflows/test.yml",
+        "docs/workflow-speed.md",
+        "scripts/ci-changed-crates.sh",
+    ]);
     assert_eq!(ws.pkgs(&["--dependents"]), ["base"]);
 }
 

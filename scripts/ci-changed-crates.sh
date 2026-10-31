@@ -114,14 +114,15 @@ fi
 
 # A test-only diff cannot break the packages that consume this crate: the
 # branch gate runs clippy with --all-targets for the owning package, which
-# compiles its integration tests and dev-dependencies. Keep dependent closure
-# for any production/build/config input, where an API or generated output can
-# break a caller. Determine this before config/deploy paths are mapped to the
-# Rust sources that read them.
+# compiles its integration tests and dev-dependencies. Workflow, task queue,
+# documentation, and script paths may accompany the test edit without changing
+# that conclusion. Keep dependent closure for any production/build/config
+# input, where an API or generated output can break a caller. Determine this
+# before config/deploy paths are mapped to the Rust sources that read them.
 test_only=1
 while IFS= read -r f; do
     case "$f" in
-        crates/*/tests/*|tests/*.rs) ;;
+        crates/*/tests/*|tests/*.rs|.agents/tasks/*|scripts/*|.github/*|docs/*|*.md) ;;
         *) test_only=0; break ;;
     esac
 done <<<"$changed"
