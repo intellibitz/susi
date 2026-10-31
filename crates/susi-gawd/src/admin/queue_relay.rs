@@ -49,12 +49,14 @@ pub const WORKFLOW: &str = ".github/workflows/queue.yml";
 /// The namespaces a request may write; `scripts/queue-relay.py` refuses the
 /// rest, and so does [`push`] before it relays, so a branch, a tag or the
 /// merger's attestations never travel this way.
-pub const RELAYED_NAMESPACES: [&str; 5] = [
+pub const RELAYED_NAMESPACES: [&str; 6] = [
     "refs/claims/",
     "refs/claim-agents/",
     "refs/claim-generation/",
     "refs/closed/",
     "refs/abandoned/",
+    // A release cut's reservation of its version (`super::release`).
+    "refs/release-cuts/",
 ];
 /// The largest record a request carries; `scripts/queue-relay.py` agrees.
 pub const MAX_BLOB_BYTES: usize = 65_536;
