@@ -875,7 +875,6 @@ mod tests {
             Catalogs::ALL,
             &[
                 &["susi", "auto", "prime"],
-                &["susi", "models", "local"],
                 &["susi", "automate", "x"],
                 &["susi", "install"],
                 &["susi", "gemi"],
@@ -900,9 +899,10 @@ mod tests {
         ] {
             assert!(skips(cmd), "{cmd:?} must skip composition");
         }
-        for cmd in [&["susi", "mcp", "serve"][..], &["susi", "models", "local"]] {
-            assert!(!skips(cmd), "{cmd:?} composes the substrate");
-        }
+        assert!(
+            !skips(&["susi", "mcp", "serve"]),
+            "mcp serve composes the substrate"
+        );
     }
 
     #[test]
