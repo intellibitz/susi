@@ -15,7 +15,8 @@ replay lands exactly what the pusher proved, or nothing.
     scripts/queue-relay.py --sweep [--remote <name>] [--now <unix>] [--grace <secs>]
 
 Only the queue's own namespaces may be written (refs/claims/,
-refs/claim-agents/, refs/claim-generation/, refs/closed/, refs/abandoned/): a
+refs/claim-agents/, refs/claim-generation/, refs/closed/, refs/abandoned/,
+and a release cut's refs/release-cuts/): a
 branch, a tag or the merger's attestations (refs/merged/, refs/verified/)
 never travel this way. A request past its expiry is never applied: the client
 stops waiting then and reports that it will not be, so applying it later would
@@ -42,6 +43,7 @@ NAMESPACES = (
     "refs/claim-generation/",
     "refs/closed/",
     "refs/abandoned/",
+    "refs/release-cuts/",
 )
 REQUESTS = "refs/heads/susi-queue/"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

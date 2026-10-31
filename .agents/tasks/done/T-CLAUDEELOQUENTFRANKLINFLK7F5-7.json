@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-7",
+  "title": "release --cut reserves its version atomically (refs/release-cuts/v<X>, relayed in the cloud) before any gate",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::release"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793477624,
+  "closed": {
+    "at_unix": 1793477902,
+    "commit": "be939a8a932978a47f186f17b4f2b97fc4f32ca1",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}

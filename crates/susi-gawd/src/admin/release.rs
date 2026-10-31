@@ -268,8 +268,188 @@ fn git_revision(workspace: &Path, rev: &str) -> Option<String> {
     (!sha.is_empty()).then_some(sha)
 }
 
+/// Where a cut reserves its version: one ref per version, written
+/// compare-and-swap through the task queue's transport, so a cloud session's
+/// push travels by the relay like a claim does.
+const RESERVATION_PREFIX: &str = "refs/release-cuts/";
+/// How long a reservation holds when its cut neither finishes nor fails
+/// cleanly (a killed process): long enough for a full gate, short enough
+/// that a crash does not hold the version for a day.
+const DEFAULT_RESERVATION_SECS: u64 = 7_200;
+
+/// What `refs/release-cuts/v<X>` holds: who is cutting that version, from
+/// which branch, and until when the claim stands.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+struct CutReservation {
+    version: String,
+    agent: String,
+    branch: String,
+    claimed_unix: u64,
+    expires_unix: u64,
+}
+
+fn reservation_ref(version: &str) -> String {
+    format!("{RESERVATION_PREFIX}v{version}")
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// `git <args>` in `ws`; trimmed stdout, or the failure as an error.
+fn git_out(ws: &Path, args: &[&str]) -> EaiResult<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(ws)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()?;
+    if !out.status.success() {
+        return Err(EaiError::process(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The reservation origin holds for `name`: its sha ("" when absent) and,
+/// when it parses, the record. A lookup that fails is an error: a version
+/// nobody could check is not free.
+fn remote_reservation(ws: &Path, name: &str) -> EaiResult<(String, Option<CutReservation>)> {
+    let listed = git_out(ws, &["ls-remote", "origin", name])?;
+    let sha = listed.split_whitespace().next().unwrap_or("").to_string();
+    if sha.is_empty() {
+        return Ok((sha, None));
+    }
+    git_out(
+        ws,
+        &["fetch", "--quiet", "origin", &format!("+{name}:{name}")],
+    )?;
+    let record = git_out(ws, &["cat-file", "-p", &sha])
+        .ok()
+        .and_then(|body| serde_json::from_str(&body).ok());
+    Ok((sha, record))
+}
+
+/// Reserve `version` for this branch before the gate runs: the
+/// compare-and-swap lets exactly one of two concurrent cuts through. A
+/// reservation this branch already holds is renewed (a retried cut), and an
+/// expired one is taken over; any other is refused, naming its holder.
+fn reserve_version_at(ws: &Path, version: &str, lease_secs: u64, now: u64) -> EaiResult<String> {
+    let name = reservation_ref(version);
+    let branch = git_out(ws, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let (old, held) = remote_reservation(ws, &name).map_err(|e| {
+        EaiError::process(format!("could not read the reservation of v{version}: {e}"))
+    })?;
+    if let Some(held) = &held {
+        if held.branch != branch && held.expires_unix > now {
+            return Err(EaiError::process(format!(
+                "v{version} is being cut by {} on {} (reserved until unix {}): let that cut \
+                 merge, then cut the next version",
+                held.agent, held.branch, held.expires_unix
+            )));
+        }
+    }
+    let record = CutReservation {
+        version: version.to_string(),
+        agent: git_out(ws, &["config", "user.name"]).unwrap_or_default(),
+        branch,
+        claimed_unix: now,
+        expires_unix: now.saturating_add(lease_secs),
+    };
+    let blob = blob_of_json(ws, &serde_json::to_string(&record)?)?;
+    super::queue_relay::push(
+        ws,
+        "origin",
+        &[(name.clone(), old)],
+        &[(name.clone(), Some(blob))],
+        &format!("another cut reserved v{version} first: let it merge, then cut the next version"),
+    )?;
+    Ok(name)
+}
+
+/// Give up this branch's reservation of `version` (a cut that failed), so
+/// the next cut need not wait for it to expire. Best effort: an expiry
+/// covers whatever this cannot do.
+fn drop_reservation(ws: &Path, version: &str) {
+    let name = reservation_ref(version);
+    let Ok(branch) = git_out(ws, &["rev-parse", "--abbrev-ref", "HEAD"]) else {
+        return;
+    };
+    let Ok((old, Some(held))) = remote_reservation(ws, &name) else {
+        return;
+    };
+    if held.branch != branch {
+        return;
+    }
+    if let Err(e) = super::queue_relay::push(
+        ws,
+        "origin",
+        &[(name.clone(), old)],
+        &[(name, None)],
+        "the reservation changed hands",
+    ) {
+        eprintln!("[Release Gatekeeper] note: v{version} stays reserved until it expires: {e}");
+    }
+}
+
+/// `git hash-object -w` of `body`.
+fn blob_of_json(ws: &Path, body: &str) -> EaiResult<String> {
+    use std::io::Write;
+    let mut child = Command::new("git")
+        .args(["hash-object", "-w", "--stdin"])
+        .current_dir(ws)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| EaiError::process("git hash-object stdin"))?
+        .write_all(body.as_bytes())?;
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        return Err(EaiError::process("git hash-object failed"));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 impl SusiAdmin {
+    /// The release gate, and for `--cut` the version bump and its push.
+    ///
+    /// A cut first reserves the version it will make
+    /// (`refs/release-cuts/v<X>`, compare-and-swap), before any gate runs: two
+    /// agents cut v0.21.26 within an hour, both ran the whole gate, and one
+    /// pull request was thrown away. The check for a tag or an open release
+    /// pull request cannot close that race on its own, because a cut's pull
+    /// request appears only after its push. A cut that fails gives the
+    /// reservation back; one that succeeds keeps it until its pull request
+    /// and then its tag hold the version (`SUSI_RELEASE_RESERVE_SECS`, 2 h).
     pub fn execute_release(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
+        let Some(level) = cut else {
+            return Self::execute_release_gated(workspace, None);
+        };
+        let next = Self::bump_version_string(&Self::get_cargo_version(workspace)?, level)?;
+        let lease = env::var("SUSI_RELEASE_RESERVE_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(DEFAULT_RESERVATION_SECS);
+        eprintln!("[Release Gatekeeper] 0. Reserving v{next} for this cut...");
+        reserve_version_at(workspace, &next, lease, unix_now())
+            .map_err(|e| EaiError::process(format!("Release refused: {e}")))?;
+        let result = Self::execute_release_gated(workspace, cut);
+        if result.is_err() {
+            drop_reservation(workspace, &next);
+        }
+        result
+    }
+
+    fn execute_release_gated(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
         // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
         // (e.g. metal pulls in macOS-only objc2 bindings) and cannot all build
         // together on any single host, so `--all-features` is never used here.
@@ -1452,5 +1632,100 @@ mod tests {
             .map(|w| w[1])
             .expect("a nextest filter");
         assert_eq!(filter, "not binary(capability_gap_e2e)");
+    }
+
+    fn reservation_on_origin(work: &Path, version: &str) -> Option<CutReservation> {
+        remote_reservation(work, &reservation_ref(version))
+            .unwrap()
+            .1
+    }
+
+    /// Two cuts of one version: the first reserves it before its gate and
+    /// the second is refused, naming the holder, before it runs anything.
+    /// The holder's own retry renews its reservation.
+    #[test]
+    fn a_version_reserved_by_another_branch_is_refused_before_the_gate() {
+        let work = repo("reserve-race");
+        git_in(&work, &["checkout", "-q", "-b", "agent-one"]);
+        reserve_version_at(&work, "1.2.3", 600, 1_000).expect("the first cut reserves it");
+        let held = reservation_on_origin(&work, "1.2.3").expect("origin holds the reservation");
+        assert_eq!(
+            (held.branch.as_str(), held.expires_unix),
+            ("agent-one", 1_600)
+        );
+
+        git_in(&work, &["checkout", "-q", "-b", "agent-two"]);
+        let why = reserve_version_at(&work, "1.2.3", 600, 1_100)
+            .expect_err("a second cut of the same version is refused")
+            .to_string();
+        assert!(why.contains("agent-one") && why.contains("1600"), "{why}");
+        assert_eq!(
+            reservation_on_origin(&work, "1.2.3").unwrap().branch,
+            "agent-one",
+            "the refused cut wrote nothing"
+        );
+        reserve_version_at(&work, "1.2.4", 600, 1_100).expect("another version is free");
+
+        git_in(&work, &["checkout", "-q", "agent-one"]);
+        reserve_version_at(&work, "1.2.3", 600, 1_200).expect("the holder's retry renews");
+        assert_eq!(
+            reservation_on_origin(&work, "1.2.3").unwrap().expires_unix,
+            1_800
+        );
+        let _ = std::fs::remove_dir_all(work.parent().unwrap());
+    }
+
+    /// A cut that crashed never gives its reservation back: past its expiry
+    /// the next cut takes the version over.
+    #[test]
+    fn an_expired_reservation_is_taken_over() {
+        let work = repo("reserve-expired");
+        git_in(&work, &["checkout", "-q", "-b", "crashed"]);
+        reserve_version_at(&work, "2.0.0", 60, 1_000).unwrap();
+        git_in(&work, &["checkout", "-q", "-b", "next"]);
+        reserve_version_at(&work, "2.0.0", 60, 1_061)
+            .expect("an expired reservation holds nothing");
+        assert_eq!(
+            reservation_on_origin(&work, "2.0.0").unwrap().branch,
+            "next"
+        );
+        let _ = std::fs::remove_dir_all(work.parent().unwrap());
+    }
+
+    /// A cut that failed gives its version back at once, and only its own:
+    /// another branch's reservation is never dropped.
+    #[test]
+    fn a_failed_cut_drops_only_its_own_reservation() {
+        let work = repo("reserve-drop");
+        git_in(&work, &["checkout", "-q", "-b", "holder"]);
+        reserve_version_at(&work, "3.1.0", 600, 1_000).unwrap();
+        git_in(&work, &["checkout", "-q", "-b", "bystander"]);
+        drop_reservation(&work, "3.1.0");
+        assert!(
+            reservation_on_origin(&work, "3.1.0").is_some(),
+            "another branch's reservation survives"
+        );
+        git_in(&work, &["checkout", "-q", "holder"]);
+        drop_reservation(&work, "3.1.0");
+        assert_eq!(
+            reservation_on_origin(&work, "3.1.0"),
+            None,
+            "the holder's drop removes it"
+        );
+        git_in(&work, &["checkout", "-q", "bystander"]);
+        reserve_version_at(&work, "3.1.0", 600, 1_010).expect("the version is free again");
+        let _ = std::fs::remove_dir_all(work.parent().unwrap());
+    }
+
+    /// The reservation travels by the queue's relay in a cloud session, so
+    /// its namespace must be one the relay applies, on both sides.
+    #[test]
+    fn the_relay_applies_the_reservation_namespace() {
+        assert!(super::super::queue_relay::RELAYED_NAMESPACES.contains(&RESERVATION_PREFIX));
+        let relay = include_str!("../../../../scripts/queue-relay.py");
+        assert!(
+            relay.contains(&format!("\"{RESERVATION_PREFIX}\"")),
+            "scripts/queue-relay.py must apply {RESERVATION_PREFIX}"
+        );
     }
 }
