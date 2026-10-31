@@ -31,8 +31,10 @@ pub enum WorkflowCommands {
     /// Create your own worktree on a fresh branch off origin/main, ready to
     /// work in (hooks installed, primary checkout parked). Prints `cd <path>`.
     Start {
-        /// Branch/worktree name (default: <agent>-<timestamp>)
+        /// Branch/worktree name (default: <agent>-<yyyymmdd>-<hhmmss>-<pid>)
         name: Option<String>,
+        /// The commit to branch from (default: origin/main)
+        base: Option<String>,
         /// Who you are (default: $SUSI_AGENT, else the agent tool you run
         /// inside — never your git login)
         #[arg(long)]
@@ -133,7 +135,7 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         }
         WorkflowCommands::Watch => return run_loop(cwd, &["watch"]),
         WorkflowCommands::Check { json, agent } => (json, agent),
-        WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
+        WorkflowCommands::Start { name, base, agent } => return start(cwd, name, base, agent),
         WorkflowCommands::Prune { apply, all } => return prune(cwd, apply, all),
         WorkflowCommands::OwnIdentity => return own_identity(cwd),
         WorkflowCommands::Guard { stage } => return guard(cwd, stage),
@@ -241,18 +243,46 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
 
 /// `susi workflow start`: the whole "get me a workspace of my own" step, so an
 /// agent never has to assemble it from instructions.
-fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> {
+fn start(
+    cwd: &Path,
+    name: Option<String>,
+    base: Option<String>,
+    agent: Option<String>,
+) -> Result<()> {
     let root = crate::cli::tasks_cli::repo_root(cwd);
-    let explicit = explicit_agent(agent.as_deref());
-    let res = workflow::start_worktree(&root, name.as_deref(), explicit.as_deref())
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    if res.reused {
+    // The agent is who the operator said (`--agent`, SUSI_AGENT), else the
+    // tool this process runs inside, named by its ancestors' executables;
+    // never the git login, one name shared by every agent on the machine.
+    let agent =
+        explicit_agent(agent.as_deref()).or_else(crate::cli::tasks_cli::agent_from_tool_process);
+    let res =
+        match workflow::start_worktree(&root, name.as_deref(), agent.as_deref(), base.as_deref()) {
+            Ok(res) => res,
+            Err(why) => {
+                // The script's exit codes: a name that is no branch name is a
+                // usage error (2); everything else refuses with 1.
+                eprintln!("susi-worktree: {why}");
+                let code = if why.starts_with("refusing branch name") {
+                    2
+                } else {
+                    1
+                };
+                std::process::exit(code);
+            }
+        };
+    if res.reused && res.dest == root && susi_gawd::cloud_session::is_cloud(&root) {
+        eprintln!(
+            "susi-worktree: cloud session — this clone is your worktree (branch {}); no new              worktree, no parked primary, no watcher (docs/cloud-sessions.md)",
+            res.branch
+        );
+    } else if res.reused {
         eprintln!(
             "susi-worktree: {} already exists — reusing it",
             res.dest.display()
         );
+    } else {
+        eprintln!("worktree: {} (branch {})", res.dest.display(), res.branch);
     }
-    eprintln!("worktree: {} (branch {})", res.dest.display(), res.branch);
     eprintln!("ready: atomic loop — `susi workflow check`, then sync→claim one→work→commit→sync→push→sync");
     println!("cd {}", res.dest.display());
     Ok(())

@@ -487,3 +487,27 @@ the Windows leg. Two findings:
 
 The local cut (`susi admin release --cut patch`) is measured in the next
 section when the next release is cut.
+
+## The loop's scripts as susi subcommands (2026-10-31)
+
+`scripts/seed-target.sh`, `scripts/park-primary.sh`, `scripts/prune-worktrees.sh`
+and `scripts/susi-worktree.sh` are stubs now: each finds a susi that carries
+its verb and execs it (`susi workflow seed-target`, `park-primary`, `prune`,
+`start`), and the work is Rust that runs `git`, `cargo` and the copy tool
+directly. The reason is robustness and portability, not speed: an installed
+`susi.exe` now does all of it without Git for Windows' MSYS userland on PATH,
+and the hooks and older branches keep working through the stubs. Nothing in
+the loop was made faster or slower on purpose, and no linker setting moved.
+
+Re-measured after the ports, in a cloud session's clone (Linux, 4 vCPU, the
+dev binary, no primary watcher and no remote reads to wait on):
+
+| Step | Measured | Note |
+| --- | --- | --- |
+| `susi workflow check` | 0.4–0.9 s (three runs) | the primary sync runs in process now instead of through `park-primary.sh` |
+| a stub's susi probe (`<verb> --help`) | 13 ms here; 0.23 s release / 0.45 s debug measured on the Windows host for the hook stubs | one extra susi start per script call, where a script is still the caller |
+
+The 13 s for `susi workflow check` in the table at the top was measured on
+the Windows host with its remote reads (`gh`, `git ls-remote`), which dominate
+it; the port touched none of those, so that number stands until it is
+re-measured there.

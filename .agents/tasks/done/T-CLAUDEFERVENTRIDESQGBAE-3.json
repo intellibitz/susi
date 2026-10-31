@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDEFERVENTRIDESQGBAE-3",
+  "title": "Port scripts/susi-worktree.sh into susi workflow start",
+  "goal": "Making an agent's own worktree is susi workflow start alone: the Rust start gains what only the script did (the start lock, the tool-named default name in the script's date form, the optional base, parking the primary, the sccache and watcher steps, the cloud-session wording and the script's exit codes); scripts/susi-worktree.sh is a stub that execs susi so docs and branches cut before the port keep working; the agent bootstrap tests pin the behaviour through the stub and the binary, with a Windows run with Git's usr/bin off PATH; docs/workflow-speed.md records the re-measured susi workflow check as a robustness change, not a timing one",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "agent_bootstrap"
+    ]
+  },
+  "created_by": "CLAUDEFERVENTRIDESQGBAE",
+  "created_unix": 1793474717,
+  "closed": {
+    "at_unix": 1793475208,
+    "commit": "e5327053acbb3be894aaa150faea15a94363d2bb",
+    "by": "CLAUDEFERVENTRIDESQGBAE"
+  }
+}
