@@ -607,6 +607,130 @@ fn compliance_uses_single_remote_ref_snapshot() {
 }
 
 #[test]
+fn finish_reuses_live_lease_and_fetched_refs() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let workflow = std::fs::read_to_string(repo.join("scripts/parallel-workflow.sh")).unwrap();
+    let renew = workflow
+        .split("renew_or_readopt() {")
+        .nth(1)
+        .unwrap()
+        .split("\n}\n")
+        .next()
+        .unwrap();
+    let ws = Workspace::new("finish-coordination");
+    git(&ws.root, &["config", "susi.agent", "TESTAGENT"]);
+    ws.write("lease-check.sh", &format!(
+        "set -euo pipefail\n. \"$SUSI_TEST_COMPAT\"\nrenew_or_readopt() {{{renew}\n}}\n\
+         stub() {{ echo \"$*\" >> calls; [ \"${{FAIL_RENEW:-0}}\" != 1 ] || [ \"$2\" != renew ]; }}\n\
+         susi_bin=stub\ntask=T-TEST-1\nrenew_or_readopt\n"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    for (owner, branch, lease, fail_renew, expected) in [
+        ("TESTAGENT", "work", now + 3600, false, 0),
+        ("TESTAGENT", "work", now + 30, false, 1),
+        ("ANOTHER", "work", now + 3600, false, 1),
+        ("TESTAGENT", "other-branch", now + 3600, false, 1),
+        ("TESTAGENT", "work", now - 30, true, 2),
+    ] {
+        ws.write("claim.json", &format!("{{\"agent\":\"{owner}\",\"branch\":\"{branch}\",\"lease_until_unix\":{lease},\"scopes\":[\"src\"]}}"));
+        let hash = Command::new("git")
+            .args(["hash-object", "-w", "claim.json"])
+            .current_dir(&ws.root)
+            .output()
+            .unwrap();
+        assert!(hash.status.success());
+        let object = String::from_utf8(hash.stdout).unwrap();
+        git(
+            &ws.root,
+            &["update-ref", "refs/claims/T-TEST-1", object.trim()],
+        );
+        ws.write("calls", "");
+        let output = script_command(&ws.root.join("lease-check.sh"))
+            .current_dir(&ws.root)
+            .env_remove("SUSI_AGENT")
+            .env("SUSI_TEST_COMPAT", repo.join("scripts/posix-compat.sh"))
+            .env("FAIL_RENEW", if fail_renew { "1" } else { "0" })
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let calls = std::fs::read_to_string(ws.root.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().count(),
+            expected,
+            "{owner}/{branch}/{lease}: {calls}"
+        );
+        if fail_renew {
+            assert!(calls.contains("tasks claim T-TEST-1 --scope src"));
+        }
+    }
+
+    // Timing must preserve failure both in a conditional (release) and under
+    // errexit (the gate); a logging command must never turn red into green.
+    let timing = workflow
+        .split("timed_step() {")
+        .nth(1)
+        .unwrap()
+        .split("\n}\n")
+        .next()
+        .unwrap();
+    ws.write("timing-check.sh", &format!("set -e\ntimed_step() {{{timing}\n}}\nif timed_step conditional false; then exit 9; fi\ntimed_step direct false\necho escaped\n"));
+    let timed = script_command(&ws.root.join("timing-check.sh"))
+        .current_dir(&ws.root)
+        .output()
+        .unwrap();
+    assert_eq!(timed.status.code(), Some(1));
+    assert!(timed.stdout.is_empty());
+
+    // A sync caller has just refreshed origin/main in the shared Git dir.
+    // Parking must fast-forward from that snapshot without another fetch.
+    ws.write("published.txt", "new main\n");
+    git(&ws.root, &["add", "published.txt"]);
+    git(&ws.root, &["commit", "-qm", "upstream advance"]);
+    git(
+        &ws.root,
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    git(&ws.root, &["checkout", "-q", "main"]);
+    let trace = ws.root.join("park-trace.log");
+    let parked = script_command(&repo.join("scripts/park-primary.sh"))
+        .arg("--sync-only")
+        .current_dir(&ws.root)
+        .env("SUSI_PARK_REFS_FETCHED", "1")
+        .env("GIT_TRACE", &trace)
+        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
+        .output()
+        .unwrap();
+    assert!(
+        parked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parked.stderr)
+    );
+    assert!(ws.root.join("published.txt").exists());
+    assert!(!std::fs::read_to_string(&trace)
+        .unwrap()
+        .contains("git fetch"));
+    assert!(workflow.contains("SUSI_PARK_REFS_FETCHED=1 \"$root/scripts/park-primary.sh\""));
+    let standalone = script_command(&repo.join("scripts/park-primary.sh"))
+        .arg("--sync-only")
+        .current_dir(&ws.root)
+        .env_remove("SUSI_PARK_REFS_FETCHED")
+        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
+        .env("GIT_TRACE", &trace)
+        .output()
+        .unwrap();
+    assert!(standalone.status.success());
+    assert!(std::fs::read_to_string(trace)
+        .unwrap()
+        .contains("git fetch --quiet origin"));
+}
+
+#[test]
 fn compliance_batches_close_receipt_scan() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let compliance =

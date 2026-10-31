@@ -1,0 +1,26 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-6",
+  "title": "Remove repeated finish renewal and primary fetch work",
+  "goal": "Reuse sufficiently live owned leases and fetched primary refs, and expose finish stage timings to eliminate coordination overhead.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "finish_reuses_live_lease_and_fetched_refs"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793426867,
+  "closed": {
+    "at_unix": 1793427078,
+    "commit": "0190c84fe8d14bb15f6062765d194f9e6e54e78a",
+    "by": "WORKFLOWINERTTESTGATES"
+  }
+}

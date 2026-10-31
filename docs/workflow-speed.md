@@ -209,6 +209,19 @@ a shared Cargo package-cache lock wait. All 30 gate tests passed in 43 s; the
 Its setup now writes all receipt files and uses one `hash-object --stdin-paths`
 and one `update-ref --stdin`, preserving the same cases.
 
+## Finish avoids duplicate coordination (2026-10-31)
+
+The measured finish for PR #1109 took 120.1 s, despite its 30 tests finishing
+in 11.7 s. Each sync fetched origin and then primary parking fetched it again.
+Parking now reuses that invocation's fetched snapshot; standalone parking and
+the watcher still fetch. A finish also renewed an owned claim with hours left,
+incurring a claim fetch, ownership lookup and push. It now keeps a matching
+local agent/branch lease with more than 15 minutes left. Short, expired,
+missing or mismatched leases still take the renewal/readoption path; close and
+pre-push retain their authoritative remote ownership checks. Finish prints
+elapsed seconds for lease, sync, gate, close, push and release to identify the
+remaining cost. These changes need a new complete finish measurement.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
