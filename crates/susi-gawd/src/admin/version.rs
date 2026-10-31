@@ -385,39 +385,31 @@ impl SusiAdmin {
     /// other: both ran the whole gate, both pushed a bump, and one of the two
     /// pull requests was thrown away. The cut asks first:
     ///
-    /// * `v{version}` is tagged on origin: that version is released;
-    /// * origin has a `cut-v{version}` branch other than this one;
+    /// * `v{version}` is tagged on origin: that version is released. A lookup
+    ///   that fails (network, auth, no `origin`) refuses too: the cut would
+    ///   otherwise push a version it never proved free;
     /// * an open pull request titled `chore: release v{version}` comes from
     ///   another branch (`gh api`; when `gh` cannot list them the cut says so
-    ///   and goes on, since only the tag and branch checks remain).
+    ///   and goes on). A leftover `cut-v{version}` branch is not asked about:
+    ///   a cut closed without merging leaves one behind for good.
     pub fn release_already_cut(workspace: &Path, version: &str) -> Option<String> {
         let tag = format!("v{version}");
         let own_branch =
             git_stdout(workspace, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
-        if git_stdout(
+        match git_stdout(
             workspace,
             &["ls-remote", "--tags", "origin", &format!("refs/tags/{tag}")],
-        )
-        .is_some_and(|out| !out.is_empty())
-        {
-            return Some(format!("{tag} is already tagged on origin: it is released"));
-        }
-        let cut_branch = format!("cut-{tag}");
-        if cut_branch != own_branch
-            && git_stdout(
-                workspace,
-                &[
-                    "ls-remote",
-                    "--heads",
-                    "origin",
-                    &format!("refs/heads/{cut_branch}"),
-                ],
-            )
-            .is_some_and(|out| !out.is_empty())
-        {
-            return Some(format!(
-                "origin already has the branch {cut_branch}: another cut of {tag} is in flight"
-            ));
+        ) {
+            None => {
+                return Some(format!(
+                    "could not ask origin whether {tag} is tagged (git ls-remote failed): \
+                     refusing to cut a version not proved free"
+                ))
+            }
+            Some(out) if !out.is_empty() => {
+                return Some(format!("{tag} is already tagged on origin: it is released"))
+            }
+            Some(_) => {}
         }
         let listing = Command::new("gh")
             .args([
@@ -781,19 +773,26 @@ mod tests {
     }
 
     #[test]
-    fn another_branchs_cut_branch_is_refused_and_ones_own_is_not() {
-        let (root, work) = release_fixture("branch", "cut-v1.2.3");
+    fn an_unanswered_tag_lookup_refuses_the_cut() {
+        let (root, work) = release_fixture("unreachable", "agent-one");
+        fs::remove_dir_all(root.join("origin.git")).unwrap();
+        let why = SusiAdmin::release_already_cut(&work, "1.2.3")
+            .expect("a version origin could not be asked about is refused");
+        assert!(why.contains("could not ask origin"), "{why}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_leftover_cut_branch_does_not_hold_its_version() {
+        let (root, work) = release_fixture("leftover", "agent-one");
+        git_ok(
+            &work,
+            &["push", "-q", "origin", "HEAD:refs/heads/cut-v1.2.3"],
+        );
         assert_eq!(
             SusiAdmin::release_already_cut(&work, "1.2.3"),
             None,
-            "this checkout's own cut-v1.2.3 is the cut being made"
-        );
-        git_ok(&work, &["checkout", "-q", "-b", "agent-other"]);
-        let why = SusiAdmin::release_already_cut(&work, "1.2.3")
-            .expect("another branch's cut is refused");
-        assert!(
-            why.contains("cut-v1.2.3") && why.contains("in flight"),
-            "{why}"
+            "a cut-v branch with no open pull request (a closed cut) holds nothing"
         );
         let _ = fs::remove_dir_all(&root);
     }
