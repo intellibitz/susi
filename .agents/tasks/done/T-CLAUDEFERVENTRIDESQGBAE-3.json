@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CLAUDEFERVENTRIDESQGBAE",
-  "created_unix": 1793474717
+  "created_unix": 1793474717,
+  "closed": {
+    "at_unix": 1793475208,
+    "commit": "e5327053acbb3be894aaa150faea15a94363d2bb",
+    "by": "CLAUDEFERVENTRIDESQGBAE"
+  }
 }
