@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179339957248328-12",
+  "title": "Use exact main SHA evidence for release gate reuse",
+  "goal": "A clean release worktree starts from a main commit whose Test run may already have passed. Query successful main Test evidence for exact HEAD directly, avoiding an unnecessary fetch and scan of 20 runs; preserve the full local gate whenever exact proof is absent.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "release_gate_"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793406595,
+  "closed": {
+    "at_unix": 1793406904,
+    "commit": "e6cf106601c99f1674a7c61065c7ffa7b532ed7e",
+    "by": "AGENT179339957248328"
+  }
+}

@@ -85,24 +85,33 @@ fn git_tree(workspace: &Path, rev: &str) -> Option<String> {
 /// Recent `main` tips whose `Test` run concluded success — commits whose
 /// trees the remote suite already proved. `None` when `gh` is absent or the
 /// query fails; the suite then runs, as it always has.
-fn green_main_shas(workspace: &Path) -> Option<Vec<String>> {
+fn green_main_run_args(head_sha: &str) -> Vec<String> {
+    [
+        "run",
+        "list",
+        "--workflow",
+        "test.yml",
+        "--branch",
+        "main",
+        "--commit",
+        head_sha,
+        "--status",
+        "success",
+        "--limit",
+        "1",
+        "--json",
+        "headSha",
+        "--jq",
+        ".[].headSha",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+fn green_main_shas(workspace: &Path, head_sha: &str) -> Option<Vec<String>> {
     let out = Command::new("gh")
-        .args([
-            "run",
-            "list",
-            "--workflow",
-            "test.yml",
-            "--branch",
-            "main",
-            "--status",
-            "success",
-            "--limit",
-            "20",
-            "--json",
-            "headSha",
-            "--jq",
-            ".[].headSha",
-        ])
+        .args(green_main_run_args(head_sha))
         .env("GH_PROMPT_DISABLED", "1")
         .current_dir(workspace)
         .output()
@@ -162,16 +171,29 @@ fn suite_proven_on_main(workspace: &Path) -> bool {
     let Some(head_tree) = git_tree(workspace, "HEAD") else {
         return false;
     };
-    // The run's shas and the objects they name must agree: fetch first.
-    let _ = Command::new("git")
-        .args(["fetch", "--quiet", "origin", "main"])
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .current_dir(workspace)
-        .output();
-    let Some(shas) = green_main_shas(workspace) else {
+    // Ask GitHub for proof on this exact main commit. The SHA is already in
+    // the local checkout, so fetching main just to resolve up to 20 returned
+    // shas added a network round trip without strengthening the evidence.
+    let Some(head_sha) = git_revision(workspace, "HEAD") else {
+        return false;
+    };
+    let Some(shas) = green_main_shas(workspace, &head_sha) else {
         return false;
     };
     proven_by_green_run(workspace, &head_tree, &shas)
+}
+
+fn git_revision(workspace: &Path, rev: &str) -> Option<String> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", rev])
+        .current_dir(workspace)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
 }
 
 impl SusiAdmin {
@@ -872,6 +894,22 @@ mod tests {
         // A dirty working tree disables reuse entirely: the gate tests files,
         // not HEAD.
         assert!(!worktree_is_clean(&work));
+    }
+
+    #[test]
+    fn release_gate_queries_green_evidence_by_exact_main_sha() {
+        let sha = "a".repeat(40);
+        let args = green_main_run_args(&sha);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--commit", sha.as_str()]));
+        assert!(args.windows(2).any(|pair| pair == ["--branch", "main"]));
+        assert!(args.windows(2).any(|pair| pair == ["--status", "success"]));
+        assert!(args.windows(2).any(|pair| pair == ["--limit", "1"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--workflow", "test.yml"]));
     }
 
     fn sample() -> E2eCheck {
