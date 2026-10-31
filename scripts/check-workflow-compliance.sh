@@ -70,6 +70,17 @@
 #
 # Runs locally from .githooks/pre-push and server-side in CI ("Workflow
 # Compliance"), where --no-verify cannot skip it.
+#
+# The claims are fetched ONCE per run, from the top level, and each task is
+# judged from one snapshot of its claim blob. `finish` releases the claim
+# seconds after the push, so the branch run reads the claim inside that
+# window: when every read re-fetched (the "fetched once" flag was set inside
+# a command substitution, a subshell, so it stuck for nobody), a release
+# landing between a task's first read (live) and its second (the scope check)
+# pruned the ref, the second read came back empty, and the commit was refused
+# as work under a claim that reserves no paths - red, then green on a rerun
+# of the same head. A release before the one fetch is the receipt path below;
+# one after it leaves the live, scoped claim this run already holds.
 set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
@@ -83,6 +94,9 @@ claims_fetched=0
 
 err() { echo "❌ workflow: $*" >&2; fail=1; }
 
+# Mirror the live claims, once per run. Called from the top level only: inside
+# `$(...)` it runs in a subshell, where the flag it sets is seen by nobody and
+# every read fetches (and prunes) again - the race in the header.
 fetch_claims() {
     [ "$claims_fetched" = 1 ] && return
     claims_fetched=1
@@ -90,10 +104,10 @@ fetch_claims() {
     git fetch --quiet --prune "$remote" '+refs/claims/*:refs/claims/*' 2>/dev/null || true
 }
 
-# Prints a task's claim blob, or nothing when it has no claim ref.
+# Prints a task's claim blob as fetch_claims mirrored it, or nothing when it
+# has no claim ref. Read once per task; every judgement below takes the blob.
 claim_blob() {
     local id=$1 sha
-    fetch_claims
     sha=$(git rev-parse --verify --quiet "refs/claims/$id" 2>/dev/null) || return 0
     git cat-file -p "$sha" 2>/dev/null || true
 }
@@ -181,10 +195,9 @@ check_one_live_claim() {
     return 0
 }
 
-# Prints "live" / "expired" / "none" for a task's claim.
-claim_state() {
-    local body lease
-    body=$(claim_blob "$1")
+# Prints "live" / "expired" / "none" for a claim blob.
+claim_state_of() {
+    local body=$1 lease
     [ -n "$body" ] || {
         echo none
         return
@@ -193,10 +206,10 @@ claim_state() {
     if [ "${lease:-0}" -gt "$now" ]; then echo live; else echo expired; fi
 }
 
-# A live claim owns one branch and a set of paths: check both for this commit.
+# A live claim owns one branch and a set of paths: check both for this commit,
+# from the claim blob the caller read.
 check_claim_owner() {
-    local commit=$1 id=$2 short=$3 body owner_branch owner_agent scopes
-    body=$(claim_blob "$id")
+    local commit=$1 id=$2 short=$3 body=$4 owner_branch owner_agent scopes
     owner_branch=$(jq -r '.branch // ""' <<<"$body" 2>/dev/null || true)
     owner_agent=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
     if [ -n "$owner_branch" ] && [ -n "$branch" ] && [ "$owner_branch" != "$branch" ]; then
@@ -310,10 +323,12 @@ while read -r c; do
         # kinds of work that never went through the queue: a file hand-moved
         # into done/ without ever claiming the task, and a done-file that
         # arrived by merging main.
-        case "$(claim_state "$task")" in
+        fetch_claims
+        claim=$(claim_blob "$task")
+        case "$(claim_state_of "$claim")" in
         live)
-            check_claim_owner "$c" "$task" "$short"
-            agent=$(jq -r '.agent // ""' <<<"$(claim_blob "$task")" 2>/dev/null || true)
+            check_claim_owner "$c" "$task" "$short" "$claim"
+            agent=$(jq -r '.agent // ""' <<<"$claim" 2>/dev/null || true)
             check_no_owed_merge "$task" "$short" "$agent"
             check_one_live_claim "$agent" "$short" "$task"
             ;;
@@ -330,7 +345,7 @@ while read -r c; do
             if git rev-parse --verify --quiet "refs/closed/$task" >/dev/null 2>&1; then
                 agent=$(jq -r '.agent // ""' <<<"$(git cat-file -p "refs/closed/$task" 2>/dev/null || true)" 2>/dev/null || true)
                 check_no_owed_merge "$task" "$short" "$agent"
-            elif [ "$(claim_state "$task")" = expired ]; then
+            elif [ "$(claim_state_of "$claim")" = expired ]; then
                 err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)"
             else
                 err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)"

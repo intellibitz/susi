@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261030230356251228-5",
+  "title": "workflow compliance: the claim is read once, so finish's release cannot make a scoped claim scopeless mid-check",
+  "goal": "check-workflow-compliance.sh caches 'claims fetched' in a variable that every claim read sets inside a command substitution, so every read re-fetches with --prune. A release that lands between a task's first read (live) and its second (the scope check) prunes the ref, the second read is empty, and the commit is refused as work under a claim that reserves no paths — finish releases the claim seconds after the push, so the branch run raced it (PR 1070's Workflow Compliance failed and passed on rerun). Fetch the claims once at the top level and judge each task from one snapshot of its claim blob.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "workflow_compliance",
+      "mid_check"
+    ]
+  },
+  "created_by": "AGENT20261030230356251228",
+  "created_unix": 1793411607
+}
