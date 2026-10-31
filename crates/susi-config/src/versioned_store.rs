@@ -3,10 +3,28 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-type CacheEntry<T> = (SystemTime, PathBuf, Arc<T>);
+pub(crate) struct CacheEntry<T> {
+    pub(crate) modified: SystemTime,
+    pub(crate) len: u64,
+    pub(crate) path: PathBuf,
+    pub(crate) value: Arc<T>,
+}
 
-/// Generic "versioned JSON config store" abstraction that unifies mtime-cache
-/// and self-healing-merge logic originally hand-rolled in five places.
+fn file_stamp(path: &Path) -> (SystemTime, u64) {
+    match std::fs::metadata(path) {
+        Ok(meta) => (
+            meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            meta.len(),
+        ),
+        Err(_) => (SystemTime::UNIX_EPOCH, 0),
+    }
+}
+
+/// Generic "versioned JSON config store" abstraction that unifies the
+/// stamp cache and self-healing-merge logic originally hand-rolled in five
+/// places. A hit needs the same path, modification time, and length: a
+/// same-tick rewrite that changes the file's size must not serve the
+/// previous snapshot.
 ///
 /// The cache holds `Arc<T>` so hot paths can share a snapshot without cloning
 /// the full registry on every `load_*` hit.
@@ -48,44 +66,45 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
-        let current_modified = std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let (current_modified, current_len) = file_stamp(path);
 
         {
             let guard = self.cache.read();
-            if let Some((cached_time, cached_path, cached_val)) = guard.as_ref() {
-                if cached_path == path
-                    && *cached_time == current_modified
+            if let Some(cached) = guard.as_ref() {
+                if cached.path == path
+                    && cached.modified == current_modified
+                    && cached.len == current_len
                     && current_modified != SystemTime::UNIX_EPOCH
                 {
-                    return Ok(Arc::clone(cached_val));
+                    return Ok(Arc::clone(&cached.value));
                 }
             }
         }
 
         let mut guard = self.cache.write();
 
-        let current_modified = std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let (current_modified, current_len) = file_stamp(path);
 
-        if let Some((cached_time, cached_path, cached_val)) = guard.as_ref() {
-            if cached_path == path
-                && *cached_time == current_modified
+        if let Some(cached) = guard.as_ref() {
+            if cached.path == path
+                && cached.modified == current_modified
+                && cached.len == current_len
                 && current_modified != SystemTime::UNIX_EPOCH
             {
-                return Ok(Arc::clone(cached_val));
+                return Ok(Arc::clone(&cached.value));
             }
         }
 
         let val = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
 
-        let final_modified = std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(current_modified);
+        let (final_modified, final_len) = file_stamp(path);
 
-        *guard = Some((final_modified, path.to_path_buf(), Arc::clone(&val)));
+        *guard = Some(CacheEntry {
+            modified: final_modified,
+            len: final_len,
+            path: path.to_path_buf(),
+            value: Arc::clone(&val),
+        });
         Ok(val)
     }
 
@@ -120,10 +139,13 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         // A failed reload must not leave a previously valid value cached.
         *guard = None;
         let value = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
-        let modified = std::fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        *guard = Some((modified, path.to_path_buf(), Arc::clone(&value)));
+        let (modified, len) = file_stamp(path);
+        *guard = Some(CacheEntry {
+            modified,
+            len,
+            path: path.to_path_buf(),
+            value: Arc::clone(&value),
+        });
         Ok(value)
     }
 
@@ -145,16 +167,15 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
     {
         let mut guard = self.cache.write();
 
-        let current_modified = std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let (current_modified, current_len) = file_stamp(path);
 
-        let mut val = if let Some((cached_time, cached_path, cached_val)) = guard.as_ref() {
-            if cached_path == path
-                && *cached_time == current_modified
+        let mut val = if let Some(cached) = guard.as_ref() {
+            if cached.path == path
+                && cached.modified == current_modified
+                && cached.len == current_len
                 && current_modified != SystemTime::UNIX_EPOCH
             {
-                (**cached_val).clone()
+                (*cached.value).clone()
             } else {
                 self.read_from_disk(path, on_missing, heal_fn, strict_parse)?
             }
@@ -169,12 +190,15 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         }
         super::atomic_write_json_pretty(path, &val)?;
 
-        let final_modified = std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(current_modified);
+        let (final_modified, final_len) = file_stamp(path);
 
         let shared = Arc::new(val.clone());
-        *guard = Some((final_modified, path.to_path_buf(), Arc::clone(&shared)));
+        *guard = Some(CacheEntry {
+            modified: final_modified,
+            len: final_len,
+            path: path.to_path_buf(),
+            value: Arc::clone(&shared),
+        });
         Ok(val)
     }
 

@@ -274,8 +274,6 @@ pub(crate) enum Commands {
     SelectModel { model: String },
     /// Parallel deep scan of substrate home for local models
     DeepScan,
-    /// Autonomous web-scouting of open-source MCP servers
-    McpScout,
     /// Open-admit an MCP server (stdio command or HTTP URL) into ~/.susi/mcp_config.json
     #[command(name = "mcp-add")]
     McpAdd {
@@ -296,8 +294,6 @@ pub(crate) enum Commands {
     /// Measure real local inference latency/tokens-per-sec, and compare
     /// against a cloud endpoint if SUSI_BENCH_CLOUD_API_BASE is set
     Benchmark,
-    /// Native LLM reasoning accuracy evaluations (MMLU-lite)
-    Eval,
     /// Ingest a natural language intent into sovereign memory (evidence.json)
     Pulse {
         #[arg(trailing_var_arg = true)]
@@ -528,16 +524,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Models { .. }
         | Commands::OpenWeight { .. }
         | Commands::Frontier { .. }
-        | Commands::OpenRouter { .. }
-            if !matches!(
-                command,
-                Commands::Models {
-                    action: Some(model_cli::ModelCommands::Local)
-                }
-            ) =>
-        {
-            false
-        }
+        | Commands::OpenRouter { .. } => false,
         Commands::Extensions { .. } => false,
         Commands::Auto { .. }
         | Commands::Setup { .. }
@@ -644,12 +631,11 @@ pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
 }
 
 /// `susi models …`: only list, setup and bare `models` print the preferred
-/// coding model that auto-prefer writes. `models local` is a mission.
+/// coding model that auto-prefer writes.
 pub(crate) fn models_catalogs(action: Option<&model_cli::ModelCommands>) -> Catalogs {
     use model_cli::ModelCommands as M;
     match action {
         None | Some(M::List) | Some(M::Setup { .. }) => Catalogs::CODING_MODELS,
-        Some(M::Local) => Catalogs::ALL,
         Some(M::Doctor { .. })
         | Some(M::Configure { .. })
         | Some(M::Reset { .. })
@@ -731,7 +717,7 @@ pub(crate) fn mcp_catalogs(action: Option<&mcp_cli::McpCommands>) -> Catalogs {
 #[cfg(test)]
 mod tests {
     use super::{command_catalogs, command_skips_composition, Catalogs, Cli};
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     fn skips(args: &[&str]) -> bool {
         let cli = Cli::try_parse_from(args).unwrap();
@@ -889,7 +875,6 @@ mod tests {
             Catalogs::ALL,
             &[
                 &["susi", "auto", "prime"],
-                &["susi", "models", "local"],
                 &["susi", "automate", "x"],
                 &["susi", "install"],
                 &["susi", "gemi"],
@@ -914,9 +899,10 @@ mod tests {
         ] {
             assert!(skips(cmd), "{cmd:?} must skip composition");
         }
-        for cmd in [&["susi", "mcp", "serve"][..], &["susi", "models", "local"]] {
-            assert!(!skips(cmd), "{cmd:?} composes the substrate");
-        }
+        assert!(
+            !skips(&["susi", "mcp", "serve"]),
+            "mcp serve composes the substrate"
+        );
     }
 
     #[test]
@@ -983,5 +969,58 @@ mod tests {
             .unwrap()
             .command
             .is_some());
+    }
+
+    /// A four-question quiz, a swarm narration of a web scout, and a swarm
+    /// narration of the local model list are not commands. Listing local
+    /// weights stays on `deep-scan`; the coding-model catalog stays on
+    /// `models list`.
+    #[test]
+    fn narrated_scout_quiz_and_legacy_local_are_not_commands() {
+        for args in [
+            &["susi", "models", "local"][..],
+            &["susi", "os", "manage", "model", "local"],
+        ] {
+            assert!(
+                Cli::try_parse_from(args).is_err(),
+                "{args:?} must not parse"
+            );
+        }
+        for args in [&["susi", "eval"][..], &["susi", "mcp-scout"]] {
+            let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert!(cli.command.is_none(), "{args:?} must not be an OS command");
+            assert!(
+                super::super::intent_guard::refuse(
+                    &<Cli as CommandFactory>::command(),
+                    &cli.intent
+                )
+                .is_some(),
+                "{args:?} must not run as a mission"
+            );
+        }
+        assert!(Cli::try_parse_from(["susi", "deep-scan"])
+            .unwrap()
+            .command
+            .is_some());
+        assert!(Cli::try_parse_from(["susi", "models", "list"])
+            .unwrap()
+            .command
+            .is_some());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for rel in [
+            "crates/susi-gemi/src/eval.rs",
+            "crates/susi-gmcp/src/reflexes.rs",
+        ] {
+            assert!(
+                !root.join(rel).exists(),
+                "{rel} is a narrated or empty feature and must stay removed"
+            );
+        }
+        let bundled = std::fs::read_to_string(root.join("config/config.default.json"))
+            .unwrap_or_else(|e| panic!("read bundled config: {e}"));
+        assert!(
+            !bundled.contains("mcp_scout_pulse") && !bundled.contains("admin_pulses"),
+            "the bundled scout pulse must stay removed"
+        );
     }
 }

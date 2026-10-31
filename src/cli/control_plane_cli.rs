@@ -191,20 +191,10 @@ pub(crate) fn dispatch(
             framework_cli::execute(action, cwd)
         }));
     }
-    match &command {
-        Some(Commands::Models {
-            action: Some(model_cli::ModelCommands::Local),
-        }) => {
-            // Fall through to substrate boot + mission path in main.
-        }
-        Some(Commands::Models { .. }) => {
-            if let Some(Commands::Models { action }) = command {
-                return Ok(run_plane_cwd(ecosystem, |cwd| {
-                    model_cli::execute(action, cwd)
-                }));
-            }
-        }
-        _ => {}
+    if let Some(Commands::Models { action }) = command {
+        return Ok(run_plane_cwd(ecosystem, |cwd| {
+            model_cli::execute(action, cwd)
+        }));
     }
     if let Some(Commands::OpenWeight { action }) = command {
         return Ok(run_plane(ecosystem, || open_weight_cli::execute(action)));

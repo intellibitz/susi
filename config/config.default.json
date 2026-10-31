@@ -241,9 +241,6 @@
       "trust_score": 0.92
     }
   ],
-  "admin_pulses": {
-    "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them"
-  },
   "intent_classify": {
     "query_exact": [
       "identity",

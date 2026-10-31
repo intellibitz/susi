@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENTAIOSSURFACEF343-4",
+  "title": "Remove narrated and toy CLI features",
+  "goal": "susi eval scores four hardcoded questions as MMLU-lite. susi mcp-scout and susi models local ask the swarm to narrate a scout or a model list. An empty reflex registrar runs on every bootstrap. Those commands, the quiz module, the registrar, and the bundled scout pulse go away; deep-scan and models list stay.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--bin",
+      "susi",
+      "narrated_scout_quiz_and_legacy_local_are_not_commands"
+    ]
+  },
+  "created_by": "AGENTAIOSSURFACEF343",
+  "created_unix": 1793483735,
+  "closed": {
+    "at_unix": 1793486278,
+    "commit": "81997e7dbfddec0a26d572ecbc6cf906febfe62b",
+    "by": "AGENTAIOSSURFACEF343"
+  }
+}
