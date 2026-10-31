@@ -1,0 +1,25 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-2",
+  "title": "Warm release dependencies independently of coverage verdict",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "windows_release_cache"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793482407,
+  "closed": {
+    "at_unix": 1793482579,
+    "commit": "a48a4e3cf5eb7eccdde430948ee570c38b2167d2",
+    "by": "SUSICACHEREPAIR20261101"
+  }
+}
