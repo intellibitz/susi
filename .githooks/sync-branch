@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Mandate 49, sync after every feature: a commit on a feature branch is the
+# moment the branch catches up with origin/main, not only the claim and the
+# push. Called by post-commit. The merge is applied when it is clean; when it
+# conflicts it is aborted and the agent is told to merge now, while the
+# conflict is one commit small — never at push time, N commits later, with
+# every other agent's work piled on top. Silent and free when there is nothing
+# to do, and it never fails the caller: a commit is already made when it runs.
+#
+# It stays out of the way:
+#   - in the primary checkout (nobody works there; a marked cloud clone is a
+#     worker's own, scripts/cloud-session.sh), on main, or detached;
+#   - mid-merge, mid-rebase or mid-cherry-pick (the agent is resolving);
+#   - with unstaged changes to tracked files (a merge would touch them);
+#   - inside `workflow finish` (SUSI_SYNC_IN_FINISH=1: finish syncs itself,
+#     before the gate and before the push);
+#   - when origin cannot be reached (the push guard still refuses a branch
+#     that is behind, so nothing is lost, only deferred);
+#   - with SUSI_NO_BRANCH_SYNC=1 (a deliberately stale branch, or a test of
+#     another hook).
+# The merge commit it makes runs the usual hooks: commit-msg exempts a merge,
+# and post-merge keeps the primary current and seeds this worktree's target.
+[ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ] || exit 0
+[ "${SUSI_NO_BRANCH_SYNC:-0}" != 1 ] || exit 0
+[ "${SUSI_BRANCH_SYNC_ACTIVE:-0}" != 1 ] || exit 0
+# Hooks run with the calling worktree's git environment set; the merge below
+# is this worktree's own, discovered from its top level.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$top" || exit 0
+gitdir=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+if [ "$gitdir" = "$common" ]; then
+    { [ -x "$top/scripts/cloud-session.sh" ] && "$top/scripts/cloud-session.sh" >/dev/null 2>&1; } || exit 0
+fi
+branch=$(git symbolic-ref -q --short HEAD 2>/dev/null) || exit 0
+[ "$branch" != main ] || exit 0
+for state in MERGE_HEAD REBASE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+    [ ! -e "$gitdir/$state" ] || exit 0
+done
+[ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || exit 0
+git remote get-url origin >/dev/null 2>&1 || exit 0
+# main alone: one round trip, and nothing else this hook would read.
+git fetch --quiet origin main >/dev/null 2>&1 || exit 0
+target=$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null) || exit 0
+! git merge-base --is-ancestor "$target" HEAD 2>/dev/null || exit 0
+if SUSI_BRANCH_SYNC_ACTIVE=1 git merge --no-edit --quiet origin/main >/dev/null 2>&1; then
+    echo "sync-branch: $branch now contains origin/main ($(git rev-parse --short "$target"))" >&2
+    exit 0
+fi
+# A merge that stopped on conflicts is undone; the tree is as the commit left it.
+git merge --abort >/dev/null 2>&1 || git reset --merge >/dev/null 2>&1 || true
+cat >&2 <<MSG
+⚠️  sync-branch: origin/main moved and its merge into $branch conflicts.
+   Merge now, while the conflict is one commit small (Mandate 49: sync after every feature):
+   → git merge origin/main   # resolve, then: git commit   (a merge commit needs no Task: trailer)
+MSG
+exit 0

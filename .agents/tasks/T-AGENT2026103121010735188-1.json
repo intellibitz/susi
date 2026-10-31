@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT2026103121010735188-1",
+  "title": "Every commit on a feature branch catches up with origin/main when the merge is clean (post-commit branch sync)",
+  "goal": "Agents sync with remote main after every feature they commit, not only at claim and push: .githooks/sync-branch, called by post-commit, fetches origin and merges origin/main into the branch when that merge applies cleanly, and aborts and tells the agent to merge now when it conflicts. Never in the primary checkout, on main, mid-merge, in a dirty tree or inside workflow finish. Conflicts stay one commit small and sync-before-push is already satisfied at push time.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "sync_hooks",
+      "hooks_sync_branch"
+    ]
+  },
+  "created_by": "AGENT2026103121010735188",
+  "created_unix": 1793480526
+}
