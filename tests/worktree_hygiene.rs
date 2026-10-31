@@ -1,13 +1,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
-//! Worktree hygiene, through the real scripts.
+//! Worktree hygiene, through the real scripts and the binary.
 //!
-//! `scripts/prune-worktrees.sh` is only allowed to reclaim a worktree whose
-//! work cannot be lost — clean, and already contained in `origin/main` — and it
-//! must never remove another agent's. `scripts/susi-worktree.sh` must refuse to
-//! reuse a directory that belongs to a different agent, because two workers in
-//! one tree share one token and one branch.
+//! `susi workflow prune` (`scripts/prune-worktrees.sh` is its stub, which
+//! execs it) is only allowed to reclaim a worktree whose work cannot be lost —
+//! clean, and already contained in `origin/main` — and it must never remove
+//! another agent's. `scripts/susi-worktree.sh` must refuse to reuse a
+//! directory that belongs to a different agent, because two workers in one
+//! tree share one token and one branch.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,6 +38,9 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
+        // The scripts are stubs that exec `susi workflow prune` and the like:
+        // the binary under test, not whatever susi the host has installed.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env_remove("SUSI_HOME");
     for (k, v) in envs {
         cmd.env(k, v);
@@ -224,4 +228,108 @@ fn worktree_reuse_refuses_another_agents_directory() {
     );
     assert!(out.contains("already belongs to agent OTHERAGENT"), "{out}");
     assert!(out.contains("One worktree per worker"), "{out}");
+}
+
+/// `susi workflow prune` as the binary, with the stub out of the way: the same
+/// judgement, the same words, and a failed removal is a failed run.
+#[test]
+fn the_binary_prunes_as_the_script_did() {
+    let w = World::new("binary");
+    let runner = w.worktree("runner", "TEST", "finished");
+    let finished = w.worktree("finished", "TEST", "finished");
+    let dirty = w.worktree("dirty", "TEST", "dirty");
+    let other = w.worktree("other", "OTHER", "finished");
+    let susi = env!("CARGO_BIN_EXE_susi");
+    let (code, out) = run(&runner, susi, &["workflow", "prune"], &[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("reclaimable"), "{out}");
+    assert!(out.contains("uncommitted changes"), "{out}");
+    assert!(out.contains("another agent"), "{out}");
+    assert!(out.contains("dry-run"), "{out}");
+    assert!(finished.exists() && dirty.exists() && other.exists());
+    let (code, out) = run(&runner, susi, &["workflow", "prune", "--apply"], &[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!finished.exists(), "{out}");
+    assert!(dirty.exists() && other.exists() && runner.exists(), "{out}");
+    // A worktree whose directory is already gone from under git cannot be
+    // judged: it is kept as unreadable, the run still succeeds, and git's
+    // stale admin entry for it is pruned, as the script did on every run.
+    let gone = w.worktree("gone", "TEST", "finished");
+    std::fs::remove_dir_all(&gone).unwrap();
+    let (code, out) = run(&runner, susi, &["workflow", "prune"], &[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("unreadable"), "{out}");
+    let (_, listed) = run(&runner, "git", &["worktree", "list"], &[]);
+    assert!(
+        !listed.contains("gone"),
+        "the stale admin entry must be pruned: {listed}"
+    );
+    // --all reclaims the other agent's finished worktree too.
+    let (code, out) = run(
+        &runner,
+        susi,
+        &["workflow", "prune", "--apply", "--all"],
+        &[],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(!other.exists(), "{out}");
+    assert!(dirty.exists() && runner.exists());
+}
+
+/// The stub refuses an argument it does not know, as the script did, before
+/// it looks for a susi.
+#[test]
+fn the_prune_stub_refuses_an_unknown_argument() {
+    let w = World::new("usage");
+    let runner = w.worktree("runner", "TEST", "finished");
+    let (code, out) = run(&runner, &script("prune-worktrees.sh"), &["--force"], &[]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("usage: prune-worktrees.sh"), "{out}");
+}
+
+/// On Windows an installed `susi.exe` reclaims worktrees with no Git userland
+/// on PATH: only Git's `cmd` (git itself), System32 and the Windows
+/// directory. The bash version needed `awk`, `jq` and `cygpath` from Git's
+/// `usr/bin`. Returns at once where Git for Windows is not installed.
+#[test]
+fn the_prune_needs_no_git_userland_on_windows() {
+    let Ok(out) = Command::new("git").arg("--exec-path").output() else {
+        return;
+    };
+    let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let Some(git_root) = exec_path.ancestors().nth(3).map(Path::to_path_buf) else {
+        return;
+    };
+    if !git_root.join("cmd").join("git.exe").is_file() {
+        return; // not Git for Windows' layout
+    }
+    let windows = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let path = std::env::join_paths([
+        git_root.join("cmd"),
+        windows.join("System32"),
+        windows.clone(),
+    ])
+    .unwrap();
+    assert!(
+        !path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .contains("usr\\bin"),
+        "the narrowed PATH must not carry Git's userland: {path:?}"
+    );
+    let w = World::new("nouserland");
+    let runner = w.worktree("runner", "TEST", "finished");
+    let finished = w.worktree("finished", "TEST", "finished");
+    let dirty = w.worktree("dirty", "TEST", "dirty");
+    let (code, out) = run(
+        &runner,
+        env!("CARGO_BIN_EXE_susi"),
+        &["workflow", "prune", "--apply"],
+        &[("PATH", path.to_str().unwrap())],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(!finished.exists(), "{out}");
+    assert!(dirty.exists(), "{out}");
 }
