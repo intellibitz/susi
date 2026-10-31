@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT179339957248328-10",
+  "title": "Build the unsafe ratchet from its minimal comparator crate",
+  "goal": "Reduce source-change merge latency by building the unsafe-ratchet comparator without the full susi-gawd dependency graph while keeping parity with its tested comparator.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet"
+    ]
+  },
+  "created_by": "AGENT179339957248328",
+  "created_unix": 1793405113
+}
