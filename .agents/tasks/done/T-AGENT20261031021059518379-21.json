@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT20261031021059518379-21",
+  "title": "Overlap engine and harness builds",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "release_combined_build"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793468680,
+  "closed": {
+    "at_unix": 1793469102,
+    "commit": "58bdd9e1aa62f7931dba13034be27a244361c724",
+    "by": "AGENT20261031021059518379"
+  }
+}
