@@ -1909,3 +1909,53 @@ fn the_lockfile_carries_the_dependabot_fixed_zip_and_registry_candle() {
         "one tokenizers in the graph, the reason the candle patch existed"
     );
 }
+
+/// The release installer takes the tag's published binary for a host whose
+/// build would carry no accelerator (the CI leg built exactly that binary) and
+/// builds natively only for a GPU host or when the download cannot be trusted:
+/// on the CEO's Windows box the native CPU build of v0.21.28 took 12 minutes
+/// where the 88 MB asset downloads in one. The download is a shortcut to the
+/// same outcome, so every failure of it falls back to the build.
+#[test]
+fn release_sync_downloads_the_published_binary_and_falls_back_to_a_build() {
+    let script =
+        std::fs::read_to_string(workspace_root().join("scripts/susi-release-sync.sh")).unwrap();
+    for needle in [
+        "release_asset_name()",
+        "download_release_asset()",
+        "gh release download \"$tag\"",
+        "--pattern \"${asset}.sha256\"",
+        "sha256sum \"$dir/$asset\"",
+        "SUSI_RELEASE_BUILD",
+        "susi-windows-x86_64.exe",
+        "susi-linux-x86_64",
+        "susi-macos-aarch64",
+    ] {
+        assert!(
+            script.contains(needle),
+            "susi-release-sync.sh lacks {needle:?}"
+        );
+    }
+    let flow = script
+        .split("features=\"$(detect_features)\"")
+        .nth(1)
+        .expect("sync_release detects the features first");
+    let download = flow
+        .find("download_release_asset \"$tag\"")
+        .expect("then tries the download");
+    let build = flow
+        .find("build_tag \"$tag\" \"$features\"")
+        .expect("and still knows how to build");
+    assert!(
+        download < build,
+        "the download comes before the build it replaces"
+    );
+    assert!(
+        flow.contains("if [ -z \"$features\" ]"),
+        "only a build with no accelerator is replaced by the published asset"
+    );
+    assert!(
+        flow.contains("if [ -z \"$built\" ]"),
+        "a failed download falls back to the build"
+    );
+}

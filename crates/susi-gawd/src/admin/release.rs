@@ -382,8 +382,26 @@ impl SusiAdmin {
             // under the throwaway.
             let gate_home = workspace.join("target").join("susi-release-gate-home");
             let _ = std::fs::remove_dir_all(&gate_home);
-            std::fs::create_dir_all(gate_home.join(".susi"))
-                .map_err(|e| EaiError::io(format!("create release-gate scratch HOME: {e}")))?;
+            // Mirror `scripts/check-hermetic-tests.sh`: Windows tools and
+            // sccache resolve config under APPDATA/LOCALAPPDATA, which
+            // isolate_home re-points under gate_home — create those dirs
+            // before cargo runs or sccache panics with "Unable to get
+            // config directory".
+            for sub in [
+                gate_home.join(".susi"),
+                gate_home.join(".config"),
+                gate_home.join(".cache"),
+                gate_home.join("AppData").join("Roaming"),
+                gate_home.join("AppData").join("Local").join("temp"),
+                gate_home.join("AppData").join("Local").join("ort-cache"),
+            ] {
+                std::fs::create_dir_all(&sub).map_err(|e| {
+                    EaiError::io(format!(
+                        "create release-gate scratch HOME {}: {e}",
+                        sub.display()
+                    ))
+                })?;
+            }
             let real_home = env::var_os("USERPROFILE")
                 .or_else(|| env::var_os("HOME"))
                 .map(std::path::PathBuf::from)
@@ -400,6 +418,12 @@ impl SusiAdmin {
             let rustup_home = env::var_os("RUSTUP_HOME")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| real_home.join(".rustup"));
+            // Keep the machine sccache (and ONNX cache) off the throwaway
+            // home so a wrapper started under the real profile stays usable.
+            let sccache_dir = env::var_os("SCCACHE_DIR")
+                .or_else(|| env::var_os("SUSI_SCCACHE_DIR"))
+                .map(std::path::PathBuf::from);
+            let ort_cache = gate_home.join("AppData").join("Local").join("ort-cache");
             for args in workspace_test_commands() {
                 eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
                 let mut test_cmd = Command::new("cargo");
@@ -408,7 +432,13 @@ impl SusiAdmin {
                 scrub_instance_env(&mut test_cmd);
                 test_cmd
                     .env("CARGO_HOME", &cargo_home)
-                    .env("RUSTUP_HOME", &rustup_home);
+                    .env("RUSTUP_HOME", &rustup_home)
+                    .env("ORT_CACHE_DIR", &ort_cache)
+                    .env("TMP", gate_home.join("AppData").join("Local").join("temp"))
+                    .env("TEMP", gate_home.join("AppData").join("Local").join("temp"));
+                if let Some(ref dir) = sccache_dir {
+                    test_cmd.env("SCCACHE_DIR", dir);
+                }
                 let mut test = test_cmd
                     .stdout(std::process::Stdio::inherit())
                     .stderr(std::process::Stdio::inherit())
