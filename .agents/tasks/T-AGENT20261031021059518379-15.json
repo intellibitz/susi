@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261031021059518379-15",
+  "title": "Isolate lazy catalog test child homes",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "child_home_isolation",
+      "every_child_home_goes_through_isolate_home"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793463268
+}
