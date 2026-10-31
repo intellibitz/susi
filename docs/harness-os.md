@@ -55,8 +55,9 @@ Four invariants hold the model together:
   provider that states a call's cost (DeepInfra) has that figure, not the
   catalogue's, on the ledger row.
 - **A native worker.** [`worker.rs`](../crates/susi-harness/src/worker.rs) is an
-  in-process tool loop (`view_file`, `write_to_file`, `replace_file_content`,
-  `run_command`, `list_dir`), 25 turns, sanitized paths. It is the only
+  in-process tool loop (`view_file`, `write_to_file`, `append_to_file`,
+  `replace_file_content`, `run_command`, `list_dir`), 25 turns, sanitized
+  paths. It is the only
   executor: there is no external agent runtime to start or select.
 - **Isolation.** Every task gets a worktree, a claimed task id and a scope; the
   adapter lands it through the repository's own `workflow finish`.

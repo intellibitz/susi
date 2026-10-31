@@ -396,6 +396,22 @@ Every task is a real task in the queue: its own worktree, its own claim, its own
 acceptance, its own pull request. The harness does not bypass the repository's
 rules; it makes them mechanical.
 
+### The worker's file tools
+
+A worker changes the workspace through six native tools, every path kept
+inside the worktree: `view_file`, `list_dir`, `run_command` (never a `susi`
+command: the harness owns claim, close, finish and sync), and three that write.
+`write_to_file` **creates** a file and refuses one that already exists, naming
+the two tools that change an existing file; `append_to_file` adds to the end of
+a file (a newline first when the file does not end in one, the file created
+when missing); `replace_file_content` swaps one exact substring that occurs
+once. The split exists because of a failure seen three times in one day: asked
+to add one test to a 13 000-line requirements file, a worker whose answer could
+carry 8 000 tokens wrote the file back as 200 lines, since overwriting was the
+only way it had to add. The adapter's prompt for `gmcp_req_` and `gmcp_vc_`
+tasks now says to append the test; the rejection of a test-count drop stays as
+the backstop.
+
 ## Draining the roadmap queue
 
 `susi harness plan` turns the queue into a mission that **claims existing

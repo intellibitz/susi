@@ -95,7 +95,7 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// The five native tools, all on [`Policy::Auto`].
+    /// The six native tools, all on [`Policy::Auto`].
     ///
     /// `run_command` is the sharpest of them and is kept automatic because the
     /// worker is headless: an `Ask` tool in a run with no operator would simply
@@ -119,12 +119,25 @@ impl Registry {
         ));
         registry.register(ToolSpec::native(
             "write_to_file",
-            "Create or overwrite a file in the workspace with content.",
+            "Create a new file in the workspace with content. Refuses a path that already exists: add to an existing file with append_to_file, or change part of it with replace_file_content.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Relative path to a file that does not exist yet" },
+                    "content": { "type": "string", "description": "Complete text of the new file" }
+                },
+                "required": ["path", "content"]
+            }),
+            Policy::Auto,
+        ));
+        registry.register(ToolSpec::native(
+            "append_to_file",
+            "Append content to the end of a workspace file (a newline is inserted first when the file does not end in one); creates the file when it is missing. The way to add a function or test to a large file.",
             json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Relative path to file in workspace" },
-                    "content": { "type": "string", "description": "Complete file text content" }
+                    "content": { "type": "string", "description": "Text to add at the end of the file" }
                 },
                 "required": ["path", "content"]
             }),
@@ -248,6 +261,7 @@ impl Registry {
         match name {
             "view_file" => tool_view_file(workspace, &args),
             "write_to_file" => tool_write_to_file(workspace, &args),
+            "append_to_file" => tool_append_to_file(workspace, &args),
             "replace_file_content" => tool_replace_file_content(workspace, &args),
             "run_command" => tool_run_command(workspace, &args),
             "list_dir" => tool_list_dir(workspace, &args),
@@ -334,6 +348,18 @@ fn tool_write_to_file(workspace: &Path, args: &Value) -> String {
         Ok(p) => p,
         Err(e) => return e,
     };
+    // Observed across three engine runs: a worker asked to add one test to a
+    // 13 000-line file wrote the file back as 200 lines, because overwriting
+    // was its only way to add to a file and its output cap could not carry
+    // the whole file. Creating is still this tool's; adding is append's.
+    if target_path.exists() {
+        return format!(
+            "refused: '{}' already exists, and write_to_file only creates files (overwriting a file \
+this call cannot reproduce in full loses the rest of it). To add to the end of it call \
+append_to_file; to change part of it call replace_file_content with the exact text to replace.",
+            path_str
+        );
+    }
     if let Some(parent) = target_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
             return format!("failed to create parent directories: {e}");
@@ -346,6 +372,52 @@ fn tool_write_to_file(workspace: &Path, args: &Value) -> String {
             path_str
         ),
         Err(e) => format!("failed to write to '{}': {e}", path_str),
+    }
+}
+
+fn tool_append_to_file(workspace: &Path, args: &Value) -> String {
+    let path_str = match args.get("path").and_then(Value::as_str) {
+        Some(p) => p,
+        None => return "missing 'path' argument".to_string(),
+    };
+    let content = match args.get("content").and_then(Value::as_str) {
+        Some(c) => c,
+        None => return "missing 'content' argument".to_string(),
+    };
+    let target_path = match sanitize_path(workspace, path_str) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if let Some(parent) = target_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            return format!("failed to create parent directories: {e}");
+        }
+    }
+    // The existing text, so the addition starts on a line of its own; a
+    // missing file is created, as a fresh file would be.
+    let existing = match fs::read(&target_path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return format!("failed to read '{}': {e}", path_str),
+    };
+    let mut addition = String::new();
+    if !existing.is_empty() && !existing.ends_with(b"\n") {
+        addition.push('\n');
+    }
+    addition.push_str(content);
+    let result = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&target_path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, addition.as_bytes()));
+    match result {
+        Ok(()) => format!(
+            "successfully appended {} bytes to '{}' ({} bytes before)",
+            content.len(),
+            path_str,
+            existing.len()
+        ),
+        Err(e) => format!("failed to append to '{}': {e}", path_str),
     }
 }
 
@@ -636,12 +708,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tool_registry_lists_the_five_native_tools() {
+    fn tool_registry_lists_the_six_native_tools() {
         let registry = Registry::builtin();
-        assert_eq!(registry.tools().len(), 5);
+        assert_eq!(registry.tools().len(), 6);
         for name in [
             "view_file",
             "write_to_file",
+            "append_to_file",
             "replace_file_content",
             "run_command",
             "list_dir",
@@ -649,7 +722,7 @@ mod tests {
             assert!(registry.get(name).is_some(), "{name} is missing");
         }
         let declarations = registry.declarations();
-        assert_eq!(declarations.as_array().unwrap().len(), 5);
+        assert_eq!(declarations.as_array().unwrap().len(), 6);
         assert_eq!(declarations[0]["type"], "function");
         assert!(declarations[0]["function"]["parameters"]["properties"]["path"].is_object());
     }
@@ -723,6 +796,85 @@ mod tests {
 
         let listed = registry.execute(&temp, "list_dir", "{}", &[]);
         assert!(listed.contains("test.txt"));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// A file that does not end in a newline gets one before the addition; one
+    /// that does gets the addition alone; a missing file is created. The
+    /// rest of the file is never touched: the tool exists so a worker can add
+    /// a test to a file far larger than its output can carry.
+    #[test]
+    fn tool_append_to_file_adds_to_the_end_and_creates_a_missing_file() {
+        let temp = std::env::temp_dir().join(format!("susi-tools-append-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).unwrap();
+        let registry = Registry::builtin();
+        let append = |path: &str, content: &str| {
+            registry.execute(
+                &temp,
+                "append_to_file",
+                &json!({"path": path, "content": content}).to_string(),
+                &[],
+            )
+        };
+
+        fs::write(temp.join("no-newline.rs"), "fn a() {}").unwrap();
+        let out = append("no-newline.rs", "fn b() {}\n");
+        assert!(out.contains("successfully appended 10 bytes"), "{out}");
+        assert_eq!(
+            fs::read_to_string(temp.join("no-newline.rs")).unwrap(),
+            "fn a() {}\nfn b() {}\n"
+        );
+
+        fs::write(temp.join("newline.rs"), "fn a() {}\n").unwrap();
+        append("newline.rs", "fn b() {}\n");
+        assert_eq!(
+            fs::read_to_string(temp.join("newline.rs")).unwrap(),
+            "fn a() {}\nfn b() {}\n",
+            "no blank line is inserted when the file already ends in a newline"
+        );
+
+        let out = append("new/dir/fresh.rs", "fn c() {}\n");
+        assert!(out.contains("(0 bytes before)"), "{out}");
+        assert_eq!(
+            fs::read_to_string(temp.join("new/dir/fresh.rs")).unwrap(),
+            "fn c() {}\n"
+        );
+
+        let out = append("../outside.rs", "x");
+        assert!(out.contains("traversal"), "{out}");
+        assert!(!temp.parent().unwrap().join("outside.rs").exists());
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// `write_to_file` creates; it never replaces a file that is there, and
+    /// its refusal names the two tools that change an existing file.
+    #[test]
+    fn tool_write_to_file_refuses_to_overwrite_and_names_the_alternatives() {
+        let temp =
+            std::env::temp_dir().join(format!("susi-tools-overwrite-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).unwrap();
+        let registry = Registry::builtin();
+        let write = |content: &str| {
+            registry.execute(
+                &temp,
+                "write_to_file",
+                &json!({"path": "big.rs", "content": content}).to_string(),
+                &[],
+            )
+        };
+        let first = write("fn one() {}\nfn two() {}\n");
+        assert!(first.contains("successfully wrote"), "{first}");
+        let second = write("fn two() {}\n");
+        assert!(second.starts_with("refused:"), "{second}");
+        assert!(second.contains("append_to_file"), "{second}");
+        assert!(second.contains("replace_file_content"), "{second}");
+        assert_eq!(
+            fs::read_to_string(temp.join("big.rs")).unwrap(),
+            "fn one() {}\nfn two() {}\n",
+            "the existing file is untouched"
+        );
         let _ = fs::remove_dir_all(&temp);
     }
 
