@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
-  "created_unix": 1793478616
+  "created_unix": 1793478616,
+  "closed": {
+    "at_unix": 1793480611,
+    "commit": "f807dee07080dce6771e00d67448427d5c1ff522",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
 }
