@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT20261031180943134219-1",
+  "title": "Close the five GitHub Dependabot alerts on zip by taking candle 0.11.1 from crates.io",
+  "goal": "GitHub flags five advisories (one critical: GHSA-m665-v7pm-7grj) against zip 8.6.0, pulled in only by candle-core, which the workspace patches to a candle git revision from 2026-09-21 because crates.io candle-core 0.11.0 wanted tokenizers 0.22. candle-core 0.11.1 on crates.io requires tokenizers ^0.23.1 and zip ^9.1.3, so the reason for the patch is gone: the five candle [patch.crates-io] entries go, susi-vendor-candle asks for 0.11.1, Cargo.lock resolves zip to 9.2.0 (>= 9.0.5, the fix for every alert) and deny.toml drops its three zip ignores. A test in tests/architecture_tests.rs pins the lockfile: zip at or above 9.0.5 and the candle crates from the registry.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "dependabot"
+    ]
+  },
+  "created_by": "AGENT20261031180943134219",
+  "created_unix": 1793454023,
+  "closed": {
+    "at_unix": 1793454387,
+    "commit": "94bf65cfde424290d0a6e6696d7a436049449889",
+    "by": "AGENT20261031180943134219"
+  }
+}
