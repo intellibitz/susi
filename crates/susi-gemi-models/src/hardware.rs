@@ -5,6 +5,108 @@ use std::sync::OnceLock;
 use susi_vendor_candle::candle_core;
 use susi_vendor_candle::candle_core::Device;
 
+/// Direct Win32 hardware probes (`kernel32.dll`) so Windows builds measure
+/// real physical/available RAM, pagefile swap, disk capacity/free space, and
+/// system uptime in microseconds without spawning PowerShell or returning
+/// hardcoded stubs.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod win32_hw {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+
+    #[repr(C)]
+    struct MemoryStatusEx {
+        dw_length: u32,
+        dw_memory_load: u32,
+        ull_total_phys: u64,
+        ull_avail_phys: u64,
+        ull_total_page_file: u64,
+        ull_avail_page_file: u64,
+        ull_total_virtual: u64,
+        ull_avail_virtual: u64,
+        ull_avail_extended_virtual: u64,
+    }
+
+    #[allow(non_snake_case)] // the Win32 spellings are the API contract
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GlobalMemoryStatusEx(buffer: *mut MemoryStatusEx) -> i32;
+        fn GetDiskFreeSpaceExW(
+            directory_name: *const u16,
+            free_bytes_available_to_caller: *mut u64,
+            total_number_of_bytes: *mut u64,
+            total_number_of_free_bytes: *mut u64,
+        ) -> i32;
+        fn GetTickCount64() -> u64;
+    }
+
+    /// Returns `(total_phys_bytes, avail_phys_bytes, total_page_file_bytes)`.
+    pub(super) fn memory_status() -> Option<(u64, u64, u64)> {
+        let mut status = MemoryStatusEx {
+            dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
+            dw_memory_load: 0,
+            ull_total_phys: 0,
+            ull_avail_phys: 0,
+            ull_total_page_file: 0,
+            ull_avail_page_file: 0,
+            ull_total_virtual: 0,
+            ull_avail_virtual: 0,
+            ull_avail_extended_virtual: 0,
+        };
+        // SAFETY: `status` is a live, writable `MemoryStatusEx` with `dw_length`
+        // initialized to its exact struct size as required by Win32.
+        if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 {
+            Some((
+                status.ull_total_phys,
+                status.ull_avail_phys,
+                status.ull_total_page_file,
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Returns `(free_bytes_available, total_bytes)` for the volume containing
+    /// `path` (or its nearest existing ancestor / current directory).
+    pub(super) fn disk_space(path: &Path) -> Option<(u64, u64)> {
+        let existing = path
+            .ancestors()
+            .find(|p| !p.as_os_str().is_empty() && p.exists())
+            .map(Path::to_path_buf)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\"));
+        let wide: Vec<u16> = existing
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut free_avail: u64 = 0;
+        let mut total_bytes: u64 = 0;
+        let mut total_free: u64 = 0;
+        // SAFETY: `wide` is a valid NUL-terminated UTF-16 path and the three
+        // out-pointers reference live stack `u64` variables.
+        if unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free_avail,
+                &mut total_bytes,
+                &mut total_free,
+            )
+        } != 0
+        {
+            Some((free_avail, total_bytes))
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn uptime_secs() -> u64 {
+        // SAFETY: `GetTickCount64` takes no arguments and has no preconditions.
+        unsafe { GetTickCount64() / 1000 }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareProfile {
     pub cpus: usize,
@@ -147,6 +249,13 @@ impl HardwareProfiler {
                     }
                 }
             }
+        } else if cfg!(target_os = "windows") {
+            if let Ok(id) = std::env::var("PROCESSOR_IDENTIFIER") {
+                let trimmed = id.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
         }
         "Generic Hardware Substrate".to_string()
     }
@@ -175,6 +284,14 @@ impl HardwareProfiler {
                 }
             }
         }
+        #[cfg(windows)]
+        {
+            let secs = win32_hw::uptime_secs();
+            let hours = secs / 3600;
+            let mins = (secs % 3600) / 60;
+            format!("up {} hours, {} minutes", hours, mins)
+        }
+        #[cfg(not(windows))]
         "N/A".to_string()
     }
 
@@ -215,7 +332,22 @@ impl HardwareProfiler {
         (256, 0)
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    fn get_disk_stats() -> (usize, u8) {
+        if let Some((free_bytes, total_bytes)) = win32_hw::disk_space(std::path::Path::new(".")) {
+            let used_bytes = total_bytes.saturating_sub(free_bytes);
+            let total_gb = (total_bytes / (1024 * 1024 * 1024)) as usize;
+            let usage_pct = if total_bytes > 0 {
+                ((used_bytes as f64 / total_bytes as f64) * 100.0) as u8
+            } else {
+                0
+            };
+            return (total_gb, usage_pct);
+        }
+        (256, 0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
     fn get_disk_stats() -> (usize, u8) {
         (256, 0)
     }
@@ -253,7 +385,12 @@ impl HardwareProfiler {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    pub fn get_free_disk_bytes(path: &std::path::Path) -> u64 {
+        win32_hw::disk_space(path).map_or(0, |(free, _)| free)
+    }
+
+    #[cfg(not(any(unix, windows)))]
     pub fn get_free_disk_bytes(_path: &std::path::Path) -> u64 {
         u64::MAX // Unknown on this platform - don't block downloads over it.
     }
@@ -437,6 +574,10 @@ impl HardwareProfiler {
                 }
             }
         }
+        #[cfg(windows)]
+        if let Some((total_phys, _, total_page)) = win32_hw::memory_status() {
+            return (total_page.saturating_sub(total_phys) / (1024 * 1024 * 1024)) as usize;
+        }
         0
     }
 
@@ -508,6 +649,13 @@ impl HardwareProfiler {
             }
             return 16;
         } else if cfg!(target_os = "windows") {
+            #[cfg(windows)]
+            if let Some((total_phys, _, _)) = win32_hw::memory_status() {
+                let gb = (total_phys / (1024 * 1024 * 1024)) as usize;
+                if gb > 0 {
+                    return gb;
+                }
+            }
             return 16;
         }
         8
@@ -557,23 +705,9 @@ impl HardwareProfiler {
                 return (pages.saturating_mul(page_size) / 1073741824) as usize;
             }
         }
-        if cfg!(target_os = "windows") {
-            if let Ok(output) = std::process::Command::new("powershell.exe")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory",
-                ])
-                .output()
-            {
-                if let Ok(kb) = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse::<u64>()
-                {
-                    return (kb / 1048576) as usize;
-                }
-            }
+        #[cfg(windows)]
+        if let Some((_, avail_phys, _)) = win32_hw::memory_status() {
+            return (avail_phys / (1024 * 1024 * 1024)) as usize;
         }
         0 // Unknown available memory must not authorize automatic downloads.
     }
@@ -983,5 +1117,24 @@ mod tests {
         let c = a.matmul(&b).unwrap();
         let result: Vec<Vec<f32>> = c.to_vec2().unwrap();
         assert_eq!(result, vec![vec![19., 22.], vec![43., 50.]]);
+    }
+
+    #[test]
+    fn test_native_host_memory_and_disk_telemetry_are_live() {
+        let total_ram = HardwareProfiler::determine_total_ram_gb();
+        let avail_ram = HardwareProfiler::determine_available_ram_gb();
+        assert!(total_ram > 0, "total RAM must be non-zero on a live host");
+        assert!(
+            avail_ram <= total_ram,
+            "available RAM ({avail_ram} GB) cannot exceed total RAM ({total_ram} GB)"
+        );
+        let free_disk = HardwareProfiler::get_free_disk_bytes(std::path::Path::new("."));
+        assert!(
+            free_disk > 0 && free_disk < u64::MAX,
+            "get_free_disk_bytes must return a real filesystem measurement, got {free_disk}"
+        );
+        let (disk_gb, usage_pct) = HardwareProfiler::get_disk_stats();
+        assert!(disk_gb > 0, "disk capacity must be non-zero");
+        assert!(usage_pct <= 100, "disk usage pct must be <= 100");
     }
 }
