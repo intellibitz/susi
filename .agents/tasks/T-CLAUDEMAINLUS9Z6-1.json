@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDEMAINLUS9Z6-1",
+  "title": "The worker gets an append tool, and write_to_file stops replacing existing files",
+  "goal": "Observed 2026-10-31 across three engine runs on T-CODEXGMCPROADMAP-83: every worker asked to append one test to tests/gmcp_requirements.rs (13,869 lines) replaced the file with ~200 lines, because the worker's only tools for changing a file are write_to_file (which creates or overwrites with complete content) and replace_file_content (an exact substring match that needs a unique anchor); with a worker output cap of 8,000 tokens (crates/susi-harness/src/worker.rs) no model can reproduce the file, so the honest path does not exist and the destructive one does. The adapter now rejects the result (test-count drop, net-deletion allowance), but a rejection is not a fix: the worker needs a way to add to a large file. In crates/susi-harness/src/tools.rs: (a) add a native tool append_to_file (path, content) that appends to an existing file, inserting a newline first when the file does not end in one, and creates the file when it is missing, under the same sanitize_path rule and Policy::Auto; (b) write_to_file refuses to overwrite a file that already exists and names append_to_file and replace_file_content in the refusal, so the model is steered rather than told no; creating a new file still works. (c) The adapter's prescriptive prompt for gmcp_req_/gmcp_vc_ tasks (crates/susi-harness/src/adapter.rs or wherever it lives) names append_to_file as the way to add the test. Tests in tools.rs cover the append on a file with and without a trailing newline, the create-when-missing path, the overwrite refusal and the traversal guard; docs/harness.md names the tools.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "tools"
+    ]
+  },
+  "created_by": "CLAUDEMAINLUS9Z6",
+  "created_unix": 1793422509
+}
