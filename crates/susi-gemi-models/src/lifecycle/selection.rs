@@ -434,26 +434,30 @@ impl ModelManager {
     }
 
     pub(crate) fn valid_tokenizer(path: &Path) -> bool {
-        type Entry = (u64, std::time::SystemTime, bool);
-        static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
         let Ok(meta) = path.metadata() else {
             return false;
         };
         let Ok(modified) = meta.modified() else {
             return false;
         };
-        let cache = CACHE.get_or_init(DashMap::new);
-        if let Some(entry) = cache.get(path) {
-            if entry.0 == meta.len() && entry.1 == modified {
-                return entry.2;
-            }
+        super::file_verdicts::remembered("tokenizer", path, (meta.len(), modified), || {
+            Self::judge_tokenizer(path)
+        })
+    }
+
+    /// Whether `path` parses as a tokenizer — `Tokenizer::from_file`, whose
+    /// read is one whole-file read, with the read and the parse told apart:
+    /// `None` when an I/O error ended the read (text that is not UTF-8 is the
+    /// file's own fault, a parse failure like `from_file` reports it).
+    fn judge_tokenizer(path: &Path) -> Option<bool> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Some(
+                text.parse::<susi_vendor_candle::tokenizers::Tokenizer>()
+                    .is_ok(),
+            ),
+            Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
+            Err(_) => None,
         }
-        let valid = susi_vendor_candle::tokenizers::Tokenizer::from_file(path).is_ok();
-        if cache.len() > 256 {
-            cache.clear();
-        }
-        cache.insert(path.to_path_buf(), (meta.len(), modified, valid));
-        valid
     }
 
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {

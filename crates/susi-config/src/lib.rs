@@ -143,9 +143,10 @@ pub use desired_state::{
 pub use explain::{explain_key, explain_key_global, ConfigLayer, ConfigOrigin, ExplainedSetting};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, clear_json_override,
-    confined_workspace_join, create_private_dir, install_private_file, load_or_create_secret,
-    merge_missing_json_defaults, merge_missing_registry_defaults, remove_file_if_present,
-    write_json_override, DynamicRegistry, DynamicValue, ModelTier, ProviderType, StringRegistry,
+    confined_workspace_join, create_private_dir, file_node, install_private_file,
+    load_or_create_secret, merge_missing_json_defaults, merge_missing_registry_defaults,
+    remove_file_if_present, write_json_override, DynamicRegistry, DynamicValue, ModelTier,
+    ProviderType, StringRegistry,
 };
 pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
 pub use rekey_schedule::{evaluate_rekey_policy, RekeyPolicy, RekeyReason, RekeyScheduleDecision};

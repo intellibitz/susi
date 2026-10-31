@@ -312,6 +312,30 @@ Exactly two process-entry assembly paths:
    rediscovery (the full snapshot), and CLI composition primes the catalogs
    the command reads (all of them for missions, `auto prime` and unclassified
    commands).
+   Only two
+   probes leave a record later processes reuse, each in the config dir: the
+   credential scout's interval (`credential_scout.last.json`: a set of keys is scouted
+   at most once per 300 s per host, held as one digest of host, vendors,
+   endpoints and key fingerprints, and only by a scout whose every probe got
+   an answer about the key; the entry carries each probe's liveness, status
+   and redacted detail in the set's sorted order, and a process inside the
+   interval replays them into its own eligibility store and its scout log
+   lines, so it holds the same evidence as one that probed, whatever became
+   of `cloud-eligibility.json`), and model-file verdicts
+   (`model_probe.cache.json`: keyed by path, size, mtime and file identity
+   (inode and change time on Unix, creation time on Windows) and tagged with
+   the binary's identity as the process started; a verdict an I/O error
+   ended, or a file written within 2 s, is never kept). Within a process,
+   `nvidia-smi`'s total GPU memory is kept once one is seen (never across
+   processes: a card can vanish without a reboot; no `nvidia-smi` or no
+   answer is asked again on every call — the residual window is a daemon
+   keeping a vanished eGPU's total for its life in `get_dynamic_device`; the
+   VRAM budget's fallback, when the live free query fails, asks for the
+   total afresh), and
+   `ensure_extensions_substrate` remembers its answer while a stat stamp
+   (each path stat'ed itself, never the directory listing's copy) of
+   everything it reads (extensions root and one level below) is unchanged,
+   and rewrites nothing that already holds the same bytes.
 2. **Daemon** — `SusiDaemon::run_daemon_loop` (cwd = substrate home) → lock →
    `wire_daemon_engine_hooks` (plane handlers + hooks, no discovery) → bind
    host-contract ports 9090–9094 → `register_contract_providers` (configured

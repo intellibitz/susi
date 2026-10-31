@@ -1173,3 +1173,203 @@ fn python_import_batch_reads_through_interpreter_noise() {
         Some(&NotImportable)
     );
 }
+
+/// A Python interpreter that runs, resolved as a preflight resolves one (a
+/// Windows host's `python3` may be the App Installer alias, which only
+/// prints that Python is not installed). `None` on a host without one: the
+/// tests that need a real interpreter say so and skip.
+fn working_python() -> Option<PathBuf> {
+    let found = ["python3", "python"]
+        .iter()
+        .filter_map(|name| catalog::resolve_program(name))
+        .find(|python| {
+            std::process::Command::new(python)
+                .args(["-c", "import sys"])
+                .output()
+                .is_ok_and(|out| out.status.success())
+        });
+    if found.is_none() {
+        eprintln!("skipped: no working Python interpreter on PATH");
+    }
+    found
+}
+
+/// Each module's own probe keeps only an answer the single probe run alone
+/// would give: the import succeeded, or the interpreter said the module is
+/// not installed. An import cut off at its bound, an interpreter cut down
+/// mid-run, one that cannot start, or an import that failed any other way
+/// (an installed module missing a dependency, or short of memory beside its
+/// neighbours) decides nothing, so the preflight runs that module's single
+/// probe by itself, as it always did.
+#[test]
+fn per_module_import_probes_keep_only_the_single_probes_answers() {
+    use catalog::ImportVerdict::{Importable, NotImportable};
+    let Some(python) = working_python() else {
+        return;
+    };
+    // The probe runs `import <module>`: statements after the name stand in
+    // for an import that never finishes, one whose interpreter is cut down,
+    // and one that exits with a failure of its own.
+    let hangs = "json; import time; time.sleep(30)".to_string();
+    let cut_down = if cfg!(windows) {
+        // STATUS_DLL_INIT_FAILED, as a busy Windows host ends a process.
+        "json; import os; os._exit(-1073741502)"
+    } else {
+        "json; import os, signal; os.kill(os.getpid(), signal.SIGKILL)"
+    }
+    .to_string();
+    let fails = "json; raise SystemExit(3)".to_string();
+    // An installed module whose own import misses a dependency.
+    let broken = "json; import susi_missing_dependency_xyz".to_string();
+    let modules = vec![
+        "json".to_string(),
+        "os.path".to_string(),
+        "susi_no_such_module_xyz".to_string(),
+        "os.susi_no_such_submodule_xyz".to_string(),
+        hangs.clone(),
+        cut_down.clone(),
+        fails.clone(),
+        broken.clone(),
+    ];
+    let started = std::time::Instant::now();
+    let verdicts =
+        catalog::probe_imports_each(&python, &modules, std::time::Duration::from_secs(3));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(28),
+        "the hanging import was cut off at its bound"
+    );
+    assert_eq!(verdicts.get("json"), Some(&Importable));
+    assert_eq!(verdicts.get("os.path"), Some(&Importable));
+    assert_eq!(
+        verdicts.get("susi_no_such_module_xyz"),
+        Some(&NotImportable)
+    );
+    assert_eq!(
+        verdicts.get("os.susi_no_such_submodule_xyz"),
+        Some(&NotImportable)
+    );
+    assert_eq!(
+        verdicts.get(&fails),
+        None,
+        "a failure of its own: left to the single probe"
+    );
+    assert_eq!(
+        verdicts.get(&broken),
+        None,
+        "a missing dependency: left to the single probe"
+    );
+    assert_eq!(
+        verdicts.get(&hangs),
+        None,
+        "cut off: left to the single probe"
+    );
+    assert_eq!(
+        verdicts.get(&cut_down),
+        None,
+        "cut down: left to the single probe"
+    );
+    assert!(
+        catalog::probe_imports_each(
+            Path::new("/no/such/python"),
+            &modules[..1],
+            std::time::Duration::from_secs(3)
+        )
+        .is_empty(),
+        "an interpreter that cannot start decides nothing: the single probe reports it"
+    );
+}
+
+/// A scan's preflights reach exactly the verdicts the single probe reaches
+/// outside a scan, whichever way the scan probed (one batch interpreter
+/// where `fork` exists, one interpreter per module elsewhere).
+#[test]
+fn a_scans_import_verdicts_are_the_single_probes() {
+    let Some(python) = working_python() else {
+        return;
+    };
+    let config =
+        std::env::temp_dir().join(format!("susi-pyimport-parity-{}.json", std::process::id()));
+    fs::write(&config, "{}").unwrap();
+    std::env::set_var("SUSI_PYIMPORT_PARITY_CONFIG", &config);
+    let adapter = |module: &str| Adapter::Python {
+        python: python.to_string_lossy().into_owned(),
+        import_name: module.into(),
+        config_env: "SUSI_PYIMPORT_PARITY_CONFIG".into(),
+    };
+    let adapters = vec![
+        adapter("json"),
+        adapter("susi_no_such_module_xyz"),
+        adapter("os.path"),
+        adapter("json; raise SystemExit(3)"),
+        adapter("json; import susi_missing_dependency_xyz"),
+    ];
+    let preflights = || {
+        adapters
+            .iter()
+            .map(|a| a.preflight().map(|_| ()).map_err(|e| e.to_string()))
+            .collect::<Vec<_>>()
+    };
+    let in_scan = catalog::with_python_imports(&adapters, preflights);
+    let alone = preflights();
+    std::env::remove_var("SUSI_PYIMPORT_PARITY_CONFIG");
+    let _ = fs::remove_file(&config);
+    assert_eq!(in_scan, alone);
+    assert!(in_scan[0].is_ok() && in_scan[2].is_ok(), "{in_scan:?}");
+    assert!(
+        in_scan[1].is_err() && in_scan[3].is_err() && in_scan[4].is_err(),
+        "{in_scan:?}"
+    );
+}
+
+/// Without `fork` there is no batch interpreter: a scan's imports are each
+/// probed in their own interpreter, several side by side, so the scan waits
+/// for about one import's time rather than the sum of them. Unix forks one
+/// batch interpreter instead
+/// (`python_imports_are_probed_in_one_interpreter_per_scan`). An import
+/// still running at [`catalog::SIDE_BY_SIDE_BOUND`] is cut there and left to
+/// its single probe, which gives it the whole per-import bound on its own:
+/// it costs the scan that short bound, never a second full one.
+#[test]
+#[cfg(not(unix))]
+fn without_fork_a_scans_imports_are_probed_side_by_side() {
+    use catalog::ImportVerdict::Importable;
+    let Some(python) = working_python() else {
+        return;
+    };
+    let bound = std::time::Duration::from_secs(30);
+    // Each import takes a second; one after another they take eight, and
+    // more for each interpreter start.
+    let modules: Vec<String> = (0..8)
+        .map(|i| format!("json; import time; time.sleep(1); x = {i}"))
+        .collect();
+    let alone = std::time::Instant::now();
+    assert_eq!(
+        catalog::probe_imports(&python, &modules[..1], bound).get(&modules[0]),
+        Some(&Importable)
+    );
+    let one = alone.elapsed();
+    let started = std::time::Instant::now();
+    let verdicts = catalog::probe_imports(&python, &modules, bound);
+    let elapsed = started.elapsed();
+    for module in &modules {
+        assert_eq!(verdicts.get(module), Some(&Importable), "{module}");
+    }
+    if std::thread::available_parallelism().map_or(1, |n| n.get()) >= 4 {
+        assert!(
+            elapsed < one * 6,
+            "the probes overlapped: {elapsed:?} for eight imports of {one:?} each"
+        );
+    }
+
+    // Twenty seconds would finish within the per-import bound; side by side
+    // it is cut at the short one and left to the single probe.
+    let slow = "json; import time; time.sleep(20)".to_string();
+    let started = std::time::Instant::now();
+    let verdicts = catalog::probe_imports(&python, std::slice::from_ref(&slow), bound);
+    assert_eq!(verdicts.get(&slow), None, "left to its single probe");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(18),
+        "cut at the side-by-side bound: {:?}",
+        started.elapsed()
+    );
+}

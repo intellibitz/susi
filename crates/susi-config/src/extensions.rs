@@ -333,6 +333,29 @@ pub(crate) fn write_private_file(path: &Path, contents: &str) -> Result<(), Stri
     super::json_util::atomic_write_bytes(path, contents.as_bytes()).map_err(|e| e.to_string())
 }
 
+/// [`write_private_file`], skipped when the file already holds exactly
+/// `contents`. The zero-config path re-derives the same bookkeeping on every
+/// catalog read, and rewriting identical bytes cost a synced temp file and a
+/// rename each time — hundreds per CLI command on Windows. What the rewrite
+/// did besides is kept: the parent is an owner-only directory, and on Unix
+/// the file is owner-only (0600) afterwards.
+fn write_private_file_if_changed(path: &Path, contents: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        private_dir(parent)?;
+    }
+    if std::fs::read(path).is_ok_and(|current| current == contents.as_bytes()) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o777 != 0o600) {
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+        return Ok(());
+    }
+    super::json_util::atomic_write_bytes(path, contents.as_bytes()).map_err(|e| e.to_string())
+}
+
 /// Pack state. Absent is the default state; damaged or unreadable is an
 /// error. Reading it as default made the next write reset the operator's
 /// active pack and re-load every pack they had unloaded.
@@ -347,9 +370,11 @@ fn read_state() -> Result<ExtensionsState, String> {
     }
 }
 
+/// Unchanged state is not rewritten: every catalog read re-derives it, and
+/// re-records a standing quarantine.
 fn write_state(state: &ExtensionsState) -> Result<(), String> {
     let text = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-    write_private_file(&state_path(), &format!("{text}\n"))
+    write_private_file_if_changed(&state_path(), &format!("{text}\n"))
 }
 
 /// Host manifest for seeded packs: all files live next to the manifest (no `../../`).
@@ -598,12 +623,151 @@ pub fn seed_default_pack() -> Result<PathBuf, String> {
         sync_file(name, &root.join(name), bytes, &mut next)?;
     }
     let digests_json = serde_json::to_string_pretty(&next).map_err(|e| e.to_string())?;
-    write_private_file(&digests_path, &format!("{digests_json}\n"))?;
+    write_private_file_if_changed(&digests_path, &format!("{digests_json}\n"))?;
     Ok(root)
 }
 
+/// The last [`ensure_extensions_substrate`] answer, with the
+/// [`substrate_stamp`] it was decided under.
+static ENSURE_MEMO: Mutex<Option<(String, ExtensionPack)>> = Mutex::new(None);
+
+/// How long after its last modification an entry's stamp is trusted.
+/// Filesystem timestamps are coarse (a clock tick on NTFS and Linux, two
+/// seconds on FAT): a second write of the same size within one tick leaves
+/// size and modification time as they were.
+const STAMP_RACY_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Everything [`ensure_extensions_substrate`] reads, as stat facts taken at
+/// `now`: where the extensions root is, the forced pack id, and the name,
+/// kind, size, modification time and [`file_node`](crate::file_node) (through
+/// a link, as the decision reads it) of every entry in the root and in each
+/// directory directly under it — so a file replaced by another of the same
+/// size with its mtime restored still changes the stamp.
+/// The default pack's files, each pack's `manifest.json` and the state file
+/// all sit at that depth, so while the stamp is unchanged a fresh decision
+/// reads the same bytes, picks the same pack and writes nothing. `None` when
+/// a directory cannot be listed, or an entry was modified less than
+/// [`STAMP_RACY_WINDOW`] before `now` (or after it): its size and time may
+/// not yet show every write.
+fn substrate_stamp(now: std::time::SystemTime) -> Option<String> {
+    /// One entry's line, and whether it is a directory.
+    fn fact(
+        name: &str,
+        entry: &std::fs::DirEntry,
+        now: std::time::SystemTime,
+    ) -> Option<(String, bool)> {
+        // Stat the path itself, never `DirEntry::metadata`: on Windows that
+        // is the directory listing's copy of the facts, which NTFS does not
+        // refresh for a write made through another hard link of the file
+        // (or while a writer still holds it open). Following a link here
+        // also reads what the decision reads.
+        let meta = std::fs::metadata(entry.path()).ok()?;
+        let modified = meta.modified().ok()?;
+        if !now
+            .duration_since(modified)
+            .is_ok_and(|age| age >= STAMP_RACY_WINDOW)
+        {
+            return None;
+        }
+        let nanos = modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let line = format!(
+            "{name}|{}|{}|{nanos}|{}",
+            meta.is_dir(),
+            meta.len(),
+            super::json_util::file_node(&meta)
+        );
+        Some((line, meta.is_dir()))
+    }
+    let root = extensions_root();
+    let mut lines = vec![
+        format!("root|{}", root.display()),
+        format!("forced|{:?}", std::env::var_os("SUSI_EXTENSION_PACK")),
+    ];
+    for entry in std::fs::read_dir(&root).ok()? {
+        let entry = entry.ok()?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let (line, is_dir) = fact(&name, &entry, now)?;
+        lines.push(line);
+        if is_dir {
+            for child in std::fs::read_dir(entry.path()).ok()? {
+                let child = child.ok()?;
+                let child_name = format!("{name}/{}", child.file_name().to_string_lossy());
+                lines.push(fact(&child_name, &child, now)?.0);
+            }
+        }
+    }
+    lines.sort();
+    Some(lines.join("\n"))
+}
+
 /// Zero-config entry: create extensions root, seed default, ensure state, return active pack.
+///
+/// Every catalog read comes through here, several times per read, so the
+/// answer is remembered for as long as [`substrate_stamp`] — everything the
+/// decision reads — is unchanged, including by another process: an edit
+/// there makes the next call decide afresh. A decision that wrote anything,
+/// raced a writer or printed a warning is not remembered.
 pub fn ensure_extensions_substrate() -> Result<ExtensionPack, String> {
+    ensure_extensions_substrate_at(std::time::SystemTime::now())
+}
+
+/// [`ensure_extensions_substrate`], its stamps taken as at `now`.
+pub(crate) fn ensure_extensions_substrate_at(
+    now: std::time::SystemTime,
+) -> Result<ExtensionPack, String> {
+    let stamp = substrate_stamp(now);
+    if let Some(stamp) = &stamp {
+        let remembered = ENSURE_MEMO
+            .lock()
+            .as_ref()
+            .filter(|(seen, _)| seen == stamp)
+            .map(|(_, pack)| pack.clone());
+        if let Some(pack) = remembered {
+            // What a decision does besides reading: the directories it owns
+            // stay owner-only, and on Unix the files it writes stay 0600
+            // (a chmod changes neither size nor mtime, so the stamp misses it).
+            private_dir(&extensions_root())?;
+            private_dir(&extensions_root().join(DEFAULT_PACK_ID))?;
+            #[cfg(unix)]
+            for file in [
+                state_path(),
+                extensions_root()
+                    .join(DEFAULT_PACK_ID)
+                    .join(".bundled-digests.json"),
+            ] {
+                use std::os::unix::fs::PermissionsExt;
+                if std::fs::metadata(&file).is_ok_and(|m| m.permissions().mode() & 0o777 != 0o600) {
+                    let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
+                }
+            }
+            return Ok(pack);
+        }
+    }
+    let decided = decide_extensions_substrate();
+    if let (Ok((pack, true)), Some(before)) = (&decided, stamp) {
+        if substrate_stamp(now).as_ref() == Some(&before) {
+            *ENSURE_MEMO.lock() = Some((before, pack.clone()));
+        }
+    }
+    decided.map(|(pack, _)| pack)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Full decisions taken on this thread: what the remembered answer saves.
+    pub(crate) static ENSURE_DECISIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The decision itself, and whether its answer may be remembered: not when
+/// it printed a warning (the damaged state's fallback, a pack skipped),
+/// which every call prints until the operator acts, nor when the active
+/// pack is not a directory directly under the root, whose manifest the
+/// stamp does not cover.
+fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
+    #[cfg(test)]
+    ENSURE_DECISIONS.with(|n| n.set(n.get() + 1));
     private_dir(&extensions_root())?;
     seed_default_pack()?;
     let mut state = match read_state() {
@@ -612,12 +776,14 @@ pub fn ensure_extensions_substrate() -> Result<ExtensionPack, String> {
             // Zero-config must not brick on it, and must not overwrite it:
             // run on the seeded default pack until the operator repairs it.
             eprintln!("[extensions] {e}; using the default pack without rewriting state");
-            return Ok(ExtensionPack {
+            let pack = ExtensionPack {
                 id: DEFAULT_PACK_ID.to_string(),
                 root: extensions_root().join(DEFAULT_PACK_ID),
-            });
+            };
+            return Ok((pack, false));
         }
     };
+    let mut quiet = true;
     if !state.loaded.iter().any(|id| id == DEFAULT_PACK_ID) {
         state.loaded.push(DEFAULT_PACK_ID.to_string());
     }
@@ -642,6 +808,7 @@ pub fn ensure_extensions_substrate() -> Result<ExtensionPack, String> {
                 eprintln!(
                     "[extensions] skipping pack `{id}`: {e} (optional failure; core continues)"
                 );
+                quiet = false;
                 continue;
             }
             if state.unloaded.iter().any(|x| x == id) {
@@ -671,16 +838,23 @@ pub fn ensure_extensions_substrate() -> Result<ExtensionPack, String> {
         state.active = DEFAULT_PACK_ID.to_string();
     }
     write_state(&state)?;
-    Ok(ExtensionPack {
+    let mut parts = Path::new(&state.active).components();
+    let directly_under_root = matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    let pack = ExtensionPack {
         id: state.active.clone(),
         root: extensions_root().join(&state.active),
-    })
+    };
+    Ok((pack, quiet && directly_under_root))
 }
 
 /// Invalidate in-process pack caches after load/unload/seed.
 pub fn invalidate_extension_caches() {
     CACHE_GEN.fetch_add(1, Ordering::SeqCst);
     *CLOUD_VENDOR_CACHE.lock() = None;
+    *ENSURE_MEMO.lock() = None;
 }
 
 /// List installed / discoverable packs.

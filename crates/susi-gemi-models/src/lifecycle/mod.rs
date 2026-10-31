@@ -1,6 +1,7 @@
 //! Model lifecycle: catalogs of weights, downloads, and hardware provisioning.
 
 mod download_controller;
+mod file_verdicts;
 mod model_manager;
 mod provision;
 mod scan;
