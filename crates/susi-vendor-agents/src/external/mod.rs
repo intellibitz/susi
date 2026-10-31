@@ -122,6 +122,25 @@ pub struct AgentManager {
     poll_interval: std::time::Duration,
 }
 
+/// A Python framework cannot become ready without its configured file.
+/// Verbose scans still run every preflight to retain its full diagnostics.
+fn should_probe_readiness(adapter: &Adapter, verbose: bool) -> bool {
+    if verbose {
+        return true;
+    }
+    match adapter {
+        Adapter::Python { config_env, .. } => std::env::var(config_env).is_ok_and(|value| {
+            let path = Path::new(&value);
+            !value.trim().is_empty() && path.is_absolute() && path.is_file()
+        }),
+        Adapter::Command { .. }
+        | Adapter::Qwen { .. }
+        | Adapter::A2a { .. }
+        | Adapter::OpenHandsServer { .. }
+        | Adapter::Acp { .. } => true,
+    }
+}
+
 /// Execution-catalog entries whose task text is a search query or browsing
 /// instruction, not a code change: prepending the self-build contract would
 /// corrupt their input.
@@ -376,15 +395,20 @@ impl AgentManager {
         Ok(ready)
     }
 
-    /// The readiness scan itself, every catalog entry in rank order with its
-    /// Python imports probed in one interpreter: the ready entries, each also
-    /// handed to `register` as a capability. The caller owns the registry, so
-    /// a scan in a test registers nothing process-wide (it still seeds the
-    /// extension pack and reports each preflight failure to the error sink,
-    /// as every scan does).
+    /// Scan entries in rank order and register each ready capability. Python
+    /// entries without usable configuration are skipped unless verbose
+    /// diagnostics are requested; the remaining imports are probed together.
     fn scan_ready(
         &self,
         register: &mut dyn FnMut(crate::susi_core::registry::AgentCapability),
+    ) -> Result<Vec<serde_json::Value>> {
+        self.scan_ready_with_verbosity(register, std::env::var("SUSI_VERBOSE").is_ok())
+    }
+
+    fn scan_ready_with_verbosity(
+        &self,
+        register: &mut dyn FnMut(crate::susi_core::registry::AgentCapability),
+        verbose: bool,
     ) -> Result<Vec<serde_json::Value>> {
         let mut ready = Vec::new();
         let mut catalog = catalog(self.kind)?;
@@ -392,6 +416,7 @@ impl AgentManager {
         let defs: Vec<_> = catalog
             .into_iter()
             .filter_map(|def| self.adapter(&def.id).ok().map(|adapter| (def, adapter)))
+            .filter(|(_, adapter)| should_probe_readiness(adapter, verbose))
             .collect();
         let adapters: Vec<Adapter> = defs.iter().map(|(_, adapter)| adapter.clone()).collect();
         catalog::with_python_imports(&adapters, || {
