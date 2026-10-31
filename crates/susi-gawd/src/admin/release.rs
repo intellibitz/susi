@@ -420,6 +420,39 @@ fn blob_of_json(ws: &Path, body: &str) -> EaiResult<String> {
 }
 
 impl SusiAdmin {
+    /// Why a `--cut` of `level` must not start, or `None`: asked before
+    /// anything else runs (the CLI calls it before it starts the daemon), so
+    /// a refused cut costs a `git ls-remote`, not a daemon and a gate. The
+    /// version is released or has an open release pull request
+    /// ([`Self::release_already_cut`]), or another branch holds a live
+    /// reservation of it. This only reads: [`Self::execute_release`] still
+    /// takes the reservation, compare-and-swap, before its gate.
+    pub fn release_preflight(workspace: &Path, level: VersionBump) -> Option<String> {
+        let next = match Self::get_cargo_version(workspace)
+            .and_then(|current| Self::bump_version_string(&current, level))
+        {
+            Ok(next) => next,
+            Err(e) => return Some(format!("cannot work out the version to cut: {e}")),
+        };
+        if let Some(why) = Self::release_already_cut(workspace, &next) {
+            return Some(why);
+        }
+        let branch = git_out(workspace, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+        match remote_reservation(workspace, &reservation_ref(&next)) {
+            Ok((_, Some(held))) if held.branch != branch && held.expires_unix > unix_now() => {
+                Some(format!(
+                    "v{next} is being cut by {} on {} (reserved until unix {}): let that cut \
+                     merge, then cut the next version",
+                    held.agent, held.branch, held.expires_unix
+                ))
+            }
+            Ok(_) => None,
+            Err(e) => Some(format!("could not read the reservation of v{next}: {e}")),
+        }
+    }
+}
+
+impl SusiAdmin {
     /// The release gate, and for `--cut` the version bump and its push.
     ///
     /// A cut first reserves the version it will make
@@ -950,6 +983,9 @@ impl SusiAdmin {
     }
 }
 
+/// Prepares an E2E check's working directory (a fixture repository).
+pub type E2eSetup = fn(&Path) -> std::io::Result<()>;
+
 /// One end-to-end expectation on the freshly built binary. Deterministic and
 /// offline by construction: a scratch HOME (no keys, no daemon, no real state)
 /// and only commands that answer locally. Add a check when a release ships
@@ -965,6 +1001,9 @@ pub struct E2eCheck {
     /// The command must leave the working directory empty (a refused command
     /// must not have started a mission or written evidence).
     pub leaves_no_files: bool,
+    /// Prepares the working directory before the command runs (a fixture
+    /// repository); `None` leaves it empty.
+    pub setup: Option<E2eSetup>,
 }
 
 /// What the built binary must do on its own newest behaviour.
@@ -978,6 +1017,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         stdout_has: &["\"task_class\": \"code\""],
         stderr_has: &[],
         leaves_no_files: true,
+        setup: None,
     },
     E2eCheck {
         name: "brain status reports ranking, budget and routing state",
@@ -993,6 +1033,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         ],
         stderr_has: &[],
         leaves_no_files: true,
+        setup: None,
     },
     E2eCheck {
         name: "ecosystem scan reports engines and accelerators",
@@ -1001,6 +1042,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         stdout_has: &["\"engines\"", "\"accelerators\"", "\"hardware\""],
         stderr_has: &[],
         leaves_no_files: true,
+        setup: None,
     },
     E2eCheck {
         name: "tasks lists an empty queue even with no git remote",
@@ -1009,6 +1051,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         stdout_has: &["\"open\": []", "claims_note"],
         stderr_has: &[],
         leaves_no_files: true,
+        setup: None,
     },
     E2eCheck {
         name: "workflow check refuses a non-worktree and prints the fixes",
@@ -1017,6 +1060,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         stdout_has: &["own worktree", "scripts/setup-dev.sh", "not ready"],
         stderr_has: &[],
         leaves_no_files: true,
+        setup: None,
     },
     E2eCheck {
         name: "a flag-shaped typo is refused, not run as a mission",
@@ -1025,6 +1069,7 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         stdout_has: &[],
         stderr_has: &["looks like a command", "susi admin release"],
         leaves_no_files: true,
+        setup: None,
     },
     E2eCheck {
         name: "a nested command word is refused with a path hint",
@@ -1033,8 +1078,93 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         stdout_has: &[],
         stderr_has: &["susi ecosystem scan"],
         leaves_no_files: true,
+        setup: None,
+    },
+    E2eCheck {
+        name: "a release cut of an already tagged version is refused before anything runs",
+        args: &["admin", "release", "--cut", "patch"],
+        exit: 1,
+        stdout_has: &[],
+        stderr_has: &["Release refused", "v1.2.4 is already tagged on origin"],
+        leaves_no_files: false,
+        setup: Some(e2e_fixture_tagged),
+    },
+    E2eCheck {
+        name: "a release cut of a version another branch reserved is refused",
+        args: &["admin", "release", "--cut", "patch"],
+        exit: 1,
+        stdout_has: &[],
+        stderr_has: &["Release refused", "v1.2.4 is being cut by", "cut-v1.2.4"],
+        leaves_no_files: false,
+        setup: Some(e2e_fixture_reserved),
     },
 ];
+
+/// `git <args>` in `dir` for an E2E fixture, with the fixture's own identity
+/// and no signing (a check runs under a scratch HOME with no git config).
+fn e2e_git(dir: &Path, args: &[&str]) -> std::io::Result<String> {
+    let out = Command::new("git")
+        .args(["-c", "user.name=e2e", "-c", "user.email=e2e@localhost"])
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()?;
+    if !out.status.success() {
+        return Err(std::io::Error::other(format!(
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// A clone at version 1.2.3 on branch `agent-e2e`, whose `origin` is a bare
+/// repository beside it (`../origin.git`): what `--cut patch` (to 1.2.4)
+/// reads.
+fn e2e_fixture_release_repo(cwd: &Path) -> std::io::Result<()> {
+    let origin = cwd.with_file_name("origin.git");
+    std::fs::create_dir_all(&origin)?;
+    e2e_git(&origin, &["init", "--quiet", "--bare", "-b", "main"])?;
+    e2e_git(cwd, &["init", "--quiet", "-b", "agent-e2e"])?;
+    std::fs::write(
+        cwd.join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"1.2.3\"\nedition = \"2021\"\n",
+    )?;
+    e2e_git(cwd, &["add", "Cargo.toml"])?;
+    e2e_git(cwd, &["commit", "--quiet", "-m", "fixture"])?;
+    e2e_git(cwd, &["remote", "add", "origin", &origin.to_string_lossy()])?;
+    e2e_git(cwd, &["push", "--quiet", "origin", "HEAD:refs/heads/main"])?;
+    Ok(())
+}
+
+/// Origin already carries the tag of the version the cut would make.
+fn e2e_fixture_tagged(cwd: &Path) -> std::io::Result<()> {
+    e2e_fixture_release_repo(cwd)?;
+    e2e_git(cwd, &["tag", "v1.2.4"])?;
+    e2e_git(cwd, &["push", "--quiet", "origin", "refs/tags/v1.2.4"])?;
+    Ok(())
+}
+
+/// Another branch holds a live reservation of the version the cut would make.
+fn e2e_fixture_reserved(cwd: &Path) -> std::io::Result<()> {
+    e2e_fixture_release_repo(cwd)?;
+    let record = CutReservation {
+        version: "1.2.4".into(),
+        agent: "OTHERAGENT".into(),
+        branch: "cut-v1.2.4".into(),
+        claimed_unix: unix_now(),
+        expires_unix: unix_now() + 3_600,
+    };
+    let body = serde_json::to_string(&record).map_err(std::io::Error::other)?;
+    let blob = blob_of_json(cwd, &body).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let name = reservation_ref("1.2.4");
+    e2e_git(
+        cwd,
+        &["push", "--quiet", "origin", &format!("{blob}:{name}")],
+    )?;
+    Ok(())
+}
 
 /// One E2E check's `susi` run: `args` in `cwd`, under `home` as its whole
 /// home.
@@ -1105,6 +1235,14 @@ impl SusiAdmin {
                         let cwd = root.join("cwd");
                         std::fs::create_dir_all(&home)?;
                         std::fs::create_dir_all(&cwd)?;
+                        if let Some(setup) = check.setup {
+                            setup(&cwd).map_err(|e| {
+                                EaiError::process(format!(
+                                    "Release aborted: e2e check `{}` could not set up: {e}",
+                                    check.name
+                                ))
+                            })?;
+                        }
                         let out =
                             e2e_command(susi_bin, check.args, &home, &cwd, ceiling).output()?;
                         let files: Vec<String> = std::fs::read_dir(&cwd)?
@@ -1355,6 +1493,7 @@ mod tests {
             stdout_has: &["ok"],
             stderr_has: &["warn"],
             leaves_no_files: true,
+            setup: None,
         }
     }
 
