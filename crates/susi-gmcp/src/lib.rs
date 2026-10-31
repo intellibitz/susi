@@ -51,8 +51,6 @@ pub mod stdio;
 pub mod tool_registry;
 pub mod tool_types;
 pub mod tools;
-pub mod zc_mcp_autoinstall;
-pub mod zc_mcp_import;
 
 use std::path::Path;
 
@@ -68,10 +66,6 @@ impl GmcpHost {
     }
 }
 
-#[cfg(test)]
-mod eco_mcp_auth;
-#[cfg(test)]
-mod eco_mcp_features;
 #[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
