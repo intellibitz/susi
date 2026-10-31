@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEFERVENTRIDESQGBAE-2",
+  "title": "Port scripts/prune-worktrees.sh into susi workflow prune",
+  "goal": "Reclaiming finished agent worktrees is susi workflow prune (Rust, existing) alone: scripts/prune-worktrees.sh is a stub that execs susi so docs and branches cut before the port keep working; the Rust prune exits non-zero when a removal failed and prunes git's stale admin entries on every run, as the script did; tests/worktree_hygiene.rs pins the behaviour through the stub and the binary, and a Windows test runs with Git's usr/bin off PATH",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "worktree_hygiene"
+    ]
+  },
+  "created_by": "CLAUDEFERVENTRIDESQGBAE",
+  "created_unix": 1793474124
+}
