@@ -78,6 +78,57 @@ fn find_cuda_toolkit_root() -> Option<PathBuf> {
     None
 }
 
+fn find_msvc_cl_dir() -> Option<PathBuf> {
+    if !cfg!(target_os = "windows") {
+        return None;
+    }
+    let mut candidates = Vec::new();
+    for root in [
+        r"C:\Program Files (x86)\Microsoft Visual Studio",
+        r"C:\Program Files\Microsoft Visual Studio",
+    ] {
+        let Ok(years) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for year in years.flatten() {
+            let Ok(editions) = std::fs::read_dir(year.path()) else {
+                continue;
+            };
+            for edition in editions.flatten() {
+                let msvc_dir = edition.path().join("VC/Tools/MSVC");
+                let Ok(versions) = std::fs::read_dir(msvc_dir) else {
+                    continue;
+                };
+                for ver in versions.flatten() {
+                    let bin = ver.path().join("bin/Hostx64/x64");
+                    if bin.join("cl.exe").is_file() {
+                        candidates.push(bin);
+                    }
+                }
+            }
+        }
+    }
+    candidates.sort();
+    candidates.pop()
+}
+
+/// Ensures MSVC `CL` carries `/Zc:preprocessor` (required by CUDA 13.4 CCCL
+/// headers) and `/MD` (matches Rust's dynamic CRT so `candle-kernels` static
+/// objects link without `LNK2038` runtime-library mismatch).
+fn msvc_cuda_cl_flags(existing: Option<&str>) -> String {
+    let mut parts: Vec<String> = existing
+        .unwrap_or("")
+        .split_whitespace()
+        .map(ToString::to_string)
+        .collect();
+    for flag in ["/Zc:preprocessor", "/MD"] {
+        if !parts.iter().any(|p| p.eq_ignore_ascii_case(flag)) {
+            parts.push(flag.to_string());
+        }
+    }
+    parts.join(" ")
+}
+
 fn detect_gpu_features() -> (Vec<String>, Option<String>, Option<PathBuf>) {
     let mut args = Vec::new();
     let mut cudarc_ver = None;
@@ -196,6 +247,12 @@ fn main() {
             if root.join("bin/x64").is_dir() {
                 paths.push(root.join("bin/x64"));
             }
+            if cfg!(target_os = "windows") {
+                if let Some(cl_dir) = find_msvc_cl_dir() {
+                    paths.push(cl_dir);
+                }
+                cmd.env("CL", msvc_cuda_cl_flags(env::var("CL").ok().as_deref()));
+            }
             if let Some(existing) = env::var_os("PATH") {
                 paths.extend(env::split_paths(&existing));
             }
@@ -239,11 +296,25 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_dev_setup_in, with_detected_features};
+    use super::{ensure_dev_setup_in, msvc_cuda_cl_flags, with_detected_features};
     use std::process::Command;
 
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn msvc_cuda_cl_flags_preserves_existing_and_adds_required() {
+        assert_eq!(msvc_cuda_cl_flags(None), "/Zc:preprocessor /MD");
+        assert_eq!(msvc_cuda_cl_flags(Some("")), "/Zc:preprocessor /MD");
+        assert_eq!(
+            msvc_cuda_cl_flags(Some("/W3 /Zc:preprocessor")),
+            "/W3 /Zc:preprocessor /MD"
+        );
+        assert_eq!(
+            msvc_cuda_cl_flags(Some("/md /Zc:preprocessor")),
+            "/md /Zc:preprocessor"
+        );
     }
 
     #[test]
