@@ -80,7 +80,6 @@ pub mod brain_gap_e2e;
 pub mod brain_gap_publish;
 pub mod brain_gap_tasks;
 pub mod brain_gap_triggers;
-pub mod brain_status;
 pub mod capacity_limits;
 pub mod changelog_from_tasks;
 pub mod cloud_brain_wiring;

@@ -322,7 +322,6 @@ debug = "line-tables-only"
 # speed (tantivy store) pays for it.
 [profile.dev.package]
 "*" = { opt-level = 3 }
-headless_chrome = { opt-level = 0 }
 zstd-sys = { opt-level = 1 }
 async-trait = { opt-level = 0 }
 bon-macros = { opt-level = 0 }
@@ -331,7 +330,6 @@ clap_derive = { opt-level = 0 }
 curve25519-dalek-derive = { opt-level = 0 }
 displaydoc = { opt-level = 0 }
 futures-macro = { opt-level = 0 }
-multiversion-macros = { opt-level = 0 }
 pin-project-internal = { opt-level = 0 }
 prost-derive = { opt-level = 0 }
 rmcp-macros = { opt-level = 0 }

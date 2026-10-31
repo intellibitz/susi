@@ -5154,7 +5154,6 @@ dependencies = [
  "susi-tools",
  "susi-vendor-cloud",
  "susi-vendor-dashmap",
- "susi-vendor-ed25519-dalek",
  "susi-vendor-getrandom",
  "susi-vendor-hex",
  "susi-vendor-libc",
