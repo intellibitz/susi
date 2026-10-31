@@ -1006,5 +1006,21 @@ mod tests {
             .unwrap()
             .command
             .is_some());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for rel in [
+            "crates/susi-gemi/src/eval.rs",
+            "crates/susi-gmcp/src/reflexes.rs",
+        ] {
+            assert!(
+                !root.join(rel).exists(),
+                "{rel} is a narrated or empty feature and must stay removed"
+            );
+        }
+        let bundled = std::fs::read_to_string(root.join("config/config.default.json"))
+            .unwrap_or_else(|e| panic!("read bundled config: {e}"));
+        assert!(
+            !bundled.contains("mcp_scout_pulse") && !bundled.contains("admin_pulses"),
+            "the bundled scout pulse must stay removed"
+        );
     }
 }

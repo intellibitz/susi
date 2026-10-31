@@ -100,6 +100,32 @@ fn config_reload_bypasses_unchanged_mtime_without_rewriting() {
 }
 
 #[test]
+fn save_stays_visible_when_the_rewrite_keeps_its_mtime() {
+    use crate::SusiConfig;
+    let _env = crate::env_test_lock();
+    let dir = TestDir::new();
+    SusiConfig::default().save(&dir.0).unwrap();
+    let path = SusiConfig::get_config_path(&dir.0);
+    let before = SusiConfig::load(&dir.0).unwrap();
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    assert_ne!(before.trust_level(), "paranoid");
+    let mut cfg = before;
+    cfg.settings
+        .insert("trust_level".into(), serde_json::json!("paranoid"));
+    cfg.save(&dir.0).unwrap();
+    // A coarse clock can publish this rewrite with the mtime the cache
+    // already stored. Put that stamp back so the assertion does not depend
+    // on the host moving the timestamp by itself.
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    assert_eq!(SusiConfig::load(&dir.0).unwrap().trust_level(), "paranoid");
+}
+
+#[test]
 fn load_arc_shares_cache_hit_without_cloning_value() {
     let dir = TestDir::new();
     let path = dir.0.join("config.json");

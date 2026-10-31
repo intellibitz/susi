@@ -241,7 +241,6 @@
       "trust_score": 0.92
     }
   ],
-  "admin_pulses": {},
   "intent_classify": {
     "query_exact": [
       "identity",

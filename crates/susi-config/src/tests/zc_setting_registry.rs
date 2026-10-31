@@ -43,8 +43,8 @@ fn zc_setting_registry_no_user_must_set() {
     }
     assert_eq!(
         SETTING_REGISTRY.len(),
-        68,
-        "bundled config has 68 top-level keys"
+        67,
+        "bundled config has 67 top-level keys"
     );
 }
 
