@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "WORKFLOWINERTTESTGATES",
-  "created_unix": 1793426444
+  "created_unix": 1793426444,
+  "closed": {
+    "at_unix": 1793426645,
+    "commit": "dff72ca2bf4c1672622f947511408962b7a10160",
+    "by": "WORKFLOWINERTTESTGATES"
+  }
 }
