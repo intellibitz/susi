@@ -256,6 +256,15 @@ fn run() -> std::process::ExitCode {
         .is_some_and(cli::defs::command_skips_composition);
     if skip_composition {
         // Lifecycle/status commands compose nothing (see the predicate).
+    } else if command
+        .as_ref()
+        .is_some_and(cli::defs::command_uses_release_composition)
+    {
+        // Retain the plane bus and hooks used by the release audit. The
+        // mission smoke checks run in separate children with full composition.
+        susi_daemon::boot_trace::phase("composition: release", || {
+            susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
+        });
     } else if matches!(
         command,
         Some(cli::defs::Commands::Mcp {

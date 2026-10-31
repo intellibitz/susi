@@ -615,6 +615,20 @@ pub(crate) fn command_skips_composition(command: &Commands) -> bool {
             | Commands::Stop
             | Commands::Restart
             | Commands::Status
+            | Commands::Audit {
+                action: Some(AuditCommands::Verify { .. } | AuditCommands::Query { .. }),
+            }
+    )
+}
+
+/// The release gate needs the plane bus and audit hooks, but not the CLI's
+/// background indexer or catalog discovery; smoke missions compose separately.
+pub(crate) fn command_uses_release_composition(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Admin {
+            subcommand: AdminCommands::Release { .. }
+        }
     )
 }
 
@@ -739,5 +753,36 @@ mod tests {
         for cmd in [&["susi", "mcp", "serve"][..], &["susi", "models", "local"]] {
             assert!(!skips(cmd), "{cmd:?} composes the substrate");
         }
+    }
+
+    #[test]
+    fn release_skips_cli_catalog_composition() {
+        for args in [
+            &["susi", "admin", "release"][..],
+            &["susi", "admin", "release", "--cut", "patch"],
+        ] {
+            let command = Cli::try_parse_from(args).unwrap().command.unwrap();
+            assert!(super::command_uses_release_composition(&command));
+            assert!(!command_skips_composition(&command));
+            assert!(super::command_requires_daemon(&command));
+        }
+        let audit = Cli::try_parse_from(["susi", "admin", "audit"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert!(!super::command_uses_release_composition(&audit));
+    }
+
+    #[test]
+    fn audit_file_commands_skip_composition() {
+        for args in [
+            &["susi", "audit", "verify"][..],
+            &["susi", "audit", "query", "--json"],
+        ] {
+            let command = Cli::try_parse_from(args).unwrap().command.unwrap();
+            assert!(command_skips_composition(&command));
+            assert!(!super::command_requires_daemon(&command));
+        }
+        assert!(!skips(&["susi", "audit"]));
     }
 }

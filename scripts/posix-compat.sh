@@ -51,7 +51,8 @@ if [ -n "${SUSI_FLOCK_SHIM:-}" ] || ! command -v flock >/dev/null 2>&1; then
             owner=$(cat "$dir/pid" 2>/dev/null) || owner=""
             if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
                 rm -f "$dir/pid"
-                rmdir "$dir" 2>/dev/null
+                # The owner can release it between our read and removal.
+                rmdir "$dir" 2>/dev/null || true
                 continue
             fi
             # A locker killed between mkdir and writing its pid leaves an empty
@@ -60,7 +61,8 @@ if [ -n "${SUSI_FLOCK_SHIM:-}" ] || ! command -v flock >/dev/null 2>&1; then
             # takes, an empty directory has no live owner.
             if [ -z "$owner" ] &&
                 [ $(($(date +%s) - $(stat -c %Y "$dir" 2>/dev/null || echo 0))) -ge "${SUSI_FLOCK_EMPTY_SECS:-5}" ]; then
-                rmdir "$dir" 2>/dev/null
+                # Another waiter or the owner may already have removed it.
+                rmdir "$dir" 2>/dev/null || true
                 continue
             fi
             [ "$nonblock" = 1 ] && return 1
