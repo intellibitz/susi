@@ -257,6 +257,36 @@ so the pre-push hook does not repeat clippy. These are source changes: a stale
 installed release does not gain the new task/release implementation until it
 is updated. No new complete finish or binary-release duration is claimed here.
 
+## Gate fixture and finish critical path (2026-10-31)
+
+The complete finish for PR #1112 took 353.6 s: lease 1 s, initial sync 9 s,
+gate 245 s, close 18 s, publication sync 17 s, push 37 s and release 12 s,
+plus bookkeeping. The gate passed 552 tests; its test execution took 157.6 s.
+This is the baseline for the next measurement, rather than a sub-60 claim.
+
+Git-heavy task fixtures now disable automatic maintenance in their disposable
+repositories. The pipeline-boundary fixture keeps real claim, close, release,
+overflow refusal and publication checks, while seeding intermediate accepted
+receipts in one atomic transaction. Its isolated execution fell from 103.6 s
+to 12.2 s. Native Git also handles queue relay operations on Windows. Local
+mirror changes use one Git transaction with expected old OIDs; a regression
+check proves a newer ref rejects the entire transaction without partial writes.
+
+Finish defers primary-checkout maintenance, skips duplicate target seeding and
+uses the push hook's authoritative fetch instead of a second full publication
+sync. If main advances during the gate, it integrates that fresh snapshot and
+retries the push once. Network failures, changed HEADs, merge conflicts and a
+failed optional regate still stop the operation. Normal sync reads its owned
+lease from the fetched agent index instead of invoking task listing and renewal
+unconditionally. The duplicate legacy definition that hid that path was removed.
+Hermetic runs print setup, build/test, doc-test and cleanup timings; their
+per-test output defaults to slow and failed results, retaining the full summary.
+
+The focused workflow checks, the pipeline-boundary fixture and the atomic
+mirror regression pass. A complete updated gate and finish measurement must
+still establish the end-to-end result. These source changes do not update an
+older installed release by themselves.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
