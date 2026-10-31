@@ -5,6 +5,9 @@
 #   ci-changed-crates.sh               the packages whose files the diff touched
 #   ci-changed-crates.sh --dependents  those plus every workspace package that
 #                                      depends on one of them, transitively
+#   ci-changed-crates.sh --plan        test:<package>, lint:<package>,
+#                                      root-package:<name>, root-test:<target>
+#                                      for one complete local gate selection
 #
 # Tests belong to the crate that changed; a compile break does not. A signature
 # change in susi-core leaves susi-core's own tests green and breaks whichever of
@@ -48,11 +51,15 @@ set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 with_dependents=0
+root_test_targets=0
+gate_plan=0
 case "${1:-}" in
     "") ;;
     --dependents) with_dependents=1 ;;
+    --root-test-targets) root_test_targets=1 ;;
+    --plan) gate_plan=1; with_dependents=1; root_test_targets=1 ;;
     *)
-        echo "usage: ci-changed-crates.sh [--dependents]" >&2
+        echo "usage: ci-changed-crates.sh [--dependents|--root-test-targets|--plan]" >&2
         exit 2
         ;;
 esac
@@ -78,16 +85,54 @@ changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
 # The task queue is inert at build time; see the header.
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
+# A top-level root integration-test-only diff can be linted by target. This is
+# deliberately a narrow opt-in result: any production/build input, deleted or
+# nested test target, or unrecognized path prints nothing so callers retain
+# their conservative all-targets path. Workflow/docs/task-only paths are inert
+# to Rust target compilation and may accompany a focused test edit.
+if [ "$root_test_targets" = 1 ]; then
+    repo_root=$(git rev-parse --show-toplevel)
+    target_tests=()
+    target_uncertain=0
+    while IFS= read -r f; do
+        case "$f" in
+            tests/*.rs)
+                name=${f#tests/}
+                case "$name" in */*) target_uncertain=1 ;; *)
+                    if [ -f "$repo_root/$f" ]; then
+                        target_tests+=("${name%.rs}")
+                    else
+                        target_uncertain=1
+                    fi
+                    ;;
+                esac
+                ;;
+            .agents/tasks/*|scripts/*|.github/*|docs/*|*.md) ;;
+            src/*|benches/*|examples/*|config/*|deploy/*) target_uncertain=1; break ;;
+            *)
+                # The gate can focus root tests alongside edits in other
+                # packages; their own tests and lint closure are listed below.
+                [ "$gate_plan" = 1 ] || { target_uncertain=1; break; }
+                ;;
+        esac
+    done <<<"$changed"
+    if [ "$gate_plan" != 1 ] && [ "$target_uncertain" = 0 ] && [ "${#target_tests[@]}" -gt 0 ]; then
+        printf '%s\n' "${target_tests[@]}" | sort -u
+    fi
+    [ "$gate_plan" = 1 ] || exit 0
+fi
+
 # A test-only diff cannot break the packages that consume this crate: the
 # branch gate runs clippy with --all-targets for the owning package, which
-# compiles its integration tests and dev-dependencies. Keep dependent closure
-# for any production/build/config input, where an API or generated output can
-# break a caller. Determine this before config/deploy paths are mapped to the
-# Rust sources that read them.
+# compiles its integration tests and dev-dependencies. Workflow, hook, task
+# queue, documentation, and script paths may accompany the test edit without changing
+# that conclusion. Keep dependent closure for any production/build/config
+# input, where an API or generated output can break a caller. Determine this
+# before config/deploy paths are mapped to the Rust sources that read them.
 test_only=1
 while IFS= read -r f; do
     case "$f" in
-        crates/*/tests/*|tests/*.rs) ;;
+        crates/*/tests/*|tests/*.rs|.agents/tasks/*|scripts/*|.github/*|.githooks/*|docs/*|*.md) ;;
         *) test_only=0; break ;;
     esac
 done <<<"$changed"
@@ -149,10 +194,21 @@ if grep -qx 'Cargo.lock' <<<"$changed"; then
     }
 fi
 
-meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
+if [ -n "${SUSI_CARGO_METADATA_FILE:-}" ]; then
+    meta=$(cat "$SUSI_CARGO_METADATA_FILE" 2>/dev/null) || {
+        echo ALL
+        exit 0
+    }
+else
+    meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
+        echo ALL
+        exit 0
+    }
+fi
+if [ -z "$meta" ]; then
     echo ALL
     exit 0
-}
+fi
 
 # name|crate-dir per workspace package.
 pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | gsub("\\\\"; "/") | sub("/Cargo.toml$"; ""))' <<<"$meta") || {
@@ -262,6 +318,7 @@ while IFS= read -r f; do
     seen[$best]=1
 done <<<"$changed"
 
+test_packages=("${!seen[@]}")
 if [ "$with_dependents" = 1 ] && [ "$test_only" = 0 ] && [ "${#seen[@]}" -gt 0 ]; then
     # dependent|dependency, restricted to edges between workspace packages. A
     # dependency's `name` is the package name, never a `package = ` rename.
@@ -287,6 +344,17 @@ if [ "$with_dependents" = 1 ] && [ "$test_only" = 0 ] && [ "${#seen[@]}" -gt 0 ]
     done
 fi
 
-for p in "${!seen[@]}"; do
-    echo "$p"
-done | sort
+if [ "$gate_plan" = 1 ]; then
+    # Resolve the local gate from one diff and one metadata snapshot. Keep test
+    # owners before growing the lint closure, and emit only after all reads pass.
+    {
+        printf 'root-package:%s\n' "$rootpkg"
+        for p in "${test_packages[@]}"; do printf 'test:%s\n' "$p"; done
+        for p in "${!seen[@]}"; do printf 'lint:%s\n' "$p"; done
+        if [ "$target_uncertain" = 0 ]; then
+            for p in "${target_tests[@]}"; do printf 'root-test:%s\n' "$p"; done
+        fi
+    } | sort -u
+else
+    for p in "${!seen[@]}"; do echo "$p"; done | sort
+fi

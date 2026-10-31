@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179338547544288-7",
+  "title": "A done mission must prove its work branch is on the remote",
+  "goal": "Observed: a mission reported done and pushed its close receipt while its work branch was never pushed - it was behind origin/main, and no step failed the task for it, so the accepted work sat only in the harness worktree. Before reporting a task done the adapter must sync the worktree and push the branch, and treat a refused push as the task's failure (the reason recorded), not as success; the receipt alone is not proof that the work is publishable.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179338547544288",
+  "created_unix": 1793416774
+}

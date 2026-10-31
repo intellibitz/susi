@@ -38,7 +38,7 @@ sync() {
     flock -u 9
     exec 9>&-
     git merge --no-edit origin/main
-    "$root/scripts/park-primary.sh" --sync-only || true
+    SUSI_PARK_REFS_FETCHED=1 "$root/scripts/park-primary.sh" --sync-only || true
     # The watcher is a background process that dies with its session, and the
     # primary then stops converging until someone notices. Every agent crosses
     # this boundary, so the loop heals it here. Non-fatal either way.
@@ -84,6 +84,19 @@ seed_own_target() {
 # no longer owned by anyone, and its work free for another agent to redo. A
 # lapsed lease is recoverable: take the same task back, keeping its scopes.
 renew_or_readopt() {
+    # A fresh claim normally has hours left. Extending it again on every finish
+    # costs a ref fetch, ownership lookup and push. Close and pre-push still
+    # validate remote ownership; this only avoids an unnecessary lease write.
+    local claim agent branch
+    claim=$(git cat-file -p "refs/claims/$task" 2>/dev/null || true)
+    agent=${SUSI_AGENT:-$(git config --get susi.agent || true)}
+    branch=$(git symbolic-ref -q --short HEAD || true)
+    if [ -n "$agent" ] && jq -e --arg agent "$agent" --arg branch "$branch" \
+        --argjson minimum "$(( $(date +%s) + 900 ))" \
+        '.agent == $agent and .branch == $branch and (.lease_until_unix // 0) > $minimum' \
+        <<<"$claim" >/dev/null 2>&1; then
+        return 0
+    fi
     "$susi_bin" tasks renew "$task" && return 0
     echo "claim on $task lapsed (a suspend or a very long gate); taking it back" >&2
     local -a scopes=()
@@ -95,6 +108,16 @@ renew_or_readopt() {
     # what --unscoped is for, since a scopeless claim cannot be enforced.
     [ "${#scopes[@]}" -gt 0 ] || scopes=(--unscoped)
     "$susi_bin" tasks claim "$task" "${scopes[@]}"
+}
+
+# Use the shell's clock so observing the stages adds no subprocess launches.
+timed_step() {
+    local label=$1 started=$SECONDS
+    shift
+    "$@"
+    local status=$?
+    echo "workflow: $label took $((SECONDS - started))s" >&2
+    return "$status"
 }
 
 # Renew the claims this agent holds. A size-l task runs past its lease, and an
@@ -221,58 +244,89 @@ gate_stamp() {
     } | git hash-object --stdin
 }
 
-# When the root package is in $pkgs solely because top-level `tests/<name>.rs`
-# integration test files changed (no `src/`, `benches/`, `examples/`, `config/`
-# or `deploy/` changes), prints the `<name>` targets one per line. Running all
-# 102 root integration test binaries when a task only touched one or two
-# `tests/*.rs` files held the local gate for ~15 minutes on Windows.
-root_only_test_targets() {
-    local rootpkg=$1 f name mb
-    [ -n "$rootpkg" ] || return 1
-    mb=$(git merge-base origin/main HEAD 2>/dev/null || echo origin/main)
-    local -a targets=()
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        case "$f" in
-        tests/*.rs)
-            name=${f#tests/}
-            case "$name" in */*) return 1 ;; esac
-            [ -f "$root/$f" ] || return 1
-            targets+=("${name%.rs}")
-            ;;
-        *)
-            return 1
-            ;;
-        esac
+# Refuse a diff that deletes tests.
+#
+# An engine worker satisfied a task's acceptance by overwriting
+# tests/gmcp_requirements.rs: one new #[test] kept, 75 requirement tests and
+# 13,764 lines gone. The acceptance passed (its one test ran), the gate passed
+# (the file compiled and linted), and the branch was pushed for auto-merge; no
+# CI job counts tests, so the merge would have been green. The gate now counts
+# the test attributes (`#[test]`, `#[tokio::test]`) in every .rs file this
+# branch changed against the merge base with origin/main, and refuses the diff
+# when the total fell: a test moved between changed files keeps the total, a
+# deleted one does not. Deleting a test on purpose is a decision an operator
+# makes in the open: SUSI_GATE_ALLOW_TEST_REMOVAL=1 lets the diff through, and
+# the refusal names the files so the override is never a guess.
+gate_tests_kept() {
+    local mb file before after total_before=0 total_after=0 dropped=
+    [ -n "${SUSI_GATE_ALLOW_TEST_REMOVAL:-}" ] && return 0
+    mb=$(git merge-base origin/main HEAD 2>/dev/null) || return 0
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        before=$(git show "$mb:$file" 2>/dev/null | grep -cE '^[[:space:]]*#\[(tokio::)?test([]\(]|$)' || true)
+        if [ -f "$file" ]; then
+            after=$(grep -cE '^[[:space:]]*#\[(tokio::)?test([]\(]|$)' "$file" || true)
+        else
+            after=0
+        fi
+        before=${before:-0}
+        after=${after:-0}
+        total_before=$((total_before + before))
+        total_after=$((total_after + after))
+        [ "$after" -lt "$before" ] && dropped="$dropped
+   $file: $before test(s) at the merge base, $after now"
     done < <(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
-        diff --no-renames --no-color --name-only "$mb" HEAD \
-        -- src tests benches examples config deploy 2>/dev/null | sort -u)
-    [ "${#targets[@]}" -gt 0 ] || return 1
-    printf '%s\n' "${targets[@]}"
+        diff --no-renames --no-color --name-only "$mb" HEAD -- '*.rs' 2>/dev/null | sort -u)
+    [ "$total_after" -lt "$total_before" ] || return 0
+    echo "❌ gate: this diff deletes tests — $total_before test(s) in the changed files at the merge base, $total_after now:$dropped" >&2
+    echo "   A change that makes an acceptance pass by removing other tests is refused. Deleting a test on purpose: SUSI_GATE_ALLOW_TEST_REMOVAL=1 susi workflow finish <id>" >&2
+    return 1
 }
 
 # The gate's cargo builds into this worktree's own target, made so first
 # (seed_own_target: a link to the old shared target is replaced), so plain cargo
 # judges this branch's code: no other worktree builds there, and there is no
 # shared target to lock or guard.
+resolve_gate_plan() {
+    local plan kind value
+    gate_pkgs= gate_lint= gate_root_tests= gate_rootpkg=
+    plan=$("$root/scripts/ci-changed-crates.sh" --plan)
+    if [ "$plan" = ALL ]; then
+        gate_pkgs=ALL
+        gate_lint=ALL
+        return
+    fi
+    while IFS=: read -r kind value; do
+        case "$kind" in
+        test) gate_pkgs+="$value"$'\n' ;;
+        lint) gate_lint+="$value"$'\n' ;;
+        root-test) gate_root_tests+="$value"$'\n' ;;
+        root-package) gate_rootpkg=$value ;;
+        "") ;;
+        *) gate_pkgs=ALL; gate_lint=ALL; gate_root_tests=; return ;;
+        esac
+    done <<<"$plan"
+    # Match command-substitution output used by existing package comparisons.
+    gate_pkgs=${gate_pkgs%$'\n'}
+    gate_lint=${gate_lint%$'\n'}
+    gate_root_tests=${gate_root_tests%$'\n'}
+}
+
 gate() {
     local okfile stamp pkgs lint sel lsel rootpkg root_tests other_pkgs
+    # Before the cache: a stamp written before this check existed must not
+    # wave a test-deleting diff through.
+    gate_tests_kept || return 1
     seed_own_target
-    gate_root_tests=
+    resolve_gate_plan
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
     stamp=$(gate_stamp)
     if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
-        gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
-        rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
-        if printf '%s\n' $gate_pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
-            gate_root_tests=$root_tests
-        fi
         return 0
     fi
     cargo fmt --all --check
-    pkgs=$("$root/scripts/ci-changed-crates.sh")
-    gate_pkgs=$pkgs
+    pkgs=$gate_pkgs
     if [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -296,14 +350,23 @@ gate() {
         echo "$stamp" >"$okfile"
         return
     fi
-    lint=$("$root/scripts/ci-changed-crates.sh" --dependents)
+    lint=$gate_lint
     lsel=$(printf ' -p %s' $lint)
     # The pre-push hook lints this exact set with this exact command line, so
     # its run is a cache hit rather than a second compile of other crates.
-    cargo clippy --locked --all-targets $lsel -- -D warnings
-    rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
-    if printf '%s\n' $pkgs | grep -qx "$rootpkg" && root_tests=$(root_only_test_targets "$rootpkg"); then
-        gate_root_tests=$root_tests
+    rootpkg=$gate_rootpkg
+    root_test_targets=$gate_root_tests
+    if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
+        local -a test_args=()
+        while IFS= read -r target; do
+            [ -n "$target" ] && test_args+=(--test "$target")
+        done <<<"$root_test_targets"
+        cargo clippy --locked -p "$rootpkg" "${test_args[@]}" -- -D warnings
+    else
+        cargo clippy --locked --all-targets $lsel -- -D warnings
+    fi
+    if [ -n "$gate_root_tests" ]; then
+        root_tests=$gate_root_tests
         other_pkgs=$(printf '%s\n' $pkgs | grep -vx "$rootpkg" || true)
         if [ -n "$other_pkgs" ]; then
             gate_tests $(printf ' -p %s' $other_pkgs)
@@ -408,9 +471,9 @@ finish)
     done
     export SUSI_SYNC_SKIP_BOARD=1
     export SUSI_SYNC_IN_FINISH=1
-    renew_or_readopt
-    sync
-    gate
+    timed_step lease renew_or_readopt
+    timed_step initial-sync sync
+    timed_step gate gate
     # Anything still uncommitted - the verdict, the mastery test - must land
     # while the task is open: close moves the record to done/, and the commit hook
     # then refuses a commit citing a closed task. The scope check still refuses
@@ -427,9 +490,9 @@ finish)
         accept_cmd=$(jq -r '.accept.cmd | join(" ")' ".agents/tasks/$task.json" 2>/dev/null || true)
         if [ -n "$accept_cmd" ] && acceptance_covered "$accept_cmd"; then
             echo "gate: acceptance \`$accept_cmd\` already ran in the gate — close will not re-run it" >&2
-            SUSI_ACCEPTANCE_COVERED="$task@$root" "$susi_bin" tasks close "$task"
+            SUSI_ACCEPTANCE_COVERED="$task@$root" timed_step close "$susi_bin" tasks close "$task"
         else
-            "$susi_bin" tasks close "$task"
+            timed_step close "$susi_bin" tasks close "$task"
         fi
         evidence_prompt "$task"
         git add -- ".agents/tasks/$task.json" ".agents/tasks/done/$task.json"
@@ -437,7 +500,7 @@ finish)
     fi
     [ -f ".agents/tasks/done/$task.json" ] || { echo 'No completed task record.' >&2; exit 1; }
     verified=$(git rev-parse HEAD)
-    sync
+    timed_step publication-sync sync
     if [ "$verified" != "$(git rev-parse HEAD)" ]; then
         # The head moved because another merge landed while the gate ran.
         # Repushing the merged head starts a fresh branch run, and nothing
@@ -447,12 +510,12 @@ finish)
         [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && SUSI_GATE_NOCACHE=1 gate
     fi
     branch=$(git symbolic-ref --short HEAD)
-    git push origin "HEAD:refs/heads/$branch"
+    timed_step push git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
     if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
         # Never fall through into the wait below: a failed release used to
         # park the agent in a 30-minute poll it never asked for.
-        if ! "$susi_bin" tasks release "$task" --force; then
+        if ! timed_step release "$susi_bin" tasks release "$task" --force; then
             echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi tasks release $task --force" >&2
             exit 1
         fi

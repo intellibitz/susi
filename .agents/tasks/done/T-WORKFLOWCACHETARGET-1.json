@@ -1,0 +1,26 @@
+{
+  "id": "T-WORKFLOWCACHETARGET-1",
+  "title": "Skip heavy Cargo target cache restore for the lightweight ratchet gate",
+  "goal": "Skip the Cargo target archive for the lightweight susi-unsafe-ratchet branch gate while retaining correctness checks, and pin the workflow behavior with a fixture test.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "ratchet_gate_skips_large_target_cache"
+    ]
+  },
+  "created_by": "WORKFLOWCACHETARGET",
+  "created_unix": 1793416137,
+  "closed": {
+    "at_unix": 1793416625,
+    "commit": "d222c53f630fd6d665c43a39c3653cbc05497f36",
+    "by": "WORKFLOWCACHETARGET"
+  }
+}

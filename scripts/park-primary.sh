@@ -54,7 +54,11 @@ cd "$primary"
 
 if [ "$sync_only" = 1 ]; then
     # Best effort and silent: an offline fetch or an unsafe state is not an error.
-    git fetch --quiet origin 2>/dev/null || exit 0
+    # A linked worktree's sync already fetched these shared remote refs.
+    # The flag is passed only to this invocation; standalone/watch runs fetch.
+    if [ "${SUSI_PARK_REFS_FETCHED:-0}" != 1 ]; then
+        git fetch --quiet origin 2>/dev/null || exit 0
+    fi
     target=$(git rev-parse --verify -q origin/main) || exit 0
     [ "$(git symbolic-ref -q --short HEAD || true)" = main ] || exit 0
     # Untracked local tools are preserved. Git itself refuses a fast-forward

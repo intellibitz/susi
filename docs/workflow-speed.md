@@ -161,6 +161,77 @@ pins it with a git shim that lands the release right after the first
 fetch). The same fix removes a remote round-trip per claim read from every
 pre-push hook and compliance job.
 
+## Lightweight branch gates skip the workspace target archive (2026-10-31)
+
+PR #1098's branch run took 48 s in `Compile Check`: the affected-package
+clippy took 9 s, while restoring Cargo's workspace target archive took 14 s.
+Its `Unsafe Exposure Ratchet` job took 26 s, including a 12 s Cargo target
+restore for a 5 s ratchet run. PR #1099 added the cache exception for the small,
+standalone `susi-unsafe-ratchet` package, but its own compile job took 73 s:
+the selector included the root application and its dependents, so target
+restore took 24 s, ONNX prefetch 5 s, and clippy 20 s. The crate's test-only
+change had been accompanied by workflow, script, and documentation edits; the
+selector mistakenly treated those inert paths as production changes and grew
+the reverse-dependent closure. This follow-up keeps inert paths out of that
+decision. The cache exception should then apply to test-only changes to this
+crate; remeasure the next matching branch run before claiming the saved time.
+
+PR #1101's corrected compile job passed in 51 s. Its `Resolve affected crates`
+step still took 11 s because the affected-package and ONNX reverse-dependency
+helpers each launched `cargo metadata` for the same graph. The gate now writes
+one metadata file and passes its path to both helpers; direct script use still
+falls back to Cargo. Measure the next branch run to confirm the saved time.
+
+## Push compliance fetches task refs with branch refs (2026-10-31)
+
+The local push guard fetched branch tips, then workflow compliance separately
+looked up and fetched live claims, fetched close receipts, and fetched the
+branch refs again. On this host a recent `git push` spent more than a minute in
+the hook path while many worktrees were active; the logs did not separate Git
+network time from host contention. `fetch-workflow-refs.sh` now fetches branch,
+claim, and close refs together, and both the local and CI compliance checks
+reuse that snapshot. Standalone compliance checks retain their own fetch path.
+The fixture verifies one fetch updates all three namespaces; remeasure a quiet
+push before attributing a wall-time saving to this change. The first push after
+that change still took over two minutes in the hook, with 86 close refs in the
+snapshot. The rule scanned every receipt with a separate Git and jq process for
+each pushed commit. The close-receipt check now reads all blobs in one batch and
+memoizes the unpublished set per agent for the hook run. Its focused test creates
+90 close refs, including another agent's receipts and a close already on
+`origin/main`, and verifies that only this agent's unpublished tasks are
+reported. PR #1108 merged 51 s after its push: branch compile took 36 s and
+workflow compliance took 14 s. With the ref snapshot already fetched, a local
+compliance run against its two commits took 3.9 s, and the standalone receipt
+helper took 2.8 s including shell startup. These are separate measurements;
+the full local finish remained over a minute, with a stale watcher restart and
+a shared Cargo package-cache lock wait. All 30 gate tests passed in 43 s; the
+90-ref fixture was the slowest because it launched Git twice per receipt.
+Its setup now writes all receipt files and uses one `hash-object --stdin-paths`
+and one `update-ref --stdin`, preserving the same cases.
+
+## Finish avoids duplicate coordination (2026-10-31)
+
+The measured finish for PR #1109 took 120.1 s, despite its 30 tests finishing
+in 11.7 s. Each sync fetched origin and then primary parking fetched it again.
+Parking now reuses that invocation's fetched snapshot; standalone parking and
+the watcher still fetch. A finish also renewed an owned claim with hours left,
+incurring a claim fetch, ownership lookup and push. It now keeps a matching
+local agent/branch lease with more than 15 minutes left. Short, expired,
+missing or mismatched leases still take the renewal/readoption path; close and
+pre-push retain their authoritative remote ownership checks. Finish prints
+elapsed seconds for lease, sync, gate, close, push and release to identify the
+remaining cost. These changes need a new complete finish measurement.
+
+PR #1110's measured finish was 107.8 s: lease 1 s, initial sync 11 s, gate
+33 s, close 19 s, publication sync 8 s, push 15 s and release 15 s, plus
+bookkeeping. The 31 gate tests took 11.5 s. The local gate was still invoking
+the affected-crate selector three times, each rereading the diff and resolving
+metadata. `--plan` now returns test owners, lint closure, root package and
+focused root targets together; the gate consumes that single selection and
+removes its second implementation of root-test selection. Full-workspace and
+uncertain inputs still select `ALL`. Remeasure this gate before attributing
+wall-time savings to the combined pass.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

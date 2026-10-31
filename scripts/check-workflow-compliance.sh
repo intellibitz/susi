@@ -100,6 +100,7 @@ err() { echo "❌ workflow: $*" >&2; fail=1; }
 fetch_claims() {
     [ "$claims_fetched" = 1 ] && return
     claims_fetched=1
+    [ "${SUSI_WORKFLOW_REFS_FETCHED:-0}" != 1 ] || return 0
     git ls-remote "$remote" 'refs/claims/*' 2>/dev/null | grep -q . || return 0
     git fetch --quiet --prune "$remote" '+refs/claims/*:refs/claims/*' 2>/dev/null || true
 }
@@ -120,6 +121,7 @@ closed_fetched=0
 fetch_closed() {
     [ "$closed_fetched" = 1 ] && return
     closed_fetched=1
+    [ "${SUSI_WORKFLOW_REFS_FETCHED:-0}" != 1 ] || return 0
     git fetch --quiet --prune "$remote" '+refs/closed/*:refs/closed/*' 2>/dev/null || true
     git fetch --quiet "$remote" 2>/dev/null || true
 }
@@ -128,19 +130,26 @@ fetch_closed() {
 # for a task other than the one in hand, whose close is not on `origin/main`.
 # Prints nothing when the agent owes nothing.
 owed_merges_of() {
-    local agent=$1 exclude=$2 name id body owner
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
-        id=${name#refs/closed/}
+    local agent=$1 exclude=$2 id
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
         [ "$id" != "$exclude" ] || continue
-        body=$(git cat-file -p "$name" 2>/dev/null || true)
-        owner=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
-        [ "$owner" = "$agent" ] || continue
-        # A receipt whose close reached main is published work whose record has
-        # simply not been cleaned up yet — never a reason to refuse a push.
-        git cat-file -e "origin/main:.agents/tasks/done/$id.json" 2>/dev/null && continue
         printf '%s\n' "$id"
-    done < <(git for-each-ref --format='%(refname)' refs/closed/ 2>/dev/null || true)
+    done <<<"${owed_cache[$agent]}"
+}
+
+# The compliance hook can run for several commits in one push. Build the set
+# of this agent's unpublished close receipts once, using one cat-file process
+# and one jq process for all refs instead of spawning both for every receipt
+# and rescanning the refs for every commit.
+declare -A owed_cache=()
+unmerged_closes_of() {
+    local agent=$1 unmerged=""
+    if [ -n "${owed_cache[$agent]+set}" ]; then
+        return
+    fi
+    unmerged=$("$(dirname "${BASH_SOURCE[0]}")/owed-task-receipts.sh" "$agent" || true)
+    owed_cache[$agent]="$unmerged"
 }
 
 owed_reported=" "
@@ -155,6 +164,8 @@ check_no_owed_merge() {
         echo "⚠️  workflow: origin/main is unresolvable; the owed-merge check is skipped" >&2
         return 0
     fi
+    # Populate in this shell: command substitution would discard the cache.
+    unmerged_closes_of "$agent"
     owed=$(owed_merges_of "$agent" "$task")
     [ "$(printf '%s\n' "$owed" | grep -c .)" -le "${SUSI_MERGES_IN_FLIGHT:-4}" ] && return 0
     for id in $owed; do

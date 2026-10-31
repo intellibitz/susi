@@ -487,7 +487,12 @@ jobs:
         with:
           fetch-depth: 0 # base..head needs history and origin/main
 
+      - name: Fetch workflow refs once
+        run: scripts/fetch-workflow-refs.sh origin
+
       - name: Every commit belongs to a task this branch claimed
+        env:
+          SUSI_WORKFLOW_REFS_FETCHED: "1"
         run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA" origin "$GITHUB_REF_NAME"
 
   deny:
@@ -572,25 +577,37 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
+          # The affected-package and reverse-dependency selectors need the
+          # same workspace graph. Resolve it once instead of launching Cargo
+          # metadata separately in each helper.
+          metadata_file="$RUNNER_TEMP/susi-cargo-metadata.json"
+          cargo metadata --no-deps --format-version 1 > "$metadata_file"
+          export SUSI_CARGO_METADATA_FILE="$metadata_file"
           pkgs=$(./scripts/ci-changed-crates.sh --dependents)
+          root_test_targets=$(./scripts/ci-changed-crates.sh --root-test-targets)
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
             echo 'AFFECTED_EOF'
           } >> "$GITHUB_OUTPUT"
-          if [ "$pkgs" = "ALL" ]; then
+          rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
+            lintcmd="cargo clippy -p $rootpkg$(printf ' --test %s' $root_test_targets) --locked -- -D warnings"
+            echo "lintcmd=$lintcmd" >> "$GITHUB_OUTPUT"
+          elif [ "$pkgs" = "ALL" ]; then
             echo "lintcmd=cargo clippy --workspace --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           elif [ -z "$pkgs" ]; then
             echo "lintcmd=" >> "$GITHUB_OUTPUT"
           else
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
-          # xtask is a small standalone package: on its last branch gate the
-          # target archive restore took 15 s while cached clippy took 1 s.
-          # Keep sccache for its compile, and avoid restoring the workspace
-          # target archive when xtask alone is affected.
+          # xtask and susi-unsafe-ratchet are lightweight packages: recent
+          # branch gates spent 12–15 s restoring the workspace target archive
+          # for 1–9 s of clippy. Keep sccache for their compiles, and avoid
+          # restoring the workspace target archive when either is the only
+          # affected package.
           target_cache=true
-          if [ "$pkgs" = "xtask" ]; then target_cache=false; fi
+          if [ "$pkgs" = "xtask" ] || [ "$pkgs" = "susi-unsafe-ratchet" ]; then target_cache=false; fi
           echo "target_cache=$target_cache" >> "$GITHUB_OUTPUT"
           # The ONNX prefetch builds susi-vendor-fastembed only to warm its CDN
           # download; nothing else in the job can reach it. Pay for it only

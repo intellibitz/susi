@@ -35,6 +35,14 @@
 //! hears of the refusal ([`token_limit_resend`]). The resend is a call of its
 //! own and takes a paced slot of its own; the refused call billed nothing and
 //! writes no row.
+//!
+//! A provider whose account cannot pay for the call (an "insufficient
+//! balance" body, which Anthropic sends as a plain 400, or a 402) is answered
+//! 429 `insufficient_quota` with the provider's cooldown as `Retry-After`
+//! ([`unfunded`]): the model cannot serve right now, which is a temporary
+//! condition, not a malformed request, so the caller backs off or escalates
+//! as it would from a rate limit, and the provider's own words go with it.
+//! A 400 from the gateway always means a request it cannot read or forward.
 
 use crate::cache::ResponseCache;
 use crate::catalog::PriceCatalogue;
@@ -848,7 +856,8 @@ fn settle_buffered(
         }
     }
     let ended_unix_ms = now_ms();
-    if let Some(class) = provider_failure(status, &response_bytes) {
+    let class = provider_failure(status, &response_bytes);
+    if let Some(class) = class {
         record_failure(&state.ledger_path, tag, started_unix_ms, class);
     }
 
@@ -859,6 +868,10 @@ fn settle_buffered(
     } else {
         crate::secrets::redact(&String::from_utf8_lossy(&response_bytes)).into_bytes()
     };
+    // The account cannot pay: a temporary refusal, answered as one.
+    if class == Some(FailureClass::NoCredit) {
+        return Settled::as_is(unfunded(tag, status, &response_bytes));
+    }
     let response_bytes = if (200..300).contains(&status) && exchange.is_anthropic {
         if let Ok(anth_val) = serde_json::from_slice::<Value>(&response_bytes) {
             match susi_adapters_llm::inference_wire::anthropic_to_openai_chat(&anth_val, &tag.model)
@@ -938,9 +951,10 @@ fn settle_buffered(
 
 /// What the blocking thread that makes a streamed call tells the request.
 enum Upstream {
-    /// The provider answered with this status and content type; the body
-    /// follows on the chunk channel.
-    Answered(u16, String),
+    /// The provider answered with this status and content type (and, for a
+    /// refusal the gateway answers as a 429, the `Retry-After` seconds); the
+    /// body follows on the chunk channel.
+    Answered(u16, String, Option<u64>),
     /// The call got no answer.
     Failed(String),
     /// The provider refused the call's `max_tokens` for
@@ -1061,13 +1075,27 @@ async fn stream_upstream(
                 let _ = meta_tx.send(Upstream::Resend(body, held));
                 return;
             }
-            if let Some(class) = provider_failure(status, &bytes) {
+            let class = provider_failure(status, &bytes);
+            if let Some(class) = class {
                 record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
             drop(held);
             let bytes = crate::secrets::redact(&String::from_utf8_lossy(&bytes)).into_bytes();
+            // The account cannot pay: a temporary refusal, answered as one.
+            let (status, content_type, retry_after, bytes) =
+                if class == Some(FailureClass::NoCredit) {
+                    let answer = unfunded(&tag, status, &bytes);
+                    (
+                        answer.status.as_u16(),
+                        answer.content_type,
+                        answer.retry_after,
+                        answer.body,
+                    )
+                } else {
+                    (status, content_type, None, bytes)
+                };
             if meta_tx
-                .send(Upstream::Answered(status, content_type))
+                .send(Upstream::Answered(status, content_type, retry_after))
                 .is_ok()
             {
                 let _ = chunk_tx.blocking_send(bytes);
@@ -1077,7 +1105,7 @@ async fn stream_upstream(
         // `None` once the client has gone. The call was made either way, so it
         // is still read to its end and settled: the provider billed it.
         let mut client = meta_tx
-            .send(Upstream::Answered(status, content_type))
+            .send(Upstream::Answered(status, content_type, None))
             .is_ok()
             .then_some(chunk_tx);
 
@@ -1143,7 +1171,7 @@ async fn stream_upstream(
     });
 
     match meta_rx.await {
-        Ok(Upstream::Answered(status, content_type)) => {
+        Ok(Upstream::Answered(status, content_type, retry_after)) => {
             let stream = futures::stream::poll_fn(move |cx| chunk_rx.poll_recv(cx))
                 .map(Ok::<Vec<u8>, std::io::Error>);
             let mut response = Response::new(axum::body::Body::from_stream(stream));
@@ -1151,6 +1179,11 @@ async fn stream_upstream(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
             if let Ok(value) = HeaderValue::from_str(&content_type) {
                 response.headers_mut().insert(header::CONTENT_TYPE, value);
+            }
+            if let Some(seconds) = retry_after {
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
             }
             response
         }
@@ -1193,6 +1226,51 @@ pub(crate) fn provider_failure(status: u16, body: &[u8]) -> Option<FailureClass>
         408 | 504 => Some(FailureClass::Timeout),
         500..=599 => Some(FailureClass::Other),
         _ => None,
+    }
+}
+
+/// The answer to a call the provider refused because its account cannot pay
+/// ([`FailureClass::NoCredit`]): 429 `insufficient_quota`, as OpenAI words an
+/// empty account, with the provider's cooldown
+/// ([`crate::policy::COOLDOWN_MS`]) as `Retry-After` and the provider's own
+/// status and (redacted) words in the message, so the reason reaches the
+/// failure record.
+///
+/// Anthropic reports an empty account as a plain 400 ("credit balance is too
+/// low"), and the gateway passed that status on: the worker read it as a
+/// request error, the ladder as a semantic failure, and a live mission spent
+/// turn 1 of every later attempt on a provider the ledger already knew could
+/// not pay. A balance is a temporary condition of the provider, not a fault
+/// in the request, so it is answered as a rate limit is: the caller backs
+/// off or goes elsewhere. The `insufficient_quota` code tells a caller that
+/// waiting out the `Retry-After` changes nothing ([`crate::worker`]).
+fn unfunded(attempt: &Attempt, status: u16, redacted: &[u8]) -> Answer {
+    let words = serde_json::from_slice::<Value>(redacted)
+        .ok()
+        .and_then(|body| {
+            body.pointer("/error/message")
+                .or_else(|| body.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| String::from_utf8_lossy(redacted).into_owned());
+    let words: String = words.chars().take(200).collect();
+    let seconds = crate::policy::COOLDOWN_MS.div_ceil(1_000);
+    let body = json!({
+        "error": {
+            "message": format!(
+                "{} cannot pay for {} right now ({} answered HTTP {status}: {}); retry in {seconds}s or use another model",
+                attempt.provider, attempt.model, attempt.provider, words.trim()
+            ),
+            "type": "insufficient_quota",
+            "code": "insufficient_quota"
+        }
+    });
+    Answer {
+        status: StatusCode::TOO_MANY_REQUESTS,
+        content_type: "application/json".into(),
+        body: body.to_string().into_bytes(),
+        retry_after: Some(seconds),
     }
 }
 
@@ -1671,6 +1749,124 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
             assert_eq!(dropped, Some(1), "held until the resend's row: {request}");
+        }
+    }
+
+    /// A provider whose account is empty, as Anthropic reports it: a plain
+    /// 400 with "credit balance is too low". It also refuses an over-long
+    /// prompt with a 400, as every provider does.
+    async fn unfunded_provider() -> SocketAddr {
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|body: String| async move {
+                let request = serde_json::from_str::<Value>(&body).unwrap();
+                let too_long = request["messages"][0]["content"] == "too long";
+                let error = if too_long {
+                    json!({"error": {
+                        "type": "invalid_request_error",
+                        "message": "prompt is too long: 250000 tokens > 200000 maximum"
+                    }})
+                } else {
+                    json!({"error": {
+                        "type": "invalid_request_error",
+                        "message": "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+                    }})
+                };
+                (StatusCode::BAD_REQUEST, Json(error)).into_response()
+            }),
+        );
+        spawn(app).await
+    }
+
+    /// Anthropic answers an empty account with a plain 400, and the gateway
+    /// passed that status on: the worker read it as a request error and the
+    /// ladder as a semantic failure, with nothing of why. It is answered 429
+    /// `insufficient_quota` with the provider's cooldown as `Retry-After`,
+    /// buffered or streamed, the provider's words in the message, and a
+    /// `NoCredit` row on the ledger. A 400 about the request itself still
+    /// goes back as it came.
+    #[tokio::test]
+    async fn an_unfunded_providers_refusal_is_answered_429_with_the_cooldown_as_retry_after() {
+        for (streaming, provider) in [
+            (false, "unfunded-test-provider"),
+            (true, "unfunded-stream-test-provider"),
+        ] {
+            let upstream = unfunded_provider().await;
+            let dir = tempfile::tempdir().unwrap();
+            let ledger_path = dir.path().join("ledger.jsonl");
+            let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
+                .unwrap_or_else(|_| unreachable!());
+            state.provider = provider.into();
+            let gateway = spawn(router(Arc::new(state))).await;
+            let request = json!({
+                "model": "unfunded-probe-model",
+                "stream": streaming,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+
+            let url = format!("http://{gateway}/v1/chat/completions");
+            let body = request.to_string();
+            let (status, retry_after, answer) = tokio::task::spawn_blocking(move || {
+                let call = susi_http_transport::http_call_with_body(
+                    "POST",
+                    &url,
+                    &[],
+                    Some(body.as_bytes()),
+                    10,
+                    0,
+                )
+                .unwrap();
+                let status = call.status;
+                let retry_after = call.header("retry-after").map(str::to_string);
+                (
+                    status,
+                    retry_after,
+                    call.into_utf8(MAX_RESPONSE_BYTES).unwrap(),
+                )
+            })
+            .await
+            .unwrap();
+
+            assert_eq!(status, 429, "streaming={streaming}: {answer}");
+            assert_eq!(
+                retry_after.as_deref(),
+                Some(
+                    crate::policy::COOLDOWN_MS
+                        .div_ceil(1_000)
+                        .to_string()
+                        .as_str()
+                ),
+                "streaming={streaming}: the cooldown is the Retry-After"
+            );
+            let answer: Value = serde_json::from_str(&answer).unwrap();
+            assert_eq!(answer["error"]["code"], "insufficient_quota", "{answer}");
+            let message = answer["error"]["message"].as_str().unwrap();
+            assert!(message.contains(provider), "{message}");
+            assert!(message.contains("unfunded-probe-model"), "{message}");
+            assert!(message.contains("HTTP 400"), "{message}");
+            assert!(message.contains("credit balance is too low"), "{message}");
+            let rows = rows_eventually(&ledger_path, 1).await;
+            assert_eq!(rows.len(), 1, "{rows:?}");
+            assert_eq!(
+                rows[0].outcome,
+                Outcome::ModelFailed {
+                    class: FailureClass::NoCredit
+                }
+            );
+            assert_eq!(rows[0].provider, provider);
+
+            // A 400 about the request is the request's fault: it goes back as
+            // the provider sent it, and no provider failure is recorded.
+            let request = json!({
+                "model": "unfunded-probe-model",
+                "stream": streaming,
+                "messages": [{"role": "user", "content": "too long"}]
+            });
+            let (status, answer) = post_json(gateway, &request.to_string(), &[]).await;
+            assert_eq!(status, 400, "streaming={streaming}: {answer}");
+            assert!(answer.contains("prompt is too long"), "{answer}");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            assert_eq!(read_entries(&ledger_path).unwrap().len(), 1, "no new row");
         }
     }
 

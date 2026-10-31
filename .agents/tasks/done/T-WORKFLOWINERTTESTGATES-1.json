@@ -1,0 +1,26 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-1",
+  "title": "Keep inert workflow and documentation edits out of test-only dependency closure",
+  "goal": "Treat workflow, documentation, task queue, and script-only changes as inert when deciding whether an otherwise test-only crate diff needs reverse dependent linting. Keep production/build/config changes fail-closed and prove the selector with a mixed-path fixture.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "inert_changes_do_not_expand_test_only_dependents"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793416957,
+  "closed": {
+    "at_unix": 1793417322,
+    "commit": "0b460ab3b3f9c2b97462c332d985ba75e37e2d4a",
+    "by": "WORKFLOWINERTTESTGATES"
+  }
+}

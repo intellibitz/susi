@@ -16,7 +16,12 @@ set -euo pipefail
 
 pkg=${1:?usage: ci-reverse-deps.sh <workspace-package>}
 
-meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || exit 1
+if [ -n "${SUSI_CARGO_METADATA_FILE:-}" ]; then
+    meta=$(cat "$SUSI_CARGO_METADATA_FILE" 2>/dev/null) || exit 1
+else
+    meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || exit 1
+fi
+[ -n "$meta" ] || exit 1
 
 # dependent|dependency, restricted to edges between workspace packages. A
 # dependency's `name` is the package name, never a `package = ` rename.

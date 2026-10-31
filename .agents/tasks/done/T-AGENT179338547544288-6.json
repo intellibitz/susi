@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179338547544288-6",
+  "title": "The harness must reject a worker that rewrites a file instead of appending to it",
+  "goal": "Observed: the worker assigned to append one test to tests/gmcp_requirements.rs replaced the whole file - 13764 lines deleted, 95 added - and the acceptance still passed because it only ran the new test, so the mission reported done on a patch that destroyed the file's other 13.7k lines of acceptance tests. The adapter already compares against the base; it must also bound what an attempt may remove: an attempt that deletes more lines than it adds beyond a configured allowance is rejected as a semantic failure (the patch is not kept, the message names the deleted file and counts) rather than accepted. A legitimate large rewrite needs a task that says so.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179338547544288",
+  "created_unix": 1793416769,
+  "closed": {
+    "at_unix": 1793422280,
+    "commit": "9862e14ab0b37d4581d7d063197297f3361aa96c",
+    "by": "CLAUDEMAINLUS9Z6"
+  }
+}
