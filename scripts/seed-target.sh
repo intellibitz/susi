@@ -34,15 +34,43 @@ own=
 if [ -n "$top" ] && [ ! -L "$top/target" ]; then
     own="$top/target"
 fi
+# Primary checkout of this clone (first worktree listed): a brand-new worktree
+# has no build of its own yet, and the installed release often predates the
+# verb, so without this probe every `workflow start` paid a cold compile while
+# the primary already held a seed-capable susi.
+primary=
+if [ -n "$top" ]; then
+    primary=$(git -C "$top" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')
+fi
+primary_target=
+if [ -n "$primary" ] && [ -d "$primary/target" ] && [ ! -L "$primary/target" ]; then
+    primary_target="$primary/target"
+fi
+# Sibling worktrees (susi-*) often hold a newer debug build than the installed
+# release; probing them keeps a fresh worktree from compiling cold while one of
+# them already can seed.
+sibling_bins=
+if [ -n "$top" ]; then
+    parent=$(dirname "$top")
+    for cand in "$parent"/susi*/target/release/susi "$parent"/susi*/target/release/susi.exe \
+        "$parent"/susi*/target/debug/susi "$parent"/susi*/target/debug/susi.exe; do
+        [ -x "$cand" ] || continue
+        sibling_bins="$sibling_bins $cand"
+    done
+fi
+# shellcheck disable=SC2086
 for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
     "${own:+$own/release/susi}" "${own:+$own/release/susi.exe}" \
-    "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}"; do
+    "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}" \
+    "${primary_target:+$primary_target/release/susi}" "${primary_target:+$primary_target/release/susi.exe}" \
+    "${primary_target:+$primary_target/debug/susi}" "${primary_target:+$primary_target/debug/susi.exe}" \
+    $sibling_bins; do
     [ -n "$bin" ] && [ -x "$bin" ] || continue
     if "$bin" workflow seed-target --help >/dev/null 2>&1 </dev/null; then
         exec "$bin" workflow seed-target "$@" 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
     fi
 done
-echo "target: no susi with \`workflow seed-target\` found (SUSI_WORKFLOW_BIN, the installed susi, this checkout's target/): nothing is copied, and the first build compiles everything. Install the current release: scripts/susi-release-sync.sh" >&2
+echo "target: no susi with \`workflow seed-target\` found (SUSI_WORKFLOW_BIN, installed, this/primary/sibling target/): nothing is copied, and the first build compiles everything. Install the current release: scripts/susi-release-sync.sh" >&2
 # The worktree named (the last argument that is no flag), else this one;
 # --refresh has nothing to fall back on.
 dir=

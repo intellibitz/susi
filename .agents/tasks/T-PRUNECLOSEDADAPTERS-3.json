@@ -1,0 +1,18 @@
+{
+  "id": "T-PRUNECLOSEDADAPTERS-3",
+  "title": "Cut v0.21.28 and speed the release gate",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "release_gate_runs_nextest_with_retries_then_the_doc_tests_it_cannot"
+    ]
+  },
+  "created_by": "PRUNECLOSEDADAPTERS",
+  "created_unix": 1793463431
+}

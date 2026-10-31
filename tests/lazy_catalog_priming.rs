@@ -130,11 +130,11 @@ impl Host {
     /// Run `susi <args>` with boot tracing on, in this home.
     fn run(&self, args: &[&str]) -> Run {
         let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
+        // Whole-home swap: bare HOME still leaves Windows on the real
+        // profile (USERPROFILE/APPDATA) and Linux on inherited XDG_*.
         isolate_home(&mut command, &self.home)
             .args(args)
             .current_dir(&self.workspace)
-            .env("APPDATA", self.home.join("AppData").join("Roaming"))
-            .env("LOCALAPPDATA", self.home.join("AppData").join("Local"))
             .env("SUSI_HOME", self.home.join("instance"))
             .env("XDG_CONFIG_HOME", self.home.join("xdg"))
             .env("XDG_DATA_HOME", self.home.join("xdg-data"))
