@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT20261031021059518379-11",
+  "title": "Check remote claim freshness before skipping lease renewal",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793448423
+}

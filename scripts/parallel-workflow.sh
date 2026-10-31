@@ -98,7 +98,7 @@ renew_or_readopt() {
     # A fresh claim normally has hours left. Extending it again on every finish
     # costs a ref fetch, ownership lookup and push. Close and pre-push still
     # validate remote ownership; this only avoids an unnecessary lease write.
-    local claim agent branch
+    local claim agent branch local_oid remote remote_oid remote_ref
     claim=$(git cat-file -p "refs/claims/$task" 2>/dev/null || true)
     agent=${SUSI_AGENT:-$(git config --get susi.agent || true)}
     branch=$(git symbolic-ref -q --short HEAD || true)
@@ -106,13 +106,26 @@ renew_or_readopt() {
         --argjson minimum "$(( $(date +%s) + 900 ))" \
         '.agent == $agent and .branch == $branch and (.lease_until_unix // 0) > $minimum' \
         <<<"$claim" >/dev/null 2>&1; then
-        return 0
+        # A local ref may be stale even when its embedded lease is healthy:
+        # another checkout can have expired or reassigned it on the remote.
+        # Avoid a renewal only when the remote still advertises this exact blob.
+        local_oid=$(git rev-parse --verify --quiet "refs/claims/$task" 2>/dev/null || true)
+        remote=${SUSI_TASK_REMOTE:-origin}
+        [[ "$remote" =~ [^[:space:]] ]] || remote=origin
+        remote_ref=$(git ls-remote --refs "$remote" "refs/claims/$task" 2>/dev/null || true)
+        remote_ref=${remote_ref%$'\r'}
+        remote_oid=${remote_ref%%$'\t'*}
+        if [ -n "$local_oid" ] && [ "$remote_oid" = "$local_oid" ] \
+            && [ "$remote_ref" = "$local_oid"$'\t'"refs/claims/$task" ]; then
+            return 0
+        fi
     fi
     "$susi_bin" tasks renew "$task" && return 0
     echo "claim on $task lapsed (a suspend or a very long gate); taking it back" >&2
     local -a scopes=()
     local s
     while IFS= read -r s; do
+        s=${s%$'\r'} # Native Windows jq may write CRLF.
         [ -n "$s" ] && scopes+=(--scope "$s")
     done < <(git cat-file -p "refs/claims/$task" 2>/dev/null | jq -r '.scopes[]?' 2>/dev/null || true)
     # A legacy claim may have reserved nothing; re-claiming it deliberately is
