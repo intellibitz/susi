@@ -4308,9 +4308,23 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         tasks_rs.contains("pub fn claims_synced(ws: &Path) -> EaiResult<Vec<Claim>> {\n    records_under::<Claim>(ws, \"refs/claims/\")\n}"),
         "`claims_synced` must batch claim blob reads through `records_under` (`git cat-file --batch`) instead of spawning two git processes per claim"
     );
+    let claim_body = tasks_rs
+        .split("fn claim_once(")
+        .nth(1)
+        .and_then(|s| s.split("\nfn claim_blob(").next())
+        .expect("claim_once exists in tasks.rs");
+    let queue_fetch = tasks_rs
+        .split("fn sync_queue_refs(")
+        .nth(1)
+        .and_then(|s| s.split("\npub fn sync_queue(").next())
+        .expect("sync_queue_refs exists in tasks.rs");
     assert!(
-        tasks_rs.contains("git(ws, &[\"ls-remote\", &r, generation_ref, &agent_ref])"),
-        "`claim_once` must batch the generation and agent lease `ls-remote` lookup into a single network round-trip"
+        claim_body.contains("let live = claims(ws)?;")
+            && !claim_body.contains("\"ls-remote\"")
+            && queue_fetch.contains("+refs/claims/*:refs/claims/*")
+            && queue_fetch.contains("+refs/claim-agents/*:refs/claim-agents/*")
+            && queue_fetch.contains("+refs/claim-generation/*:refs/claim-generation/*"),
+        "claim validation must fetch claims, agent leases and generation together, without a second remote lookup"
     );
     let release_rs = read("crates/susi-gawd/src/admin/release.rs").replace("\r\n", "\n");
     assert!(
