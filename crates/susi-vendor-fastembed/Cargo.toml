@@ -8,11 +8,13 @@ description = "Local text embeddings (fastembed / ONNX Runtime): one process-wid
 
 [dependencies]
 susi-error = { workspace = true }
+susi-http-transport = { workspace = true }
 # Text embeddings only. fastembed's defaults add image models (image/ravif/
 # rav1e/exr: ~350s of cold build) and native-tls downloaders (reqwest 0.12 +
-# OpenSSL, a second TLS stack). `hf-hub` is the blocking ureq API fastembed
-# actually calls; ONNX Runtime binaries download over rustls (ring).
-fastembed = { version = "7.0.1", default-features = false, features = ["hf-hub", "ort-download-binaries-rustls-tls"] }
+# OpenSSL, a second TLS stack). Model weights are fetched over
+# `susi-http-transport` (avoiding `hf-hub` -> `dirs` -> `option-ext` MPL-2.0);
+# ONNX Runtime binaries download over rustls (ring).
+fastembed = { version = "7.0.1", default-features = false, features = ["ort-download-binaries-rustls-tls"] }
 
 [lints]
 workspace = true

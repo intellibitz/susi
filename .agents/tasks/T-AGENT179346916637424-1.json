@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT179346916637424-1",
+  "title": "Enforce Apache-2.0, MIT, and BSD license policy and drop GPL/MPL dependencies",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "workspace_enforces_apache_mit_bsd_license_policy"
+    ]
+  },
+  "created_by": "AGENT179346916637424",
+  "created_unix": 1793470984
+}

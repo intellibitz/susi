@@ -7,6 +7,7 @@
 [package]
 name = "susi-fuzz"
 version = "0.0.0"
+license = "Apache-2.0"
 publish = false
 edition = "2021"
 
