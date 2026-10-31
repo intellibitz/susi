@@ -175,8 +175,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    `local_only` instead of silently reading as `balanced`.
    Under `local_only`, the HTTP inference provider itself refuses to send
    prompts or embedding text to any endpoint off the host/LAN, and model
-   downloads (including zero-config auto-prime) and agent live search
-   (Open-Meteo, DuckDuckGo, Brave/Google search tools), external peer agents,
+   downloads (including zero-config auto-prime) and admitted search tools
+   (Brave/Google/`web_search`), external peer agents,
    proxy endpoints, crates.io scouting, cloud coding agents (Devin/Manus), and
    Hugging Face catalog discovery, and remote MCP servers over HTTP need
    egress consent; host/LAN targets are always allowed.

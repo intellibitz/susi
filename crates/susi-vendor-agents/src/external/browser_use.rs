@@ -150,7 +150,7 @@ pub fn setup() -> serde_json::Value {
         "adapter": definition(CatalogKind::Execution, AGENT_ID)
             .map(|d| serde_json::to_value(d.adapter).unwrap_or(json!(null)))
             .unwrap_or(json!(null)),
-        "instructions": "1) Install: `pip install \"browser-use[cli]\"` or `uv tool install browser-use`\n2) Browser: `browser-use install` (Chromium) or set BU_CDP_URL to an existing CDP endpoint\n3) Auth: export OPENAI_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY / BROWSER_USE_API_KEY\n   Optional: BROWSER_USE_MODEL=gpt-5-mini (or claude-… / gemini-…)\n4) `susi browser-use doctor` then `susi browser-use run --wait \"open example.com and report the title\"`\n5) Also: `susi agents run browser-use`\nHeadless: `browser-use --prompt \"…\" --headless`\nNo packages or subscriptions are provisioned implicitly."
+        "instructions": "1) Install: `pip install \"browser-use[cli]\"` or `uv tool install browser-use`\n2) Browser: `browser-use install` (Chromium) or set BU_CDP_URL to an existing CDP endpoint\n3) Auth: export OPENAI_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY / BROWSER_USE_API_KEY\n   Optional: BROWSER_USE_MODEL=gpt-5-mini (or claude-… / gemini-…)\n4) `susi agents doctor browser-use` then `susi agents run browser-use --wait \"open example.com and report the title\"`\nHeadless: `browser-use --prompt \"…\" --headless`\nNo packages or subscriptions are provisioned implicitly."
     })
 }
 

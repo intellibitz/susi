@@ -1,283 +1,13 @@
-//! Zero-config live evidence fetch for SearchAgent.
-//! Uses public HTTP APIs (Open-Meteo, DuckDuckGo) — no vendor keys required.
-//! Outbound HTTP goes through `susi-http-transport`, not a vendor SDK.
+//! Search evidence for SearchAgent.
+//!
+//! An AI OS admits tools. It does not ship a weather service or a web-search
+//! client. A goal is answered only by a search tool the operator has already
+//! admitted on the tool bus (`brave_search`, `google_search`, `web_search`).
+//! When none of those is linked, the result says so and invents nothing.
 
-use crate::susi_error::{EaiError, EaiResult};
-
-const USER_AGENT: &str = "susi/0.4 (+https://github.com/intellibitz/susi)";
-
-/// Live search sends the mission goal to public APIs; under a posture
-/// that blocks egress (local_only without consent) it must not leave the
-/// host. Agents call this module directly, not through `authorize_tool`.
-fn require_egress(url: &str) -> EaiResult<()> {
-    if crate::susi_core::mac_policy::egress_permitted(url) {
-        Ok(())
-    } else {
-        Err(EaiError::governance(
-            "[PRIVACY] network egress blocked by the privacy posture (run `susi privacy consent --egress`)",
-        ))
-    }
-}
-
-fn get_json(url: &str) -> Result<serde_json::Value, String> {
-    let call = susi_http_transport::http_call("GET", url, &[("User-Agent", USER_AGENT)], 20, 0)
-        .map_err(|e| e.to_string())?;
-    if !(200..300).contains(&call.status) {
-        return Err(format!("HTTP {}", call.status));
-    }
-    let bytes = call
-        .into_bytes(crate::susi_core::bounded_io::JSON_BODY_CAP)
-        .map_err(|e| e.to_string())?;
-    crate::susi_core::bounded_io::json_capped(
-        std::io::Cursor::new(bytes),
-        crate::susi_core::bounded_io::JSON_BODY_CAP,
-    )
-}
-
-pub fn looks_like_weather_goal(goal: &str) -> bool {
-    let lower = goal.to_ascii_lowercase();
-    [
-        "weather",
-        "temperature",
-        "forecast",
-        "humidity",
-        "wind speed",
-        "precipitation",
-        "rainfall",
-    ]
-    .iter()
-    .any(|k| lower.contains(k))
-}
-
-/// Pull a place name from common phrasings ("weather in Chennai, India").
-pub fn extract_place(goal: &str) -> Option<String> {
-    let lower = goal.to_ascii_lowercase();
-    for needle in [
-        " weather in ",
-        " weather for ",
-        " forecast for ",
-        " forecast in ",
-        " temperature in ",
-        " temperature for ",
-        " in ",
-        " for ",
-        " at ",
-    ] {
-        if let Some(idx) = lower.find(needle) {
-            let rest = goal[idx + needle.len()..].trim();
-            let mut place = String::new();
-            for ch in rest.chars() {
-                if ch.is_ascii_alphabetic() || ch == ' ' || ch == ',' || ch == '-' || ch == '\'' {
-                    place.push(ch);
-                } else {
-                    break;
-                }
-            }
-            let place = place
-                .trim()
-                .trim_matches(|c: char| c == ',' || c == '-' || c.is_whitespace())
-                .to_string();
-            // Drop trailing mission instructions accidentally captured.
-            let place = place
-                .split(',')
-                .take(2)
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-                .collect::<Vec<_>>()
-                .join(", ");
-            if place.len() >= 2 && !place.to_ascii_lowercase().starts_with("this ") {
-                return Some(place);
-            }
-        }
-    }
-    None
-}
-
-fn wmo_label(code: i64) -> &'static str {
-    match code {
-        0 => "clear sky",
-        1 => "mainly clear",
-        2 => "partly cloudy",
-        3 => "overcast",
-        45 | 48 => "fog",
-        51..=57 => "drizzle",
-        61..=67 => "rain",
-        71..=77 => "snow",
-        80..=82 => "rain showers",
-        85 | 86 => "snow showers",
-        95..=99 => "thunderstorm",
-        _ => "see WMO weather code",
-    }
-}
-
-/// Live observation via Open-Meteo (no API key).
-pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
-    require_egress("https://geocoding-api.open-meteo.com")?;
-    let geo_url = format!(
-        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=en&format=json",
-        susi_paths::percent_encode_query(place)
-    );
-    let geo: serde_json::Value = get_json(&geo_url)
-        .map_err(|e| EaiError::process(format!("Open-Meteo geocoding failed: {e}")))?;
-
-    let result = geo
-        .get("results")
-        .and_then(|r| r.as_array())
-        .and_then(|a| a.first())
-        .ok_or_else(|| {
-            EaiError::process(format!(
-                "Open-Meteo geocoding found no place matching '{place}'"
-            ))
-        })?;
-
-    let lat = result
-        .get("latitude")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| EaiError::process("geocode missing latitude"))?;
-    let lon = result
-        .get("longitude")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| EaiError::process("geocode missing longitude"))?;
-    let resolved = result.get("name").and_then(|v| v.as_str()).unwrap_or(place);
-    let country = result.get("country").and_then(|v| v.as_str()).unwrap_or("");
-    let admin1 = result.get("admin1").and_then(|v| v.as_str()).unwrap_or("");
-    let tz = result
-        .get("timezone")
-        .and_then(|v| v.as_str())
-        .unwrap_or("auto");
-
-    let wx_url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone={}",
-        susi_paths::percent_encode_query(tz)
-    );
-    let wx: serde_json::Value = get_json(&wx_url)
-        .map_err(|e| EaiError::process(format!("Open-Meteo forecast failed: {e}")))?;
-
-    let current = wx
-        .get("current")
-        .ok_or_else(|| EaiError::process("Open-Meteo response missing current block"))?;
-    let obs_time = current
-        .get("time")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-    let temp = current
-        .get("temperature_2m")
-        .and_then(|v| v.as_f64())
-        .map(|t| format!("{t:.1}"))
-        .unwrap_or_else(|| "?".into());
-    let humidity = current
-        .get("relative_humidity_2m")
-        .and_then(|v| v.as_f64())
-        .map(|h| format!("{h:.0}"))
-        .unwrap_or_else(|| "?".into());
-    let wind = current
-        .get("wind_speed_10m")
-        .and_then(|v| v.as_f64())
-        .map(|w| format!("{w:.1}"))
-        .unwrap_or_else(|| "?".into());
-    let code = current
-        .get("weather_code")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(-1);
-    let location = [resolved, admin1, country]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    Ok(format!(
-        "**Live weather observation**\n\
-         - Location: {location} ({lat:.4}, {lon:.4})\n\
-         - Observation time: {obs_time} ({tz})\n\
-         - Temperature: {temp} °C\n\
-         - Relative humidity: {humidity} %\n\
-         - Wind speed: {wind} km/h\n\
-         - Conditions: {} (WMO code {code})\n\
-         - Source: Open-Meteo API (https://open-meteo.com/) — free public forecast endpoint, no API key\n\
-         - Evidence URLs: geocode `{geo_url}` ; forecast `{wx_url}`",
-        wmo_label(code)
-    ))
-}
-
-/// DuckDuckGo Instant Answer (zero-config) for non-weather factual lookups.
-pub fn fetch_duckduckgo_instant(query: &str) -> EaiResult<String> {
-    require_egress("https://api.duckduckgo.com")?;
-    let url = format!(
-        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
-        susi_paths::percent_encode_query(query)
-    );
-    let body: serde_json::Value =
-        get_json(&url).map_err(|e| EaiError::process(format!("DuckDuckGo lookup failed: {e}")))?;
-
-    let heading = body
-        .get("Heading")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
-    let abstract_text = body
-        .get("AbstractText")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
-    let abstract_url = body
-        .get("AbstractURL")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
-    let answer = body
-        .get("Answer")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
-
-    if abstract_text.is_empty() && answer.is_empty() {
-        return Err(EaiError::process(
-            "DuckDuckGo returned no Instant Answer abstract",
-        ));
-    }
-
-    let mut out = String::from("**Live web evidence (DuckDuckGo Instant Answer)**\n");
-    if !heading.is_empty() {
-        out.push_str(&format!("- Topic: {heading}\n"));
-    }
-    if !answer.is_empty() {
-        out.push_str(&format!("- Answer: {answer}\n"));
-    }
-    if !abstract_text.is_empty() {
-        out.push_str(&format!("- Abstract: {abstract_text}\n"));
-    }
-    if !abstract_url.is_empty() {
-        out.push_str(&format!("- Source URL: {abstract_url}\n"));
-    }
-    out.push_str(&format!("- Evidence URL: {url}\n"));
-    Ok(out)
-}
-
-/// Prefer live weather, then MCP search tools, then DuckDuckGo; never invent.
-/// Every fetch is captured into the mission's evidence ledger (when one is
-/// live for `workspace`), so downstream answers can cite real receipts.
+/// Prefer an admitted search tool. Never call a built-in web API.
 pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
     let mut attempts: Vec<String> = Vec::new();
-
-    if looks_like_weather_goal(goal) {
-        match extract_place(goal) {
-            Some(place) => {
-                let args = serde_json::json!({ "place": place });
-                match crate::susi_core::capture::EvidenceSession::capture_call(
-                    "open_meteo_weather",
-                    &args,
-                    workspace,
-                    || fetch_open_meteo_weather(&place),
-                ) {
-                    Ok(report) => return report,
-                    Err(e) => attempts.push(format!("Open-Meteo({place}): {e}")),
-                }
-            }
-            None => {
-                attempts.push("Open-Meteo: could not extract a place name from the goal".into())
-            }
-        }
-    }
 
     for tool in ["brave_search", "google_search", "web_search"] {
         if crate::susi_core::plane_bus::tools::exists(tool) {
@@ -303,19 +33,11 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
         }
     }
 
-    match crate::susi_core::capture::EvidenceSession::capture_call(
-        "duckduckgo_instant",
-        &serde_json::json!({ "query": goal }),
-        workspace,
-        || fetch_duckduckgo_instant(goal),
-    ) {
-        Ok(report) => return report,
-        Err(e) => attempts.push(format!("DuckDuckGo: {e}")),
-    }
-
     format!(
-        "**Live search/weather data unavailable.**\n\
-         No verifiable live observation could be fetched. Attempts:\n{}\n\
+        "**Live search data unavailable.**\n\
+         This OS does not ship a weather or web-search client. Admit a search \
+         tool (`brave_search`, `google_search`, or `web_search`) to fetch live \
+         evidence. Attempts:\n{}\n\
          I will not invent conditions or citations.",
         attempts
             .iter()
@@ -330,32 +52,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extracts_chennai_from_weather_goal() {
-        let place = extract_place(
-            "What is the current weather in Chennai, India? Fetch live weather evidence.",
+    fn gather_does_not_call_a_built_in_web_api() {
+        let report = gather_live_evidence(
+            "What is the current weather in Chennai, India?",
+            std::path::Path::new("."),
         );
-        assert_eq!(place.as_deref(), Some("Chennai, India"));
-    }
-
-    #[test]
-    fn weather_goal_detection() {
-        assert!(looks_like_weather_goal("current weather in Paris"));
-        assert!(!looks_like_weather_goal("refactor the auth module"));
-    }
-
-    #[test]
-    fn open_meteo_chennai_smoke() {
-        // Network-dependent; skip quietly when offline.
-        match fetch_open_meteo_weather("Chennai, India") {
-            Ok(report) => {
-                assert!(report.contains("Live weather observation"));
-                assert!(report.contains("Open-Meteo"));
-                assert!(report.contains("Observation time:"));
-                assert!(report.contains("Temperature:"));
-            }
-            Err(e) => {
-                eprintln!("skipping open_meteo_chennai_smoke (network): {e}");
-            }
-        }
+        assert!(report.contains("Live search data unavailable"));
+        assert!(report.contains("does not ship a weather or web-search client"));
+        assert!(!report.contains("Open-Meteo"));
+        assert!(!report.contains("DuckDuckGo"));
+        assert!(!report.contains("Temperature:"));
     }
 }

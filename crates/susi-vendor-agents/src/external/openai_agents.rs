@@ -43,7 +43,6 @@ if __name__ == "__main__":
     credential_envs: &["OPENAI_API_KEY", "OPENROUTER_API_KEY"],
     credential_hint: "export OPENAI_API_KEY=… (or OPENROUTER_API_KEY + OPENAI_BASE_URL=https://openrouter.ai/api/v1)",
     process_banner: "susi-openai-agents",
-    cli_name: "openai-agents",
 };
 
 #[cfg(test)]

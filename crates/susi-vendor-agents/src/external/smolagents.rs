@@ -70,7 +70,6 @@ if __name__ == "__main__":
     credential_hint:
         "export OPENAI_API_KEY=… (OpenAI-compatible) or HF_TOKEN (InferenceClientModel)",
     process_banner: "susi-smolagents",
-    cli_name: "smolagents",
 };
 
 #[cfg(test)]

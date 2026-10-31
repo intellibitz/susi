@@ -93,7 +93,7 @@ pub fn doctor() -> Result<String> {
     let detail = def.adapter.preflight()?;
     if !credentials_present() {
         bail!(
-            "configure the OpenViking client: `ov config` or `susi openviking init`, \
+            "configure the OpenViking client: `ov config`, \
              or export OPENVIKING_API_KEY for OpenViking Service; see {DOCUMENTATION}"
         );
     }
@@ -145,10 +145,9 @@ pub fn setup() -> serde_json::Value {
         "instructions": [
             "1) Client: `npm i -g @openviking/cli`  (or: pip/uv install openviking)",
             "2a) Cloud: export OPENVIKING_API_KEY=… then `printf '%s' \"$OPENVIKING_API_KEY\" | ov config add ov-service --name prod --api-key-stdin --activate -o json`",
-            "2b) Local server: `pip install openviking` → `openviking-server init` → `openviking-server` → `susi openviking init`",
+            "2b) Local server: `pip install openviking` → `openviking-server init` → `openviking-server`",
             "3) Language (required once): `ov language en`",
-            "4) `susi openviking doctor` then `susi openviking run --wait \"what is openviking\"`",
-            "5) Also: `susi agents run openviking`",
+            "4) `susi agents doctor openviking` then `susi agents run openviking --wait \"what is openviking\"`",
             "Headless retrieval: `ov find \"…\" -o json`",
             "No packages or subscriptions are provisioned implicitly."
         ],

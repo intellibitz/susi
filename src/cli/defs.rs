@@ -9,40 +9,32 @@ use susi_daemon::discovery_pipeline::Catalogs;
 use clap::{Parser, Subcommand};
 
 use super::agent_cli;
-use super::aider_cli;
 use super::ambient_cli;
 use super::auto_cli;
 use super::blackboard_cli;
 use super::brain_cli;
 use super::broker_cli;
-use super::browser_use_cli;
 use super::commits_cli;
 use super::context_graph_cli;
 use super::crown_cli;
-use super::deerflow_cli;
 use super::ecosystem_cli;
 use super::extensions_cli;
 use super::framework_cli;
 use super::frontier_cli;
-use super::gemini_cli;
 use super::harness_cli;
 use super::intent_cli;
 use super::mcp_cli;
 use super::model_cli;
 use super::open_weight_cli;
-use super::openhands_cli;
 use super::openrouter_cli;
-use super::openviking_cli;
 use super::os_cli;
 use super::patch_cli;
 use super::peers_cli;
 use super::plan_cli;
 use super::privacy_cli;
-use super::python_engine_cli;
 use super::services_cli;
 use super::setup_cli;
 use super::substrate_cli;
-use super::swe_agent_cli;
 use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
@@ -272,102 +264,6 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: Option<openrouter_cli::OpenRouterCommands>,
     },
-    /// Manage OpenHands end to end (CLI executor + LLM env + durable tasks)
-    #[command(name = "openhands", visible_alias = "oh")]
-    OpenHands {
-        #[command(subcommand)]
-        action: Option<openhands_cli::OpenHandsCommands>,
-    },
-    /// Manage Gemini CLI end to end (headless executor + auth + durable tasks)
-    #[command(name = "gemini", visible_alias = "gcli")]
-    Gemini {
-        #[command(subcommand)]
-        action: Option<gemini_cli::GeminiCliCommands>,
-    },
-    /// Manage Aider end to end (headless scripting + LLM env + durable tasks)
-    #[command(name = "aider")]
-    Aider {
-        #[command(subcommand)]
-        action: Option<aider_cli::AiderCommands>,
-    },
-    /// Manage SWE-agent end to end (headless local repo + durable tasks)
-    #[command(name = "swe-agent", visible_alias = "sweagent")]
-    SweAgent {
-        #[command(subcommand)]
-        action: Option<swe_agent_cli::SweAgentCommands>,
-    },
-    /// Manage Browser Use end to end (headless prompt mode + durable tasks)
-    #[command(name = "browser-use", visible_alias = "bu")]
-    BrowserUse {
-        #[command(subcommand)]
-        action: Option<browser_use_cli::BrowserUseCommands>,
-    },
-    /// Manage OpenViking end to end (context DB client + durable find tasks)
-    #[command(name = "openviking", visible_alias = "viking")]
-    OpenViking {
-        #[command(subcommand)]
-        action: Option<openviking_cli::OpenVikingCommands>,
-    },
-    /// Manage DeerFlow end to end (headless harness + durable tasks)
-    #[command(name = "deerflow", visible_alias = "deer")]
-    DeerFlow {
-        #[command(subcommand)]
-        action: Option<deerflow_cli::DeerFlowCommands>,
-    },
-    /// Manage LangGraph end to end (Python engine + config + durable tasks)
-    #[command(name = "langgraph", visible_alias = "lg")]
-    LangGraph {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage OpenAI Agents SDK end to end (Python engine + config + durable tasks)
-    #[command(name = "openai-agents", visible_alias = "oas")]
-    OpenAiAgents {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage AutoGen end to end (Python AgentChat engine + config + durable tasks)
-    #[command(name = "autogen", visible_alias = "ag")]
-    AutoGen {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage Hugging Face smolagents end to end (Python engine + config + durable tasks)
-    #[command(name = "smolagents", visible_alias = "smol")]
-    SmolAgents {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage CrewAI end to end (role-based multi-agent orchestration)
-    #[command(name = "crewai")]
-    CrewAi {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage LlamaIndex end to end (RAG / agent data framework)
-    #[command(name = "llamaindex", visible_alias = "llama")]
-    LlamaIndex {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage Temporal end to end (durable workflow engine)
-    #[command(name = "temporal")]
-    Temporal {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage E2B end to end (cloud sandbox code-execution runtime)
-    #[command(name = "e2b")]
-    E2b {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
-    /// Manage Haystack end to end (document / RAG pipelines)
-    #[command(name = "haystack")]
-    Haystack {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
     /// Cloud API keys — list, set, prefer, remove (like `models` for backends)
     #[command(name = "keys", visible_alias = "key")]
     Keys {
@@ -432,12 +328,6 @@ pub(crate) enum Commands {
     /// Direct streaming model execution (local Ollama/llama.cpp/Candle or cloud)
     #[command(name = "run")]
     Run(super::run_cli::RunArgs),
-    /// Interactive multi-turn conversational chat session with local or cloud models
-    #[command(name = "chat")]
-    Chat(super::chat_cli::ChatArgs),
-    /// High-speed coding model agent for diff generation and workspace editing
-    #[command(name = "code")]
-    Code(super::code_cli::CodeArgs),
     /// Unified operator control surface: workload, resources, providers, config, federation, and evidence
     #[command(name = "top")]
     Top(super::top_cli::TopArgs),
@@ -639,22 +529,6 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::OpenWeight { .. }
         | Commands::Frontier { .. }
         | Commands::OpenRouter { .. }
-        | Commands::OpenHands { .. }
-        | Commands::Gemini { .. }
-        | Commands::Aider { .. }
-        | Commands::SweAgent { .. }
-        | Commands::BrowserUse { .. }
-        | Commands::OpenViking { .. }
-        | Commands::DeerFlow { .. }
-        | Commands::LangGraph { .. }
-        | Commands::OpenAiAgents { .. }
-        | Commands::AutoGen { .. }
-        | Commands::SmolAgents { .. }
-        | Commands::CrewAi { .. }
-        | Commands::LlamaIndex { .. }
-        | Commands::Temporal { .. }
-        | Commands::E2b { .. }
-        | Commands::Haystack { .. }
             if !matches!(
                 command,
                 Commands::Models {
@@ -692,8 +566,6 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Peers { .. }
         | Commands::Audit { .. }
         | Commands::Run { .. }
-        | Commands::Chat { .. }
-        | Commands::Code { .. }
         | Commands::Top { .. } => false,
         // `mcp serve` answers from its own in-process service. Ensuring the
         // daemon first held the MCP handshake for the whole host-contract
@@ -728,7 +600,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
 ///
 /// A command not classified here primes every catalog, as all of them did
 /// before priming was split. Commands that never prime (`status`, `brain`,
-/// `chat`, `run`, `mcp serve`, …) never ask.
+/// `run`, `mcp serve`, …) never ask.
 #[allow(clippy::wildcard_enum_match_arm)]
 pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
     match command {
@@ -1076,5 +948,39 @@ mod tests {
             assert!(!super::command_requires_daemon(&command));
         }
         assert!(!skips(&["susi", "audit"]));
+    }
+
+    /// Chat, the coding app, and one command per product are not OS commands.
+    /// Peers stay on `agents` / `frameworks`. One completion stays on `run`.
+    #[test]
+    fn application_commands_are_not_os_commands() {
+        for args in [
+            &["susi", "chat"][..],
+            &["susi", "code", "fix it"],
+            &["susi", "aider"],
+            &["susi", "openhands"],
+            &["susi", "browser-use"],
+            &["susi", "crewai"],
+            &["susi", "haystack"],
+            &["susi", "langgraph"],
+            &["susi", "swe-agent"],
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert!(cli.command.is_none(), "{args:?} must not be an OS command");
+        }
+        assert!(Cli::try_parse_from(["susi", "agents", "list"])
+            .unwrap()
+            .command
+            .is_some());
+        assert!(
+            Cli::try_parse_from(["susi", "frameworks", "init", "crewai"])
+                .unwrap()
+                .command
+                .is_some()
+        );
+        assert!(Cli::try_parse_from(["susi", "run", "hello"])
+            .unwrap()
+            .command
+            .is_some());
     }
 }

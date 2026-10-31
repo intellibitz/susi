@@ -42,7 +42,6 @@ if __name__ == "__main__":
     credential_envs: &["E2B_API_KEY"],
     credential_hint: "export E2B_API_KEY=… (from https://e2b.dev)",
     process_banner: "susi-e2b",
-    cli_name: "e2b",
 };
 
 #[cfg(test)]

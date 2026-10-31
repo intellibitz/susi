@@ -60,7 +60,6 @@ if __name__ == "__main__":
     credential_hint:
         "optional: TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE (default dry-run without cluster)",
     process_banner: "susi-temporal",
-    cli_name: "temporal",
 };
 
 #[cfg(test)]

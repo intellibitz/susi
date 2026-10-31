@@ -67,7 +67,6 @@ if __name__ == "__main__":
     credential_hint:
         "export OPENAI_API_KEY=… (or AZURE_OPENAI_API_KEY / OPENROUTER_API_KEY + base URL)",
     process_banner: "susi-autogen",
-    cli_name: "autogen",
 };
 
 #[cfg(test)]
