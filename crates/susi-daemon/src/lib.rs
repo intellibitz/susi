@@ -104,7 +104,9 @@ mod vc_202_010_mastery_tests;
 #[path = "tests/vc_201_065_mastery.rs"]
 mod vc_201_065_mastery_tests;
 
-pub use composition::{swarm_host_snapshot, wire_cli_substrate, wire_engine_hooks};
+pub use composition::{
+    swarm_host_snapshot, wire_cli_substrate, wire_cli_substrate_priming, wire_engine_hooks,
+};
 pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
 pub use service_supervision::{RestartEvent, ServiceStatus, Supervisor, WorkerState};

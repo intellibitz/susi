@@ -532,6 +532,15 @@ fn wire_hooks_and_swarm_host() {
 /// Does not bind host-contract ports (daemon owns those). Call before command
 /// dispatch that may touch tools, catalogs, or inference.
 pub fn wire_cli_substrate(substrate: &Path) {
+    wire_cli_substrate_priming(substrate, crate::discovery_pipeline::Catalogs::ALL);
+}
+
+/// [`wire_cli_substrate`] that primes only `catalogs` — the ones the
+/// command's output or work reads. Priming still runs last, after the
+/// essential MCP servers are linked, and against the substrate home (never
+/// the cwd), exactly where the full prime runs. An empty set primes nothing
+/// and leaves no `cli: prime catalogs` phase.
+pub fn wire_cli_substrate_priming(substrate: &Path, catalogs: crate::discovery_pipeline::Catalogs) {
     use crate::boot_trace::phase;
     phase("cli: plane bus", wire_plane_bus);
     phase("cli: mcp-serve substrate", || {
@@ -540,9 +549,11 @@ pub fn wire_cli_substrate(substrate: &Path) {
     crate::ambient::start_ambient_indexer(substrate);
     // Catalog priming only: Swarm Cells are long-running servers owned by
     // the daemon, never spawned per CLI invocation.
-    let _ = phase("cli: prime catalogs", || {
-        crate::discovery_pipeline::prime_catalogs(substrate)
-    });
+    if !catalogs.is_empty() {
+        let _ = phase("cli: prime catalogs", || {
+            crate::discovery_pipeline::prime_selected_catalogs(substrate, catalogs)
+        });
+    }
 }
 
 /// Composition root for `susi mcp serve`: what GMCP's tool handlers reach
@@ -550,8 +561,12 @@ pub fn wire_cli_substrate(substrate: &Path) {
 /// nothing more. An MCP client waits on the handshake while this runs
 /// (Mandate 32): catalog priming probed every launcher and held the first
 /// answer ~26 s on a fresh home, and the ambient indexer's commits competed
-/// with the session for CPU. The daemon and every other command still run
-/// both.
+/// with the session for CPU. The daemon, `susi auto prime`, missions,
+/// in-process `mcp call` and the MCP-reading commands (`mcp list`, `status`,
+/// `doctor`, `setup`, `disable`) still prime leading MCP; every other command
+/// primes only the catalogs its output or work reads
+/// (`defs::command_catalogs`), so on a host where none of those has run,
+/// `mcp serve` sees only the servers enabled explicitly.
 pub fn wire_mcp_serve_substrate(substrate: &Path) {
     use crate::boot_trace::phase;
     phase("mcp-serve: engine hooks", wire_engine_hooks);

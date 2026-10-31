@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use susi::SUSI_VERSION;
+use susi_daemon::discovery_pipeline::Catalogs;
 
 use clap::{Parser, Subcommand};
 
@@ -719,14 +720,312 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
     }
 }
 
+/// The catalogs a priming command primes: exactly those whose state its
+/// output (or its work) reads, and none when it reads none. Each one is
+/// primed fresh in the command's own process; nothing is reused across
+/// processes. Used by the Ecosystem control planes and by the CLI
+/// composition root (`susi_daemon::composition::wire_cli_substrate_priming`).
+///
+/// A command not classified here primes every catalog, as all of them did
+/// before priming was split. Commands that never prime (`status`, `brain`,
+/// `chat`, `run`, `mcp serve`, …) never ask.
+#[allow(clippy::wildcard_enum_match_arm)]
+pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
+    match command {
+        // Print the static catalogs, live preflights, run records and
+        // their own pins; the hidden `agents worker` / `frameworks worker`
+        // (every detached run, python-engine planes included) execute
+        // from cloud.env and the environment. No primed state is read.
+        Commands::Agents { .. } | Commands::Frameworks { .. } => Catalogs::NONE,
+        Commands::OpenWeight { action } => open_weight_catalogs(action.as_ref()),
+        Commands::Frontier { action } => frontier_catalogs(action.as_ref()),
+        Commands::Models { action } => models_catalogs(action.as_ref()),
+        Commands::Mcp { action } => mcp_catalogs(action.as_ref()),
+        // These three dispatch in `control_plane_cli::dispatch` before the
+        // CLI composition root runs, and prime inside their own handlers
+        // (`substrate_cli::PRIMED`, `crown_cli::PRIMED`, `auto prime`'s full
+        // prime); these arms only describe what those handlers prime.
+        Commands::Substrate { .. } => super::substrate_cli::PRIMED,
+        Commands::Crown { .. } => super::crown_cli::PRIMED,
+        Commands::Auto {
+            action: Some(auto_cli::AutoCommands::Prime),
+        } => Catalogs::ALL,
+        // A snapshot of what other processes primed.
+        Commands::Auto { .. } => Catalogs::NONE,
+        // `select-model` writes `selected_model_override.txt`. Coding-model
+        // auto-prefer must run first: it pins a ready preferred model, so
+        // every later prime keeps the user's pick instead of `prefer()`-ing
+        // over it (as the daemon this command starts would at boot).
+        Commands::SelectModel { .. } => Catalogs::CODING_MODELS,
+        // Key presence and routing prefs; the daemon/OS summary; the
+        // workspace audit log and compliance scan; the AST auditor;
+        // `target/` and OS cache cleanup.
+        Commands::Keys { .. }
+        | Commands::Review
+        | Commands::Audit { .. }
+        | Commands::BloatAudit
+        | Commands::Clean
+        | Commands::OsClean => Catalogs::NONE,
+        // Missions, the shell, gemi, install and the rest: everything.
+        _ => Catalogs::ALL,
+    }
+}
+
+/// `susi models …`: only list, setup and bare `models` print the preferred
+/// coding model that auto-prefer writes. `models local` is a mission.
+pub(crate) fn models_catalogs(action: Option<&model_cli::ModelCommands>) -> Catalogs {
+    use model_cli::ModelCommands as M;
+    match action {
+        None | Some(M::List) | Some(M::Setup { .. }) => Catalogs::CODING_MODELS,
+        Some(M::Local) => Catalogs::ALL,
+        Some(M::Doctor { .. })
+        | Some(M::Configure { .. })
+        | Some(M::Reset { .. })
+        | Some(M::Prefer { .. })
+        | Some(M::Probe { .. }) => Catalogs::NONE,
+    }
+}
+
+/// `susi frontier …`: `prefer` writes `selected_model_override.txt`
+/// without writing `preferred_coding_model.txt`, so it primes coding models
+/// first (else the next coding-model prime overwrites the pin). The rest
+/// print the static catalog, live preflights and the plane's own pin.
+pub(crate) fn frontier_catalogs(action: Option<&frontier_cli::FrontierCommands>) -> Catalogs {
+    use frontier_cli::FrontierCommands as F;
+    match action {
+        Some(F::Prefer { .. }) => Catalogs::CODING_MODELS,
+        None
+        | Some(F::List)
+        | Some(F::Doctor { .. })
+        | Some(F::Setup { .. })
+        | Some(F::Configure { .. })
+        | Some(F::Reset { .. })
+        | Some(F::Probe { .. }) => Catalogs::NONE,
+    }
+}
+
+/// `susi openweight …`: as [`frontier_catalogs`] — `prefer` writes the
+/// override, so it primes coding models first; the rest prime nothing.
+pub(crate) fn open_weight_catalogs(
+    action: Option<&open_weight_cli::OpenWeightCommands>,
+) -> Catalogs {
+    use open_weight_cli::OpenWeightCommands as O;
+    match action {
+        Some(O::Prefer { .. }) => Catalogs::CODING_MODELS,
+        None
+        | Some(O::List)
+        | Some(O::Doctor { .. })
+        | Some(O::Setup { .. })
+        | Some(O::Pull { .. })
+        | Some(O::Configure { .. })
+        | Some(O::Reset { .. })
+        | Some(O::Probe { .. }) => Catalogs::NONE,
+    }
+}
+
+/// `susi mcp …`: the subcommands whose output reads the enabled set that
+/// leading MCP auto-enable writes prime it; the rest prime nothing.
+/// `disable` reports whether it removed an entry, which an auto-enable just
+/// before decides. `serve` primes nothing (its client waits on the
+/// handshake).
+pub(crate) fn mcp_catalogs(action: Option<&mcp_cli::McpCommands>) -> Catalogs {
+    use mcp_cli::McpCommands as M;
+    match action {
+        Some(M::List)
+        | Some(M::Status)
+        | Some(M::Doctor { .. })
+        | Some(M::Setup { .. })
+        | Some(M::Disable { .. }) => Catalogs::LEADING_MCP,
+        // A network peer reads nothing primed here. Any other target goes
+        // through `call_tool_direct`, which dispatches in process whenever
+        // the server is a native alias (`susi`, `native`, `gmcp`, `local`,
+        // `builtin`, `core`, empty) or the tool is a registered native tool
+        // (`susi_solve`, `reason`, `list_models`, ...) — work that reads the
+        // selected model and the MCP set, as a mission does. Which tools are
+        // native is only known at dispatch, so every non-network call
+        // primes everything, as missions do.
+        Some(M::Call { addr, .. }) if !mcp_cli::is_network_endpoint(addr) => Catalogs::ALL,
+        Some(M::Call { .. })
+        | Some(M::Tools { .. })
+        | Some(M::Ledger { .. })
+        | Some(M::Enable { .. })
+        | Some(M::Configure { .. })
+        | Some(M::Reset { .. })
+        | Some(M::Serve)
+        | None => Catalogs::NONE,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{command_skips_composition, Cli};
+    use super::{command_catalogs, command_skips_composition, Catalogs, Cli};
     use clap::Parser;
 
     fn skips(args: &[&str]) -> bool {
         let cli = Cli::try_parse_from(args).unwrap();
         command_skips_composition(&cli.command.unwrap())
+    }
+
+    fn catalogs(args: &[&str]) -> Catalogs {
+        let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        command_catalogs(&cli.command.unwrap())
+    }
+
+    fn assert_primes(expected: Catalogs, commands: &[&[&str]]) {
+        for cmd in commands {
+            assert_eq!(catalogs(cmd), expected, "{cmd:?}");
+        }
+    }
+
+    /// Commands whose output reads no primed catalog prime nothing.
+    #[test]
+    fn commands_reading_no_catalog_prime_nothing() {
+        assert_primes(
+            Catalogs::NONE,
+            &[
+                &["susi", "agents", "list"],
+                &["susi", "agents", "doctor"],
+                &["susi", "agents", "tasks"],
+                &["susi", "agents", "worker", "t-1"],
+                &["susi", "frameworks", "list"],
+                &["susi", "frameworks", "doctor"],
+                &["susi", "frameworks", "worker", "t-1"],
+                &["susi", "openweight", "list"],
+                &["susi", "openweight"],
+                &["susi", "openweight", "doctor"],
+                &["susi", "openweight", "setup", "m"],
+                &["susi", "frontier", "list"],
+                &["susi", "frontier"],
+                &["susi", "frontier", "doctor"],
+                &["susi", "frontier", "setup", "m"],
+                &["susi", "models", "doctor"],
+                &["susi", "models", "prefer", "m"],
+                &["susi", "models", "reset", "m"],
+                &["susi", "mcp", "enable", "filesystem"],
+                &["susi", "mcp", "reset", "filesystem"],
+                &["susi", "mcp", "tools", "127.0.0.1:9090"],
+                &["susi", "mcp", "ledger"],
+                &["susi", "mcp", "call", "127.0.0.1:9090", "t"],
+                &["susi", "mcp", "serve"],
+                &["susi", "auto", "status"],
+                &["susi", "keys", "list"],
+                &["susi", "keys"],
+                &["susi", "review"],
+                &["susi", "audit", "verify"],
+                &["susi", "audit"],
+                &["susi", "bloat-audit"],
+                &["susi", "clean"],
+                &["susi", "os-clean"],
+            ],
+        );
+    }
+
+    /// Commands that print the preferred coding model prime only that.
+    #[test]
+    fn preferred_model_readers_prime_only_coding_models() {
+        assert_primes(
+            Catalogs::CODING_MODELS,
+            &[
+                &["susi", "models"],
+                &["susi", "models", "list"],
+                &["susi", "models", "setup", "m"],
+            ],
+        );
+    }
+
+    /// Regression: every command that writes `selected_model_override.txt`
+    /// without writing `preferred_coding_model.txt` primes coding models
+    /// first, so the next auto-prefer finds a ready preferred model and
+    /// keeps the pin instead of overwriting it.
+    #[test]
+    fn override_writers_prime_coding_models_first() {
+        assert_primes(
+            Catalogs::CODING_MODELS,
+            &[
+                &["susi", "select-model", "m"],
+                &["susi", "frontier", "prefer", "m"],
+                &["susi", "frontier", "prefer", "--clear"],
+                &["susi", "openweight", "prefer", "m"],
+                &["susi", "openweight", "prefer", "--clear"],
+            ],
+        );
+    }
+
+    /// Commands that print or use the enabled MCP set prime only MCP.
+    #[test]
+    fn enabled_mcp_readers_prime_only_leading_mcp() {
+        assert_primes(
+            Catalogs::LEADING_MCP,
+            &[
+                &["susi", "mcp", "list"],
+                &["susi", "mcp", "status"],
+                &["susi", "mcp", "doctor"],
+                &["susi", "mcp", "setup", "filesystem"],
+                &["susi", "mcp", "disable", "filesystem"],
+            ],
+        );
+    }
+
+    /// Regression: `mcp call` to anything but a network peer may dispatch in
+    /// process (`susi_solve` runs a mission, `reason` generates with the
+    /// selected model), so it primes every catalog, as missions do.
+    #[test]
+    fn in_process_mcp_calls_prime_every_catalog() {
+        assert_primes(
+            Catalogs::ALL,
+            &[
+                &[
+                    "susi",
+                    "mcp",
+                    "call",
+                    "susi",
+                    "susi_solve",
+                    "{\"intent\":\"x\"}",
+                ],
+                &["susi", "mcp", "call", "susi", "reason"],
+                &["susi", "mcp", "call", "native", "list_models"],
+                &["susi", "mcp", "call", "gmcp", "susi_solve"],
+                &["susi", "mcp", "call", "", "reason"],
+                &["susi", "mcp", "call", "filesystem", "read_file"],
+            ],
+        );
+        assert_primes(
+            Catalogs::NONE,
+            &[
+                &["susi", "mcp", "call", "http://127.0.0.1:9/mcp", "reason"],
+                &["susi", "mcp", "call", "127.0.0.1:9", "susi_solve"],
+            ],
+        );
+    }
+
+    /// Readers of the registered agent capabilities prime the agent scans;
+    /// crown also reads the selected model.
+    #[test]
+    fn capability_readers_prime_the_agent_scans() {
+        assert_primes(Catalogs::AGENTS, &[&["susi", "substrate", "status"]]);
+        assert_primes(
+            Catalogs::AGENTS.union(Catalogs::CODING_MODELS),
+            &[&["susi", "crown", "verify"], &["susi", "crown", "status"]],
+        );
+    }
+
+    /// `auto prime`, missions and every command not classified still prime
+    /// every catalog, as before priming was split.
+    #[test]
+    fn auto_prime_missions_and_unclassified_commands_prime_everything() {
+        assert_primes(
+            Catalogs::ALL,
+            &[
+                &["susi", "auto", "prime"],
+                &["susi", "models", "local"],
+                &["susi", "automate", "x"],
+                &["susi", "install"],
+                &["susi", "gemi"],
+                &["susi", "sovereign-dashboard"],
+                &["susi", "deep-scan"],
+                &["susi", "uninstall"],
+            ],
+        );
     }
 
     /// Lifecycle and status never run the CLI composition root: on a host
