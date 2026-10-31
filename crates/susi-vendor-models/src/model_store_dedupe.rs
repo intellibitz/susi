@@ -1,4 +1,4 @@
-//! Model store dedupe across Ollama / LM Studio / HF cache.
+//! Model store dedupe across weight caches (Ollama, Hugging Face, and others).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

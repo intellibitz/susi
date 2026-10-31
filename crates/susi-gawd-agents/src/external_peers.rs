@@ -1,4 +1,4 @@
-//! Pluggable external coding-agent peers (Claude Code, Cursor, Codex, Devin, OpenHands, …).
+//! Pluggable external coding-agent peers (Codex, Cline, OpenHands, Aider, …).
 //!
 //! Open admission: any entry in `external_peer_agents` with a supported protocol
 //! (`cli`, `openai_chat`, `http`, `a2a`) mounts as a GawdAgent. Drivers missing
@@ -592,10 +592,7 @@ mod tests {
         );
         let names: Vec<_> = specs.iter().map(|s| s.name.as_str()).collect();
         for expected in [
-            "ClaudeCodeAgent",
-            "CursorAgent",
             "CodexAgent",
-            "DevinAgent",
             "OpenHandsAgent",
             "GeminiCliAgent",
             "AiderAgent",
@@ -605,9 +602,7 @@ mod tests {
             "DeerFlowAgent",
             "RooCodeAgent",
             "ClineAgent",
-            "ManusAgent",
             "QwenAgent",
-            "GithubCopilotAgent",
             "LangGraphEngine",
             "OpenAIAgentsEngine",
             "AutoGenEngine",
@@ -622,7 +617,6 @@ mod tests {
             "TemporalEngine",
             "E2bEngine",
             "HaystackEngine",
-            "N8nEngine",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");
         }
@@ -630,9 +624,9 @@ mod tests {
 
     #[test]
     fn peer_factories_instantiate() {
-        let agent = crate::agents::instantiate_native_agent("ClaudeCodeAgent")
-            .expect("ClaudeCodeAgent factory must register");
-        assert_eq!(agent.name(), "ClaudeCodeAgent");
+        let agent = crate::agents::instantiate_native_agent("CodexAgent")
+            .expect("CodexAgent factory must register");
+        assert_eq!(agent.name(), "CodexAgent");
         let agent = crate::agents::instantiate_native_agent("OpenHandsAgent")
             .expect("OpenHandsAgent factory must register");
         assert_eq!(agent.name(), "OpenHandsAgent");

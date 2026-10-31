@@ -33,7 +33,7 @@ impl Drop for Fixture {
 #[test]
 fn curated_execution_agents_with_native_adapters() {
     let catalog = catalog(CatalogKind::Execution).unwrap();
-    assert_eq!(catalog.len(), 20);
+    assert_eq!(catalog.len(), 15);
     let mut ids = std::collections::HashSet::new();
     for (index, agent) in catalog.iter().enumerate() {
         assert!(ids.insert(&agent.id));
@@ -51,14 +51,6 @@ fn curated_execution_agents_with_native_adapters() {
             .unwrap()
             .adapter,
         Adapter::Qwen { .. }
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "devin").unwrap().adapter,
-        Adapter::Devin { .. }
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "manus").unwrap().adapter,
-        Adapter::Manus { .. }
     ));
     assert!(matches!(
         definition(CatalogKind::Execution, "kilo-code")
@@ -107,7 +99,7 @@ fn curated_execution_agents_with_native_adapters() {
 #[test]
 fn ten_unique_frameworks_with_python_adapters() {
     let catalog = catalog(CatalogKind::Framework).unwrap();
-    assert_eq!(catalog.len(), 15);
+    assert_eq!(catalog.len(), 14);
     let mut ids = std::collections::HashSet::new();
     for (index, engine) in catalog.iter().enumerate() {
         assert!(ids.insert(&engine.id));
@@ -131,9 +123,9 @@ fn ten_unique_frameworks_with_python_adapters() {
     let (kind, def) = resolve_managed("LangGraphEngine").unwrap();
     assert_eq!(kind, CatalogKind::Framework);
     assert_eq!(def.id, "langgraph");
-    let (kind, def) = resolve_managed("ClaudeCodeAgent").unwrap();
+    let (kind, def) = resolve_managed("CodexAgent").unwrap();
     assert_eq!(kind, CatalogKind::Execution);
-    assert_eq!(def.id, "claude-code");
+    assert_eq!(def.id, "codex");
 }
 
 #[test]
@@ -340,29 +332,13 @@ fn python_framework_runner_invokes_absolute_script() {
 fn failed_task_reports_stderr_cause_redacted() {
     let fx = Fixture::new();
     let adapter = fx.command("echo 'Workspace Trust Required' >&2; echo more >&2; echo 'token sk-abcdef1234567890abcd' >&2; exit 3");
-    let run = fx.manager.prepare_adapter("cursor", "x", adapter).unwrap();
+    let run = fx.manager.prepare_adapter("aider", "x", adapter).unwrap();
     let done = fx.manager.execute(&run.id).unwrap();
     assert_eq!(done.status, RunStatus::Failed);
     assert_eq!(done.exit_code, Some(3));
     let err = done.error.unwrap();
     assert!(err.starts_with("Workspace Trust Required"), "{err}");
     assert!(!err.contains("abcdef1234567890"), "{err}");
-}
-
-#[test]
-fn cursor_adapter_trusts_the_workspace_for_headless_runs() {
-    // cursor-agent refuses `-p` in an untrusted directory unless told to trust it.
-    match definition(CatalogKind::Execution, "cursor")
-        .unwrap()
-        .adapter
-    {
-        Adapter::Command { program, args } => {
-            assert_eq!(program, "cursor-agent");
-            assert!(args.iter().any(|a| a == "--trust"));
-            assert_eq!(args.last().map(String::as_str), Some("{prompt}"));
-        }
-        other => panic!("expected command adapter, got {other:?}"),
-    }
 }
 
 /// Write an executable script from a child process. Written from this one, its

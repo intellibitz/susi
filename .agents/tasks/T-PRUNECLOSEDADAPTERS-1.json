@@ -1,0 +1,19 @@
+{
+  "id": "T-PRUNECLOSEDADAPTERS-1",
+  "title": "Drop closed-source adapters, AGPL engines, and n8n",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "--lib",
+      "curated_execution_agents_with_native_adapters"
+    ]
+  },
+  "created_by": "PRUNECLOSEDADAPTERS",
+  "created_unix": 1793457769
+}

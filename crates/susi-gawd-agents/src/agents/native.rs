@@ -953,7 +953,7 @@ pub struct DynamicInferenceEndpointAgent {
 }
 
 /// True when `api_base` targets a remote (non-loopback) host. Loopback
-/// inference engines (Ollama, vLLM, llama.cpp, LM Studio, …) are local
+/// inference engines (Ollama, vLLM, llama.cpp, …) are local
 /// substrates; anything else is network egress of the mission goal.
 pub(crate) fn is_remote_inference_endpoint(api_base: &str) -> bool {
     let lower = api_base.trim().to_ascii_lowercase();

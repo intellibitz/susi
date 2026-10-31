@@ -29,9 +29,7 @@ const RUNTIME_BINARIES: &[&str] = &[
     "tritonserver",
     "lmdeploy",
     "text-generation-launcher",
-    "koboldcpp",
     "localai",
-    "lm-studio",
 ];
 
 /// Interpreter-hosted runtimes identified by a marker in their arguments.

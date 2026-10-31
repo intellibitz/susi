@@ -5,7 +5,7 @@ use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogKind {
-    /// Top coding executors (Claude Code, Cursor, …).
+    /// Coding executors admitted under an Apache-2.0 or permissive license.
     Execution,
     /// Top agent frameworks / engines (LangGraph, CrewAI, …).
     Framework,
@@ -65,15 +65,6 @@ pub enum Adapter {
         import_name: String,
         config_env: String,
     },
-    Devin {
-        api_key_env: String,
-        /// Env var holding the Devin organization id (`org-…`). Defaults to `DEVIN_ORG_ID`.
-        #[serde(default = "default_devin_org_id_env")]
-        org_id_env: String,
-    },
-    Manus {
-        api_key_env: String,
-    },
     /// Remote A2A-compliant agent, discovered from `<url>/.well-known/agent-card.json`.
     A2a {
         url: String,
@@ -93,10 +84,6 @@ pub enum Adapter {
         program: String,
         args: Vec<String>,
     },
-}
-
-fn default_devin_org_id_env() -> String {
-    "DEVIN_ORG_ID".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,38 +162,6 @@ impl Adapter {
                 {
                     bail!(
                         "config_env must name an environment variable, not contain a path or secret"
-                    );
-                }
-            }
-            Self::Devin {
-                api_key_env,
-                org_id_env,
-            } => {
-                if api_key_env.is_empty()
-                    || !api_key_env
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                {
-                    bail!(
-                        "api_key_env must name an environment variable, not contain a credential"
-                    );
-                }
-                if org_id_env.is_empty()
-                    || !org_id_env
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                {
-                    bail!("org_id_env must name an environment variable, not contain an org id");
-                }
-            }
-            Self::Manus { api_key_env } => {
-                if api_key_env.is_empty()
-                    || !api_key_env
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                {
-                    bail!(
-                        "api_key_env must name an environment variable, not contain a credential"
                     );
                 }
             }
@@ -347,47 +302,11 @@ impl Adapter {
                 }
                 Ok("Python package and entry config present; model credentials checked at execution".into())
             }
-            Self::Devin {
-                api_key_env,
-                org_id_env,
-            } => {
-                if crate::susi_config::env_or_cloud_env(api_key_env)
-                    .unwrap_or_default()
-                    .trim()
-                    .is_empty()
-                {
-                    bail!("set {api_key_env} for cloud API access");
-                }
-                if crate::susi_config::env_or_cloud_env(org_id_env)
-                    .unwrap_or_default()
-                    .trim()
-                    .is_empty()
-                {
-                    bail!("set {org_id_env} (Devin org id, e.g. org-…) for API v3");
-                }
-                Ok("credential and org id present; API access checked at execution".into())
-            }
-            Self::Manus { api_key_env } => {
-                if crate::susi_config::env_or_cloud_env(api_key_env)
-                    .unwrap_or_default()
-                    .trim()
-                    .is_empty()
-                {
-                    bail!("set {api_key_env} for cloud API access");
-                }
-                Ok("credential present; API access checked at execution".into())
-            }
         }
     }
 
     pub fn is_cloud(&self) -> bool {
-        matches!(
-            self,
-            Self::Devin { .. }
-                | Self::Manus { .. }
-                | Self::A2a { .. }
-                | Self::OpenHandsServer { .. }
-        )
+        matches!(self, Self::A2a { .. } | Self::OpenHandsServer { .. })
     }
 }
 

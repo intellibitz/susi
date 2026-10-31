@@ -367,12 +367,6 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: Option<python_engine_cli::EngineCommands>,
     },
-    /// Manage n8n end to end (automation / event-trigger workflows)
-    #[command(name = "n8n")]
-    N8n {
-        #[command(subcommand)]
-        action: Option<python_engine_cli::EngineCommands>,
-    },
     /// Cloud API keys — list, set, prefer, remove (like `models` for backends)
     #[command(name = "keys", visible_alias = "key")]
     Keys {
@@ -660,7 +654,6 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Temporal { .. }
         | Commands::E2b { .. }
         | Commands::Haystack { .. }
-        | Commands::N8n { .. }
             if !matches!(
                 command,
                 Commands::Models {

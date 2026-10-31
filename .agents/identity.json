@@ -293,7 +293,7 @@
           "tier": 1
         },
         {
-          "function": "`susi agents` / `susi frameworks` (`susi_agents::external`): end-to-end doctor/setup/run/tasks for leading external coding agents and Python engines (OpenHands, Aider, SWE-agent, CrewAI, LangGraph, AutoGen, smolagents, LlamaIndex, Temporal, E2B, Haystack, n8n, …).",
+          "function": "`susi agents` / `susi frameworks` (`susi_agents::external`): end-to-end doctor/setup/run/tasks for leading external coding agents and Python engines (OpenHands, Aider, SWE-agent, CrewAI, LangGraph, AutoGen, smolagents, LlamaIndex, Temporal, E2B, Haystack, …).",
           "symbol": "ExternalAgentManager",
           "tier": 1
         },

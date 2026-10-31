@@ -769,15 +769,10 @@ pub async fn auto_discover_local_engines(
             "http://localhost:30000/v1".into(),
             String::new(),
         ),
-        (
-            "LMStudio".into(),
-            "http://localhost:1234/v1".into(),
-            String::new(),
-        ),
     ];
 
     // Every other serving engine the local-ecosystem table knows (Jan, GPT4All,
-    // LocalAI, text-generation-webui, …) is probed at its default port too.
+    // LocalAI, …) is probed at its default port too.
     for (name, base) in susi_gemi_models::local_ecosystem::default_openai_endpoints() {
         if !endpoints
             .iter()

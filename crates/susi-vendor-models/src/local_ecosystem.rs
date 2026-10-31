@@ -53,16 +53,6 @@ const DEFS: &[Def] = &[
         openai_compat: true,
     },
     Def {
-        id: "lm-studio",
-        name: "LM Studio",
-        binaries: &["lms"],
-        dirs: &[".lmstudio", ".cache/lm-studio"],
-        port: 1234,
-        health: "/v1/models",
-        start: Some(&["lms", "server", "start"]),
-        openai_compat: true,
-    },
-    Def {
         id: "llama-cpp",
         name: "llama.cpp",
         binaries: &["llama-server", "llama-cli"],
@@ -118,26 +108,6 @@ const DEFS: &[Def] = &[
         binaries: &[],
         dirs: &[".local/share/nomic.ai/GPT4All"],
         port: 4891,
-        health: "/v1/models",
-        start: None,
-        openai_compat: true,
-    },
-    Def {
-        id: "koboldcpp",
-        name: "KoboldCpp",
-        binaries: &["koboldcpp"],
-        dirs: &[],
-        port: 5001,
-        health: "/api/v1/model",
-        start: None,
-        openai_compat: false,
-    },
-    Def {
-        id: "text-generation-webui",
-        name: "text-generation-webui",
-        binaries: &[],
-        dirs: &["text-generation-webui"],
-        port: 5000,
         health: "/v1/models",
         start: None,
         openai_compat: true,
@@ -212,7 +182,7 @@ pub struct Ecosystem {
     pub accelerators: Vec<Accelerator>,
 }
 
-/// Host-managed runtimes (Ollama, LM Studio, vLLM, …) self-manage models
+/// Host-managed runtimes (Ollama, vLLM, …) self-manage models
 /// and lifecycle: the scan can discover and health-probe them, never stage
 /// or cancel work inside them. [`RuntimeBackend`] implementation for the
 /// VC-201-042 contract — unsupported verbs answer typed errors, and the
