@@ -1,0 +1,21 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-4",
+  "title": "Batch close receipt checks in workflow compliance",
+  "goal": "Batch-read close receipts and memoize owed-merge checks per agent so the push compliance script does not spawn git and jq once per receipt and once per commit.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "compliance_batches_close_receipt_scan"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793419003
+}
