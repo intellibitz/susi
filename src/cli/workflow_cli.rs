@@ -70,6 +70,32 @@ pub enum WorkflowCommands {
         #[arg(default_value = "origin")]
         remote: String,
     },
+    /// Give a worktree a cargo target of its own, warm from the clone's
+    /// snapshot of origin/main (`scripts/seed-target.sh` execs this): a link
+    /// to the old shared target is replaced (the link only), a missing or
+    /// empty target is copied from the snapshot and stripped to registry and
+    /// git crates, a target that holds a build is left alone. Never fails.
+    #[command(name = "seed-target")]
+    SeedTarget {
+        /// Replace a link now and copy in a detached process (the hooks)
+        #[arg(long, conflicts_with = "refresh")]
+        background: bool,
+        /// Rebuild origin/main in a clone of its own and republish the snapshot
+        /// (the primary watcher runs this)
+        #[arg(long)]
+        refresh: bool,
+        /// With --refresh: refresh a snapshot younger than SUSI_SEED_REFRESH_SECS too
+        #[arg(long, requires = "refresh")]
+        force: bool,
+        /// With --refresh: write the refresh's report and build output here.
+        /// Otherwise: append the seeding's report here instead of stderr (the
+        /// background copy, which may hold no caller's output)
+        #[arg(long, value_name = "FILE")]
+        log: Option<std::path::PathBuf>,
+        /// The worktree to seed (default: the one this runs in)
+        #[arg(conflicts_with = "refresh")]
+        dir: Option<std::path::PathBuf>,
+    },
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
     Check {
         /// Machine-readable output
@@ -100,6 +126,26 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::OwnIdentity => return own_identity(cwd),
         WorkflowCommands::Guard { stage } => return guard(cwd, stage),
         WorkflowCommands::FetchRefs { remote } => return fetch_refs(cwd, &remote),
+        WorkflowCommands::SeedTarget {
+            background,
+            refresh,
+            force,
+            log,
+            dir,
+        } => {
+            use susi_gawd::admin::seed;
+            if refresh {
+                seed::refresh(force, log.as_deref());
+            } else {
+                // A relative DIR is the caller's: taken from where it runs.
+                let dir = dir.map(|d| if d.is_absolute() { d } else { cwd.join(d) });
+                if let Some(log) = log.as_deref() {
+                    seed::report_to(log);
+                }
+                seed::seed_worktree(dir.as_deref().or(Some(cwd)), background);
+            }
+            return Ok(());
+        }
     };
     let root = crate::cli::tasks_cli::repo_root(cwd);
     // Hooks + ledger merge driver install themselves on any susi command —

@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSROUTERS-1",
+  "title": "Harness: SiliconFlow and DeepInfra as preferred routers, live-verified registry, provider-reported cost and model discovery",
+  "goal": "SUSI_HARNESS_PREFER names the providers that lead the ladder and orchestrate; the siliconflow and deepinfra registries carry the models the providers serve today with their published prices; a provider that states its own cost (DeepInfra usage.estimated_cost) settles the ledger row at it; models --discover prints the chat models a keyed provider lists beyond the registry as an overlay with prices; docs updated; verified live against both providers.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "preferred_provider"
+    ]
+  },
+  "created_by": "HARNESSROUTERS",
+  "created_unix": 1793439723,
+  "closed": {
+    "at_unix": 1793455058,
+    "commit": "9713ace988fec3f2b3e5c1348d63092cabb3678a",
+    "by": "HARNESSROUTERS"
+  }
+}

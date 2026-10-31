@@ -36,6 +36,26 @@
       "input_miss": 260000,
       "output": 380000
     },
+    "deepinfra-deepseek-flash": {
+      "input_hit": 6000,
+      "input_miss": 200000,
+      "output": 600000
+    },
+    "deepinfra-deepseek-pro": {
+      "input_hit": 100000,
+      "input_miss": 1300000,
+      "output": 2600000
+    },
+    "deepinfra-glm-flash": {
+      "input_hit": 30000,
+      "input_miss": 150000,
+      "output": 500000
+    },
+    "deepinfra-kimi-k3": {
+      "input_hit": 285000,
+      "input_miss": 2850000,
+      "output": 14250000
+    },
     "deepinfra-llama": {
       "input_hit": 100000,
       "input_miss": 100000,
@@ -45,6 +65,11 @@
       "input_hit": 100000,
       "input_miss": 300000,
       "output": 1000000
+    },
+    "deepinfra-qwen-flash": {
+      "input_hit": 14100,
+      "input_miss": 113000,
+      "output": 382000
     },
     "deepseek-flash": {
       "input_hit": 3000,
@@ -122,9 +147,34 @@
       "output": 470000
     },
     "siliconflow-deepseek": {
-      "input_hit": 250000,
-      "input_miss": 250000,
-      "output": 1000000
+      "input_hit": 135000,
+      "input_miss": 270000,
+      "output": 420000
+    },
+    "siliconflow-deepseek-flash": {
+      "input_hit": 3000,
+      "input_miss": 150000,
+      "output": 600000
+    },
+    "siliconflow-deepseek-pro": {
+      "input_hit": 135000,
+      "input_miss": 1501620,
+      "output": 3135000
+    },
+    "siliconflow-glm": {
+      "input_hit": 260000,
+      "input_miss": 1400000,
+      "output": 4400000
+    },
+    "siliconflow-glm-flash": {
+      "input_hit": 30000,
+      "input_miss": 150000,
+      "output": 500000
+    },
+    "siliconflow-kimi-k3": {
+      "input_hit": 270000,
+      "input_miss": 2700000,
+      "output": 13500000
     },
     "siliconflow-qwen": {
       "input_hit": 350000,
@@ -132,9 +182,9 @@
       "output": 1200000
     },
     "siliconflow-qwen-coder": {
-      "input_hit": 350000,
-      "input_miss": 350000,
-      "output": 1200000
+      "input_hit": 70000,
+      "input_miss": 70000,
+      "output": 280000
     }
   }
 }

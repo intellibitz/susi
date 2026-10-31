@@ -877,41 +877,20 @@ pub struct WorktreeResult {
 }
 
 /// Give the worktree at `dest` a cargo target of its own, warm from the
-/// clone's snapshot of origin/main (`scripts/seed-target.sh`): the registry
-/// crates arrive built, and the workspace crates compile from this worktree's
-/// sources. Worktrees used to link `target/` to the primary checkout's, and a
-/// crate another worktree had built last was linked into this branch's build.
-/// The script replaces a link an older susi left (the link only), leaves a
-/// target that holds a build alone, honours `SUSI_NO_SEED=1` and never fails.
-/// The new worktree's own copy runs (it is origin/main), else the caller's.
-/// With neither, or no shell to run it, cargo makes a cold target as usual.
-fn seed_target(root: &Path, dest: &Path) {
-    let Some(script) = [dest, root]
-        .iter()
-        .map(|dir| dir.join("scripts").join("seed-target.sh"))
-        .find(|script| script.is_file())
-    else {
-        return;
-    };
-    let mut command = tasks::posix_shell_command("bash");
-    // No Git shell found: a bare `bash` there is WSL's, which cannot run a
-    // script by its Windows path.
-    #[cfg(windows)]
-    if !Path::new(command.get_program()).is_absolute() {
-        return;
-    }
-    // Its report goes to stderr, with this command's: stdout ends in the
-    // `cd <path>` a caller reads.
-    // `--background`: the start never waits for the copy (it held every new
-    // worktree for minutes); a build that begins first waits inside the script.
-    let _ = command
-        .arg(&script)
-        .arg("--background")
-        .arg(dest)
-        .current_dir(dest)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .status();
+/// clone's snapshot of origin/main ([`super::seed`]; `scripts/seed-target.sh`
+/// is the stub the shell paths run): the registry crates arrive built, and
+/// the workspace crates compile from this worktree's sources. Worktrees used
+/// to link `target/` to the primary checkout's, and a crate another worktree
+/// had built last was linked into this branch's build. The seeding replaces a
+/// link an older susi left (the link only), leaves a target that holds a
+/// build alone, honours `SUSI_NO_SEED=1` and never fails. Its report goes to
+/// stderr, with this command's: stdout ends in the `cd <path>` a caller
+/// reads. In the background: the start never waits for the copy (it held
+/// every new worktree for minutes); a build that begins first waits for it
+/// (`susi workflow seed-target <dest>`, which the hooks and the finish gate
+/// run before their first cargo).
+fn seed_target(dest: &Path) {
+    super::seed::seed_worktree(Some(dest), true);
 }
 
 /// Native implementation of worktree creation:
@@ -1058,7 +1037,7 @@ pub fn start_worktree(
     // minute, and until the identity above is written the worktree has no
     // owner, so a concurrent `workflow start` with the same name would take
     // the reuse path and claim this directory too.
-    seed_target(root, &dest);
+    seed_target(&dest);
 
     Ok(WorktreeResult {
         dest,
@@ -1246,8 +1225,10 @@ mod tests {
     }
 
     /// A primary checkout `<dir>/susi` with an origin, whose origin/main
-    /// carries `.githooks/pre-push` and `scripts/seed-target.sh` = `seeder`.
-    fn primary_with_seeder(dir: &Path, seeder: &str) -> PathBuf {
+    /// carries `.githooks/pre-push` and `scripts/seed-target.sh` (the stub for
+    /// `susi workflow seed-target`; what the seeding does is Rust's, in
+    /// process, so the file's text is nothing a test can observe).
+    fn primary_with_seeder(dir: &Path) -> PathBuf {
         let server = dir.join("server.git");
         let primary = dir.join("susi");
         std::fs::create_dir_all(&server).unwrap();
@@ -1262,10 +1243,9 @@ mod tests {
         );
         std::fs::write(primary.join(".githooks").join("pre-push"), "exit 0\n").unwrap();
         std::fs::write(primary.join(".gitignore"), "/target\n").unwrap();
-        // `start_worktree` passes `--background` before the destination.
         std::fs::write(
             primary.join("scripts").join("seed-target.sh"),
-            format!("[ \"$1\" != --background ] || shift\n{seeder}"),
+            "#!/bin/sh\nexit 0\n",
         )
         .unwrap();
         git_ok(&primary, &["add", "-A"]);
@@ -1276,45 +1256,24 @@ mod tests {
 
     /// `workflow start` no longer links the primary checkout's target, even
     /// when there is one to link (what v0.21.23 did): it seeds the new
-    /// worktree's own, with the new worktree's copy of the script (origin/main's,
-    /// not the caller's), given the worktree. A checkout without the script is
-    /// left for cargo to make a target of its own.
+    /// worktree's own, in process, given the worktree. With no snapshot to
+    /// copy (none beside this fixture's primary) that is a real, empty target
+    /// of the worktree's own, and the primary's is left as it was. A
+    /// directory that is no checkout is left alone.
     #[test]
     fn a_new_worktree_is_seeded_by_its_own_script_not_linked() {
-        let shell = tasks::posix_shell_command("bash");
-        if cfg!(windows) && !Path::new(shell.get_program()).is_absolute() {
-            return; // no Git shell on this host: seeding is skipped by design
-        }
         let dir = tempfile::tempdir().unwrap();
-        let primary = primary_with_seeder(
-            dir.path(),
-            "printf '%s %s' worktree \"$1\" > \"$1/seeded\"\n",
-        );
-        // The caller's own copy says otherwise: it is not the one that runs.
-        std::fs::write(
-            primary.join("scripts").join("seed-target.sh"),
-            "[ \"$1\" != --background ] || shift\nprintf '%s %s' caller \"$1\" > \"$1/seeded\"\n",
-        )
-        .unwrap();
+        let primary = primary_with_seeder(dir.path());
         // The shared target v0.21.23 linked every new worktree to.
         std::fs::create_dir_all(primary.join("target").join("debug")).unwrap();
         std::fs::write(primary.join("target").join("sentinel"), "the primary's").unwrap();
         let made = start_worktree(&primary, Some("worker"), Some("tester")).unwrap();
-        let seeded = std::fs::read_to_string(made.dest.join("seeded"))
-            .expect("start_worktree must seed the new worktree");
-        assert!(
-            seeded.starts_with("worktree "),
-            "the new worktree's own script seeds it: {seeded}"
-        );
-        assert!(
-            seeded.ends_with("susi-worker"),
-            "it is given the new worktree: {seeded}"
-        );
         let target = made.dest.join("target");
+        let meta = target
+            .symlink_metadata()
+            .expect("start_worktree must give the new worktree a target of its own");
         assert!(
-            target
-                .symlink_metadata()
-                .map_or(true, |m| !m.file_type().is_symlink()),
+            meta.is_dir() && !meta.file_type().is_symlink(),
             "nothing links the primary's target"
         );
         assert!(
@@ -1325,38 +1284,48 @@ mod tests {
             std::fs::read_to_string(primary.join("target").join("sentinel")).unwrap(),
             "the primary's"
         );
-        // Without a script anywhere, nothing runs and nothing is made.
+        assert_eq!(
+            std::fs::read_dir(primary.join("target")).unwrap().count(),
+            2,
+            "the primary's target is left exactly as it was"
+        );
+        // Outside any checkout, nothing runs and nothing is made.
         let bare = dir.path().join("bare");
         std::fs::create_dir_all(&bare).unwrap();
-        seed_target(&bare, &bare);
+        seed_target(&bare);
         assert!(std::fs::read_dir(&bare).unwrap().next().is_none());
     }
 
     /// The copy takes about a minute; a worktree with no owner for that long
     /// is one a concurrent `workflow start` of the same name takes the reuse
-    /// path into. So `start_worktree` seeds last: by the time the script
-    /// runs, the worktree already names its agent and has its hooks.
+    /// path into. So `start_worktree` seeds last: by the time the seeding
+    /// runs, the worktree already names its agent and has its hooks. The
+    /// seeding is in process now and observes nothing a test could read
+    /// back, so the order is pinned where it is written.
     #[test]
     fn start_worktree_seeds_only_after_the_worktree_has_an_owner() {
-        let shell = tasks::posix_shell_command("bash");
-        if cfg!(windows) && !Path::new(shell.get_program()).is_absolute() {
-            return; // no Git shell on this host: seeding is skipped by design
-        }
-        let dir = tempfile::tempdir().unwrap();
-        // What the worktree is when its seeding runs: its owner and its hooks.
-        let primary = primary_with_seeder(
-            dir.path(),
-            "{ git -C \"$1\" config --worktree --get susi.agent; \
-             git -C \"$1\" config --get core.hooksPath; } > \"$1/seeded-as\"\n",
+        let text = include_str!("workflow.rs");
+        let start = text
+            .find("pub fn start_worktree(")
+            .expect("start_worktree is defined here");
+        let body = &text[start..];
+        let body = &body[..body.find("\n}\n").expect("start_worktree ends")];
+        let owner = body
+            .find("\"susi.agent\", &worker")
+            .expect("the worktree is given its owner");
+        let hooks = body
+            .find("ensure_infrastructure(&dest)")
+            .expect("the worktree is given its hooks");
+        let seeded = body
+            .find("seed_target(&dest)")
+            .expect("the worktree is seeded");
+        assert!(
+            owner < seeded && hooks < seeded,
+            "the worktree must have its owner and hooks before it is seeded"
         );
-        let made = start_worktree(&primary, Some("seed-order"), Some("tester")).unwrap();
-        let seeded = std::fs::read_to_string(made.dest.join("seeded-as"))
-            .expect("start_worktree must seed the new worktree");
-        assert_eq!(
-            seeded.split_whitespace().collect::<Vec<_>>(),
-            ["SEEDORDER", ".githooks"],
-            "the worktree had its owner and hooks before it was seeded"
-        );
+        // And the seeding runs in the background: the start never waits for
+        // the copy.
+        assert!(text.contains("seed::seed_worktree(Some(dest), true)"));
     }
 
     fn good() -> Facts {

@@ -40,7 +40,7 @@ usage:
   susi-harness                         find your keys, show the fleet and budget, start the gateway
   susi-harness up      [gateway flags]  the same, by name
   susi-harness fleet   [--workers auto|<m1,m2,...>] [--ledger PATH] [--catalogue PATH]
-  susi-harness models  [--verify [--provider ID]] [--ledger PATH] [--catalogue PATH]
+  susi-harness models  [--verify | --discover] [--provider ID] [--ledger PATH] [--catalogue PATH]
   susi-harness budget  [--ledger PATH]
   susi-harness env
   susi-harness gateway [--port 9180] [--host 127.0.0.1] [--ledger PATH] [--catalogue PATH]
@@ -104,6 +104,7 @@ struct Options {
     ledger: Option<PathBuf>,
     catalogue: PathBuf,
     verify: bool,
+    discover: bool,
     provider: Option<String>,
     port: u16,
     host: String,
@@ -119,6 +120,7 @@ impl Options {
             ledger: None,
             catalogue: PathBuf::from("deploy/harness/prices.json"),
             verify: false,
+            discover: false,
             provider: None,
             port: 9180,
             host: "127.0.0.1".to_string(),
@@ -138,6 +140,7 @@ impl Options {
                 "--ledger" => options.ledger = Some(PathBuf::from(value()?)),
                 "--catalogue" => options.catalogue = PathBuf::from(value()?),
                 "--verify" => options.verify = true,
+                "--discover" => options.discover = true,
                 "--provider" => options.provider = Some(value()?),
                 "--port" => {
                     options.port = value()?
@@ -326,8 +329,22 @@ fn fleet_command(options: &Options) -> Result<(), String> {
     }))
 }
 
-/// The usable models, or, with `--verify`, a live check of each provider.
+/// The usable models; with `--verify`, a live check of each provider; with
+/// `--discover`, the chat models the keyed providers serve beyond the
+/// registry, as an overlay to review.
 fn models_command(options: &Options) -> Result<(), String> {
+    if options.discover {
+        let discovery = susi_harness::verify::discover(
+            Registry::builtin(),
+            options.provider.as_deref(),
+            &susi_harness::verify::fetch_http,
+        )
+        .map_err(|error| error.to_string())?;
+        for note in &discovery.notes {
+            eprintln!("{note}");
+        }
+        return print_json(&discovery);
+    }
     if options.verify {
         let report = susi_harness::verify::verify_registry(
             Registry::builtin(),

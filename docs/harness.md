@@ -99,7 +99,8 @@ not. Every built-in provider has both, so any one key gives a complete fleet:
 | Anthropic | `claude-haiku` | `claude-sonnet`, `claude-opus` |
 | OpenAI | `gpt-luna` | `gpt-sol` |
 | OpenRouter | `or-deepseek-flash`, `or-qwen-flash`, `or-gemini-flash` | `or-claude-sonnet`, `or-gpt-sol`, `or-claude-opus` |
-| SiliconFlow | `siliconflow-qwen`, `siliconflow-qwen-coder` | `siliconflow-deepseek` |
+| SiliconFlow | `siliconflow-deepseek-flash`, `siliconflow-glm-flash`, `siliconflow-qwen`, `siliconflow-qwen-coder` | `siliconflow-deepseek`, `siliconflow-deepseek-pro`, `siliconflow-glm`, `siliconflow-kimi-k3` |
+| DeepInfra | `deepinfra-deepseek-flash`, `deepinfra-qwen-flash`, `deepinfra-glm-flash`, `deepinfra-llama`, `deepinfra-qwen-coder` | `deepinfra-deepseek`, `deepinfra-deepseek-pro`, `deepinfra-kimi-k3` |
 | DashScope | `dashscope-qwen-plus`, `dashscope-qwen-coder` | `dashscope-qwen-max` |
 
 Only a model with no `tier` (one an overlay adds without one) is addressable
