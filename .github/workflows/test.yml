@@ -577,6 +577,27 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
+          # These paths cannot name a Rust package in ci-changed-crates.sh.
+          # Resolve this common case before starting Cargo or parsing metadata;
+          # any unknown path or Git failure falls through to the full plan.
+          if base=$(git merge-base "${BASE_REF:-origin/main}" HEAD 2>/dev/null) &&
+             changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
+               diff --no-renames --no-color --name-only "$base" HEAD); then
+            inert=true
+            while IFS= read -r path; do
+              case "$path" in
+                ''|.github/*|.agents/tasks/*) ;;
+                *) inert=false; break ;;
+              esac
+            done <<<"$changed"
+            if [ "$inert" = true ]; then
+              echo 'pkgs=' >> "$GITHUB_OUTPUT"
+              echo 'lintcmd=' >> "$GITHUB_OUTPUT"
+              echo 'target_cache=false' >> "$GITHUB_OUTPUT"
+              echo 'onnx=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           # The affected-package and reverse-dependency selectors need the
           # same workspace graph. Resolve it once instead of launching Cargo
           # metadata separately in each helper.
