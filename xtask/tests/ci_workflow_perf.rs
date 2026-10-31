@@ -687,7 +687,7 @@ fn xtask_only_gate_skips_target_cache() {
     assert!(
         check
             .body
-            .contains("if [ \"$pkgs\" = \"xtask\" ]; then target_cache=false; fi")
+            .contains("if [ \"$pkgs\" = \"xtask\" ] || [ \"$pkgs\" = \"susi-unsafe-ratchet\" ]; then target_cache=false; fi")
             && check
                 .body
                 .contains("echo \"target_cache=$target_cache\" >> \"$GITHUB_OUTPUT\""),
@@ -1515,17 +1515,21 @@ fn unsafe_ratchet_skips_non_code_pushes() {
             && scope.contains("git diff --name-only \"$BEFORE\" \"$GITHUB_SHA\""),
         "pushes must compare the complete diff against the event's before SHA"
     );
+    // The classification itself lives in `unsafe-exposure-scope.sh` (its own
+    // behavioural tests are in `ci_unsafe_exposure_scope`); the step carries
+    // the wiring and the script the rules, so the needles may be in either.
+    let rules = read(".github/workflows/unsafe-exposure-scope.sh");
+    let combined = format!("{scope}\n{rules}");
     for needle in [
         "run=true",
-        "run=false",
-        "Cargo\\.lock",
-        "Cargo\\.toml",
+        "echo false",
+        "Cargo",
         "unsafe-default",
-        "src/.*",
+        "src/",
         "unsafe-exposure-ratchet",
     ] {
         assert!(
-            scope.contains(needle),
+            combined.contains(needle),
             "uncertain diffs run the ratchet; scope is missing {needle}"
         );
     }
@@ -3366,7 +3370,8 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     );
     let gate_fn = shell_function(&pw, "gate");
     assert!(
-        gate_fn.contains("root_only_test_targets")
+        gate_fn.contains("resolve_gate_plan")
+            && shell_function(&pw, "resolve_gate_plan").contains("root-test) gate_root_tests")
             && gate_fn.contains("gate_tests -p \"$rootpkg\" $(printf ' --test %s' $root_tests)"),
         "when the root package is gated only because top-level `tests/<name>.rs` files changed, \
          the local gate must run only those `--test <name>` binaries instead of all 102 root test binaries"
@@ -3398,7 +3403,33 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         "`renew_once` must not contend on `refs/claim-generation/current`: renewals do not alter file scopes"
     );
     assert!(
-        tasks_rs.contains("if !covered {\n        verify_owner()?;\n    }"),
-        "`tasks close` must skip the second `verify_owner()` remote fetch when `covered` skipped running a command"
+        tasks_rs.contains("if owner_claim.expired(now_unix())")
+            && tasks_rs.contains("push_close_receipt(ws, id, &owner_sha, &owner_claim)"),
+        "`tasks close` must check expiry in memory and atomically bind the receipt to the checked owner"
+    );
+    assert!(
+        tasks_rs.contains("pub fn claims_synced(ws: &Path) -> EaiResult<Vec<Claim>> {\n    records_under::<Claim>(ws, \"refs/claims/\")\n}"),
+        "`claims_synced` must batch claim blob reads through `records_under` (`git cat-file --batch`) instead of spawning two git processes per claim"
+    );
+    assert!(
+        tasks_rs.contains("git(ws, &[\"ls-remote\", &r, generation_ref, &agent_ref])"),
+        "`claim_once` must batch the generation and agent lease `ls-remote` lookup into a single network round-trip"
+    );
+    let release_rs = read("crates/susi-gawd/src/admin/release.rs").replace("\r\n", "\n");
+    assert!(
+        release_rs.contains(".args([\"build\", \"--quiet\", \"--bin\", \"susi\"])")
+            && release_rs.contains(".env(\"SUSI_RELEASE_PUSH\", \"1\")"),
+        "`release.rs` must build only `--bin susi` for smoke checks and pass `SUSI_RELEASE_PUSH=1` to skip a duplicate pre-push clippy pass"
+    );
+    let pre_push = read(".githooks/pre-push").replace("\r\n", "\n");
+    assert!(
+        pre_push.contains("SUSI_RELEASE_PUSH"),
+        "`.githooks/pre-push` must honor `SUSI_RELEASE_PUSH=1` after the release gate has already verified the tree"
+    );
+    let check_owed = read("scripts/check-owed-runs.sh").replace("\r\n", "\n");
+    assert!(
+        check_owed.contains("posix-compat.sh")
+            && check_owed.contains("git merge-base --is-ancestor \"$head\" \"$remote/main\""),
+        "`scripts/check-owed-runs.sh` must source `posix-compat.sh` for Windows Git Bash and skip heads already merged into main"
     );
 }

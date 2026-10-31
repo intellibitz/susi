@@ -5,7 +5,8 @@ set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 agent=${1:?usage: owed-task-receipts.sh <agent>}
-main_commit=$(git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' 2>/dev/null || true)
+remote=${2:-origin}
+main_commit=$(git rev-parse --verify --quiet "refs/remotes/$remote/main^{commit}" 2>/dev/null || true)
 refs=$(git for-each-ref --format='%(refname:strip=2) %(objectname)' refs/closed/ 2>/dev/null || true)
 [ -n "$refs" ] || exit 0
 
