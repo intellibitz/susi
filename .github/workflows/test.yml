@@ -487,7 +487,12 @@ jobs:
         with:
           fetch-depth: 0 # base..head needs history and origin/main
 
+      - name: Fetch workflow refs once
+        run: scripts/fetch-workflow-refs.sh origin
+
       - name: Every commit belongs to a task this branch claimed
+        env:
+          SUSI_WORKFLOW_REFS_FETCHED: "1"
         run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA" origin "$GITHUB_REF_NAME"
 
   deny:
