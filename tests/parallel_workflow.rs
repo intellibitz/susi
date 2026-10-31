@@ -129,6 +129,7 @@ impl World {
             "ensure-watcher.sh",
             "swarm-status.sh",
             "check-owed-runs.sh",
+            "owed-task-receipts.sh",
             "ci-changed-crates.sh",
             "check-hermetic-tests.sh",
             "posix-compat.sh",
