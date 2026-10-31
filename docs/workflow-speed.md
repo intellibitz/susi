@@ -145,6 +145,22 @@ it switches TMP, so a hermetic run that finds no server starts a sane one.
 `tests/hermetic_scope.rs` pins the order and the environment the server is
 started with.
 
+## The compliance check no longer races `finish` (2026-10-31)
+
+`finish` releases the claim seconds after the push, and the branch run's
+Workflow Compliance job reads the claim inside that window. The job's
+script meant to fetch the claims once, but set its "fetched" flag inside a
+command substitution (a subshell), so every read fetched and pruned again:
+a release landing between a task's first read (live) and its second (the
+scope check) emptied the second, and the commit was refused as work under a
+claim that reserves no paths. Three of this session's four pushes passed
+only by timing; the fourth was red and green on a rerun, an hour of merge
+latency for nothing. The script now fetches once, from the top level, and
+judges each task from one snapshot of its claim (`tests/workflow_compliance.rs`
+pins it with a git shim that lands the release right after the first
+fetch). The same fix removes a remote round-trip per claim read from every
+pre-push hook and compliance job.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
