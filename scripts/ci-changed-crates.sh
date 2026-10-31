@@ -78,6 +78,20 @@ changed=$(git -c diff.relative=false -c core.quotePath=false -c color.ui=never \
 # The task queue is inert at build time; see the header.
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
+# A test-only diff cannot break the packages that consume this crate: the
+# branch gate runs clippy with --all-targets for the owning package, which
+# compiles its integration tests and dev-dependencies. Keep dependent closure
+# for any production/build/config input, where an API or generated output can
+# break a caller. Determine this before config/deploy paths are mapped to the
+# Rust sources that read them.
+test_only=1
+while IFS= read -r f; do
+    case "$f" in
+        crates/*/tests/*|tests/*.rs) ;;
+        *) test_only=0; break ;;
+    esac
+done <<<"$changed"
+
 # vendor/ holds the `[patch.crates-io]` path crates, compiled into nearly
 # every workspace crate. Workspace members outside `crates/` (currently
 # `xtask/`) still map through Cargo metadata below, so they get their own
@@ -225,6 +239,13 @@ while IFS= read -r f; do
     best=""
     bestlen=0
     while IFS='|' read -r name dir; do
+        # A workspace-relative package path must resolve to that package or a
+        # nested member, never the enclosing root package. Otherwise an
+        # unlisted crates/ or xtask/ path silently shrinks to the root target
+        # instead of failing open to ALL.
+        if [ "$dir" = "$root" ] && [[ "$f" == crates/* || "$f" == xtask/* ]]; then
+            continue
+        fi
         case "$root/$f" in
             "$dir/"*)
                 if ((${#dir} > bestlen)); then
@@ -241,7 +262,7 @@ while IFS= read -r f; do
     seen[$best]=1
 done <<<"$changed"
 
-if [ "$with_dependents" = 1 ] && [ "${#seen[@]}" -gt 0 ]; then
+if [ "$with_dependents" = 1 ] && [ "$test_only" = 0 ] && [ "${#seen[@]}" -gt 0 ]; then
     # dependent|dependency, restricted to edges between workspace packages. A
     # dependency's `name` is the package name, never a `package = ` rename.
     edges=$(jq -r '
