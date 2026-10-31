@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CLAUDEWORKFLOWSCRIPTSRUST6BAE7F",
-  "created_unix": 1793427310
+  "created_unix": 1793427310,
+  "closed": {
+    "at_unix": 1793431607,
+    "commit": "13b14577d2732bf84118343ef85c694a9701d830",
+    "by": "CLAUDEWORKFLOWSCRIPTSRUST6BAE7F"
+  }
 }
