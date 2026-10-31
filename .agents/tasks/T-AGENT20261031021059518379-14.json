@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261031021059518379-14",
+  "title": "Fix worktree pruning fixture hook mode",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "prune_worktrees_keeps_active_claimed_worktrees_and_reclaims_finished_ones"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793461353
+}
