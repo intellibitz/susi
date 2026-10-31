@@ -1,0 +1,21 @@
+{
+  "id": "T-WORKFLOWINERTTESTGATES-3",
+  "title": "Reuse one remote ref snapshot for push compliance",
+  "goal": "Consolidate branch freshness, live claims, and close-receipt lookups into one Git remote-ref snapshot for local pre-push and CI compliance, eliminating repeated network reads without weakening fail-closed checks.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "compliance_uses_single_remote_ref_snapshot"
+    ]
+  },
+  "created_by": "WORKFLOWINERTTESTGATES",
+  "created_unix": 1793418261
+}

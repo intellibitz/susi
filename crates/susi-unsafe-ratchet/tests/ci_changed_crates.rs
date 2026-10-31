@@ -286,7 +286,7 @@ fn test_only_changes_skip_reverse_dependents() {
     assert_eq!(ws.pkgs(&["--dependents"]), ["base"]);
 }
 
-/// Inert workflow, task, documentation, and script edits may accompany a
+/// Inert workflow, hook, task, documentation, and script edits may accompany a
 /// test-only change without making its reverse dependents relevant to clippy.
 #[test]
 fn inert_changes_do_not_expand_test_only_dependents() {
@@ -296,6 +296,7 @@ fn inert_changes_do_not_expand_test_only_dependents() {
         "crates/base/tests/smoke.rs",
         ".agents/tasks/T-1.json",
         ".github/workflows/test.yml",
+        ".githooks/workflow-guard",
         "docs/workflow-speed.md",
         "scripts/ci-changed-crates.sh",
     ]);
@@ -524,6 +525,85 @@ fn selector_reads_shared_metadata_file() {
         revdeps_with_metadata_file(&ws.root, "base", Some(&metadata_file)),
         expected
     );
+}
+
+#[test]
+fn compliance_uses_single_remote_ref_snapshot() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let helper = repo.join("scripts/fetch-workflow-refs.sh");
+    let helper_text = std::fs::read_to_string(&helper).unwrap();
+    assert_eq!(
+        helper_text.matches("git fetch").count(),
+        1,
+        "the helper must make one fetch call"
+    );
+    for refspec in ["refs/heads/*", "refs/claims/*", "refs/closed/*"] {
+        assert!(helper_text.contains(refspec), "missing refspec {refspec}");
+    }
+
+    let guard = std::fs::read_to_string(repo.join(".githooks/workflow-guard")).unwrap();
+    assert!(guard.contains("fetch-workflow-refs.sh"));
+    assert!(guard.contains("SUSI_WORKFLOW_REFS_FETCHED=1"));
+    let compliance =
+        std::fs::read_to_string(repo.join("scripts/check-workflow-compliance.sh")).unwrap();
+    assert_eq!(
+        compliance.matches("SUSI_WORKFLOW_REFS_FETCHED").count(),
+        2,
+        "claims and close receipts must both reuse the fetched snapshot"
+    );
+    let workflow = std::fs::read_to_string(repo.join(".github/workflows/test.yml")).unwrap();
+    assert!(workflow.contains("run: scripts/fetch-workflow-refs.sh origin"));
+    assert!(workflow.contains("SUSI_WORKFLOW_REFS_FETCHED: \"1\""));
+
+    let ws = Workspace::new("workflow-refs");
+    let bare = ws.root.join("remote.git");
+    git(
+        &ws.root,
+        &["init", "--bare", "--quiet", bare.to_str().unwrap()],
+    );
+    git(
+        &ws.root,
+        &["remote", "add", "origin", bare.to_str().unwrap()],
+    );
+    git(
+        &ws.root,
+        &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
+    );
+    git(
+        &ws.root,
+        &["push", "--quiet", "origin", "HEAD:refs/claims/T-TEST-1"],
+    );
+    git(
+        &ws.root,
+        &["push", "--quiet", "origin", "HEAD:refs/closed/T-TEST-1"],
+    );
+
+    let trace = ws.root.join("fetch-trace.log");
+    let out = script_command(&helper)
+        .current_dir(&ws.root)
+        .env("GIT_TRACE", &trace)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "fetch helper failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let trace = std::fs::read_to_string(trace).unwrap();
+    assert_eq!(
+        trace
+            .matches("built-in: git fetch --quiet --prune origin")
+            .count(),
+        1,
+        "one fetch must update all three ref namespaces: {trace}"
+    );
+    for reference in [
+        "refs/remotes/origin/main",
+        "refs/claims/T-TEST-1",
+        "refs/closed/T-TEST-1",
+    ] {
+        git(&ws.root, &["rev-parse", "--verify", reference]);
+    }
 }
 
 /// The changed-crates scan reads `git grep` as "<path>:<literal>". A user's

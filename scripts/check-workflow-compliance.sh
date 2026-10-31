@@ -100,6 +100,7 @@ err() { echo "❌ workflow: $*" >&2; fail=1; }
 fetch_claims() {
     [ "$claims_fetched" = 1 ] && return
     claims_fetched=1
+    [ "${SUSI_WORKFLOW_REFS_FETCHED:-0}" != 1 ] || return 0
     git ls-remote "$remote" 'refs/claims/*' 2>/dev/null | grep -q . || return 0
     git fetch --quiet --prune "$remote" '+refs/claims/*:refs/claims/*' 2>/dev/null || true
 }
@@ -120,6 +121,7 @@ closed_fetched=0
 fetch_closed() {
     [ "$closed_fetched" = 1 ] && return
     closed_fetched=1
+    [ "${SUSI_WORKFLOW_REFS_FETCHED:-0}" != 1 ] || return 0
     git fetch --quiet --prune "$remote" '+refs/closed/*:refs/closed/*' 2>/dev/null || true
     git fetch --quiet "$remote" 2>/dev/null || true
 }

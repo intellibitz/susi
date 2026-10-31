@@ -75,7 +75,7 @@ push)
         refs/heads/*)
             if [ "$fetched" = 0 ]; then
                 # Never judge code freshness against a cached tracking ref.
-                git fetch --quiet origin || { echo "Cannot verify origin/main; push refused." >&2; exit 1; }
+                "$root/scripts/fetch-workflow-refs.sh" origin || { echo "Cannot verify origin/main and task refs; push refused." >&2; exit 1; }
                 fetched=1
             fi
             # Mandate 49: published history is never rewritten. Only main used to
@@ -107,7 +107,8 @@ push)
             if [ "$lsha" != "$zero" ] && [ -x "$root/scripts/check-workflow-compliance.sh" ]; then
                 base=origin/main
                 git rev-parse --verify --quiet "$base" >/dev/null || base=$(git rev-list --max-parents=0 "$lsha" | tail -1)
-                "$root/scripts/check-workflow-compliance.sh" "$base" "$lsha" origin "${lref#refs/heads/}" || exit 1
+                SUSI_WORKFLOW_REFS_FETCHED=1 \
+                    "$root/scripts/check-workflow-compliance.sh" "$base" "$lsha" origin "${lref#refs/heads/}" || exit 1
             fi
             continue
             ;;

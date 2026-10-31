@@ -182,6 +182,18 @@ helpers each launched `cargo metadata` for the same graph. The gate now writes
 one metadata file and passes its path to both helpers; direct script use still
 falls back to Cargo. Measure the next branch run to confirm the saved time.
 
+## Push compliance fetches task refs with branch refs (2026-10-31)
+
+The local push guard fetched branch tips, then workflow compliance separately
+looked up and fetched live claims, fetched close receipts, and fetched the
+branch refs again. On this host a recent `git push` spent more than a minute in
+the hook path while many worktrees were active; the logs did not separate Git
+network time from host contention. `fetch-workflow-refs.sh` now fetches branch,
+claim, and close refs together, and both the local and CI compliance checks
+reuse that snapshot. Standalone compliance checks retain their own fetch path.
+The fixture verifies one fetch updates all three namespaces; remeasure a quiet
+push before attributing a wall-time saving to this change.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
