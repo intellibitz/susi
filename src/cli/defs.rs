@@ -972,8 +972,9 @@ mod tests {
             .unwrap()
             .command
             .is_some());
+        assert!(Cli::try_parse_from(["susi", "frameworks", "init", "crewai"]).is_err());
         assert!(
-            Cli::try_parse_from(["susi", "frameworks", "init", "crewai"])
+            Cli::try_parse_from(["susi", "frameworks", "setup", "crewai"])
                 .unwrap()
                 .command
                 .is_some()

@@ -1,4 +1,4 @@
-//! CrewAI E2E management via shared Python engine helpers.
+//! CrewAI peer via an operator-supplied script. The OS ships no sample program.
 
 use super::python_engine::EngineProfile;
 
@@ -12,38 +12,6 @@ pub const PROFILE: EngineProfile = EngineProfile {
     import_name: IMPORT_NAME,
     package_hint: "pip/uv install crewai",
     documentation: "https://docs.crewai.com/",
-    scaffold_subdir: "crewai",
-    example_script: r#"#!/usr/bin/env python3
-"""Minimal CrewAI entry used by SUSI. Replace with your real crew."""
-from __future__ import annotations
-
-import json
-import os
-import sys
-
-from crewai import Agent, Crew, Process, Task
-
-
-def main() -> None:
-    prompt = os.environ.get("SUSI_AGENT_PROMPT", "")
-    agent = Agent(
-        role="SusiCrewMate",
-        goal="Complete the user task concisely and correctly",
-        backstory="You are a focused coding agent invoked by SUSI.",
-        verbose=False,
-        allow_delegation=False,
-    )
-    task = Task(description=prompt, expected_output="A concise answer", agent=agent)
-    crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
-    output = crew.kickoff()
-    print(json.dumps({"prompt": prompt, "answer": str(output)}, ensure_ascii=False), flush=True)
-
-
-if __name__ == "__main__":
-    main()
-    sys.stdout.flush()
-"#,
-    example_filename: "agent.py",
     credential_envs: &["OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"],
     credential_hint: "export OPENAI_API_KEY=… (or OPENROUTER_API_KEY / ANTHROPIC_API_KEY)",
     process_banner: "susi-crewai",
@@ -52,27 +20,18 @@ if __name__ == "__main__":
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::external::python_engine;
-    use std::path::PathBuf;
 
     #[test]
-    fn example_mentions_crewai() {
-        assert!(PROFILE.example_script.contains("from crewai import"));
-        assert!(PROFILE.example_script.contains("SUSI_AGENT_PROMPT"));
+    fn profile_points_at_operator_config() {
+        assert_eq!(PROFILE.engine_id, ENGINE_ID);
+        assert_eq!(PROFILE.config_env, CONFIG_ENV);
     }
 
     #[test]
-    fn init_writes_config() {
-        let dir = std::env::temp_dir().join(format!(
-            "susi-crewai-init-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let report = python_engine::init_workspace(&PROFILE, &dir).unwrap();
-        assert!(PathBuf::from(report["config"].as_str().unwrap()).is_file());
-        let _ = std::fs::remove_dir_all(&dir);
+    fn profile_ships_no_python_source() {
+        let source = include_str!("crewai.rs");
+        assert!(!source.contains(&["#!", "/usr/bin/env python3"].concat()));
+        assert!(!source.contains(&["example", "_script"].concat()));
+        assert!(!source.contains(&["init", "_workspace"].concat()));
     }
 }
