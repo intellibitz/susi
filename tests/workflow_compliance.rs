@@ -429,6 +429,148 @@ impl Env {
     }
 }
 
+/// `finish` releases the claim seconds after the push, and the branch run
+/// reads the claim inside that window. The script fetched the claims on
+/// every read - its "fetched once" flag was set inside a command
+/// substitution, a subshell, so it never stuck - and a release landing
+/// between a task's first read (live) and its second (the scope check)
+/// pruned the ref: the second read came back empty, and the commit was
+/// refused as work under a claim that reserves no paths (PR 1070's Workflow
+/// Compliance: red, green on a rerun). The claims are fetched once per run
+/// now and each task is judged from one snapshot of its claim: a release
+/// after that fetch leaves the live, scoped claim the check already holds,
+/// and one before it is the receipt path. A git shim stands in for the
+/// release: it deletes the remote claim right after the first claim fetch.
+#[test]
+fn a_release_landing_mid_check_cannot_make_a_scoped_claim_scopeless() {
+    let e = Env::new("midcheck");
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]);
+    e.install_rule("T-TEST-1");
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
+    assert_eq!(code, 0, "{err}");
+    let base = e.head();
+    e.commit("work/a", "feat: a", Some("T-TEST-1"));
+    // Accepted, as it is when `finish` pushes: the receipt is on the remote
+    // and the claim is still live.
+    let (code, _, err) = e.susi(&["tasks", "close", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &["commit", "--quiet", "-m", "close", "-m", "Task: T-TEST-1"],
+    );
+    // Another agent's live claim keeps the remote's claim namespace
+    // non-empty, so a second fetch would prune instead of returning early.
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-9",
+        &claim_json("T-TEST-9", "OTHER", "other", &["elsewhere"]),
+    );
+
+    // The shim: real git, plus the release landing right after the first
+    // fetch of the claims, counted in a file so the test can see it fired.
+    let shim_dir = e.root.join("shim");
+    std::fs::create_dir_all(&shim_dir).unwrap();
+    let count = e.root.join("claim-fetches");
+    let shim = shim_dir.join("git");
+    std::fs::write(
+        &shim,
+        concat!(
+            "#!/bin/sh\n",
+            "\"$SUSI_SHIM_REAL_GIT\" \"$@\"\n",
+            "status=$?\n",
+            "case \" $* \" in\n",
+            "*\" +refs/claims/*:refs/claims/* \"*)\n",
+            "    n=$(cat \"$SUSI_SHIM_COUNT\" 2>/dev/null || echo 0)\n",
+            "    n=$((n + 1))\n",
+            "    echo \"$n\" >\"$SUSI_SHIM_COUNT\"\n",
+            "    if [ \"$n\" = 1 ]; then\n",
+            "        \"$SUSI_SHIM_REAL_GIT\" push --quiet origin \":refs/claims/$SUSI_SHIM_TASK\"\n",
+            "    fi\n",
+            "    ;;\n",
+            "esac\n",
+            "exit $status\n",
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&shim).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&shim, perms).unwrap();
+    }
+    let mut dirs = vec![shim_dir.clone()];
+    dirs.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let path = std::env::join_paths(dirs).unwrap();
+    let path = path.to_str().unwrap();
+    let real_git = real_git();
+    let count_var = slashed(&count);
+    let (code, err) = e.check_env(
+        &base,
+        "main",
+        &[
+            ("PATH", path),
+            ("SUSI_SHIM_REAL_GIT", &real_git),
+            ("SUSI_SHIM_COUNT", &count_var),
+            ("SUSI_SHIM_TASK", "T-TEST-1"),
+        ],
+    );
+    let listed = git(&e.repo, &["ls-remote", "origin", "refs/claims/T-TEST-1"]);
+    assert!(
+        listed.is_empty(),
+        "the fixture's release never landed, so the race was not exercised: {listed}"
+    );
+    assert_eq!(
+        code, 0,
+        "a release landing after the claims were read must leave the live, scoped claim in force: {err}"
+    );
+    assert!(!err.contains("reserves no paths"), "{err}");
+    let fetches = std::fs::read_to_string(&count).unwrap_or_default();
+    assert_eq!(
+        fetches.trim(),
+        "1",
+        "the claims are fetched once per run, not once per read"
+    );
+}
+
+/// The git on PATH, for a shim to hand its calls to; forward slashes, since
+/// a shell reads it.
+fn real_git() -> String {
+    let names: &[&str] = if cfg!(windows) {
+        &["git.exe", "git"]
+    } else {
+        &["git"]
+    };
+    for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        for name in names {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return slashed(&candidate);
+            }
+        }
+    }
+    panic!("no git on PATH");
+}
+
+fn slashed(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 /// A claim owns ONE branch. Without this, a second agent can push work for a
 /// task another agent already holds — the exact duplicate work the queue exists
 /// to prevent, and something the liveness check alone cannot see.

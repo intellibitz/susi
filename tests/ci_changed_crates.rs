@@ -237,6 +237,30 @@ fn a_dev_dependency_is_a_dependent_because_its_test_target_stops_compiling() {
     );
 }
 
+/// A changed integration test compiles with its owning crate's `--all-targets`
+/// gate. Its reverse dependents cannot be affected, even when one consumes it
+/// as a dev-dependency, so do not expand the clippy closure for this diff.
+#[test]
+fn test_only_changes_skip_reverse_dependents() {
+    let ws = Workspace::new("test-only");
+    ws.write("crates/base/tests/smoke.rs", "#[test] fn smoke() {}\n");
+    ws.change("crates/base/tests/smoke.rs");
+    assert_eq!(ws.pkgs(&["--dependents"]), ["base"]);
+}
+
+/// A mixed test and source diff must still lint every reverse dependent.
+#[test]
+fn mixed_source_and_test_changes_keep_reverse_dependents() {
+    let ws = Workspace::new("mixed-test-source");
+    ws.write("crates/base/tests/smoke.rs", "#[test] fn smoke() {}\n");
+    ws.change("crates/base/tests/smoke.rs");
+    ws.change("crates/base/src/lib.rs");
+    assert_eq!(
+        ws.pkgs(&["--dependents"]),
+        ["base", "devuser", "fixture-root", "mid", "top"]
+    );
+}
+
 #[test]
 fn a_leaf_lists_itself_and_the_crates_above_it_but_not_those_below() {
     let ws = Workspace::new("leaf");
