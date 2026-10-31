@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179338547544288-5",
+  "title": "Escalation must re-arrange after a refused provider, not retry its siblings",
+  "goal": "A funded mission escalated from deepinfra-qwen-coder to claude-sonnet (no_credit), then to claude-opus (same provider, already recorded no_credit) and to claude-sonnet again: three of four attempts burned on a provider the ledger already knew was unfunded. The ladder is built once per task, so cooling and no-credit records never reach the later attempts. Each attempt after a provider-class failure must re-arrange the ladder from the ledger (cooling providers excluded, a refused model's provider demoted) so an attempt is never spent on a provider the harness already knows cannot serve, and the failure record names which model was refused.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179338547544288",
+  "created_unix": 1793411628
+}
