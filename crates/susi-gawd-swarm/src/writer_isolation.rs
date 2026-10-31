@@ -104,7 +104,7 @@ fn manifest_of(root: &Path) -> EaiResult<BTreeMap<String, Sig>> {
     let mut manifest = BTreeMap::new();
     for rel in files {
         let sig = sig_of(&root.join(&rel))?;
-        manifest.insert(rel.to_string_lossy().into_owned(), sig);
+        manifest.insert(rel.to_string_lossy().replace('\\', "/"), sig);
     }
     Ok(manifest)
 }
@@ -120,7 +120,8 @@ pub fn revision(root: &Path) -> EaiResult<String> {
     let mut h = Sha256::new();
     for rel in files {
         let sig = sig_of(&root.join(&rel))?;
-        h.update(rel.to_string_lossy().as_bytes());
+        let norm = rel.to_string_lossy().replace('\\', "/");
+        h.update(norm.as_bytes());
         h.update([0]);
         h.update(sig.len.to_le_bytes());
         h.update(sig.hash);

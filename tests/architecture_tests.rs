@@ -2095,8 +2095,32 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
     for rel in [
         "crates/susi-config/src/zc_installer.rs",
         "crates/susi-config/src/zc_uninstall.rs",
+        "crates/susi-config/src/zc_config_overrides.rs",
+        "crates/susi-config/src/zc_env_detectable.rs",
         "crates/susi-core/src/abi_bridge.rs",
+        "crates/susi-core/src/jit_credentials.rs",
+        "crates/susi-error/src/zc_errors_fixable.rs",
         "crates/susi-gawd/src/brain_status.rs",
+        "crates/susi-gawd/src/ops_slo.rs",
+        "crates/susi-gawd/src/task_edit_guard.rs",
+        "crates/susi-gawd/src/update_health.rs",
+        "crates/susi-gawd-a2a/src/eco_a2a_security.rs",
+        "crates/susi-gawd-swarm/src/capability_market.rs",
+        "crates/susi-gawd-swarm/src/zc_lan_cluster.rs",
+        "crates/susi-gemi/src/batch_api.rs",
+        "crates/susi-gemi/src/eco_capability_routing.rs",
+        "crates/susi-gemi/src/status_pages.rs",
+        "crates/susi-gmcp/src/eco_mcp_auth.rs",
+        "crates/susi-gmcp/src/zc_mcp_autoinstall.rs",
+        "crates/susi-sandbox-client/src/mission_sandbox_limits.rs",
+        "crates/susi-server/src/gateway_embeddings.rs",
+        "crates/susi-server/src/web_dashboard.rs",
+        "crates/susi-vendor-agents/src/a2a_streaming_client.rs",
+        "crates/susi-vendor-agents/src/acp_discovery.rs",
+        "crates/susi-vendor-models/src/cloud_cli_auth.rs",
+        "crates/susi-vendor-models/src/eco_gemini.rs",
+        "crates/susi-vendor-models/src/eco_openai_chat.rs",
+        "crates/susi-vendor-models/src/zc_key_autodetect.rs",
     ] {
         let path = root.join(rel);
         assert!(
@@ -2112,4 +2136,17 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         !daemon_manifest.contains("ed25519-dalek"),
         "susi-daemon must not depend on ed25519-dalek after pruning uncalled signing/identity stubs"
     );
+    for manifest_rel in [
+        "crates/susi-core/Cargo.toml",
+        "crates/susi-gawd-a2a/Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-vendor-agents/Cargo.toml",
+    ] {
+        let manifest =
+            std::fs::read_to_string(root.join(manifest_rel)).expect("read crate Cargo.toml");
+        assert!(
+            !manifest.contains("susi-vendor-models"),
+            "{manifest_rel} must not depend on susi-vendor-models after pruning unreferenced eco_* test stubs"
+        );
+    }
 }

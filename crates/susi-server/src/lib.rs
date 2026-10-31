@@ -19,14 +19,10 @@ pub use susi_sandbox_client as susi_sandbox;
 pub use susi_core;
 
 pub mod anthropic_gateway;
-pub mod gateway_embeddings;
 /// Gateway API keys with per-key quotas (VC-201-072).
 pub mod gateway_keys;
 pub mod prometheus_metrics;
-pub mod web_dashboard;
 pub mod zc_bind_auto;
-pub mod zc_client_connect;
-pub mod zc_tls_auto;
 
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
