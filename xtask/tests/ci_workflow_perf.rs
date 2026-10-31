@@ -4124,6 +4124,81 @@ fn finish_hooks_leave_primary_maintenance_to_the_finish_cleanup() {
 }
 
 #[test]
+fn finish_rechecks_the_remote_before_skipping_lease_renewal() {
+    let f = Fakes::new("finish-remote-lease");
+    let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n");
+    script.push_str(&shell_function(&workflow, "renew_or_readopt"));
+    script.push_str(r#"
+task=T-TEST-1
+SUSI_AGENT=TEST
+susi_bin=susi
+git() {
+    case "$1" in
+    cat-file)
+        until=9999999999; [ "$MODE" != expired ] || until=1
+        printf '{"task":"T-TEST-1","agent":"TEST","branch":"work","lease_until_unix":%s,"scopes":["src/owned"]}\n' "$until" ;;
+    symbolic-ref) echo work ;;
+    rev-parse) echo 1111111111111111111111111111111111111111 ;;
+    ls-remote)
+        echo remote >> calls
+        case "$MODE" in
+        changed) printf '%s\t%s\n' 2222222222222222222222222222222222222222 refs/claims/T-TEST-1 ;;
+        missing) ;;
+        unavailable) return 1 ;;
+        *) printf '%s\t%s\n' 1111111111111111111111111111111111111111 refs/claims/T-TEST-1 ;;
+        esac ;;
+    *) return 9 ;;
+    esac
+}
+susi() {
+    printf '%s\n' "$*" >> calls
+    [ "$2" != renew ]
+}
+renew_or_readopt
+"#);
+    let path = f.dir.join("lease-check.sh");
+    std::fs::write(&path, script).unwrap();
+    for (mode, expected) in [
+        ("fresh", "remote\n"),
+        (
+            "changed",
+            "remote\ntasks renew T-TEST-1\ntasks claim T-TEST-1 --scope src/owned\n",
+        ),
+        (
+            "missing",
+            "remote\ntasks renew T-TEST-1\ntasks claim T-TEST-1 --scope src/owned\n",
+        ),
+        (
+            "unavailable",
+            "remote\ntasks renew T-TEST-1\ntasks claim T-TEST-1 --scope src/owned\n",
+        ),
+        (
+            "expired",
+            "tasks renew T-TEST-1\ntasks claim T-TEST-1 --scope src/owned\n",
+        ),
+    ] {
+        std::fs::write(f.dir.join("calls"), "").unwrap();
+        let out = script_command(&path)
+            .current_dir(&f.dir)
+            .env("MODE", mode)
+            .env_remove("SUSI_TASK_REMOTE")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(f.dir.join("calls")).unwrap(),
+            expected,
+            "{mode}"
+        );
+    }
+}
+
+#[test]
 fn normal_sync_finds_its_owned_claim_without_remote_renewal_lookup() {
     assert_eq!(
         read("scripts/parallel-workflow.sh")
