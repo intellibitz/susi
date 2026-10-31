@@ -993,6 +993,7 @@ fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
             &r,
             &heads,
             "+refs/claims/*:refs/claims/*",
+            "+refs/claim-agents/*:refs/claim-agents/*",
             "+refs/closed/*:refs/closed/*",
             "+refs/abandoned/*:refs/abandoned/*",
             "+refs/merged/*:refs/merged/*",
@@ -1048,13 +1049,6 @@ fn records_batch<T: serde::de::DeserializeOwned>(
     ws: &Path,
     namespace: &str,
 ) -> EaiResult<Vec<(String, T)>> {
-    let dot_git = ws.join(".git");
-    if dot_git.is_dir()
-        && !dot_git.join(namespace).exists()
-        && !dot_git.join("packed-refs").exists()
-    {
-        return Ok(Vec::new());
-    }
     let listed = git(
         ws,
         &[
@@ -1211,28 +1205,17 @@ fn clear_records(ws: &Path, names: &[String]) -> EaiResult<()> {
             &format!("{first} was rewritten on {r} since it was read; refresh the queue and retry"),
         )?;
     }
-    for name in names {
-        let loose = ws.join(".git").join(name);
-        if loose.is_file() && !ws.join(".git/packed-refs").exists() {
-            let _ = std::fs::remove_file(loose);
-        } else {
-            let _ = git(ws, &["update-ref", "-d", name]);
-        }
+    // Update the mirror through Git too: loose-file deletion bypasses ref
+    // locking and can delete a newer ref installed by a concurrent fetch.
+    for (name, old) in &leases {
+        let _ = git(ws, &["update-ref", "-d", name, old]);
     }
     Ok(())
 }
 
 fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
     let refname = claim_ref(id);
-    let dot_git = ws.join(".git");
-    let sha = if dot_git.is_dir() && !dot_git.join("packed-refs").exists() {
-        std::fs::read_to_string(dot_git.join(&refname))
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())?
-    } else {
-        git(ws, &["rev-parse", "--verify", "--quiet", &refname]).ok()?
-    };
+    let sha = git(ws, &["rev-parse", "--verify", "--quiet", &refname]).ok()?;
     let body = git(ws, &["cat-file", "-p", &sha]).ok()?;
     Some((sha, serde_json::from_str(&body).ok()?))
 }
@@ -1598,24 +1581,58 @@ fn done_on_main(ws: &Path, id: &str) -> bool {
 /// task is accepted, and nothing may claim it — or let its agent claim anything
 /// else — until this head is on `origin/main`. Pushing first means a failed push
 /// leaves the task open and `close` is simply retried.
-fn push_close_receipt(ws: &Path, id: &str, agent: &str, scopes: Vec<String>) -> EaiResult<String> {
+fn push_close_receipt(ws: &Path, id: &str, owner_sha: &str, claim: &Claim) -> EaiResult<String> {
     let head = git(ws, &["rev-parse", "HEAD"])?;
     let record = CloseRecord {
         task: id.to_string(),
-        agent: agent.to_string(),
+        agent: claim.agent.clone(),
         head: head.clone(),
         closed_unix: now_unix(),
-        scopes,
+        scopes: claim.scopes.clone(),
     };
-    put_record(
+    let receipt_ref = closed_ref(id);
+    let agent_ref = format!("refs/claim-agents/{}", claim.agent);
+    // These refs came from close's queue snapshot. Stale expected values are
+    // refused by the atomic push, never overwritten after a second lookup.
+    let local_sha =
+        |name: &str| git(ws, &["rev-parse", "--verify", "--quiet", name]).unwrap_or_default();
+    let agent_old = local_sha(&agent_ref);
+    if !agent_old.is_empty() && agent_old != owner_sha {
+        return Err(EaiError::config("agent ownership changed before close"));
+    }
+    let mut retained = claim.clone();
+    // Change the claim blob so Git sends an actual ref update: a no-op push
+    // would not protect it from a reassignment after ref advertisement.
+    retained.lease_until_unix = retained
+        .lease_until_unix
+        .checked_add(1)
+        .ok_or_else(|| EaiError::config("claim lease cannot be retained"))?;
+    let receipt_blob = blob_of(ws, &record)?;
+    let claim_blob = claim_blob(ws, &retained)?;
+    let updates = vec![
+        (receipt_ref.clone(), Some(receipt_blob)),
+        (claim_ref(id), Some(claim_blob.clone())),
+        (agent_ref.clone(), Some(claim_blob)),
+    ];
+    queue_relay::push(
         ws,
-        &closed_ref(id),
-        &record,
+        &remote(),
+        &[
+            (receipt_ref.clone(), local_sha(&receipt_ref)),
+            (claim_ref(id), owner_sha.to_string()),
+            (agent_ref, agent_old),
+        ],
+        &updates,
         &format!(
-            "{id} was accepted and published by another worker concurrently; refresh the queue \
-             and re-run the acceptance check"
+            "{id}'s ownership or receipt changed during acceptance; refresh the queue and re-run the acceptance check"
         ),
     )?;
+    for (name, blob) in updates {
+        git(
+            ws,
+            &["update-ref", &name, blob.as_deref().unwrap_or_default()],
+        )?;
+    }
     Ok(head)
 }
 
@@ -2807,8 +2824,7 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
     claim.lease_until_unix = now.saturating_add(hours.max(1).saturating_mul(3600));
     let blob = claim_blob(ws, &claim)?;
     let agent_ref = format!("refs/claim-agents/{}", claim.agent);
-    let agent_list = git(ws, &["ls-remote", &r, &agent_ref])?;
-    let agent_old = agent_list.split_whitespace().next().unwrap_or("");
+    let agent_old = git(ws, &["rev-parse", "--verify", "--quiet", &agent_ref]).unwrap_or_default();
     if !agent_old.is_empty() && agent_old != old {
         return Err(EaiError::config("agent ownership changed; cannot renew"));
     }
@@ -2967,8 +2983,7 @@ fn release_claim(
             push_abandoned(ws, id, &c.agent, reason)?;
         }
     }
-    let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
-    let agent_old = listed.split_whitespace().next().unwrap_or("");
+    let agent_old = git(ws, &["rev-parse", "--verify", "--quiet", &agent_ref]).unwrap_or_default();
     let mut leases: Vec<queue_relay::Lease> = vec![(claim_ref(id), sha.clone())];
     let mut updates: Vec<queue_relay::Update> = vec![(claim_ref(id), None)];
     // Legacy claims have no agent ref; never delete a newer agent lease.
@@ -3016,7 +3031,7 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
         ))
     })?;
-    let (_, owner_claim) = read_claim(ws, id).ok_or_else(|| {
+    let (owner_sha, owner_claim) = read_claim(ws, id).ok_or_else(|| {
         EaiError::config(format!("{id} requires a live owned claim before closing"))
     })?;
     let branch = symbolic_head_branch(ws);
@@ -3124,7 +3139,7 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // Acceptance may outlive a lease; check whether the lease expired before
     // mutating the queue (a non-expired lease cannot be taken over by another
     // agent).
-    if !covered && owner_claim.expired(now_unix()) {
+    if owner_claim.expired(now_unix()) {
         return Err(EaiError::config(format!(
             "{id} is claimed by {}, not {by} on this branch, or its lease expired",
             owner_claim.agent
@@ -3134,7 +3149,7 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // accepted and its agent may not claim anything else until this head is on
     // origin/main; a failed push leaves the task open, so close is retried
     // rather than leaving an acceptance nobody can see.
-    let head = push_close_receipt(ws, id, &by, owner_claim.scopes)?;
+    let head = push_close_receipt(ws, id, &owner_sha, &owner_claim)?;
     task.closed = Some(Closed {
         at_unix: now_unix(),
         commit: head,
@@ -3484,6 +3499,64 @@ mod tests {
 
     fn true_cmd() -> Vec<String> {
         vec!["cargo".into(), "--version".into()]
+    }
+
+    #[test]
+    fn close_receipt_atomically_retains_the_claim_and_agent_index() {
+        let (_r, a, _) = Repos::new("atomic-close-owner");
+        let task = addt!(&a, "claude", "atomic close", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &task.id, "claude", 4, now_unix()).unwrap();
+        sync_queue(&a).unwrap();
+        let (old, owner) = read_claim(&a, &task.id).unwrap();
+        push_close_receipt(&a, &task.id, &old, &owner).unwrap();
+        let (retained, updated) = read_claim(&a, &task.id).unwrap();
+        assert_ne!(
+            retained, old,
+            "a real update must bind receipt publication to ownership"
+        );
+        assert_eq!(updated.lease_until_unix, owner.lease_until_unix + 1);
+        assert_eq!(
+            git(&a, &["rev-parse", "refs/claim-agents/CLAUDE"]).unwrap(),
+            retained
+        );
+        assert_eq!(read_closed(&a, &task.id).unwrap().unwrap().agent, "CLAUDE");
+        git(&a, &["pack-refs", "--all", "--prune"]).unwrap();
+        assert_eq!(claims_synced(&a).unwrap(), vec![updated]);
+    }
+
+    #[test]
+    fn close_receipt_refuses_ownership_changed_during_acceptance() {
+        let (_r, a, b) = Repos::new("atomic-close-race");
+        let task = addt!(&a, "claude", "atomic close", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &task.id, "claude", 4, now_unix()).unwrap();
+        sync_queue(&a).unwrap();
+        let (old, owner) = read_claim(&a, &task.id).unwrap();
+        // Another worker takes the claim while this worker runs acceptance.
+        let mut other = owner.clone();
+        other.agent = "OTHER".to_string();
+        let newer = blob_of(&b, &other).unwrap();
+        git(
+            &b,
+            &[
+                "push",
+                "--quiet",
+                "--force",
+                "origin",
+                &format!("{newer}:{}", claim_ref(&task.id)),
+            ],
+        )
+        .unwrap();
+        let err = push_close_receipt(&a, &task.id, &old, &owner).unwrap_err();
+        assert!(
+            err.to_string().contains("changed during acceptance"),
+            "{err}"
+        );
+        assert!(git(&b, &["ls-remote", "origin", &closed_ref(&task.id)])
+            .unwrap()
+            .is_empty());
+        assert!(git(&b, &["ls-remote", "origin", &claim_ref(&task.id)])
+            .unwrap()
+            .starts_with(&newer));
     }
 
     /// Publish this clone's commits on `origin/main`, the way a merge would:

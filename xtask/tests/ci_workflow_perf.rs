@@ -687,7 +687,7 @@ fn xtask_only_gate_skips_target_cache() {
     assert!(
         check
             .body
-            .contains("if [ \"$pkgs\" = \"xtask\" ]; then target_cache=false; fi")
+            .contains("if [ \"$pkgs\" = \"xtask\" ] || [ \"$pkgs\" = \"susi-unsafe-ratchet\" ]; then target_cache=false; fi")
             && check
                 .body
                 .contains("echo \"target_cache=$target_cache\" >> \"$GITHUB_OUTPUT\""),
@@ -1515,17 +1515,21 @@ fn unsafe_ratchet_skips_non_code_pushes() {
             && scope.contains("git diff --name-only \"$BEFORE\" \"$GITHUB_SHA\""),
         "pushes must compare the complete diff against the event's before SHA"
     );
+    // The classification itself lives in `unsafe-exposure-scope.sh` (its own
+    // behavioural tests are in `ci_unsafe_exposure_scope`); the step carries
+    // the wiring and the script the rules, so the needles may be in either.
+    let rules = read(".github/workflows/unsafe-exposure-scope.sh");
+    let combined = format!("{scope}\n{rules}");
     for needle in [
         "run=true",
-        "run=false",
-        "Cargo\\.lock",
-        "Cargo\\.toml",
+        "echo false",
+        "Cargo",
         "unsafe-default",
-        "src/.*",
+        "src/",
         "unsafe-exposure-ratchet",
     ] {
         assert!(
-            scope.contains(needle),
+            combined.contains(needle),
             "uncertain diffs run the ratchet; scope is missing {needle}"
         );
     }
@@ -3366,7 +3370,8 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     );
     let gate_fn = shell_function(&pw, "gate");
     assert!(
-        gate_fn.contains("root_only_test_targets")
+        gate_fn.contains("resolve_gate_plan")
+            && shell_function(&pw, "resolve_gate_plan").contains("root-test) gate_root_tests")
             && gate_fn.contains("gate_tests -p \"$rootpkg\" $(printf ' --test %s' $root_tests)"),
         "when the root package is gated only because top-level `tests/<name>.rs` files changed, \
          the local gate must run only those `--test <name>` binaries instead of all 102 root test binaries"
@@ -3398,8 +3403,9 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         "`renew_once` must not contend on `refs/claim-generation/current`: renewals do not alter file scopes"
     );
     assert!(
-        tasks_rs.contains("if !covered && owner_claim.expired(now_unix())"),
-        "`tasks close` must skip a second remote claim fetch after acceptance and check lease expiry in memory"
+        tasks_rs.contains("if owner_claim.expired(now_unix())")
+            && tasks_rs.contains("push_close_receipt(ws, id, &owner_sha, &owner_claim)"),
+        "`tasks close` must check expiry in memory and atomically bind the receipt to the checked owner"
     );
     assert!(
         tasks_rs.contains("pub fn claims_synced(ws: &Path) -> EaiResult<Vec<Claim>> {\n    records_under::<Claim>(ws, \"refs/claims/\")\n}"),

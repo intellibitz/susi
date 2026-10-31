@@ -435,8 +435,10 @@ impl SusiAdmin {
                         let out = Command::new(bin).arg(mission).current_dir(&dir).output()?;
                         if !out.status.success() {
                             return Err(EaiError::process(format!(
-                                "Release aborted: Ephemeral mission '{}' failed.",
-                                mission
+                                "Release aborted: Ephemeral mission '{}' failed ({:?}).\nstdout:\n{}\nstderr:\n{}",
+                                mission, out.status.code(),
+                                String::from_utf8_lossy(&out.stdout),
+                                String::from_utf8_lossy(&out.stderr)
                             )));
                         }
                         Ok(())

@@ -232,6 +232,31 @@ removes its second implementation of root-test selection. Full-workspace and
 uncertain inputs still select `ALL`. Remeasure this gate before attributing
 wall-time savings to the combined pass.
 
+## Queue operations and release checks (2026-10-31)
+
+The task-boundary implementation now reads claims in one `cat-file --batch`,
+fetches branch tips with queue records, and batches generation/agent lookups.
+Owned receipts use one main-tree listing and cache repeated ancestor checks;
+settled receipts are cleared together. Windows calls the Git install's native
+binary directly. Workflow checks reuse resolved Git directories instead of
+starting a process for each operation marker.
+
+Close publishes its receipt and retained claim/agent index in one atomic,
+compare-and-swap push. The retained claim is a new blob, so a reassignment
+during acceptance rejects the receipt publication too. Local ref updates still
+use Git's locking and storage backend. Renew and release use ownership refs
+from the queue snapshot rather than a second remote lookup. The owned-run
+report fetches branch tips and receipts together and reuses the batch receipt
+reader; a live run took 4.2 s. All 104 administration tests and 63 workflow
+acceptance tests passed before the full branch gate.
+
+Release smoke missions and the seven isolated offline checks run in parallel.
+The release gate builds only `susi`, reuses successful main evidence for
+identical code trees with task-queue-only differences, and marks its final push
+so the pre-push hook does not repeat clippy. These are source changes: a stale
+installed release does not gain the new task/release implementation until it
+is updated. No new complete finish or binary-release duration is claimed here.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
