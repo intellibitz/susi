@@ -100,6 +100,56 @@ fn config_reload_bypasses_unchanged_mtime_without_rewriting() {
 }
 
 #[test]
+fn save_stays_visible_when_the_rewrite_keeps_its_mtime() {
+    use crate::SusiConfig;
+    let _env = crate::env_test_lock();
+    let dir = TestDir::new();
+    SusiConfig::default().save(&dir.0).unwrap();
+    let path = SusiConfig::get_config_path(&dir.0);
+    let before = SusiConfig::load(&dir.0).unwrap();
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    assert_ne!(before.trust_level(), "paranoid");
+    let mut cfg = before;
+    cfg.settings
+        .insert("trust_level".into(), serde_json::json!("paranoid"));
+    cfg.save(&dir.0).unwrap();
+    // A coarse clock can publish this rewrite with the mtime the cache
+    // already stored. Put that stamp back so the assertion does not depend
+    // on the host moving the timestamp by itself.
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    assert_eq!(SusiConfig::load(&dir.0).unwrap().trust_level(), "paranoid");
+}
+
+#[test]
+fn load_sees_a_same_tick_rewrite_when_its_length_changes() {
+    let dir = TestDir::new();
+    let path = dir.0.join("config.json");
+    let store = VersionedJsonStore::<u32>::new();
+    std::fs::write(&path, "1").unwrap();
+    let first = store
+        .load_with_healing(&path, || Ok(0), |_| false, true)
+        .unwrap();
+    assert_eq!(first, 1);
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    std::fs::write(&path, "100").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    let second = store
+        .load_with_healing(&path, || Ok(0), |_| false, true)
+        .unwrap();
+    assert_eq!(second, 100);
+}
+
+#[test]
 fn load_arc_shares_cache_hit_without_cloning_value() {
     let dir = TestDir::new();
     let path = dir.0.join("config.json");
@@ -182,7 +232,7 @@ fn failed_modify_does_not_report_success_or_cache_unsaved_value() {
             }
         )
         .is_err());
-    assert_eq!(*store.cache.read().as_ref().unwrap().2, 1);
+    assert_eq!(*store.cache.read().as_ref().unwrap().value, 1);
 }
 
 #[test]

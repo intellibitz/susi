@@ -405,15 +405,6 @@ impl SusiMessages {
 // === 100% DYNAMIC REMAINING CONFIGS ===
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct AdminPulsesConfig {
-    #[serde(flatten)]
-    pub fields: DynamicRegistry,
-    #[serde(default)]
-    pub mcp_scout_pulse: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
 pub struct InferenceEndpointItem {
     #[serde(flatten)]
     pub fields: DynamicRegistry,

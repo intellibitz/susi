@@ -142,7 +142,12 @@ impl SusiConfig {
             return Ok(());
         }
         fs::create_dir_all(global_dir)?;
-        atomic_write_json_pretty(&Self::get_config_path(global_dir), self)
+        atomic_write_json_pretty(&Self::get_config_path(global_dir), self)?;
+        // The store is keyed on mtime alone. A rewrite that lands inside the
+        // filesystem's timestamp granularity keeps that mtime, and the next
+        // load would return the snapshot from before this write.
+        *Self::store().cache.write() = None;
+        Ok(())
     }
 
     // === TYPED ACCESSORS - No hardcoded fields, dynamic getters with defaults ===
@@ -359,9 +364,6 @@ impl SusiConfig {
     }
     pub fn governance(&self) -> GovernancePatterns {
         self.get_or_bundled_default("governance")
-    }
-    pub fn admin_pulses(&self) -> AdminPulsesConfig {
-        self.get_or_bundled_default("admin_pulses")
     }
     pub fn intent_classify(&self) -> IntentClassifyConfig {
         self.get_or_bundled_default("intent_classify")

@@ -55,7 +55,6 @@ pub mod consensus_mode;
 pub mod context_assembly;
 pub mod credential_scout;
 pub mod engine_benchmark;
-pub mod eval;
 pub mod frontier_ext;
 pub mod key_arbitration;
 pub mod learned_classifier;

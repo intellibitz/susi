@@ -83,6 +83,8 @@ const RETIRED_APPLICATION_COMMANDS: &[(&str, &str)] = &[
     ("temporal", "`susi frameworks run temporal`"),
     ("e2b", "`susi frameworks run e2b`"),
     ("haystack", "`susi frameworks run haystack`"),
+    ("eval", "`susi benchmark` measures a real completion"),
+    ("mcp-scout", "`susi mcp` manages admitted servers"),
 ];
 
 pub(crate) fn refuse(root: &Command, intent: &[String]) -> Option<Vec<String>> {

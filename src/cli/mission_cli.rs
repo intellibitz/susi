@@ -69,12 +69,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::OpenRouter { .. }
         | Commands::Run { .. }
         | Commands::Top { .. } => {}
-        Commands::Models {
-            action: Some(super::model_cli::ModelCommands::Local),
-        } => {
-            let answer = ama.solve_clean("models", cwd, SUSI_VERSION);
-            println!("{}", answer);
-        }
         Commands::Models { .. } => {
             // Control-plane models commands handled before substrate boot.
         }
@@ -219,10 +213,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     std::process::exit(1);
                 }
             }
-        }
-        Commands::McpScout => {
-            let answer = ama.solve_clean(&cfg.admin_pulses().mcp_scout_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
         }
         Commands::McpAdd {
             name,
@@ -410,10 +400,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     std::process::exit(1);
                 }
             }
-        }
-        Commands::Eval => {
-            let report = susi_gemi::eval::EvalRunner::run_evaluations(cwd);
-            println!("{}", report);
         }
         Commands::Benchmark => {
             let report = susi_gemi::benchmark::BenchmarkRunner::run_and_render(cwd);
