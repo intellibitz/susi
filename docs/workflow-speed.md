@@ -523,6 +523,24 @@ Two changes:
   exercised end to end by `tests/parallel_workflow.rs`, whose finish runs
   the real binary against a bare remote.
 
+**Measured end to end** (this cloud session, 4 vCPU, the dev binary, the
+gate forced with `SUSI_GATE_NOCACHE=1` so it is inside the number): `susi
+workflow finish` for the change above took **62.2 s** — lease 1 s, sync 0 s,
+gate 39 s (581 susi-gawd and xtask tests in 9 s, then 67 process-spawning
+root tests in 25 s, clippy's 2 s and the doc-tests inside those), close 1 s
+(the receipt deferred: no relay), push 4 s (the hook's fetch and compliance
+check; clippy skipped on the gate's proof), release 17 s: the one relayed
+Actions run, carrying the receipt, the claim and the agent index (the run
+itself took 10 s, created → updated). The fixed cost outside the gate is 23 s,
+17 s of it that single relay; the previous session's finish paid two. The
+earlier attempt the same hour failed its gate on a fixture that inherited the
+outer `SUSI_GATE_NOCACHE=1` (`tests/parallel_workflow.rs` now drops it, and
+the hermetic runner unsets it) and on one flaky xtask case
+(`normal_sync_finds_its_owned_claim_without_remote_renewal_lookup`, green on
+nextest's retry). The merge itself remains the machinery's: PR #1187 opened on the
+push at 23:17 and was merged by 23:19, about two minutes after the push
+(Compile Check and Workflow Compliance on the branch run, then the merge job).
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**
