@@ -19,6 +19,7 @@
 # gate's single test run: hermetic and retried in one pass, not a plain run
 # followed by a hermetic repeat.
 set -euo pipefail
+hermetic_started=$SECONDS
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 cd "$(git rev-parse --show-toplevel)"
 real_home="${HOME}"
@@ -53,13 +54,14 @@ else
     testhome=$(mktemp -d)
 fi
 cleanup_hermetic_dirs() {
-    local status=$? attempt=0
+    local status=$? attempt=0 cleanup_started=$SECONDS
     trap - EXIT
     # Reclaim the leaf children of any daemon a test started: they hold the
     # test binary's stdout pipe and, on Windows, `target\debug\susi.exe`.
     "$(dirname "${BASH_SOURCE[0]}")/kill-leftover-service-runs.sh" || true
     while [ "$attempt" -lt 6 ]; do
         if rm -rf "$home" "$testhome" 2>/dev/null; then
+            echo "hermetic: cleanup took $((SECONDS - cleanup_started))s" >&2
             return "$status"
         fi
         attempt=$((attempt + 1))
@@ -117,6 +119,8 @@ unset SUSI_PORT_OFFSET || true
 # Scope it when arguments are given (`-p susi-gawd`), so the rule can be enforced
 # per affected crate instead of only as a whole-workspace sweep nobody runs.
 runner="${SUSI_HERMETIC_RUNNER:-cargo-test}"
+echo "hermetic: setup took $((SECONDS - hermetic_started))s" >&2
+tests_started=$SECONDS
 case "$runner" in
 cargo-test)
     if [ $# -gt 0 ]; then
@@ -141,7 +145,11 @@ nextest)
     fi
     # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
     cargo nextest run --locked --no-fail-fast --no-tests=pass \
+        --status-level "${NEXTEST_STATUS_LEVEL:-slow}" \
+        --final-status-level "${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
         --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}"
+    echo "hermetic: build and tests took $((SECONDS - tests_started))s" >&2
+    docs_started=$SECONDS
     # Doc-tests: `-p` on a package with no library target is an error, so name only
     # the selected packages that have one. A selection with no `-p` (`--workspace`)
     # is passed through: cargo skips the bin-only members itself. When `--test`
@@ -172,6 +180,7 @@ nextest)
             fi
         fi
     fi
+    echo "hermetic: doc tests took $((SECONDS - docs_started))s" >&2
     ;;
 *)
     echo "SUSI_HERMETIC_RUNNER must be cargo-test or nextest, not '$runner'" >&2

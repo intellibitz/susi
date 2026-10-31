@@ -3360,6 +3360,125 @@ fn the_branch_gate_prefetches_onnx_only_when_the_closure_can_reach_it() {
 }
 
 #[test]
+fn finish_push_recovers_only_from_an_advanced_main() {
+    let f = Fakes::new("finish-push-recovery");
+    let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n");
+    script.push_str(&shell_function(&workflow, "push_closed_branch"));
+    script.push_str(r#"
+git() {
+    case "$1" in
+    rev-parse) IFS= read -r head < head; printf '%s\n' "$head" ;;
+    push)
+        IFS= read -r count < count; count=$((count + 1)); printf '%s\n' "$count" > count
+        echo push >> log
+        if [ "$MODE" = success ] || { [ "$MODE" = advance ] && [ "$count" -gt 1 ]; }; then return 0; fi
+        [ "$MODE" != changed ] || echo changed > head
+        echo 'original push rejection' >&2; return 1 ;;
+    merge-base) [ "$MODE" = network ] ;;
+    merge) echo merge >> log; [ "$MODE" != conflict ] || return 1; echo merged > head ;;
+    *) return 9 ;;
+    esac
+}
+gate() { echo gate >> log; return 1; }
+push_closed_branch work
+"#);
+    let path = f.dir.join("push-check.sh");
+    std::fs::write(&path, script).unwrap();
+    for (mode, regate, success, expected) in [
+        ("success", "0", true, "push\n"),
+        ("advance", "0", true, "push\nmerge\npush\n"),
+        ("network", "0", false, "push\n"),
+        ("changed", "0", false, "push\n"),
+        ("conflict", "0", false, "push\nmerge\n"),
+        ("busy", "0", false, "push\nmerge\npush\n"),
+        ("advance", "1", false, "push\nmerge\ngate\n"),
+    ] {
+        std::fs::write(f.dir.join("head"), "original\n").unwrap();
+        std::fs::write(f.dir.join("count"), "0\n").unwrap();
+        std::fs::write(f.dir.join("log"), "").unwrap();
+        let out = script_command(&path)
+            .current_dir(&f.dir)
+            .env("MODE", mode)
+            .env("SUSI_FINISH_REGATE", regate)
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.success(),
+            success,
+            "{mode}/{regate}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(f.dir.join("log")).unwrap(),
+            expected,
+            "{mode}/{regate}"
+        );
+        if !success && regate == "0" {
+            assert!(String::from_utf8_lossy(&out.stderr).contains("original push rejection"));
+        }
+    }
+}
+
+#[test]
+fn normal_sync_finds_its_owned_claim_without_remote_renewal_lookup() {
+    assert_eq!(
+        read("scripts/parallel-workflow.sh")
+            .matches("renew_owned_claims() {")
+            .count(),
+        1,
+        "a later definition must not override the lease implementation exercised below"
+    );
+    let f = Fakes::new("sync-owned-claim");
+    let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n. \"$COMPAT\"\n");
+    script.push_str(&shell_function(&workflow, "renew_owned_claims"));
+    script.push_str(r#"
+SUSI_AGENT=TESTAGENT
+receipt_json='{"agent":"TESTAGENT","task":"T-TEST-1","branch":"work"}'
+[ "$MODE" != other ] || receipt_json='{"agent":"TESTAGENT","task":"T-TEST-1","branch":"other"}'
+git() {
+    case "$*" in
+    'symbolic-ref -q --short HEAD') echo work ;;
+    'cat-file -p refs/claim-agents/TESTAGENT') [ "$MODE" != legacy ] || return 1; printf '%s\n' "$receipt_json" ;;
+    'cat-file -e origin/main:.agents/tasks/done/T-TEST-1.json') [ "$MODE" = published ] ;;
+    'for-each-ref --format=%(objectname) refs/claims/') echo abc ;;
+    'cat-file --batch') printf 'abc blob 64\n%s\n\n' "$receipt_json" ;;
+    *) echo "unexpected git $*" >&2; return 9 ;;
+    esac
+}
+renew_or_readopt() { printf '%s\n' "$task" >> calls; }
+renew_owned_claims
+"#);
+    let path = f.dir.join("sync-check.sh");
+    std::fs::write(&path, script).unwrap();
+    for (mode, expected) in [
+        ("owned", "T-TEST-1\n"),
+        ("other", ""),
+        ("published", ""),
+        ("legacy", "T-TEST-1\n"),
+    ] {
+        std::fs::write(f.dir.join("calls"), "").unwrap();
+        let out = script_command(&path)
+            .current_dir(&f.dir)
+            .env("MODE", mode)
+            .env("COMPAT", root().join("scripts/posix-compat.sh"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(f.dir.join("calls")).unwrap(),
+            expected,
+            "{mode}"
+        );
+    }
+}
+
+#[test]
 fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trips() {
     let pw = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
     let sync_fn = shell_function(&pw, "sync");

@@ -931,6 +931,65 @@ fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Feed one plumbing command while draining its output. This keeps large batch
+/// reads from deadlocking on pipe capacity and shares the native Git path.
+fn git_input(ws: &Path, args: &[&str], input: Vec<u8>) -> EaiResult<Vec<u8>> {
+    let mut child = Command::new(git_bin())
+        .args(args)
+        .current_dir(ws)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| EaiError::process("git stdin"))?;
+    let feeder = std::thread::spawn(move || {
+        use std::io::Write;
+        stdin.write_all(&input)
+    });
+    let out = child.wait_with_output()?;
+    let fed = feeder
+        .join()
+        .map_err(|_| EaiError::process("git input writer panicked"))?;
+    if !out.status.success() {
+        return Err(EaiError::process(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    fed?;
+    Ok(out.stdout)
+}
+
+/// Apply a fetched mirror transaction without overwriting a newer concurrent
+/// fetch. Remote writes remain the queue relay's authoritative atomic push.
+fn mirror_updates(
+    ws: &Path,
+    leases: &[queue_relay::Lease],
+    updates: &[queue_relay::Update],
+) -> EaiResult<()> {
+    let mut input = String::from("start\n");
+    for (name, value) in updates {
+        let old = leases
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, old)| old.as_str())
+            .ok_or_else(|| EaiError::config("mirror update has no expected ref"))?;
+        match (value, old.is_empty()) {
+            (Some(new), true) => input.push_str(&format!("create {name} {new}\n")),
+            (Some(new), false) => input.push_str(&format!("update {name} {new} {old}\n")),
+            (None, false) => input.push_str(&format!("delete {name} {old}\n")),
+            (None, true) => {}
+        }
+    }
+    input.push_str("prepare\ncommit\n");
+    git_input(ws, &["update-ref", "--stdin"], input.into_bytes()).map(|_| ())
+}
+
 fn symbolic_head_branch(ws: &Path) -> Option<String> {
     let dot_git = ws.join(".git");
     if dot_git.is_dir() {
@@ -1064,41 +1123,12 @@ fn records_batch<T: serde::de::DeserializeOwned>(
     if refs.is_empty() {
         return Ok(Vec::new());
     }
-    let mut child = Command::new(git_bin())
-        .args(["cat-file", "--batch"])
-        .current_dir(ws)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| EaiError::process("git cat-file --batch stdin"))?;
-    // Fed from its own thread: git answers while it reads, and a full stdout
-    // pipe would otherwise stall it while this side is still writing.
-    let ids = refs
+    let input = refs
         .iter()
-        .map(|(oid, _)| (*oid).to_string())
-        .collect::<Vec<_>>();
-    let feeder = std::thread::spawn(move || {
-        use std::io::Write;
-        for oid in ids {
-            if writeln!(stdin, "{oid}").is_err() {
-                break;
-            }
-        }
-    });
-    let out = child.wait_with_output()?;
-    let _ = feeder.join();
-    if !out.status.success() {
-        return Err(EaiError::process(format!(
-            "git cat-file --batch failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        )));
-    }
-    Ok(parse_batch(&out.stdout, &refs))
+        .map(|(oid, _)| format!("{oid}\n"))
+        .collect::<String>();
+    let bytes = git_input(ws, &["cat-file", "--batch"], input.into_bytes())?;
+    Ok(parse_batch(&bytes, &refs))
 }
 
 /// The bodies `git cat-file --batch` printed for `refs`, in order: per object
@@ -1207,17 +1237,23 @@ fn clear_records(ws: &Path, names: &[String]) -> EaiResult<()> {
     }
     // Update the mirror through Git too: loose-file deletion bypasses ref
     // locking and can delete a newer ref installed by a concurrent fetch.
-    for (name, old) in &leases {
-        let _ = git(ws, &["update-ref", "-d", name, old]);
-    }
+    let _ = mirror_updates(ws, &leases, &updates);
     Ok(())
 }
 
 fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
     let refname = claim_ref(id);
-    let sha = git(ws, &["rev-parse", "--verify", "--quiet", &refname]).ok()?;
-    let body = git(ws, &["cat-file", "-p", &sha]).ok()?;
-    Some((sha, serde_json::from_str(&body).ok()?))
+    let bytes = git_input(
+        ws,
+        &["cat-file", "--batch"],
+        format!("{refname}\n").into_bytes(),
+    )
+    .ok()?;
+    let line_end = bytes.iter().position(|b| *b == b'\n')?;
+    let header = std::str::from_utf8(&bytes[..line_end]).ok()?;
+    let sha = header.split_whitespace().next()?.to_owned();
+    let (_, claim) = parse_batch::<Claim>(&bytes, &[("", refname.as_str())]).pop()?;
+    Some((sha, claim))
 }
 
 /// The close receipt for `id`, if the remote has one.
@@ -1614,24 +1650,24 @@ fn push_close_receipt(ws: &Path, id: &str, owner_sha: &str, claim: &Claim) -> Ea
         (claim_ref(id), Some(claim_blob.clone())),
         (agent_ref.clone(), Some(claim_blob)),
     ];
+    let leases = vec![
+        (receipt_ref.clone(), local_sha(&receipt_ref)),
+        (claim_ref(id), owner_sha.to_string()),
+        (agent_ref, agent_old),
+    ];
     queue_relay::push(
         ws,
         &remote(),
-        &[
-            (receipt_ref.clone(), local_sha(&receipt_ref)),
-            (claim_ref(id), owner_sha.to_string()),
-            (agent_ref, agent_old),
-        ],
+        &leases,
         &updates,
         &format!(
             "{id}'s ownership or receipt changed during acceptance; refresh the queue and re-run the acceptance check"
         ),
     )?;
-    for (name, blob) in updates {
-        git(
-            ws,
-            &["update-ref", &name, blob.as_deref().unwrap_or_default()],
-        )?;
+    if mirror_updates(ws, &leases, &updates).is_err() {
+        // A concurrent fetch may already have installed this transaction or a
+        // newer one. Refresh instead of overwriting its refs individually.
+        sync_queue_refs(ws)?;
     }
     Ok(head)
 }
@@ -3447,6 +3483,14 @@ mod tests {
             let bare = root.join("server.git");
             std::fs::create_dir_all(&bare).unwrap();
             run(&bare, &["init", "--bare", "--quiet"]);
+            // Tiny disposable repositories never need background maintenance.
+            // Keep real Git transport/CAS checks; omit its housekeeping forks.
+            let maintenance =
+                "\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[receive]\n\tautogc = false\n";
+            let server_config = bare.join("config");
+            let mut cfg = std::fs::read_to_string(&server_config).unwrap();
+            cfg.push_str(maintenance);
+            std::fs::write(server_config, cfg).unwrap();
             let bare_url = bare.to_string_lossy().replace('\\', "/");
             let mut clones = Vec::new();
             for name in ["a", "b"] {
@@ -3464,6 +3508,7 @@ mod tests {
                      [remote \"origin\"]\n\turl = {bare_url}\n\
                      \tfetch = +refs/heads/*:refs/remotes/origin/*\n"
                 ));
+                cfg.push_str(maintenance);
                 std::fs::write(&cfg_path, cfg).unwrap();
                 run(&dir, &["commit", "--allow-empty", "-m", "init", "--quiet"]);
                 clones.push(dir);
@@ -3499,6 +3544,29 @@ mod tests {
 
     fn true_cmd() -> Vec<String> {
         vec!["cargo".into(), "--version".into()]
+    }
+
+    #[test]
+    fn mirror_batch_refuses_a_newer_ref_without_partially_creating_others() {
+        let (_r, a, _) = Repos::new("mirror-batch-race");
+        let old = blob_of(&a, &serde_json::json!({"value": "old"})).unwrap();
+        let newer = blob_of(&a, &serde_json::json!({"value": "newer"})).unwrap();
+        let requested = blob_of(&a, &serde_json::json!({"value": "requested"})).unwrap();
+        git(&a, &["update-ref", "refs/closed/T-A-1", &newer]).unwrap();
+        let result = mirror_updates(
+            &a,
+            &[
+                ("refs/closed/T-A-1".into(), old),
+                ("refs/closed/T-B-1".into(), String::new()),
+            ],
+            &[
+                ("refs/closed/T-A-1".into(), Some(requested.clone())),
+                ("refs/closed/T-B-1".into(), Some(requested)),
+            ],
+        );
+        assert!(result.is_err());
+        assert_eq!(git(&a, &["rev-parse", "refs/closed/T-A-1"]).unwrap(), newer);
+        assert!(git(&a, &["rev-parse", "--verify", "refs/closed/T-B-1"]).is_err());
     }
 
     #[test]
@@ -4746,16 +4814,49 @@ mod tests {
         )
         .unwrap();
 
-        // Merges in flight do not stall the queue: up to the bound, every next
-        // claim is fine, and each accepted task adds one owed merge.
+        // The first complete lifecycle above proves receipt publication and
+        // release. Seed the intermediate accepted history as one fixture
+        // transaction, then exercise the real claim at the configured boundary
+        // and one past it. Replaying that same lifecycle four more times made
+        // this single boundary test launch hundreds of processes.
         let mut later = Vec::new();
-        for n in 1..=merges_in_flight() {
-            let next = addt!(&b, "claude", format!("next-{n}"), "", "s", &[], true_cmd()).unwrap();
-            claim(&b, &next.id, "claude", 4, now_unix())
-                .unwrap_or_else(|e| panic!("merges in flight must not stall the queue: {e}"));
-            close(&b, &next.id, "claude").unwrap();
-            release(&b, &next.id, "claude", true).unwrap();
+        let mut leases = Vec::new();
+        let mut updates = Vec::new();
+        let head = git(&b, &["rev-parse", "HEAD"]).unwrap();
+        for n in 1..merges_in_flight() {
+            let mut next =
+                addt!(&b, "claude", format!("next-{n}"), "", "s", &[], true_cmd()).unwrap();
+            let receipt = CloseRecord {
+                task: next.id.clone(),
+                agent: "CLAUDE".into(),
+                head: head.clone(),
+                closed_unix: now_unix(),
+                scopes: Vec::new(),
+            };
+            let name = closed_ref(&next.id);
+            leases.push((name.clone(), String::new()));
+            updates.push((name, Some(blob_of(&b, &receipt).unwrap())));
+            next.closed = Some(Closed {
+                at_unix: receipt.closed_unix,
+                commit: head.clone(),
+                by: "CLAUDE".into(),
+            });
+            std::fs::write(
+                done_dir(&b).join(format!("{}.json", next.id)),
+                serde_json::to_vec(&next).unwrap(),
+            )
+            .unwrap();
+            std::fs::remove_file(tasks_dir(&b).join(format!("{}.json", next.id))).unwrap();
             later.push(next.id);
+        }
+        queue_relay::push(&b, "origin", &leases, &updates, "fixture receipts raced").unwrap();
+        if merges_in_flight() > 0 {
+            let boundary = addt!(&b, "claude", "at the bound", "", "s", &[], true_cmd()).unwrap();
+            claim(&b, &boundary.id, "claude", 4, now_unix())
+                .unwrap_or_else(|e| panic!("merges in flight must not stall the queue: {e}"));
+            close(&b, &boundary.id, "claude").unwrap();
+            release(&b, &boundary.id, "claude", true).unwrap();
+            later.push(boundary.id);
         }
 
         // The bound is full: the next claim is the pileup the receipts refuse.
