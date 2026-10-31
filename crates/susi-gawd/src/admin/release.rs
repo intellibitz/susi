@@ -372,6 +372,12 @@ impl SusiAdmin {
                         .to_string(),
                 ));
             }
+            // A prior gate / smoke / auto-started daemon can leave
+            // `service-run` children holding `target/debug/susi.exe`; nextest's
+            // `--no-run` rebuild then dies with Access denied on Windows. Same
+            // sweep the hermetic wrapper runs on EXIT.
+            sweep_leftover_service_runs(workspace);
+
             // Scratch HOME for the whole suite: without it, in-process HTTP
             // tests read the operator's seeded `~/.susi/api_token` and turn
             // every unauthenticated loopback call into 401 — the finish gate
@@ -1006,6 +1012,42 @@ fn workspace_test_commands() -> Vec<Vec<&'static str>> {
 /// test command also gets a throwaway HOME via [`susi_paths::test_env::isolate_home`].
 fn scrub_instance_env(cmd: &mut Command) {
     cmd.env_remove("SUSI_HOME").env_remove("SUSI_PORT_OFFSET");
+}
+
+/// Best-effort: free `target/*/susi` so nextest can relink. Mirrors
+/// `scripts/kill-leftover-service-runs.sh` without requiring bash on Windows.
+fn sweep_leftover_service_runs(workspace: &Path) {
+    let target = workspace.join("target");
+    if !target.is_dir() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let target_win = target.to_string_lossy().replace('\'', "''");
+        // Free every checkout-built susi.exe (daemon, service-run, and a
+        // leftover smoke/`susi "..."` child): cargo's nextest rebuild must
+        // replace that path. The staged release copy lives under Temp, so
+        // it is never matched.
+        let script = format!(
+            "$t = [IO.Path]::GetFullPath('{target_win}').TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar; \
+             Get-CimInstance Win32_Process -Filter \"Name = 'susi.exe'\" | \
+             Where-Object {{ $_.ExecutablePath -and ($_.ExecutablePath -like ($t + '*')) }} | \
+             ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+        );
+        let _ = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let script = workspace.join("scripts/kill-leftover-service-runs.sh");
+        if script.is_file() {
+            let _ = Command::new("bash")
+                .arg(script)
+                .current_dir(workspace)
+                .status();
+        }
+    }
 }
 
 #[cfg(test)]
