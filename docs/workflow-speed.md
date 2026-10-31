@@ -308,6 +308,41 @@ and home validation remain synchronous; deletion of the invocation's validated
 scratch paths runs with detached streams afterward. Push output streams while
 the bounded retry retains its existing refusal rules.
 
+## Reuse format proofs and bound identity scans (2026-10-31)
+
+PR #1116 passed 81 affected tests and merged. The measured script/xtask finish
+was 151.4 s: gate 74 s, close 12 s, push 21 s and release 11 s, plus entry,
+sync and bookkeeping. This is a narrower workload than PR #1115's 559 tests,
+so those end-to-end totals are not a controlled before/after comparison.
+The stage timers identified 25 s spent formatting source the commit hook had
+just checked, and a separate identity-hook measurement took 29.6 s.
+
+The commit hook now records a format-only proof, which finish reuses for the
+same source and formatter. The shared source stamp binds all indexed sources,
+working edits, untracked names and contents, Cargo/Rust environment and external
+Cargo configuration, and tool versions. Gate proofs additionally bind the
+selected diff and full-gate policy. Only `.agents/tasks/` bookkeeping is exempt;
+compiled identity, roadmap and evidence data remain inputs. This corrects the
+old diff-only key: an upstream edit in another file could leave the branch diff
+unchanged and incorrectly reuse the prior result. Older standalone script copies
+without the helper run their checks without reusing a proof.
+
+Identity checks read Git's worktree indirection files and local configuration
+with shell builtins, falling back to Git for inherited or quoted values. One
+scoped config read finds shared login names, and a NUL-delimited worktree listing
+preserves spaces and relative Git paths. Normalized tokens detect equivalent
+spellings such as `scan-native` and `SCANNATIVE`. The checkout's check measured
+3.5 s after the initial change, versus 29.6 s before; host saturation later
+made even tiny Git commands take around a second. A host snapshot recorded
+100% CPU use while another full gate ran, with ample free memory and no disk
+queue. The new complete finish remains to be measured.
+
+The four source/format proof regressions and the existing performance checks
+pass (72 total), as does the new identity-path case. A separate eight-thread
+libtest experiment passed all 481 active gawd tests but took 428.5 s in the
+saturated host; it is not adopted as the runner default. No sub-60 full Rust gate
+or binary release is claimed from these experiments.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

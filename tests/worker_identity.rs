@@ -362,3 +362,52 @@ fn worker_identity_commit_hook_rejects_a_login_token_and_login_authored_commits(
         );
     }
 }
+
+#[test]
+fn identity_scan_checks_relative_gitdirs_and_sibling_paths_with_spaces() {
+    let w = World::new("scan-paths");
+    let worker = w.inheriting("scan-worker");
+    let sibling = w.inheriting("scan-sibling");
+    for key in ["susi.agent", "user.name"] {
+        w.git(&worker, &["config", "--worktree", key, "SCANNATIVE"]);
+    }
+    w.git(&sibling, &["config", "--worktree", "susi.agent", "SIBLING"]);
+    let spaced = w.root.join("sibling with spaces");
+    w.git(
+        &w.primary,
+        &[
+            "worktree",
+            "move",
+            sibling.to_str().unwrap(),
+            spaced.to_str().unwrap(),
+        ],
+    );
+    let gitdir = w.git(&worker, &["rev-parse", "--absolute-git-dir"]);
+    let name = Path::new(&gitdir).file_name().unwrap().to_string_lossy();
+    std::fs::write(
+        worker.join(".git"),
+        format!("gitdir: ../susi/.git/worktrees/{name}\r\n"),
+    )
+    .unwrap();
+    let hook = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-worker-identity.sh");
+    let run = || {
+        finish(
+            command(hook.to_str().unwrap(), &worker, &w.home())
+                .env("GIT_DIR", w.primary.join(".git"))
+                .env("GIT_WORK_TREE", &w.primary),
+        )
+    };
+    let (code, out, err) = run();
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("this worktree's token alone"));
+    w.git(
+        &spaced,
+        &["config", "--worktree", "susi.agent", "scan-native"],
+    );
+    let (code, _, err) = run();
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("one token per worker") && err.contains("sibling with spaces"),
+        "{err}"
+    );
+}

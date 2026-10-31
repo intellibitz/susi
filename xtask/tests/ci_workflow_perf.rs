@@ -1144,9 +1144,8 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     let gate = gate.replace("\r\n", "\n");
     let gate_fn = shell_function(&gate, "gate");
     assert!(
-        at(&gate_fn, "seed_own_target", "the gate")
-            < at(&gate_fn, "cargo fmt --all --check", "the gate"),
-        "the finish gate must seed before its first cargo"
+        at(&gate_fn, "seed_own_target", "the gate") < at(&gate_fn, "gate_format", "the gate"),
+        "the finish gate must seed before formatting or proof reuse"
     );
     let sync_fn = shell_function(&gate, "sync");
     assert!(
@@ -3420,6 +3419,235 @@ push_closed_branch work
     }
 }
 
+struct ProofRepo {
+    _fakes: Fakes,
+    repo: PathBuf,
+    cargo_home: PathBuf,
+    global: PathBuf,
+    version: PathBuf,
+    tool: PathBuf,
+}
+
+impl ProofRepo {
+    fn new(tag: &str) -> Self {
+        let fakes = Fakes::new(tag);
+        let repo = fakes.dir.join("repo");
+        let cargo_home = fakes.dir.join("cargo-home");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&cargo_home).unwrap();
+        let global = fakes.dir.join("gitconfig");
+        std::fs::write(&global, "").unwrap();
+        let version = fakes.dir.join("formatter-version");
+        std::fs::write(&version, "formatter 1\n").unwrap();
+        #[cfg(windows)]
+        let tool = {
+            let path = fakes.dir.join("formatter.cmd");
+            std::fs::write(&path, "@echo off\r\ntype \"%VERSION_FILE%\"\r\n").unwrap();
+            path
+        };
+        #[cfg(not(windows))]
+        let tool = {
+            fakes.fake("rustfmt", "cat \"$VERSION_FILE\"");
+            fakes.dir.join("rustfmt")
+        };
+        let this = Self {
+            _fakes: fakes,
+            repo,
+            cargo_home,
+            global,
+            version,
+            tool,
+        };
+        this.git(&["init", "--quiet", "--template=", "-b", "main"]);
+        std::fs::create_dir_all(this.repo.join(".agents/tasks")).unwrap();
+        for (path, data) in [
+            (".agents/tasks/T-TEST-1.json", "{}\n"),
+            (".agents/identity.json", "{}\n"),
+            ("a.rs", "fn a() {}\n"),
+            ("b.rs", "fn b() {}\n"),
+        ] {
+            std::fs::write(this.repo.join(path), data).unwrap();
+        }
+        this.git(&["add", "."]);
+        this.git(&["commit", "--quiet", "-m", "base"]);
+        this.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        this
+    }
+
+    fn isolate(&self, command: &mut std::process::Command) {
+        command
+            .current_dir(&self.repo)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_COMMON_DIR")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", &self.global);
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let mut command = std::process::Command::new("git");
+        self.isolate(&mut command);
+        let output = command
+            .args([
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@localhost",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "maintenance.auto=false",
+                "-c",
+                "gc.auto=0",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    fn stamp(&self, format: bool) -> String {
+        let mut command = script_command(&root().join("scripts/gate-input-stamp.sh"));
+        self.isolate(&mut command);
+        command
+            .env("CARGO_HOME", &self.cargo_home)
+            .env("RUSTFMT", &self.tool)
+            .env("RUSTC", &self.tool)
+            .env("VERSION_FILE", &self.version);
+        if format {
+            command.arg("--format");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+}
+
+#[test]
+fn source_proof_changes_when_upstream_code_changes_but_the_branch_diff_does_not() {
+    let f = ProofRepo::new("proof-upstream");
+    f.git(&["checkout", "--quiet", "-b", "work"]);
+    std::fs::write(f.repo.join("a.rs"), "fn branch_change() {}\n").unwrap();
+    f.git(&["commit", "--quiet", "-am", "branch"]);
+    let diff = f.git(&[
+        "diff",
+        "origin/main",
+        "HEAD",
+        "--",
+        ".",
+        ":(exclude).agents/tasks",
+    ]);
+    let before = f.stamp(false);
+    std::fs::write(
+        f.repo.join(".agents/tasks/T-TEST-1.json"),
+        "{\"closed\":true}\n",
+    )
+    .unwrap();
+    f.git(&["add", ".agents/tasks"]);
+    assert_eq!(before, f.stamp(false));
+    std::fs::write(f.repo.join(".agents/tasks/T-TEST-1.json"), "{}\n").unwrap();
+    f.git(&["add", ".agents/tasks"]);
+    f.git(&["checkout", "--quiet", "main"]);
+    std::fs::write(f.repo.join("b.rs"), "fn upstream_change() {}\n").unwrap();
+    f.git(&["commit", "--quiet", "-am", "upstream"]);
+    f.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    f.git(&["checkout", "--quiet", "work"]);
+    f.git(&["merge", "--quiet", "--no-edit", "main"]);
+    assert_eq!(
+        diff,
+        f.git(&[
+            "diff",
+            "origin/main",
+            "HEAD",
+            "--",
+            ".",
+            ":(exclude).agents/tasks"
+        ])
+    );
+    assert_ne!(before, f.stamp(false));
+}
+
+#[test]
+fn format_proof_tracks_formatter_and_external_cargo_config() {
+    let f = ProofRepo::new("proof-tools");
+    let before = f.stamp(true);
+    std::fs::write(f.cargo_home.join("config.toml"), "[build]\njobs=2\n").unwrap();
+    assert_ne!(before, f.stamp(true));
+    std::fs::remove_file(f.cargo_home.join("config.toml")).unwrap();
+    std::fs::write(&f.version, "formatter 2\n").unwrap();
+    assert_ne!(before, f.stamp(true));
+}
+
+#[test]
+fn source_proof_tracks_untracked_names_contents_and_compiled_agent_data() {
+    let f = ProofRepo::new("proof-untracked");
+    let before = f.stamp(false);
+    std::fs::write(f.repo.join("extra.rs"), "fn extra() {}\n").unwrap();
+    let extra = f.stamp(false);
+    assert_ne!(before, extra);
+    std::fs::rename(f.repo.join("extra.rs"), f.repo.join("renamed.rs")).unwrap();
+    let renamed = f.stamp(false);
+    assert_ne!(extra, renamed);
+    std::fs::write(f.repo.join("renamed.rs"), "fn different() {}\n").unwrap();
+    assert_ne!(renamed, f.stamp(false));
+    std::fs::remove_file(f.repo.join("renamed.rs")).unwrap();
+    std::fs::write(f.repo.join(".agents/identity.json"), "{\"changed\":true}\n").unwrap();
+    assert_ne!(before, f.stamp(false));
+}
+
+#[test]
+fn format_proof_reuse_never_turns_a_failed_formatter_into_a_success() {
+    let f = Fakes::new("format-proof");
+    std::fs::create_dir_all(f.dir.join("scripts")).unwrap();
+    std::fs::create_dir_all(f.dir.join("cache")).unwrap();
+    let helper = f.dir.join("scripts/gate-input-stamp.sh");
+    std::fs::write(&helper, "#!/bin/sh\ncat \"$STAMP_FILE\"\n").unwrap();
+    set_script_executable(&helper);
+    let source = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
+    let mut script = String::from("set -euo pipefail\n");
+    script.push_str(&shell_function(&source, "gate_format"));
+    script.push_str(
+        r#"
+root=$PWD
+STAMP_FILE=$PWD/stamp
+export STAMP_FILE
+printf 'first\n' > stamp
+git() { printf '%s\n' "$PWD/cache"; }
+cargo() { printf 'format\n' >> calls; [ "${FAIL:-0}" = 0 ]; }
+gate_format
+gate_format
+[ "$(wc -l < calls)" = 1 ]
+printf 'second\n' > stamp
+FAIL=1
+if gate_format; then exit 9; fi
+[ "$(cat cache/susi-fmt-ok)" = first ]
+FAIL=0
+gate_format
+[ "$(cat cache/susi-fmt-ok)" = second ]
+[ "$(wc -l < calls)" = 3 ]
+[ ! -f cache/susi-gate-ok ]
+"#,
+    );
+    let path = f.dir.join("format-check.sh");
+    std::fs::write(&path, script).unwrap();
+    let output = script_command(&path).current_dir(&f.dir).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn compliance_counts_live_claims_from_one_byte_counted_snapshot() {
     use std::io::Write;
@@ -3429,6 +3657,10 @@ fn compliance_counts_live_claims_from_one_byte_counted_snapshot() {
         let mut child = Command::new("git")
             .args(args)
             .current_dir(&f.dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_COMMON_DIR")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
