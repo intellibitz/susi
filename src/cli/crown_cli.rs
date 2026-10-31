@@ -7,8 +7,15 @@ use anyhow::{bail, Result};
 use clap::Subcommand;
 use serde::Serialize;
 use std::path::Path;
+use susi_daemon::discovery_pipeline::Catalogs;
 use susi_daemon::SusiDaemon;
 use susi_paths::ports;
+
+/// What `crown verify|status` primes: the `pluggable` check counts the agent
+/// capabilities the execution-agent and framework scans register, and the
+/// `provision` check reads the selected model that coding-model auto-prefer
+/// can write. No check reads the enabled MCP set.
+pub(crate) const PRIMED: Catalogs = Catalogs::AGENTS.union(Catalogs::CODING_MODELS);
 
 #[derive(Debug, Subcommand)]
 pub enum CrownCommands {
@@ -413,8 +420,12 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     // --- Zero-config Auto ---
     let pack = susi_sandbox::extensions::ensure_extensions_substrate();
     let auto_ok = pack.is_ok();
-    let _ =
-        susi_daemon::discovery_pipeline::prime_catalogs(&susi_paths::SusiDirs::substrate_home());
+    let _ = susi_daemon::boot_trace::phase("crown: prime catalogs", || {
+        susi_daemon::discovery_pipeline::prime_selected_catalogs(
+            &susi_paths::SusiDirs::substrate_home(),
+            PRIMED,
+        )
+    });
     out.push(check(
         "zero_config_auto",
         true,
