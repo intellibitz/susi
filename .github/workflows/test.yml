@@ -590,12 +590,13 @@ jobs:
           else
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
-          # xtask is a small standalone package: on its last branch gate the
-          # target archive restore took 15 s while cached clippy took 1 s.
-          # Keep sccache for its compile, and avoid restoring the workspace
-          # target archive when xtask alone is affected.
+          # xtask and susi-unsafe-ratchet are lightweight packages: recent
+          # branch gates spent 12–15 s restoring the workspace target archive
+          # for 1–9 s of clippy. Keep sccache for their compiles, and avoid
+          # restoring the workspace target archive when either is the only
+          # affected package.
           target_cache=true
-          if [ "$pkgs" = "xtask" ]; then target_cache=false; fi
+          if [ "$pkgs" = "xtask" ] || [ "$pkgs" = "susi-unsafe-ratchet" ]; then target_cache=false; fi
           echo "target_cache=$target_cache" >> "$GITHUB_OUTPUT"
           # The ONNX prefetch builds susi-vendor-fastembed only to warm its CDN
           # download; nothing else in the job can reach it. Pay for it only

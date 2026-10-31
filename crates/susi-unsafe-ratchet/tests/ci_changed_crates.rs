@@ -278,6 +278,27 @@ fn root_test_targets_fail_closed_when_production_sources_change() {
     assert!(ws.pkgs(&["--root-test-targets"]).is_empty());
 }
 
+/// This package is small enough that restoring the workspace-wide target
+/// archive costs more than compiling its affected clippy target from sccache.
+/// Keep the exception scoped to a single-package gate in the branch workflow.
+#[test]
+fn ratchet_gate_skips_large_target_cache() {
+    let workflow = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/test.yml");
+    let workflow = std::fs::read_to_string(workflow).unwrap();
+    assert!(
+        workflow.contains(
+            r#"if [ "$pkgs" = "xtask" ] || [ "$pkgs" = "susi-unsafe-ratchet" ]; then target_cache=false; fi"#
+        ),
+        "the lightweight package must skip the workspace target archive"
+    );
+    assert!(
+        workflow.contains(
+            "if: steps.affected.outputs.lintcmd != '' && steps.affected.outputs.target_cache != 'false'"
+        ),
+        "the target cache step must remain controlled by the package decision"
+    );
+}
+
 #[test]
 fn a_leaf_lists_itself_and_the_crates_above_it_but_not_those_below() {
     let ws = Workspace::new("leaf");
