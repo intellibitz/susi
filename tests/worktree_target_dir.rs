@@ -7,11 +7,12 @@
 #![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Every worktree has a cargo target of its own, copied from a warm snapshot
-//! of origin/main (`scripts/seed-target.sh`). Worktrees used to link `target/`
-//! to the primary checkout's shared one, and cargo names a workspace crate's
-//! build by its path relative to the workspace: a crate another worktree had
-//! built last read as fresh, and its code was linked into this branch's build.
-//! `scripts/target-guard.sh` narrowed that and could not close it.
+//! of origin/main (`susi workflow seed-target`, which `scripts/seed-target.sh`
+//! execs). Worktrees used to link `target/` to the primary checkout's shared
+//! one, and cargo names a workspace crate's build by its path relative to the
+//! workspace: a crate another worktree had built last read as fresh, and its
+//! code was linked into this branch's build. `scripts/target-guard.sh`
+//! narrowed that and could not close it.
 //!
 //! These pin what seeding does: a link becomes a real directory (the link is
 //! removed, never what it points to), a missing or empty target is copied from
@@ -28,10 +29,22 @@
 //! commit that concludes a conflicted one, `git worktree add`), and the
 //! retired guard and link script as the installed susi (v0.21.23) runs them,
 //! which convert it before the command that follows.
+//!
+//! The seeding was a bash script; it is Rust now
+//! (`crates/susi-gawd/src/admin/seed.rs`), and the script is a stub that finds
+//! a susi with the verb and execs it, so every path here still runs the
+//! script where the hooks and the older callers do, with `SUSI_WORKFLOW_BIN`
+//! naming the binary under test. The races the stand-in `cp`, `rm`, `mkdir`
+//! and `mv` shell functions used to inject are driven through the seeding's
+//! own test seam: `SUSI_SEED_TEST_GATES` has a run record each phase it
+//! reaches (`lock`, `copy`, `rename`, `done`) and hold at one until it is let
+//! go. A stand-in cargo for `--refresh` goes through `SUSI_SEED_CARGO`, since
+//! a script cannot be run by name on Windows.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use susi_gawd::admin::seed;
 
 /// The snapshot fixture's packages, each with a hash of its own (cargo's
 /// files in `deps/` and `build/` carry the unit's hash): the members
@@ -48,6 +61,8 @@ const UNITS: [(&str, &str); 7] = [
     ("cell-build", "2000000000000003"),
 ];
 const PATH_UNITS: [&str; 4] = ["cell", "fixture-root", "lone", "patched"];
+/// A seeded target's marker, as the seeding writes it.
+const SEEDED_MARK_NAME: &str = ".susi-seeded";
 const REGISTRY_UNITS: [&str; 3] = ["serde", "cellar", "cell-build"];
 const PROFILES: [&str; 2] = ["debug", "x86_64-unknown-linux-gnu/debug"];
 
@@ -95,6 +110,9 @@ fn scrub(cmd: &mut Command) {
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
+        // The scripts and hooks exec `susi workflow seed-target`: the binary
+        // under test, not whatever susi the host has installed.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env_remove("SUSI_HOME")
         .env_remove("SUSI_AGENT")
         // A developer's own snapshot settings must never reach a fixture:
@@ -105,11 +123,67 @@ fn scrub(cmd: &mut Command) {
         .env_remove("SUSI_SEED_REFRESH_SECS")
         .env_remove("SUSI_SEED_LOCK_STALE")
         .env_remove("SUSI_SEED_WAIT_SECS")
+        .env_remove("SUSI_SEED_TEST_GATES")
+        .env_remove("SUSI_SEED_CARGO")
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET_DIR")
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE");
+}
+
+/// `susi <args>` (the binary under test) in `dir`.
+fn susi(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
+    run(dir, env!("CARGO_BIN_EXE_susi"), args, envs)
+}
+
+/// The seeding's test seam (`SUSI_SEED_TEST_GATES`): a directory where every
+/// run records the phases it reaches, one per line in `log`, and holds at a
+/// phase while `<phase>.wait` exists until `<phase>.go` does.
+struct Gates {
+    dir: PathBuf,
+}
+
+impl Gates {
+    fn new(root: &Path) -> Self {
+        let dir = root.join("gates");
+        std::fs::create_dir_all(&dir).unwrap();
+        Self { dir }
+    }
+
+    fn env(&self) -> (&'static str, String) {
+        (
+            "SUSI_SEED_TEST_GATES",
+            self.dir.to_string_lossy().into_owned(),
+        )
+    }
+
+    /// Have every run stop at `phase` until [`Gates::release`].
+    fn hold(&self, phase: &str) {
+        std::fs::write(self.dir.join(format!("{phase}.wait")), "").unwrap();
+    }
+
+    fn release(&self, phase: &str) {
+        std::fs::write(self.dir.join(format!("{phase}.go")), "go").unwrap();
+    }
+
+    /// How many runs reached `phase`.
+    fn count(&self, phase: &str) -> usize {
+        std::fs::read_to_string(self.dir.join("log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.trim() == phase)
+            .count()
+    }
+
+    /// Wait until a run has reached `phase`.
+    fn wait_for(&self, phase: &str, secs: u64) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while self.count(phase) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        self.count(phase) > 0
+    }
 }
 
 fn finish(out: std::process::Output) -> (i32, String, String) {
@@ -245,7 +319,7 @@ fn wait_for(path: &Path, secs: u64) -> bool {
 
 /// A directory of stand-in tools, and the PATH that puts it first. A bash
 /// script named like the tool: Git Bash runs one by its `#!` line, whatever
-/// its name, so `robocopy` and `cargo` resolve to it too.
+/// its name, so `cargo` resolves to it too.
 fn fake_tools(dir: &Path, tools: &[(&str, &str)]) -> String {
     std::fs::create_dir_all(dir).unwrap();
     for (name, body) in tools {
@@ -267,28 +341,52 @@ fn fake_tools(dir: &Path, tools: &[(&str, &str)]) -> String {
         .into_owned()
 }
 
-/// Run `script args` in `dir` with shell functions standing in for tools:
-/// how a test makes `rm` fail. A function is found before any program on
-/// PATH, and the script puts the shell's own userland first on PATH on
-/// Windows, so a stand-in program there would never be reached. Each one is
-/// exported the way bash imports a function from its environment.
-fn run_with_functions(
-    dir: &Path,
-    script: &Path,
-    args: &[&str],
-    functions: &[(&str, &str)],
-    envs: &[(&str, &str)],
-) -> (i32, String, String) {
-    let mut cmd = script_command(script);
-    scrub(&mut cmd);
-    cmd.args(args).current_dir(dir);
-    for (name, body) in functions {
-        cmd.env(format!("BASH_FUNC_{name}%%"), format!("() {{ {body}\n}}"));
+/// The `SUSI_SEED_CARGO` value that runs the bash script `script` as cargo: the
+/// script itself where a `#!` line runs it, Git's bash with the script on
+/// Windows (a PATH-style list: the program, then its leading arguments).
+/// `None` on a Windows host with no Git bash to be found.
+fn cargo_seam(script: &Path) -> Option<String> {
+    if cfg!(windows) {
+        let bash = raw_msys_program(script.parent().unwrap(), "bash")?;
+        Some(
+            std::env::join_paths([bash, script.to_path_buf()])
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        )
+    } else {
+        Some(script.to_string_lossy().into_owned())
     }
-    for (k, v) in envs {
-        cmd.env(k, v);
+}
+
+/// Make the directory read-only where that is a mode bit (Unix): a file in
+/// it can then be neither removed nor added. `false` where it cannot be, or
+/// where the mode binds nothing (root, as in a container, writes through it;
+/// the mode is then put back).
+fn read_only(path: &Path, on: bool) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if on { 0o555 } else { 0o755 };
+        if std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).is_err() {
+            return false;
+        }
+        if !on {
+            return true;
+        }
+        let probe = path.join(".read-only-probe");
+        if std::fs::write(&probe, "").is_ok() {
+            let _ = std::fs::remove_file(&probe);
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+            return false;
+        }
+        true
     }
-    finish(cmd.output().unwrap())
+    #[cfg(not(unix))]
+    {
+        let _ = (path, on);
+        false
+    }
 }
 
 /// Git for Windows' raw MSYS `<git>/usr/bin/<name>.exe`: no launcher puts
@@ -379,42 +477,6 @@ fn lay_out_profile(at: &Path) {
     write(&at.join("examples/demo-3000000000000001.exe"), "x");
     write(&at.join("incremental/cell-1abc/s-1/dep-graph.bin"), "x");
 }
-
-/// `scripts/seed-target.sh` without what runs it: its functions and setup,
-/// up to the argument parsing (`mode=seed`), for a driver to call one of
-/// them.
-fn seed_script_functions() -> String {
-    let text = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/seed-target.sh"),
-    )
-    .unwrap()
-    .replace("\r\n", "\n");
-    let end = text
-        .find("\nmode=seed\n")
-        .expect("seed-target.sh parses its arguments from `mode=seed` on");
-    text[..=end].to_string()
-}
-
-/// A shell function for a watcher: whether the process `$1` has ended. `kill
-/// -0` still finds one that has exited and is not reaped yet (a zombie), as
-/// an orphan stays for good where PID 1 or the subreaper never reaps (a Linux
-/// container with no init); its state says so: `/proc/<pid>/stat` (Linux, and
-/// Git Bash on Windows), `ps -o stat=` where there is no /proc (macOS).
-const ENDED: &str = r#"ended() {
-    local s=
-    kill -0 "$1" 2>/dev/null || return 0
-    if [ -r "/proc/$1/stat" ]; then
-        # "<pid> (<command>) <state> ...": the state follows the last ") ".
-        read -r s <"/proc/$1/stat" 2>/dev/null
-        s=${s##*") "}
-    else
-        s=$(ps -o stat= -p "$1" 2>/dev/null)
-        s=${s#"${s%%[! ]*}"}
-    fi
-    case "$s" in Z* | X*) return 0 ;; esac
-    return 1
-}
-"#;
 
 /// The fixture: a bare remote, a primary checkout holding a small cargo
 /// workspace and the scripts, and a snapshot beside it where the default
@@ -580,51 +642,16 @@ impl World {
         git(&self.primary, &["config", "core.hooksPath", ".githooks"]);
     }
 
-    /// A stand-in for the copy tool (robocopy on Windows, cp elsewhere) whose
-    /// copy into a worktree's staging directory waits until the file
-    /// SEED_COPY_GATE exists, and logs each such copy in SEED_COPY_LOG; any
-    /// other copy runs at once. With SEED_COPIER_GONE set, the file it names
-    /// is made once the seeding that runs the copy has ended (watched from
-    /// its own runtime, where its pid means something). That seeding is the
-    /// stand-in's parent while the stand-in runs, so its pid is read then;
-    /// it is an orphan (its `--background` parent exits at once), so where
-    /// nothing reaps orphans it ends a zombie, which [`ENDED`] counts as
-    /// ended. Returns the PATH that puts it first.
-    fn gated_copy(&self) -> String {
-        let wait = r#"case "$*" in
-*target.seed-*)
-    [ -z "${SEED_COPY_LOG:-}" ] || echo copy >>"$SEED_COPY_LOG"
-    if [ -n "${SEED_COPIER_GONE:-}" ]; then
-        p=$PPID
-        (
-            until ended "$p"; do sleep 0.2; done
-            : >"$SEED_COPIER_GONE"
-        ) </dev/null >/dev/null 2>&1 &
-    fi
-    i=0
-    while [ ! -e "$SEED_COPY_GATE" ] && [ $i -lt 600 ]; do
-        sleep 0.2
-        i=$((i + 1))
-    done
-    ;;
-esac
-"#;
-        let (tool, real) = if cfg!(windows) {
-            (
-                "robocopy",
-                "exec \"$(cygpath -u \"$SYSTEMROOT\")/System32/robocopy.exe\" \"$@\"\n",
-            )
-        } else {
-            (
-                "cp",
-                "for c in /bin/cp /usr/bin/cp; do [ -x \"$c\" ] && exec \"$c\" \"$@\"; done\nexit 1\n",
-            )
-        };
-        let body = format!("{ENDED}{wait}{real}");
-        fake_tools(&self.root.join("fake-copy"), &[(tool, body.as_str())])
+    /// The seeding's gates ([`Gates`]), with a copy into a worktree held
+    /// until the test lets it go: what the stand-in copy tool used to do.
+    fn gated_copy(&self) -> Gates {
+        let gates = Gates::new(&self.root);
+        gates.hold("copy");
+        gates
     }
 
-    /// `scripts/seed-target.sh <args>` from the primary's scripts.
+    /// `scripts/seed-target.sh <args>` from the primary's scripts: the stub,
+    /// which execs the binary under test.
     fn seed_target(&self, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
         run(&self.primary, self.script().to_str().unwrap(), args, envs)
     }
@@ -652,8 +679,9 @@ esac
     /// binaries, examples, tmp/, and `gone-crate`, which no lockfile names),
     /// after waiting for the file FAKE_CARGO_GATE when that is set; `clippy`
     /// does nothing; anything else (`metadata`) is the real cargo. Each build
-    /// is logged in FAKE_CARGO_LOG. Returns the PATH that puts it first.
-    fn fake_cargo(&self) -> String {
+    /// is logged in FAKE_CARGO_LOG. Returns the `SUSI_SEED_CARGO` value that
+    /// runs it ([`cargo_seam`]); `None` where no bash can.
+    fn fake_cargo(&self) -> Option<String> {
         let mut units: Vec<(&str, &str)> = UNITS.to_vec();
         units.push(("gone-crate", "4000000000000001"));
         let units: Vec<String> = units.iter().map(|(p, h)| format!("{p}:{h}")).collect();
@@ -691,7 +719,8 @@ esac
             profiles = PROFILES.join(" "),
             units = units.join(" "),
         );
-        fake_tools(&self.root.join("fake-cargo"), &[("cargo", body.as_str())])
+        fake_tools(&self.root.join("fake-cargo"), &[("cargo", body.as_str())]);
+        cargo_seam(&self.root.join("fake-cargo").join("cargo"))
     }
 }
 
@@ -1028,36 +1057,43 @@ fn the_primary_checkout_is_never_touched_nor_copied() {
 /// A copy that cannot be stripped all the way must never become a target:
 /// a member's fingerprint left in it reads as fresh wherever this checkout's
 /// files are older than the snapshot, and this branch would build and test
-/// origin/main's code. Here an `rm` that reports success and removes nothing
-/// under `.fingerprint/`, and then a lockfile that names nothing: each time
-/// the copy is dropped and the target starts empty, cold and correct.
+/// origin/main's code. Here a `.fingerprint/` whose entries cannot be removed
+/// (the directory is read-only, which the copy keeps), and then a lockfile
+/// that names nothing: each time the copy is dropped and the target starts
+/// empty, cold and correct.
 #[test]
 fn a_copy_that_cannot_be_stripped_is_never_installed() {
     let w = World::new("nostrip");
     w.make_seed();
-    // Reports success, and removes nothing under `.fingerprint/`.
-    let rm = r#"local a; local -a args=()
-for a in "$@"; do
-    case "$a" in */.fingerprint/*) ;; *) args+=("$a") ;; esac
-done
-command rm "${args[@]}"
-return 0"#;
-    let dest = w.app_worktree("app");
-    let (code, _, err) = run_with_functions(
-        &w.primary,
-        &w.script(),
-        &[dest.to_str().unwrap()],
-        &[("rm", rm)],
-        &[],
-    );
-    assert_eq!(code, 0, "{err}");
-    assert!(err.contains("could not strip"), "{err}");
-    assert!(
-        is_empty_dir(&dest.join("target")),
-        "the unstripped copy must not be installed: {err}"
-    );
-    assert_no_staging(&dest);
-    assert_seed_untouched(&w);
+    let fingerprints = w.seed().join("debug/.fingerprint");
+    if read_only(&fingerprints, true) {
+        let dest = w.app_worktree("app");
+        let (code, _, err) = w.seed_target(&[dest.to_str().unwrap()], &[]);
+        read_only(&fingerprints, false);
+        assert_eq!(code, 0, "{err}");
+        assert!(err.contains("could not strip"), "{err}");
+        assert!(
+            is_empty_dir(&dest.join("target")),
+            "the unstripped copy must not be installed: {err}"
+        );
+        // The copy's own read-only directory kept the seeding from removing
+        // all of it; the staging directory is dropped as far as it can be,
+        // and never renamed into place.
+        for left in std::fs::read_dir(&dest).unwrap().filter_map(Result::ok) {
+            let name = left.file_name().to_string_lossy().into_owned();
+            if name.starts_with("target.seed-") {
+                assert!(
+                    !left.path().join(SEEDED_MARK_NAME).exists(),
+                    "a refused copy is never marked seeded"
+                );
+                read_only(&left.path().join("debug/.fingerprint"), false);
+                std::fs::remove_dir_all(left.path()).unwrap();
+            }
+        }
+        assert_seed_untouched(&w);
+    } else {
+        eprintln!("skipped the read-only case: no mode bits here");
+    }
 
     // A lockfile that names no package: nothing can be told safe to keep.
     let other = w.app_worktree("other");
@@ -1069,20 +1105,15 @@ return 0"#;
     assert_no_staging(&other);
 }
 
-/// Removing a link never recurses through it. When `rm` cannot unlink it,
-/// Windows falls back to cmd's `rmdir` (no /s: the junction only), with the
-/// path as its own argument; elsewhere there is no fallback, and the link is
-/// reported and left as it is. Either way what it points at survives.
+/// Removing a link never recurses through it, and a link that cannot be
+/// removed (here the worktree directory is read-only, so nothing in it can be
+/// unlinked) is reported and left as it is: the seeding does not go on to
+/// copy into a target that is still someone else's. Either way what the link
+/// points at survives, down to its spaces.
 #[test]
 fn a_link_rm_cannot_remove_falls_back_and_never_reaches_through() {
     let w = World::new("rmlink");
     w.make_seed();
-    // Refuses the link, as an `rm` that cannot unlink a junction does.
-    let rm = r#"local a
-for a in "$@"; do
-    case "$a" in */target) echo "rm: cannot remove '$a'" >&2; return 1 ;; esac
-done
-command rm "$@""#;
     let shared = w.root.join("shared target");
     write(&shared.join("sentinel"), "another worktree's build");
     write(
@@ -1091,22 +1122,23 @@ command rm "$@""#;
     );
     let dest = w.app_worktree("app");
     link_dir(&shared, &dest.join("target"));
-    let (code, _, err) = run_with_functions(
-        &w.primary,
-        &w.script(),
-        &[dest.to_str().unwrap()],
-        &[("rm", rm)],
-        &[],
-    );
-    assert_eq!(code, 0, "{err}");
-    if cfg!(windows) {
-        assert!(err.contains("replaced the link"), "{err}");
-        assert!(!is_link(&dest.join("target")), "{err}");
-        assert_seeded(&dest);
-    } else {
+    if read_only(&dest, true) {
+        let (code, _, err) = w.seed_target(&[dest.to_str().unwrap()], &[]);
+        read_only(&dest, false);
+        assert_eq!(code, 0, "{err}");
         assert!(err.contains("could not remove the link"), "{err}");
         assert!(is_link(&dest.join("target")), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(shared.join("sentinel")).unwrap(),
+            "another worktree's build"
+        );
+        assert_no_staging(&dest);
     }
+    let (code, _, err) = w.seed_target(&[dest.to_str().unwrap()], &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("replaced the link"), "{err}");
+    assert!(!is_link(&dest.join("target")), "{err}");
+    assert_seeded(&dest);
     assert_eq!(
         std::fs::read_to_string(shared.join("sentinel")).unwrap(),
         "another worktree's build"
@@ -1129,9 +1161,9 @@ fn the_session_start_hook_replaces_a_link_now_and_seeds_in_the_background() {
     write(&shared.join("sentinel"), "theirs");
     let dest = w.app_worktree("app");
     link_dir(&shared, &dest.join("target"));
-    let gate = w.root.join("copy-gate");
-    // The copy into the staging directory waits for the gate.
-    let path = w.gated_copy();
+    // The copy into the staging directory waits at its gate.
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
     let started = Instant::now();
     let (code, out, err) = run(
         &dest,
@@ -1139,10 +1171,7 @@ fn the_session_start_hook_replaces_a_link_now_and_seeds_in_the_background() {
             .to_str()
             .unwrap(),
         &[],
-        &[
-            ("PATH", path.as_str()),
-            ("SEED_COPY_GATE", gate.to_str().unwrap()),
-        ],
+        &[(gate_var, gate_dir.as_str())],
     );
     let returned_after = started.elapsed();
     let said = format!("{out}{err}");
@@ -1155,7 +1184,7 @@ fn the_session_start_hook_replaces_a_link_now_and_seeds_in_the_background() {
         "the hook returned ({returned_after:?}) only once the copy was done: it must not wait for it"
     );
     assert!(shared.join("sentinel").is_file());
-    std::fs::write(&gate, "go").unwrap();
+    gates.release("copy");
     assert!(
         wait_for(&dest.join("target/.susi-seeded"), 120),
         "the background copy never finished: {:?}",
@@ -1178,14 +1207,9 @@ fn a_foreground_seeding_waits_for_the_background_copy_already_running() {
     let w = World::new("waits");
     w.make_seed();
     let dest = w.app_worktree("app");
-    let gate = w.root.join("copy-gate");
-    let copies = w.root.join("copies");
-    let path = w.gated_copy();
-    let envs = [
-        ("PATH", path.as_str()),
-        ("SEED_COPY_GATE", gate.to_str().unwrap()),
-        ("SEED_COPY_LOG", copies.to_str().unwrap()),
-    ];
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
+    let envs = [(gate_var, gate_dir.as_str())];
     let (code, _, err) = w.seed_target(&["--background", dest.to_str().unwrap()], &envs);
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("in the background"), "{err}");
@@ -1193,7 +1217,10 @@ fn a_foreground_seeding_waits_for_the_background_copy_already_running() {
         is_real_dir(&dest.join("target")),
         "a real target/ is there at once: {err}"
     );
-    assert!(wait_for(&copies, 60), "the background copy never started");
+    assert!(
+        gates.wait_for("copy", 60),
+        "the background copy never started"
+    );
     let mut foreground = w.spawn_seed_target(&[dest.to_str().unwrap()], &envs);
     std::thread::sleep(Duration::from_secs(3));
     assert!(
@@ -1201,7 +1228,7 @@ fn a_foreground_seeding_waits_for_the_background_copy_already_running() {
         "the foreground seeding went ahead while a copy was still running"
     );
     assert!(!dest.join("target/.susi-seeded").exists());
-    std::fs::write(&gate, "go").unwrap();
+    gates.release("copy");
     let (code, _, err) = finish(foreground.wait_with_output().unwrap());
     assert_eq!(code, 0, "{err}");
     wait_for_seeders(&dest);
@@ -1211,10 +1238,10 @@ fn a_foreground_seeding_waits_for_the_background_copy_already_running() {
         "it returns once the target is seeded: {err}"
     );
     assert_seeded(&dest);
-    assert_eq!(
-        std::fs::read_to_string(&copies).unwrap().lines().count(),
-        1,
-        "one copy, not two"
+    assert_eq!(gates.count("copy"), 1, "one copy, not two");
+    assert!(
+        !err.contains("copying"),
+        "the foreground run copied nothing itself: {err}"
     );
 }
 
@@ -1254,16 +1281,16 @@ fn a_native_directory_symlink_target_is_converted_too() {
         .is_file());
 }
 
-/// On Windows the harness runs this script as `sh`, which can be Git's raw
+/// On Windows the harness runs the script as `sh`, which can be Git's raw
 /// usr/bin shell with System32 ahead of Git on PATH: there a bare `bash` is
 /// WSL's and `find` is Windows' own, whose answer to `-mmin` is empty. The
-/// script must reach neither: /usr/bin goes first on PATH before anything is
-/// looked up, and bash's POSIX mode (`sh`) is left in place, with no second
-/// bash to find. Here a `bash` (and on Windows a `find`) that only record
-/// that they ran stand first on PATH. A two-hour-old unsigned lock in the
-/// worktree, whose maker died before signing it, must still be taken over
-/// (which needs a working `find -mmin`), and the linked target converted and
-/// seeded.
+/// stub needs neither (sh and git, then susi, which needs no userland at
+/// all), and its POSIX-mode shell is left in place, with no second shell to
+/// find. Here a `bash` (and on Windows a `find`) that only record that they
+/// ran stand first on PATH. A two-hour-old unsigned lock in the worktree,
+/// whose maker died before signing it, must still be taken over (the lock's
+/// own age, read by susi, not by `find`), and the linked target converted
+/// and seeded.
 #[test]
 fn a_raw_shell_with_system32_first_runs_neither_wsls_bash_nor_windows_find() {
     let w = World::new("rawsh");
@@ -1371,16 +1398,13 @@ fn a_merge_into_a_linked_worktree_converts_its_target_at_once() {
     let dest = w.app_worktree("app");
     link_dir(&shared, &dest.join("target"));
     w.with_hooks();
-    let gate = w.root.join("copy-gate");
-    let path = w.gated_copy();
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
     let (code, _, err) = run(
         &dest,
         "git",
         &["merge", "--quiet", "--no-edit", "origin/main"],
-        &[
-            ("PATH", path.as_str()),
-            ("SEED_COPY_GATE", gate.to_str().unwrap()),
-        ],
+        &[(gate_var, gate_dir.as_str())],
     );
     assert_eq!(code, 0, "{err}");
     assert!(dest.join(".githooks/post-merge").is_file());
@@ -1396,7 +1420,7 @@ fn a_merge_into_a_linked_worktree_converts_its_target_at_once() {
         std::fs::read_to_string(shared.join("sentinel")).unwrap(),
         "another worktree's build"
     );
-    std::fs::write(&gate, "go").unwrap();
+    gates.release("copy");
     assert!(
         wait_for(&dest.join("target/.susi-seeded"), 120),
         "the background copy never finished: {err}"
@@ -1436,12 +1460,9 @@ fn a_conflicted_merge_converts_a_linked_target_when_its_commit_concludes_it() {
     git(&dest, &["commit", "--quiet", "-am", "the branch's edit"]);
     w.with_hooks();
     w.advance_main("src/lib.rs", "pub fn main_side() {}\n");
-    let gate = w.root.join("copy-gate");
-    let path = w.gated_copy();
-    let envs = [
-        ("PATH", path.as_str()),
-        ("SEED_COPY_GATE", gate.to_str().unwrap()),
-    ];
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
+    let envs = [(gate_var, gate_dir.as_str())];
     let (code, out, err) = run(&dest, "git", &["merge", "--no-edit", "origin/main"], &envs);
     assert_ne!(code, 0, "the merge must stop on the conflict: {out}{err}");
     assert!(dest.join(".githooks/post-commit").is_file());
@@ -1472,7 +1493,7 @@ fn a_conflicted_merge_converts_a_linked_target_when_its_commit_concludes_it() {
         "another worktree's build",
         "the shared target must be left exactly as it was"
     );
-    std::fs::write(&gate, "go").unwrap();
+    gates.release("copy");
     assert!(
         wait_for(&dest.join("target/.susi-seeded"), 120),
         "the background copy never finished: {err}"
@@ -1507,8 +1528,8 @@ fn a_new_worktree_has_a_real_target_before_an_old_workflow_start_can_link_one() 
     w.with_hooks();
     // The primary's shared target, which v0.21.23 linked.
     write(&w.primary.join("target/sentinel"), "the shared build");
-    let gate = w.root.join("copy-gate");
-    let path = w.gated_copy();
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
     let dest = w.root.join("susi-old-start");
     let (code, _, err) = run(
         &w.primary,
@@ -1522,10 +1543,7 @@ fn a_new_worktree_has_a_real_target_before_an_old_workflow_start_can_link_one() 
             dest.to_str().unwrap(),
             "origin/main",
         ],
-        &[
-            ("PATH", path.as_str()),
-            ("SEED_COPY_GATE", gate.to_str().unwrap()),
-        ],
+        &[(gate_var, gate_dir.as_str())],
     );
     assert_eq!(code, 0, "{err}");
     // What v0.21.23 does next.
@@ -1541,7 +1559,7 @@ fn a_new_worktree_has_a_real_target_before_an_old_workflow_start_can_link_one() 
         !target.join(".susi-seeded").exists(),
         "`git worktree add` waited for the copy: {err}"
     );
-    std::fs::write(&gate, "go").unwrap();
+    gates.release("copy");
     assert!(
         wait_for(&target.join(".susi-seeded"), 120),
         "the background copy never finished: {err}"
@@ -1559,57 +1577,55 @@ fn a_new_worktree_has_a_real_target_before_an_old_workflow_start_can_link_one() 
 }
 
 /// Age never ends a lock holder whose liveness can be told. A refresh at
-/// nice 19 on a busy host can build for hours; taken over, a second refresh
-/// would check out, clean and build in the same checkout and target under the
-/// first. A holder of this runtime keeps the lock while its pid lives,
-/// however old its line; once it is gone, the lock is taken at once, however
-/// young. A pid this runtime has handed to another Windows process is not
-/// the holder.
+/// low priority on a busy host can build for hours; taken over, a second
+/// refresh would check out, clean and build in the same checkout and target
+/// under the first. A holder of this process table (a susi, by its pid, and
+/// on Windows by its image) keeps the lock while it lives, however old its
+/// line; once it is gone, the lock is taken at once, however young. A line
+/// whose pid lives but names another table is not read as this table's.
 #[test]
 fn a_live_holder_keeps_the_lock_however_old_and_a_gone_one_loses_it_at_once() {
     let w = World::new("liveness");
+    w.make_seed();
     let main = git(&w.primary, &["rev-parse", "origin/main"]);
     // A current snapshot: a refresh that gets the lock has nothing to do.
-    write(&w.seed().join("debug/.fingerprint/.keep"), "");
     write(&w.seed().join(".susi-seed"), &format!("{main} {}\n", now()));
-    // A process of the runtime the script runs in: its name for that
-    // runtime, its pid, its Windows pid, and then it waits for its stdin.
-    let probe = w.root.join("holder.sh");
-    write(
-        &probe,
-        r#"case "${OSTYPE:-}" in
-msys* | cygwin*) r=$(cd / && pwd -W); r=${r%/} ;;
-*) r=${OSTYPE:-unknown} ;;
-esac
-w=-
-[ ! -r /proc/$$/winpid ] || read -r w </proc/$$/winpid
-echo "$r"
-echo "$$ $w"
-read -r _
-"#,
-    );
-    let mut holder = command(&w.root, probe.to_str().unwrap(), &[], &[])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut lines = std::io::BufRead::lines(std::io::BufReader::new(holder.stdout.take().unwrap()));
-    let runtime = lines.next().unwrap().unwrap();
-    let ids = lines.next().unwrap().unwrap();
-    let (pid, wpid) = ids.split_once(' ').unwrap();
+    // A live susi: a seeding of a worktree, held at its first gate.
+    let dest = w.app_worktree("app");
+    let gates = Gates::new(&w.root);
+    gates.hold("lock");
+    let (gate_var, gate_dir) = gates.env();
+    let mut holder = command(
+        &w.primary,
+        env!("CARGO_BIN_EXE_susi"),
+        &["workflow", "seed-target", dest.to_str().unwrap()],
+        &[(gate_var, gate_dir.as_str())],
+    )
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .spawn()
+    .unwrap();
+    assert!(gates.wait_for("lock", 60), "the holder never started");
+    let pid = holder.id().to_string();
+    let wpid = if cfg!(windows) {
+        pid.clone()
+    } else {
+        "-".to_string()
+    };
+    let runtime = seed::runtime_name();
     let lock = w.seed_lock();
-    let hold = |pid: &str, since: u64, wpid: &str| {
+    let hold = |pid: &str, since: u64, wpid: &str, runtime: &str| {
         std::fs::create_dir_all(&lock).unwrap();
         std::fs::write(
             lock.join("owner"),
-            format!("{pid} {since} {wpid} {}\n", runtime.trim()),
+            format!("{pid} {since} {wpid} {runtime}\n"),
         )
         .unwrap();
     };
     let ancient = now() - 200_000;
     let stale = [("SUSI_SEED_LOCK_STALE", "60")];
-    for recorded in ["-", wpid] {
-        hold(pid, ancient, recorded);
+    for recorded in ["-", wpid.as_str()] {
+        hold(&pid, ancient, recorded, &runtime);
         let (code, out, err) = w.seed_target(&["--refresh"], &stale);
         assert_eq!(code, 0, "{err}");
         assert!(
@@ -1617,17 +1633,16 @@ read -r _
             "a live holder (Windows pid {recorded}) keeps the lock, however old: {out}{err}"
         );
     }
-    if wpid != "-" {
-        // The pid now names another Windows process: not the holder.
-        let other = (wpid.parse::<u64>().unwrap() + 4).to_string();
-        hold(pid, now(), &other);
-        let (_, out, _) = w.seed_target(&["--refresh"], &[]);
-        assert!(out.contains("already origin/main"), "{out}");
-        assert!(!lock.exists());
-    }
-    drop(holder.stdin.take());
+    // The same pid in another install's table, with no Windows pid to ask
+    // about: it cannot be told, so only age ends it.
+    hold(&pid, ancient, "-", "C:/Program Files/Another Git");
+    let (_, out, _) = w.seed_target(&["--refresh"], &stale);
+    assert!(out.contains("already origin/main"), "{out}");
+    assert!(!lock.exists());
+    gates.release("lock");
     holder.wait().unwrap();
-    hold(pid, now(), wpid);
+    wait_for_seeders(&dest);
+    hold(&pid, now(), &wpid, &runtime);
     let (code, out, err) = w.seed_target(&["--refresh"], &[]);
     assert_eq!(code, 0, "{err}");
     assert!(
@@ -1993,11 +2008,11 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
     assert_eq!(code, 0, "{out}{err}");
     let marker = std::fs::read_to_string(w.seed().join(".susi-seed")).unwrap();
     assert!(marker.starts_with(&next), "{marker:?}\n{out}{err}");
-    // A snapshot directory this script did not make is never replaced.
+    // A snapshot directory no refresh made is never replaced.
     std::fs::remove_dir_all(w.seed()).unwrap();
     write(&w.seed().join("debug/someone-elses"), "x");
     let (_, out, _) = w.seed_target(&["--refresh", "--force"], &[]);
-    assert!(out.contains("not a snapshot this script made"), "{out}");
+    assert!(out.contains("not a snapshot a refresh made"), "{out}");
     assert!(w.seed().join("debug/someone-elses").is_file());
 }
 
@@ -2008,11 +2023,14 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
 #[test]
 fn refresh_never_builds_in_the_primary_or_a_checkout_it_did_not_make() {
     let w = World::new("refusesrc");
-    let fake = w.fake_cargo();
+    let Some(fake) = w.fake_cargo() else {
+        eprintln!("skipped: no bash to run the stand-in cargo");
+        return;
+    };
     let builds = w.root.join("builds");
     let envs = |src: &Path| -> Vec<(String, String)> {
         vec![
-            ("PATH".into(), fake.clone()),
+            ("SUSI_SEED_CARGO".into(), fake.clone()),
             ("FAKE_REAL_CARGO".into(), env!("CARGO").into()),
             ("FAKE_CARGO_LOG".into(), builds.to_str().unwrap().into()),
             ("SUSI_TARGET_SEED_SRC".into(), src.to_str().unwrap().into()),
@@ -2052,7 +2070,7 @@ fn refresh_never_builds_in_the_primary_or_a_checkout_it_did_not_make() {
     git(&other, &["init", "--quiet", "-b", "theirs"]);
     write(&other.join("UNTRACKED-NOTES.txt"), "theirs");
     let (_, out, _) = refresh(&other);
-    assert!(out.contains("this script did not make it"), "{out}");
+    assert!(out.contains("did not make it"), "{out}");
     assert!(other.join("UNTRACKED-NOTES.txt").is_file());
 
     assert!(!builds.exists(), "nothing was built anywhere");
@@ -2066,12 +2084,15 @@ fn refresh_never_builds_in_the_primary_or_a_checkout_it_did_not_make() {
 #[test]
 fn two_refreshes_at_once_build_once_and_publish_one_stripped_snapshot() {
     let w = World::new("together");
-    let path = w.fake_cargo();
+    let Some(fake) = w.fake_cargo() else {
+        eprintln!("skipped: no bash to run the stand-in cargo");
+        return;
+    };
     let gate = w.root.join("build-gate");
     let started = w.root.join("build-started");
     let builds = w.root.join("builds");
     let envs = [
-        ("PATH", path.as_str()),
+        ("SUSI_SEED_CARGO", fake.as_str()),
         ("FAKE_REAL_CARGO", env!("CARGO")),
         ("FAKE_CARGO_GATE", gate.to_str().unwrap()),
         ("FAKE_CARGO_STARTED", started.to_str().unwrap()),
@@ -2153,7 +2174,10 @@ fn the_refresh_lock_and_staging_hold_across_git_installs() {
 
     // Staging: one whose run is gone (stale), one whose run lives on in
     // another runtime. A refresh sweeps the first and keeps the second.
-    let fake = w.fake_cargo();
+    let Some(fake) = w.fake_cargo() else {
+        eprintln!("skipped the staging sweep: no bash to run the stand-in cargo");
+        return;
+    };
     let gone = w.root.join(".susi-target-seed.new.4242-1");
     let live = w.root.join(".susi-target-seed.new.4343-2");
     let old = w.root.join(".susi-target-seed.old.4444-3");
@@ -2166,7 +2190,10 @@ fn the_refresh_lock_and_staging_hold_across_git_installs() {
     w.advance_main("crates/cell/src/lib.rs", "pub fn h() {}\n");
     let (code, out, err) = w.seed_target(
         &["--refresh", "--force"],
-        &[("PATH", fake.as_str()), ("FAKE_REAL_CARGO", env!("CARGO"))],
+        &[
+            ("SUSI_SEED_CARGO", fake.as_str()),
+            ("FAKE_REAL_CARGO", env!("CARGO")),
+        ],
     );
     assert_eq!(code, 0, "{err}");
     assert!(out.contains("published"), "{out}");
@@ -2182,8 +2209,14 @@ fn the_refresh_lock_and_staging_hold_across_git_installs() {
 #[test]
 fn the_build_checkouts_target_starts_over_when_its_inputs_change_or_it_doubles() {
     let w = World::new("bounded");
-    let fake = w.fake_cargo();
-    let envs = [("PATH", fake.as_str()), ("FAKE_REAL_CARGO", env!("CARGO"))];
+    let Some(fake) = w.fake_cargo() else {
+        eprintln!("skipped: no bash to run the stand-in cargo");
+        return;
+    };
+    let envs = [
+        ("SUSI_SEED_CARGO", fake.as_str()),
+        ("FAKE_REAL_CARGO", env!("CARGO")),
+    ];
     let (_, out, err) = w.seed_target(&["--refresh"], &envs);
     assert!(out.contains("published"), "{out}{err}");
     let src = w.seed_src();
@@ -2252,26 +2285,19 @@ fn executable(path: &Path) {
 /// `git worktree remove` may run while a hook's background copy into that
 /// worktree runs (here the copy waits at a gate until the worktree is gone).
 /// The copy must bring nothing back: robocopy makes its destination's
-/// parents, and the copy's failure paths made the target with `mkdir -p`,
-/// which made the removed worktree's directory again; a later `workflow
-/// start` or scripts/susi-worktree.sh of that name then refused it as "an
-/// unrelated checkout". Nothing shared is touched either.
+/// parents, and the copy's failure paths once made the target with its
+/// parents, which made the removed worktree's directory again; a later
+/// `workflow start` or scripts/susi-worktree.sh of that name then refused it
+/// as "an unrelated checkout". Nothing shared is touched either.
 #[test]
 fn a_worktree_removed_while_its_copy_runs_is_never_brought_back() {
     let w = World::new("removed");
     w.make_seed();
     w.with_hooks();
     write(&w.primary.join("target/sentinel"), "the shared build");
-    let gate = w.root.join("copy-gate");
-    let copies = w.root.join("copies");
-    let gone = w.root.join("copier-gone");
-    let path = w.gated_copy();
-    let envs = [
-        ("PATH", path.as_str()),
-        ("SEED_COPY_GATE", gate.to_str().unwrap()),
-        ("SEED_COPY_LOG", copies.to_str().unwrap()),
-        ("SEED_COPIER_GONE", gone.to_str().unwrap()),
-    ];
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
+    let envs = [(gate_var, gate_dir.as_str())];
     let dest = w.root.join("susi-removed");
     let (code, _, err) = run(
         &w.primary,
@@ -2289,7 +2315,7 @@ fn a_worktree_removed_while_its_copy_runs_is_never_brought_back() {
     );
     assert_eq!(code, 0, "{err}");
     assert!(
-        wait_for(&copies, 60),
+        gates.wait_for("copy", 60),
         "the background copy never started: {err}"
     );
     let admin = PathBuf::from(git(
@@ -2308,8 +2334,8 @@ fn a_worktree_removed_while_its_copy_runs_is_never_brought_back() {
         !dest.exists() && !admin.exists(),
         "git removed the worktree"
     );
-    std::fs::write(&gate, "go").unwrap();
-    assert!(wait_for(&gone, 120), "the copy never ended");
+    gates.release("copy");
+    assert!(gates.wait_for("done", 120), "the copy never ended");
     assert!(
         !dest.exists(),
         "the copy brought the removed worktree's directory back: {:?}",
@@ -2337,10 +2363,10 @@ fn a_worktree_removed_while_its_copy_runs_is_never_brought_back() {
 
 /// A worktree removed after its seeding started and before that seeding took
 /// its lock, which is in the worktree's git dir: the lock is made without its
-/// parents, so `.git/worktrees/<name>` does not come back. A `mkdir`
-/// stand-in has the worktree removed the moment the seeding first makes
-/// anything under `.git/worktrees/`, as `git worktree remove` running then
-/// would.
+/// parents, so `.git/worktrees/<name>` does not come back. The seeding is
+/// held at its `lock` gate, right before it first makes anything under
+/// `.git/worktrees/`, and the worktree is removed then, as `git worktree
+/// remove` running at that moment would.
 #[test]
 fn a_worktree_removed_before_its_lock_is_taken_is_never_brought_back() {
     let w = World::new("lockgone");
@@ -2350,32 +2376,26 @@ fn a_worktree_removed_before_its_lock_is_taken_is_never_brought_back() {
         &dest,
         &["rev-parse", "--path-format=absolute", "--git-dir"],
     ));
-    let fired = w.root.join("removed");
-    let mkdir = r#"case "$*" in
-*/worktrees/*)
-    if [ ! -e "$SEED_REMOVED" ]; then
-        : >"$SEED_REMOVED"
-        git -C "$SEED_PRIMARY" worktree remove --force "$SEED_WORKTREE" >/dev/null 2>&1
-    fi
-    ;;
-esac
-command mkdir "$@""#;
-    let (code, _, err) = run_with_functions(
-        &w.primary,
-        &w.script(),
-        &[dest.to_str().unwrap()],
-        &[("mkdir", mkdir)],
-        &[
-            ("SEED_REMOVED", &slashes(&fired)),
-            ("SEED_PRIMARY", &slashes(&w.primary)),
-            ("SEED_WORKTREE", &slashes(&dest)),
-        ],
-    );
-    assert_eq!(code, 0, "{err}");
+    let gates = Gates::new(&w.root);
+    gates.hold("lock");
+    let (gate_var, gate_dir) = gates.env();
+    let seeding = w.spawn_seed_target(&[dest.to_str().unwrap()], &[(gate_var, gate_dir.as_str())]);
     assert!(
-        fired.exists(),
-        "the seeding never made anything in the worktree's git dir: {err}"
+        gates.wait_for("lock", 60),
+        "the seeding never reached its lock"
     );
+    git(
+        &w.primary,
+        &["worktree", "remove", "--force", dest.to_str().unwrap()],
+    );
+    assert!(
+        !dest.exists() && !admin.exists(),
+        "git removed the worktree"
+    );
+    gates.release("lock");
+    let (code, _, err) = finish(seeding.wait_with_output().unwrap());
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("was removed"), "{err}");
     assert!(
         !admin.exists(),
         "the seeding made the removed worktree's git dir again: {err}"
@@ -2418,11 +2438,12 @@ fn a_snapshot_whose_profile_is_a_link_is_never_copied_nor_reached_through() {
     );
 }
 
-/// The copy's cleanup (`drop_extras`: what robocopy's /XD and /XF leave out
-/// of a copy `cp -a` made) never removes anything through a link the copy
-/// holds. Its old `rm -rf "$1"/*/incremental` followed a profile that is a
-/// link (`debug` here) and emptied the linked tree's incremental/; the real
-/// profiles' caches, the strip's and guard's state and the markers still go.
+/// The copy's cleanup ([`seed::drop_extras`]: what robocopy's /XD and /XF
+/// leave out of a copy `cp -a` made) never removes anything through a link
+/// the copy holds. Its old `rm -rf "$1"/*/incremental` followed a profile
+/// that is a link (`debug` here) and emptied the linked tree's incremental/;
+/// the real profiles' caches, the strip's and guard's state and the markers
+/// still go.
 #[test]
 fn the_copys_cleanup_never_reaches_through_a_link() {
     let root = std::env::temp_dir().join(format!("susi-seed-cleanup-{}", std::process::id()));
@@ -2443,25 +2464,7 @@ fn the_copys_cleanup_never_reaches_through_a_link() {
         write(&copy.join(file), "x");
     }
     link_dir(&elsewhere.join("debug"), &copy.join("debug"));
-    let script = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/seed-target.sh"),
-    )
-    .unwrap();
-    let driver = root.join("cleanup.sh");
-    shell_script(
-        &driver,
-        &format!(
-            "{}drop_extras \"$1\"\n",
-            shell_function(&script, "drop_extras")
-        ),
-    );
-    let (code, out, err) = run(
-        &root,
-        driver.to_str().unwrap(),
-        &[&slashes(&copy)],
-        &[("MSYS_NO_PATHCONV", "1")],
-    );
-    assert_eq!(code, 0, "{out}{err}");
+    seed::drop_extras(&copy);
     assert!(
         cache.is_file(),
         "the cleanup reached through the link and emptied the other tree's cache"
@@ -2541,10 +2544,16 @@ fn only_a_published_snapshot_is_copied_never_a_checkout() {
     assert!(is_empty_dir(&third.join("target")), "{err}");
     std::fs::remove_dir_all(w.seed()).unwrap();
     // A refresh builds and publishes beside those worktrees, never in them.
-    let fake = w.fake_cargo();
+    let Some(fake) = w.fake_cargo() else {
+        eprintln!("skipped the refresh: no bash to run the stand-in cargo");
+        return;
+    };
     let (code, out, err) = w.seed_target(
         &["--refresh"],
-        &[("PATH", fake.as_str()), ("FAKE_REAL_CARGO", env!("CARGO"))],
+        &[
+            ("SUSI_SEED_CARGO", fake.as_str()),
+            ("FAKE_REAL_CARGO", env!("CARGO")),
+        ],
     );
     assert_eq!(code, 0, "{err}");
     assert!(out.contains("published"), "{out}");
@@ -2646,28 +2655,27 @@ fn the_retired_guard_waits_for_the_copy_a_hook_started() {
     let w = World::new("guardwaits");
     w.make_seed();
     let dest = w.app_worktree("app");
-    let gate = w.root.join("copy-gate");
-    let copies = w.root.join("copies");
-    let path = w.gated_copy();
-    let envs = [
-        ("PATH", path.as_str()),
-        ("SEED_COPY_GATE", gate.to_str().unwrap()),
-        ("SEED_COPY_LOG", copies.to_str().unwrap()),
-    ];
+    let gates = w.gated_copy();
+    let (gate_var, gate_dir) = gates.env();
+    let envs = [(gate_var, gate_dir.as_str())];
     let (code, _, err) = w.seed_target(&["--background", dest.to_str().unwrap()], &envs);
     assert_eq!(code, 0, "{err}");
     assert!(is_empty_dir(&dest.join("target")), "{err}");
-    assert!(wait_for(&copies, 60), "the background copy never started");
+    assert!(
+        gates.wait_for("copy", 60),
+        "the background copy never started"
+    );
     let Some(mut close) = v0_21_23_close(
         &dest,
         &["sh", "-c", "test -f target/.susi-seeded && echo own > saw"],
     ) else {
-        std::fs::write(&gate, "go").unwrap();
+        gates.release("copy");
         wait_for_seeders(&dest);
         eprintln!("skipped: no Git shell here, so v0.21.23's `tasks close` runs no guard");
         return;
     };
     let mut child = close
+        .env(gate_var, gate_dir.as_str())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -2677,7 +2685,7 @@ fn the_retired_guard_waits_for_the_copy_a_hook_started() {
         child.try_wait().unwrap().is_none(),
         "the acceptance went ahead while the copy into its target was still running"
     );
-    std::fs::write(&gate, "go").unwrap();
+    gates.release("copy");
     let (code, out, err) = finish(child.wait_with_output().unwrap());
     assert_eq!(code, 0, "{out}{err}");
     assert!(err.contains("waiting for the copy"), "{err}");
@@ -2690,11 +2698,7 @@ fn the_retired_guard_waits_for_the_copy_a_hook_started() {
     );
     wait_for_seeders(&dest);
     assert_seeded(&dest);
-    assert_eq!(
-        std::fs::read_to_string(&copies).unwrap().lines().count(),
-        1,
-        "one copy, not two"
-    );
+    assert_eq!(gates.count("copy"), 1, "one copy, not two");
 }
 
 /// For one release a branch cut before the seeding (no seed-target.sh until
@@ -2843,32 +2847,23 @@ fn the_pre_push_hook_holds_an_old_branchs_own_guard_only_without_a_seeder() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The strip deletes nothing through a link anywhere between the tree it
-/// strips and what it removes. It checked only a profile and its
-/// .fingerprint, and a target triple's directory that is a link (to another
-/// tree) had that tree's path units, uplifted binaries, examples and
-/// incremental cache deleted through it. A tree with a link where cargo keeps
-/// builds (cargo makes none: a copy has one only from `cp -a`, which
-/// `--refresh` uses on Linux and macOS, or from a snapshot changed by hand)
-/// is refused before anything goes, and the caller drops it (`discard`,
-/// which removes the link only). Also a link that leads to a tree with no
-/// fingerprints, which nothing else saw: installed, cargo would build into
-/// it.
+/// The strip ([`seed::strip_units`]) deletes nothing through a link anywhere
+/// between the tree it strips and what it removes. It once checked only a
+/// profile and its .fingerprint, and a target triple's directory that is a
+/// link (to another tree) had that tree's path units, uplifted binaries,
+/// examples and incremental cache deleted through it. A tree with a link
+/// where cargo keeps builds (cargo makes none: a copy has one only from `cp
+/// -a`, which `--refresh` uses on Linux and macOS, or from a snapshot changed
+/// by hand) is refused before anything goes, and the caller drops it
+/// ([`seed::discard`], which removes the link only). Also a link that leads
+/// to a tree with no fingerprints, which nothing else saw: installed, cargo
+/// would build into it.
 #[test]
 fn the_strip_never_deletes_through_a_link_in_the_tree() {
     let root = std::env::temp_dir().join(format!("susi-seed-striplink-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let checkout = root.join("checkout");
     write(&checkout.join("Cargo.lock"), &fixture_lockfile());
-    let driver = root.join("strip.sh");
-    shell_script(
-        &driver,
-        &format!(
-            "{}n=$(strip_units \"$1\" \"$2\")\nrc=$?\necho \"strip=$rc\"\n\
-             [ \"$rc\" -eq 0 ] || discard \"$1\"\n",
-            seed_script_functions()
-        ),
-    );
     // Where the link is in the copy, and what it leads to in the other tree.
     for (n, (link, to)) in [
         ("x86_64-unknown-linux-gnu", ""),
@@ -2899,27 +2894,29 @@ fn the_strip_never_deletes_through_a_link_in_the_tree() {
         };
         link_dir(&to, &copy.join(link));
         let before = walk(&theirs);
-        let (code, out, err) = run(
-            &root,
-            driver.to_str().unwrap(),
-            &[&slashes(&copy), &slashes(&checkout)],
-            &[("MSYS_NO_PATHCONV", "1")],
-        );
-        assert_eq!(code, 0, "{link}: {out}{err}");
+        let stripped = seed::strip_units(&copy, &checkout);
         assert!(
-            out.starts_with("strip=") && out != "strip=0",
-            "{link}: a tree with a link where cargo keeps builds must be refused: {out}{err}"
+            stripped.is_err(),
+            "{link}: a tree with a link where cargo keeps builds must be refused: {stripped:?}"
         );
+        seed::discard(&copy);
         assert_eq!(
             walk(&theirs),
             before,
             "{link}: the other tree must be left exactly as it was"
         );
-        assert!(
-            !copy.exists(),
-            "{link}: the refused copy is dropped: {out}{err}"
-        );
+        assert!(!copy.exists(), "{link}: the refused copy is dropped");
     }
+    // A tree with no such link strips down to the registry units, and says
+    // how many went: the three members and the path dependency, in each of
+    // the two profiles, nothing else.
+    let copy = root.join("copy-plain");
+    for profile in PROFILES {
+        lay_out_profile(&copy.join(profile));
+    }
+    write(&copy.join("tmp/test-scratch"), "x");
+    assert_eq!(seed::strip_units(&copy, &checkout), Ok(8));
+    assert_registry_only(&copy, &PATH_UNITS);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -2972,9 +2969,9 @@ fn a_snapshot_with_a_link_where_cargo_builds_is_never_copied() {
 /// the `.git` file with them, and the worktree's git dir) before the rename
 /// adds `target/`, so the directory is left behind holding a full target, and
 /// a later `workflow start` or scripts/susi-worktree.sh of that name refuses
-/// it as "an unrelated checkout". An `mv` stand-in does that removal as the
-/// rename runs. The seeding checks the worktree again after the rename and
-/// takes the target back: nothing is left.
+/// it as "an unrelated checkout". The seeding is held at its `rename` gate
+/// and that removal is done then. The seeding checks the worktree again after
+/// the rename and takes the target back: nothing is left.
 #[test]
 fn a_worktree_removed_as_its_copy_is_renamed_into_place_is_left_removed() {
     let w = World::new("renamegone");
@@ -2984,35 +2981,35 @@ fn a_worktree_removed_as_its_copy_is_renamed_into_place_is_left_removed() {
         &dest,
         &["rev-parse", "--path-format=absolute", "--git-dir"],
     ));
-    let fired = w.root.join("removed");
-    let mv = r#"case "$*" in
-*/target.seed-*)
-    if [ ! -e "$SEED_REMOVED" ]; then
-        : >"$SEED_REMOVED"
-        for e in "$SEED_WORKTREE"/* "$SEED_WORKTREE"/.[!.]*; do
-            case "$e" in */target.seed-*) ;; *) command rm -rf "$e" ;; esac
-        done
-        command rm -rf "$SEED_ADMIN"
-    fi
-    ;;
-esac
-command mv "$@""#;
-    let (code, _, err) = run_with_functions(
-        &w.primary,
-        &w.script(),
-        &[dest.to_str().unwrap()],
-        &[("mv", mv)],
-        &[
-            ("SEED_REMOVED", &slashes(&fired)),
-            ("SEED_WORKTREE", &slashes(&dest)),
-            ("SEED_ADMIN", &slashes(&admin)),
-        ],
-    );
-    assert_eq!(code, 0, "{err}");
+    let gates = Gates::new(&w.root);
+    gates.hold("rename");
+    let (gate_var, gate_dir) = gates.env();
+    let seeding = w.spawn_seed_target(&[dest.to_str().unwrap()], &[(gate_var, gate_dir.as_str())]);
     assert!(
-        fired.exists(),
-        "the copy was never renamed into place: {err}"
+        gates.wait_for("rename", 120),
+        "the copy was never about to be renamed into place"
     );
+    // What `git worktree remove` leaves when it listed the directory before
+    // the rename: everything but the finished copy, and the git dir, gone.
+    for entry in std::fs::read_dir(&dest).unwrap().filter_map(Result::ok) {
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("target.seed-")
+        {
+            continue;
+        }
+        let path = entry.path();
+        if is_real_dir(&path) {
+            std::fs::remove_dir_all(&path).unwrap();
+        } else {
+            std::fs::remove_file(&path).unwrap();
+        }
+    }
+    std::fs::remove_dir_all(&admin).unwrap();
+    gates.release("rename");
+    let (code, _, err) = finish(seeding.wait_with_output().unwrap());
+    assert_eq!(code, 0, "{err}");
     assert!(err.contains("was removed while the snapshot"), "{err}");
     assert!(
         !dest.exists(),
@@ -3143,32 +3140,32 @@ fn the_primary_checkout_says_while_worktrees_still_share_its_target() {
     );
 }
 
-/// The removed-worktree test's watcher ([`World::gated_copy`]) waits for the
-/// seeding that ran the copy to end. That seeding is an orphan once its
-/// `--background` parent exits, and where PID 1 or the subreaper never reaps
-/// (a Linux container with no init) it ends a zombie, which `kill -0` still
-/// finds: the wait never ended, and the test failed after two minutes. A
-/// process that has exited and is not reaped counts as ended. Here `sleep 0`
-/// is one: its parent becomes `sleep 8` (`exec`), which never reaps it.
-/// Run on Unix only: Git Bash's runtime keeps such a process findable by
-/// `kill -0` in some runs and not in others, so there the test would prove
-/// nothing; orphans that nothing reaps are a Linux runner's problem.
+/// A background copier is an orphan once its `--background` parent exits,
+/// and where PID 1 or the subreaper never reaps (a Linux container with no
+/// init) one that died ends a zombie, which `kill -0` still finds. A lock
+/// such a holder left must not stand: a seeding that finds it must read the
+/// holder as gone and take the lock at once, not wait out the two minutes
+/// and build cold. Here `sleep 0` is the zombie: its parent becomes `sleep
+/// 8` (`exec`), which never reaps it, and its pid signs the worktree's lock.
+/// Run on Unix only: Git Bash's runtime keeps such a process findable in
+/// some runs and not in others, so there the test would prove nothing;
+/// orphans that nothing reaps are a Linux runner's problem.
 #[test]
 #[cfg_attr(
     not(unix),
     ignore = "Git Bash keeps an unreaped process findable only in some runs"
 )]
 fn the_copy_watcher_counts_an_unreaped_process_as_ended() {
-    let dir = std::env::temp_dir().join(format!("susi-seed-zombie-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let pidfile = dir.join("zombie");
+    let w = World::new("zombie");
+    w.make_seed();
+    let dest = w.app_worktree("app");
+    let pidfile = w.root.join("zombie");
     let mut parent = command(
-        &dir,
+        &w.root,
         "sh",
         &[
             "-c",
-            "sleep 0 & echo $! >\"$1.tmp\" && mv \"$1.tmp\" \"$1\"; exec sleep 8",
+            "sleep 0 & echo $! >\"$1.tmp\" && mv \"$1.tmp\" \"$1\"; exec sleep 30",
             "zombie",
             pidfile.to_str().unwrap(),
         ],
@@ -3180,35 +3177,107 @@ fn the_copy_watcher_counts_an_unreaped_process_as_ended() {
     .spawn()
     .unwrap();
     assert!(wait_for(&pidfile, 10), "the zombie's pid was never written");
-    let (code, out, err) = run(
-        &dir,
-        "sh",
-        &[
-            "-c",
-            &format!(
-                "{ENDED}read -r p <\"$1\"\n\
-                 case \"$p\" in '' | *[!0-9]*) echo \"no pid: $p\"; exit 0 ;; esac\n\
-                 i=0\n\
-                 until ended \"$p\"; do\n\
-                 \x20   i=$((i + 1))\n\
-                 \x20   [ $i -lt 25 ] || {{ echo alive; exit 0; }}\n\
-                 \x20   sleep 0.2\n\
-                 done\n\
-                 echo ended\n"
-            ),
-            "probe",
-            pidfile.to_str().unwrap(),
-        ],
-        &[],
-    );
+    let zombie = std::fs::read_to_string(&pidfile)
+        .unwrap()
+        .trim()
+        .to_string();
+    assert!(zombie.parse::<u64>().is_ok(), "no pid: {zombie}");
+    let gitdir = PathBuf::from(git(
+        &dest,
+        &["rev-parse", "--path-format=absolute", "--git-dir"],
+    ));
+    let lock = gitdir.join("susi-seed-target.lockdir");
+    std::fs::create_dir_all(&lock).unwrap();
+    std::fs::write(
+        lock.join("owner"),
+        format!("{zombie} {} - {}\n", now(), seed::runtime_name()),
+    )
+    .unwrap();
+    let (code, _, err) = w.seed_target(&[dest.to_str().unwrap()], &[("SUSI_SEED_WAIT_SECS", "6")]);
     let _ = parent.kill();
     let _ = parent.wait();
-    let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(code, 0, "{err}");
-    assert_eq!(
-        out, "ended",
-        "an exited process nothing reaps must count as ended: {err}"
+    assert!(
+        !err.contains("waiting for the copy") && !err.contains("gave up waiting"),
+        "an exited holder nothing reaps must count as gone: {err}"
     );
+    assert_seeded(&dest);
+    assert!(!lock.exists(), "the lock is let go of after: {err}");
+}
+
+/// On Windows an installed `susi.exe` seeds a worktree with no Git userland
+/// on PATH: only Git's `cmd` (git itself), System32 (robocopy) and the
+/// Windows directory. The bash version needed `cp`, `find`, `awk`, `cygpath`
+/// and `ps -W` from Git's `usr/bin`; this runs the binary where none of
+/// those can be found, and the worktree is seeded, stripped and marked all
+/// the same. Returns at once where Git for Windows is not installed (Linux,
+/// macOS).
+#[test]
+fn the_seeding_needs_no_git_userland_on_windows() {
+    let Ok(out) = Command::new("git").arg("--exec-path").output() else {
+        return;
+    };
+    let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let Some(git_root) = exec_path.ancestors().nth(3).map(Path::to_path_buf) else {
+        return;
+    };
+    if !git_root.join("cmd").join("git.exe").is_file() {
+        return; // not Git for Windows' layout
+    }
+    let windows = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let path = std::env::join_paths([
+        git_root.join("cmd"),
+        windows.join("System32"),
+        windows.clone(),
+    ])
+    .unwrap();
+    let path = path.to_str().unwrap().to_string();
+    assert!(
+        !path.to_ascii_lowercase().contains("usr\\bin"),
+        "the narrowed PATH must not carry Git's userland: {path}"
+    );
+    let w = World::new("nouserland");
+    w.make_seed();
+    let shared = w.root.join("shared-target");
+    write(&shared.join("sentinel"), "another worktree's build");
+    let dest = w.app_worktree("app");
+    link_dir(&shared, &dest.join("target"));
+    let envs: &[(&str, &str)] = &[("PATH", &path)];
+    let (code, _, err) = susi(
+        &w.primary,
+        &["workflow", "seed-target", dest.to_str().unwrap()],
+        envs,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("replaced the link"), "{err}");
+    assert!(err.contains("target: seeded"), "{err}");
+    assert_seeded(&dest);
+    assert_eq!(
+        std::fs::read_to_string(shared.join("sentinel")).unwrap(),
+        "another worktree's build"
+    );
+    // The background form too: the detached copy is this same binary.
+    let other = w.app_worktree("other");
+    let (code, _, err) = susi(
+        &w.primary,
+        &[
+            "workflow",
+            "seed-target",
+            "--background",
+            other.to_str().unwrap(),
+        ],
+        envs,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("in the background"), "{err}");
+    assert!(
+        wait_for(&other.join("target/.susi-seeded"), 120),
+        "the background copy never finished: {err}"
+    );
+    wait_for_seeders(&other);
+    assert_seeded(&other);
 }
 
 /// The machine's compiler cache (`scripts/setup-sccache.sh`): what the
