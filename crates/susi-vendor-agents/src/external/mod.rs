@@ -133,7 +133,11 @@ fn should_probe_readiness(adapter: &Adapter, verbose: bool) -> bool {
             let path = Path::new(&value);
             !value.trim().is_empty() && path.is_absolute() && path.is_file()
         }),
-        _ => true,
+        Adapter::Command { .. }
+        | Adapter::Qwen { .. }
+        | Adapter::A2a { .. }
+        | Adapter::OpenHandsServer { .. }
+        | Adapter::Acp { .. } => true,
     }
 }
 
