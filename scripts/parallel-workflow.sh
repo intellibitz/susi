@@ -458,21 +458,6 @@ acceptance_covered() {
     return 0
 }
 
-renew_owned_claims() {
-    local token id out
-    # `git config --get` exits 1 when the key is unset, and under `pipefail`
-    # that killed the whole sync for any worktree without an identity.
-    token=$( { git config --get susi.agent 2>/dev/null || true; } | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
-    [ -n "$token" ] || return 0
-    command -v jq >/dev/null 2>&1 || return 0
-    out=$("$susi_bin" tasks list 2>/dev/null | jq -r --arg a "$token" \
-        '.open[] | select(.claimed_by == $a) | .id' 2>/dev/null || true)
-    for id in $out; do
-        [ -n "$id" ] || continue
-        "$susi_bin" tasks renew "$id" >/dev/null 2>&1 &&
-            echo "claim $id renewed (this worktree's lease)"
-    done
-}
 
 # The state of the pull request for this branch, when `gh` can answer. A closed
 # PR will never merge, so waiting out the budget on one is pointless.

@@ -3422,6 +3422,13 @@ push_closed_branch work
 
 #[test]
 fn normal_sync_finds_its_owned_claim_without_remote_renewal_lookup() {
+    assert_eq!(
+        read("scripts/parallel-workflow.sh")
+            .matches("renew_owned_claims() {")
+            .count(),
+        1,
+        "a later definition must not override the lease implementation exercised below"
+    );
     let f = Fakes::new("sync-owned-claim");
     let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
     let mut script = String::from("set -euo pipefail\n. \"$COMPAT\"\n");
