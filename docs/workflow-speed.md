@@ -506,6 +506,18 @@ impact on Test caches, Windows time and complete release time must be measured
 on the first subsequent warm release; these changes do not establish a
 sub-60-second release.
 
+The warmer and every release leg compile the engine and the harness in one
+`cargo build`. A second cargo invocation waits on the target-directory lock,
+so the harness link (2 min 31 s on the v0.21.29 Windows leg) used to start
+only after the engine had finished.
+
+`publish` needs the suite and the contracted legs (linux-x86_64 and Windows)
+only. arm64, macOS and CUDA upload when they finish, and `publish-extra`
+attaches those assets to the release that already exists. On v0.21.29 the
+wall was Windows at 24 min, so waiting for the rest added nothing; once the
+Windows cache hits, macOS (~19 min) and CUDA (~17 min) would have been the
+wait in front of binaries that were already built.
+
 ## The loop's scripts as susi subcommands (2026-10-31)
 
 `scripts/seed-target.sh`, `scripts/park-primary.sh`, `scripts/prune-worktrees.sh`

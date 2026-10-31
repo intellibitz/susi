@@ -15,13 +15,13 @@ name: Release Binaries
 # without releasing anything.
 #
 # Shape: `tests` proves the suite on the tagged commit while every build leg
-# compiles at the same time; `publish` attaches what the legs uploaded as
-# workflow artifacts once both have passed. The wall time is the slower of the
-# suite and the slowest leg, not their sum: v0.21.26 took 92 min tag to
-# published (19 min waiting for the suite, then the legs: macOS 38, Windows 30
-# after a 43 min wait for a runner, linux 16), and the legs could have run
-# during those 19 min. A red suite still publishes nothing; it only costs the
-# runner minutes the legs spent in parallel.
+# compiles at the same time. `publish` attaches the contracted platforms
+# (linux-x86_64 and Windows) once the suite and those legs have passed.
+# arm64, macOS and CUDA keep building and `publish-extra` attaches them
+# afterward, so an optional leg cannot hold the release. v0.21.29 took 25 min
+# because `publish` waited on the whole matrix; Windows was the slow leg, and
+# once its dependency cache hits, macOS (~19 min) and CUDA (~17 min) would
+# become the wait. A red suite still publishes nothing.
 #
 # Every leg builds with thin LTO over 16 codegen units (`CARGO_PROFILE_DIST_*`
 # below, overriding Cargo.toml's `[profile.dist]` fat LTO + one unit). The
@@ -120,7 +120,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
-    env:
+    env: &release-build-env
       SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
@@ -138,32 +138,16 @@ jobs:
             src: target/dist/susi
             harness: susi-harness-linux-x86_64
             harness_src: target/dist/susi-harness
-          - os: ubuntu-24.04-arm
-            name: linux-aarch64
-            artifact: susi-linux-aarch64
-            src: target/dist/susi
-            harness: susi-harness-linux-aarch64
-            harness_src: target/dist/susi-harness
-          # macos-x86_64 is not published: ort-sys (ONNX Runtime, via
-          # fastembed) no longer ships prebuilt binaries for
-          # x86_64-apple-darwin, so the build fails in the ort-sys build
-          # script. Re-add if the embedder gains a source-build path.
-          - os: macos-15
-            name: macos-aarch64
-            artifact: susi-macos-aarch64
-            src: target/dist/susi
-            harness: susi-harness-macos-aarch64
-            harness_src: target/dist/susi-harness
           # The Windows artifact is a first-class release leg: the same tag that
-          # publishes the Linux and macOS binaries publishes this one, and the
-          # built binary is exercised on the runner before it is uploaded.
+          # publishes the Linux binary publishes this one, and the built binary
+          # is exercised on the runner before it is uploaded.
           - os: windows-latest
             name: windows-x86_64
             artifact: susi-windows-x86_64.exe
             src: target/dist/susi.exe
             harness: susi-harness-windows-x86_64.exe
             harness_src: target/dist/susi-harness.exe
-    steps:
+    steps: &release-steps
       - name: Checkout Source
         uses: actions/checkout@v6
 
@@ -201,10 +185,13 @@ jobs:
         # release is contracted to work on. The arm64 and macOS legs stay soft
         # until they have the same standing.
         continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
-        # [profile.dist], with the job's thin-LTO override above. The one-line
-        # installer uses [profile.release] (thin LTO) for fast source builds.
+        # One cargo invocation builds the engine and the harness, so their thin-LTO
+        # units run together. A second `cargo build` after this one waits on the
+        # target lock and adds the harness's link (2 min 31 s on the v0.21.29
+        # Windows leg) to the wall time. `--keep-going` still produces the
+        # harness when the engine fails; the harness step below ships that binary.
         # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
-        run: cargo build --profile dist
+        run: cargo build --profile dist -p susi-harness -p susi --locked --keep-going
 
       - name: Rename Binary
         if: steps.build.outcome == 'success'
@@ -291,7 +278,9 @@ jobs:
         continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
         shell: bash
         run: |
-          cargo build --profile dist -p susi-harness --bin susi-harness
+          if [ ! -e "${{ matrix.harness_src }}" ]; then
+            cargo build --profile dist -p susi-harness --bin susi-harness
+          fi
           mv "${{ matrix.harness_src }}" "${{ matrix.harness }}"
           if command -v shasum >/dev/null; then
             shasum -a 256 "${{ matrix.harness }}" > "${{ matrix.harness }}.sha256"
@@ -347,6 +336,37 @@ jobs:
             ${{ matrix.harness }}.sha256
           if-no-files-found: error
           retention-days: 3
+
+  # Optional platforms. Same steps as `build` (the anchor above). They do not
+  # gate `publish`: arm64 and macOS stay soft, and a slow macOS runner must not
+  # hold the linux and Windows binaries.
+  build-extra:
+    name: Build ${{ matrix.name }}
+    needs: [verify-tag]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    env: *release-build-env
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            name: linux-aarch64
+            artifact: susi-linux-aarch64
+            src: target/dist/susi
+            harness: susi-harness-linux-aarch64
+            harness_src: target/dist/susi-harness
+          # macos-x86_64 is not published: ort-sys (ONNX Runtime, via
+          # fastembed) no longer ships prebuilt binaries for
+          # x86_64-apple-darwin, so the build fails in the ort-sys build
+          # script. Re-add if the embedder gains a source-build path.
+          - os: macos-15
+            name: macos-aarch64
+            artifact: susi-macos-aarch64
+            src: target/dist/susi
+            harness: susi-harness-macos-aarch64
+            harness_src: target/dist/susi-harness
+    steps: *release-steps
 
   build-cuda:
     name: Build linux-x86_64-cuda
@@ -468,19 +488,18 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # The one step that touches the GitHub release: every artifact the legs
-  # stored, attached once the suite has passed on this commit. The legs'
-  # results are not a gate here beyond "finished": a leg that failed uploaded
-  # nothing (its upload is on its own build's outcome), and the legs that
-  # passed ship, exactly as each used to publish itself - a red required leg
-  # still fails the run. `!cancelled()` so a cancelled run publishes nothing,
-  # and the tag so a dispatch (a dry run) publishes nothing.
+  # Attaches the contracted platforms (linux-x86_64, Windows, and their
+  # harnesses) once the suite has passed. Optional legs are not in `needs`,
+  # so this does not wait on them. Artifacts already uploaded by a fast
+  # optional leg ride along; the rest are attached by `publish-extra`.
+  # A red required leg still fails the run. `!cancelled()` so a cancelled run
+  # publishes nothing, and the tag so a dispatch (a dry run) publishes nothing.
   publish:
     name: Publish the release
-    needs: [verify-tag, tests, build, build-cuda]
+    needs: [verify-tag, tests, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && contains('success failure', needs.build.result) && contains('success failure', needs.build-cuda.result)"
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && contains('success failure', needs.build.result)"
     steps:
       - name: Collect the legs' artifacts
         uses: actions/download-artifact@v4
@@ -490,6 +509,32 @@ jobs:
           merge-multiple: true
 
       - name: Publish the release assets
+        if: needs.verify-tag.outputs.tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
+          fail_on_unmatched_files: true
+          files: release/*
+
+  # Optional assets, after arm64, macOS and CUDA have finished. The release
+  # already exists; this only adds files. A failed optional leg uploaded
+  # nothing, and re-uploading a file the first publish already attached
+  # replaces it with the same bytes.
+  publish-extra:
+    name: Attach the optional release assets
+    needs: [verify-tag, tests, publish, build-extra, build-cuda]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.publish.result == 'success' && contains('success failure', needs.build-extra.result) && contains('success failure', needs.build-cuda.result)"
+    steps:
+      - name: Collect the optional legs' artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Attach the optional release assets
         if: needs.verify-tag.outputs.tag != ''
         uses: softprops/action-gh-release@v3
         with:

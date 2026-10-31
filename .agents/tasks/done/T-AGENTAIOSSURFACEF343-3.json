@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENTAIOSSURFACEF343-3",
+  "title": "Publish required release legs without waiting on optional ones",
+  "goal": "The release wall time is the slowest leg. v0.21.29 published 25 min after start because publish waited on Windows, while macOS and CUDA are optional and the harness LTO ran only after the engine. Publish Linux x86_64 and Windows once the suite passes, attach arm64, macOS and CUDA afterward, and compile the engine and harness in one cargo build.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_commit"
+    ]
+  },
+  "created_by": "AGENTAIOSSURFACEF343",
+  "created_unix": 1793479840,
+  "closed": {
+    "at_unix": 1793480040,
+    "commit": "9ca453248ac43faaa9072e3a98078725b42ebaba",
+    "by": "AGENTAIOSSURFACEF343"
+  }
+}
