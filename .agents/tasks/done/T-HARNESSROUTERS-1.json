@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "HARNESSROUTERS",
-  "created_unix": 1793439723
+  "created_unix": 1793439723,
+  "closed": {
+    "at_unix": 1793455058,
+    "commit": "9713ace988fec3f2b3e5c1348d63092cabb3678a",
+    "by": "HARNESSROUTERS"
+  }
 }
