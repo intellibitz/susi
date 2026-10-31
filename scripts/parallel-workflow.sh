@@ -38,7 +38,7 @@ sync() {
     flock -u 9
     exec 9>&-
     git merge --no-edit origin/main
-    "$root/scripts/park-primary.sh" --sync-only || true
+    SUSI_PARK_REFS_FETCHED=1 "$root/scripts/park-primary.sh" --sync-only || true
     # The watcher is a background process that dies with its session, and the
     # primary then stops converging until someone notices. Every agent crosses
     # this boundary, so the loop heals it here. Non-fatal either way.
@@ -84,6 +84,19 @@ seed_own_target() {
 # no longer owned by anyone, and its work free for another agent to redo. A
 # lapsed lease is recoverable: take the same task back, keeping its scopes.
 renew_or_readopt() {
+    # A fresh claim normally has hours left. Extending it again on every finish
+    # costs a ref fetch, ownership lookup and push. Close and pre-push still
+    # validate remote ownership; this only avoids an unnecessary lease write.
+    local claim agent branch
+    claim=$(git cat-file -p "refs/claims/$task" 2>/dev/null || true)
+    agent=${SUSI_AGENT:-$(git config --get susi.agent || true)}
+    branch=$(git symbolic-ref -q --short HEAD || true)
+    if [ -n "$agent" ] && jq -e --arg agent "$agent" --arg branch "$branch" \
+        --argjson minimum "$(( $(date +%s) + 900 ))" \
+        '.agent == $agent and .branch == $branch and (.lease_until_unix // 0) > $minimum' \
+        <<<"$claim" >/dev/null 2>&1; then
+        return 0
+    fi
     "$susi_bin" tasks renew "$task" && return 0
     echo "claim on $task lapsed (a suspend or a very long gate); taking it back" >&2
     local -a scopes=()
@@ -95,6 +108,16 @@ renew_or_readopt() {
     # what --unscoped is for, since a scopeless claim cannot be enforced.
     [ "${#scopes[@]}" -gt 0 ] || scopes=(--unscoped)
     "$susi_bin" tasks claim "$task" "${scopes[@]}"
+}
+
+# Use the shell's clock so observing the stages adds no subprocess launches.
+timed_step() {
+    local label=$1 started=$SECONDS
+    shift
+    "$@"
+    local status=$?
+    echo "workflow: $label took $((SECONDS - started))s" >&2
+    return "$status"
 }
 
 # Renew the claims this agent holds. A size-l task runs past its lease, and an
@@ -459,9 +482,9 @@ finish)
     done
     export SUSI_SYNC_SKIP_BOARD=1
     export SUSI_SYNC_IN_FINISH=1
-    renew_or_readopt
-    sync
-    gate
+    timed_step lease renew_or_readopt
+    timed_step initial-sync sync
+    timed_step gate gate
     # Anything still uncommitted - the verdict, the mastery test - must land
     # while the task is open: close moves the record to done/, and the commit hook
     # then refuses a commit citing a closed task. The scope check still refuses
@@ -478,9 +501,9 @@ finish)
         accept_cmd=$(jq -r '.accept.cmd | join(" ")' ".agents/tasks/$task.json" 2>/dev/null || true)
         if [ -n "$accept_cmd" ] && acceptance_covered "$accept_cmd"; then
             echo "gate: acceptance \`$accept_cmd\` already ran in the gate — close will not re-run it" >&2
-            SUSI_ACCEPTANCE_COVERED="$task@$root" "$susi_bin" tasks close "$task"
+            SUSI_ACCEPTANCE_COVERED="$task@$root" timed_step close "$susi_bin" tasks close "$task"
         else
-            "$susi_bin" tasks close "$task"
+            timed_step close "$susi_bin" tasks close "$task"
         fi
         evidence_prompt "$task"
         git add -- ".agents/tasks/$task.json" ".agents/tasks/done/$task.json"
@@ -488,7 +511,7 @@ finish)
     fi
     [ -f ".agents/tasks/done/$task.json" ] || { echo 'No completed task record.' >&2; exit 1; }
     verified=$(git rev-parse HEAD)
-    sync
+    timed_step publication-sync sync
     if [ "$verified" != "$(git rev-parse HEAD)" ]; then
         # The head moved because another merge landed while the gate ran.
         # Repushing the merged head starts a fresh branch run, and nothing
@@ -498,12 +521,12 @@ finish)
         [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && SUSI_GATE_NOCACHE=1 gate
     fi
     branch=$(git symbolic-ref --short HEAD)
-    git push origin "HEAD:refs/heads/$branch"
+    timed_step push git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
     if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
         # Never fall through into the wait below: a failed release used to
         # park the agent in a 30-minute poll it never asked for.
-        if ! "$susi_bin" tasks release "$task" --force; then
+        if ! timed_step release "$susi_bin" tasks release "$task" --force; then
             echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi tasks release $task --force" >&2
             exit 1
         fi
