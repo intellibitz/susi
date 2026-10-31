@@ -29,6 +29,7 @@ agent=${SUSI_AGENT:-$(git config --get susi.agent 2>/dev/null || true)}
 agent=$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 [ -n "$agent" ] || exit 0
 remote=${SUSI_TASK_REMOTE:-origin}
+[ -f "$root/scripts/owed-task-receipts.sh" ] || exit 0
 
 git fetch --quiet --prune "$remote" "+refs/heads/*:refs/remotes/$remote/*" '+refs/closed/*:refs/closed/*' 2>/dev/null || exit 0
 while IFS= read -r id; do

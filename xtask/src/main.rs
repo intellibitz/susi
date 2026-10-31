@@ -42,16 +42,62 @@ fn with_detected_features(args: &[String], detected: Vec<String>) -> Vec<String>
     out
 }
 
-fn detect_gpu_features() -> (Vec<String>, Option<String>) {
+fn find_cuda_toolkit_root() -> Option<PathBuf> {
+    for var in ["CUDA_PATH", "CUDA_HOME"] {
+        if let Some(val) = env::var_os(var) {
+            let dir = PathBuf::from(val);
+            if dir.join("bin").is_dir() {
+                return Some(dir);
+            }
+        }
+    }
+    if cfg!(target_os = "windows") {
+        for var in ["USERPROFILE", "HOME"] {
+            if let Some(home) = env::var_os(var) {
+                let scoop_cuda = PathBuf::from(home).join("scoop/apps/cuda/current");
+                if scoop_cuda.join("bin/nvcc.exe").is_file() {
+                    return Some(scoop_cuda);
+                }
+            }
+        }
+        let nvidia_root = Path::new(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA");
+        if let Ok(entries) = std::fs::read_dir(nvidia_root) {
+            let mut dirs: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.join("bin/nvcc.exe").is_file())
+                .collect();
+            dirs.sort();
+            if let Some(latest) = dirs.pop() {
+                return Some(latest);
+            }
+        }
+    } else if Path::new("/usr/local/cuda/bin/nvcc").is_file() {
+        return Some(PathBuf::from("/usr/local/cuda"));
+    }
+    None
+}
+
+fn detect_gpu_features() -> (Vec<String>, Option<String>, Option<PathBuf>) {
     let mut args = Vec::new();
     let mut cudarc_ver = None;
+    let mut cuda_root = None;
 
     if cfg!(target_os = "macos") {
         args.push("--features".to_string());
         args.push("metal".to_string());
     } else if cfg!(target_os = "linux") || cfg!(target_os = "windows") {
-        // Simple nvcc check for cuda
-        let nvcc_check = Command::new("nvcc")
+        cuda_root = find_cuda_toolkit_root();
+        let nvcc_bin = cuda_root
+            .as_ref()
+            .map(|r| {
+                r.join("bin")
+                    .join(if cfg!(windows) { "nvcc.exe" } else { "nvcc" })
+            })
+            .filter(|p| p.is_file())
+            .unwrap_or_else(|| PathBuf::from("nvcc"));
+
+        let nvcc_check = Command::new(&nvcc_bin)
             .arg("--version")
             .output()
             .map(|out| String::from_utf8_lossy(&out.stdout).to_string());
@@ -76,13 +122,13 @@ fn detect_gpu_features() -> (Vec<String>, Option<String>) {
             }
         }
 
-        if has_cuda || Path::new("/usr/local/cuda").exists() {
+        if has_cuda || cuda_root.is_some() || Path::new("/usr/local/cuda").exists() {
             args.push("--features".to_string());
             args.push("cuda".to_string());
         }
     }
 
-    (args, cudarc_ver)
+    (args, cudarc_ver, cuda_root)
 }
 
 /// Best-effort: enable the repo's git hooks and ledger merge driver once per
@@ -125,7 +171,7 @@ fn main() {
     if is_build {
         ensure_dev_setup();
         println!("xtask: cargo build running GPU detection...");
-        let (gpu_args, cudarc_ver) = detect_gpu_features();
+        let (gpu_args, cudarc_ver, cuda_root) = detect_gpu_features();
         if gpu_args.is_empty() {
             println!(
                 "xtask: [build-gpu] No GPU backend detected (or unsupported) - building CPU-only."
@@ -141,6 +187,21 @@ fn main() {
 
         if let Some(cv) = cudarc_ver {
             cmd.env("CUDARC_CUDA_VERSION", cv);
+        }
+        if let Some(root) = cuda_root {
+            if env::var_os("CUDA_PATH").is_none() {
+                cmd.env("CUDA_PATH", &root);
+            }
+            let mut paths: Vec<PathBuf> = vec![root.join("bin")];
+            if root.join("bin/x64").is_dir() {
+                paths.push(root.join("bin/x64"));
+            }
+            if let Some(existing) = env::var_os("PATH") {
+                paths.extend(env::split_paths(&existing));
+            }
+            if let Ok(joined) = env::join_paths(paths) {
+                cmd.env("PATH", joined);
+            }
         }
     } else {
         cmd.args(&args);
