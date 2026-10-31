@@ -3,6 +3,7 @@ use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
 use std::path::Path;
+use susi_daemon::discovery_pipeline::Catalogs;
 use susi_daemon::SusiDaemon;
 
 #[derive(Debug, Subcommand)]
@@ -102,13 +103,20 @@ fn collect(workspace: &Path) -> serde_json::Value {
     })
 }
 
+/// What `substrate status` primes: its `pluggable.agents` count is the agent
+/// capabilities the execution-agent and framework scans register. Leading
+/// MCP auto-enable and coding-model auto-prefer feed nothing it prints.
+pub(crate) const PRIMED: Catalogs = Catalogs::AGENTS;
+
 pub fn execute(action: Option<SubstrateCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(SubstrateCommands::Status) {
         SubstrateCommands::Status => {
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
-            let _ = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
+            let _ = susi_daemon::boot_trace::phase("substrate: prime catalogs", || {
+                susi_daemon::discovery_pipeline::prime_selected_catalogs(&substrate, PRIMED)
+            });
             print_json(&collect(workspace))?;
         }
     }

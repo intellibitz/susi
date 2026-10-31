@@ -290,91 +290,163 @@ mod resource_inventory_tests {
     }
 }
 
+/// The catalogs [`prime_selected_catalogs`] can admit, each primed on its own.
+///
+/// A command primes only the catalogs whose state its output (or its work)
+/// reads. Priming a catalog costs real host probes — the frameworks catalog
+/// alone spawns one `python3 -c "import …"` per adapter — so a command that
+/// reads none of them primes nothing. Nothing is cached across processes:
+/// every catalog a command needs is primed fresh, in that command.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Catalogs {
+    /// Leading MCP auto-enable: writes `mcp_config.json`.
+    pub leading_mcp: bool,
+    /// Coding-model auto-prefer: writes `preferred_coding_model.txt` and
+    /// `selected_model_override.txt`.
+    pub coding_models: bool,
+    /// Execution-agent readiness: `execution-agents/ready.json` plus the
+    /// agent capabilities registered in the `CapabilityRegistry`.
+    pub execution_agents: bool,
+    /// Agent-framework readiness: `agent-engines/ready.json` plus the same
+    /// capability registration.
+    pub frameworks: bool,
+}
+
+impl Catalogs {
+    /// Prime nothing.
+    pub const NONE: Self = Self {
+        leading_mcp: false,
+        coding_models: false,
+        execution_agents: false,
+        frameworks: false,
+    };
+    /// Every catalog: what the daemon, `susi auto prime` and every command
+    /// not yet classified prime.
+    pub const ALL: Self = Self {
+        leading_mcp: true,
+        coding_models: true,
+        execution_agents: true,
+        frameworks: true,
+    };
+    /// Only leading MCP auto-enable.
+    pub const LEADING_MCP: Self = Self {
+        leading_mcp: true,
+        ..Self::NONE
+    };
+    /// Only coding-model auto-prefer.
+    pub const CODING_MODELS: Self = Self {
+        coding_models: true,
+        ..Self::NONE
+    };
+    /// Execution agents and agent frameworks (the capability-registering scan).
+    pub const AGENTS: Self = Self {
+        execution_agents: true,
+        frameworks: true,
+        ..Self::NONE
+    };
+
+    /// Both sets' catalogs.
+    pub const fn union(self, other: Self) -> Self {
+        Self {
+            leading_mcp: self.leading_mcp || other.leading_mcp,
+            coding_models: self.coding_models || other.coding_models,
+            execution_agents: self.execution_agents || other.execution_agents,
+            frameworks: self.frameworks || other.frameworks,
+        }
+    }
+
+    /// No catalog selected.
+    pub const fn is_empty(self) -> bool {
+        !(self.leading_mcp || self.coding_models || self.execution_agents || self.frameworks)
+    }
+
+    /// Every catalog selected.
+    pub const fn is_all(self) -> bool {
+        self.leading_mcp && self.coding_models && self.execution_agents && self.frameworks
+    }
+
+    /// The boot-trace phase of each selected catalog, in prime order.
+    pub fn phases(self) -> Vec<&'static str> {
+        [
+            (self.leading_mcp, PRIME_PHASE_LEADING_MCP),
+            (self.coding_models, PRIME_PHASE_CODING_MODELS),
+            (self.execution_agents, PRIME_PHASE_EXECUTION_AGENTS),
+            (self.frameworks, PRIME_PHASE_FRAMEWORKS),
+        ]
+        .into_iter()
+        .filter_map(|(on, label)| on.then_some(label))
+        .collect()
+    }
+}
+
+/// Boot-trace phase of the leading MCP auto-enable step.
+pub const PRIME_PHASE_LEADING_MCP: &str = "prime: leading mcp";
+/// Boot-trace phase of the coding-model auto-prefer step.
+pub const PRIME_PHASE_CODING_MODELS: &str = "prime: coding models";
+/// Boot-trace phase of the execution-agent readiness scan.
+pub const PRIME_PHASE_EXECUTION_AGENTS: &str = "prime: execution agents";
+/// Boot-trace phase of the agent-framework readiness scan.
+pub const PRIME_PHASE_FRAMEWORKS: &str = "prime: frameworks";
+
 /// Auto-admit host-ready ecosystem components (MCP, coding models, peers).
 /// Persists a glass-box report under `~/.susi/last_auto_prime.json`.
 pub fn prime_catalogs(substrate: &Path) -> serde_json::Value {
+    prime_selected_catalogs(substrate, Catalogs::ALL)
+}
+
+/// Prime only `catalogs`, each one fresh and as its own boot-trace phase
+/// ([`Catalogs::phases`]), in the same order a full prime runs them.
+///
+/// The glass-box report `last_auto_prime.json` is written only by a full
+/// prime: a partial one would report zero for every catalog it skipped.
+/// A partial prime returns a report of just the catalogs it primed.
+pub fn prime_selected_catalogs(substrate: &Path, catalogs: Catalogs) -> serde_json::Value {
+    use crate::boot_trace::phase;
     let mut mcp_enabled: Vec<String> = Vec::new();
     let mut preferred_model: Option<String> = None;
     let mut agents_ready = 0usize;
     let mut frameworks_ready = 0usize;
 
-    match susi_tools::LeadingMcpManager::new(substrate) {
-        Ok(mcp) => match mcp.auto_enable_ready() {
-            Ok(ids) => {
-                if !ids.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
-                    eprintln!("[BOOTSTRAP] Auto-enabled MCP: {:?}", ids);
-                }
-                mcp_enabled = ids;
-            }
-            Err(e) => {
-                if std::env::var("SUSI_VERBOSE").is_ok() {
-                    eprintln!("[BOOTSTRAP] MCP auto-enable skipped: {e}");
-                }
-            }
-        },
-        Err(e) => {
-            if std::env::var("SUSI_VERBOSE").is_ok() {
-                eprintln!("[BOOTSTRAP] Leading MCP manager unavailable: {e}");
-            }
-        }
+    if catalogs.leading_mcp {
+        mcp_enabled = phase(PRIME_PHASE_LEADING_MCP, || prime_leading_mcp(substrate));
+    }
+    if catalogs.coding_models {
+        preferred_model = phase(PRIME_PHASE_CODING_MODELS, prime_coding_models);
+    }
+    if catalogs.execution_agents {
+        agents_ready = phase(PRIME_PHASE_EXECUTION_AGENTS, || {
+            prime_agent_kind(substrate, susi_agents::external::CatalogKind::Execution)
+        });
+    }
+    if catalogs.frameworks {
+        frameworks_ready = phase(PRIME_PHASE_FRAMEWORKS, || {
+            prime_agent_kind(substrate, susi_agents::external::CatalogKind::Framework)
+        });
     }
 
-    match susi_gemi::models::coding_models::CodingModelManager::new() {
-        Ok(models) => match models.auto_prefer_best_ready() {
-            Ok(Some(id)) => {
-                if std::env::var("SUSI_VERBOSE").is_ok() {
-                    eprintln!("[BOOTSTRAP] Preferred coding model: {id}");
-                }
-                preferred_model = Some(id);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                if std::env::var("SUSI_VERBOSE").is_ok() {
-                    eprintln!("[BOOTSTRAP] Coding-model auto-prefer skipped: {e}");
-                }
-            }
-        },
-        Err(e) => {
-            if std::env::var("SUSI_VERBOSE").is_ok() {
-                eprintln!("[BOOTSTRAP] CodingModelManager unavailable: {e}");
-            }
-        }
-    }
-
-    for kind in [
-        susi_agents::external::CatalogKind::Execution,
-        susi_agents::external::CatalogKind::Framework,
-    ] {
-        match susi_agents::external::AgentManager::for_kind(substrate, kind) {
-            Ok(mgr) => match mgr.auto_prime_ready() {
-                Ok(ready) => {
-                    if !ready.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
-                        eprintln!("[BOOTSTRAP] Auto-ready {}: {}", kind.label(), ready.len());
-                    }
-                    match kind {
-                        susi_agents::external::CatalogKind::Execution => {
-                            agents_ready = ready.len();
-                        }
-                        susi_agents::external::CatalogKind::Framework => {
-                            frameworks_ready = ready.len();
-                        }
-                    }
-                }
-                Err(e) => {
-                    if std::env::var("SUSI_VERBOSE").is_ok() {
-                        eprintln!("[BOOTSTRAP] {} auto-prime skipped: {e}", kind.label());
-                    }
-                }
-            },
-            Err(e) => {
-                if std::env::var("SUSI_VERBOSE").is_ok() {
-                    eprintln!("[BOOTSTRAP] {} manager unavailable: {e}", kind.label());
-                }
-            }
-        }
-    }
-
+    // Seeds the extension pack, as every prime always has.
     let pack = crate::susi_sandbox::extensions::active_pack();
+    if !catalogs.is_all() {
+        let mut report = serde_json::json!({
+            "kind": "auto_prime_partial",
+            "active_pack": pack.id,
+            "pack_root": pack.root,
+            "primed": catalogs.phases(),
+        });
+        if catalogs.leading_mcp {
+            report["mcp_enabled"] = serde_json::json!(mcp_enabled);
+        }
+        if catalogs.coding_models {
+            report["preferred_coding_model"] = serde_json::json!(preferred_model);
+        }
+        if catalogs.execution_agents {
+            report["agents_ready"] = serde_json::json!(agents_ready);
+        }
+        if catalogs.frameworks {
+            report["frameworks_ready"] = serde_json::json!(frameworks_ready);
+        }
+        return report;
+    }
     let report = serde_json::json!({
         "kind": "auto_prime",
         "active_pack": pack.id,
@@ -393,6 +465,132 @@ pub fn prime_catalogs(substrate: &Path) -> serde_json::Value {
         serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into()),
     );
     report
+}
+
+/// Auto-enable every ready leading MCP. `substrate` (never the cwd) is the
+/// workspace its `{workspace}` args expand to.
+fn prime_leading_mcp(substrate: &Path) -> Vec<String> {
+    match susi_tools::LeadingMcpManager::new(substrate) {
+        Ok(mcp) => match mcp.auto_enable_ready() {
+            Ok(ids) => {
+                if !ids.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] Auto-enabled MCP: {:?}", ids);
+                }
+                ids
+            }
+            Err(e) => {
+                if std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] MCP auto-enable skipped: {e}");
+                }
+                Vec::new()
+            }
+        },
+        Err(e) => {
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!("[BOOTSTRAP] Leading MCP manager unavailable: {e}");
+            }
+            Vec::new()
+        }
+    }
+}
+
+/// Prefer the best ready coding model when none, or a no-longer-ready one,
+/// is preferred.
+fn prime_coding_models() -> Option<String> {
+    match susi_gemi::models::coding_models::CodingModelManager::new() {
+        Ok(models) => match models.auto_prefer_best_ready() {
+            Ok(Some(id)) => {
+                if std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] Preferred coding model: {id}");
+                }
+                Some(id)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                if std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] Coding-model auto-prefer skipped: {e}");
+                }
+                None
+            }
+        },
+        Err(e) => {
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!("[BOOTSTRAP] CodingModelManager unavailable: {e}");
+            }
+            None
+        }
+    }
+}
+
+/// Scan one agent catalog: persist its `ready.json` and register a
+/// capability for each ready entry. Returns how many entries were ready.
+fn prime_agent_kind(substrate: &Path, kind: susi_agents::external::CatalogKind) -> usize {
+    match susi_agents::external::AgentManager::for_kind(substrate, kind) {
+        Ok(mgr) => match mgr.auto_prime_ready() {
+            Ok(ready) => {
+                if !ready.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] Auto-ready {}: {}", kind.label(), ready.len());
+                }
+                ready.len()
+            }
+            Err(e) => {
+                if std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] {} auto-prime skipped: {e}", kind.label());
+                }
+                0
+            }
+        },
+        Err(e) => {
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!("[BOOTSTRAP] {} manager unavailable: {e}", kind.label());
+            }
+            0
+        }
+    }
+}
+
+#[cfg(test)]
+mod catalog_selection_tests {
+    use super::*;
+
+    #[test]
+    fn named_sets_select_exactly_their_catalogs() {
+        assert!(Catalogs::NONE.is_empty());
+        assert!(Catalogs::NONE.phases().is_empty());
+        assert_eq!(Catalogs::default(), Catalogs::NONE);
+        assert!(Catalogs::ALL.is_all());
+        assert_eq!(
+            Catalogs::ALL.phases(),
+            vec![
+                PRIME_PHASE_LEADING_MCP,
+                PRIME_PHASE_CODING_MODELS,
+                PRIME_PHASE_EXECUTION_AGENTS,
+                PRIME_PHASE_FRAMEWORKS,
+            ]
+        );
+        assert_eq!(
+            Catalogs::LEADING_MCP.phases(),
+            vec![PRIME_PHASE_LEADING_MCP]
+        );
+        assert_eq!(
+            Catalogs::CODING_MODELS.phases(),
+            vec![PRIME_PHASE_CODING_MODELS]
+        );
+        assert_eq!(
+            Catalogs::AGENTS.phases(),
+            vec![PRIME_PHASE_EXECUTION_AGENTS, PRIME_PHASE_FRAMEWORKS]
+        );
+    }
+
+    #[test]
+    fn all_is_the_union_of_every_catalog() {
+        let all = Catalogs::LEADING_MCP
+            .union(Catalogs::CODING_MODELS)
+            .union(Catalogs::AGENTS);
+        assert_eq!(all, Catalogs::ALL);
+        assert!(!Catalogs::AGENTS.union(Catalogs::CODING_MODELS).is_all());
+        assert_eq!(Catalogs::NONE.union(Catalogs::NONE), Catalogs::NONE);
+    }
 }
 
 /// If a well-known local engine binary is on PATH but its API port is closed,

@@ -275,8 +275,14 @@ fn run() -> std::process::ExitCode {
             susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
         });
     } else {
+        // Prime only the catalogs this command reads (all of them for a
+        // mission or any command not yet classified).
+        let catalogs = command.as_ref().map_or(
+            susi_daemon::discovery_pipeline::Catalogs::ALL,
+            cli::defs::command_catalogs,
+        );
         susi_daemon::boot_trace::phase("composition: cli", || {
-            susi_daemon::composition::wire_cli_substrate(&substrate)
+            susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
         });
     }
     #[cfg(all(feature = "tokio-console", tokio_unstable))]

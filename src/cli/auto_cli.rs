@@ -19,7 +19,10 @@ struct AutoStatus {
 
 #[derive(Debug, Subcommand)]
 pub enum AutoCommands {
-    /// Show zero-config auto substrate readiness (default)
+    /// Show zero-config auto substrate readiness (default). A snapshot of
+    /// what the last prime wrote: refreshed only by the daemon, `auto prime`
+    /// and commands that prime every catalog (missions, in-process
+    /// `mcp call`); other commands prime only what they read.
     Status,
     /// Re-run auto-prime now (packs/MCP/models/peers)
     Prime,
@@ -106,7 +109,13 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
 pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(AutoCommands::Status) {
         AutoCommands::Status => {
-            print_json(&collect_status(workspace)?)?;
+            let status = collect_status(workspace)?;
+            print_json(&status)?;
+            if status.last_auto_prime.is_none() {
+                eprintln!(
+                    "hint: no full prime recorded yet; `susi auto prime` (or the daemon) refreshes this snapshot"
+                );
+            }
         }
         AutoCommands::Prime => {
             let substrate = susi_paths::SusiDirs::substrate_home();
