@@ -2577,8 +2577,10 @@ fn the_finish_gate_seeds_a_linked_target_before_its_first_cargo() {
     write(&shared.join("sentinel"), "another worktree's build");
     let dest = w.app_worktree("app");
     link_dir(&shared, &dest.join("target"));
+    // The plan the gate resolves (`ci-changed-crates.sh --plan`): one crate
+    // to test and lint, so the gate takes its clippy-then-test branch.
     let changed = dest.join("scripts/ci-changed-crates.sh");
-    write(&changed, "#!/bin/sh\necho cell\n");
+    write(&changed, "#!/bin/sh\nprintf 'test:cell\\nlint:cell\\n'\n");
     executable(&changed);
     let gate = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/parallel-workflow.sh"),
@@ -2598,9 +2600,11 @@ cargo() {{
 }}
 gate_stamp() {{ echo stamp; }}
 gate_tests() {{ cargo test "$@"; }}
-{}{}gate
+gate_tests_kept() {{ return 0; }}
+{}{}{}gate
 "#,
             shell_function(&gate, "seed_own_target"),
+            shell_function(&gate, "resolve_gate_plan"),
             shell_function(&gate, "gate"),
         ),
     );
