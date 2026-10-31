@@ -622,7 +622,7 @@ fn sign(file: &Path) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lock {
+pub(crate) enum Lock {
     /// Taken (or already this process's).
     Taken,
     /// A live holder has it.
@@ -644,7 +644,7 @@ enum Lock {
 /// Only the lock itself is made, never a missing parent: a worktree's lock is
 /// in its git dir, and a parent missing there is a worktree removed meanwhile,
 /// whose `.git/worktrees/<name>` must not come back.
-fn take_lock(lock: &Path, stale: u64) -> Lock {
+pub(crate) fn take_lock(lock: &Path, stale: u64) -> Lock {
     let owner = lock.join("owner");
     if fs::create_dir(lock).is_ok() {
         if sign(&owner) {
@@ -702,7 +702,7 @@ fn take_lock(lock: &Path, stale: u64) -> Lock {
 /// The lock this process holds, let go of on drop: only while its line is
 /// this process's own. A run that dies holding it leaves a line whose pid is
 /// gone, which the next taker reads as such.
-struct HeldLock(PathBuf);
+pub(crate) struct HeldLock(pub(crate) PathBuf);
 
 impl Drop for HeldLock {
     fn drop(&mut self) {

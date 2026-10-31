@@ -19,6 +19,9 @@ fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     cmd.args(args)
         .current_dir(dir)
         .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
+        // The sync hooks run `scripts/park-primary.sh`, the stub that execs
+        // `susi workflow park-primary`: the binary under test.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")

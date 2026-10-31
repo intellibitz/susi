@@ -6,8 +6,12 @@
 )]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
-//! `scripts/park-primary.sh`: the primary checkout is detached at origin/main,
-//! and left alone (with the reason) when it holds real work.
+//! `susi workflow park-primary` (`scripts/park-primary.sh` is its stub): the
+//! primary checkout is parked on `main` at origin/main, detached there only
+//! when another worktree holds `main`, and left alone (with the reason) when
+//! it holds real work. The park was bash and is Rust
+//! (`crates/susi-gawd/src/admin/park.rs`); these run it through the stub,
+//! as the hooks and the loop scripts do, and through the binary.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,6 +34,10 @@ fn run(dir: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
     let out = command
         .args(args)
         .current_dir(dir)
+        // The script is the stub that execs `susi workflow park-primary`:
+        // the binary under test, not whatever susi the host has installed.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
+        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
@@ -385,6 +393,7 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
         .arg(scripts.join("parallel-workflow.sh"))
         .arg("watch")
         .current_dir(&w.primary)
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env("SUSI_SYNC_INTERVAL", "1")
         .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
         .stderr(std::process::Stdio::from(log_file))
@@ -430,7 +439,9 @@ fn flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("lock.flock.d")).unwrap();
     let compat = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/posix-compat.sh");
-    let out = Command::new("sh")
+    // The shim is sourced by bash scripts (`set -o pipefail` is bash's; a
+    // host whose `sh` is dash refuses it), so the probe runs under bash.
+    let out = Command::new("bash")
         .arg("-c")
         .arg(
             "set -euo pipefail; . \"$1\"; touch -d '1 minute ago' lock.flock.d
@@ -449,4 +460,187 @@ fn flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker() {
         "stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// `susi workflow park-primary` run as the binary, not through the stub: the
+/// same verdicts and the same words, so a hook or script that execs it gets
+/// exactly what the bash version said.
+fn susi(dir: &Path, args: &[&str]) -> (i32, String, String) {
+    run(dir, env!("CARGO_BIN_EXE_susi"), args)
+}
+
+#[test]
+fn the_binary_parks_and_refuses_as_the_script_did() {
+    let w = World::new("binary");
+    // Dirty: refused, with the file named.
+    std::fs::write(w.primary.join("wip.txt"), "unsaved").unwrap();
+    let (code, _, err) = susi(&w.primary, &["workflow", "park-primary"]);
+    assert_eq!(code, 1);
+    assert!(
+        err.contains("uncommitted changes") && err.contains("wip.txt"),
+        "{err}"
+    );
+    std::fs::remove_file(w.primary.join("wip.txt")).unwrap();
+    // Clean and stale: parked on main, from a linked worktree too.
+    let wt = w.root.join("wt");
+    git(
+        &w.primary,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "feature",
+            wt.to_str().unwrap(),
+            "origin/main",
+        ],
+    );
+    let (code, out, err) = susi(&wt, &["workflow", "park-primary"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains("moved from stale-branch to main at origin/main"),
+        "{out}"
+    );
+    assert!(w.on_main_at_origin_main());
+    let (code, out, _) = susi(&w.primary, &["workflow", "park-primary"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("already on main at origin/main"), "{out}");
+    // --sync-only: silent when current, said when it fast-forwards.
+    let (code, out, _) = susi(&w.primary, &["workflow", "park-primary", "--sync-only"]);
+    assert_eq!((code, out.as_str()), (0, ""));
+    let other = w.root.join("other");
+    git(
+        &other,
+        &["commit", "--allow-empty", "--quiet", "-m", "three"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let (code, out, err) = susi(&w.primary, &["workflow", "park-primary", "--sync-only"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("fast-forwarded to origin/main"), "{out}");
+    assert!(w.on_main_at_origin_main());
+    // Under an active sync (a hook the fast-forward fired) nothing runs.
+    git(
+        &other,
+        &["commit", "--allow-empty", "--quiet", "-m", "four"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let before = git(&w.primary, &["rev-parse", "HEAD"]);
+    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+        .args(["workflow", "park-primary", "--sync-only"])
+        .current_dir(&w.primary)
+        .env("SUSI_PRIMARY_SYNC_ACTIVE", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), before);
+}
+
+/// A lock another sync holds: `--sync-only` leaves at once (that sync is
+/// already bringing main current) and a park waits for it. A lock whose
+/// holder is gone is taken over.
+#[test]
+fn a_sync_never_queues_behind_another_and_a_dead_lock_is_taken_over() {
+    let w = World::new("lock");
+    git(&w.primary, &["switch", "--quiet", "main"]); // one behind origin/main
+    let common = PathBuf::from(git(
+        &w.primary,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ));
+    let lock = common.join("susi-primary-update.lockdir");
+    std::fs::create_dir_all(&lock).unwrap();
+    // This test process holds it: a live holder in this table.
+    std::fs::write(
+        lock.join("owner"),
+        format!(
+            "{} {} {} {}\n",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            if cfg!(windows) {
+                std::process::id().to_string()
+            } else {
+                "-".to_string()
+            },
+            susi_gawd::admin::seed::runtime_name()
+        ),
+    )
+    .unwrap();
+    let before = git(&w.primary, &["rev-parse", "HEAD"]);
+    let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (0, ""),
+        "a held lock: silent, no wait"
+    );
+    assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), before);
+    assert!(lock.is_dir(), "another sync's lock is never removed");
+    // The holder is gone (a pid nothing runs under): taken over, main synced.
+    std::fs::write(
+        lock.join("owner"),
+        format!(
+            "4000000000 1 - {}\n",
+            susi_gawd::admin::seed::runtime_name()
+        ),
+    )
+    .unwrap();
+    let (code, out, err) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("fast-forwarded to origin/main"), "{out}");
+    assert!(!lock.exists(), "the lock is let go of after");
+}
+
+/// On Windows an installed `susi.exe` parks the primary with no Git userland
+/// on PATH: only Git's `cmd` (git itself), System32 and the Windows
+/// directory. The bash version needed `flock`, `awk` and `dirname` from
+/// Git's `usr/bin`. Returns at once where Git for Windows is not installed.
+#[test]
+fn the_park_needs_no_git_userland_on_windows() {
+    let Ok(out) = Command::new("git").arg("--exec-path").output() else {
+        return;
+    };
+    let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let Some(git_root) = exec_path.ancestors().nth(3).map(Path::to_path_buf) else {
+        return;
+    };
+    if !git_root.join("cmd").join("git.exe").is_file() {
+        return; // not Git for Windows' layout
+    }
+    let windows = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let path = std::env::join_paths([
+        git_root.join("cmd"),
+        windows.join("System32"),
+        windows.clone(),
+    ])
+    .unwrap();
+    assert!(
+        !path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .contains("usr\\bin"),
+        "the narrowed PATH must not carry Git's userland: {path:?}"
+    );
+    let w = World::new("nouserland");
+    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+        .args(["workflow", "park-primary"])
+        .current_dir(&w.primary)
+        .env("PATH", &path)
+        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        said.contains("moved from stale-branch to main at origin/main"),
+        "{said}"
+    );
+    assert!(w.on_main_at_origin_main());
 }
