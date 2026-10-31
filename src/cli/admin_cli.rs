@@ -61,6 +61,19 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             if hand_off_release(cwd) {
                 return;
             }
+            // Before any gate runs: a version another branch is already
+            // cutting (or that is released) is refused, not cut twice.
+            if let Some(level) = cut {
+                use susi_gawd::admin::SusiAdmin;
+                let next = SusiAdmin::get_cargo_version(cwd)
+                    .and_then(|current| SusiAdmin::bump_version_string(&current, level));
+                if let Ok(next) = next {
+                    if let Some(why) = SusiAdmin::release_already_cut(cwd, &next) {
+                        eprintln!("Release refused: {why}");
+                        std::process::exit(1);
+                    }
+                }
+            }
             match susi_gawd::admin::SusiAdmin::execute_release(cwd, cut) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
