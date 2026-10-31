@@ -45,6 +45,10 @@ fn command(program: &str, dir: &Path, home: &Path) -> Command {
         .current_dir(dir)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        // scripts/susi-worktree.sh parks the primary through
+        // scripts/park-primary.sh, the stub that execs `susi workflow
+        // park-primary`: the binary under test.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env_remove("SUSI_AGENT")
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")

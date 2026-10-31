@@ -1,127 +1,53 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Keep the primary checkout parked at origin/main so nobody works in it
-# (Mandate 49): on `main`, fast-forwarded to origin/main. Only if another
-# worktree already holds `main` (git allows a branch in one worktree) does it
-# fall back to a detached HEAD at origin/main. workflow-guard and
-# `susi workflow check` already refuse commits here; this removes the stale
-# branch that invited them, and it never undoes a human's own `git switch main`.
+# (Mandate 49): on `main`, fast-forwarded to origin/main; detached there only
+# when another worktree holds `main`. It never undoes a human's own `git switch
+# main`, and refuses, saying why, when the primary checkout has uncommitted
+# changes, an operation in progress, or commits that are not in origin/main.
 #
 #   scripts/park-primary.sh              park (run from any worktree of the repo)
 #   scripts/park-primary.sh --sync-only  keep an already-parked main current: fast-
 #                                        forward it to origin/main, and do nothing
 #                                        (silently) unless the primary checkout is on
-#                                        main, clean and has no local commits. It never
-#                                        switches a branch or touches a dirty tree, so it
-#                                        is safe to run from every workflow check.
+#                                        main, clean and has no local commits. Safe
+#                                        to run from every workflow check and hook.
 #
-# Refuses — and says why — when the primary checkout has uncommitted changes,
-# an operation in progress, or commits that are not in origin/main yet.
-set -euo pipefail
-# A fast-forward runs post-merge hooks. Foreground hooks must not re-enter
-# this lock while their parent Git command is waiting for them.
-[ -z "${SUSI_PRIMARY_SYNC_ACTIVE:-}" ] || exit 0
-export SUSI_PRIMARY_SYNC_ACTIVE=1
-# Git exports GIT_DIR/GIT_INDEX_FILE to hooks, pointing at the calling
-# worktree; the commands below must act on the primary checkout instead.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
-[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
-sync_only=0
-[ "${1:-}" = "--sync-only" ] && sync_only=1
-common=$(git rev-parse --path-format=absolute --git-common-dir)
-primary=$(dirname "$common")
-# A cloud session's clone (scripts/cloud-session.sh) is the worker's own and
-# only checkout: there is no parked primary to keep, and moving it onto main
-# would move the work out from under the worker. Silent for --sync-only, which
-# every check and hook runs.
-if [ -x "$primary/scripts/cloud-session.sh" ] && (cd "$primary" && scripts/cloud-session.sh); then
-    [ "$sync_only" = 1 ] || echo "park-primary: a cloud session's clone is the worker's own checkout; nothing to park (docs/cloud-sessions.md)"
-    exit 0
+# The work is susi's: `susi workflow park-primary` (crates/susi-gawd/src/admin/
+# park.rs) does everything this script did in bash, with git run directly, so an
+# installed susi.exe keeps the primary current without Git's MSYS userland on
+# PATH. This file stays so that the hooks (.githooks/sync-primary), the loop
+# scripts, the session-start hook and branches cut before the port, which run
+# `scripts/park-primary.sh`, keep working: it finds a susi that has the verb —
+# $SUSI_WORKFLOW_BIN (the susi driving a `workflow finish`), the installed susi on
+# PATH, then this checkout's own build and the build of the checkout this file is
+# in (target/release, target/debug; not through a target/ that is a link) — and
+# execs it. A susi older than the verb is passed over, not run into. With none,
+# --sync-only is silent (it is best effort everywhere it runs) and a park says so
+# and fails, as a park that could not move anything did. Nothing here needs more
+# than sh and git.
+set -u
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
+own=
+if [ -n "$top" ] && [ ! -L "$top/target" ]; then
+    own="$top/target"
 fi
-# Serialize all watchers/hooks that mutate the primary index and branch.
-# --sync-only is best effort and runs from every check and hook, so it never
-# queues: if another sync holds the lock, that one is already bringing main
-# current. Blocking here made `susi workflow check` take minutes behind the
-# watcher and other agents' syncs.
-exec 7>"$common/susi-primary-update.lock"
-if [ "$sync_only" = 1 ]; then
-    flock -n 7 || exit 0
-else
-    flock 7
+mine=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || mine=
+here=
+if [ -n "$mine" ] && [ ! -L "$mine/target" ]; then
+    here="$mine/target"
 fi
-cd "$primary"
-[ "$(git rev-parse --path-format=absolute --git-dir)" = "$common" ] \
-    || { echo "park-primary: $primary is not the primary checkout" >&2; exit 2; }
-
-if [ "$sync_only" = 1 ]; then
-    # Best effort and silent: an offline fetch or an unsafe state is not an error.
-    # A linked worktree's sync already fetched these shared remote refs.
-    # The flag is passed only to this invocation; standalone/watch runs fetch.
-    if [ "${SUSI_PARK_REFS_FETCHED:-0}" != 1 ]; then
-        git fetch --quiet origin 2>/dev/null || exit 0
-    fi
-    target=$(git rev-parse --verify -q origin/main) || exit 0
-    [ "$(git symbolic-ref -q --short HEAD || true)" = main ] || exit 0
-    # Untracked local tools are preserved. Git itself refuses a fast-forward
-    # that would overwrite an untracked file; tracked edits always block.
-    [ -z "$(git status --porcelain --untracked-files=no)" ] || exit 0
-    [ "$(git rev-list --count "$target..main")" = 0 ] || exit 0
-    [ "$(git rev-parse HEAD)" != "$target" ] || exit 0
-    for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
-        [ ! -e "$common/$op" ] || exit 0
-    done
-    git merge --quiet --ff-only "$target" 2>/dev/null || exit 0
-    echo "primary checkout's main fast-forwarded to origin/main (${target:0:8})"
-    exit 0
-fi
-
-git fetch --quiet origin 2>/dev/null || { echo "park-primary: cannot fetch origin; not moving anything" >&2; exit 1; }
-target=$(git rev-parse --verify origin/main)
-
-if [ -n "$(git status --porcelain)" ]; then
-    echo "park-primary: refusing — $primary has uncommitted changes:" >&2
-    git status --short | head -10 >&2
-    exit 1
-fi
-for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
-    if [ -e "$common/$op" ]; then
-        echo "park-primary: refusing — an operation is in progress in $primary ($op)" >&2
-        exit 1
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+    "${own:+$own/release/susi}" "${own:+$own/release/susi.exe}" \
+    "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}" \
+    "${here:+$here/release/susi}" "${here:+$here/release/susi.exe}" \
+    "${here:+$here/debug/susi}" "${here:+$here/debug/susi.exe}"; do
+    [ -n "$bin" ] && [ -x "$bin" ] || continue
+    if "$bin" workflow park-primary --help >/dev/null 2>&1 </dev/null; then
+        exec "$bin" workflow park-primary "$@" 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
     fi
 done
-unmerged=$(git rev-list --count "$target..HEAD")
-if [ "$unmerged" != 0 ]; then
-    branch=$(git symbolic-ref -q --short HEAD || echo "detached HEAD")
-    echo "park-primary: refusing — $unmerged commit(s) on $branch are not in origin/main." >&2
-    echo "  push and merge them (or move them to a worktree branch) first." >&2
-    exit 1
-fi
-# Does another worktree hold `main`?
-main_elsewhere=$(git worktree list --porcelain | awk -v p="$primary" '
-    /^worktree /{wt=substr($0,10)} /^branch refs\/heads\/main$/{ if (wt!=p) print wt }' | head -1)
-branch=$(git symbolic-ref -q --short HEAD || true)
-
-if [ -z "$main_elsewhere" ]; then
-    # `main` is free: park ON it. Local main commits would be lost work.
-    if git rev-parse --verify -q main >/dev/null && [ "$(git rev-list --count "$target..main")" != 0 ]; then
-        echo "park-primary: refusing — local main has commits that are not in origin/main." >&2
-        exit 1
-    fi
-    if [ "$branch" = main ] && [ "$(git rev-parse HEAD)" = "$target" ]; then
-        echo "park-primary: already on main at origin/main (${target:0:8})"
-        exit 0
-    fi
-    was=${branch:-$(git rev-parse --short HEAD)}
-    git switch --quiet main 2>/dev/null || git switch --quiet -c main --track origin/main
-    git merge --quiet --ff-only "$target"
-    echo "park-primary: $primary moved from $was to main at origin/main (${target:0:8})"
-    exit 0
-fi
-
-# Another worktree holds main: detach at origin/main instead.
-if [ -z "$branch" ] && [ "$(git rev-parse HEAD)" = "$target" ]; then
-    echo "park-primary: already parked at origin/main (${target:0:8}), detached ($main_elsewhere holds main)"
-    exit 0
-fi
-was=${branch:-$(git rev-parse --short HEAD)}
-git checkout --quiet --detach "$target"
-echo "park-primary: $primary moved from $was to origin/main (${target:0:8}), detached ($main_elsewhere holds main)"
+case " $* " in
+*" --sync-only "*) exit 0 ;;
+esac
+echo "park-primary: no susi with \`workflow park-primary\` found (SUSI_WORKFLOW_BIN, the installed susi, this checkout's target/): not moving anything. Install the current release: scripts/susi-release-sync.sh" >&2
+exit 1

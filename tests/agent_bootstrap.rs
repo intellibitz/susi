@@ -53,6 +53,10 @@ fn run_as(
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
+        // scripts/susi-worktree.sh parks the primary through
+        // scripts/park-primary.sh, the stub that execs `susi workflow
+        // park-primary`: the binary under test.
+        .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env_remove("SUSI_HOME")
         .env_remove("SUSI_AGENT");
     for (k, v) in envs {

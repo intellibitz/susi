@@ -96,6 +96,18 @@ pub enum WorkflowCommands {
         #[arg(conflicts_with = "refresh")]
         dir: Option<std::path::PathBuf>,
     },
+    /// Keep the primary checkout parked at origin/main so nobody works in it
+    /// (`scripts/park-primary.sh` execs this): on `main`, fast-forwarded;
+    /// detached there only when another worktree holds `main`. Refuses, and
+    /// says why, when parking would lose uncommitted or unmerged work.
+    #[command(name = "park-primary")]
+    ParkPrimary {
+        /// Only fast-forward an already-parked `main`, silently or not at
+        /// all: never switch a branch or touch a dirty tree (every workflow
+        /// check and hook runs this)
+        #[arg(long)]
+        sync_only: bool,
+    },
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
     Check {
         /// Machine-readable output
@@ -126,6 +138,29 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::OwnIdentity => return own_identity(cwd),
         WorkflowCommands::Guard { stage } => return guard(cwd, stage),
         WorkflowCommands::FetchRefs { remote } => return fetch_refs(cwd, &remote),
+        WorkflowCommands::ParkPrimary { sync_only } => {
+            use susi_gawd::admin::park::{park_primary, Mode};
+            // `SUSI_PARK_REFS_FETCHED=1`: the caller (a sync, the finish) just
+            // fetched the shared remote refs, so this run does not again.
+            let mode = if sync_only {
+                Mode::SyncOnly {
+                    refs_fetched: std::env::var("SUSI_PARK_REFS_FETCHED").is_ok_and(|v| v == "1"),
+                }
+            } else {
+                Mode::Park
+            };
+            let parked = park_primary(cwd, mode);
+            if !parked.out.is_empty() {
+                println!("{}", parked.out);
+            }
+            if !parked.err.is_empty() {
+                eprintln!("{}", parked.err);
+            }
+            if parked.code != 0 {
+                std::process::exit(parked.code);
+            }
+            return Ok(());
+        }
         WorkflowCommands::SeedTarget {
             background,
             refresh,
@@ -317,23 +352,14 @@ fn own_identity(cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Best-effort `park-primary.sh --sync-only`; reports only when main advanced.
+/// Best-effort `park-primary --sync-only` ([`susi_gawd::admin::park`]), in
+/// process; reports only when main advanced. The check has just fetched the
+/// shared remote refs, so the park does not again.
 fn sync_primary(root: &Path) {
-    let script = root.join("scripts").join("park-primary.sh");
-    if !script.is_file() {
-        return;
-    }
-    let mut command = workflow_script_command(&script, &["--sync-only"]);
-    if let Ok(out) = command
-        .current_dir(root)
-        .env("SUSI_PARK_REFS_FETCHED", "1")
-        .stderr(std::process::Stdio::null())
-        .output()
-    {
-        let said = String::from_utf8_lossy(&out.stdout);
-        if !said.trim().is_empty() {
-            eprintln!("ℹ️  {}", said.trim());
-        }
+    use susi_gawd::admin::park::{park_primary, Mode};
+    let parked = park_primary(root, Mode::SyncOnly { refs_fetched: true });
+    if !parked.out.trim().is_empty() {
+        eprintln!("ℹ️  {}", parked.out.trim());
     }
 }
 

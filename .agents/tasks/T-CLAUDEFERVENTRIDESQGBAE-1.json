@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEFERVENTRIDESQGBAE-1",
+  "title": "Port scripts/park-primary.sh into susi workflow park-primary",
+  "goal": "Parking the primary checkout at origin/main (and --sync-only, which every workflow check and hook runs) is Rust (susi workflow park-primary) through std::process::Command, with no sh, flock, awk or cygpath; scripts/park-primary.sh is a stub that execs susi so the hooks, the loop scripts and branches cut before the port keep working; susi workflow check calls it in process; tests/park_primary.rs pins the Rust behaviour through the stub and the binary, and a Windows test runs with Git's usr/bin off PATH",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "park_primary"
+    ]
+  },
+  "created_by": "CLAUDEFERVENTRIDESQGBAE",
+  "created_unix": 1793468568
+}
