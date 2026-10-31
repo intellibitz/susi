@@ -55,7 +55,6 @@ fn is_model_artifact(path: &str) -> bool {
         || path.ends_with(".safetensors")
         || path.ends_with(".onnx")
         || path.contains("/.ollama/models/blobs/")
-        || path.contains("\\.ollama\\models\\blobs\\")
 }
 
 /// Parent pid from `/proc/<pid>/stat`. The comm field may contain spaces and
@@ -66,14 +65,7 @@ fn parse_ppid(stat: &str) -> Option<u32> {
 }
 
 fn basename(token: &str) -> &str {
-    let name = token.rsplit(['/', '\\']).next().unwrap_or(token);
-    name.strip_suffix(".exe")
-        .or_else(|| name.strip_suffix(".EXE"))
-        .unwrap_or(name)
-}
-
-fn is_susi_binary(name: &str) -> bool {
-    name == "susi" || name.starts_with("susi-release")
+    token.rsplit('/').next().unwrap_or(token)
 }
 
 /// Classify a process by its argv and resolved executable. `None` means the
@@ -81,7 +73,7 @@ fn is_susi_binary(name: &str) -> bool {
 fn classify(argv: &[String], exe: Option<&str>) -> Option<&'static str> {
     let argv0 = basename(argv.first()?.as_str());
     let exe_name = exe.map(|e| basename(e.trim_end_matches(" (deleted)")));
-    let is_susi = is_susi_binary(argv0) || exe_name.is_some_and(is_susi_binary);
+    let is_susi = argv0 == "susi" || exe_name == Some("susi");
     if is_susi {
         return Some(if argv.iter().any(|a| a == "daemon-start") {
             "susi-daemon"
@@ -304,42 +296,6 @@ pub(crate) fn view() -> serde_json::Value {
                 in_use.entry(artifact).or_default().insert(pid);
             }
             procs.push(proc_);
-        }
-    } else {
-        let mut sys = sysinfo::System::new_with_specifics(
-            sysinfo::RefreshKind::nothing().with_processes(
-                sysinfo::ProcessRefreshKind::nothing()
-                    .with_cmd(sysinfo::UpdateKind::Always)
-                    .with_exe(sysinfo::UpdateKind::Always),
-            ),
-        );
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        for (pid, proc_) in sys.processes() {
-            let pid_u32 = pid.as_u32();
-            if let Some(ppid) = proc_.parent().map(sysinfo::Pid::as_u32) {
-                parents.insert(pid_u32, ppid);
-            }
-            let mut argv: Vec<String> = proc_
-                .cmd()
-                .iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect();
-            let exe = proc_.exe().map(|p| p.to_string_lossy().into_owned());
-            if argv.is_empty() {
-                if let Some(ref e) = exe {
-                    argv.push(e.clone());
-                } else {
-                    let name = proc_.name().to_string_lossy().into_owned();
-                    if !name.is_empty() {
-                        argv.push(name);
-                    }
-                }
-            }
-            procs.push(Proc {
-                pid: pid_u32,
-                argv,
-                exe,
-            });
         }
     }
 
@@ -617,41 +573,6 @@ mod tests {
         );
         assert_eq!(classify(&argv(&["python3", "script.py"]), None), None);
         assert_eq!(classify(&argv(&["/usr/bin/kate", "susi.rs"]), None), None);
-        assert_eq!(
-            classify(
-                &argv(&[r"C:\Users\u\.susi\bin\susi.exe", "daemon-start"]),
-                Some(r"C:\Users\u\.susi\bin\susi.exe")
-            ),
-            Some("susi-daemon")
-        );
-        assert_eq!(
-            classify(
-                &argv(&[
-                    r"F:\src\github.com\intellibitz\susi\.git\susi-resume-perf\susi-release-current.exe",
-                    "daemon-start"
-                ]),
-                None
-            ),
-            Some("susi-daemon")
-        );
-        assert_eq!(
-            classify(
-                &argv(&[r"C:\Program Files\Ollama\ollama.exe", "serve"]),
-                None
-            ),
-            Some("ollama")
-        );
-        assert_eq!(
-            classify(
-                &argv(&[
-                    r"C:\Python312\python.exe",
-                    "-m",
-                    "vllm.entrypoints.api_server"
-                ]),
-                None
-            ),
-            Some("vllm")
-        );
     }
 
     #[test]
