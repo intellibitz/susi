@@ -525,7 +525,7 @@ fn the_gate_scopes_to_the_crates_the_diff_touched() {
         "scoped clippy: {gates}"
     );
     assert!(
-        gates.contains("nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p cell\n"),
+        gates.contains("nextest run --locked --no-fail-fast --no-tests=pass --status-level slow --final-status-level slow --retries 2 -p cell\n"),
         "scoped tests, once, under nextest with per-test retries: {gates}"
     );
     assert!(!gates.contains("--workspace"), "{gates}");
@@ -615,7 +615,7 @@ fn a_workspace_wide_gate_is_hermetic_and_runs_under_nextest_too() {
     );
     assert!(
         gates.contains(
-            "nextest run --locked --no-fail-fast --no-tests=pass --retries 2 --workspace\n"
+            "nextest run --locked --no-fail-fast --no-tests=pass --status-level slow --final-status-level slow --retries 2 --workspace\n"
         ),
         "the workspace-wide run is one hermetic nextest pass: {gates}"
     );
@@ -703,7 +703,7 @@ fn a_cargo_acceptance_the_gate_covered_is_not_run_again() {
     );
     let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
     assert!(
-        gates.contains("nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p cell\n"),
+        gates.contains("nextest run --locked --no-fail-fast --no-tests=pass --status-level slow --final-status-level slow --retries 2 -p cell\n"),
         "the gate ran cell's tests: {gates}"
     );
     assert!(
