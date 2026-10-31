@@ -70,11 +70,26 @@ fi
 
 receipt_sha=$(git rev-parse --verify --quiet "$receipt_ref" 2>/dev/null || true)
 done_sha=$(git rev-parse --verify --quiet "$done_ref" 2>/dev/null || true)
-if [ -z "$receipt_sha" ] || [ -z "$done_sha" ]; then
-    die "publication requires the accepted receipt and committed completion"
+if [ -z "$done_sha" ]; then
+    die "publication requires the committed completion"
 fi
-receipt_body=$(git cat-file -p "$receipt_sha" 2>/dev/null) || die "invalid workflow blob: $receipt_ref"
 done_body=$(git cat-file -p "$done_sha" 2>/dev/null) || die "invalid workflow blob: $done_ref"
+jq -e '.closed | type == "object"' <<<"$done_body" >/dev/null 2>&1 || die "the committed completion has no closure record"
+if [ -n "$receipt_sha" ]; then
+    receipt_body=$(git cat-file -p "$receipt_sha" 2>/dev/null) || die "invalid workflow blob: $receipt_ref"
+else
+    # The close deferred its receipt to this publication (finish sets
+    # SUSI_CLOSE_DEFER_RECEIPT): build it from the committed completion and
+    # the claim's scopes, and create it in the same push — with an empty
+    # lease, so a receipt that appeared meanwhile refuses the whole push.
+    jq -e --arg task "$task" --arg agent "$agent" '.id == $task and .closed.by == $agent' \
+        <<<"$done_body" >/dev/null 2>&1 || die "the committed completion is not this agent's close of the task"
+    receipt_body=$(printf '%s\n%s\n' "$done_body" "$claim_body" | jq -c --slurp --arg task "$task" --arg agent "$agent" '
+        .[0] as $d | .[1] as $c |
+        {task: $task, agent: $agent, head: $d.closed.commit, closed_unix: ($d.closed.at_unix // 0)}
+        + (if ($c.scopes | type) == "array" and ($c.scopes | length) > 0 then {scopes: $c.scopes} else {} end)
+    ') || die "cannot build the deferred receipt"
+fi
 
 for rec in "$claim_body" "$index_body"; do
     [ -n "$rec" ] || continue
@@ -83,7 +98,6 @@ for rec in "$claim_body" "$index_body"; do
         <<<"$rec" >/dev/null 2>&1 || die "ownership changed before publication; claim retained"
 done
 
-jq -e '.closed | type == "object"' <<<"$done_body" >/dev/null 2>&1 || die "the committed completion has no closure record"
 printf '%s\n%s\n' "$receipt_body" "$done_body" | jq -e --slurp --arg task "$task" --arg agent "$agent" '
     .[0] as $acc | .[1] as $d |
     $acc.task == $task and $acc.agent == $agent and $d.id == $task and $d.closed.by == $agent and $d.closed.commit == $acc.head
@@ -129,7 +143,11 @@ fi
 {
     printf 'start\n'
     printf 'delete %s %s\n' "$claim_ref" "$claim_sha"
-    printf 'update %s %s %s\n' "$receipt_ref" "$new_receipt" "$receipt_sha"
+    if [ -n "$receipt_sha" ]; then
+        printf 'update %s %s %s\n' "$receipt_ref" "$new_receipt" "$receipt_sha"
+    else
+        printf 'create %s %s\n' "$receipt_ref" "$new_receipt"
+    fi
     if [ -n "$index_sha" ]; then
         printf 'delete %s %s\n' "$agent_ref" "$index_sha"
     fi

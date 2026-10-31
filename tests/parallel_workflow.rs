@@ -131,7 +131,6 @@ impl World {
             "check-owed-runs.sh",
             "owed-task-receipts.sh",
             "gate-input-stamp.sh",
-            "workflow_git.py",
             "ci-changed-crates.sh",
             "check-hermetic-tests.sh",
             "posix-compat.sh",
@@ -248,6 +247,10 @@ impl World {
             .env_remove("SUSI_HERMETIC_RUNNER")
             .env_remove("SUSI_HERMETIC_RETRIES")
             .env_remove("SUSI_LOCAL_GATE")
+            // An outer `finish` forcing its own gate (`SUSI_GATE_NOCACHE=1`)
+            // must not force the fixture's: these tests prove the proof reuse.
+            .env_remove("SUSI_GATE_NOCACHE")
+            .env_remove("SUSI_GATE_SERIAL")
             // So does the cargo it runs: the fixture's builds stay out of the
             // caller's target.
             .env_remove("CARGO_TARGET_DIR")
