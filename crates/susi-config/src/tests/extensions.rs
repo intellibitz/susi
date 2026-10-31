@@ -318,6 +318,246 @@ fn cloud_env_keys_are_read_from_file_without_touching_process_env() {
     });
 }
 
+fn modified(path: &std::path::Path) -> std::time::SystemTime {
+    std::fs::metadata(path).unwrap().modified().unwrap()
+}
+
+/// A moment well after every file a test wrote: no entry is still racy.
+fn a_minute_later() -> std::time::SystemTime {
+    std::time::SystemTime::now() + std::time::Duration::from_secs(60)
+}
+
+fn decisions() -> usize {
+    ENSURE_DECISIONS.with(std::cell::Cell::get)
+}
+
+/// Every catalog read re-derives the substrate. Once it has settled nothing
+/// is rewritten: each rewrite was a synced temp file and a rename, hundreds
+/// of them per CLI command.
+#[test]
+fn a_settled_substrate_is_not_rewritten() {
+    with_temp_home(|| {
+        ensure_extensions_substrate().unwrap();
+        let digests = extensions_root()
+            .join("default")
+            .join(".bundled-digests.json");
+        let before = (modified(&state_path()), modified(&digests));
+        // Past the filesystem's clock granularity, so a rewrite would show.
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        // The full decision, not the remembered answer.
+        invalidate_extension_caches();
+        let decided = decisions();
+        ensure_extensions_substrate().unwrap();
+        assert_eq!(decisions(), decided + 1, "the substrate was decided again");
+        assert_eq!((modified(&state_path()), modified(&digests)), before);
+    });
+}
+
+/// A pack that fails its integrity check is quarantined once; the catalog
+/// reads after that do not rewrite the state to record it again.
+#[test]
+fn a_standing_quarantine_is_not_rewritten_by_every_read() {
+    with_temp_home(|| {
+        ensure_extensions_substrate().unwrap();
+        // An operator edit the pack's checksums do not cover.
+        let tampered = extensions_root().join("default").join("leading-mcp.json");
+        std::fs::write(&tampered, "[]").unwrap();
+        let first: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[1]");
+        assert_eq!(
+            first,
+            vec![serde_json::json!(1)],
+            "the bundled catalog serves"
+        );
+        // The second read records the standing quarantine in place of the
+        // first read's reason; from then on the state is settled.
+        let _: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[1]");
+        let recorded = std::fs::read_to_string(state_path()).unwrap();
+        assert!(recorded.contains("quarantined"), "{recorded}");
+        let before = modified(&state_path());
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let _: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[1]");
+        assert_eq!(modified(&state_path()), before);
+        assert_eq!(std::fs::read_to_string(state_path()).unwrap(), recorded);
+    });
+}
+
+/// The answer is remembered while nothing it read has changed, and decided
+/// afresh the moment something has — here another process activating a
+/// pack by editing the state file, which no in-process invalidation
+/// announces.
+#[test]
+fn the_remembered_pack_follows_an_edit_on_disk() {
+    with_temp_home(|| {
+        create_pack("mine").unwrap();
+        let later = a_minute_later();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        let decided = decisions();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        assert_eq!(
+            decisions(),
+            decided,
+            "an unchanged substrate is not decided again"
+        );
+        let state = std::fs::read_to_string(state_path()).unwrap();
+        let edited = state.replace("\"active\": \"default\"", "\"active\": \"mine\"");
+        assert_ne!(state, edited);
+        std::fs::write(state_path(), edited).unwrap();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "mine");
+        // A new pack directory is seen the same way.
+        let ours = extensions_root().join("ours");
+        private_dir(&ours).unwrap();
+        std::fs::write(
+            ours.join("manifest.json"),
+            r#"{"id": "ours", "name": "Ours", "version": "0.0.1"}"#,
+        )
+        .unwrap();
+        let decided = decisions();
+        ensure_extensions_substrate_at(later).unwrap();
+        assert_eq!(decisions(), decided + 1, "a new pack was not looked at");
+        let state = std::fs::read_to_string(state_path()).unwrap();
+        assert!(state.contains("\"ours\""), "{state}");
+    });
+}
+
+/// The state file hard-linked from another directory (a dotfiles copy) and
+/// edited through that other link. On Windows the extensions directory's
+/// own listing keeps the old size and time for such a write, so a stamp
+/// built from it would not change and the old pack would be answered from
+/// memory; the stamp stats each path, which sees the write.
+#[test]
+fn an_edit_through_a_hard_link_elsewhere_is_seen() {
+    with_temp_home(|| {
+        create_pack("mine").unwrap();
+        let later = a_minute_later();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        let dotfiles = extensions_root().parent().unwrap().join("dotfiles");
+        std::fs::create_dir_all(&dotfiles).unwrap();
+        let other = dotfiles.join("state.json");
+        std::fs::hard_link(state_path(), &other).unwrap();
+        // Remembered while nothing changed.
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        let decided = decisions();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        assert_eq!(decisions(), decided);
+        let state = std::fs::read_to_string(&other).unwrap();
+        let edited = state.replace("\"active\": \"default\"", "\"active\": \"mine\"");
+        assert_ne!(state, edited);
+        std::fs::write(&other, edited).unwrap();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "mine");
+    });
+}
+
+/// A file rewritten within one timestamp tick at the same size keeps its
+/// size and modification time: a stamp taken that soon after a write is not
+/// trusted, so the rewrite is read rather than answered from memory.
+#[test]
+fn a_rewrite_within_one_timestamp_tick_is_not_hidden() {
+    with_temp_home(|| {
+        create_pack("mine").unwrap();
+        create_pack("ours").unwrap();
+        let activate = |id: &str, at: std::time::SystemTime| {
+            let state = std::fs::read_to_string(state_path()).unwrap();
+            let active = serde_json::from_str::<serde_json::Value>(&state).unwrap()["active"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let edited = state.replace(
+                &format!("\"active\": \"{active}\""),
+                &format!("\"active\": \"{id}\""),
+            );
+            std::fs::write(state_path(), edited).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(state_path())
+                .unwrap()
+                .set_modified(at)
+                .unwrap();
+        };
+        // Everything else was written a minute before `tick`.
+        let tick = a_minute_later();
+        activate("mine", tick);
+        let just_after = tick + std::time::Duration::from_millis(1);
+        assert_eq!(
+            ensure_extensions_substrate_at(just_after).unwrap().id,
+            "mine"
+        );
+        // Same size, same modification time, other bytes.
+        activate("ours", tick);
+        assert_eq!(
+            ensure_extensions_substrate_at(just_after).unwrap().id,
+            "ours"
+        );
+    });
+}
+
+/// The state file replaced by another file of the same size whose
+/// modification time was set back to the old one's (`cp -p`, `rsync -a`,
+/// a restore from backup): name, size and mtime all match, but it is
+/// another file, and the stamp's file identity sees that.
+#[test]
+fn a_replaced_file_with_the_old_size_and_mtime_is_seen() {
+    with_temp_home(|| {
+        // As long a name as "default", so the edit keeps the file's size.
+        let target = "seventh";
+        create_pack(target).unwrap();
+        let later = a_minute_later();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        let state = std::fs::read_to_string(state_path()).unwrap();
+        let edited = state.replace("\"active\": \"default\"", "\"active\": \"seventh\"");
+        assert_ne!(edited, state);
+        assert_eq!(edited.len(), state.len());
+        let decided = decisions();
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, "default");
+        assert_eq!(decisions(), decided, "remembered while unchanged");
+
+        let old = std::fs::metadata(state_path()).unwrap();
+        let staged = state_path().with_extension("restored");
+        std::fs::write(&staged, &edited).unwrap();
+        let times = std::fs::FileTimes::new().set_modified(old.modified().unwrap());
+        // A restore gives the file its own creation time.
+        #[cfg(windows)]
+        let times = {
+            use std::os::windows::fs::FileTimesExt;
+            times.set_created(old.created().unwrap() - std::time::Duration::from_secs(3600))
+        };
+        std::fs::File::options()
+            .write(true)
+            .open(&staged)
+            .unwrap()
+            .set_times(times)
+            .unwrap();
+        std::fs::rename(&staged, state_path()).unwrap();
+        let now = std::fs::metadata(state_path()).unwrap();
+        assert_eq!(now.len(), old.len());
+        assert_eq!(now.modified().unwrap(), old.modified().unwrap());
+        assert_eq!(ensure_extensions_substrate_at(later).unwrap().id, target);
+    });
+}
+
+/// A decision that warns (here about a pack the host cannot load) warns on
+/// every call until the operator acts, as it always did: it is taken again
+/// each time, never answered from memory.
+#[test]
+fn a_decision_that_warns_is_taken_on_every_call() {
+    with_temp_home(|| {
+        ensure_extensions_substrate().unwrap();
+        let bad = extensions_root().join("badapi");
+        private_dir(&bad).unwrap();
+        std::fs::write(
+            bad.join("manifest.json"),
+            r#"{"id": "badapi", "name": "Bad", "version": "0.0.1", "apiVersion": "99"}"#,
+        )
+        .unwrap();
+        let later = a_minute_later();
+        ensure_extensions_substrate_at(later).unwrap();
+        let decided = decisions();
+        ensure_extensions_substrate_at(later).unwrap();
+        ensure_extensions_substrate_at(later).unwrap();
+        assert_eq!(decisions(), decided + 2);
+    });
+}
+
 #[test]
 fn damaged_state_is_never_rewritten_or_reset() {
     with_temp_home(|| {

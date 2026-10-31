@@ -7,6 +7,7 @@ use crate::susi_sandbox::manager::DynamicModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use susi_vendor_candle::candle_core::quantized::gguf_file::Content as GgufContent;
 use susi_vendor_models::resumable_downloads::DownloadPlan;
 use susi_vendor_models::transactional_download::Store;
 
@@ -28,6 +29,92 @@ static MODEL_FAILURES: std::sync::OnceLock<DashMap<String, std::time::Instant>> 
     std::sync::OnceLock::new();
 
 pub struct ModelManager;
+
+/// Why a GGUF header could not be read.
+enum GgufRead {
+    /// An I/O error ended the read: it says nothing about the file.
+    Io,
+    /// The bytes are not a GGUF this build reads — a file shorter than its
+    /// own header claims among them.
+    Invalid,
+}
+
+/// The GGUF metadata and tensor table of `path`, with the file's length.
+/// Read through a buffer that keeps its own position: the walk is hundreds
+/// of thousands of small reads (each vocabulary string, its length, and the
+/// position check the parser makes before it), and unbuffered every one was
+/// a system call — seconds per local model on a Windows host. The parser
+/// sees the same bytes and positions either way.
+fn read_gguf_content(path: &Path) -> Result<(GgufContent, u64), GgufRead> {
+    let file = fs::File::open(path).map_err(|_| GgufRead::Io)?;
+    let len = file.metadata().map_err(|_| GgufRead::Io)?.len();
+    parse_gguf(file)
+        .map(|content| (content, len))
+        .map_err(|e| match candle_io_error(&e) {
+            Some(io) if !super::file_verdicts::decided_by_content(io) => GgufRead::Io,
+            _ => GgufRead::Invalid,
+        })
+}
+
+/// [`GgufContent::read`] over `source` through a [`PositionedReader`].
+fn parse_gguf<R: std::io::Read + std::io::Seek>(
+    source: R,
+) -> susi_vendor_candle::candle_core::Result<GgufContent> {
+    let mut reader = PositionedReader::new(source)?;
+    GgufContent::read(&mut reader)
+}
+
+/// The I/O error under a candle error, through its context, path and
+/// backtrace wrappers.
+// Every other variant — a foreign enum whose list changes with candle's
+// features (CUDA, Metal) — is no I/O error.
+#[allow(clippy::wildcard_enum_match_arm)]
+fn candle_io_error(error: &susi_vendor_candle::candle_core::Error) -> Option<&std::io::Error> {
+    use susi_vendor_candle::candle_core::Error;
+    match error {
+        Error::Io(io) => Some(io),
+        Error::WithBacktrace { inner, .. }
+        | Error::Context { inner, .. }
+        | Error::WithPath { inner, .. } => candle_io_error(inner),
+        _ => None,
+    }
+}
+
+/// A buffered reader that answers `stream_position` from its own count
+/// instead of asking the file, which would be a system call each time.
+struct PositionedReader<R> {
+    inner: std::io::BufReader<R>,
+    position: u64,
+}
+
+impl<R: std::io::Read + std::io::Seek> PositionedReader<R> {
+    fn new(mut inner: R) -> std::io::Result<Self> {
+        let position = inner.stream_position()?;
+        Ok(Self {
+            inner: std::io::BufReader::new(inner),
+            position,
+        })
+    }
+}
+
+impl<R: std::io::Read> std::io::Read for PositionedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.position = self.inner.seek(to)?;
+        Ok(self.position)
+    }
+
+    fn stream_position(&mut self) -> std::io::Result<u64> {
+        Ok(self.position)
+    }
+}
 
 impl ModelManager {
     pub fn record_inference_result(model: &str, success: bool) {
@@ -71,40 +158,29 @@ impl ModelManager {
     }
 
     pub(crate) fn valid_gguf_payload(path: &Path) -> bool {
-        type Entry = (u64, std::time::SystemTime, bool);
-        static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
-        let cache = CACHE.get_or_init(DashMap::new);
         let Ok(meta) = path.metadata() else {
             return false;
         };
         let Ok(modified) = meta.modified() else {
-            return Self::read_gguf_payload(path);
+            return Self::judge_gguf_payload(path).unwrap_or(false);
         };
-        if let Some(entry) = cache.get(path) {
-            if entry.0 == meta.len() && entry.1 == modified {
-                return entry.2;
-            }
-        }
-        let valid = Self::read_gguf_payload(path);
-        if cache.len() > 256 {
-            cache.clear();
-        }
-        cache.insert(path.to_path_buf(), (meta.len(), modified, valid));
-        valid
+        super::file_verdicts::remembered("gguf_payload", path, (meta.len(), modified), || {
+            Self::judge_gguf_payload(path)
+        })
     }
 
-    pub(crate) fn read_gguf_payload(path: &Path) -> bool {
-        let Ok(mut file) = fs::File::open(path) else {
-            return false;
+    /// Whether `path` holds a whole GGUF payload; `None` when an I/O error
+    /// ended the read, which says nothing about the file.
+    fn judge_gguf_payload(path: &Path) -> Option<bool> {
+        let (content, len) = match read_gguf_content(path) {
+            Ok(read) => read,
+            Err(GgufRead::Io) => return None,
+            Err(GgufRead::Invalid) => return Some(false),
         };
-        let Ok(metadata) = file.metadata() else {
-            return false;
-        };
-        let Ok(content) =
-            susi_vendor_candle::candle_core::quantized::gguf_file::Content::read(&mut file)
-        else {
-            return false;
-        };
+        Some(Self::gguf_payload_fits(&content, len))
+    }
+
+    fn gguf_payload_fits(content: &GgufContent, file_len: u64) -> bool {
         !content.tensor_infos.is_empty()
             && content.tensor_infos.values().all(|tensor| {
                 let Some(elements) = tensor
@@ -127,7 +203,7 @@ impl ModelManager {
                     .tensor_data_offset
                     .checked_add(tensor.offset)
                     .and_then(|start| start.checked_add(bytes as u64))
-                    .is_some_and(|end| end <= metadata.len())
+                    .is_some_and(|end| end <= file_len)
             })
     }
 
@@ -170,42 +246,32 @@ impl ModelManager {
     /// `valid_gguf_payload` — `Content::read` stops at the metadata table but
     /// still walks every tensor-info entry, which is not free on big models.
     pub fn supports_tool_calling(path: &Path) -> bool {
-        type Entry = (u64, std::time::SystemTime, bool);
-        static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
-        let cache = CACHE.get_or_init(DashMap::new);
         let Ok(meta) = path.metadata() else {
             return false;
         };
         let Ok(modified) = meta.modified() else {
-            return Self::read_gguf_template_supports_tools(path);
+            return Self::judge_gguf_template_supports_tools(path).unwrap_or(false);
         };
-        if let Some(entry) = cache.get(path) {
-            if entry.0 == meta.len() && entry.1 == modified {
-                return entry.2;
-            }
-        }
-        let capable = Self::read_gguf_template_supports_tools(path);
-        if cache.len() > 256 {
-            cache.clear();
-        }
-        cache.insert(path.to_path_buf(), (meta.len(), modified, capable));
-        capable
+        super::file_verdicts::remembered("gguf_tool_template", path, (meta.len(), modified), || {
+            Self::judge_gguf_template_supports_tools(path)
+        })
     }
 
-    fn read_gguf_template_supports_tools(path: &Path) -> bool {
-        let Ok(mut file) = fs::File::open(path) else {
-            return false;
+    /// Whether the GGUF at `path` declares a tool-capable chat template;
+    /// `None` when an I/O error ended the read.
+    fn judge_gguf_template_supports_tools(path: &Path) -> Option<bool> {
+        let content = match read_gguf_content(path) {
+            Ok((content, _)) => content,
+            Err(GgufRead::Io) => return None,
+            Err(GgufRead::Invalid) => return Some(false),
         };
-        let Ok(content) =
-            susi_vendor_candle::candle_core::quantized::gguf_file::Content::read(&mut file)
-        else {
-            return false;
-        };
-        content
-            .metadata
-            .get("tokenizer.chat_template")
-            .and_then(|v| v.to_string().ok())
-            .is_some_and(|t| Self::chat_template_supports_tools(t))
+        Some(
+            content
+                .metadata
+                .get("tokenizer.chat_template")
+                .and_then(|v| v.to_string().ok())
+                .is_some_and(|t| Self::chat_template_supports_tools(t)),
+        )
     }
 
     /// Whether any discovered local GGUF declares a tool-capable chat
@@ -705,6 +771,148 @@ mod tests {
             );
         }
         fs::remove_file(path).unwrap();
+    }
+
+    /// A one-tensor GGUF (version 3, four f32 values), whole.
+    fn one_tensor_gguf() -> Vec<u8> {
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(1u64.to_le_bytes()); // tensors
+        bytes.extend(1u64.to_le_bytes()); // metadata
+        bytes.extend(23u64.to_le_bytes());
+        bytes.extend(b"tokenizer.chat_template");
+        bytes.extend(8u32.to_le_bytes()); // string
+        bytes.extend(14u64.to_le_bytes());
+        bytes.extend(b"{% if tools %}");
+        bytes.extend(1u64.to_le_bytes()); // name length
+        bytes.push(b'x');
+        bytes.extend(1u32.to_le_bytes()); // dimensions
+        bytes.extend(4u64.to_le_bytes()); // four f32 values
+        bytes.extend(0u32.to_le_bytes()); // f32
+        bytes.extend(0u64.to_le_bytes()); // tensor offset
+        let aligned = bytes.len().div_ceil(32) * 32;
+        bytes.resize(aligned + 16, 0); // alignment, then the tensor
+        bytes
+    }
+
+    /// The buffered reader hands the parser the same bytes and positions as
+    /// the file itself: the same header, tensor table and data offset.
+    #[test]
+    fn a_buffered_gguf_read_parses_as_the_file_does() {
+        let path =
+            std::env::temp_dir().join(format!("susi_buffered_gguf_{}.gguf", std::process::id()));
+        fs::write(&path, one_tensor_gguf()).unwrap();
+        let direct = GgufContent::read(&mut fs::File::open(&path).unwrap()).unwrap();
+        let (buffered, len) = read_gguf_content(&path).ok().unwrap();
+        assert_eq!(len, fs::metadata(&path).unwrap().len());
+        assert_eq!(buffered.tensor_data_offset, direct.tensor_data_offset);
+        assert_eq!(
+            format!("{:?}", buffered.tensor_infos),
+            format!("{:?}", direct.tensor_infos)
+        );
+        assert_eq!(
+            format!("{:?}", buffered.metadata),
+            format!("{:?}", direct.metadata)
+        );
+        assert_eq!(ModelManager::judge_gguf_payload(&path), Some(true));
+        assert_eq!(
+            ModelManager::judge_gguf_template_supports_tools(&path),
+            Some(true)
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    /// A source that counts how often it is asked for bytes or its position:
+    /// each would be a system call on a file.
+    struct Counted<R> {
+        inner: R,
+        reads: std::rc::Rc<std::cell::Cell<usize>>,
+        positions: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl<R: std::io::Read> std::io::Read for Counted<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.reads.set(self.reads.get() + 1);
+            self.inner.read(buf)
+        }
+    }
+
+    impl<R: std::io::Seek> std::io::Seek for Counted<R> {
+        fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+            if to == std::io::SeekFrom::Current(0) {
+                self.positions.set(self.positions.get() + 1);
+            }
+            self.inner.seek(to)
+        }
+    }
+
+    /// The header walk asks the file for bytes a handful of times, not once
+    /// per field, and never asks it where it is after the start: the parser's
+    /// many small reads and position checks are answered from the buffer.
+    #[test]
+    fn a_gguf_header_walk_reaches_the_file_a_handful_of_times() {
+        let reads = std::rc::Rc::new(std::cell::Cell::new(0));
+        let positions = std::rc::Rc::new(std::cell::Cell::new(0));
+        let source = Counted {
+            inner: std::io::Cursor::new(one_tensor_gguf()),
+            reads: reads.clone(),
+            positions: positions.clone(),
+        };
+        let content = parse_gguf(source).unwrap();
+        assert_eq!(content.tensor_infos.len(), 1);
+        assert!(reads.get() <= 4, "{} reads of the source", reads.get());
+        assert!(
+            positions.get() <= 1,
+            "{} position queries to the source",
+            positions.get()
+        );
+    }
+
+    #[test]
+    fn the_positioned_reader_tracks_reads_and_seeks() {
+        use std::io::{Read, Seek, SeekFrom};
+        let data: Vec<u8> = (0..=255).collect();
+        let mut reader = PositionedReader::new(std::io::Cursor::new(data)).unwrap();
+        let mut two = [0u8; 2];
+        reader.read_exact(&mut two).unwrap();
+        assert_eq!((two, reader.stream_position().unwrap()), ([0, 1], 2));
+        assert_eq!(reader.seek(SeekFrom::End(0)).unwrap(), 256);
+        assert_eq!(reader.seek(SeekFrom::Start(10)).unwrap(), 10);
+        reader.read_exact(&mut two).unwrap();
+        assert_eq!((two, reader.stream_position().unwrap()), ([10, 11], 12));
+        assert_eq!(reader.seek(SeekFrom::Current(-2)).unwrap(), 10);
+        reader.read_exact(&mut two).unwrap();
+        assert_eq!(two, [10, 11]);
+    }
+
+    /// A file whose bytes are not a whole GGUF gets a verdict; a read an
+    /// I/O error ended (here: the path is a directory) gets none, so it is
+    /// never remembered.
+    #[test]
+    fn a_gguf_read_error_is_told_apart_from_a_bad_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi_gguf_read_error_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(ModelManager::judge_gguf_payload(&dir), None);
+        assert_eq!(ModelManager::judge_gguf_template_supports_tools(&dir), None);
+        let truncated = dir.join("truncated.gguf");
+        let whole = one_tensor_gguf();
+        fs::write(&truncated, &whole[..30]).unwrap();
+        assert_eq!(ModelManager::judge_gguf_payload(&truncated), Some(false));
+        let garbage = dir.join("garbage.gguf");
+        fs::write(&garbage, vec![7u8; whole.len()]).unwrap();
+        assert_eq!(ModelManager::judge_gguf_payload(&garbage), Some(false));
+        assert_eq!(
+            ModelManager::judge_gguf_template_supports_tools(&garbage),
+            Some(false)
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     /// Regression for the auto step-up/step-down feature: a Simple prompt

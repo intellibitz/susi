@@ -527,17 +527,18 @@ enum BatchEnd {
 /// The verdict of every module the batch could decide, with the per-import
 /// bound the single probe had: one import that hangs costs one bound, as it
 /// did, and the answers before it are kept. A module missing from the result
-/// is left to the single probe. Without `os.fork` (Windows) nothing is
-/// started: every module takes the single probe.
+/// is left to the single probe. Without `os.fork` (Windows) there is no
+/// batch: each module's single probe runs, several side by side, for at most
+/// [`SIDE_BY_SIDE_BOUND`] ([`probe_imports_each`]).
 pub(super) fn probe_imports(
     program: &Path,
     modules: &[String],
     per_import: std::time::Duration,
 ) -> std::collections::HashMap<String, ImportVerdict> {
-    let mut verdicts = std::collections::HashMap::new();
     if cfg!(not(unix)) {
-        return verdicts;
+        return probe_imports_each(program, modules, per_import.min(SIDE_BY_SIDE_BOUND));
     }
+    let mut verdicts = std::collections::HashMap::new();
     let mut undecided: std::collections::HashSet<String> = Default::default();
     loop {
         let pending: Vec<String> = modules
@@ -566,6 +567,123 @@ pub(super) fn probe_imports(
         }
     }
     verdicts
+}
+
+/// Each module's single probe — `python -c "import X"`, the command a
+/// preflight outside a scan runs — started side by side instead of one after
+/// another, each given `bound`: fifteen interpreters in turn held every
+/// Windows `susi` command that primes the catalogs for seconds, most of
+/// them for frameworks that are not installed.
+///
+/// Only an answer the single probe run alone would give is kept: the import
+/// succeeded, or the interpreter reported the module itself not installed.
+/// Running beside others can make an import slower, short of memory, or a
+/// busy Windows host fail to start one more process
+/// (`STATUS_DLL_INIT_FAILED`); a module cut off at `bound`, cut down, never
+/// started, or failing any other way is left out, and the preflight runs its
+/// single probe by itself, exactly as before. At most [`MAX_IMPORT_WORKERS`]
+/// at a time, and no more than half the cores: each import of a large
+/// framework reads and compiles hundreds of files.
+pub(super) fn probe_imports_each(
+    program: &Path,
+    modules: &[String],
+    bound: std::time::Duration,
+) -> std::collections::HashMap<String, ImportVerdict> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let workers = (std::thread::available_parallelism().map_or(2, |n| n.get()) / 2)
+        .clamp(1, MAX_IMPORT_WORKERS)
+        .min(modules.len());
+    let next = AtomicUsize::new(0);
+    let verdicts = std::sync::Mutex::new(std::collections::HashMap::new());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                while let Some(module) = modules.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    if let Some(verdict) = single_import_verdict(program, module, bound) {
+                        verdicts
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(module.clone(), verdict);
+                    }
+                }
+            });
+        }
+    });
+    verdicts.into_inner().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Imports probed side by side at most ([`probe_imports_each`]).
+pub(super) const MAX_IMPORT_WORKERS: usize = 8;
+
+/// How long a scan's side-by-side probe of one import may take
+/// ([`probe_imports`] without `fork`). Long enough for an interpreter to
+/// start and report a framework not installed, or import a small one, on a
+/// busy host (under a second each, measured at 70% load); short of a large
+/// framework's import, which then gets the single probe on its own. A
+/// longer bound wins more when every large import finishes within
+/// [`PER_IMPORT`] side by side, and loses that bound outright when one does
+/// not (a busy host, an import that hangs): its single probe then runs
+/// again after it, so a hanging import would cost twice its bound on every
+/// command. This one costs at most itself.
+pub(super) const SIDE_BY_SIDE_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The single probe's verdict on `module`, when no neighbour could have
+/// changed it: the import succeeded, or the interpreter exited saying the
+/// module is not installed. `None` for anything else — cut off at the
+/// bound, cut down mid-run, never started, or an installed module that
+/// failed to import (which memory pressure alone can cause).
+fn single_import_verdict(
+    program: &Path,
+    module: &str,
+    bound: std::time::Duration,
+) -> Option<ImportVerdict> {
+    let out = crate::susi_core::bounded_cmd::output_within(
+        Command::new(program).args(["-c", &format!("import {module}")]),
+        bound,
+    )
+    .ok()?;
+    if out.status.success() {
+        return Some(ImportVerdict::Importable);
+    }
+    (!cut_down(&out.status) && reports_not_installed(&out.stderr, module))
+        .then_some(ImportVerdict::NotImportable)
+}
+
+/// Whether `stderr` is Python reporting `module`, or a package it is in, as
+/// not installed (`ModuleNotFoundError: No module named 'pkg.mod'`) — not a
+/// dependency of it, which an installed module can fail to find.
+fn reports_not_installed(stderr: &[u8], module: &str) -> bool {
+    let text = String::from_utf8_lossy(stderr);
+    let mut name = String::new();
+    module.split('.').any(|part| {
+        if !name.is_empty() {
+            name.push('.');
+        }
+        name.push_str(part);
+        text.contains(&format!("ModuleNotFoundError: No module named '{name}'"))
+    })
+}
+
+/// Whether a child that ended with `status` was cut down rather than
+/// exiting on its own: killed by a signal (Unix), or ended with an NTSTATUS
+/// error code (Windows: an access violation, or `STATUS_DLL_INIT_FAILED`
+/// when a busy host could not initialise one more process).
+fn cut_down(status: &std::process::ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        status.code().is_none()
+    }
+    #[cfg(windows)]
+    {
+        status
+            .code()
+            .is_some_and(|code| (code as u32) & 0xC000_0000 == 0xC000_0000)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = status;
+        false
+    }
 }
 
 fn run_import_batch(

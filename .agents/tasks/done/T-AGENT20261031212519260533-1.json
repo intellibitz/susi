@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT20261031212519260533-1",
+  "title": "Land the credential-scout and GPU-probe draft of 2026-10-29",
+  "goal": "The second workflow subagent worktree of the 2026-10-29 session held uncommitted work that never landed: the credential scout keeps a per-host interval record (credential_scout.last.json, one digest of host, vendors, endpoints and key fingerprints, scouted at most once per 300 s), the GPU VRAM total from nvidia-smi is memoized for the process (gpu_vram_gb) while the free query stays live, model lifecycle gains file verdicts (lifecycle/file_verdicts.rs) and selection reads them, susi-config gains extension and JSON helpers, and the external agent catalog grows. Rebased by three-way apply onto main of 2026-10-31; the one conflict (Windows available memory) keeps main's native Win32 probe, and the draft's PowerShell and kernel helpers it replaced are removed with their two tests. ARCHITECTURE.md describes the probes.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gemi-models"
+    ]
+  },
+  "created_by": "AGENT20261031212519260533",
+  "created_unix": 1793463555,
+  "closed": {
+    "at_unix": 1793464035,
+    "commit": "be6aa10b22a9538fca5392e552f4d040298f58f2",
+    "by": "AGENT20261031212519260533"
+  }
+}
