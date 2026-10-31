@@ -166,12 +166,15 @@ pre-push hook and compliance job.
 PR #1098's branch run took 48 s in `Compile Check`: the affected-package
 clippy took 9 s, while restoring Cargo's workspace target archive took 14 s.
 Its `Unsafe Exposure Ratchet` job took 26 s, including a 12 s Cargo target
-restore for a 5 s ratchet run. The `susi-unsafe-ratchet` crate is a small,
-standalone tool package, so both target restores cost more than their checks.
-The branch clippy keeps sccache and skips the workspace target archive when
-that package alone is affected; the existing standalone `xtask` exception is
-kept. Broader package sets still restore the main-built archive because their
-warm clippy savings exceed its download time.
+restore for a 5 s ratchet run. PR #1099 added the cache exception for the small,
+standalone `susi-unsafe-ratchet` package, but its own compile job took 73 s:
+the selector included the root application and its dependents, so target
+restore took 24 s, ONNX prefetch 5 s, and clippy 20 s. The crate's test-only
+change had been accompanied by workflow, script, and documentation edits; the
+selector mistakenly treated those inert paths as production changes and grew
+the reverse-dependent closure. This follow-up keeps inert paths out of that
+decision. The cache exception should then apply to test-only changes to this
+crate; remeasure the next matching branch run before claiming the saved time.
 
 ## What is not fixed here
 
