@@ -583,14 +583,26 @@ jobs:
           metadata_file="$RUNNER_TEMP/susi-cargo-metadata.json"
           cargo metadata --no-deps --format-version 1 > "$metadata_file"
           export SUSI_CARGO_METADATA_FILE="$metadata_file"
-          pkgs=$(./scripts/ci-changed-crates.sh --dependents)
-          root_test_targets=$(./scripts/ci-changed-crates.sh --root-test-targets)
+          # The combined plan uses the same diff and metadata for both the
+          # dependent lint closure and the focused root-test targets.
+          plan=$(./scripts/ci-changed-crates.sh --plan)
+          pkgs= root_test_targets= rootpkg=
+          while IFS=: read -r kind value; do
+            case "$kind" in
+              lint) pkgs+="$value"$'\n' ;;
+              root-test) root_test_targets+="$value"$'\n' ;;
+              root-package) rootpkg=$value ;;
+              test|'') ;;
+              *) pkgs=ALL; root_test_targets=; break ;;
+            esac
+          done <<<"$plan"
+          pkgs=${pkgs%$'\n'}
+          root_test_targets=${root_test_targets%$'\n'}
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
             echo 'AFFECTED_EOF'
           } >> "$GITHUB_OUTPUT"
-          rootpkg=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1)
           if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
             lintcmd="cargo clippy -p $rootpkg$(printf ' --test %s' $root_test_targets) --locked -- -D warnings"
             echo "lintcmd=$lintcmd" >> "$GITHUB_OUTPUT"

@@ -1,6 +1,6 @@
 [package]
 name = "susi-harness"
-version = "0.21.27"
+version = "0.21.28"
 license = "Apache-2.0"
 edition = "2021"
 description = "Model routing, metering and budgets for fleets of coding agents: a dynamic model ladder built from the API keys in the environment, an OpenAI-compatible metering gateway, and a durable cost ledger."
