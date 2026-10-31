@@ -129,6 +129,9 @@ export SUSI_HOME="$home"
 export SUSI_HERMETIC_FORBIDDEN="$home"
 # Drop a launch-time port offset the same way a real inherited env might set it.
 unset SUSI_PORT_OFFSET || true
+# These control the outer finish's own hooks and sync. Tests create separate
+# repositories and must exercise their hooks and workflow without that state.
+unset SUSI_SYNC_IN_FINISH SUSI_SYNC_SKIP_BOARD || true
 # Scope it when arguments are given (`-p susi-gawd`), so the rule can be enforced
 # per affected crate instead of only as a whole-workspace sweep nobody runs.
 runner="${SUSI_HERMETIC_RUNNER:-cargo-test}"
