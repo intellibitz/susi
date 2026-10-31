@@ -415,6 +415,43 @@ fn the_binary_judges_a_push_as_the_hook_does() {
     assert_eq!(code, 2);
 }
 
+/// `workflow finish` pushes `HEAD:refs/heads/<branch>`, so the hook sees
+/// `HEAD` as the local ref; the compliance script must still be told the
+/// checked-out branch (the claim is bound to it), never the word `HEAD`.
+#[test]
+fn the_compliance_script_is_told_the_checked_out_branch_for_a_head_push() {
+    let f = Fixture::new("headpush");
+    git(&f.work, &["switch", "--quiet", "-c", "work"]);
+    let seen = f.root.join("compliance-args");
+    let stub = f.work.join("scripts/check-workflow-compliance.sh");
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$4\" > \"{}\"\n",
+            seen.to_str().unwrap().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let lsha = git_out(&f.work, &["rev-parse", "HEAD"]);
+    let zero = "0".repeat(40);
+    for local_ref in ["HEAD", "refs/heads/work"] {
+        let _ = std::fs::remove_file(&seen);
+        let refspec = format!("{local_ref} {lsha} refs/heads/work {zero}\n");
+        let (code, _, err) = hook(&f.work, "workflow-guard", &["push"], &refspec, &[]);
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(
+            std::fs::read_to_string(&seen).unwrap_or_default().trim(),
+            "work",
+            "local ref {local_ref}: {err}"
+        );
+    }
+}
+
 /// One `git fetch` brings the branch tips, the claims and the close receipts:
 /// the snapshot every judgement of the push reads (`fetch-workflow-refs.sh`
 /// makes the same call for CI; `tests/ci_changed_crates.rs` pins that script).

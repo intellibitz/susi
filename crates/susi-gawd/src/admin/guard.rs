@@ -252,12 +252,18 @@ fn push_branch(root: &Path, r: &PushedRef<'_>, overrides: Overrides) -> Result<(
                 .and_then(|roots| roots.lines().last().map(str::to_string))
                 .unwrap_or_default()
         };
-        let local_branch = r
-            .local_ref
-            .strip_prefix("refs/heads/")
-            .unwrap_or(r.local_ref);
+        // The branch the claim must be held on. `git push origin
+        // HEAD:refs/heads/x` (what `workflow finish` runs) hands the hook
+        // `HEAD` as the local ref, so the checked-out branch is read for it,
+        // as the script's own fallback did for the bash guard (which, through
+        // a misspelt variable, passed it nothing at all); a detached HEAD
+        // passes nothing, and the ownership check is skipped, not guessed.
+        let local_branch = match r.local_ref.strip_prefix("refs/heads/") {
+            Some(branch) => branch.to_string(),
+            None => git(root, &["symbolic-ref", "-q", "--short", "HEAD"]).unwrap_or_default(),
+        };
         let status = script_command(&compliance)
-            .args([&base, r.local_sha, "origin", local_branch])
+            .args([&base, r.local_sha, "origin", &local_branch])
             .env("SUSI_WORKFLOW_REFS_FETCHED", "1")
             .current_dir(root)
             .stdin(Stdio::null())
