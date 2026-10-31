@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT20261031021059518379-19",
+  "title": "Skip Cargo metadata for CI only diffs",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "combined_gate_plan_matches_individual_modes"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793467303
+}
