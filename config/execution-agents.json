@@ -1,40 +1,9 @@
 [
   {
-    "id": "claude-code",
-    "name": "Claude Code",
-    "peer_name": "ClaudeCodeAgent",
-    "rank": 1,
-    "documentation": "https://code.claude.com/docs/en/setup",
-    "adapter": {
-      "kind": "command",
-      "program": "claude",
-      "args": [
-        "-p",
-        "{prompt}"
-      ]
-    }
-  },
-  {
-    "id": "cursor",
-    "name": "Cursor Agent",
-    "peer_name": "CursorAgent",
-    "rank": 2,
-    "documentation": "https://cursor.com/docs/cli/installation",
-    "adapter": {
-      "kind": "command",
-      "program": "cursor-agent",
-      "args": [
-        "-p",
-        "--trust",
-        "{prompt}"
-      ]
-    }
-  },
-  {
     "id": "codex",
     "name": "Codex Agent",
     "peer_name": "CodexAgent",
-    "rank": 3,
+    "rank": 1,
     "documentation": "https://developers.openai.com/codex/cli",
     "adapter": {
       "kind": "command",
@@ -50,7 +19,7 @@
     "id": "roo-code",
     "name": "Roo Code",
     "peer_name": "RooCodeAgent",
-    "rank": 4,
+    "rank": 2,
     "documentation": "https://github.com/RooCodeInc/Roo-Code/tree/main/apps/cli",
     "adapter": {
       "kind": "command",
@@ -66,7 +35,7 @@
     "id": "cline",
     "name": "Cline",
     "peer_name": "ClineAgent",
-    "rank": 5,
+    "rank": 3,
     "documentation": "https://docs.cline.bot/usage/cli-overview",
     "adapter": {
       "kind": "command",
@@ -79,33 +48,10 @@
     }
   },
   {
-    "id": "devin",
-    "name": "Devin",
-    "peer_name": "DevinAgent",
-    "rank": 6,
-    "documentation": "https://docs.devin.ai/api-reference/v3/sessions/post-organizations-sessions",
-    "adapter": {
-      "kind": "devin",
-      "api_key_env": "DEVIN_API_KEY",
-      "org_id_env": "DEVIN_ORG_ID"
-    }
-  },
-  {
-    "id": "manus",
-    "name": "Manus",
-    "peer_name": "ManusAgent",
-    "rank": 7,
-    "documentation": "https://open.manus.im/docs/v2/task.create",
-    "adapter": {
-      "kind": "manus",
-      "api_key_env": "MANUS_API_KEY"
-    }
-  },
-  {
     "id": "qwen-agent",
     "name": "Qwen-Agent",
     "peer_name": "QwenAgent",
-    "rank": 8,
+    "rank": 4,
     "documentation": "https://github.com/QwenLM/Qwen-Agent",
     "adapter": {
       "kind": "qwen",
@@ -116,7 +62,7 @@
     "id": "openhands",
     "name": "OpenHands",
     "peer_name": "OpenHandsAgent",
-    "rank": 9,
+    "rank": 5,
     "documentation": "https://docs.openhands.dev/openhands/usage/cli/headless",
     "adapter": {
       "kind": "command",
@@ -132,26 +78,10 @@
     }
   },
   {
-    "id": "github-copilot",
-    "name": "GitHub Copilot Agent",
-    "peer_name": "GithubCopilotAgent",
-    "rank": 10,
-    "documentation": "https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically",
-    "adapter": {
-      "kind": "command",
-      "program": "copilot",
-      "args": [
-        "--no-ask-user",
-        "-p",
-        "{prompt}"
-      ]
-    }
-  },
-  {
     "id": "kilo-code",
     "name": "Kilo Code",
     "peer_name": "KiloCodeAgent",
-    "rank": 11,
+    "rank": 6,
     "documentation": "https://kilo.ai/docs/code-with-ai/platforms/cli",
     "adapter": {
       "kind": "command",
@@ -167,7 +97,7 @@
     "id": "gemini-cli",
     "name": "Gemini CLI",
     "peer_name": "GeminiCliAgent",
-    "rank": 12,
+    "rank": 7,
     "documentation": "https://google-gemini.github.io/gemini-cli/docs/cli/headless.html",
     "adapter": {
       "kind": "command",
@@ -186,7 +116,7 @@
     "id": "aider",
     "name": "Aider",
     "peer_name": "AiderAgent",
-    "rank": 13,
+    "rank": 8,
     "documentation": "https://aider.chat/docs/scripting.html",
     "adapter": {
       "kind": "command",
@@ -205,7 +135,7 @@
     "id": "swe-agent",
     "name": "SWE-agent",
     "peer_name": "SweAgent",
-    "rank": 14,
+    "rank": 9,
     "documentation": "https://swe-agent.com/latest/usage/hello_world/",
     "adapter": {
       "kind": "command",
@@ -226,7 +156,7 @@
     "id": "browser-use",
     "name": "Browser Use",
     "peer_name": "BrowserUseAgent",
-    "rank": 15,
+    "rank": 10,
     "documentation": "https://docs.browser-use.com/open-source/browser-use-cli",
     "adapter": {
       "kind": "command",
@@ -242,7 +172,7 @@
     "id": "openviking",
     "name": "OpenViking",
     "peer_name": "OpenVikingAgent",
-    "rank": 16,
+    "rank": 11,
     "documentation": "https://docs.openviking.ai/en/getting-started/05-cli-setup",
     "adapter": {
       "kind": "command",
@@ -259,7 +189,7 @@
     "id": "deerflow",
     "name": "DeerFlow",
     "peer_name": "DeerFlowAgent",
-    "rank": 17,
+    "rank": 12,
     "documentation": "https://github.com/bytedance/deer-flow",
     "adapter": {
       "kind": "command",
@@ -274,7 +204,7 @@
     "id": "gemini-acp",
     "name": "Gemini CLI (ACP)",
     "peer_name": "GeminiAcpAgent",
-    "rank": 18,
+    "rank": 13,
     "documentation": "https://agentclientprotocol.com",
     "adapter": {
       "kind": "acp",
@@ -288,7 +218,7 @@
     "id": "a2a",
     "name": "Remote A2A agent",
     "peer_name": "A2aRemoteAgent",
-    "rank": 19,
+    "rank": 14,
     "documentation": "https://a2a-protocol.org",
     "adapter": {
       "kind": "a2a",
@@ -300,7 +230,7 @@
     "id": "openhands-server",
     "name": "OpenHands (server / Cloud API)",
     "peer_name": "OpenHandsServerAgent",
-    "rank": 20,
+    "rank": 15,
     "documentation": "https://docs.openhands.dev/openhands/usage/api/v1",
     "adapter": {
       "kind": "open_hands_server",
@@ -309,4 +239,3 @@
     }
   }
 ]
-

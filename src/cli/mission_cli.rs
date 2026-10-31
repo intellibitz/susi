@@ -83,7 +83,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::Temporal { .. }
         | Commands::E2b { .. }
         | Commands::Haystack { .. }
-        | Commands::N8n { .. }
         | Commands::Run { .. }
         | Commands::Chat { .. }
         | Commands::Code { .. }

@@ -57,7 +57,7 @@ jobs:
           # fastembed) no longer ships prebuilt binaries for
           # x86_64-apple-darwin, so the build fails in the ort-sys build
           # script. Re-add if the embedder gains a source-build path.
-          - os: macos-14
+          - os: macos-15
             name: macos-aarch64
             artifact: susi-macos-aarch64
             src: target/dist/susi

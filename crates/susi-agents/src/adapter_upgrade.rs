@@ -59,11 +59,11 @@ mod tests {
             program: "echo".into(),
             args: vec!["hello".into()],
         };
-        let verdict = upgrade_adapter(&manager, "claude-code", &valid, 2).unwrap();
+        let verdict = upgrade_adapter(&manager, "codex", &valid, 2).unwrap();
         assert_eq!(verdict, SwitchVerdict::Switched);
 
         // Downgrade is rejected
-        let downgrade = upgrade_adapter(&manager, "claude-code", &valid, 1).unwrap();
+        let downgrade = upgrade_adapter(&manager, "codex", &valid, 1).unwrap();
         assert_eq!(downgrade, SwitchVerdict::RejectedDowngrade);
 
         // Invalid candidate fails contract check and preserves active
@@ -71,7 +71,7 @@ mod tests {
             program: "".into(),
             args: vec![],
         };
-        let failure = upgrade_adapter(&manager, "claude-code", &invalid, 3).unwrap();
+        let failure = upgrade_adapter(&manager, "codex", &invalid, 3).unwrap();
         assert_eq!(failure, SwitchVerdict::RejectedContractFailure);
 
         let _ = std::fs::remove_dir_all(&dir);

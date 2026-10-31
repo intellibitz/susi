@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT20261031021059518379-13",
+  "title": "Move release builds off retired macOS runner",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "every_release_job_is_bounded"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793458368,
+  "closed": {
+    "at_unix": 1793458728,
+    "commit": "98a93b3f9a2a1c7e9dfeaea21b00d68d81b55799",
+    "by": "AGENT20261031021059518379"
+  }
+}

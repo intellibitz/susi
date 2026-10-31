@@ -66,7 +66,6 @@ pub mod infer_batch;
 pub mod key_detect;
 pub mod key_rotation;
 pub mod llamacpp_launcher;
-pub mod lmstudio_models;
 pub mod local_ecosystem;
 pub mod model_deprecation;
 pub mod model_store_dedupe;

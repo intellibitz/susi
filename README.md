@@ -442,7 +442,7 @@ susi keys check               # one read-only /models call per vendor: valid / r
 susi keys models fireworks    # the models a vendor serves right now
 
 # Local AI ecosystem: what is installed, what is running, what the hardware can host
-susi ecosystem scan           # hardware, engines (Ollama, LM Studio, llama.cpp, vLLM, …), GPU backends
+susi ecosystem scan           # hardware, engines (Ollama, llama.cpp, vLLM, …), GPU backends
 susi ecosystem start ollama   # only engines that need no model choice
 
 # The brain: which model susi trusts for which kind of work, and why
@@ -527,8 +527,8 @@ susi is hardware-aware at startup and manages the AI you already run.
 
 - **Local.** At bootstrap it inventories the hardware profile and the GPU
   backends it finds evidence of (CUDA, ROCm, Metal, Vulkan, oneAPI) together with
-  the installed local engines and model stores: Ollama, LM Studio, llama.cpp,
-  vLLM, SGLang, LocalAI, Jan, GPT4All, KoboldCpp, text-generation-webui and the
+  the installed local engines and model stores: Ollama, llama.cpp,
+  vLLM, SGLang, LocalAI, Jan, GPT4All and the
   Hugging Face cache — installed, running, endpoint, version, and whether susi can
   start it. The result is saved to `~/.susi/local_ecosystem.json`; `susi
   ecosystem scan|status|start <id>` shows it. `start` only launches engines that
@@ -548,8 +548,6 @@ susi drives external autonomous agents with the keys you registered (`susi keys 
 
 | Entry | Transport | Notes |
 |---|---|---|
-| `cursor` | headless CLI (`cursor-agent -p --trust`) | runs in the task's workspace; `--trust` is what lets a new directory run headless, so use it only in directories you own |
-| `devin` | Devin API v3 (cloud) | `DEVIN_API_KEY` + `DEVIN_ORG_ID`; a finished session settles as `waiting` (it awaits your reply): `susi agents send <id> "…"` continues it, `susi agents cancel <id>` closes it |
 | `openhands` | headless CLI | registered provider key is mapped to `LLM_API_KEY` / `LLM_BASE_URL`; an explicit `LLM_API_KEY` always wins and no model is chosen for you |
 | `openhands-server` | OpenHands app-server / Cloud REST (`/api/v1/app-conversations`) | `OPENHANDS_API_KEY`; cancel pauses the sandbox; follow-up messages are refused because the API documents none |
 | `gemini-acp` | Agent Client Protocol over stdio | any ACP agent by overriding program/args; tool permission requests are denied unless `SUSI_ACP_AUTO_APPROVE=1` |

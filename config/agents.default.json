@@ -246,40 +246,6 @@
     "is_core": true
   },
   {
-    "name": "ClaudeCodeAgent",
-    "description": "Claude Code managed executor; setup and task lifecycle via `susi agents`.",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "claudecode"
-    ],
-    "semantic_anchors": [
-      "claudecode",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "CursorAgent",
-    "description": "Cursor Agent managed executor; setup and task lifecycle via `susi agents`.",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "cursor"
-    ],
-    "semantic_anchors": [
-      "cursor",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
     "name": "CodexAgent",
     "description": "Codex Agent managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
@@ -324,40 +290,6 @@
     ],
     "semantic_anchors": [
       "cline",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "DevinAgent",
-    "description": "Devin managed executor; setup and task lifecycle via `susi agents`.",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "devin"
-    ],
-    "semantic_anchors": [
-      "devin",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "ManusAgent",
-    "description": "Manus managed executor; setup and task lifecycle via `susi agents`.",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "manus"
-    ],
-    "semantic_anchors": [
-      "manus",
       "coding-agent",
       "peer"
     ],
@@ -583,139 +515,249 @@
     "is_core": false
   },
   {
-    "name": "GithubCopilotAgent",
-    "description": "GitHub Copilot Agent managed executor; setup and task lifecycle via `susi agents`.",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "githubcopilot"
-    ],
-    "semantic_anchors": [
-      "githubcopilot",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
     "name": "LangGraphEngine",
     "description": "LangGraph managed agent framework; setup via `susi langgraph` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "langgraph"],
-    "semantic_anchors": ["langgraph", "agent-framework", "peer", "susi-langgraph"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "langgraph"
+    ],
+    "semantic_anchors": [
+      "langgraph",
+      "agent-framework",
+      "peer",
+      "susi-langgraph"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "OpenAIAgentsEngine",
     "description": "OpenAI Agents SDK managed framework; setup via `susi openai-agents` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "openai-agents"],
-    "semantic_anchors": ["openai-agents", "agent-framework", "peer", "susi-openai-agents"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "openai-agents"
+    ],
+    "semantic_anchors": [
+      "openai-agents",
+      "agent-framework",
+      "peer",
+      "susi-openai-agents"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "AutoGenEngine",
     "description": "AutoGen managed agent framework; setup via `susi autogen` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "autogen"],
-    "semantic_anchors": ["autogen", "agent-framework", "peer", "susi-autogen"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "autogen"
+    ],
+    "semantic_anchors": [
+      "autogen",
+      "agent-framework",
+      "peer",
+      "susi-autogen"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "CrewAIEngine",
     "description": "CrewAI managed agent framework; setup via `susi crewai` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "crewai"],
-    "semantic_anchors": ["crewai", "agent-framework", "peer", "susi-crewai"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "crewai"
+    ],
+    "semantic_anchors": [
+      "crewai",
+      "agent-framework",
+      "peer",
+      "susi-crewai"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "QwenAgentEngine",
     "description": "Qwen-Agent managed framework; setup via `susi frameworks`.",
-    "categories": ["peer", "framework", "external", "qwen"],
-    "semantic_anchors": ["qwen-agent", "agent-framework", "peer"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "qwen"
+    ],
+    "semantic_anchors": [
+      "qwen-agent",
+      "agent-framework",
+      "peer"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "SemanticKernelEngine",
     "description": "Semantic Kernel managed agent framework; setup via `susi frameworks`.",
-    "categories": ["peer", "framework", "external", "semantic-kernel"],
-    "semantic_anchors": ["semantic-kernel", "agent-framework", "peer"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "semantic-kernel"
+    ],
+    "semantic_anchors": [
+      "semantic-kernel",
+      "agent-framework",
+      "peer"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "OpenHandsRuntimeEngine",
     "description": "OpenHands Runtime managed framework; setup via `susi frameworks`.",
-    "categories": ["peer", "framework", "external", "openhands"],
-    "semantic_anchors": ["openhands-runtime", "agent-framework", "peer"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "openhands"
+    ],
+    "semantic_anchors": [
+      "openhands-runtime",
+      "agent-framework",
+      "peer"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "LangChainEngine",
     "description": "LangChain managed agent framework; setup via `susi frameworks`.",
-    "categories": ["peer", "framework", "external", "langchain"],
-    "semantic_anchors": ["langchain", "agent-framework", "peer"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "langchain"
+    ],
+    "semantic_anchors": [
+      "langchain",
+      "agent-framework",
+      "peer"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "PydanticAIEngine",
     "description": "PydanticAI managed agent framework; setup via `susi frameworks`.",
-    "categories": ["peer", "framework", "external", "pydantic-ai"],
-    "semantic_anchors": ["pydantic-ai", "agent-framework", "peer"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "pydantic-ai"
+    ],
+    "semantic_anchors": [
+      "pydantic-ai",
+      "agent-framework",
+      "peer"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "LlamaIndexEngine",
     "description": "LlamaIndex Agent Framework managed engine; setup via `susi llamaindex` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "llamaindex"],
-    "semantic_anchors": ["llamaindex", "agent-framework", "peer", "susi-llamaindex"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "llamaindex"
+    ],
+    "semantic_anchors": [
+      "llamaindex",
+      "agent-framework",
+      "peer",
+      "susi-llamaindex"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "SmolAgentsEngine",
     "description": "Hugging Face smolagents managed framework; setup via `susi smolagents` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "smolagents"],
-    "semantic_anchors": ["smolagents", "agent-framework", "peer", "susi-smolagents"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "smolagents"
+    ],
+    "semantic_anchors": [
+      "smolagents",
+      "agent-framework",
+      "peer",
+      "susi-smolagents"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "TemporalEngine",
     "description": "Temporal durable workflow engine; setup via `susi temporal` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "temporal"],
-    "semantic_anchors": ["temporal", "durable-workflow", "peer", "susi-temporal"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "temporal"
+    ],
+    "semantic_anchors": [
+      "temporal",
+      "durable-workflow",
+      "peer",
+      "susi-temporal"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "E2bEngine",
     "description": "E2B cloud sandbox runtime; setup via `susi e2b` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "e2b"],
-    "semantic_anchors": ["e2b", "sandbox", "peer", "susi-e2b"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "e2b"
+    ],
+    "semantic_anchors": [
+      "e2b",
+      "sandbox",
+      "peer",
+      "susi-e2b"
+    ],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "HaystackEngine",
     "description": "Haystack document/RAG pipeline engine; setup via `susi haystack` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "haystack"],
-    "semantic_anchors": ["haystack", "rag", "peer", "susi-haystack"],
-    "base_rank": 0.88,
-    "is_core": false
-  },
-  {
-    "name": "N8nEngine",
-    "description": "n8n automation/event trigger engine; setup via `susi n8n` (or `susi frameworks`).",
-    "categories": ["peer", "framework", "external", "n8n"],
-    "semantic_anchors": ["n8n", "automation", "peer", "susi-n8n"],
+    "categories": [
+      "peer",
+      "framework",
+      "external",
+      "haystack"
+    ],
+    "semantic_anchors": [
+      "haystack",
+      "rag",
+      "peer",
+      "susi-haystack"
+    ],
     "base_rank": 0.88,
     "is_core": false
   }
