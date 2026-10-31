@@ -19,6 +19,7 @@
 # gate's single test run: hermetic and retried in one pass, not a plain run
 # followed by a hermetic repeat.
 set -euo pipefail
+export SCCACHE_IGNORE_SERVER_IO_ERROR=${SCCACHE_IGNORE_SERVER_IO_ERROR:-1}
 hermetic_started=$SECONDS
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 cd "$(git rev-parse --show-toplevel)"

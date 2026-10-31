@@ -3957,7 +3957,11 @@ gate_format
     );
     let path = f.dir.join("format-check.sh");
     std::fs::write(&path, script).unwrap();
-    let output = script_command(&path).current_dir(&f.dir).output().unwrap();
+    let output = script_command(&path)
+        .current_dir(&f.dir)
+        .env_remove("SUSI_GATE_NOCACHE")
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "{}",
