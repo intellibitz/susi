@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-9",
+  "title": "release binaries build with thin-local LTO (CARGO_PROFILE_DIST_LTO=false): no 5-8 min cross-crate LTO link on every leg",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793482972,
+  "closed": {
+    "at_unix": 1793483566,
+    "commit": "9cf3f03970675a9c5a5e2735ae047fb777746d63",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}
