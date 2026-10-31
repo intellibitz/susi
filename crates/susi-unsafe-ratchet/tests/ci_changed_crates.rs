@@ -286,6 +286,38 @@ fn test_only_changes_skip_reverse_dependents() {
     assert_eq!(ws.pkgs(&["--dependents"]), ["base"]);
 }
 
+#[test]
+fn xtask_tests_do_not_expand_unrelated_dependents() {
+    let ws = Workspace::new("xtask-test-only");
+    let manifest = std::fs::read_to_string(ws.root.join("Cargo.toml")).unwrap();
+    ws.write(
+        "Cargo.toml",
+        &manifest.replace(
+            "members = [\"crates/*\"]",
+            "members = [\"crates/*\", \"xtask\"]",
+        ),
+    );
+    ws.write(
+        "xtask/Cargo.toml",
+        "[package]\nname = \"xtask\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    ws.write("xtask/src/lib.rs", "pub fn f() {}\n");
+    git(&ws.root, &["add", "-A"]);
+    git(&ws.root, &["commit", "-qm", "add xtask"]);
+    git(&ws.root, &["branch", "-f", "main", "HEAD"]);
+    ws.write("crates/base/tests/smoke.rs", "#[test] fn smoke() {}\n");
+    ws.write("xtask/tests/smoke.rs", "#[test] fn smoke() {}\n");
+    ws.change_many(&["crates/base/tests/smoke.rs", "xtask/tests/smoke.rs"]);
+    assert_eq!(ws.pkgs(&["--dependents"]), ["base", "xtask"]);
+
+    // A production change still expands all affected reverse dependents.
+    ws.change("xtask/src/lib.rs");
+    assert_eq!(
+        ws.pkgs(&["--dependents"]),
+        ["base", "devuser", "fixture-root", "mid", "top", "xtask"]
+    );
+}
+
 /// Inert workflow, hook, task, documentation, and script edits may accompany a
 /// test-only change without making its reverse dependents relevant to clippy.
 #[test]

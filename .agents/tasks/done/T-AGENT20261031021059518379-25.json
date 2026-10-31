@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT20261031021059518379-25",
+  "title": "Batch outstanding receipt inspection",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "owed_receipts"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793470626,
+  "closed": {
+    "at_unix": 1793471382,
+    "commit": "88002dcbdf0a2dc3fe5fbceafda5e32936b2cf91",
+    "by": "AGENT20261031021059518379"
+  }
+}

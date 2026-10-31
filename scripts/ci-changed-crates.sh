@@ -132,7 +132,7 @@ fi
 test_only=1
 while IFS= read -r f; do
     case "$f" in
-        crates/*/tests/*|tests/*.rs|.agents/tasks/*|scripts/*|.github/*|.githooks/*|docs/*|*.md) ;;
+        crates/*/tests/*|xtask/tests/*|tests/*.rs|.agents/tasks/*|scripts/*|.github/*|.githooks/*|docs/*|*.md) ;;
         *) test_only=0; break ;;
     esac
 done <<<"$changed"

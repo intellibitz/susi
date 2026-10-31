@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT20261031021059518379-26",
+  "title": "Scope xtask test changes correctly",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--test",
+      "ci_changed_crates",
+      "xtask_tests_do_not_expand_unrelated_dependents"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793471480,
+  "closed": {
+    "at_unix": 1793471833,
+    "commit": "4012f64ec8a1168a730236363641eb85ef0c4d1c",
+    "by": "AGENT20261031021059518379"
+  }
+}
