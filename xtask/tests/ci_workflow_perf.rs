@@ -1357,13 +1357,10 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
 fn a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
-    for gate in ["kani"] {
-        assert!(
-            job(&jobs, gate).body.contains("refs/tags/"),
-            "`{gate}` gates merges to main and must be skipped on a tag run: it is minutes a \
-             release does not need, and the coverage target cache is 1.5 GB"
-        );
-    }
+    assert!(
+        job(&jobs, "kani").body.contains("refs/tags/"),
+        "the main-only Kani job must be skipped on a tag run"
+    );
     for saver in ["test", "lint", "e2e", "windows"] {
         assert!(
             job(&jobs, saver)
