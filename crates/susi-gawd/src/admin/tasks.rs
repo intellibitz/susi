@@ -1101,6 +1101,74 @@ fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
     .map(|_| ())
 }
 
+/// An isolated set of advertised queue refs for one claim attempt. Linked
+/// worktrees share refs, so a later fetch by another worker must not replace
+/// the generation after this attempt has already read its claim list.
+struct ClaimSnapshot {
+    ws: PathBuf,
+    prefix: String,
+}
+
+impl ClaimSnapshot {
+    fn fetch(ws: &Path, remote: &str) -> EaiResult<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let snapshot = Self {
+            ws: ws.to_path_buf(),
+            prefix: format!(
+                "refs/susi-claim-snapshots/{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ),
+        };
+        let heads = format!("+refs/heads/*:refs/remotes/{remote}/*");
+        let claims = format!("+refs/claims/*:{}/claims/*", snapshot.prefix);
+        let agents = format!("+refs/claim-agents/*:{}/agents/*", snapshot.prefix);
+        let generation = format!("+refs/claim-generation/*:{}/generation/*", snapshot.prefix);
+        let closed = format!("+refs/closed/*:{}/closed/*", snapshot.prefix);
+        git(
+            ws,
+            &[
+                "fetch",
+                "--quiet",
+                "--prune",
+                "--atomic",
+                remote,
+                &heads,
+                &claims,
+                &agents,
+                &generation,
+                &closed,
+                "+refs/abandoned/*:refs/abandoned/*",
+                "+refs/merged/*:refs/merged/*",
+                "+refs/verified/*:refs/verified/*",
+            ],
+        )?;
+        Ok(snapshot)
+    }
+
+    fn reference(&self, suffix: &str) -> String {
+        format!("{}/{}", self.prefix, suffix)
+    }
+}
+
+impl Drop for ClaimSnapshot {
+    fn drop(&mut self) {
+        if let Ok(refs) = git(
+            &self.ws,
+            &["for-each-ref", "--format=%(refname)", &self.prefix],
+        ) {
+            let deletes = refs
+                .lines()
+                .map(|name| format!("delete {name}\n"))
+                .collect::<String>();
+            if !deletes.is_empty() {
+                let _ = git_input(&self.ws, &["update-ref", "--stdin"], deletes.into_bytes());
+            }
+        }
+    }
+}
+
 /// Mirror the queue refs once, so a caller that goes on to read several of them
 /// pays for one remote round-trip instead of one per reader. Every `*_synced`
 /// reader below assumes this just ran; the plain readers (`claims`,
@@ -1281,7 +1349,10 @@ fn clear_records(ws: &Path, names: &[String]) -> EaiResult<()> {
 }
 
 fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
-    let refname = claim_ref(id);
+    read_claim_ref(ws, &claim_ref(id))
+}
+
+fn read_claim_ref(ws: &Path, refname: &str) -> Option<(String, Claim)> {
     let bytes = git_input(
         ws,
         &["cat-file", "--batch"],
@@ -1291,7 +1362,7 @@ fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
     let line_end = bytes.iter().position(|b| *b == b'\n')?;
     let header = std::str::from_utf8(&bytes[..line_end]).ok()?;
     let sha = header.split_whitespace().next()?.to_owned();
-    let (_, claim) = parse_batch::<Claim>(&bytes, &[("", refname.as_str())]).pop()?;
+    let (_, claim) = parse_batch::<Claim>(&bytes, &[("", refname)]).pop()?;
     Some((sha, claim))
 }
 
@@ -2666,14 +2737,38 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     let generation_ref = "refs/claim-generation/current";
     let agent_ref = format!("refs/claim-agents/{agent}");
     let r = remote();
-    // `claims(ws)` runs `sync_queue_refs(ws)`, which mirrors `+refs/claims/*`,
-    // `+refs/claim-agents/*` and `+refs/claim-generation/*` in a single atomic
-    // `git fetch` snapshot, avoiding a separate preflight `ls-remote` round-trip.
-    let live = claims(ws)?;
-    let generation_old =
-        git(ws, &["rev-parse", "--verify", "--quiet", generation_ref]).unwrap_or_default();
-    let agent_old = git(ws, &["rev-parse", "--verify", "--quiet", &agent_ref]).unwrap_or_default();
-    let all_receipts = closed_receipts(ws)?;
+    // Read all scope decisions and their CAS generation from refs no other
+    // worktree can refresh between these reads. The remote is contacted once.
+    let snapshot = ClaimSnapshot::fetch(ws, &r)?;
+    let live = records_under::<Claim>(ws, &snapshot.reference("claims/"))?;
+    let generation_old = git(
+        ws,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &snapshot.reference("generation/current"),
+        ],
+    )
+    .unwrap_or_default();
+    let agent_old = git(
+        ws,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &snapshot.reference(&format!("agents/{agent}")),
+        ],
+    )
+    .unwrap_or_default();
+    let closed_prefix = snapshot.reference("closed/");
+    let all_receipts: Vec<(String, CloseRecord)> =
+        records_batch::<CloseRecord>(ws, &closed_prefix)?
+            .into_iter()
+            .filter_map(|(name, record)| {
+                Some((name.strip_prefix(&closed_prefix)?.to_string(), record))
+            })
+            .collect();
     let mut origin_fetched = r == DEFAULT_REMOTE;
     let mut ensure_origin_fetched = |ws: &Path| -> EaiResult<()> {
         if !origin_fetched {
@@ -2793,7 +2888,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
                 "{id} can only expand its scope from the branch that holds it"
             )));
         }
-        let (old, mut expanded) = read_claim(ws, id)
+        let (old, mut expanded) = read_claim_ref(ws, &snapshot.reference(&format!("claims/{id}")))
             .ok_or_else(|| EaiError::config(format!("{id} claim changed; refresh and retry")))?;
         expanded.branch = branch;
         expanded.scopes = requested_scopes;
@@ -2842,7 +2937,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
             )));
         }
     }
-    let existing = read_claim(ws, id);
+    let existing = read_claim_ref(ws, &snapshot.reference(&format!("claims/{id}")));
     if let Some((_, c)) = &existing {
         if !c.expired(now) {
             return Err(EaiError::config(format!(
@@ -2869,8 +2964,16 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     let stale_agent = match &existing {
         Some((sha, old)) if old.agent != mine.agent => {
             let stale = format!("refs/claim-agents/{}", old.agent);
-            let current =
-                git(ws, &["rev-parse", "--verify", "--quiet", &stale]).unwrap_or_default();
+            let current = git(
+                ws,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &snapshot.reference(&format!("agents/{}", old.agent)),
+                ],
+            )
+            .unwrap_or_default();
             (current == *sha).then(|| (stale, sha.clone()))
         }
         _ => None,
@@ -4293,6 +4396,68 @@ mod tests {
         assert!(git(ws, &["ls-remote", "origin", "refs/claim-agents/*"])
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn claim_snapshot_keeps_generation_with_its_claims_during_a_shared_refresh() {
+        let (_repos, a, b) = Repos::new("claim-snapshot-race");
+        let seed = addt!(&b, "seed", "seed", "", "s", &[], true_cmd()).unwrap();
+        let other = addt!(&b, "other", "other", "", "s", &[], true_cmd()).unwrap();
+        let now = now_unix();
+        claim_scoped(
+            &b,
+            &seed.id,
+            "seed",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["unrelated".into()],
+            },
+        )
+        .unwrap();
+
+        let snapshot = ClaimSnapshot::fetch(&a, "origin").unwrap();
+        let generation_ref = snapshot.reference("generation/current");
+        let old = git(&a, &["rev-parse", "--verify", &generation_ref]).unwrap();
+        let seen = records_under::<Claim>(&a, &snapshot.reference("claims/")).unwrap();
+        assert_eq!(seen.len(), 1);
+
+        // Another worker publishes an overlapping claim and refreshes the
+        // shared refs after this attempt has inspected its own snapshot.
+        claim_scoped(
+            &b,
+            &other.id,
+            "other",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src/shared".into()],
+            },
+        )
+        .unwrap();
+        sync_queue_refs(&a).unwrap();
+        assert_ne!(
+            git(&a, &["rev-parse", "refs/claim-generation/current"]).unwrap(),
+            old
+        );
+        assert_eq!(git(&a, &["rev-parse", &generation_ref]).unwrap(), old);
+        assert_eq!(
+            records_under::<Claim>(&a, &snapshot.reference("claims/")).unwrap(),
+            seen
+        );
+
+        // A stale decision cannot publish against the newer generation.
+        let stale = queue_relay::push(
+            &a,
+            "origin",
+            &[("refs/claim-generation/current".into(), old.clone())],
+            &[("refs/claim-generation/current".into(), Some(old))],
+            "generation changed",
+        );
+        assert!(stale.is_err(), "stale generation must be refused");
+        let prefix = snapshot.prefix.clone();
+        drop(snapshot);
+        assert!(git(&a, &["for-each-ref", &prefix]).unwrap().is_empty());
     }
 
     #[test]

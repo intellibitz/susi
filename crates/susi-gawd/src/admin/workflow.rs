@@ -1352,6 +1352,15 @@ mod tests {
             "#!/bin/sh\nexit 0\n",
         )
         .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                primary.join(".githooks/pre-push"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
         std::fs::write(primary.join(".gitignore"), "/target\n").unwrap();
         std::fs::write(
             primary.join("scripts").join("seed-target.sh"),
