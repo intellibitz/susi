@@ -192,7 +192,15 @@ network time from host contention. `fetch-workflow-refs.sh` now fetches branch,
 claim, and close refs together, and both the local and CI compliance checks
 reuse that snapshot. Standalone compliance checks retain their own fetch path.
 The fixture verifies one fetch updates all three namespaces; remeasure a quiet
-push before attributing a wall-time saving to this change.
+push before attributing a wall-time saving to this change. The first push after
+that change still took over two minutes in the hook, with 86 close refs in the
+snapshot. The rule scanned every receipt with a separate Git and jq process for
+each pushed commit. The close-receipt check now reads all blobs in one batch and
+memoizes the unpublished set per agent for the hook run. Its focused test creates
+90 close refs, including another agent's receipts and a close already on
+`origin/main`, and verifies that only this agent's unpublished tasks are
+reported. Measure the next finish/push to see whether the hook is now under a
+minute.
 
 ## What is not fixed here
 

@@ -606,6 +606,98 @@ fn compliance_uses_single_remote_ref_snapshot() {
     }
 }
 
+#[test]
+fn compliance_batches_close_receipt_scan() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let compliance =
+        std::fs::read_to_string(repo.join("scripts/check-workflow-compliance.sh")).unwrap();
+    assert!(compliance.contains("declare -A owed_cache"));
+    assert!(compliance.contains("unmerged_closes_of \"$agent\""));
+    let helper = repo.join("scripts/owed-task-receipts.sh");
+    let source = std::fs::read_to_string(&helper).unwrap();
+    assert!(source.contains("git cat-file --batch"));
+    assert!(!source.contains("git cat-file -p \"$name\""));
+
+    let ws = Workspace::new("owed-receipts");
+    git(&ws.root, &["init", "--quiet"]);
+    git(&ws.root, &["config", "user.name", "Workflow Test"]);
+    git(&ws.root, &["config", "user.email", "workflow@example.test"]);
+    ws.write(".agents/tasks/done/T-PUBLISHED-1.json", "{}\n");
+    git(&ws.root, &["add", "-A"]);
+    git(&ws.root, &["commit", "-qm", "published close"]);
+    git(
+        &ws.root,
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    git(
+        &ws.root,
+        &[
+            "cat-file",
+            "-e",
+            "refs/remotes/origin/main:.agents/tasks/done/T-PUBLISHED-1.json",
+        ],
+    );
+
+    // Many unrelated receipts ensure the helper handles the same ref volume
+    // that made the old per-receipt process loop slow.
+    for index in 0..90 {
+        let (id, agent) = match index {
+            0 => ("T-PUBLISHED-1".to_owned(), "WORKFLOWINERTTESTGATES"),
+            1 => ("T-OWED-1".to_owned(), "WORKFLOWINERTTESTGATES"),
+            2 => ("T-OWED-2".to_owned(), "WORKFLOWINERTTESTGATES"),
+            _ => (format!("T-OTHER-{index}"), "ANOTHERAGENT"),
+        };
+        // Cover both serializer forms; batch parsing cannot assume a separator
+        // occupies an extra line after every blob.
+        let newline = if index % 2 == 0 { "\n" } else { "" };
+        let receipt = format!("{{\"agent\":\"{agent}\",\"task\":\"{id}\"}}{newline}");
+        let mut hash = Command::new("git")
+            .args(["hash-object", "-w", "--stdin"])
+            .current_dir(&ws.root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write as _;
+        hash.stdin
+            .take()
+            .unwrap()
+            .write_all(receipt.as_bytes())
+            .unwrap();
+        let output = hash.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let object = String::from_utf8(output.stdout).unwrap();
+        let object = object.trim();
+        git(
+            &ws.root,
+            &["update-ref", &format!("refs/closed/{id}"), object],
+        );
+    }
+
+    let output = script_command(&helper)
+        .current_dir(&ws.root)
+        .arg("WORKFLOWINERTTESTGATES")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "receipt scan failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let mut ids: Vec<_> = stdout.lines().collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        ["T-OWED-1", "T-OWED-2"],
+        "receipt scan stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// The changed-crates scan reads `git grep` as "<path>:<literal>". A user's
 /// grep.lineNumber or grep.column put "<n>:" there and color.ui=always wrapped
 /// it in escapes: a data file's readers were not found, and every diff
