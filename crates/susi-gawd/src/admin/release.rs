@@ -6,6 +6,17 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::env;
 use std::path::Path;
 use std::process::Command;
+use std::time::Instant;
+
+/// Log one release-gate phase's wall time so a slow step is visible without
+/// a profiler. Prints even when the phase was skipped, so the cut's log
+/// shows where the minutes went.
+fn phase_done(label: &str, started: Instant) {
+    eprintln!(
+        "[Release Gatekeeper]    timing: {label} took {:.1}s",
+        started.elapsed().as_secs_f64()
+    );
+}
 
 /// The branch `--cut` is allowed to push: the version commit travels to `main`
 /// through its own pull request, never by a direct push (Mandate 49).
@@ -289,8 +300,19 @@ impl SusiAdmin {
         // Resolved once, before the compile gates: a tree already proven by a
         // green main Test run skips check, the workspace suite and clippy —
         // each is a full workspace pass over bytes CI already proved.
+        let gate_started = Instant::now();
+        let proven_started = Instant::now();
         let proven_on_main = !check_gpu && suite_proven_on_main(workspace);
+        phase_done(
+            if proven_on_main {
+                "suite-proven lookup (reuse)"
+            } else {
+                "suite-proven lookup (miss — full local gate)"
+            },
+            proven_started,
+        );
 
+        let step1 = Instant::now();
         if proven_on_main {
             eprintln!(
                 "[Release Gatekeeper] 1. Static Type Check skipped — HEAD's tree already \
@@ -321,10 +343,14 @@ impl SusiAdmin {
                 }
             }
         }
+        phase_done("1 type-check", step1);
 
+        let step2 = Instant::now();
         eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
         let _ = Self::audit_compliance(workspace, Some("release"))?;
+        phase_done("2 compliance audit", step2);
 
+        let step3 = Instant::now();
         eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
         if proven_on_main {
             eprintln!(
@@ -363,7 +389,9 @@ impl SusiAdmin {
                 }
             }
         }
+        phase_done("3 workspace tests", step3);
 
+        let step4 = Instant::now();
         if proven_on_main {
             eprintln!(
                 "[Release Gatekeeper] 4. Static Analysis skipped — HEAD's tree already \
@@ -395,7 +423,9 @@ impl SusiAdmin {
                 }
             }
         }
+        phase_done("4 clippy", step4);
 
+        let step5 = Instant::now();
         eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
         // Build once, then invoke the binary directly for each mission —
         // 3x `cargo run` re-resolves/relinks per invocation for no benefit.
@@ -457,7 +487,9 @@ impl SusiAdmin {
         for outcome in mission_outcomes {
             outcome?;
         }
+        phase_done("5 smoke missions", step5);
 
+        let step5b = Instant::now();
         eprintln!("[Release Gatekeeper] 5b. Running the built binary on its own new behaviour (e2e checks)...");
         let e2e_scratch = workspace.join("target").join("release-e2e-scratch");
         let e2e = Self::run_e2e_checks(&susi_bin, &e2e_scratch);
@@ -465,6 +497,7 @@ impl SusiAdmin {
         for line in e2e? {
             eprintln!("[Release Gatekeeper]    ok: {line}");
         }
+        phase_done("5b e2e checks", step5b);
 
         // The complete qualification is opt-in because cloud evidence must be
         // explicitly supplied by the operator; a local release must never
@@ -645,6 +678,7 @@ impl SusiAdmin {
                 "RELEASE_CUT",
                 &format!("Cut {tag_name}; CI tags and publishes it when its branch merges."),
             );
+            phase_done("gate total", gate_started);
             return Ok(format!(
                 "Motion Rule complete: check, tests, audit, lints, smoke-tests, sync and push all \
                  succeeded. Release {tag_name} is cut: when its branch merges into main, the \
@@ -653,6 +687,7 @@ impl SusiAdmin {
             ));
         }
 
+        phase_done("gate total", gate_started);
         Ok("Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, and push all succeeded. Substrate deployed.".into())
     }
 }
