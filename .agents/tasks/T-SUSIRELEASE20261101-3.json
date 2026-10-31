@@ -1,0 +1,17 @@
+{
+  "id": "T-SUSIRELEASE20261101-3",
+  "title": "Reduce release suite completion polling latency",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_await_tests"
+    ]
+  },
+  "created_by": "SUSIRELEASE20261101",
+  "created_unix": 1793478630
+}

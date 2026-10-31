@@ -25,7 +25,10 @@ set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo} ref=${2:?ref} sha=${3:?sha}
 wait_max=${RELEASE_TESTS_WAIT_MAX:-2700}
-poll=${RELEASE_TESTS_POLL:-15}
+# A completed suite should not sit idle for another 15 seconds before publish.
+# Five seconds bounds that detection delay while keeping one API request per
+# poll; operators can still adjust it for local tests or rate limits.
+poll=${RELEASE_TESTS_POLL:-5}
 find_max=${RELEASE_TESTS_FIND_MAX:-120}
 
 # `Doc Tests + Clippy` runs with the shards, and a full-gate dispatch whose
