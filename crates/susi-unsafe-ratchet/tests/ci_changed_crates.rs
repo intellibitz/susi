@@ -541,9 +541,18 @@ fn compliance_uses_single_remote_ref_snapshot() {
         assert!(helper_text.contains(refspec), "missing refspec {refspec}");
     }
 
-    let guard = std::fs::read_to_string(repo.join(".githooks/workflow-guard")).unwrap();
+    // The push guard is Rust (`susi workflow guard`, which the hook stub
+    // execs): its one fetch is the same snapshot the helper takes for CI, and
+    // the compliance script is told to read it rather than fetch again.
+    let guard = std::fs::read_to_string(repo.join("crates/susi-gawd/src/admin/guard.rs")).unwrap();
     assert!(guard.contains("fetch-workflow-refs.sh"));
-    assert!(guard.contains("SUSI_WORKFLOW_REFS_FETCHED=1"));
+    assert!(guard.contains("fn fetch_workflow_refs("));
+    for refspec in ["refs/heads/*", "refs/claims/*", "refs/closed/*"] {
+        assert!(guard.contains(refspec), "the guard must fetch {refspec}");
+    }
+    assert!(guard.contains(".env(\"SUSI_WORKFLOW_REFS_FETCHED\", \"1\")"));
+    let stub = std::fs::read_to_string(repo.join(".githooks/workflow-guard")).unwrap();
+    assert!(stub.contains("run-susi\" workflow guard"));
     let compliance =
         std::fs::read_to_string(repo.join("scripts/check-workflow-compliance.sh")).unwrap();
     assert_eq!(
