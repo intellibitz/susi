@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "PRUNECLOSEDADAPTERS",
-  "created_unix": 1793461120
+  "created_unix": 1793461120,
+  "closed": {
+    "at_unix": 1793462441,
+    "commit": "227ccc68249534c027b3fc890d8ac41bc38af162",
+    "by": "PRUNECLOSEDADAPTERS"
+  }
 }
