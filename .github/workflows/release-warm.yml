@@ -22,7 +22,9 @@ jobs:
       SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
       RUSTC_WORKSPACE_WRAPPER: sccache
-      CARGO_PROFILE_DIST_LTO: thin
+      # As release.yml's legs: the dependency crates a release restores must
+      # be built with the same profile, or the cache never matches.
+      CARGO_PROFILE_DIST_LTO: "false"
       CARGO_PROFILE_DIST_CODEGEN_UNITS: "16"
     steps:
       - name: Checkout main

@@ -37,10 +37,14 @@ slowest leg.
   It used to dispatch a second one (two 19-minute suites side by side, every
   branch push queued behind both); it now watches the running one and
   dispatches only if that turns out to be a branch gate.
-- **Thin LTO for the published binaries** (`CARGO_PROFILE_DIST_LTO=thin`,
-  16 codegen units, set in `release.yml` and `dev-release.yml`). Under
-  `[profile.dist]`'s fat LTO the single `susi` unit ran 988 s on one thread
-  after the ~700 dependencies finished; thin LTO runs it on every core.
+- **Thin-local LTO for the published binaries** (`CARGO_PROFILE_DIST_LTO=false`,
+  16 codegen units, set in `release.yml`, `release-warm.yml` and
+  `dev-release.yml`). Under `[profile.dist]`'s fat LTO the single `susi` unit
+  ran 988 s on one thread after the ~700 dependencies finished; thin LTO ran
+  it on every core but still left a cross-crate stage after the last crate
+  (8 min 21 s of the v0.21.29 Windows leg, 5 min 40 s of macOS). Thin-local
+  optimises each crate across its own units and has no such stage: faster
+  releases, without cross-crate inlining (the operator's call).
   `Cargo.toml`'s `[profile.dist]` still says fat: the workflows override it.
 - **Hermetic test homes live in the clone's git dir on Windows**
   (`scripts/check-hermetic-tests.sh`, `.git/susi-hermetic/`). The tests write
