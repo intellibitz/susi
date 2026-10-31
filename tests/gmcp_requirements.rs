@@ -452,7 +452,6 @@ fn gmcp_req_203_001_03_integration() {
 
     drop(wire);
     let _ = std::fs::remove_dir_all(&scratch);
-    let _ = std::fs::remove_dir_all(&scratch);
 }
 
 fn copy_tree(src: &Path, dst: &Path) {
@@ -477,9 +476,113 @@ fn mutate_json(path: &Path, mutate: impl FnOnce(&mut serde_json::Value)) {
 }
 
 fn restore_tree(pristine: &Path, work: &Path) {
-    // Only .agents/gmcp is ever mutated; repo-root documents stay put.
-    let _ = std::fs::remove_dir_all(work.join(".agents/gmcp"));
-    copy_tree(&pristine.join(".agents/gmcp"), &work.join(".agents/gmcp"));
+    // Only .agents/gmcp is mutated. Restore the whole tree's contents while
+    // leaving identical files in place: deleting and rewriting 106 files for
+    // every corruption case dominated the Windows test.
+    #[allow(clippy::permissions_set_readonly_false)] // Windows-only; the file is a scratch fixture.
+    fn remove(path: &Path) {
+        let metadata = std::fs::symlink_metadata(path).unwrap();
+        let kind = metadata.file_type();
+        if kind.is_dir() && !kind.is_symlink() {
+            std::fs::remove_dir_all(path).unwrap();
+        } else {
+            #[cfg(windows)]
+            if kind.is_file() && metadata.permissions().readonly() {
+                let mut permissions = metadata.permissions();
+                permissions.set_readonly(false);
+                std::fs::set_permissions(path, permissions).unwrap();
+            }
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    fn sync(src: &Path, dst: &Path) {
+        std::fs::create_dir_all(dst).unwrap();
+        for entry in std::fs::read_dir(dst).unwrap() {
+            let entry = entry.unwrap();
+            match std::fs::symlink_metadata(src.join(entry.file_name())) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => remove(&entry.path()),
+                Err(e) => panic!("cannot inspect pristine fixture: {e}"),
+            }
+        }
+        for entry in std::fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let source = entry.path();
+            let target = dst.join(entry.file_name());
+            let source_kind = entry.file_type().unwrap();
+            let current = std::fs::symlink_metadata(&target).ok();
+            if source_kind.is_dir() {
+                if current
+                    .as_ref()
+                    .is_some_and(|m| !m.file_type().is_dir() || m.file_type().is_symlink())
+                {
+                    remove(&target);
+                }
+                sync(&source, &target);
+            } else {
+                assert!(
+                    source_kind.is_file(),
+                    "unexpected fixture entry: {}",
+                    source.display()
+                );
+                let source_metadata = entry.metadata().unwrap();
+                let same = current.as_ref().is_some_and(|m| {
+                    m.file_type().is_file()
+                        && !m.file_type().is_symlink()
+                        && m.len() == source_metadata.len()
+                        && std::fs::read(&target).unwrap() == std::fs::read(&source).unwrap()
+                });
+                if !same {
+                    if current.is_some() {
+                        remove(&target);
+                    }
+                    std::fs::copy(&source, &target).unwrap();
+                } else {
+                    #[cfg(unix)]
+                    let permissions_differ = {
+                        use std::os::unix::fs::PermissionsExt;
+                        current.as_ref().unwrap().permissions().mode()
+                            != source_metadata.permissions().mode()
+                    };
+                    #[cfg(not(unix))]
+                    let permissions_differ = current.as_ref().unwrap().permissions().readonly()
+                        != source_metadata.permissions().readonly();
+                    if permissions_differ {
+                        std::fs::set_permissions(&target, source_metadata.permissions()).unwrap();
+                    }
+                }
+            }
+        }
+    }
+    sync(&pristine.join(".agents/gmcp"), &work.join(".agents/gmcp"));
+}
+
+#[test]
+fn fixture_restore_recovers_changed_missing_and_extra_files() {
+    let scratch = std::env::temp_dir().join(format!("gmcp-restore-{}", std::process::id()));
+    let pristine = scratch.join("pristine/.agents/gmcp");
+    let work = scratch.join("work/.agents/gmcp");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(pristine.join("nested")).unwrap();
+    std::fs::create_dir_all(work.join("nested")).unwrap();
+    std::fs::write(pristine.join("nested/changed"), "good").unwrap();
+    std::fs::write(pristine.join("missing"), "restored").unwrap();
+    std::fs::write(pristine.join("same"), "same").unwrap();
+    std::fs::write(work.join("nested/changed"), "evil").unwrap();
+    std::fs::write(work.join("extra"), "remove").unwrap();
+    std::fs::write(work.join("same"), "same").unwrap();
+    let mut permissions = std::fs::metadata(work.join("same")).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(work.join("same"), permissions).unwrap();
+    restore_tree(&scratch.join("pristine"), &scratch.join("work"));
+    assert_eq!(std::fs::read(work.join("nested/changed")).unwrap(), b"good");
+    assert_eq!(std::fs::read(work.join("missing")).unwrap(), b"restored");
+    assert!(!work.join("extra").exists());
+    assert!(!std::fs::metadata(work.join("same"))
+        .unwrap()
+        .permissions()
+        .readonly());
+    std::fs::remove_dir_all(scratch).unwrap();
 }
 
 /// One adversarial case: apply the corruption, assert the verifier fails
