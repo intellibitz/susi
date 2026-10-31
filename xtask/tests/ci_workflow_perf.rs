@@ -2466,9 +2466,14 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     let dispatch = job(&test_jobs, "warm-release");
     assert!(dispatch.body.contains("needs.test.result == 'success'"));
     assert!(dispatch.body.contains("needs.lint.result == 'success'"));
+    assert!(dispatch.body.contains("needs.fmt.result == 'success'"));
     assert!(dispatch
         .body
-        .contains("!contains(needs.*.result, 'failure')"));
+        .contains("needs['unsafe-ratchet'].result == 'success'"));
+    assert!(!dispatch.body.contains("needs.coverage.result == 'success'"));
+    assert!(dispatch
+        .body
+        .contains("!contains(needs.*.result, 'cancelled')"));
     assert!(dispatch.body.contains("gh workflow run release-warm.yml"));
     assert!(dispatch.body.contains("continue-on-error: true"));
     assert!(warmer

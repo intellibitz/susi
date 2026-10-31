@@ -936,15 +936,15 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-  # Bot-dispatched Test runs do not reliably cascade workflow_run events. Once
-  # every main gate finishes, explicitly dispatch the release warmer, after the
-  # Test caches have been saved, so its cache is the newest rather than evicted
-  # while the suite is still writing. Cache warming is best effort and never
-  # changes the Test verdict.
+  # Bot-dispatched Test runs do not reliably cascade workflow_run events. Wait
+  # for main's jobs to finish so Test caches have been saved, then start the
+  # warmer when release-relevant checks pass. A red coverage/Kani/acceptance
+  # job keeps Test red but cannot make building a dependency cache unsafe.
+  # Warming is best effort and never changes the Test verdict.
   warm-release:
     name: Start Windows release cache warmer
     needs: [fmt, invariants, deny, unsafe-ratchet, test, lint, coverage, kani, verify, e2e, windows]
-    if: always() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.lint.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    if: always() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.lint.result == 'success' && needs.fmt.result == 'success' && needs.invariants.result == 'success' && needs.deny.result == 'success' && needs['unsafe-ratchet'].result == 'success' && (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
