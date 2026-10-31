@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT20261031202228247920-2",
+  "title": "Prevent Windows daemon spawn from inheriting caller stdio pipes",
+  "goal": "Clear HANDLE_FLAG_INHERIT on the caller's std handles and detach the console group when ensure_daemon_running spawns daemon-start on Windows so piped CLI invocations and release smoke checks never hang waiting for EOF",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "server"
+    ]
+  },
+  "created_by": "AGENT20261031202228247920",
+  "created_unix": 1793465515,
+  "closed": {
+    "at_unix": 1793468443,
+    "commit": "6b8d4f3bb8f28be838c56ced5375b53d110effeb",
+    "by": "AGENT20261031202228247920"
+  }
+}
