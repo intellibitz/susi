@@ -1273,33 +1273,6 @@ impl SusiDaemon {
             crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
         );
 
-        // Durable workflow engine: rehydrates pending tasks
-        // from the JSONL append-only journal to survive daemon restarts.
-        let workflow_engine =
-            crate::workflows::WorkflowEngine::new(&workspace).unwrap_or_else(|e| {
-                eprintln!(
-                    "[SusiDaemon] Failed to initialize durable workflow engine: {}",
-                    e
-                );
-                std::process::exit(1);
-            });
-        let pending_tasks = workflow_engine.get_pending_tasks();
-        if !pending_tasks.is_empty() {
-            println!(
-                "[SusiDaemon] Rehydrated {} pending workflow tasks",
-                pending_tasks.len()
-            );
-        }
-
-        // Time-Travel Debugger: immutable HMAC-signed event log
-        let time_travel_logger = crate::event_log::TimeTravelDebugger::new(&workspace);
-        time_travel_logger.log_state_change("DAEMON_BOOT", "Swarm OS kernel booting");
-
-        // Autonomous Topology Manager
-        let _topology_manager = crate::topology::TopologyManager::new();
-        time_travel_logger
-            .log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
-
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 

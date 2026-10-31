@@ -2039,3 +2039,77 @@ fn workspace_enforces_apache_mit_bsd_license_policy() {
         );
     }
 }
+
+/// Regression guard for AI-OS bloat pruning: the 35 dead/uncalled stub and
+/// duplicate modules removed across `susi-daemon`, `susi-config`, `susi-core`,
+/// and `susi-gawd`, plus unused `[workspace.dependencies]` entries, must not
+/// return.
+#[test]
+fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
+    let root = workspace_root();
+    const PRUNED_DAEMON_MODULES: &[&str] = &[
+        "admin",
+        "audit_log",
+        "budget",
+        "cas",
+        "cell_snapshot",
+        "checkpoint",
+        "code_signing",
+        "composition_recommender",
+        "dashboard",
+        "docs_generator",
+        "event_log",
+        "fork",
+        "hot_reload",
+        "identity",
+        "inspector",
+        "leaderboard",
+        "load_balancer",
+        "logger",
+        "metrics",
+        "p2p_router",
+        "plugins",
+        "signal",
+        "suspend",
+        "task_queue",
+        "tool_catalog",
+        "tool_proxy",
+        "topology",
+        "tracing",
+        "ttl",
+        "webhook_dispatcher",
+        "what_if",
+        "workflows",
+    ];
+    for module in PRUNED_DAEMON_MODULES {
+        let path = root
+            .join("crates/susi-daemon/src")
+            .join(format!("{module}.rs"));
+        assert!(
+            !path.exists(),
+            "pruned susi-daemon bloat module must not return: {}",
+            path.display()
+        );
+    }
+
+    for rel in [
+        "crates/susi-config/src/zc_installer.rs",
+        "crates/susi-config/src/zc_uninstall.rs",
+        "crates/susi-core/src/abi_bridge.rs",
+        "crates/susi-gawd/src/brain_status.rs",
+    ] {
+        let path = root.join(rel);
+        assert!(
+            !path.exists(),
+            "pruned dead module must not return: {}",
+            path.display()
+        );
+    }
+
+    let daemon_manifest = std::fs::read_to_string(root.join("crates/susi-daemon/Cargo.toml"))
+        .expect("read susi-daemon Cargo.toml");
+    assert!(
+        !daemon_manifest.contains("ed25519-dalek"),
+        "susi-daemon must not depend on ed25519-dalek after pruning uncalled signing/identity stubs"
+    );
+}
