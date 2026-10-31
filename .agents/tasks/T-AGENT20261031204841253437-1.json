@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT20261031204841253437-1",
+  "title": "Land the CLI per-command catalog priming draft of 2026-10-29",
+  "goal": "Two workflow subagent worktrees from the 2026-10-29 session 'Composing CLI commands without per-command catalog priming' held uncommitted work that never landed. This one: the CLI wires substrate priming per command — defs::command_catalogs names the catalogs (leading MCP, coding models, execution agents, frameworks) each command needs and PlanePrep::Ecosystem carries that set, so a command primes only what it uses; lifecycle and status commands skip it. Rebased by three-way apply onto main of 2026-10-31 (one conflict: main's Ledger special case is subsumed by mcp_catalogs mapping Ledger to no catalogs). ARCHITECTURE.md describes the per-command priming.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "lazy_catalog_priming"
+    ]
+  },
+  "created_by": "AGENT20261031204841253437",
+  "created_unix": 1793461506
+}
