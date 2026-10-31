@@ -3058,6 +3058,7 @@ mod tests {
 
     #[test]
     #[ignore = "helper: spawns a long-lived background child and exits so parent pipe EOF is tested"]
+    #[allow(clippy::zombie_processes)] // helper intentionally exits while its short-lived grandchild is still running
     fn spawn_background_grandchild_and_exit() {
         let exe = std::env::current_exe().unwrap();
         let mut cmd = Command::new(exe);
