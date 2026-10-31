@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT20261031021059518379-16",
+  "title": "Skip Python probes for unconfigured frameworks",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "python_imports_skip_unconfigured"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793464237
+}
