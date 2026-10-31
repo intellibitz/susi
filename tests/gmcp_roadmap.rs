@@ -18,11 +18,12 @@ use std::process::Command;
 #[test]
 fn gmcp_roadmap_is_structurally_complete() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = Command::new("python3")
-        .arg(root.join("scripts/check-gmcp-roadmap.py"))
+    let shell = if cfg!(windows) { "sh" } else { "bash" };
+    let output = Command::new(shell)
+        .arg(root.join("scripts/check-gmcp-roadmap.sh"))
         .current_dir(root)
         .output()
-        .expect("python3 must run the GMCP roadmap checker");
+        .expect("shell must run the GMCP roadmap checker");
 
     assert!(
         output.status.success(),

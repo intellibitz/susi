@@ -472,13 +472,13 @@ jobs:
         run: scripts/check-tracked-artifacts.sh
 
       - name: No vector's narrative contradicts its recorded verdict
-        run: scripts/check-roadmap-queue.py --consistency-only
+        run: scripts/check-roadmap-queue.sh --consistency-only
 
       # A verdict is the acceptance of a verification task, so it has to hold on
       # main and not only in the worktree that wrote it. This is where a
       # `delivered` verdict citing a test no module declares is refused.
       - name: Every recorded verdict cites evidence that can run
-        run: scripts/check-roadmap-verdict.py --all
+        run: scripts/check-roadmap-verdict.sh --all
 
   # Mandates 49-51, server side: every commit on a pushed branch names a
   # claimed or closed task (`Task: T-<AGENT>-<n>` trailer). The local hooks can

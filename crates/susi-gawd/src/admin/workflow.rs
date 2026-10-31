@@ -559,7 +559,7 @@ pub fn ensure_infrastructure(root: &Path) {
             &[
                 "config",
                 "merge.ledger.driver",
-                "python3 scripts/merge-ledger.py %O %A %B",
+                "sh scripts/merge-ledger.sh %O %A %B",
             ],
         );
     }
@@ -1127,17 +1127,14 @@ pub fn start_worktree(
             "merge.ledger.name",
             "union of appended .agents/evidence.json entries",
         ),
-        (
-            "merge.ledger.driver",
-            "python3 scripts/merge-ledger.py %O %A %B",
-        ),
+        ("merge.ledger.driver", "sh scripts/merge-ledger.sh %O %A %B"),
         (
             "merge.roadmap.name",
             "per-vector merge of .agents/roadmap.json",
         ),
         (
             "merge.roadmap.driver",
-            "python3 scripts/merge-roadmap.py %O %A %B",
+            "sh scripts/merge-roadmap.sh %O %A %B",
         ),
     ] {
         let _ = git(&dest, &["config", key, value]);

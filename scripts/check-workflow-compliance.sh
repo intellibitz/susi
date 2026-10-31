@@ -185,30 +185,23 @@ load_live_claim_index() {
     [ -z "$live_claim_index" ] || return 0
     live_claim_index=$(git for-each-ref --format='%(objectname) %(refname:strip=2)' refs/claims/ |
         git cat-file --batch='%(rest) %(objecttype) %(objectsize)' |
-        python3 -c '
-import json, sys
-now = int(sys.argv[1])
-index = {}
-stream = sys.stdin.buffer
-while line := stream.readline():
-    header = line.decode("utf-8", "replace").split()
-    if len(header) != 3:
-        continue
-    task, kind, size = header
-    body = stream.read(int(size))
-    stream.read(1)
-    if kind != "blob":
-        continue
-    try:
-        claim = json.loads(body)
-        agent = claim.get("agent")
-        lease = int(claim.get("lease_until_unix", 0))
-        if isinstance(agent, str) and agent and lease > now:
-            index.setdefault(agent, []).append(task)
-    except (ValueError, TypeError, AttributeError):
-        continue
-print(json.dumps(index))
-' "$now") || { err 'cannot read live claim snapshot'; return 1; }
+        awk '
+            /^[^ ]+ blob [0-9]+$/ {
+                if (task != "" && body != "") print task "\t" body
+                task = $1
+                body = ""
+                next
+            }
+            task != "" {
+                body = body (body == "" ? "" : " ") $0
+            }
+            END {
+                if (task != "" && body != "") print task "\t" body
+            }
+        ' |
+        jq -Rn --argjson now "$now" '
+            reduce (inputs | split("\t") | select(length == 2) | .[0] as $t | (.[1] | fromjson? // null) | select(type == "object" and (.agent | type == "string") and (.agent | length > 0) and ((.lease_until_unix // 0) > $now)) | {agent: .agent, task: $t}) as $item ({}; .[$item.agent] += [$item.task])
+        ') || { err 'cannot read live claim snapshot'; return 1; }
 }
 # One task at a time, per agent. `susi tasks claim` refuses to create a second
 # live claim for one agent (an atomic `refs/claim-agents/<AGENT>` lease plus the

@@ -4,12 +4,15 @@
     "name": "LangGraph",
     "peer_name": "LangGraphEngine",
     "rank": 1,
-    "documentation": "https://docs.langchain.com/oss/python/langgraph/overview",
+    "documentation": "https://langchain-ai.github.io/langgraph/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "langgraph",
-      "config_env": "SUSI_LANGGRAPH_CONFIG"
+      "kind": "command",
+      "program": "langgraph",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -17,12 +20,15 @@
     "name": "OpenAI Agents SDK",
     "peer_name": "OpenAIAgentsEngine",
     "rank": 2,
-    "documentation": "https://openai.github.io/openai-agents-python/",
+    "documentation": "https://platform.openai.com/docs/guides/agents",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "agents",
-      "config_env": "SUSI_OPENAI_AGENTS_CONFIG"
+      "kind": "command",
+      "program": "openai-agents",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -32,10 +38,13 @@
     "rank": 3,
     "documentation": "https://microsoft.github.io/autogen/stable/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "autogen_agentchat",
-      "config_env": "SUSI_AUTOGEN_CONFIG"
+      "kind": "command",
+      "program": "autogen",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -45,10 +54,13 @@
     "rank": 4,
     "documentation": "https://docs.crewai.com/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "crewai",
-      "config_env": "SUSI_CREWAI_CONFIG"
+      "kind": "command",
+      "program": "crewai",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -58,10 +70,13 @@
     "rank": 5,
     "documentation": "https://github.com/QwenLM/Qwen-Agent",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "qwen_agent",
-      "config_env": "SUSI_QWEN_ENGINE_CONFIG"
+      "kind": "command",
+      "program": "qwen-agent",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -71,10 +86,13 @@
     "rank": 6,
     "documentation": "https://learn.microsoft.com/en-us/semantic-kernel/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "semantic_kernel",
-      "config_env": "SUSI_SEMANTIC_KERNEL_CONFIG"
+      "kind": "command",
+      "program": "semantic-kernel",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -84,10 +102,13 @@
     "rank": 7,
     "documentation": "https://docs.openhands.dev/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "openhands",
-      "config_env": "SUSI_OPENHANDS_RUNTIME_CONFIG"
+      "kind": "command",
+      "program": "openhands",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -95,12 +116,15 @@
     "name": "LangChain",
     "peer_name": "LangChainEngine",
     "rank": 8,
-    "documentation": "https://python.langchain.com/docs/concepts/agents/",
+    "documentation": "https://docs.langchain.com/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "langchain",
-      "config_env": "SUSI_LANGCHAIN_CONFIG"
+      "kind": "command",
+      "program": "langchain",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -110,10 +134,13 @@
     "rank": 9,
     "documentation": "https://ai.pydantic.dev/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "pydantic_ai",
-      "config_env": "SUSI_PYDANTIC_AI_CONFIG"
+      "kind": "command",
+      "program": "pydantic-ai",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -123,10 +150,13 @@
     "rank": 10,
     "documentation": "https://docs.llamaindex.ai/en/stable/understanding/agent/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "llama_index",
-      "config_env": "SUSI_LLAMAINDEX_CONFIG"
+      "kind": "command",
+      "program": "llamaindex",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -136,10 +166,13 @@
     "rank": 11,
     "documentation": "https://huggingface.co/docs/smolagents",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "smolagents",
-      "config_env": "SUSI_SMOLAGENTS_CONFIG"
+      "kind": "command",
+      "program": "smolagents",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -147,12 +180,15 @@
     "name": "Temporal",
     "peer_name": "TemporalEngine",
     "rank": 12,
-    "documentation": "https://docs.temporal.io/develop/python",
+    "documentation": "https://docs.temporal.io/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "temporalio",
-      "config_env": "SUSI_TEMPORAL_CONFIG"
+      "kind": "command",
+      "program": "temporal",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -162,10 +198,13 @@
     "rank": 13,
     "documentation": "https://e2b.dev/docs",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "e2b",
-      "config_env": "SUSI_E2B_CONFIG"
+      "kind": "command",
+      "program": "e2b",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   },
   {
@@ -175,10 +214,13 @@
     "rank": 14,
     "documentation": "https://docs.haystack.deepset.ai/",
     "adapter": {
-      "kind": "python",
-      "python": "python3",
-      "import_name": "haystack",
-      "config_env": "SUSI_HAYSTACK_CONFIG"
+      "kind": "command",
+      "program": "haystack",
+      "args": [
+        "run",
+        "--",
+        "{prompt}"
+      ]
     }
   }
 ]

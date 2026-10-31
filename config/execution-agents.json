@@ -54,8 +54,13 @@
     "rank": 4,
     "documentation": "https://github.com/QwenLM/Qwen-Agent",
     "adapter": {
-      "kind": "qwen",
-      "python": "python3"
+      "kind": "command",
+      "program": "qwen-agent",
+      "args": [
+        "run",
+        "--prompt",
+        "{prompt}"
+      ]
     }
   },
   {

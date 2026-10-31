@@ -65,4 +65,4 @@ jobs:
           fetch-depth: 0 # task state and branch merged-ness are judged on origin refs
 
       - name: Remove dead claim refs and merged branches
-        run: scripts/check-board-hygiene.py --apply
+        run: scripts/check-board-hygiene.sh --apply

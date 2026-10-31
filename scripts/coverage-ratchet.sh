@@ -59,74 +59,165 @@ run_cov() {
 # ratchet <mode> <ws1> <leaf1> [ws2 leaf2 ...] — each pair is one
 # measurement run; per-crate coverage is the max across runs.
 ratchet() {
-    python3 - "$@" <<'PYEOF'
-import json, math, re, sys, collections
+    local mode=$1
+    shift
+    if [ "$#" -lt 2 ] || [ $(( $# % 2 )) -ne 0 ]; then
+        echo "expected ws/leaf file pairs" >&2
+        return 1
+    fi
+    local baseline_tsv
+    baseline_tsv=$(jq -r '.floor_percent | to_entries | sort_by(.key)[] | "\(.key)\t\(.value)"' .agents/coverage-baseline.json)
+    if [ "$mode" = "--update" ]; then
+        local updates_json
+        updates_json=$(awk '
+            function crate_of(path,    parts) {
+                if (path ~ /^crates\/[^\/]+\//) {
+                    split(path, parts, "/")
+                    return parts[2]
+                }
+                if (path ~ /^src\//) return "susi"
+                if (path ~ /^xtask\//) return "xtask"
+                return ""
+            }
+            {
+                c = crate_of($1)
+                if (c != "" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9.]+%$/) {
+                    if (ARGIND % 2 == 1) {
+                        t[ARGIND, c] += $2
+                        m[ARGIND, c] += $3
+                        crates[c] = 1
+                    } else if (c == "susi-leaf-services") {
+                        lt[ARGIND - 1, c] += $2
+                        lm[ARGIND - 1, c] += $3
+                        crates[c] = 1
+                    }
+                }
+            }
+            END {
+                for (i = 1; i < ARGC; i += 2) {
+                    if (lt[i, "susi-leaf-services"] > 0) {
+                        t[i, "susi-leaf-services"] = lt[i, "susi-leaf-services"]
+                        m[i, "susi-leaf-services"] = lm[i, "susi-leaf-services"]
+                    }
+                    for (c in crates) {
+                        if (t[i, c] > 0) {
+                            pct = 100.0 * (t[i, c] - m[i, c]) / t[i, c]
+                            if (!(c in best) || pct > best[c]) best[c] = pct
+                        }
+                    }
+                }
+                for (c in best) {
+                    printf "%s\t%.1f\n", c, int(best[c])
+                }
+            }
+        ' "$@")
+        jq --arg rows "$updates_json" '
+            .floor_percent = (
+                $rows
+                | split("\n")
+                | map(select(length > 0) | split("\t") | {key: .[0], value: (.[1] | tonumber)})
+                | from_entries
+            )
+        ' .agents/coverage-baseline.json > .agents/coverage-baseline.json.tmp
+        mv .agents/coverage-baseline.json.tmp .agents/coverage-baseline.json
+        echo "baselines rewritten to measured floors — review the diff"
+        return 0
+    fi
 
-mode = sys.argv[1]
-pairs = sys.argv[2:]
-assert len(pairs) >= 2 and len(pairs) % 2 == 0, 'expected ws/leaf file pairs'
-
-def parse(path):
-    agg = collections.defaultdict(lambda: [0, 0])
-    for line in open(path, errors='ignore'):
-        m = re.match(r'(crates/([^/]+)/\S+|src/\S+|xtask/\S+)\s+(\d+)\s+(\d+)\s+([\d.]+)%', line)
-        if not m:
-            continue
-        crate = m.group(2) if m.group(2) else ('susi' if m.group(1).startswith('src/') else 'xtask')
-        agg[crate][0] += int(m.group(3))
-        agg[crate][1] += int(m.group(4))
-    return agg
-
-def measured_of(ws_path, leaf_path):
-    agg = parse(ws_path)
-    # Merge the all-features leaf-services pass over the default-feature row.
-    for crate, (t, m) in parse(leaf_path).items():
-        if crate == 'susi-leaf-services':
-            agg[crate] = [t, m]
-    return agg, {c: 100.0 * (t - m) / t for c, (t, m) in agg.items() if t}
-
-runs = [measured_of(pairs[i], pairs[i + 1]) for i in range(0, len(pairs), 2)]
-measured = {}
-for _, run in runs:
-    for crate, pct in run.items():
-        measured[crate] = max(measured.get(crate, 0.0), pct)
-agg = runs[-1][0]
-
-doc = json.load(open('.agents/coverage-baseline.json'))
-baseline = doc['floor_percent']
-
-if mode == '--update':
-    doc['floor_percent'] = {c: round(math.floor(v), 1) for c, v in measured.items()}
-    with open('.agents/coverage-baseline.json', 'w') as f:
-        json.dump(doc, f, indent=1)
-        f.write('\n')
-    print('baselines rewritten to measured floors — review the diff')
-    sys.exit(0)
-
-failed = []
-for crate, floor in sorted(baseline.items()):
-    got = measured.get(crate)
-    if got is None:
-        print(f'note: {crate} produced no instrumented lines (facade?) — skipped')
-        continue
-    ok = got + 0.05 >= floor
-    detail = f'  (best of {len(runs)} runs: ' + ', '.join(
-        f"{run.get(crate, 0.0):.1f}" for _, run in runs) + ')' if len(runs) > 1 else ''
-    print(f'{crate:32s} floor {floor:5.1f}%  measured {got:5.1f}%  {"ok" if ok else "REGRESSED"}{detail}')
-    if not ok:
-        failed.append(crate)
-
-for crate in sorted(set(measured) - set(baseline)):
-    print(f'note: {crate} not in baseline — add its floor')
-
-if failed:
-    print(f'\ncoverage regression in: {", ".join(failed)}', file=sys.stderr)
-    sys.exit(1)
-total = sum(v[0] for v in agg.values())
-miss = sum(v[1] for v in agg.values())
-if total > 0:
-    print(f'\nline coverage: {100.0 * (total - miss) / total:.2f}%')
-PYEOF
+    BASELINES="$baseline_tsv" awk '
+        function crate_of(path,    parts) {
+            if (path ~ /^crates\/[^\/]+\//) {
+                split(path, parts, "/")
+                return parts[2]
+            }
+            if (path ~ /^src\//) return "susi"
+            if (path ~ /^xtask\//) return "xtask"
+            return ""
+        }
+        BEGIN {
+            n_base = split(ENVIRON["BASELINES"], blines, "\n")
+            for (i = 1; i <= n_base; i++) {
+                if (blines[i] == "") continue
+                split(blines[i], kv, "\t")
+                base_order[++base_count] = kv[1]
+                floor[kv[1]] = kv[2] + 0.0
+            }
+        }
+        {
+            run_idx = int((ARGIND - 1) / 2) + 1
+            if (run_idx > num_runs) num_runs = run_idx
+            c = crate_of($1)
+            if (c != "" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9.]+%$/) {
+                if (ARGIND % 2 == 1) {
+                    t[run_idx, c] += $2
+                    m[run_idx, c] += $3
+                    crates[c] = 1
+                } else if (c == "susi-leaf-services") {
+                    lt[run_idx, c] += $2
+                    lm[run_idx, c] += $3
+                    crates[c] = 1
+                }
+            }
+        }
+        END {
+            for (r = 1; r <= num_runs; r++) {
+                if (lt[r, "susi-leaf-services"] > 0) {
+                    t[r, "susi-leaf-services"] = lt[r, "susi-leaf-services"]
+                    m[r, "susi-leaf-services"] = lm[r, "susi-leaf-services"]
+                }
+                for (c in crates) {
+                    if (t[r, c] > 0) {
+                        pct = 100.0 * (t[r, c] - m[r, c]) / t[r, c]
+                        run_pct[r, c] = pct
+                        has_measured[c] = 1
+                        if (!(c in best) || pct > best[c]) best[c] = pct
+                    }
+                }
+            }
+            failed_list = ""
+            for (i = 1; i <= base_count; i++) {
+                c = base_order[i]
+                fl = floor[c]
+                if (!(c in has_measured)) {
+                    printf "note: %s produced no instrumented lines (facade?) — skipped\n", c
+                    continue
+                }
+                got = best[c]
+                ok = (got + 0.05 >= fl)
+                detail = ""
+                if (num_runs > 1) {
+                    detail = "  (best of " num_runs " runs: "
+                    for (r = 1; r <= num_runs; r++) {
+                        if (r > 1) detail = detail ", "
+                        detail = detail sprintf("%.1f", run_pct[r, c] + 0.0)
+                    }
+                    detail = detail ")"
+                }
+                printf "%-32s floor %5.1f%%  measured %5.1f%%  %s%s\n", c, fl, got, (ok ? "ok" : "REGRESSED"), detail
+                if (!ok) {
+                    failed_list = (failed_list == "" ? c : failed_list ", " c)
+                }
+            }
+            for (c in has_measured) {
+                if (!(c in floor)) {
+                    printf "note: %s not in baseline — add its floor\n", c
+                }
+            }
+            if (failed_list != "") {
+                printf "\ncoverage regression in: %s\n", failed_list > "/dev/stderr"
+                exit 1
+            }
+            total = 0
+            miss = 0
+            for (c in crates) {
+                total += t[num_runs, c]
+                miss += m[num_runs, c]
+            }
+            if (total > 0) {
+                printf "\nline coverage: %.2f%%\n", 100.0 * (total - miss) / total
+            }
+        }
+    ' "$@"
 }
 
 if [[ "${1:-}" == "--update" ]]; then

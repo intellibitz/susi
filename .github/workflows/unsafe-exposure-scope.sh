@@ -25,114 +25,35 @@ rust_changed=$(grep -E '\.rs$' <<<"$changed" || true)
   exit 0
 }
 
-command -v python3 >/dev/null 2>&1 && python3 -c 'import tomllib' >/dev/null 2>&1 || {
-  echo true
-  exit 0
-}
+# An unrecognized path outside a nested src/ module may be a Cargo target entry
+# point (src/lib.rs, src/main.rs, src/bin/**, tests/**, examples/**, benches/**,
+# build.rs) or a custom target path. Only a clearly nested module file under
+# src/ inside a workspace crate without custom target path overrides is safe to
+# skip; any ambiguity fails open and runs the full ratchet.
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  case "$rel" in
+    */main.rs|main.rs|*/src/bin/*|src/bin/*)
+      echo true
+      exit 0
+      ;;
+  esac
+  if [[ "$rel" =~ ^((crates/[^/]+|xtask|tools/[^/]+)/)?src/[^/]+/.+\.rs$ ]]; then
+    pkg_dir="${BASH_REMATCH[2]:-.}"
+    manifest="$root/$pkg_dir/Cargo.toml"
+    if [ ! -f "$manifest" ]; then
+      echo true
+      exit 0
+    fi
+    rel_in_pkg="${rel#${pkg_dir}/}"
+    if grep -Fq "$rel_in_pkg" "$manifest" 2>/dev/null; then
+      echo true
+      exit 0
+    fi
+  else
+    echo true
+    exit 0
+  fi
+done <<<"$rust_changed"
 
-result=$(RUST_CHANGED="$rust_changed" python3 - "$root" <<'PY'
-import os
-import pathlib
-import sys
-import tomllib
-
-root = pathlib.Path(sys.argv[1]).resolve()
-changed = set(os.environ["RUST_CHANGED"].splitlines())
-targets = set()
-manifests = set()
-
-def add_path(directory, value):
-    path = (directory / value).resolve()
-    try:
-        targets.add(path.relative_to(root).as_posix())
-    except ValueError:
-        # A target outside the workspace is unusual; fail open if changed.
-        targets.add(path.as_posix())
-
-def auto_entries(directory):
-    if not directory.exists():
-        return []
-    return [
-        *directory.glob("*.rs"),
-        *(path for path in directory.glob("**/main.rs") if path.parent != directory),
-    ]
-
-for relative in changed:
-    source = (root / relative).resolve()
-    directory = source.parent
-    parts = pathlib.PurePosixPath(relative).parts
-    while directory == root or root in directory.parents:
-        if directory == root and parts[:1] == ("crates",):
-            print("true")
-            raise SystemExit(0)
-        manifest = directory / "Cargo.toml"
-        if manifest.is_file():
-            manifests.add(manifest)
-            break
-        if directory == root:
-            break
-        directory = directory.parent
-    else:
-        print("true")
-        raise SystemExit(0)
-
-for manifest in manifests:
-    directory = manifest.parent
-    try:
-        document = tomllib.loads(manifest.read_text(encoding="utf-8"))
-        package = document.get("package", {})
-    except Exception:
-        print("true")
-        raise SystemExit(0)
-
-    lib = document.get("lib", {})
-    if package.get("autolib", True):
-        lib_path = lib.get("path", "src/lib.rs")
-        if (directory / lib_path).is_file():
-            add_path(directory, lib_path)
-
-    for kind, auto_key, source_dir, default_file in (
-        ("bin", "autobins", "src/bin", "src/main.rs"),
-        ("example", "autoexamples", "examples", None),
-        ("test", "autotests", "tests", None),
-        ("bench", "autobenches", "benches", None),
-    ):
-        if package.get(auto_key, True):
-            if default_file and (directory / default_file).is_file():
-                add_path(directory, default_file)
-            for target in auto_entries(directory / source_dir):
-                add_path(directory, target.relative_to(directory).as_posix())
-        declared = document.get(kind, [])
-        if isinstance(declared, dict):
-            declared = [declared]
-        for target in declared:
-            if isinstance(target, dict):
-                add_path(directory, target.get("path", f"{source_dir}/{target['name']}.rs"))
-
-    build = package.get("build", "build.rs")
-    if build is not False and build and (directory / build).is_file():
-        add_path(directory, build if isinstance(build, str) else "build.rs")
-
-if changed & targets:
-    print("true")
-else:
-    # An unrecognized path outside a nested src module may be a custom Cargo
-    # target or a future input convention. Only a clearly nested module file
-    # is safe to skip; ambiguity runs the full ratchet.
-    def ordinary_module(path):
-        parts = pathlib.PurePosixPath(path).parts
-        if not path.endswith(".rs") or "src" not in parts:
-            return False
-        return (
-            len(parts) - parts.index("src") - 1 >= 2
-            and "bin" not in parts[parts.index("src") + 1 :]
-            and pathlib.PurePosixPath(path).name != "main.rs"
-        )
-
-    print("true" if any(not ordinary_module(path) for path in changed) else "false")
-PY
-) || {
-  echo true
-  exit 0
-}
-echo "$result"
+echo false

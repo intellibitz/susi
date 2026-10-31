@@ -71,7 +71,7 @@ fn fixture(tag: &str) -> PathBuf {
     for h in ["commit-msg", "pre-commit", "pre-push", "workflow-guard"] {
         std::fs::write(root.join(".githooks").join(h), "#!/bin/sh\nexit 0\n").unwrap();
     }
-    std::fs::write(root.join("scripts/merge-ledger.py"), "# ledger merger\n").unwrap();
+    std::fs::write(root.join("scripts/merge-ledger.sh"), "# ledger merger\n").unwrap();
     std::fs::write(
         root.join(".gitattributes"),
         ".agents/evidence.json merge=ledger\n",
@@ -109,7 +109,7 @@ fn zc_hooks_on_clone_susi_installs_hooks_and_merge_driver() {
     );
     assert_eq!(
         git(&root, &["config", "--get", "merge.ledger.driver"]),
-        "python3 scripts/merge-ledger.py %O %A %B"
+        "sh scripts/merge-ledger.sh %O %A %B"
     );
     std::fs::remove_dir_all(&root).ok();
 }

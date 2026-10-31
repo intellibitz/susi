@@ -6,5 +6,5 @@
   "tracked_by": [],
   "recorded_by": "INTELLIBITZ20261005030120687099",
   "recorded_unix": 1791195915,
-  "check": ["scripts/check-reachability.py", "--function", "--delivered", "qualify_multi_stage"]
+  "check": ["scripts/check-reachability.sh", "--function", "--delivered", "qualify_multi_stage"]
 }

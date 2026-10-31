@@ -445,7 +445,7 @@ fn a_large_task_is_claimed_with_a_lease_that_outlives_the_work() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The 30 verification tasks accept `scripts/check-roadmap-verdict.py <VC-id>`
+/// The 30 verification tasks accept `scripts/check-roadmap-verdict.sh <VC-id>`
 /// — a script with an argument, which nothing had exercised end to end: the
 /// argv split, the cwd, the exit-code reading and the zero-evidence guard were
 /// all assumed. If it were wrong, all 30 would be unclosable.
@@ -463,15 +463,15 @@ fn a_script_acceptance_with_arguments_closes_a_task() {
     // The checker must exist in the checkout the acceptance runs from.
     std::fs::create_dir_all(a.join("scripts")).unwrap();
     std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-roadmap-verdict.py"),
-        a.join("scripts/check-roadmap-verdict.py"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-roadmap-verdict.sh"),
+        a.join("scripts/check-roadmap-verdict.sh"),
     )
     .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(
-            a.join("scripts/check-roadmap-verdict.py"),
+            a.join("scripts/check-roadmap-verdict.sh"),
             std::fs::Permissions::from_mode(0o755),
         )
         .unwrap();
@@ -487,7 +487,7 @@ fn a_script_acceptance_with_arguments_closes_a_task() {
             "add",
             "verify a vector",
             "--accept",
-            "scripts/check-roadmap-verdict.py --self-test",
+            "scripts/check-roadmap-verdict.sh --self-test",
             "--size",
             "l",
         ],
@@ -525,7 +525,7 @@ fn a_script_acceptance_with_arguments_closes_a_task() {
             "add",
             "verify another",
             "--accept",
-            "scripts/check-roadmap-verdict.py VC-201-999",
+            "scripts/check-roadmap-verdict.sh VC-201-999",
         ],
     );
     assert_eq!(code, 0, "{err}");

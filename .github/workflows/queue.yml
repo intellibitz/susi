@@ -14,7 +14,7 @@ name: Queue
 # cloud cannot delete. The client waits for the deletion and judges the refs it
 # alone writes. The leases are the pusher's, so what lands is exactly what the
 # pusher proved, or nothing; a request past its expiry is never applied.
-# scripts/queue-relay.py refuses every other namespace, so a branch, a tag or
+# scripts/queue-relay.sh refuses every other namespace, so a branch, a tag or
 # an attestation never travels this way.
 #
 # A push runs the workflow file of the pushed commit, and a request's tree is
@@ -52,7 +52,7 @@ jobs:
       - name: Apply the request's compare-and-swap push
         run: |
           status=0
-          python3 scripts/queue-relay.py "$GITHUB_SHA" || status=$?
+          scripts/queue-relay.sh "$GITHUB_SHA" || status=$?
           [ "$status" -ne 2 ]
 
       # Consumed whatever the outcome: the client judges the refs, not a branch
@@ -66,4 +66,4 @@ jobs:
 
       - name: Sweep expired requests
         if: always()
-        run: python3 scripts/queue-relay.py --sweep
+        run: scripts/queue-relay.sh --sweep

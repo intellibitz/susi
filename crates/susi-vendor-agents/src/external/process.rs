@@ -79,22 +79,6 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
                 })
                 .collect::<Vec<_>>(),
         ),
-        Adapter::Qwen { python } => (
-            python.clone(),
-            vec![
-                "-u".into(),
-                "-c".into(),
-                super::python_bridge::QWEN_BRIDGE.trim_start().into(),
-            ],
-        ),
-        Adapter::Python { python, .. } => (
-            python.clone(),
-            vec![
-                "-u".into(),
-                "-c".into(),
-                super::python_bridge::FRAMEWORK_BRIDGE.trim_start().into(),
-            ],
-        ),
         _ => susi_error::eai_bail!("not a process adapter"),
     };
     let program = super::catalog::resolve_program(&program).context("agent executable missing")?;
@@ -135,10 +119,6 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
     }
     if matches!(&run.adapter, Adapter::Command { program, .. } if program == "deerflow") {
         super::deerflow::apply_process_env(&mut cmd);
-    }
-    if let Adapter::Python { config_env, .. } = &run.adapter {
-        let path = std::env::var(config_env).context("framework config env missing")?;
-        cmd.env("SUSI_FRAMEWORK_CONFIG", path);
     }
     // Armed last so the probes see the agent's final env; refuses launch into
     // a git work tree whose identity the agent could not see.

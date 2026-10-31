@@ -3469,20 +3469,6 @@ fn acceptance_command(argv: &[String]) -> Command {
             command.arg(program).args(&argv[1..]);
             return command;
         }
-        if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("py") {
-            // Use Git Bash as the parent so Python inherits its POSIX utility
-            // path too; checkers may invoke grep/sed as part of acceptance.
-            let mut command = Command::new("sh");
-            command
-                .args([
-                    "-c",
-                    "export PYTHONIOENCODING=utf-8; exec python3 \"$@\"",
-                    "susi-acceptance",
-                ])
-                .arg(program)
-                .args(&argv[1..]);
-            return command;
-        }
     }
     let mut command = Command::new(program);
     command.args(&argv[1..]);
@@ -4360,9 +4346,9 @@ mod tests {
         std::fs::write(a.join("src/cli/test.rs"), "allowed").unwrap();
         git(&a, &["add", "src/cli/test.rs"]).unwrap();
         let checker =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/check-task-scope.py");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/check-task-scope.sh");
         let checked = || {
-            Command::new("python3")
+            Command::new(if cfg!(windows) { "sh" } else { "bash" })
                 .arg(&checker)
                 .arg(&first.id)
                 .current_dir(&a)
