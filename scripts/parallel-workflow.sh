@@ -158,11 +158,25 @@ renew_owned_claims() {
 # the common path; if main advanced during the gate, integrate the hook's fresh
 # snapshot and retry once. Other push failures retain their original error.
 push_closed_branch() {
-    local branch=$1 attempt before
+    local branch=$1 attempt before status
+    released_with_push=0
     for attempt in 1 2; do
         before=$(git rev-parse HEAD)
-        if git push origin "HEAD:refs/heads/$branch"; then
-            return 0
+        status=75
+        if [ "${wait:-0}" != 1 ] && [ -n "${task:-}" ] && [ -f "$root/scripts/publish-task-branch.py" ]; then
+            if python3 -B "$root/scripts/publish-task-branch.py" "$task" "$branch"; then
+                released_with_push=1
+                return 0
+            else
+                status=$?
+            fi
+        fi
+        # Relay transports and older standalone copies retain the separate
+        # publication/release path. A failed atomic transaction never falls back.
+        if [ "$status" = 75 ]; then
+            if git push origin "HEAD:refs/heads/$branch"; then
+                return 0
+            fi
         fi
         if [ "$attempt" = 2 ] || [ "$before" != "$(git rev-parse HEAD)" ] \
             || git merge-base --is-ancestor origin/main HEAD; then
@@ -547,7 +561,9 @@ finish)
     if [ "$wait" != 1 ] || [ "${SUSI_FINISH_WAIT_MAX:-1800}" -le 0 ]; then
         # Never fall through into the wait below: a failed release used to
         # park the agent in a 30-minute poll it never asked for.
-        if ! timed_step release "$susi_bin" tasks release "$task" --force; then
+        if [ "${released_with_push:-0}" = 1 ]; then
+            echo 'workflow: release included in the atomic branch push' >&2
+        elif ! timed_step release "$susi_bin" tasks release "$task" --force; then
             echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi tasks release $task --force" >&2
             exit 1
         fi

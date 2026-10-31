@@ -343,6 +343,30 @@ libtest experiment passed all 481 active gawd tests but took 428.5 s in the
 saturated host; it is not adopted as the runner default. No sub-60 full Rust gate
 or binary release is claimed from these experiments.
 
+## Atomic branch publication and claim release (2026-10-31)
+
+PR #1117 passed 85 xtask tests and all six identity tests. Its complete finish
+took 272.6 s: gate 137 s, close 15 s, push 37 s and release 25 s, plus lease,
+sync and bookkeeping. Reusing the commit hook's format proof took 3 s, versus
+the earlier 25 s repeat check. Two separate hermetic runs still cost 38 s and
+49 s for xtask and the focused root tests. Host load and the different test
+selection prevent treating these totals as a controlled speedup comparison.
+
+Direct, non-waiting finish now publishes its frozen branch head and releases
+its claim in one atomic push. The transaction pins the claim, agent index and
+accepted receipt to their observed object IDs; a concurrent reassignment or
+receipt change rejects every update. The receipt retains its accepted source
+head, scopes and acceptance time, with an additional publication revision so
+even a same-head retry requires a real compare-and-swap update. Local mirrors
+use Git's own ref transaction and never replace a newer concurrent snapshot.
+
+Cloud relay, another queue remote, an already released claim and explicit
+`--wait` retain the existing separate path. A rejected atomic push never falls
+back to releasing ownership. Real bare-server regressions cover packed refs,
+same-head republication, claim/index/receipt races and refusal to rewind the
+code branch. The full updated gate and finish must still be measured; neither
+a sub-60 gate nor a sub-60 binary release has been demonstrated.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

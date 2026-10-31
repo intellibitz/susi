@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT20261031021059518379-6",
+  "title": "Publish branches and release their claims in one atomic transaction",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT20261031021059518379",
+  "created_unix": 1793444050,
+  "closed": {
+    "at_unix": 1793444932,
+    "commit": "b780c80716b8bc39ee04e26ba3090a04b1c0f1e0",
+    "by": "AGENT20261031021059518379"
+  }
+}
