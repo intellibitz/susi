@@ -191,42 +191,15 @@ fn promote_into(workspace: &Path, files: &[FilePatch]) -> EaiResult<Vec<String>>
 // Interpret only a native executable plus literal arguments. Shell operators,
 // substitutions and scripts are not silently dispatched to a shell on Windows.
 fn native_test_args(text: &str) -> Result<Vec<String>, &'static str> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quote = None;
-    let mut started = false;
-    for ch in text.chars() {
-        if matches!(ch, ';' | '&' | '|' | '<' | '>' | '`' | '$' | '\n' | '\r') {
-            return Err("test command must be one native executable with literal arguments");
-        }
-        if let Some(delimiter) = quote {
-            if ch == delimiter {
-                quote = None;
-            } else {
-                current.push(ch);
-            }
-        } else if ch == '\'' || ch == '"' {
-            quote = Some(ch);
-            started = true;
-        } else if ch.is_whitespace() {
-            if started {
-                args.push(std::mem::take(&mut current));
-                started = false;
-            }
-        } else {
-            current.push(ch);
-            started = true;
-        }
+    // Test acceptance has a stricter policy than general authorized intent:
+    // metacharacters are refused even inside literal quotes.
+    if text
+        .chars()
+        .any(|ch| matches!(ch, ';' | '&' | '|' | '<' | '>' | '`' | '$' | '\n' | '\r'))
+    {
+        return Err("test command must be one native executable with literal arguments");
     }
-    if quote.is_some() {
-        return Err("test command has an unterminated quote");
-    }
-    if started {
-        args.push(current);
-    }
-    if args.first().is_none_or(|program| program.is_empty()) {
-        return Err("test executable is missing");
-    }
+    let args = crate::susi_core::intent_plan::command_argv(text)?;
     let name = Path::new(&args[0])
         .file_name()
         .and_then(|name| name.to_str())
