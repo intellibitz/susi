@@ -9,7 +9,7 @@
 //!       --baseline .agents/baseline/unsafe-default.json
 //! exits 2 and names the offending crates when exposure grew.
 //!
-//! Review mode (the auditable path a human takes to accept new exposure):
+//! Review mode (the auditable agent path after reviewing new exposure):
 //!   ... --write-baseline .agents/baseline/unsafe-default.json
 //! regenerates the pinned baseline; committing that diff is the review.
 //! `--features <label>` names the pinned feature set (default: "default").
