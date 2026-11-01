@@ -44,14 +44,17 @@ fn gmcp_http_home_guard(tag: &str) -> (std::sync::MutexGuard<'static, ()>, EnvGu
     (lock, env, home)
 }
 
+// The authoring checker uses POSIX utilities; the production verifier is
+// tested separately on every platform, including Windows.
+#[cfg(not(windows))]
 #[test]
 fn gmcp_req_203_001_01_contract() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = Command::new("python3")
-        .arg(root.join("scripts/check-gmcp-ledger.py"))
+    let output = Command::new("bash")
+        .arg(root.join("scripts/check-gmcp-ledger.sh"))
         .current_dir(root)
         .output()
-        .expect("python3 must run the GMCP ledger checker");
+        .expect("bash must run the GMCP ledger checker");
 
     assert!(
         output.status.success(),
@@ -59,15 +62,19 @@ fn gmcp_req_203_001_01_contract() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("requirements rows"),
-        "checker did not verify the complete classified ledger"
-    );
+    let checker_rows: usize = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .nth(3)
+        .and_then(|value| value.parse().ok())
+        .expect("checker must report the classified row count");
+    let report = susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
+        .expect("production verifier must accept the same ledger");
+    assert_eq!(checker_rows, report.rows, "checker and verifier must agree");
 }
 
 /// GMCP-203-001-02: the shipped binary verifies the pinned ledger through
 /// `susi_gmcp::requirements_ledger` — the same production path every GMCP
-/// entry point links — not the authoring-time Python checker.
+/// entry point links — not the authoring-time shell checker.
 #[test]
 fn gmcp_req_203_001_02_production() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -921,10 +928,9 @@ fn gmcp_req_203_001_04_adversarial() {
     let _ = std::fs::remove_dir_all(&scratch);
 }
 
-/// GMCP-203-001-05: interoperability and quality for the ledger. Both roles
-/// of the toolchain (the authoring-time Python checker and the shipped Rust
-/// verifier) must agree; every surface must emit the identical canonical
-/// report; verification must be deterministic, read-only, and insensitive to
+/// GMCP-203-001-05: interoperability and quality for the ledger. Every
+/// surface must emit the identical canonical report; verification must be
+/// deterministic, read-only, and insensitive to
 /// artifact ordering; the published budgets must hold; and every retained
 /// fixture replays as expected — divergences are recorded in
 /// `fixtures/divergences.json` and must match observed behavior verbatim.
@@ -935,24 +941,6 @@ fn gmcp_req_203_001_05_interop() {
     let home = scratch.join("home");
     std::fs::create_dir_all(&home).unwrap();
 
-    // ── Both roles: the authoring checker and the shipped verifier ──────
-    let checker = Command::new("python3")
-        .arg(root.join("scripts/check-gmcp-ledger.py"))
-        .current_dir(root)
-        .output()
-        .expect("python3 must run the GMCP ledger checker");
-    assert!(
-        checker.status.success(),
-        "authoring checker failed: {}",
-        String::from_utf8_lossy(&checker.stderr)
-    );
-    let checker_out = String::from_utf8_lossy(&checker.stdout);
-    let checker_rows: u64 = checker_out
-        .split_whitespace()
-        .nth(3)
-        .and_then(|n| n.parse().ok())
-        .expect("checker must report a row count");
-
     let start = std::time::Instant::now();
     let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
     let cli_elapsed = start.elapsed();
@@ -960,12 +948,6 @@ fn gmcp_req_203_001_05_interop() {
         cli_elapsed < std::time::Duration::from_secs(300),
         "mcp ledger exceeded the published 60s budget: {cli_elapsed:?}"
     );
-    assert_eq!(
-        cli_report["rows"].as_u64().unwrap(),
-        checker_rows,
-        "checker and verifier must agree on the row count"
-    );
-
     // ── Differential behavior: direct and served surfaces equal the CLI ─
     let direct = ledger_tool_report(root);
     assert_eq!(direct, cli_report, "direct call must equal the CLI report");
@@ -1752,16 +1734,8 @@ fn gmcp_req_203_002_01_contract() {
 
     // ── The full pinned-corpus check still passes — the contract did
     //    not disturb the VC-203-001 machinery ─────────────────────────
-    let checker = Command::new("python3")
-        .arg("scripts/check-gmcp-ledger.py")
-        .current_dir(root)
-        .output()
-        .expect("the checker must run");
-    assert!(
-        checker.status.success(),
-        "checker failed:\n{}",
-        String::from_utf8_lossy(&checker.stderr)
-    );
+    susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
+        .expect("the pinned corpus and ledger must verify");
 
     // ── Seed fixtures: every file the contract names exists, parses,
     //    and follows the fixture convention ──────────────────────────
@@ -3239,16 +3213,8 @@ fn gmcp_req_203_003_01_contract() {
 
     // ── The full pinned-corpus check still passes — the contract did
     //    not disturb the ledger machinery ────────────────────────────
-    let checker = Command::new("python3")
-        .arg("scripts/check-gmcp-ledger.py")
-        .current_dir(root)
-        .output()
-        .expect("the checker must run");
-    assert!(
-        checker.status.success(),
-        "checker failed:\n{}",
-        String::from_utf8_lossy(&checker.stderr)
-    );
+    susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
+        .expect("the pinned corpus and ledger must verify");
 
     // ── Seed fixtures: every file the contract names exists, parses,
     //    and follows the fixture convention ──────────────────────────
@@ -4613,16 +4579,8 @@ fn gmcp_req_203_008_01_contract() {
 
     // ── The full pinned-corpus check still passes — the contract did
     //    not disturb the VC-203-001 machinery ─────────────────────────
-    let checker = Command::new("python3")
-        .arg("scripts/check-gmcp-ledger.py")
-        .current_dir(root)
-        .output()
-        .expect("the checker must run");
-    assert!(
-        checker.status.success(),
-        "checker failed:\n{}",
-        String::from_utf8_lossy(&checker.stderr)
-    );
+    susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
+        .expect("the pinned corpus and ledger must verify");
 
     // ── Seed fixtures: every file the contract names exists, parses,
     //    and follows the payload-fixture convention ──────────────────
