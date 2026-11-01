@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1GGUFLOAD20261101-1",
+  "title": "Reuse buffered positioned GGUF metadata parsing during native weight loading",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "gguf",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1GGUFLOAD20261101",
+  "created_unix": 1793534520
+}
