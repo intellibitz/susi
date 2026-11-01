@@ -1729,10 +1729,6 @@ dependencies = [
 [[package]]
 name = "esaxx-rs"
 version = "0.1.10"
-source = "git+https://github.com/intellibitz/susi?rev=c69a90d60e8e7d96ce62d83c3e3d0d631b970480#c69a90d60e8e7d96ce62d83c3e3d0d631b970480"
-dependencies = [
- "cc",
-]
 
 [[package]]
 name = "fancy-regex"
@@ -4303,7 +4299,6 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "reqwest"
 version = "0.13.5"
-source = "git+https://github.com/intellibitz/susi?rev=c69a90d60e8e7d96ce62d83c3e3d0d631b970480#c69a90d60e8e7d96ce62d83c3e3d0d631b970480"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -5376,7 +5371,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-tantivy",
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
 ]

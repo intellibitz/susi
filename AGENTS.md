@@ -1,3 +1,16 @@
+## Owner direction: native local development (2026-11-01)
+
+The owner requires agent-only implementation, Rust-only Susi, native Windows,
+local debug/production builds and development independent of GitHub. This
+supersedes remote-only claims, GitHub CI handoffs and mandatory shell bootstrap
+below for this migration. Preserve worktree isolation, evidence and testing.
+Use `cargo local-build debug|production` for the native candidate build path
+and `cargo local-workflow` for cooperative local reservations. These do not yet
+replace every legacy workflow function. Do not represent candidates as approved
+production releases, or reservations as enforced filesystem isolation.
+See `docs/native-rust-direction.md` for implementation status and remaining
+acceptance. Strict license failures must be fixed by legitimate dependency
+migration, never hidden by broadening the allowlist or relabeling upstream code.
 **START HERE: run `susi workflow check` before you change anything.** It
 tells you whether you are in your own worktree, current with `origin/main`,
 have the hooks installed and hold a claim — and whether you can actually act on

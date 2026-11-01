@@ -14,6 +14,7 @@
 // compiled (and unit-tested) without emitting dead-code noise.
 #[allow(dead_code)]
 mod extension_watch;
+mod local_build;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -215,6 +216,14 @@ fn ensure_dev_setup_in(dir: &Path) {
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
+
+    if args.first().map(String::as_str) == Some("local-build") {
+        if let Err(error) = local_build::run(&args[1..]) {
+            eprintln!("xtask: {error}");
+            exit(1);
+        }
+        return;
+    }
 
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 

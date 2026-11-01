@@ -1791,65 +1791,36 @@ fn zc_quickstart_budget() {
     );
 }
 
-/// The `[patch.crates-io]` crates are git sources pinned by revision, never
-/// path crates. A path crate's build embeds the worktree's path, so it and
-/// every crate above it (ra2a, rmcp, tokenizers, fastembed, the candle crates:
-/// the heaviest compiles in the tree) recompiled in every new worktree and
-/// could sit in neither the seeded target snapshot nor the machine's compiler
-/// cache. The two patches live on this repository's `nopr/vendor-patches`
-/// branch (vendor/README.md); deny.toml must allow that source, and the
-/// lockfile must carry it for both.
+/// Patched sources ship with the checkout: development must not fetch GitHub.
 #[test]
-fn vendor_patches_are_pinned_git_revisions_not_path_crates() {
+fn vendor_patches_are_local_and_preserve_upstream_licenses() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
     let patch = manifest
         .split("[patch.crates-io]")
         .nth(1)
-        .and_then(|rest| rest.split("\n[").next())
-        .expect("Cargo.toml has a [patch.crates-io] table");
-    let mut pinned = Vec::new();
-    for line in patch.lines().map(str::trim) {
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        assert!(
-            !line.contains("path ="),
-            "a path patch recompiles in every worktree and defeats the snapshot and the cache: {line}"
-        );
-        assert!(
-            line.contains("git =") && line.contains("rev = \""),
-            "every patch must be a git source pinned by revision: {line}"
-        );
-        pinned.push(line.split('=').next().unwrap().trim().to_string());
+        .unwrap()
+        .split("\n[")
+        .next()
+        .unwrap();
+    for line in patch
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        assert!(line.contains("path = \"vendor/"), "nonlocal patch: {line}");
+        assert!(!line.contains("git ="), "GitHub-dependent patch: {line}");
     }
-    for krate in ["reqwest", "esaxx-rs"] {
-        assert!(
-            pinned.iter().any(|p| p == krate),
-            "{krate} is no longer patched?"
-        );
-        let entry = format!("name = \"{krate}\"\n");
-        let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
-        let after = lock
-            .split(&entry)
-            .nth(1)
-            .unwrap_or_else(|| panic!("Cargo.lock has no entry for {krate}"));
-        assert!(
-            after.contains("source = \"git+https://github.com/intellibitz/susi?rev="),
-            "Cargo.lock must resolve {krate} to the pinned git revision"
-        );
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
+    assert!(
+        !lock.contains("source = \"git+"),
+        "development sources must resolve without a Git host"
+    );
+    for (name, license) in [("reqwest", "LICENSE-APACHE"), ("esaxx-rs", "LICENSE")] {
+        assert!(root.join("vendor").join(name).join("Cargo.toml").is_file());
+        assert!(root.join("vendor").join(name).join(license).is_file());
     }
-    let deny = std::fs::read_to_string(root.join("deny.toml")).unwrap();
-    assert!(
-        deny.contains("\"https://github.com/intellibitz/susi\""),
-        "deny.toml must allow this repository as a git source, or cargo deny refuses the patches"
-    );
-    assert!(
-        !root.join("vendor/reqwest").exists() && !root.join("vendor/esaxx-rs").exists(),
-        "the patched sources live on the nopr/vendor-patches branch, not in the tree"
-    );
 }
-
 /// The lockfile carries no `zip` with GitHub's five Dependabot advisories
 /// (GHSA-m665-v7pm-7grj and four more, all fixed in 9.0.5), and the candle
 /// crates that pull it in come from crates.io, not a git revision: candle

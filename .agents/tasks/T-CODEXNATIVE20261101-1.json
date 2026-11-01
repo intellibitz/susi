@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXNATIVE20261101-1",
+  "title": "Migrate Susi to native Rust, local agent development and strict permissive licenses",
+  "goal": "Implement the owner's ten requirements; do not close while native-code or license blockers remain",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXNATIVE20261101",
+  "created_unix": 1793548606,
+  "notes": "Local task under explicit owner direction replacing GitHub-dependent development. xtask tests cover tooling only; full acceptance additionally requires docs/native-rust-direction.md checks. Task remains open."
+}

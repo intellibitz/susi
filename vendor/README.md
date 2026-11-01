@@ -1,27 +1,8 @@
-# Vendored crates
+# Vendored patches
 
-Unmodified crates.io sources plus a minimal, documented patch, wired in via
-`[patch.crates-io]` in the root `Cargo.toml`. They used to live here as path
-crates; they now live on the `nopr/vendor-patches` branch of this repository
-(https://github.com/intellibitz/susi/tree/nopr/vendor-patches), and the root
-`Cargo.toml` pins one of its commits with `rev = "..."`.
+These exact sources were copied from revision `c69a90d60e8e7d96ce62d83c3e3d0d631b970480` of the existing vendor-patches branch. They now ship in the checkout, including upstream license notices, so source resolution requires no GitHub connection.
 
-**Why a git source and not a path:** a path crate's build embeds the worktree's
-path, so it and every crate above it (ra2a, rmcp, tokenizers, fastembed, the
-candle crates — the heaviest compiles in the tree) recompiled in every new
-worktree, and could sit in neither the seeded target snapshot
-(`scripts/seed-target.sh`) nor the machine's compiler cache
-(`scripts/setup-sccache.sh`). A git revision is the same key in every worktree
-and on every machine: the chain is built once and copied or served after.
-
-**Changing a patch:** check out the branch, commit the change there, push it
-(`git push origin <sha>:refs/heads/nopr/vendor-patches` — a `nopr/` branch
-opens no pull request and never merges), then bump the two `rev`s in the root
-`Cargo.toml` on a task branch like any other change. Never delete or rewrite
-the branch: every revision `main` ever pinned must stay fetchable. `deny.toml`
-allows this repository as a git source for exactly these two crates' sake.
-
-The branch's README.md carries the per-crate notes below as well.
+Root Cargo patches use local paths. This deliberately replaces the previous git-source caching optimization with source availability. Per-worktree build isolation remains mandatory; cross-worktree cache performance must be measured again. Update the sources and their patch notes together, preserving original licenses. Vendoring does not make non-Rust dependencies Rust or change their licenses.
 
 ## reqwest 0.13.5
 

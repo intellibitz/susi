@@ -1,5 +1,7 @@
 [alias]
 xb = "run --package xtask -- build"
+local-build = "run --offline --locked --package xtask --bin xtask -- local-build"
+local-workflow = "run --offline --locked --package xtask --bin local-workflow --"
 # Faster test runner: per-test process isolation, better scheduling than
 # libtest's per-binary thread pools. Requires `cargo install cargo-nextest`.
 xn = "nextest run --workspace --locked"

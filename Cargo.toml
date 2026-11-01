@@ -249,23 +249,10 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 # the registry build is one graph with a fixed zip, and a registry crate is a
 # compiler-cache hit where a git one is not (susi-vendor-candle asks for it).
 [patch.crates-io]
-# The two patched crates live on this repository's `nopr/vendor-patches`
-# branch (vendor/README.md), pinned here by revision. A git source, not a
-# path: a path crate's build embeds the worktree's path, so it and every
-# crate above it (ra2a, rmcp, tokenizers, fastembed, the candle crates)
-# recompiled in every new worktree and could sit in neither the seeded
-# target snapshot nor the machine's compiler cache. A revision is the same
-# key everywhere. tests/architecture_tests.rs pins that no patch is a path.
-#
-# reqwest's `rustls` feature hard-wires aws-lc-rs, and ra2a requests it
-# (reqwest default features) with no opt-out. The patched copy maps
-# `rustls` to ring instead.
-reqwest = { git = "https://github.com/intellibitz/susi", rev = "c69a90d60e8e7d96ce62d83c3e3d0d631b970480" }
-# esaxx-rs 0.1.10 (unmaintained) hardcodes `.static_crt(true)` → /MT on MSVC,
-# which LNK2038-conflicts with the /MD CRT the rest of the tree uses. The
-# patched copy drops the flag.
-esaxx-rs = { git = "https://github.com/intellibitz/susi", rev = "c69a90d60e8e7d96ce62d83c3e3d0d631b970480" }
-
+# Ship the exact patched sources with Susi: a fresh checkout must not need
+# GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
+reqwest = { path = "vendor/reqwest" }
+esaxx-rs = { path = "vendor/esaxx-rs" }
 # GPU backends live in susi-vendor-candle. Root forwards features through
 # susi-gemi so `cargo build -p susi --features cuda|mkl|metal` enables the
 # inference stack without the CLI package owning Candle dependencies.
