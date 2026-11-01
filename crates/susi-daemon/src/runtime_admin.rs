@@ -64,15 +64,15 @@ impl SusiRuntimeAdmin {
                     // workspace, no live estate, no egress — and the
                     // scorecard lands under the susi home. The ladder
                     // resolves from that home too, never from a cwd.
-                    if background_diagnostics_requested() {
-                        if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &home) {
-                            // A failed rung lands in the host outbox, and an
-                            // agent adopts it as a repair task in its own
-                            // checkout; the task closes when the intent passes
-                            // again (VC-201-012).
-                            if let Err(e) = susi_gawd::intent_ladder::record_gaps(&home, &card) {
-                                warn!("[runtime-admin] intent ladder gap outbox: {e}");
-                            }
+                    if background_diagnostics_requested()
+                        && let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &home)
+                    {
+                        // A failed rung lands in the host outbox, and an
+                        // agent adopts it as a repair task in its own
+                        // checkout; the task closes when the intent passes
+                        // again (VC-201-012).
+                        if let Err(e) = susi_gawd::intent_ladder::record_gaps(&home, &card) {
+                            warn!("[runtime-admin] intent ladder gap outbox: {e}");
                         }
                     }
 
