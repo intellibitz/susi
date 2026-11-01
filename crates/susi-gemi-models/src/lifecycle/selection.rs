@@ -548,8 +548,9 @@ mod selection_tests {
     #[test]
     fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {
         use susi_vendor_candle::tokenizers::{models::wordlevel::WordLevel, Tokenizer};
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("tokenizer.json");
+        let dir = std::env::temp_dir().join(format!("susi-tokenizer-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tokenizer.json");
         Tokenizer::new(WordLevel::default())
             .save(&path, false)
             .unwrap();
@@ -567,12 +568,15 @@ mod selection_tests {
         assert!(cache.load(&path).is_ok());
 
         // Retain only one parser even when many model candidates are scanned.
-        let other = dir.path().join("other.json");
+        let other = dir.join("other.json");
         Tokenizer::new(WordLevel::default())
             .save(&other, false)
             .unwrap();
         cache.load(&other).unwrap();
         assert_eq!(std::sync::Arc::strong_count(&first), 1);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(other).unwrap();
+        std::fs::remove_dir(dir).unwrap();
     }
 
     #[test]
