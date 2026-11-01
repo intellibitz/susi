@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1NATIVESPEED20261101-3",
+  "title": "Prefer ready installed local inference for ordinary automatic requests",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "fast_local",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1NATIVESPEED20261101",
+  "created_unix": 1793539819
+}
