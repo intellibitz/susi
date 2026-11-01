@@ -365,7 +365,12 @@ fn a_merged_version_bump_publishes_itself() {
         publishes,
         "every publish step must name the tag verify-tag decided on"
     );
-    let cut = read("crates/susi-gawd/src/admin/release.rs");
+    let source = read("crates/susi-gawd/src/admin/release.rs");
+    // Test fixtures can create a tag in a local bare remote. Only production
+    // release code can delay the real cut or tag a real release.
+    let (cut, _) = source
+        .split_once("\n#[cfg(test)]\nmod tests")
+        .expect("release module must retain an identifiable test boundary");
     for waits in ["SUSI_RELEASE_MERGE_WAIT", "await_merged", "\"tag\", \"-a\""] {
         assert!(
             !cut.contains(waits),
