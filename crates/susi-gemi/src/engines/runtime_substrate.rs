@@ -8,7 +8,6 @@ use crate::susi_error::{EaiError, EaiResult};
 use indicatif::{ProgressBar, ProgressStyle};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -292,7 +291,7 @@ impl InferenceHost {
             let Ok(Some((weights, device))) = Self::cache().evict(&path) else {
                 continue;
             };
-            println!(
+            tracing::debug!(
                 "- [Inference Substrate] Idle for over {}s: unloading {}",
                 timeout.as_secs(),
                 path.display()
@@ -329,7 +328,7 @@ impl InferenceHost {
             let Ok(Some((weights, victim_device))) = Self::cache().evict(&victim) else {
                 continue;
             };
-            println!(
+            tracing::debug!(
                 "- [Inference Substrate] VRAM pressure: evicting least-recently-used {}",
                 victim.display()
             );
@@ -472,11 +471,10 @@ impl InferenceHost {
         kv_cache_capacity: usize,
     ) -> EaiResult<ModelSubstrate> {
         // 2. Load Weights (Outside global cache lock to prevent substrate-wide stalls)
-        println!(
+        tracing::debug!(
             "- [Substrate Operation] Loading neural weights: {}",
             model_path.display()
         );
-        let _ = std::io::stdout().flush();
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(
@@ -536,11 +534,11 @@ impl InferenceHost {
                 .map(|s| s.as_str()),
         );
 
-        println!(
+        tracing::debug!(
             "- [Substrate Operation] Initializing {:?} weights on {:?}...",
-            arch, device
+            arch,
+            device
         );
-        let _ = std::io::stdout().flush();
 
         let weights = if Self::needs_qwen2_backend(&arch) {
             let cpu_dev = candle_core::Device::Cpu;
@@ -555,7 +553,7 @@ impl InferenceHost {
                 vram_budget,
                 kv_cache_capacity,
             );
-            println!(
+            tracing::debug!(
                 "- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU",
                 split
             );
@@ -589,8 +587,7 @@ impl InferenceHost {
         }
         .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
 
-        println!("- [Substrate Operation] Model substrate ready.");
-        let _ = std::io::stdout().flush();
+        tracing::debug!("- [Substrate Operation] Model substrate ready.");
         pb.finish_and_clear();
 
         Ok(ModelSubstrate {

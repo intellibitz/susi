@@ -6,7 +6,6 @@ use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
-use std::io::Write;
 use std::sync::{Arc, OnceLock};
 use susi_vendor_candle::candle_core;
 use susi_vendor_candle::tokenizers::Tokenizer;
@@ -97,33 +96,32 @@ impl SusiGgufEngine {
             .or_else(|| ModelManager::get_selected_model_for_request(prompt))
             .ok_or_else(|| EaiError::inference("No reasoning model selected."))?;
 
-        println!("- [Inference Substrate] Active Model: {}", model_id);
+        tracing::debug!("- [Inference Substrate] Active Model: {}", model_id);
         let model_path = ModelManager::get_model_path(&model_id)
             .ok_or_else(|| EaiError::inference(format!("Model '{}' not found.", model_id)))?;
         let tokenizer_path = ModelManager::get_tokenizer_path(&model_id)
             .ok_or_else(|| EaiError::inference("Tokenizer missing."))?;
 
-        println!("- [Inference Substrate] Requesting device context...");
+        tracing::debug!("- [Inference Substrate] Requesting device context...");
         let file_size = std::fs::metadata(&model_path)
             .map(|m| m.len() as usize)
             .unwrap_or(0);
         let device = HardwareProfiler::get_dynamic_device(file_size);
-        println!(
+        tracing::debug!(
             "- [Inference Substrate] Selected Heterogeneous Device Topology: {:?}",
             device
         );
 
-        println!("- [Inference Substrate] Acquiring model substrate shared handle...");
+        tracing::debug!("- [Inference Substrate] Acquiring model substrate shared handle...");
         let substrate_shared = InferenceHost::get_model(&model_path, &device, task_handle)?;
 
         // Lock-Free Native Substrate (transition to non-blocking attempt)
-        println!("- [Inference Substrate] Requesting exclusive access to model weights...");
-        let _ = std::io::stdout().flush();
+        tracing::debug!("- [Inference Substrate] Requesting exclusive access to model weights...");
 
         let mut substrate = substrate_shared.write();
-        println!(" [Access Granted]");
+        tracing::debug!(" [Access Granted]");
 
-        println!(
+        tracing::debug!(
             "- [Inference Substrate] Loading tokenizer from {}...",
             tokenizer_path.display()
         );
@@ -132,7 +130,7 @@ impl SusiGgufEngine {
             .map_err(|e| EaiError::inference(format!("Tokenizer Error: {}", e)))?;
 
         let wrapped_prompt = substrate.prompt_format.wrap(prompt);
-        println!(
+        tracing::debug!(
             "- [Inference Substrate] Encoding prompt (Length: {} chars, format: {:?})...",
             wrapped_prompt.len(),
             substrate.prompt_format
@@ -142,7 +140,7 @@ impl SusiGgufEngine {
             .map_err(|e| EaiError::inference(format!("Tokenization Error: {}", e)))?;
 
         let prompt_tokens = tokens.get_ids();
-        println!(
+        tracing::debug!(
             "- [Inference Substrate] Prompt encoded into {} tokens.",
             prompt_tokens.len()
         );
@@ -181,11 +179,10 @@ impl SusiGgufEngine {
             }
         }
 
-        println!(
+        tracing::debug!(
             "- [Inference Substrate] Beginning neural generation loop (Max: {} tokens)...",
             max_tokens
         );
-        let _ = std::io::stdout().flush();
 
         let mut text_stream = crate::engines::token_stream::TokenStream::new(&tokenizer);
 
@@ -194,15 +191,14 @@ impl SusiGgufEngine {
             task_handle.check_pause();
             if task_handle.is_cancelled() {
                 task_handle.mark_failed("Inference cancelled or stalled");
-                println!("\n- [Substrate Warning] Neural generation cancelled/stalled.");
+                tracing::warn!("Neural generation cancelled/stalled.");
                 return Err(EaiError::inference(
                     "Inference task cancelled or stalled by Swarm Watchdog.",
                 ));
             }
 
             if i % 10 == 0 && i > 0 {
-                print!(" [Trace: {}/{}] ", i, max_tokens);
-                let _ = std::io::stdout().flush();
+                tracing::debug!(" [Trace: {}/{}] ", i, max_tokens);
             }
 
             let input = candle_core::Tensor::new(tokens_to_process.as_slice(), &device)
@@ -307,8 +303,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         callback: &dyn Fn(String),
         _selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        println!("[SUSI Federated Router] Requesting remote consensus quorum...");
-        let _ = std::io::stdout().flush();
+        tracing::debug!("[SUSI Federated Router] Requesting remote consensus quorum...");
 
         // Prefer CapabilityRegistry cloud/local HTTP providers (keys + protocols
         // already resolved by zero-config / config registration).
@@ -359,11 +354,13 @@ impl NativeInferenceEngine for SusiFederatedEngine {
             endpoint.model.clone()
         };
 
-        println!(
+        tracing::debug!(
             "[SUSI Federated Router] Edge Delegation Active: {} ({}) model={} protocol={:?}",
-            endpoint.name, endpoint.api_base, model, protocol
+            endpoint.name,
+            endpoint.api_base,
+            model,
+            protocol
         );
-        let _ = std::io::stdout().flush();
 
         let provider = crate::engines::http_provider::HttpProvider {
             name: format!("federated-{}", endpoint.name.to_ascii_lowercase()),
