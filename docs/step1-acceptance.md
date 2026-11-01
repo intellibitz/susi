@@ -299,3 +299,27 @@ no license exception, relabeling, bundled ICU implementation or newer-Unicode
 compatibility claim is granted. Both the parser and backend standalone suites
 are mandatory in integration and production qualification alongside the other
 three platform adapters. Missing manifests fail the gate.
+
+### Actual clean Windows product diagnostic (2026-11-02)
+
+The owned Windows 11 Pro 25H2 guest (build26200, 4vCPU, 8GiB RAM), with no
+Visual Studio/runtime redistributable/development tools or previous Susi model
+cache, ran debug artifact SHA256
+`D16396473E2F3E2DC30F15EEA2C6E291B79920BFB7165AD47DEB886253BC925A`.
+This was explicitly a license-unqualified diagnostic, not production acceptance.
+Native installation and daemon start succeeded; the uncached starter model
+finished downloading at approximately45 seconds. The first goal answered
+`2+2 equals 4.` and its trace recorded SUCCESS in72 seconds. The second goal,
+`Write one short sentence about a red kite.`, failed: model preparation waited
+120 seconds, native fallback hit TRUTH_UNVERIFIED, and the trace recorded
+DELEGATED after140 seconds with power_reason. The installed stop command then
+reported one daemon stopped and ports released. The complete first-use journey
+therefore FAILED; neither successful installation nor real Candle token
+generation overrides that failed goal.
+
+Raw guest stdout/stderr, mission traces and Candle audit were copied unchanged
+into the release worker's ignored `target/clean-vm/guest-journey-failed` evidence
+directory. The guest remains preserved for diagnosis; a rerun cannot be called
+uncached without a separately verified fresh profile or clean guest. This
+result supersedes the earlier host-permission blocker but does not supersede
+the still-open standard-library license and production qualification gates.
