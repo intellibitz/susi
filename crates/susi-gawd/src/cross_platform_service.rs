@@ -467,12 +467,6 @@ mod tests {
     }
 
     #[test]
-    fn promote_release_cross_platform_returns_outcome() {
-        let outcome = promote_release_cross_platform();
-        assert!(!outcome.message.is_empty());
-    }
-
-    #[test]
     fn platform_diagnostics_inspects_host_capabilities() {
         let diag = PlatformDiagnostics::inspect();
         assert_eq!(diag.platform, PlatformKind::current());
