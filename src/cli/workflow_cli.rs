@@ -440,6 +440,56 @@ fn finish_wants_queue_defer(args: &[&str]) -> bool {
     matches!(args.first(), Some(&"finish")) && !args.contains(&"--wait")
 }
 
+/// `SUSI_QUEUE_DEFER=0` keeps the release in the foreground. Unset, and `1`,
+/// hand it off.
+fn operator_keeps_release_inline() -> bool {
+    std::env::var("SUSI_QUEUE_DEFER").ok().is_some_and(|value| {
+        !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+/// The finish script's susi. It exports the defer flag only for `tasks
+/// release`. The script also runs the gate, and a flag on that process would
+/// make every test's release return before GitHub had applied it.
+fn queue_defer_wrapper_body() -> &'static str {
+    r#"#!/bin/sh
+if [ "$1" = "tasks" ] && [ "$2" = "release" ]; then
+  export SUSI_QUEUE_DEFER=1
+fi
+exec "$SUSI_REAL_BIN" "$@"
+"#
+}
+
+fn install_queue_defer_wrapper(root: &Path) -> Result<std::path::PathBuf> {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--git-path", "susi-queue-defer.sh"])
+        .current_dir(root)
+        .output()?;
+    if !out.status.success() {
+        bail!(
+            "git rev-parse --git-path: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let rel = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let path = std::path::PathBuf::from(&rel);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
+    };
+    std::fs::write(&path, queue_defer_wrapper_body())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(path)
+}
+
 fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
     // Windows cannot relink a running executable, and `finish` runs cargo for
     // its gate. Hand the long-running machinery to a copy outside the cargo
@@ -450,18 +500,19 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
     let root = crate::cli::tasks_cli::repo_root(cwd);
     let script = root.join("scripts/parallel-workflow.sh");
     let mut cmd = workflow_script_command(&script, args);
-    // The script's `tasks release` is a child of this process. A finish that
-    // is not polling the run publishes the release and returns; GitHub applies
-    // it while the worker starts the next task. `SUSI_QUEUE_DEFER=0` keeps
-    // the release on the waiting path. `--wait` still confirms before it
-    // returns, because that session asked to see the run through.
-    if finish_wants_queue_defer(args) && std::env::var_os("SUSI_QUEUE_DEFER").is_none() {
-        cmd.env("SUSI_QUEUE_DEFER", "1");
+    let exe = std::env::current_exe()?;
+    // Never leak the flag into the gate: cargo would hand it to every test.
+    cmd.env_remove("SUSI_QUEUE_DEFER");
+    if finish_wants_queue_defer(args) && !operator_keeps_release_inline() {
+        // The wrapper is the script's susi. It turns the flag on for
+        // `tasks release` only, then execs this binary. GitHub applies that
+        // release in its own session while finish returns.
+        cmd.env("SUSI_WORKFLOW_BIN", install_queue_defer_wrapper(&root)?);
+        cmd.env("SUSI_REAL_BIN", &exe);
+    } else {
+        cmd.env("SUSI_WORKFLOW_BIN", &exe);
     }
-    let status = cmd
-        .env("SUSI_WORKFLOW_BIN", std::env::current_exe()?)
-        .current_dir(&root)
-        .status()?;
+    let status = cmd.current_dir(&root).status()?;
     if !status.success() {
         bail!("workflow operation failed; resolve the reported blocker and retry");
     }
@@ -644,6 +695,10 @@ mod finish_exec_guard {
         assert!(finish_wants_queue_defer(&["finish", "T-A-1", "--no-wait"]));
         assert!(!finish_wants_queue_defer(&["finish", "T-A-1", "--wait"]));
         assert!(!finish_wants_queue_defer(&["sync"]));
+        let wrapper = queue_defer_wrapper_body();
+        assert!(wrapper.contains("export SUSI_QUEUE_DEFER=1"));
+        assert!(wrapper.contains("[ \"$1\" = \"tasks\" ] && [ \"$2\" = \"release\" ]"));
+        assert!(wrapper.contains("exec \"$SUSI_REAL_BIN\""));
     }
 
     #[test]
