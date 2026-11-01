@@ -62,6 +62,9 @@ pub struct Closed {
 /// The receipt is cleared only by *observing* the close on `origin/main`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloseRecord {
+    /// Original claim branch. Legacy receipts cannot authorize overlapping followups.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
     pub task: String,
     pub agent: String,
     /// Branch head whose acceptance check passed.
@@ -1732,6 +1735,50 @@ fn merged_on_main(ws: &Path, id: &str) -> bool {
         .is_some_and(|record| merged_is_real(ws, &record))
 }
 
+/// A single writer may continue its published, accepted branch without waiting
+/// for CI to merge it. Active leases and the outstanding-merge cap are checked
+/// separately. A receipt without an original branch fails closed.
+fn closed_scope_followup(
+    ws: &Path,
+    task: &str,
+    receipt: &CloseRecord,
+    agent: &str,
+    branch: Option<&str>,
+) -> bool {
+    let Some(branch) = branch.filter(|branch| receipt.branch.as_deref() == Some(*branch)) else {
+        return false;
+    };
+    if receipt.agent != agent || receipt.task != task {
+        return false;
+    }
+    let published = format!("refs/remotes/origin/{branch}");
+    for revision in ["HEAD", published.as_str()] {
+        if git(
+            ws,
+            &["merge-base", "--is-ancestor", &receipt.head, revision],
+        )
+        .is_err()
+        {
+            return false;
+        }
+        let object = format!("{revision}:.agents/tasks/done/{task}.json");
+        let completed = git(ws, &["show", &object])
+            .ok()
+            .and_then(|json| serde_json::from_str::<Task>(&json).ok());
+        if !completed.is_some_and(|completed| {
+            completed.id == task
+                && completed.closed.is_some_and(|closed| {
+                    closed.by == agent
+                        && closed.commit == receipt.head
+                        && closed.at_unix == receipt.closed_unix
+                })
+        }) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Whether `claim` is a leftover reservation for work that has already landed
 /// on `origin/main` (via its done record, a settled close receipt after a
 /// re-adopted lease, or a verified merge attestation).
@@ -1751,6 +1798,7 @@ fn claim_settled_on_main(ws: &Path, claim: &Claim, all_receipts: &[(String, Clos
 fn push_close_receipt(ws: &Path, id: &str, owner_sha: &str, claim: &Claim) -> EaiResult<String> {
     let head = git(ws, &["rev-parse", "HEAD"])?;
     let record = CloseRecord {
+        branch: claim.branch.clone(),
         task: id.to_string(),
         agent: claim.agent.clone(),
         head: head.clone(),
@@ -2897,6 +2945,8 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     // Closed but not merged: the work is on a branch, not on main, so its
     // files are still taken. Only receipts that recorded their scopes count,
     // and only until the close is on `origin/main` (or the receipt is settled).
+    // Its original writer may continue the same published descendant branch;
+    // no other writer or branch inherits this reservation.
     let overlapping: Vec<&(String, CloseRecord)> = all_receipts
         .iter()
         .filter(|(task, receipt)| {
@@ -2912,6 +2962,9 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     }
     for (task, receipt) in overlapping {
         if done_on_main(ws, task) || !receipt_owed(ws, receipt) || merged_on_main(ws, task) {
+            continue;
+        }
+        if closed_scope_followup(ws, task, receipt, &agent, branch.as_deref()) {
             continue;
         }
         return Err(EaiError::config(format!(
@@ -3310,6 +3363,7 @@ fn release_claim(
     if let Some(record) = &pending_receipt {
         let mut record = record.clone();
         record.scopes = c.scopes.clone();
+        record.branch = c.branch.clone();
         // The receipt must not exist yet: an empty lease is "create", and a
         // receipt another checkout published meanwhile refuses the push whole.
         leases.push((closed_ref(id), String::new()));
@@ -3357,6 +3411,7 @@ fn deferred_receipt(ws: &Path, id: &str, by: &str) -> EaiResult<CloseRecord> {
         )));
     }
     Ok(CloseRecord {
+        branch: symbolic_head_branch(ws),
         task: id.to_string(),
         agent: by.to_string(),
         head: closed.commit,
@@ -5417,6 +5472,7 @@ mod tests {
             let mut next =
                 addt!(&b, "claude", format!("next-{n}"), "", "s", &[], true_cmd()).unwrap();
             let receipt = CloseRecord {
+                branch: None,
                 task: next.id.clone(),
                 agent: "CLAUDE".into(),
                 head: head.clone(),
@@ -5484,6 +5540,78 @@ mod tests {
             "observing the merges clears the receipts"
         );
         drop(r);
+    }
+
+    #[test]
+    fn closed_scope_followup_requires_published_same_owner_branch_and_no_live_writer() {
+        let (_repos, a, _) = Repos::new("closed-followup");
+        git(&a, &["checkout", "-b", "owned-followup"]).unwrap();
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let scopes = vec!["src/x.rs".to_string()];
+        let options = || ClaimOptions {
+            hours: 4,
+            now: now_unix(),
+            scopes: &scopes,
+        };
+        claim_scoped(&a, &first.id, "claude", options()).unwrap();
+        let (_, mut competing) = read_claim_ref(&a, &claim_ref(&first.id)).unwrap();
+        git(&a, &["add", "-A"]).unwrap();
+        git(&a, &["commit", "-m", "accepted work"]).unwrap();
+        close(&a, &first.id, "claude").unwrap();
+        release(&a, &first.id, "claude", true).unwrap();
+        git(&a, &["add", "-A"]).unwrap();
+        git(&a, &["commit", "-m", "accepted closure"]).unwrap();
+        git(&a, &["push", "origin", "HEAD:owned-followup"]).unwrap();
+        let receipt = read_closed(&a, &first.id).unwrap().unwrap();
+        let permits = |receipt: &CloseRecord, owner: &str, branch: Option<&str>| {
+            closed_scope_followup(&a, &first.id, receipt, owner, branch)
+        };
+        assert!(permits(&receipt, "CLAUDE", Some("owned-followup")));
+        assert!(!permits(&receipt, "GEMINI", Some("owned-followup")));
+        assert!(!permits(&receipt, "CLAUDE", Some("different-branch")));
+        let mut legacy = receipt.clone();
+        legacy.branch = None;
+        assert!(!permits(&legacy, "CLAUDE", Some("owned-followup")));
+        let mut altered = receipt.clone();
+        altered.closed_unix += 1;
+        assert!(!permits(&altered, "CLAUDE", Some("owned-followup")));
+        let published = git(&a, &["rev-parse", "refs/remotes/origin/owned-followup"]).unwrap();
+        let initial = git(&a, &["rev-list", "--max-parents=0", "HEAD"]).unwrap();
+        git(
+            &a,
+            &["update-ref", "refs/remotes/origin/owned-followup", &initial],
+        )
+        .unwrap();
+        assert!(!permits(&receipt, "CLAUDE", Some("owned-followup")));
+        git(
+            &a,
+            &[
+                "update-ref",
+                "refs/remotes/origin/owned-followup",
+                &published,
+            ],
+        )
+        .unwrap();
+        git(&a, &["checkout", "--detach", &initial]).unwrap();
+        assert!(!permits(&receipt, "CLAUDE", Some("owned-followup")));
+        git(&a, &["checkout", "owned-followup"]).unwrap();
+        let second = addt!(&a, "claude", "next", "", "s", &[], true_cmd()).unwrap();
+        claim_scoped(&a, &second.id, "claude", options()).unwrap();
+        release(&a, &second.id, "claude", false).unwrap();
+        competing.task = "T-GEMINI-999".into();
+        competing.agent = "GEMINI".into();
+        put_ref(
+            &a,
+            &claim_ref(&competing.task),
+            &serde_json::to_value(&competing).unwrap(),
+        );
+        let error = claim_scoped(&a, &second.id, "claude", options())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("scope overlaps T-GEMINI-999 held by GEMINI"),
+            "{error}"
+        );
     }
 
     /// A closed task's files stay reserved until its close is on main. `finish`
