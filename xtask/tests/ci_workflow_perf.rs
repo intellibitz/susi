@@ -2979,11 +2979,27 @@ fn every_workspace_member_runs_in_a_shard() {
         names.len() > 50 && names.iter().any(|n| n == "susi"),
         "expected the real member list, got {names:?}"
     );
-    let shards = script_command(&root().join("scripts/ci-test-shards.sh"))
-        .output()
-        .unwrap();
-    assert!(shards.status.success());
-    let map = String::from_utf8_lossy(&shards.stdout).into_owned();
+    // The literal tracked table is the source of truth; inspecting membership
+    // needs no shell, jq, or platform-specific process launch.
+    let script = read("scripts/ci-test-shards.sh").replace("\r\n", "\n");
+    let map = script
+        .split_once("shards=$(cat <<'SHARDS'\n")
+        .and_then(|(_, body)| body.split_once("\nSHARDS\n"))
+        .map(|(table, _)| table)
+        .expect("the shard script contains its literal SHARDS table");
+    assert!(!map.is_empty(), "the tracked shard table is empty");
+    for line in map.lines() {
+        let fields: Vec<_> = line.split('\t').collect();
+        assert!(
+            (2..=3).contains(&fields.len())
+                && !fields[0].is_empty()
+                && fields[1].starts_with("-p ")
+                && fields
+                    .get(2)
+                    .is_none_or(|count| { count.parse::<usize>().is_ok_and(|value| value > 0) }),
+            "malformed tracked shard row: {line:?}"
+        );
+    }
     let sharded: std::collections::BTreeSet<&str> = map
         .lines()
         .filter_map(|line| line.split('\t').nth(1))
