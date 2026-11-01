@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-12",
+  "title": "Remove unused harness memory module and heavyweight dependencies",
+  "goal": "Remove the uncalled harness MemoryStore module and unused direct Tantivy/Fastembed dependencies after workspace source, test, binary and documentation usage audit. Preserve actual core memory and GMCP semantic index capabilities; make no global license-compliance claim.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793543231
+}
