@@ -9,14 +9,15 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: release-warm-windows-main
-  cancel-in-progress: false
-
 jobs:
   warm:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}
+    # An older Windows refresh must not hold the independent ARM cache back.
+    # A given platform still has at most one running warmer for this ref.
+    concurrency:
+      group: release-warm-${{ matrix.name }}-${{ github.ref }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:

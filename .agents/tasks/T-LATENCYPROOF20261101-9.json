@@ -1,0 +1,20 @@
+{
+  "id": "T-LATENCYPROOF20261101-9",
+  "title": "Allow release cache warmers for different platforms to run independently",
+  "goal": "Remove cross-platform serialization while preventing overlapping warmers for the same platform.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "windows_release_cache_is_warmed_on_main_and_tags_only_restore"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793519744
+}
