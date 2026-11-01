@@ -19,6 +19,16 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
             .as_nanos()
     ));
     std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("first.txt"),
+        "First session receipt: cedar-1739.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        home.join("second.txt"),
+        "Second session receipt: maple-2851.\n",
+    )
+    .unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
     command.env_clear();
     for name in ["PATH", "SystemRoot", "TEMP", "TMP"] {
@@ -31,6 +41,8 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
         .args(args)
         .current_dir(&home)
         .env("SUSI_BOOT_TRACE", "1")
+        .env("SUSI_OFFLINE", "1")
+        .env("SUSI_HOME", &home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -44,7 +56,12 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
             assert!(status.success(), "opening exited with {status}");
             break;
         }
-        if started.elapsed() > Duration::from_secs(5) {
+        let limit = if input.windows(5).any(|part| part == b"Read ") {
+            20
+        } else {
+            5
+        };
+        if started.elapsed() > Duration::from_secs(limit) {
             let _ = child.kill();
             let _ = child.wait();
             panic!("opening must exit promptly without booting a mission or spinning on EOF");
@@ -65,6 +82,24 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
         .unwrap()
         .read_to_string(&mut stderr)
         .unwrap();
+    assert!(
+        !home.join("substrate.pid").exists(),
+        "simple goals must not launch a background daemon"
+    );
+    if input
+        .windows(b"second.txt".len())
+        .any(|part| part == b"second.txt")
+    {
+        let report: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(home.join(".susi/last_mission_trace.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["status"], "SUCCESS");
+        assert!(report["final_answer"]
+            .as_str()
+            .unwrap()
+            .contains("maple-2851"));
+    }
     let _ = std::fs::remove_dir_all(&home);
     (stdout, stderr)
 }
@@ -83,7 +118,7 @@ fn first_goal_opening_exits_on_eof_without_booting_catalogs() {
 
 #[test]
 fn first_goal_opening_accepts_quit_without_starting_a_mission() {
-    let (stdout, stderr) = opening(&["shell"], b"\nquit\n");
+    let (stdout, stderr) = opening(&["shell"], b"\xef\xbb\xbf\nquit\n");
     assert_eq!(stdout.matches("susi> ").count(), 2, "{stdout}");
     assert!(!stdout.contains("Goal received"), "{stdout}");
     assert!(!stderr.contains("composition: cli"), "{stderr}");
@@ -94,4 +129,22 @@ fn first_goal_opening_empty_pipe_does_not_boot_a_mission() {
     let (stdout, stderr) = opening(&[], b"");
     assert!(stdout.is_empty(), "{stdout}");
     assert!(!stderr.contains("composition: cli"), "{stderr}");
+}
+
+#[test]
+fn first_goal_session_runs_successive_goals_without_rebooting() {
+    let (stdout, stderr) = opening(&["shell"], b"\xef\xbb\xbfRead first.txt and return its contents.\nRead second.txt and return its contents.\nexit\n");
+    assert!(stdout.contains("cedar-1739"), "{stdout}");
+    assert!(stdout.contains("maple-2851"), "{stdout}");
+    assert_eq!(stdout.matches("Goal received").count(), 2, "{stdout}");
+    assert_eq!(stderr.matches("composition: cli").count(), 1, "{stderr}");
+    assert!(!stderr.contains("This goal did not complete"), "{stderr}");
+}
+
+#[test]
+fn first_goal_session_recovers_after_a_failed_goal() {
+    let (stdout, stderr) = opening(&["shell"], b"Read absent.txt and return its contents.\nRead second.txt and return its contents.\nquit\n");
+    assert!(stderr.contains("This goal did not complete"), "{stderr}");
+    assert!(stdout.contains("maple-2851"), "{stdout}");
+    assert_eq!(stdout.matches("Goal received").count(), 2, "{stdout}");
 }

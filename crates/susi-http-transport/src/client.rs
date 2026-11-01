@@ -79,12 +79,27 @@ fn into_call(resp: ureq::http::Response<ureq::Body>) -> HttpCall {
 }
 
 const MAX_AGENT_PROFILES: usize = 16;
-type AgentCache = Mutex<HashMap<(u64, u32), ureq::Agent>>;
+type AgentCache = Mutex<HashMap<(u64, u32, bool), ureq::Agent>>;
 static HTTP_AGENTS: OnceLock<AgentCache> = OnceLock::new();
 
-fn agent_for(timeout_secs: u64, max_redirects: u32) -> ureq::Agent {
+fn loopback_url(url: &str) -> bool {
+    let Ok(uri) = url.parse::<ureq::http::Uri>() else {
+        return false;
+    };
+    let Some(host) = uri.host() else {
+        return false;
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+fn agent_for(timeout_secs: u64, max_redirects: u32, direct: bool) -> ureq::Agent {
     let timeout_secs = timeout_secs.max(1);
-    let key = (timeout_secs, max_redirects);
+    let key = (timeout_secs, max_redirects, direct);
     let mut agents = HTTP_AGENTS
         .get_or_init(Default::default)
         .lock()
@@ -96,16 +111,20 @@ fn agent_for(timeout_secs: u64, max_redirects: u32) -> ureq::Agent {
         agents.clear();
     }
     let timeout = Duration::from_secs(timeout_secs);
-    let config = ureq::Agent::config_builder()
+    let mut config = ureq::Agent::config_builder()
         // One caller-selected budget covers DNS, headers, redirects and body
         // reads. Phase-only limits leave response headers unbounded.
         .timeout_global(Some(timeout))
         .timeout_connect(Some(Duration::from_secs(15).min(timeout)))
         .timeout_recv_body(Some(timeout))
         .timeout_send_body(Some(timeout))
-        .max_redirects(max_redirects)
-        .build();
-    let agent = ureq::Agent::new_with_config(config);
+        .max_redirects(max_redirects);
+    // Local inference and host-control traffic must stay on this machine,
+    // even when the parent has an HTTP(S)/ALL_PROXY configured for cloud use.
+    if direct {
+        config = config.proxy(None);
+    }
+    let agent = ureq::Agent::new_with_config(config.build());
     agents.insert(key, agent.clone());
     agent
 }
@@ -137,7 +156,7 @@ pub fn http_call_with_body(
     timeout_secs: u64,
     max_redirects: u32,
 ) -> Result<HttpCall, String> {
-    let agent = agent_for(timeout_secs, max_redirects);
+    let agent = agent_for(timeout_secs, max_redirects, loopback_url(url));
     match method {
         "HEAD" | "GET" => {
             let mut req = match method {
@@ -239,6 +258,139 @@ mod tests {
             }
         });
         format!("http://127.0.0.1:{port}/")
+    }
+
+    #[test]
+    fn loopback_hosts_are_parsed_without_matching_remote_lookalikes() {
+        for url in [
+            "http://127.0.0.1:8080/v1",
+            "http://localhost/",
+            "http://[::1]/",
+        ] {
+            assert!(loopback_url(url), "{url}");
+        }
+        for url in [
+            "http://127.0.0.1.example/",
+            "https://cloud.example/",
+            "http://localhost@cloud.example/",
+        ] {
+            assert!(!loopback_url(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn loopback_requests_bypass_proxy_while_cloud_requests_keep_it() {
+        // A subprocess keeps proxy variables and the client pool isolated from
+        // concurrent tests. The proxy receives only the final remote request.
+        if let Ok(origin) = std::env::var("SUSI_HTTP_TEST_ORIGIN") {
+            let health = std::env::var("SUSI_HTTP_TEST_HEALTH").unwrap();
+            assert_eq!(
+                http_call("GET", &health, &[], 2, 0)
+                    .unwrap()
+                    .into_utf8(16)
+                    .unwrap(),
+                "ok"
+            );
+            let local = http_call_with_body(
+                "POST",
+                &origin,
+                &[("Authorization", "Bearer private-test-token")],
+                Some(b"private-goal"),
+                2,
+                0,
+            )
+            .unwrap();
+            assert_eq!(local.into_utf8(16).unwrap(), "answer");
+            let cloud = http_call("GET", "http://cloud.invalid/example", &[], 2, 0).unwrap();
+            assert_eq!(cloud.into_utf8(16).unwrap(), "proxy");
+            return;
+        }
+        let origin = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nanswer");
+        let health = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+        let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
+        proxy.set_nonblocking(true).unwrap();
+        let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+        let proxy_worker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            loop {
+                match proxy.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let mut bytes = [0; 4096];
+                        let count = stream.read(&mut bytes).unwrap();
+                        let mut request = String::from_utf8_lossy(&bytes[..count]).into_owned();
+                        if request.starts_with("CONNECT ") {
+                            stream
+                                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                                .unwrap();
+                            let count = stream.read(&mut bytes).unwrap();
+                            request.push_str(&String::from_utf8_lossy(&bytes[..count]));
+                        }
+                        stream
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nproxy")
+                            .unwrap();
+                        return request;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "expected cloud request through proxy"
+                        );
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("proxy accept: {error}"),
+                }
+            }
+        });
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "client::tests::loopback_requests_bypass_proxy_while_cloud_requests_keep_it",
+                "--nocapture",
+            ])
+            .env("SUSI_HTTP_TEST_ORIGIN", origin)
+            .env("SUSI_HTTP_TEST_HEALTH", health)
+            .env("NO_PROXY", "")
+            .env("no_proxy", "")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        for name in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        ] {
+            command.env(name, &proxy_url);
+        }
+        let mut child = command.spawn().unwrap();
+        let started = std::time::Instant::now();
+        while child.try_wait().unwrap().is_none() {
+            if started.elapsed() > Duration::from_secs(8) {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("isolated proxy check exceeded its deadline");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let request = proxy_worker.join().unwrap();
+        assert!(
+            request.contains("cloud.invalid") && request.contains("/example"),
+            "{request}"
+        );
+        assert!(!request.contains("private-goal") && !request.contains("private-test-token"));
     }
 
     #[test]
