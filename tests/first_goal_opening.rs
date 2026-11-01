@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use susi_paths::test_env::isolate_home;
 
-fn shell(input: &[u8]) -> (String, String) {
+fn opening(args: &[&str], input: &[u8]) -> (String, String) {
     let home = std::env::temp_dir().join(format!(
         "susi-first-goal-{}-{}",
         std::process::id(),
@@ -28,7 +28,7 @@ fn shell(input: &[u8]) -> (String, String) {
     }
     isolate_home(&mut command, &home);
     command
-        .arg("shell")
+        .args(args)
         .current_dir(&home)
         .env("SUSI_BOOT_TRACE", "1")
         .stdin(Stdio::piped())
@@ -71,7 +71,7 @@ fn shell(input: &[u8]) -> (String, String) {
 
 #[test]
 fn first_goal_opening_exits_on_eof_without_booting_catalogs() {
-    let (stdout, stderr) = shell(b"");
+    let (stdout, stderr) = opening(&["shell"], b"");
     assert!(
         stdout.contains("What would you like to achieve?"),
         "{stdout}"
@@ -83,8 +83,15 @@ fn first_goal_opening_exits_on_eof_without_booting_catalogs() {
 
 #[test]
 fn first_goal_opening_accepts_quit_without_starting_a_mission() {
-    let (stdout, stderr) = shell(b"\nquit\n");
+    let (stdout, stderr) = opening(&["shell"], b"\nquit\n");
     assert_eq!(stdout.matches("susi> ").count(), 2, "{stdout}");
     assert!(!stdout.contains("Goal received"), "{stdout}");
+    assert!(!stderr.contains("composition: cli"), "{stderr}");
+}
+
+#[test]
+fn first_goal_opening_empty_pipe_does_not_boot_a_mission() {
+    let (stdout, stderr) = opening(&[], b"");
+    assert!(stdout.is_empty(), "{stdout}");
     assert!(!stderr.contains("composition: cli"), "{stderr}");
 }
