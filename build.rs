@@ -87,15 +87,9 @@ fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     fs::rename(&tmp, path)
 }
 
-/// A bare `cargo build`/`cargo build --release` silently produces a
-/// CPU-only binary even on a host with a real GPU — `cuda`/`metal` are
-/// opt-in Cargo features Cargo has no way to auto-enable from host
-/// detection, and this build script's own crate has no mechanism to force
-/// them on for the invoking build. What it *can* do is make the omission
-/// loud instead of silent: a live benchmark measured a 17x tokens/sec
-/// difference between the two on identical hardware (EV-2022920-035,
-/// `.agents/evidence.json`) — that gap is worth a warning every time it's
-/// about to happen unnoticed.
+/// Report the selected CPU backend when an NVIDIA device is present.
+/// GPU acceleration is optional and requires separate platform, toolchain,
+/// license and runtime qualification; device detection is not that evidence.
 fn warn_if_gpu_available_but_unused() {
     if env::var_os("CARGO_FEATURE_CUDA").is_some() || env::var_os("CARGO_FEATURE_METAL").is_some() {
         return;
@@ -112,12 +106,11 @@ fn warn_if_gpu_available_but_unused() {
 
     if has_nvidia_gpu {
         println!(
-            "cargo:warning=NVIDIA GPU detected but this build does not enable the `cuda` \
-             feature — local inference will run CPU-only. A live benchmark on comparable \
-             hardware measured a 17x tokens/sec difference (EV-2022920-035, .agents/evidence.json). \
-             Use `./build-gpu.sh` instead of `cargo build` directly — it detects the GPU and \
-             applies the CUDA-toolkit-version workaround `--features cuda` alone needs on newer \
-             CUDA releases."
+            "cargo:warning=NVIDIA GPU detected; this build uses CPU inference. \
+             The supported native local CPU workflow is `cargo local-build debug` or \
+             `cargo local-build production`. Optional CUDA acceleration requires separate \
+             platform/toolchain, dependency-license and runtime qualification; detecting \
+             a GPU does not establish support or a performance improvement for this build."
         );
     }
 }
