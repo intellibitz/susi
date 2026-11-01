@@ -83,12 +83,58 @@ pub type ModelBackend = Box<dyn NeuralBackend>;
 /// it was fine-tuned on.
 pub struct ModelSubstrate {
     pub(crate) weights: ModelBackend,
+    pub(crate) tokenizer: TokenizerCache,
     pub(crate) eos_token_ids: Vec<u32>,
     pub(crate) prompt_format: PromptFormat,
     /// Device the weights were loaded onto; `Drop` binds its context.
     // Read only by the CUDA branch of `Drop`; CPU-only builds never need it.
     #[cfg_attr(not(feature = "cuda"), allow(dead_code))]
     device: candle_core::Device,
+}
+
+/// One tokenizer per resident model, evicted with its weights. Revalidate the
+/// artifact on every request so replacing or removing it cannot serve stale data.
+#[derive(Default)]
+pub(crate) struct TokenizerCache {
+    entry: Option<TokenizerEntry>,
+}
+
+struct TokenizerEntry {
+    path: std::path::PathBuf,
+    len: u64,
+    modified: std::time::SystemTime,
+    tokenizer: Arc<susi_vendor_candle::tokenizers::Tokenizer>,
+}
+
+impl TokenizerCache {
+    pub(crate) fn load(
+        &mut self,
+        path: &Path,
+    ) -> EaiResult<Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| EaiError::inference(format!("Tokenizer metadata: {e}")))?;
+        let modified = metadata.modified().ok();
+        if let Some(entry) = &self.entry {
+            if entry.path == path && entry.len == metadata.len() && Some(entry.modified) == modified
+            {
+                return Ok(Arc::clone(&entry.tokenizer));
+            }
+        }
+        self.entry = None;
+        let tokenizer = Arc::new(
+            susi_vendor_candle::tokenizers::Tokenizer::from_file(path)
+                .map_err(|e| EaiError::inference(format!("Tokenizer Error: {e}")))?,
+        );
+        if let Some(modified) = modified {
+            self.entry = Some(TokenizerEntry {
+                path: path.to_owned(),
+                len: metadata.len(),
+                modified,
+                tokenizer: Arc::clone(&tokenizer),
+            });
+        }
+        Ok(tokenizer)
+    }
 }
 
 /// Weights can be dropped on any thread: an unload, the idle sweeper, a
@@ -592,6 +638,7 @@ impl InferenceHost {
 
         Ok(ModelSubstrate {
             weights,
+            tokenizer: TokenizerCache::default(),
             eos_token_ids,
             prompt_format,
             device: device.clone(),
@@ -711,6 +758,30 @@ impl ContextSummarizer {}
 mod eviction_tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn tokenizer_cache_reuses_unchanged_artifacts_and_rejects_replacements() {
+        use susi_vendor_candle::tokenizers::{models::wordlevel::WordLevel, Tokenizer};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tokenizer.json");
+        Tokenizer::new(WordLevel::default())
+            .save(&path, false)
+            .unwrap();
+        let mut cache = TokenizerCache::default();
+        let first = cache.load(&path).unwrap();
+        assert!(Arc::ptr_eq(&first, &cache.load(&path).unwrap()));
+
+        // A replaced or missing artifact must fail, never reuse the old parser.
+        std::fs::write(&path, "invalid replacement").unwrap();
+        assert!(cache.load(&path).is_err());
+        Tokenizer::new(WordLevel::default())
+            .save(&path, false)
+            .unwrap();
+        let replaced = cache.load(&path).unwrap();
+        assert!(!Arc::ptr_eq(&first, &replaced));
+        std::fs::remove_file(&path).unwrap();
+        assert!(cache.load(&path).is_err());
+    }
 
     fn lru() -> Vec<(PathBuf, u64)> {
         vec![
