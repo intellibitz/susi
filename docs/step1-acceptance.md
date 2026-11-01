@@ -146,3 +146,26 @@ transaction. Production references and runtime binary.hash are not changed.
 The prepared source still needs a scoped commit, local integration and genuine
 qualification before B can be promoted. The htmlescape platform replacement is
 also a mandatory standalone regression gate alongside IDNA and identifiers.
+
+
+### Clean-machine validation constraint (2026-11-01)
+
+The current Windows host, `FURY16G10-OT54R`, supports successful fresh-profile
+installation and inference checks, but these are not clean virtual-machine
+proof. A read-only host inspection found the Hyper-V PowerShell commands;
+`Get-VM` and `Get-VMHost` both returned “You do not have the required permission
+to complete this task” for the current execution token. `WindowsSandbox.exe`
+was absent from command discovery. Existing Windows installation images were
+found at `E:/opt/install-media/windows/Windows11.iso` and
+`E:/opt/install-media/windows/Win11_25H2_English_x64_v2.iso`; their authenticity,
+licensing and suitability were not verified, and neither image was mounted or
+used. No virtual machine or host feature was changed.
+
+Fresh HOME, empty model caches and an OS-only PATH exercise product bootstrap
+without inherited Susi configuration, credentials or developer PATH tools.
+They still share this developer host's installed system components. Genuine
+clean-Windows-machine acceptance remains unproven until agents can run the
+installed production artifact inside an authorized isolated clean Windows
+environment and retain its installation, inference and lifecycle evidence.
+Local production qualification and rollback work may continue, but Step 1 must
+not be declared fully complete on fresh-profile evidence alone.

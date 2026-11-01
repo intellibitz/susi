@@ -1319,7 +1319,7 @@ fn checked_package(ctx: &Context, blob: &str) -> Result<(String, PathBuf)> {
     Ok((id, binary))
 }
 
-fn activate(ctx: &Context, target: &str) -> Result<()> {
+fn activate(ctx: &Context, target: &str, recovering: bool) -> Result<()> {
     let old = resolve(&ctx.root, CURRENT)?;
     let previous = resolve(&ctx.root, PREVIOUS)?;
     let (id, binary) = checked_package(ctx, target)?;
@@ -1331,12 +1331,24 @@ fn activate(ctx: &Context, target: &str) -> Result<()> {
         println!("Release {id} is already current");
         return Ok(());
     }
+    // Never advertise a damaged current package as the next rollback target.
+    let old_valid = old
+        .as_ref()
+        .map(|value| checked_package(ctx, value))
+        .transpose();
+    if !recovering {
+        old_valid.as_ref().map_err(|error| error.to_string())?;
+    }
     let zero = "0".repeat(target.len());
     let mut transaction = format!(
         "start\nupdate {CURRENT} {target} {}\n",
         old.as_deref().unwrap_or(&zero)
     );
-    if let Some(old) = old {
+    if recovering && old_valid.is_err() {
+        if let Some(previous) = previous {
+            transaction.push_str(&format!("delete {PREVIOUS} {previous}\n"));
+        }
+    } else if let Some(old) = old {
         transaction.push_str(&format!(
             "update {PREVIOUS} {old} {}\n",
             previous.as_deref().unwrap_or(&zero)
@@ -1361,13 +1373,13 @@ fn promote(ctx: &Context, id: &str) -> Result<()> {
     let _lock = Lock::acquire(&ctx.state)?;
     let blob = resolve(&ctx.root, &format!("refs/susi/releases/qualified/{id}"))?
         .ok_or("release is not qualified")?;
-    activate(ctx, &blob)
+    activate(ctx, &blob, false)
 }
 
 fn rollback(ctx: &Context) -> Result<()> {
     let _lock = Lock::acquire(&ctx.state)?;
     let blob = resolve(&ctx.root, PREVIOUS)?.ok_or("no previous verified release")?;
-    activate(ctx, &blob)
+    activate(ctx, &blob, true)
 }
 
 // Shares the application's global allocation protocol so repositories and dev
@@ -2029,6 +2041,7 @@ mod tests {
             resolve(&ctx.root, CURRENT).unwrap(),
             Some(first_blob.clone())
         );
+        assert_eq!(resolve(&ctx.root, PREVIOUS).unwrap(), None);
         assert!(rollback(&ctx).is_err());
         git(&ctx.root, &["update-ref", PREVIOUS, &second_blob]).unwrap();
         let (_, binary) = checked_package(&ctx, &first_blob).unwrap();
@@ -2040,6 +2053,20 @@ mod tests {
             .get_envs()
             .any(|(key, value)| key == "SUSI_PORT_OFFSET"
                 && value == Some(std::ffi::OsStr::new("1000"))));
+        // Corrupting CURRENT's bytes must also prevent promotion from
+        // advertising that damaged package as PREVIOUS.
+        let retained = binary.with_extension("retained");
+        fs::rename(&binary, &retained).unwrap();
+        assert!(promote(&ctx, &second).is_err());
+        assert_eq!(
+            resolve(&ctx.root, CURRENT).unwrap(),
+            Some(first_blob.clone())
+        );
+        assert_eq!(
+            resolve(&ctx.root, PREVIOUS).unwrap(),
+            Some(second_blob.clone())
+        );
+        fs::rename(retained, &binary).unwrap();
         // Missing or replaced artifact bytes cannot be activated from a valid
         // reference. Removing only this fixture file models corruption.
         let corrupted = ctx
