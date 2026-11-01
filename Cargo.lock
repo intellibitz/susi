@@ -4670,6 +4670,7 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
+ "windows-registry",
 ]
 
 [[package]]
