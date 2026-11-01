@@ -625,6 +625,59 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
     Ok(worktree)
 }
 
+fn extend(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<()> {
+    name(claimant)?;
+    let requested = raw_scopes
+        .iter()
+        .map(|value| scope(value))
+        .collect::<Result<Vec<_>>>()?;
+    if requested.is_empty() {
+        return Err("at least one --scope is required".into());
+    }
+    let state = state(root)?;
+    let _lock = Lock::acquire(&state)?;
+    let path = state.join("claims").join(format!("{claimant}.claim"));
+    let mut claim = read_claim(&path)?;
+    let actual = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
+    if actual.canonicalize()? != claim.worktree.canonicalize()?
+        || git(root, &["branch", "--show-current"])? != format!("local-agent/{claimant}")
+    {
+        return Err("extend must run inside the claimed agent branch and worktree".into());
+    }
+    if !git(root, &["status", "--porcelain"])?.is_empty() {
+        return Err("extend requires a clean agent worktree".into());
+    }
+    for active in claims(&state)? {
+        if active.name != claimant
+            && requested
+                .iter()
+                .any(|new| active.scopes.iter().any(|held| overlaps(new, held)))
+        {
+            return Err(format!("requested scope overlaps agent {}", active.name).into());
+        }
+    }
+    claim.scopes.extend(requested);
+    claim.scopes.sort();
+    claim.scopes.dedup();
+    let data = format!(
+        "susi-local-claim-v2\n{}\n{}\n{}\n{}\n",
+        claim.name,
+        text(&claim.worktree)?,
+        claim.base,
+        claim.scopes.join("\n")
+    );
+    let temporary = path.with_extension("claim-next");
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    output.write_all(data.as_bytes())?;
+    output.sync_all()?;
+    drop(output);
+    fs::rename(temporary, path)?;
+    Ok(())
+}
+
 fn release(root: &Path, claimant: &str) -> Result<()> {
     name(claimant)?;
     let state = state(root)?;
@@ -806,7 +859,7 @@ fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
-        Some("start") => {
+        Some("start" | "extend") => {
             let claimant = args.get(1).ok_or("start requires an agent name")?;
             let mut scopes = Vec::new();
             let mut rest = args[2..].iter();
@@ -814,6 +867,7 @@ fn run(args: &[String]) -> Result<()> {
                 if flag != "--scope" { return Err(format!("unknown argument: {flag}").into()); }
                 scopes.push(rest.next().ok_or("--scope requires a path")?.clone());
             }
+            if args[0] == "extend" { extend(&root, claimant, &scopes)?; return Ok(()); }
             let worktree = start(&root, claimant, &scopes)?;
             println!("Worktree: {}\nTarget: {}\nUse the local-build entrypoint to override inherited target directories. Reservations cover cooperating launcher users only.", worktree.display(), worktree.join("target").display());
         }
@@ -825,7 +879,7 @@ fn run(args: &[String]) -> Result<()> {
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | list | commit <name> <message> | integrate <name> | release <name>".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> | integrate <name> | release <name>".into()),
     }
     Ok(())
 }
@@ -890,6 +944,26 @@ mod tests {
             }
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn extension_preserves_base_and_rejects_conflicts_without_mutation() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let first = start(&repo, "first", &["src/first".into()]).unwrap();
+        start(&repo, "second", &["src/second".into()]).unwrap();
+        let claim_path = state(&repo).unwrap().join("claims/first.claim");
+        let base = read_claim(&claim_path).unwrap().base;
+        extend(&first, "first", &["tests".into()]).unwrap();
+        let claim = read_claim(&claim_path).unwrap();
+        assert_eq!(claim.base, base);
+        assert!(claim.scopes.contains(&"tests".into()));
+        let before = fs::read(&claim_path).unwrap();
+        assert!(extend(&first, "first", &["src".into()]).is_err());
+        assert!(extend(&repo, "first", &["docs".into()]).is_err());
+        fs::write(first.join("dirty"), "pending").unwrap();
+        assert!(extend(&first, "first", &["docs".into()]).is_err());
+        assert_eq!(fs::read(claim_path).unwrap(), before);
     }
 
     #[test]

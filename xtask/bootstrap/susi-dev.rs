@@ -155,7 +155,7 @@ fn configure(command: &mut Command, root: &Path, output: &Path, host: &str, acti
     }
 }
 
-fn run(args: &[String]) -> io::Result<ExitCode> {
+pub(crate) fn run(args: &[String]) -> io::Result<ExitCode> {
     let action = parse(args)?;
     let root = workspace(&env::current_dir()?)?;
     let host = host(&root)?;
