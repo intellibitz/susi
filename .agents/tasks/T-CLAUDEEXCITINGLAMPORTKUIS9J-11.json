@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-11",
+  "title": "Record the seeded cloud build re-measurement and the CARGO_HOME diagnosis in docs/workflow-speed.md",
+  "goal": "The corrected cause of the seed misses (registry units fingerprinted by their absolute source path under CARGO_HOME), the measurements of the first two snapshots, and the numbers of the snapshot built under /root/.cargo",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "workflow_finish_and_merge_gate"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793514243
+}
