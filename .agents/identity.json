@@ -649,6 +649,16 @@
           "id": 61,
           "imperative": "Every susi workflow runs through `susi harness`. A workflow is any agent or operator loop that changes the susi repository: planning, claiming a task, working it, gating it, pushing it, merging it, and closing it. The harness owns that loop. Its `plan` and `run` commands claim each task, prepare its worktree, run the worker, check the acceptance, and publish through `workflow finish`, and they meter every model call through the gateway. An agent starts a workflow with `susi harness plan` and `susi harness run`, not by hand-running `workflow finish`, `tasks claim`, or `tasks close`. Worker commands that call those verbs are refused by the harness, so the claim, close, and publish steps stay in one place. The harness picks its models from the API keys in the environment, by budget first and capability second. A workflow run outside the harness is a defect to be fixed in the harness, not a shortcut around it. The rules in Mandates 49 and 50 still hold inside the harness: own worktree, one live claim, every commit names its task.",
           "title": "Every Susi Workflow Runs Through the Susi Harness"
+        },
+        {
+          "id": 62,
+          "imperative": "SUSI serves CEOs who never read code. Agents own engineering, diagnosis, configuration and verification end to end. Step 1 is install, immediately see the available local and cloud AI ecosystem, and give a goal without code or manual configuration. Keep the first useful answer and subsequent answers blazing fast: remove unnecessary startup work, modules, frameworks and tests; preserve checks that establish correctness, integrity and real user outcomes. Measure the actual installed experience, including a genuinely empty model store, separately from cached runs. Report measured delays and missing capabilities honestly; a prompt appearing, a successful build or a cached benchmark does not establish Step 1 completion. Native local development and production builds must not depend on GitHub infrastructure. Future CEO steps are added when specified, not invented.",
+          "title": "CEO First-Goal Experience and Ruthless Speed"
+        },
+        {
+          "id": 63,
+          "imperative": "SUSI remains Apache-2.0. Supported software and downloaded model weights must use Apache, MIT or BSD licenses; general permissiveness alone is insufficient. Verify the exact artifact and its transitive software licenses before admission; unknown or incompatible licenses are unresolved blockers, never silently waived or relabeled. Proprietary cloud AI services remain available through permitted software integrations, subject to existing credentials, privacy and budget controls; this mandate does not require cloud model weights to be open source. Existing dependencies outside these license families are migration debt and prevent a claim of full compliance until replaced or removed. Preserve required notices and attribution.",
+          "title": "Apache, MIT and BSD Software and Model Weights"
         }
       ],
       "name": "THE DNA",
