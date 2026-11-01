@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! Release publication must not wait for the slower first-class platform.
+//! Every verified release platform can publish without waiting for siblings.
 
 use std::collections::BTreeMap;
 
@@ -32,34 +32,63 @@ fn jobs(text: &str) -> BTreeMap<String, String> {
 }
 
 #[test]
-fn either_verified_platform_can_publish_first_and_the_other_continues() {
+fn each_verified_platform_can_publish_first_without_waiting_for_siblings() {
     let text = include_str!("../../.github/workflows/release.yml");
     let jobs = jobs(text);
-    let windows = &jobs["build"];
-    let linux = &jobs["build-linux"];
-    assert!(windows.contains("name: windows-x86_64"));
-    assert!(!windows.contains("name: linux-x86_64"));
-    assert!(linux.contains("name: linux-x86_64"));
-    assert!(linux.contains("needs: [verify-tag]"));
-    assert!(linux.contains("steps: *release-steps"));
-
-    let first = &jobs["publish"];
-    let other = &jobs["publish-linux"];
-    assert!(first.contains("needs: [verify-tag, tests, build]"));
-    assert!(other.contains("needs: [verify-tag, tests, build-linux]"));
-    for (job, leg) in [(first, "build"), (other, "build-linux")] {
-        assert!(job.contains("needs.tests.result == 'success'"));
-        assert!(job.contains("needs.verify-tag.outputs.tag != ''"));
-        assert!(job.contains(&format!("needs.{leg}.result == 'success'")));
-        assert!(job.contains("group: release-first-asset-${{ github.ref }}"));
-        assert!(job.contains("cancel-in-progress: false"));
-        assert!(job.contains("actions/download-artifact@v4"));
-        assert!(job.contains("softprops/action-gh-release@v3"));
+    let platforms = [
+        ("build", "publish", "windows-x86_64"),
+        ("build-linux", "publish-linux", "linux-x86_64"),
+        ("build-arm", "publish-arm", "linux-aarch64"),
+        ("build-macos", "publish-macos", "macos-aarch64"),
+        ("build-cuda", "publish-cuda", "cuda-linux-x86_64"),
+    ];
+    for (builder, publisher, artifact) in platforms {
+        let build = &jobs[builder];
+        let publish = &jobs[publisher];
+        assert!(build.contains("needs: [verify-tag]"), "{builder}");
+        assert!(build.contains("engine_ready:"), "{builder}");
+        assert!(
+            publish.contains(&format!("needs: [verify-tag, tests, {builder}]")),
+            "{publisher}"
+        );
+        assert!(
+            publish.contains("needs.tests.result == 'success'"),
+            "{publisher}"
+        );
+        assert!(
+            publish.contains("needs.verify-tag.outputs.tag != ''"),
+            "{publisher}"
+        );
+        assert!(
+            publish.contains(&format!("needs.{builder}.result == 'success'")),
+            "{publisher}"
+        );
+        assert!(
+            publish.contains(&format!(
+                "needs.{builder}.outputs.engine_ready == 'success'"
+            )),
+            "{publisher}"
+        );
+        assert!(
+            publish.contains(&format!("RELEASE_ENGINE: release-{artifact}")),
+            "{publisher}"
+        );
+        if publisher != "publish" {
+            assert!(
+                publish.contains("concurrency: *publisher-concurrency"),
+                "{publisher}"
+            );
+            assert!(publish.contains("steps: *publisher-steps"), "{publisher}");
+        }
     }
-    assert!(!first.contains("needs.build-linux"));
-    assert!(!other.contains("needs.publish"));
-    assert!(jobs["publish-extra-fallback"].contains("needs.publish.result != 'success'"));
-    assert!(jobs["publish-extra-fallback"].contains("needs.publish-linux.result == 'success'"));
-    assert!(jobs["publish-extra-fallback"].contains("steps: *publish-extra-steps"));
+    let first = &jobs["publish"];
+    assert!(first.contains("group: release-first-asset-${{ github.ref }}"));
+    assert!(first.contains("queue: max") && first.contains("cancel-in-progress: false"));
+    assert!(first.contains("actions/download-artifact@v4"));
+    assert!(first.contains("softprops/action-gh-release@v3"));
+    assert!(first.contains("if: env.RELEASE_HARNESS_READY == 'success'"));
+    assert!(first.contains("fail_on_unmatched_files: true"));
+    assert!(jobs["build"].contains("id: engine_upload"));
+    assert!(jobs["build-cuda"].contains("id: cuda_upload"));
     assert!(jobs["prune-old-releases"].contains("needs.publish-linux.result == 'success'"));
 }

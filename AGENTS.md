@@ -605,9 +605,11 @@ convergent:
   **A release is gated on the tagged commit's full suite and artifact checks.**
   A normal cut of a clean, main-equivalent source tree pushes its version bump
   and returns with GitHub verification pending. The tagged suite and platform
-  builds run concurrently; eligible artifacts publish only after the suite and
-  their own checks pass. An unmerged source tree, explicit local rerun, GPU
-  check or supplied cloud qualification retains the local gate.
+  builds run concurrently; every platform can publish after the suite and its
+  own checks pass, without waiting for sibling platforms. The release can
+  temporarily lack platforms that are still building. An unmerged source tree,
+  explicit local rerun, GPU check or supplied cloud qualification retains the
+  local gate.
   The rolling dev release builds only on `workflow_dispatch` or a
   head-commit subject that starts with `[dev-release]`.
 

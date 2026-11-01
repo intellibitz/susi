@@ -137,7 +137,13 @@ fn every_engine_artifact_passes_its_own_checks_before_upload() {
     assert!(upload.contains("steps.portable_e2e.outcome == 'success'"));
     let windows = find("Verify the Windows artifact answers offline");
     assert!(windows.contains("runner.os == 'Windows'"));
-    for publisher in ["publish", "publish-linux"] {
+    for publisher in [
+        "publish",
+        "publish-linux",
+        "publish-arm",
+        "publish-macos",
+        "publish-cuda",
+    ] {
         assert!(job(&jobs, publisher)
             .body
             .contains("needs.tests.result == 'success'"));
@@ -346,13 +352,12 @@ fn a_merged_version_bump_publishes_itself() {
         code.contains("case \"$GITHUB_REF\" in refs/tags/*) tag=\"$GITHUB_REF_NAME\" ;; esac"),
         "a run on a tag ref - pushed, or dispatched by the merge bot - must publish that tag"
     );
-    // Windows and Linux can each create the release independently once the
-    // suite passes; the third step attaches the optional platforms. The
-    // fallback reuses that step through a YAML alias.
+    // Every platform reuses one publishing step through a YAML alias, so the
+    // verified tag is named consistently even when a different platform wins.
     let publishes = code.matches("softprops/action-gh-release").count();
     assert_eq!(
-        publishes, 3,
-        "expected independent Windows and Linux publishers and the optional attach"
+        publishes, 1,
+        "expected the shared publishing step used by all platform jobs"
     );
     assert_eq!(
         code.matches("tag_name: ${{ needs.verify-tag.outputs.tag }}")

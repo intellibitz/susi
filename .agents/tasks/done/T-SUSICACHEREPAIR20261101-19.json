@@ -1,0 +1,24 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-19",
+  "title": "Publish each verified release platform independently",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "release_first_artifact"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793513689,
+  "closed": {
+    "at_unix": 1793514119,
+    "commit": "7c4ef7cf6e32cc1fad01089984b12c065e8c7db1",
+    "by": "SUSICACHEREPAIR20261101"
+  }
+}
