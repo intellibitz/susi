@@ -391,6 +391,31 @@ impl GemiEngine {
         } else {
             prompt
         };
+        // Fleet Mandate: a fresh substrate with zero provisioned weights must
+        // not surface a bare failure for an otherwise-solvable intent - it
+        // must fetch a hardware-fit model and retry before giving up. Only
+        // engaged when no local GGUF actually exists yet (not on inference
+        // errors against an existing model, which a re-download can't fix).
+        let provision_needed =
+            requested_model.is_none() && !Self::has_usable_local_model(workspace);
+        if provision_needed {
+            if let Some(res) =
+                Self::provision_and_retry(prompt, workspace, callback, min_complexity)
+            {
+                ladder.record(
+                    LadderRung::Local,
+                    "provisioning-retry",
+                    StepOutcome::Selected,
+                    "fetched a hardware-fit model before executing the first local inference",
+                );
+                if ladder.step_downs() > 0 {
+                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+                }
+                ladder.persist();
+                return res;
+            }
+        }
+
         let local_started = std::time::Instant::now();
         // The local engine's deltas are the live stream — tool-call markup
         // must be withheld before it reaches the client (the post-hoc
@@ -407,20 +432,26 @@ impl GemiEngine {
         // Drive the engine through the shared lifecycle contract: discover →
         // load → ready (health probe) → infer (VC-201-042). A failed probe
         // is a typed error here, the same outcome the bare call produced.
-        let result = crate::engines::native_lifecycle::infer_via_contract(
-            engine,
-            match engine_key {
-                "susi-federated" | "cloud" => {
-                    crate::engines::native_lifecycle::EngineKind::Federated
-                }
-                _ => crate::engines::native_lifecycle::EngineKind::Native,
-            },
-            &crate::engines::native_lifecycle::ContractCall::new(
-                prompt,
-                &filtered_callback,
-                selected_model.as_deref(),
-            ),
-        );
+        let result = if provision_needed {
+            Err(EaiError::inference(
+                "No local model became available during preparation",
+            ))
+        } else {
+            crate::engines::native_lifecycle::infer_via_contract(
+                engine,
+                match engine_key {
+                    "susi-federated" | "cloud" => {
+                        crate::engines::native_lifecycle::EngineKind::Federated
+                    }
+                    _ => crate::engines::native_lifecycle::EngineKind::Native,
+                },
+                &crate::engines::native_lifecycle::ContractCall::new(
+                    prompt,
+                    &filtered_callback,
+                    selected_model.as_deref(),
+                ),
+            )
+        };
         let tail = stream_filter.borrow_mut().finish();
         if !tail.is_empty() {
             callback(tail);
@@ -485,29 +516,6 @@ impl GemiEngine {
                     StepOutcome::Failed,
                     e.to_string(),
                 );
-            }
-        }
-
-        // Fleet Mandate: a fresh substrate with zero provisioned weights must
-        // not surface a bare failure for an otherwise-solvable intent - it
-        // must fetch a hardware-fit model and retry before giving up. Only
-        // engaged when no local GGUF actually exists yet (not on inference
-        // errors against an existing model, which a re-download can't fix).
-        if requested_model.is_none() && !Self::has_usable_local_model(workspace) {
-            if let Some(res) =
-                Self::provision_and_retry(prompt, workspace, callback, min_complexity)
-            {
-                ladder.record(
-                    LadderRung::Local,
-                    "provisioning-retry",
-                    StepOutcome::Selected,
-                    "fetched a hardware-fit model after the first local attempt failed",
-                );
-                if ladder.step_downs() > 0 {
-                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-                }
-                ladder.persist();
-                return res;
             }
         }
 
@@ -1054,8 +1062,19 @@ impl GemiEngine {
                     None,
                     min_complexity,
                 );
-                if let Ok(res) = engine.run_inference_stream(prompt, callback, selected.as_deref())
-                {
+                let result = crate::engines::native_lifecycle::infer_via_contract(
+                    &engine,
+                    crate::engines::native_lifecycle::EngineKind::Native,
+                    &crate::engines::native_lifecycle::ContractCall::new(
+                        prompt,
+                        callback,
+                        selected.as_deref(),
+                    ),
+                );
+                if let Err(error) = &result {
+                    eprintln!("The downloaded local model could not answer this goal: {error}");
+                }
+                if let Ok(res) = result {
                     if !res.trim().is_empty() {
                         return Some(match Self::verify_axiomatic_alignment(&res, workspace) {
                             Ok(v) => v,
