@@ -138,8 +138,13 @@ fn default_candle_threads() -> usize {
 /// A normal goal needs admitted tools and model preference, not a fresh probe
 /// of every optional external agent/framework. The daemon discovers those in
 /// the background; explicitly invoking one still runs its own preflight.
-fn bare_goal_catalogs() -> susi_daemon::discovery_pipeline::Catalogs {
+fn bare_goal_catalogs(goal: &str) -> susi_daemon::discovery_pipeline::Catalogs {
     use susi_daemon::discovery_pipeline::Catalogs;
+    if susi_core::manifold::IntentManifold::analyze(goal).scope_of_impact
+        == susi_core::manifold::ScopeOfImpact::Read
+    {
+        return Catalogs::NONE;
+    }
     Catalogs::LEADING_MCP.union(Catalogs::CODING_MODELS)
 }
 
@@ -309,9 +314,10 @@ fn run() -> std::process::ExitCode {
     } else {
         // First goals must not wait for unrelated framework/agent probes.
         // Explicit commands retain their own catalog admission contracts.
-        let catalogs = command
-            .as_ref()
-            .map_or(bare_goal_catalogs(), cli::defs::command_catalogs);
+        let catalogs = command.as_ref().map_or_else(
+            || bare_goal_catalogs(piped_intent.as_deref().unwrap_or(&cli.intent.join(" "))),
+            cli::defs::command_catalogs,
+        );
         susi_daemon::boot_trace::phase("composition: cli", || {
             susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
         });
@@ -458,9 +464,20 @@ mod tests {
 
     #[test]
     fn first_goal_admits_tools_and_models_without_optional_framework_probes() {
-        let catalogs = super::bare_goal_catalogs();
+        let catalogs = super::bare_goal_catalogs("Build a calculator");
         assert!(catalogs.leading_mcp && catalogs.coding_models);
         assert!(!catalogs.execution_agents && !catalogs.frameworks);
+    }
+
+    #[test]
+    fn first_goal_reads_skip_optional_catalogs() {
+        for goal in [
+            "read notes.txt",
+            "status",
+            "Compute 17 + 25. Answer with only the number.",
+        ] {
+            assert!(super::bare_goal_catalogs(goal).is_empty(), "{goal}");
+        }
     }
 
     #[test]
