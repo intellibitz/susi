@@ -1,0 +1,30 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-6",
+  "title": "Skip unavailable catalog engines and bound first-model provisioning",
+  "goal": "Fresh Step1 must skip invented localhost model providers, preserve live discovery, honor matched provider endpoint overrides, and report bounded model bootstrap progress and failures; all first-goal fixtures use explicit temporary homes.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-gawd-swarm",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "first_"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793528641,
+  "closed": {
+    "at_unix": 1793530017,
+    "commit": "95b1948978a45ca1b9c2c250a21e8c8dd5833a0a",
+    "by": "CODEXSTEP1GOAL20261101"
+  }
+}
