@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-14",
+  "title": "gmcp: the 241 MCP-authorization rows say NOT IMPLEMENTED; evidence tests judge each requirement's newest record, linked by supersedes; appended records only for checks that exist",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793515526,
+  "closed": {
+    "at_unix": 1793515990,
+    "commit": "a911855964dfbbf460b2b5d2029a7a04d63cbfbc",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}
