@@ -9,6 +9,26 @@ use std::io::Write;
 use std::path::Path;
 use susi_gawd_agents::AxiomSubstrate;
 
+// Detailed diagnostics stay available explicitly; every final mission also
+// persists its inspectable governance/evidence trace independently of this.
+macro_rules! mission_trace {
+    () => { mission_trace!(""); };
+    ($($arg:tt)*) => {
+        if std::env::var_os("SUSI_VERBOSE").is_some()
+            || std::env::var_os("RUST_LOG").is_some()
+        {
+            eprintln!("{}", wrap_tool_output("mission-diagnostic", &format!($($arg)*)).redacted_for_sink());
+        }
+    };
+}
+
+fn emit_final_report(report: &SusiMissionReport, callback: &dyn Fn(String)) {
+    if !report.is_success() {
+        eprintln!("{}", report.completion_message());
+    }
+    callback(report.final_answer_for_sink());
+}
+
 fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
     let source = format!("tool:{name}");
     match crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace) {
@@ -246,7 +266,7 @@ impl SusiMasterAgent {
         let goal = match Self::sanitize_input(goal) {
             Ok(goal) => goal,
             Err(error) => {
-                return SusiMissionReport {
+                let report = SusiMissionReport {
                     goal: wrap_tool_output("mission-input", goal).redacted_for_sink(),
                     status: "BLOCKED".to_string(),
                     agents: Vec::new(),
@@ -254,6 +274,9 @@ impl SusiMasterAgent {
                     plan: None,
                     final_answer: format!("[GOVERNANCE_BLOCK] {error}"),
                 };
+                report.persist_inspectable_trace(workspace);
+                emit_final_report(&report, _callback);
+                return report;
             }
         };
         // Mission-scoped evidence ledger (same contract as `solve`): tool
@@ -270,13 +293,13 @@ impl SusiMasterAgent {
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
 
-        eprintln!("<thinking>");
+        mission_trace!("<thinking>");
 
         // Ensures </thinking> is always printed, even if synthesis panics or hangs.
         struct ThinkingGuard;
         impl Drop for ThinkingGuard {
             fn drop(&mut self) {
-                eprintln!("</thinking>\n");
+                mission_trace!("</thinking>\n");
                 let _ = std::io::stderr().flush();
             }
         }
@@ -284,9 +307,10 @@ impl SusiMasterAgent {
 
         // 1. Continuous Intent Manifold Routing
         let manifold = crate::susi_core::manifold::IntentManifold::analyze(&goal);
-        eprintln!(
+        mission_trace!(
             "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
-            manifold.scope_of_impact, manifold.risk_profile
+            manifold.scope_of_impact,
+            manifold.risk_profile
         );
 
         // Hardware/model inventories and the complete genome audit belong to
@@ -315,36 +339,42 @@ impl SusiMasterAgent {
             let local_models_count =
                 crate::susi_core::plane_bus::gemi::ModelManager::list_models_len(workspace);
 
-            eprintln!("[SUSI Substrate Swarm Active - Full Transparency Omni-Trace Mode]");
-            eprintln!("- [Engine Version] v{}", version);
-            eprintln!("- [Workspace Root] {}", workspace.display());
+            mission_trace!("[SUSI Substrate Swarm Active - Full Transparency Omni-Trace Mode]");
+            mission_trace!("- [Engine Version] v{}", version);
+            mission_trace!("- [Workspace Root] {}", workspace.display());
 
             use susi_gawd_agents::self_core::AlphaSelf;
-            eprintln!("- [Core Paradigm] {}", AlphaSelf::CORE_PARADIGM);
-            eprintln!("- [Accountability] Omni-Trace active (Mandate 26: Glass Box Transparency)");
+            mission_trace!("- [Core Paradigm] {}", AlphaSelf::CORE_PARADIGM);
+            mission_trace!(
+                "- [Accountability] Omni-Trace active (Mandate 26: Glass Box Transparency)"
+            );
 
-            eprintln!("\n[DETAILED HARDWARE AUDIT LOGS]");
-            eprintln!("- [CPU Info] Brand: {} | Cores: {}", hw.cpu_brand, hw.cpus);
-            eprintln!(
+            mission_trace!("\n[DETAILED HARDWARE AUDIT LOGS]");
+            mission_trace!("- [CPU Info] Brand: {} | Cores: {}", hw.cpu_brand, hw.cpus);
+            mission_trace!(
                 "- [Memory Info] Total RAM: {}GB | Available RAM: {}GB",
-                hw.ram_gb, hw.available_ram_gb
+                hw.ram_gb,
+                hw.available_ram_gb
             );
-            eprintln!("- [GPU Topologies] Info: {}", hw.gpu_info);
-            eprintln!("- [OS Architecture] OS: {} | Arch: {}", hw.os_info, hw.arch);
-            eprintln!(
+            mission_trace!("- [GPU Topologies] Info: {}", hw.gpu_info);
+            mission_trace!("- [OS Architecture] OS: {} | Arch: {}", hw.os_info, hw.arch);
+            mission_trace!(
                 "- [System Liveness] Hostname: {} | Uptime: {}s | Load Avg: {}",
-                hw.hostname, hw.uptime, hw.load_avg
+                hw.hostname,
+                hw.uptime,
+                hw.load_avg
             );
-            eprintln!(
+            mission_trace!(
                 "- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {}",
-                hw.native_acceleration, device
+                hw.native_acceleration,
+                device
             );
 
-            eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
+            mission_trace!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
             let global_dir = susi_paths::SusiDirs::config_dir();
             let cfg =
                 crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
-            eprintln!(
+            mission_trace!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {} | GMCP HTTP Alias: {} | A2A HTTP Port: {}",
             cfg.gmcp_port(),
             cfg.gemi_port(),
@@ -352,34 +382,35 @@ impl SusiMasterAgent {
             cfg.gmcp_http_port(),
             cfg.a2a_http_port()
         );
-            eprintln!(
+            mission_trace!(
                 "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
                 cfg.default_engine(),
                 cfg.default_model()
             );
-            eprintln!(
+            mission_trace!(
                 "- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s",
                 cfg.agent_rank_threshold(),
                 cfg.cloud_scout_timeout_secs()
             );
-            eprintln!(
+            mission_trace!(
                 "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
                 susi_gawd_agents::agents::GawdAgentFleet::get_max_concurrent_agents()
             );
-            eprintln!(
+            mission_trace!(
                 "- [Active Model Deep-Dive] Active Local ID: {} | Model Path: {}",
-                active_model_id, model_path_str
+                active_model_id,
+                model_path_str
             );
-            eprintln!(
+            mission_trace!(
                 "- [Discovered Model Substrates] Count: {}",
                 local_models_count
             );
 
             // Only DNA mandates are mandates; ledger entries and roadmap vectors
             // are compiled alongside them but never printed under this heading.
-            eprintln!("\n[GENOMIC MANDATES] {}", AlphaSelf::genome_summary());
+            mission_trace!("\n[GENOMIC MANDATES] {}", AlphaSelf::genome_summary());
             for rule in AlphaSelf::rules_of(susi_gawd_agents::self_core::RuleKind::Mandate) {
-                eprintln!("- [{}] {}", rule.cite, rule.title);
+                mission_trace!("- [{}] {}", rule.cite, rule.title);
             }
         }
 
@@ -390,13 +421,13 @@ impl SusiMasterAgent {
             // Actually run the same lightweight (no-inference) detectors the
             // swarm's SafetyAgent/SecurityAgent run for every mission goal, so
             // what's printed here is true, not aspirational.
-            eprintln!("- [Substrate Operation] Validating with SafetyAgent...");
+            mission_trace!("- [Substrate Operation] Validating with SafetyAgent...");
             let safety_result = susi_gawd_agents::safety::SafetyDetector::audit_action(
                 "SUSI_SOLVE",
                 &goal,
                 workspace,
             );
-            eprintln!("- [Substrate Operation] Validating with SecurityAgent...");
+            mission_trace!("- [Substrate Operation] Validating with SecurityAgent...");
             let security_result = susi_gawd_agents::security::SecurityDetector::audit_action(
                 "SUSI_SOLVE",
                 &goal,
@@ -404,7 +435,7 @@ impl SusiMasterAgent {
             );
 
             if let Err(e) = safety_result.and(security_result) {
-                eprintln!("- [Governance] Fast-path Read blocked: {}", e);
+                mission_trace!("- [Governance] Fast-path Read blocked: {}", e);
                 let report = SusiMissionReport {
                     goal: goal.to_string(),
                     status: "BLOCKED".to_string(),
@@ -414,15 +445,16 @@ impl SusiMasterAgent {
                     final_answer: format!("[GOVERNANCE_BLOCK] {}", e),
                 };
                 report.persist_inspectable_trace(workspace);
-                eprintln!("{}", report.completion_message());
+                mission_trace!("{}", report.completion_message());
                 drop(_guard);
-                eprintln!("{}", report.to_protocol_format(true));
+                mission_trace!("{}", report.to_protocol_format(true));
+                emit_final_report(&report, _callback);
                 return report;
             }
 
-            eprintln!("\n[DETAILED SWARM SYNTHESIS LOGS]");
-            eprintln!("- [Recruited Agent] SafetyAgent (Provider: Local Core) cleared Read safety validation.");
-            eprintln!("- [Recruited Agent] SecurityAgent (Provider: Local Core) cleared injection validation.");
+            mission_trace!("\n[DETAILED SWARM SYNTHESIS LOGS]");
+            mission_trace!("- [Recruited Agent] SafetyAgent (Provider: Local Core) cleared Read safety validation.");
+            mission_trace!("- [Recruited Agent] SecurityAgent (Provider: Local Core) cleared injection validation.");
 
             let lower_goal = goal.trim().to_lowercase();
             let system_read =
@@ -522,8 +554,8 @@ impl SusiMasterAgent {
                 }
             };
 
-            eprintln!("\n[LIVE REASONING TOKENS]");
-            eprintln!(
+            mission_trace!("\n[LIVE REASONING TOKENS]");
+            mission_trace!(
                 "- [Fast-Path Execution] Read-only response completed; verifying the answer:"
             );
             // Deliver through the streaming seam, never straight to stdout.
@@ -531,10 +563,10 @@ impl SusiMasterAgent {
             // that renders the returned report (`susi status`) printed a
             // second copy on the same line, and a library write bypassed
             // whoever actually owns the output stream.
-            _callback(final_answer.clone());
-            eprintln!();
+            // Publish only the verified/recovered result below.
+            mission_trace!();
 
-            eprintln!("\n[SUBSTRATE VERIFICATION RESULTS]");
+            mission_trace!("\n[SUBSTRATE VERIFICATION RESULTS]");
             let mut verification_failed = false;
             let final_answer =
                 match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
@@ -542,14 +574,14 @@ impl SusiMasterAgent {
                     workspace,
                 ) {
                     Ok(v) => {
-                        eprintln!(
+                        mission_trace!(
                         "- [Axiomatic Alignment Check] Status: SUCCESS | Fast-Path Read axiomatic alignment verified."
                     );
                         v
                     }
                     Err(e) => {
                         verification_failed = true;
-                        eprintln!(
+                        mission_trace!(
                             "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
                             e
                         );
@@ -576,14 +608,14 @@ impl SusiMasterAgent {
             });
             let final_answer = match verification {
                 Ok(v) => {
-                    eprintln!(
+                    mission_trace!(
                         "- [Reality Integrity Check] Status: SUCCESS | Fast-Path Read reality integrity verified."
                     );
                     v
                 }
                 Err(e) => {
                     verification_failed = true;
-                    eprintln!(
+                    mission_trace!(
                         "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
                         e
                     );
@@ -630,9 +662,10 @@ impl SusiMasterAgent {
                 None,
             );
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
-            eprintln!("{}", report.completion_message());
+            mission_trace!("{}", report.completion_message());
             drop(_guard);
-            eprintln!("{}", report.to_protocol_format(true));
+            mission_trace!("{}", report.to_protocol_format(true));
+            emit_final_report(&report, _callback);
             return report;
         }
 
@@ -640,7 +673,7 @@ impl SusiMasterAgent {
         let res = self.solve_with_streaming_trace(&goal, workspace, version, &|_| {});
         let elapsed = start.elapsed();
 
-        eprintln!("\n- [Swarm Execution Latency] {:?}", elapsed);
+        mission_trace!("\n- [Swarm Execution Latency] {:?}", elapsed);
 
         match res {
             Ok(mut report) => {
@@ -653,13 +686,14 @@ impl SusiMasterAgent {
                     None,
                 );
                 attach_evidence_ledger(&mut report, session.as_ref(), workspace);
-                eprintln!("{}", report.completion_message());
+                mission_trace!("{}", report.completion_message());
                 drop(_guard);
-                eprintln!("{}", report.to_protocol_format(true));
+                mission_trace!("{}", report.to_protocol_format(true));
+                emit_final_report(&report, _callback);
                 report
             }
             Err(e) => {
-                eprintln!("[MISSION FAILED] {}", e);
+                mission_trace!("[MISSION FAILED] {}", e);
                 let mut err_report = SusiMissionReport {
                     goal: goal.to_string(),
                     status: "FAILED".to_string(),
@@ -677,9 +711,10 @@ impl SusiMasterAgent {
                     None,
                 );
                 attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
-                eprintln!("{}", err_report.completion_message());
+                mission_trace!("{}", err_report.completion_message());
                 drop(_guard);
-                eprintln!("{}", err_report.to_protocol_format(true));
+                mission_trace!("{}", err_report.to_protocol_format(true));
+                emit_final_report(&err_report, _callback);
                 err_report
             }
         }
@@ -694,21 +729,23 @@ impl SusiMasterAgent {
     ) -> EaiResult<SusiMissionReport> {
         let goal = Self::sanitize_input(goal)?;
 
-        eprintln!("\n[DETAILED SWARM SYNTHESIS LOGS]");
-        eprintln!("- [Swarm Synthesis] Recruitment projection active over Active Agent Registry.");
+        mission_trace!("\n[DETAILED SWARM SYNTHESIS LOGS]");
+        mission_trace!(
+            "- [Swarm Synthesis] Recruitment projection active over Active Agent Registry."
+        );
 
         // 1. Swarm Supervision
         let (interactions, agents) =
             crate::amas::SusiSupervisor::supervise_mission(&goal, workspace);
 
         for agent in &agents {
-            eprintln!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
+            mission_trace!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
         }
 
-        eprintln!("- [Swarm Execution] Dispatching agent fleet via rayon work-stealing parallel execution...");
+        mission_trace!("- [Swarm Execution] Dispatching agent fleet via rayon work-stealing parallel execution...");
         for msg in &interactions {
             if msg.sender != "ConsensusMaster" {
-                eprintln!(
+                mission_trace!(
                     "  - [Swarm Channel Message] From: {} | Action: {} | Payload Len: {}",
                     msg.sender,
                     msg.action,
@@ -720,8 +757,8 @@ impl SusiMasterAgent {
         let swarm_context =
             crate::amas::SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
 
-        eprintln!("\n[LIVE REASONING TOKENS]");
-        eprintln!("- [Truth Convergence] Ingesting model reasoning trace stream:");
+        mission_trace!("\n[LIVE REASONING TOKENS]");
+        mission_trace!("- [Truth Convergence] Ingesting model reasoning trace stream:");
         // Captured receipts change the answer contract: with a live ledger the
         // answer must select evidence by citation, so swarm narrative alone can
         // never be the final answer while receipts exist to cite.
@@ -738,7 +775,7 @@ impl SusiMasterAgent {
                 || swarm_context.contains("| English")
                 || swarm_context.contains("AGENT_SUCCESS_RATIO"))
         {
-            eprintln!("{}", swarm_context);
+            mission_trace!("{}", swarm_context);
             swarm_context
         } else {
             // Deep: the final answer is synthesis, never a reflex. With
@@ -752,7 +789,7 @@ impl SusiMasterAgent {
             )
         };
 
-        eprintln!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
+        mission_trace!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
         let mut verification_failed = false;
         let verified =
             match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
@@ -760,14 +797,14 @@ impl SusiMasterAgent {
                 workspace,
             ) {
                 Ok(v) => {
-                    eprintln!(
+                    mission_trace!(
                         "- [Axiomatic Alignment Check] Status: SUCCESS | Alignment verified."
                     );
                     v
                 }
                 Err(e) => {
                     verification_failed = true;
-                    eprintln!(
+                    mission_trace!(
                         "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
                         e
                     );
@@ -788,7 +825,7 @@ impl SusiMasterAgent {
                 if let Some(auto_cited) =
                     crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace)
                 {
-                    eprintln!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
+                    mission_trace!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
                     verified_final_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &goal,
                         "SUSI_SOLVE",
@@ -801,14 +838,14 @@ impl SusiMasterAgent {
 
         let verified_final = match verified_final_attempt {
             Ok(v) => {
-                eprintln!(
+                mission_trace!(
                     "- [Reality Integrity Check] Status: SUCCESS | Reality verification passed."
                 );
                 v
             }
             Err(e) => {
                 verification_failed = true;
-                eprintln!(
+                mission_trace!(
                     "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
                     e
                 );
@@ -891,7 +928,7 @@ impl SusiMasterAgent {
             // just outcome text.
             crate::susi_core::mission_trace::proven_plan_brief(&goal, &traces)
         );
-        eprintln!(
+        mission_trace!(
             "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?}){}{}",
             crate::susi_core::mission_trace::similar(&goal, &traces, 8).len(),
             difficulty.score,
@@ -956,7 +993,7 @@ impl SusiMasterAgent {
             crate::susi_core::mission_trace::PromotionStatus::Vetoed { .. }
         ) {
             deliberation.consensus_required = true;
-            eprintln!(
+            mission_trace!(
                 "- [Deliberation] Anti-pattern history for this intent — consensus required."
             );
         }
@@ -967,11 +1004,11 @@ impl SusiMasterAgent {
             && crate::susi_core::mission_trace::unreliable_neighborhood(&goal, &traces, 8)
         {
             deliberation.consensus_required = true;
-            eprintln!(
+            mission_trace!(
                 "- [Deliberation] Low success rate among similar missions — consensus required."
             );
         }
-        eprintln!(
+        mission_trace!(
             "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?} threshold={:.2}",
             deliberation.candidates.len(),
             deliberation.consensus_required,
@@ -979,7 +1016,7 @@ impl SusiMasterAgent {
             deliberation.consensus_threshold
         );
         for (i, c) in deliberation.candidates.iter().enumerate() {
-            eprintln!(
+            mission_trace!(
                 "- [Candidate {}] score={:.2} steps={} ({})",
                 i + 1,
                 c.score,
@@ -990,7 +1027,7 @@ impl SusiMasterAgent {
         let plan: Vec<String> = if crate::deliberation::approved(&deliberation) {
             deliberation.candidates[0].steps.clone()
         } else {
-            eprintln!(
+            mission_trace!(
                 "- [Deliberation] No candidate consensus under {:?} scope — \
                  declining multi-step autonomy; running goal as one step.",
                 manifold.scope_of_impact
@@ -1053,13 +1090,13 @@ impl SusiMasterAgent {
         let mut succeeded_plan: Option<&Vec<String>> = None;
         'attempts: for (attempt, attempt_plan) in plans_to_try.iter().enumerate() {
             if attempt > 0 {
-                eprintln!(
+                mission_trace!(
                     "\n[PLAN REPLAN] Candidate {} (read-scope retry after failure)",
                     attempt + 1
                 );
             }
             for (i, step) in attempt_plan.iter().enumerate() {
-                eprintln!(
+                mission_trace!(
                     "\n[AUTONOMOUS PLAN] Attempt {} Step {}/{}: {}",
                     attempt + 1,
                     i + 1,
@@ -1444,7 +1481,7 @@ impl SusiMasterAgent {
                             .trim_start_matches("shell")
                             .trim();
                         if !cmd.is_empty() && !cmd.starts_with('!') {
-                            eprintln!(
+                            mission_trace!(
                                 "[Local Agent] Detected shell block. Executing native tool..."
                             );
                             let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
@@ -1498,7 +1535,7 @@ impl SusiMasterAgent {
                                     workspace,
                                 )
                             {
-                                eprintln!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
+                                mission_trace!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
                                 verified_answer_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                                     &current_goal,
                                     "SUSI_SOLVE",
@@ -1855,7 +1892,7 @@ impl SusiMasterAgent {
                     if let Some(auto_cited) =
                         crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace)
                     {
-                        eprintln!("[TruthFormatter] Intercepting ungrounded narrative. Auto-aligning missing citations...");
+                        mission_trace!("[TruthFormatter] Intercepting ungrounded narrative. Auto-aligning missing citations...");
                         if let Some(Ok(rendered)) =
                             crate::susi_core::capture::EvidenceSession::verify_answer(
                                 &auto_cited,
@@ -2011,11 +2048,20 @@ mod compiled_read_truth_tests {
         // A separate process keeps global plane-bus stubs out of other tests.
         const CHILD: &str = "SUSI_FIRST_GOAL_TEST_CHILD";
         if std::env::var_os(CHILD).is_none() {
-            let status = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "ama::master::compiled_read_truth_tests::first_goal_infers_once_under_existing_governance", "--nocapture"])
                 .env(CHILD, "1")
-                .status().unwrap();
-            assert!(status.success());
+                .env_remove("SUSI_VERBOSE")
+                .env_remove("RUST_LOG")
+                .output().unwrap();
+            let diagnostics = String::from_utf8_lossy(&output.stderr);
+            assert!(output.status.success(), "{diagnostics}");
+            assert!(!diagnostics.contains("<thinking>"), "{diagnostics}");
+            assert!(!diagnostics.contains("DETAILED"), "{diagnostics}");
+            assert!(
+                !diagnostics.contains("supervise_mission_swarm"),
+                "{diagnostics}"
+            );
             return;
         }
         let _env = susi_paths::test_env::EnvGuard::isolated();
@@ -2035,9 +2081,12 @@ mod compiled_read_truth_tests {
                 Ok(serde_json::json!({"text":"42"}))
             }
         }
-        struct Verify;
+        struct Verify(Arc<std::sync::atomic::AtomicBool>);
         impl PlaneHandler for Verify {
             fn handle(&self, _: &str, payload: Value) -> Result<Value, String> {
+                if self.0.load(Ordering::SeqCst) {
+                    return Err("answer rejected by verification".into());
+                }
                 Ok(serde_json::json!({"text":payload["text"]}))
             }
         }
@@ -2046,14 +2095,17 @@ mod compiled_read_truth_tests {
             topics::GEMI_INFER_GENERATE_DEEP,
             Arc::new(Inference(count.clone())),
         );
-        PlaneBus::global().register(topics::GEMI_INFER_VERIFY, Arc::new(Verify));
+        let reject = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        PlaneBus::global().register(topics::GEMI_INFER_VERIFY, Arc::new(Verify(reject.clone())));
+        let outputs = std::cell::RefCell::new(Vec::new());
+        let deliver = |text| outputs.borrow_mut().push(text);
         let workspace = susi_paths::SusiDirs::data_dir().join("first-goal-workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         let report = SusiMasterAgent::new().solve_stream_report(
             "Compute 17 + 25. Answer with only the number.",
             &workspace,
             "test",
-            &|_| {},
+            &deliver,
         );
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert_eq!(report.status, "SUCCESS", "{}", report.final_answer);
@@ -2067,6 +2119,31 @@ mod compiled_read_truth_tests {
             ["SafetyAgent", "SecurityAgent"]
         );
         assert!(report.plan.is_none());
+        assert_eq!(&*outputs.borrow(), &[report.final_answer_for_sink()]);
+        outputs.borrow_mut().clear();
+        reject.store(true, Ordering::SeqCst);
+        let failed = SusiMasterAgent::new().solve_stream_report(
+            "Compute 17 + 25. Answer with only the number.",
+            &workspace,
+            "test",
+            &deliver,
+        );
+        assert!(!failed.is_success());
+        assert_eq!(&*outputs.borrow(), &[failed.final_answer_for_sink()]);
+        assert!(
+            !outputs.borrow()[0].contains("42"),
+            "raw answer escaped verification"
+        );
+        outputs.borrow_mut().clear();
+        let blocked = SusiMasterAgent::new().solve_stream_report("", &workspace, "test", &deliver);
+        assert_eq!(blocked.status, "BLOCKED");
+        assert_eq!(&*outputs.borrow(), &[blocked.final_answer_for_sink()]);
+        outputs.borrow_mut().clear();
+        let mut secret = report;
+        secret.final_answer = "ghp_firstGoalPrivateToken123".into();
+        emit_final_report(&secret, &deliver);
+        assert_eq!(outputs.borrow().len(), 1);
+        assert!(!outputs.borrow()[0].contains("ghp_firstGoalPrivateToken123"));
     }
 
     #[test]
@@ -2169,7 +2246,7 @@ mod cli_output_contract {
         );
     }
 
-    /// The stdout-writing macro on `line`, if any. `eprintln!`/`eprint!` are
+    /// The stdout-writing macro on `line`, if any. `mission_trace!`/`eprint!` are
     /// the glass-box trace and stay: they never collide with the answer a
     /// caller prints.
     fn stdout_write(line: &str) -> Option<&'static str> {
@@ -2177,7 +2254,7 @@ mod cli_output_contract {
             let mut search = 0;
             while let Some(at) = line[search..].find(needle) {
                 let start = search + at;
-                // `eprintln!`/`eprint!` are prefixed by an identifier;
+                // `mission_trace!`/`eprint!` are prefixed by an identifier;
                 // `std::println!` and a bare `println!` are not.
                 let prefixed = line[..start]
                     .chars()
