@@ -375,6 +375,9 @@ pub fn wire_daemon_engine_hooks() {
 }
 
 fn wire_hooks_and_swarm_host() {
+    susi_gemi::engines::runtime::GemiEngine::set_owned_runner_child_adopter(
+        crate::supervisor::adopt_ephemeral_child,
+    );
     wire_swarm_host();
     susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }

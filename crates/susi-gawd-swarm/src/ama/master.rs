@@ -653,14 +653,19 @@ impl SusiMasterAgent {
                 plan: None,
                 final_answer,
             };
-            crate::cloud_recovery::recover(
-                &mut report,
-                workspace,
-                model_hint,
-                false,
-                session.clone(),
-                None,
-            );
+            // A confined native read is authoritative, including a missing
+            // file or rejected receipt. Model recovery cannot supply that
+            // observation and must not turn the error into invented contents.
+            if system_read.is_none() {
+                crate::cloud_recovery::recover(
+                    &mut report,
+                    workspace,
+                    model_hint,
+                    false,
+                    session.clone(),
+                    None,
+                );
+            }
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             mission_trace!("{}", report.completion_message());
             drop(_guard);

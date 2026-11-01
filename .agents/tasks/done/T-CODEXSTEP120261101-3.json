@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP120261101-3",
+  "title": "Keep the goal shell lazy and reuse its governed mission process",
+  "goal": "Accept goals immediately, initialize only after the first goal, retain model caches across successive goals, and preserve real mission evidence and failure recovery.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "first_goal_opening"
+    ]
+  },
+  "created_by": "CODEXSTEP120261101",
+  "created_unix": 1793537417,
+  "closed": {
+    "at_unix": 1793539540,
+    "commit": "5bf2d8023fade86130c1ed11a30d18297810c4cb",
+    "by": "CODEXSTEP120261101"
+  }
+}
