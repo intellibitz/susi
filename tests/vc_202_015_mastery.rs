@@ -39,6 +39,37 @@ use susi_gawd::autonomous_builder::{run_cycle, BuildOutcome, Delegation};
 // process-global git config state.
 static SERIAL: Mutex<()> = Mutex::new(());
 
+struct PrivateCargoTarget(Vec<(&'static str, Option<std::ffi::OsString>)>);
+impl PrivateCargoTarget {
+    fn new(repo: &Path) -> Self {
+        let target = repo.parent().unwrap().join("private-cargo-target");
+        Self(
+            [
+                "CARGO_TARGET_DIR",
+                "CARGO_BUILD_TARGET_DIR",
+                "CARGO_BUILD_BUILD_DIR",
+            ]
+            .into_iter()
+            .map(|key| {
+                let previous = std::env::var_os(key);
+                std::env::set_var(key, &target);
+                (key, previous)
+            })
+            .collect(),
+        )
+    }
+}
+impl Drop for PrivateCargoTarget {
+    fn drop(&mut self) {
+        for (key, previous) in &self.0 {
+            match previous {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(args)
@@ -72,18 +103,24 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf) {
     );
     std::fs::write(
         repo.join("Cargo.toml"),
-        "[package]\nname = \"susi\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"susi\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
     std::fs::create_dir_all(repo.join(".agents/tasks/done")).unwrap();
     std::fs::write(repo.join(".agents/identity.json"), "{\"mandates\":[]}\n").unwrap();
-    // Native toolchain success seam; marker/delegation assertions below prove the cycle.
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join(".gitignore"), "/target/\n").unwrap();
+    std::fs::write(
+        repo.join("src/lib.rs"),
+        "#[test]\nfn built_marker() {\n    assert_eq!(\n        std::fs::read_to_string(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/built.marker\")).unwrap(),\n        \"done\\n\"\n    );\n}\n",
+    ).unwrap();
+    // Real Cargo acceptance executes a nonzero test and verifies agent output.
     let task = serde_json::json!({
         "id": "T-VC202015-1",
         "title": "Build the marker",
         "goal": "Create built.marker proving the fake agent ran",
         "size": "s",
-        "accept": {"cmd": ["rustc", "--version"]},
+        "accept": {"cmd": ["cargo", "test", "--offline", "--lib", "built_marker", "--", "--exact"]},
         "created_by": "TEST",
         "created_unix": 0
     });
@@ -102,6 +139,7 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf) {
 fn vc_202_015_mastery() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (_remote, repo) = fixture("loop");
+    let _target = PrivateCargoTarget::new(&repo);
 
     let delegate = |d: &Delegation| -> susi_gawd::susi_error::EaiResult<()> {
         std::fs::write(d.worktree.join("built.marker"), "done\n").unwrap();
