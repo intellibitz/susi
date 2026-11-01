@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-15",
+  "title": "gmcp evidence: a forked supersession chain (two branches superseding one record, unioned on merge) resolves to its newest tip instead of failing every mastery test",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793516962
+}
