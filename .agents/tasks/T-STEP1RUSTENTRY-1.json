@@ -1,0 +1,33 @@
+{
+  "id": "T-STEP1RUSTENTRY-1",
+  "title": "Replace copied MSVC startup with original qualified Rust process boundary",
+  "status": "verified",
+  "owner": "step1-harness-native",
+  "scopes": [
+    "crates/susi-windows-runtime",
+    ".agents/tasks/T-STEP1RUSTENTRY-1.json"
+  ],
+  "dependencies": [
+    "T-STEP1NATIVECOMMAND-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-windows-runtime",
+      "--lib",
+      "--offline"
+    ]
+  },
+  "evidence": [
+    "Bounded linker-range unit test passed",
+    "12 native lifecycle subprocess cases passed for unwind and fat-LTO panic-abort",
+    "64/4096-byte aligned TLS works on main and worker; PE TLS alignment4096 observed",
+    "Compiler build guard requires exact1.99 commit and native x64 Windows MSVC",
+    "Diagnostic maps exclude msvcrt/vcruntime implementation; both final fixture compile stderr files empty",
+    "Full Susi final-link and installed journey remain integration gates",
+    "Parent full Susi diagnostic linked in53.16s with no MSVC CRT implementation objects, PE check passed, two real Candle inference checks passed; final canonical MERGE layout still runs through integration gates"
+  ],
+  "integration": "pending_native_receipt"
+}
