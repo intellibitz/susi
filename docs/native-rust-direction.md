@@ -81,6 +81,19 @@ passed 1,136 tests with five explicitly ignored. Nested deliberately failing
 test fixtures are not product failures. The updated integration/release tooling
 also passed its 22 tests. This is a broad run plus focused repair verification,
 not a claim that every acceptance gate passed on one final source snapshot.
+An independent native root integration run also passed 35 architecture tests,
+five child-profile isolation tests and three source-policy tests. Combined
+workspace/all-target Clippy passed with warnings denied. The rebuilt debug
+artifact at `200f9d73d` was 95,625,728 bytes; this is not a production-size or
+latency guarantee.
+
+Installed-journey testing found issues hidden by unit tests: a directory name
+containing `native` incorrectly excluded verified weights, an installed C++
+runner took precedence over Candle, and a short prose request launched a swarm
+then ended in recovery rather than delivering the requested reply. Agents must
+retain these failures and verify the corrected executable with external runners
+absent; a successful exit code or an intermediate generated sentence is not
+first-goal acceptance.
 
 A real three-input embedding comparison against the previous ONNX engine found
 minimum cosine similarity 0.999999999999784 and maximum component difference
