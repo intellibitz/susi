@@ -391,6 +391,31 @@ impl GemiEngine {
         } else {
             prompt
         };
+        // Fleet Mandate: a fresh substrate with zero provisioned weights must
+        // not surface a bare failure for an otherwise-solvable intent - it
+        // must fetch a hardware-fit model and retry before giving up. Only
+        // engaged when no local GGUF actually exists yet (not on inference
+        // errors against an existing model, which a re-download can't fix).
+        let provision_needed =
+            requested_model.is_none() && !Self::has_usable_local_model(workspace);
+        if provision_needed {
+            if let Some(res) =
+                Self::provision_and_retry(prompt, workspace, callback, min_complexity)
+            {
+                ladder.record(
+                    LadderRung::Local,
+                    "provisioning-retry",
+                    StepOutcome::Selected,
+                    "fetched a hardware-fit model before executing the first local inference",
+                );
+                if ladder.step_downs() > 0 {
+                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+                }
+                ladder.persist();
+                return res;
+            }
+        }
+
         let local_started = std::time::Instant::now();
         // The local engine's deltas are the live stream — tool-call markup
         // must be withheld before it reaches the client (the post-hoc
@@ -407,20 +432,26 @@ impl GemiEngine {
         // Drive the engine through the shared lifecycle contract: discover →
         // load → ready (health probe) → infer (VC-201-042). A failed probe
         // is a typed error here, the same outcome the bare call produced.
-        let result = crate::engines::native_lifecycle::infer_via_contract(
-            engine,
-            match engine_key {
-                "susi-federated" | "cloud" => {
-                    crate::engines::native_lifecycle::EngineKind::Federated
-                }
-                _ => crate::engines::native_lifecycle::EngineKind::Native,
-            },
-            &crate::engines::native_lifecycle::ContractCall::new(
-                prompt,
-                &filtered_callback,
-                selected_model.as_deref(),
-            ),
-        );
+        let result = if provision_needed {
+            Err(EaiError::inference(
+                "No local model became available during preparation",
+            ))
+        } else {
+            crate::engines::native_lifecycle::infer_via_contract(
+                engine,
+                match engine_key {
+                    "susi-federated" | "cloud" => {
+                        crate::engines::native_lifecycle::EngineKind::Federated
+                    }
+                    _ => crate::engines::native_lifecycle::EngineKind::Native,
+                },
+                &crate::engines::native_lifecycle::ContractCall::new(
+                    prompt,
+                    &filtered_callback,
+                    selected_model.as_deref(),
+                ),
+            )
+        };
         let tail = stream_filter.borrow_mut().finish();
         if !tail.is_empty() {
             callback(tail);
@@ -485,29 +516,6 @@ impl GemiEngine {
                     StepOutcome::Failed,
                     e.to_string(),
                 );
-            }
-        }
-
-        // Fleet Mandate: a fresh substrate with zero provisioned weights must
-        // not surface a bare failure for an otherwise-solvable intent - it
-        // must fetch a hardware-fit model and retry before giving up. Only
-        // engaged when no local GGUF actually exists yet (not on inference
-        // errors against an existing model, which a re-download can't fix).
-        if requested_model.is_none() && !Self::has_usable_local_model(workspace) {
-            if let Some(res) =
-                Self::provision_and_retry(prompt, workspace, callback, min_complexity)
-            {
-                ladder.record(
-                    LadderRung::Local,
-                    "provisioning-retry",
-                    StepOutcome::Selected,
-                    "fetched a hardware-fit model after the first local attempt failed",
-                );
-                if ladder.step_downs() > 0 {
-                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-                }
-                ladder.persist();
-                return res;
             }
         }
 
@@ -1002,9 +1010,8 @@ impl GemiEngine {
     }
 
     /// Kicks off hardware-optimal provisioning and blocks, polling for a
-    /// valid GGUF to land, up to `model_provisioning_wait_secs`. Streams
-    /// progress through `callback` so a caller waiting on a fresh install
-    /// isn't staring at silence for however long the download takes.
+    /// valid GGUF to land, up to `model_provisioning_wait_secs`. Progress goes to stderr separately
+    /// from answer tokens, including for non-streaming governed missions.
     /// Returns `None` (never `Some("[FAIL]...")`) if provisioning didn't
     /// finish in time, so the caller falls through to its next fallback
     /// rather than treating a timeout as a completed retry.
@@ -1014,9 +1021,6 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         min_complexity: Option<crate::models::intent::TaskComplexity>,
     ) -> Option<String> {
-        callback(
-            "[SUSI] No local model provisioned yet - fetching a hardware-fit model to solve this intent...\n".to_string(),
-        );
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if cfg
             .settings
@@ -1026,6 +1030,9 @@ impl GemiEngine {
         {
             return None;
         }
+        eprintln!(
+            "Susi is preparing a local AI model for your first goal. This requires a download."
+        );
         let (sender, provisioning) = std::sync::mpsc::channel();
         let provisioning_workspace = workspace.to_path_buf();
         std::thread::spawn(move || {
@@ -1034,28 +1041,40 @@ impl GemiEngine {
         });
 
         let wait_secs = cfg.model_provisioning_wait_secs();
-        // checked_add: a huge configured wait means "no deadline", not an
-        // overflow panic (which aborts the daemon under panic = "abort").
-        let deadline =
-            std::time::Instant::now().checked_add(std::time::Duration::from_secs(wait_secs));
-        let poll_interval = std::time::Duration::from_secs(10);
-        let mut last_reported_pct: i64 = -1;
+        let started = std::time::Instant::now();
+        let Some(deadline) = started.checked_add(std::time::Duration::from_secs(wait_secs)) else {
+            eprintln!("Susi could not start the model wait: the configured deadline is invalid.");
+            return None;
+        };
+        let poll_interval = std::time::Duration::from_millis(500);
+        let mut last_reported = started;
 
-        while deadline.is_none_or(|d| std::time::Instant::now() < d) {
+        while std::time::Instant::now() < deadline {
             if let Ok(Err(error)) = provisioning.try_recv() {
-                callback(format!("[SUSI] Provisioning unavailable: {error}\n"));
+                eprintln!("Susi could not prepare a local model: {error}");
                 return None;
             }
             if Self::has_usable_local_model(workspace) {
-                callback("[SUSI] Model provisioned. Resuming inference...\n".to_string());
+                eprintln!("Local model downloaded. Continuing your goal...");
                 let engine = LlamaCppEngine;
                 let selected = ModelManager::get_selected_model_for_request_with_min_complexity(
                     prompt,
                     None,
                     min_complexity,
                 );
-                if let Ok(res) = engine.run_inference_stream(prompt, callback, selected.as_deref())
-                {
+                let result = crate::engines::native_lifecycle::infer_via_contract(
+                    std::sync::Arc::new(engine),
+                    crate::engines::native_lifecycle::EngineKind::Native,
+                    &crate::engines::native_lifecycle::ContractCall::new(
+                        prompt,
+                        callback,
+                        selected.as_deref(),
+                    ),
+                );
+                if let Err(error) = &result {
+                    eprintln!("The downloaded local model could not answer this goal: {error}");
+                }
+                if let Ok(res) = result {
                     if !res.trim().is_empty() {
                         return Some(match Self::verify_axiomatic_alignment(&res, workspace) {
                             Ok(v) => v,
@@ -1066,21 +1085,26 @@ impl GemiEngine {
                 return None;
             }
 
-            if let Some(progress) = ModelManager::download_controller_progress() {
-                let pct = progress as i64;
-                if pct != last_reported_pct {
-                    callback(format!("[SUSI] Provisioning model... {}%\n", pct));
-                    last_reported_pct = pct;
+            if last_reported.elapsed() >= std::time::Duration::from_secs(5) {
+                if let Some(progress) = ModelManager::download_controller_progress() {
+                    eprintln!(
+                        "Preparing local model: {:.0}% downloaded ({} seconds).",
+                        progress,
+                        started.elapsed().as_secs()
+                    );
+                } else {
+                    eprintln!(
+                        "Waiting for the local model download ({} seconds elapsed).",
+                        started.elapsed().as_secs()
+                    );
                 }
+                last_reported = std::time::Instant::now();
             }
 
             std::thread::sleep(poll_interval);
         }
 
-        callback(
-            "[SUSI] Model provisioning did not complete in time; trying alternate reasoning path...\n"
-                .to_string(),
-        );
+        eprintln!("The local model was not ready within {wait_secs} seconds. This goal has not completed.");
         None
     }
 
@@ -1167,6 +1191,27 @@ mod tests {
     use super::*;
 
     use std::thread;
+
+    #[test]
+    fn first_model_disabled_download_does_not_start_or_emit_answer_tokens() {
+        let _guard = crate::engines::env_test_lock();
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+        let home = susi_paths::SusiDirs::config_dir();
+        let mut cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        cfg.settings
+            .insert("auto_download_models".into(), serde_json::json!(false));
+        cfg.save(&home).unwrap();
+        assert!(GemiEngine::provision_and_retry(
+            "Compute 17 + 25",
+            &home,
+            &|_| panic!("provisioning is not answer content"),
+            None
+        )
+        .is_none());
+    }
 
     #[test]
     fn error_text_detection_rejects_stringified_failures() {
