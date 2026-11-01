@@ -1,0 +1,23 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-18",
+  "title": "Stop starting a daemon for local release cuts",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--bin",
+      "susi",
+      "release_skips_cli_catalog_composition"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793513377,
+  "closed": {
+    "at_unix": 1793513624,
+    "commit": "6feb63d7ef124389a89fdb94fbfbbcce9c96210b",
+    "by": "SUSICACHEREPAIR20261101"
+  }
+}

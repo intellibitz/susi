@@ -570,10 +570,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Keys { .. }
         | Commands::DaemonStart { .. } => false,
         Commands::Admin { subcommand } => {
-            matches!(
-                subcommand,
-                AdminCommands::Release { .. } | AdminCommands::Audit
-            )
+            matches!(subcommand, AdminCommands::Audit)
         }
         _ => true,
     }
@@ -914,7 +911,10 @@ mod tests {
             let command = Cli::try_parse_from(args).unwrap().command.unwrap();
             assert!(super::command_uses_release_composition(&command));
             assert!(!command_skips_composition(&command));
-            assert!(super::command_requires_daemon(&command));
+            assert!(
+                !super::command_requires_daemon(&command),
+                "local release operations must not start or restart a daemon"
+            );
         }
         let audit = Cli::try_parse_from(["susi", "admin", "audit"])
             .unwrap()
