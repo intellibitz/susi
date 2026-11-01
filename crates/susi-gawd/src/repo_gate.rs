@@ -184,6 +184,8 @@ pub fn run_repository_gate(workspace: &Path) -> EaiResult<GateReport> {
             "clippy",
             "--workspace",
             "--all-targets",
+            "--features",
+            "xtask/release-tooling",
             "--locked",
             "--offline",
             "--",
@@ -191,7 +193,17 @@ pub fn run_repository_gate(workspace: &Path) -> EaiResult<GateReport> {
             "warnings",
         ],
     )?;
-    let test = run_cargo_check(workspace, &["test", "--workspace", "--locked", "--offline"])?;
+    let test = run_cargo_check(
+        workspace,
+        &[
+            "test",
+            "--workspace",
+            "--locked",
+            "--offline",
+            "--features",
+            "xtask/release-tooling",
+        ],
+    )?;
     let mut report = executed_report(fmt, clippy, test);
     // Never call an older three-check report complete. Every policy command
     // must have executed successfully against this same candidate workspace.

@@ -650,7 +650,8 @@ fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Comman
 
 /// The loop's scripts need coreutils: `parallel-workflow.sh` opens with
 /// `dirname`, and its flock fallback with `readlink` and `mkdir`.
-#[cfg(all(test, windows))]
+// Legacy POSIX adapter compatibility; native Windows uses susi local.
+#[cfg(all(test, unix))]
 mod script_shell {
     use super::*;
 

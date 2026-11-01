@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -257,6 +259,8 @@ impl Drop for World {
 const FG: (&str, &str) = ("SUSI_SYNC_FOREGROUND", "1");
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn hooks_sync_primary_after_a_commit_in_any_worktree() {
     let w = World::new("commit");
     w.origin_advances();
@@ -275,6 +279,8 @@ fn hooks_sync_primary_after_a_commit_in_any_worktree() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn hooks_sync_primary_is_throttled_and_the_interval_is_configurable() {
     let w = World::new("throttle");
     let fixed_path = w.fixed_clock_path();
@@ -294,6 +300,8 @@ fn hooks_sync_primary_is_throttled_and_the_interval_is_configurable() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn hooks_sync_primary_never_fails_or_moves_unsafe_state() {
     let w = World::new("safe");
     w.origin_advances();
@@ -329,6 +337,8 @@ fn hooks_sync_primary_is_wired_into_every_git_activity_hook() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn hooks_sync_branch_merges_origin_main_after_a_clean_commit() {
     let w = World::new("branch-clean");
     w.origin_advances_with("theirs.txt", "theirs\n");
@@ -378,6 +388,8 @@ fn hooks_sync_branch_merges_origin_main_after_a_clean_commit() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn hooks_sync_branch_aborts_a_conflicting_merge_and_says_merge_now() {
     let w = World::new("branch-conflict");
     w.origin_advances_with("shared.txt", "theirs\n");
@@ -412,6 +424,8 @@ fn hooks_sync_branch_aborts_a_conflicting_merge_and_says_merge_now() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn hooks_sync_branch_stays_out_of_the_way() {
     let w = World::new("branch-skip");
     w.origin_advances_with("theirs.txt", "theirs\n");

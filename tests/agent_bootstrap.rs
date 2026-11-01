@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -161,6 +163,8 @@ fn cd_target(stdout: &str) -> PathBuf {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn no_name_needed_the_agent_gets_a_ready_worktree() {
     let w = World::new("auto");
     let (code, out, err) = w.worktree(&[], "Codex Agent");
@@ -191,6 +195,8 @@ fn no_name_needed_the_agent_gets_a_ready_worktree() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn a_named_worktree_is_reused_not_duplicated() {
     let w = World::new("named");
     let (code, out, err) = w.worktree(&["my-feature"], "claude");
@@ -204,6 +210,8 @@ fn a_named_worktree_is_reused_not_duplicated() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn main_and_head_are_not_valid_branch_names() {
     let w = World::new("badname");
     for bad in ["main", "HEAD"] {
@@ -214,6 +222,8 @@ fn main_and_head_are_not_valid_branch_names() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn susi_workflow_start_wraps_the_same_setup() {
     let w = World::new("cli");
     let home = w.root.join("home");
@@ -276,6 +286,8 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn the_session_start_hook_never_blocks_a_session() {
     // Outside any repo and with no susi on PATH it still exits 0 and explains.
     let dir = std::env::temp_dir().join(format!("susi-boot-hook-{}", std::process::id()));
@@ -296,6 +308,8 @@ fn the_session_start_hook_never_blocks_a_session() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn simultaneous_workers_get_distinct_worktrees_and_local_identities() {
     let w = World::new("parallel-start");
     let (left, right) = std::thread::scope(|scope| {
