@@ -284,6 +284,21 @@ mod tests {
         ];
         let vectors = model.embed(&texts).unwrap();
         assert_eq!(vectors.len(), 3);
+        // Captured from the previous ONNX backend using the same pretrained
+        // BGE model and first input. Keep a compact numerical regression anchor.
+        let onnx_prefix = [
+            0.055796586,
+            -0.075012155,
+            0.041990824,
+            0.026629992,
+            0.008970343,
+            0.046833955,
+            0.05523868,
+            -0.01734583,
+        ];
+        for (actual, expected) in vectors[0].iter().zip(onnx_prefix) {
+            assert!((actual - expected).abs() < 1e-4);
+        }
         for vector in &vectors {
             assert_eq!(vector.len(), EMBEDDING_DIM);
             assert!((vector.iter().map(|value| value * value).sum::<f32>() - 1.).abs() < 1e-4);

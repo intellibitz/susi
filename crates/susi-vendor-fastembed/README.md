@@ -24,3 +24,11 @@ Normal tests are hermetic. The ignored real-model qualification test can be
 run explicitly with `SUSI_EMBEDDING_TEST_CACHE` pointing at a scratch directory.
 It checks dimensions, normalization, semantic ordering and batch/single
 consistency. This test alone is not a claim of numerical parity with ONNX.
+
+On 2026-11-01, an explicit side-by-side test ran the previous ONNX facade and
+this Candle facade on three texts (two related animal sentences and one database
+sentence), using their real pretrained model artifacts in separate scratch
+caches. All 384 components were compared for every input. Minimum cosine
+similarity was 0.999999999999784 and maximum absolute component difference was
+1.3e-7. This is evidence for those samples, not universal numerical equivalence.
+A compact ONNX reference prefix is retained in the explicit model test.
