@@ -6,28 +6,19 @@ Root Cargo patches use local paths. This deliberately replaces the previous git-
 
 ## reqwest 0.13.5
 
-**Why:** the whole tree uses ring as its rustls crypto provider. Upstream
-reqwest's `rustls` feature (and therefore `default-tls`/`default`) hard-wires
-aws-lc-rs, whose `aws-lc-sys` C build was the cold-build critical path
-(~285s of a ~8.5min `cargo build --timings` on 28 cores). Our own crates could
-opt out, but `ra2a` (reqwest default features) cannot. Switching to
-`rustls-no-provider` instead would make every `Client::new()` panic unless a
-provider was installed first — including clients third-party crates build
-internally — so the provider choice is patched here, once.
+The current default selects `native-tls` and platform trust. Windows uses
+Schannel; Susi does not bundle a C TLS implementation or a root-certificate
+snapshot. The MCP facade explicitly selects upstream `reqwest-native-tls`,
+so its transport cannot re-enable rustls through feature unification.
 
-**Patch** (diff against the crates.io tarball):
+The historical optional `__rustls-ring` patch remains available in this exact
+upstream source, but is not selected by the default product graph. Selecting it
+requires another strict audit; optional features are not implicitly approved.
 
-- `Cargo.toml`: new feature `__rustls-ring` (`hyper-rustls?/ring`,
-  `tokio-rustls?/ring`, `rustls?/ring`, `quinn?/rustls-ring`);
-  `rustls` enables `__rustls-ring` instead of `__rustls-aws-lc-rs`.
-- `src/async_impl/client.rs`: `default_rustls_crypto_provider()` returns
-  `rustls::crypto::ring::default_provider()` under `__rustls-ring`.
-
-**Invariant:** `cargo tree -i aws-lc-rs` must report no match. Two providers
-compiled into rustls make its automatic provider selection ambiguous.
-
-**Upgrading:** copy the new release from `~/.cargo/registry/src/*/reqwest-X.Y.Z`
-onto the branch, re-apply the two edits above, and update this section.
+`native-tls` 0.2.18 is patched separately for Windows private-key ownership and
+certificate-chain handling. See `native-tls/SUSI-PATCHES.md` for qualification,
+limitations and upstream source provenance. Non-Windows platform TLS boundaries
+must be evaluated separately; Windows evidence does not certify Linux builds.
 
 ## esaxx-rs 0.1.10
 

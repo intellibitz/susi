@@ -6,8 +6,8 @@
 [graph]
 # Restrict the dependency graph to the targets we actually build and
 # publish binaries for (see release.yml / dev-release.yml). Windows is
-# included. Wasmtime's LLVM exception currently fails the strict policy;
-# the gate exposes that migration requirement rather than exempting it.
+# included. The gate exposes remaining dependency-license incompatibilities
+# rather than exempting shipped components.
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
@@ -18,9 +18,6 @@ targets = [
 [advisories]
 ignore = [
     "RUSTSEC-2024-0436", # paste is unmaintained/archived by its author; no safe upgrade, pulled transitively via candle's gemm crates
-    "RUSTSEC-2026-0391", # zstd 0.13.3 reused-context stream leak; transitive via tantivy and wasmtime, which pin zstd ^0.13 (the fix needs 0.14.3), and this repo compresses only index/cache data it produced
-    "RUSTSEC-2026-0398", # zstd-safe 7.3.0 Seekable::decompress capacity; transitive, no seekable decompression of untrusted frames is performed
-    "RUSTSEC-2026-0403", # zstd-safe 7.3.0 legacy-frame uninitialized memory; transitive, legacy frames are not accepted from users
 ]
 
 [licenses]
