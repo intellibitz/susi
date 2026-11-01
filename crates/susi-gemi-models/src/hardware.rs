@@ -785,6 +785,14 @@ impl HardwareProfiler {
     }
 
     pub fn get_progressive_model_ladder() -> Vec<ModelLadderStep> {
+        Self::model_ladder(false)
+    }
+
+    pub fn get_bootstrap_model_ladder() -> Vec<ModelLadderStep> {
+        Self::model_ladder(true)
+    }
+
+    fn model_ladder(bootstrap: bool) -> Vec<ModelLadderStep> {
         // Model admission must reflect memory that is actually available to
         // this process, not RAM installed in the machine. The latter can
         // qualify a model that will immediately OOM on a busy host.
@@ -792,7 +800,11 @@ impl HardwareProfiler {
         let free_disk_bytes = Self::get_free_disk_bytes(&crate::ModelManager::get_models_dir());
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
-        let config_steps = crate::hf_discovery::resolve_model_ladder(&cfg);
+        let config_steps = if bootstrap {
+            crate::hf_discovery::resolve_bootstrap_ladder(&cfg)
+        } else {
+            crate::hf_discovery::resolve_model_ladder(&cfg)
+        };
         let reserve = cfg.model_scoring_heuristics().system_ram_buffer_gb;
         let budget = Self::admission_ram_gb(ram_gb, reserve);
         let models_dir = crate::ModelManager::get_models_dir();
