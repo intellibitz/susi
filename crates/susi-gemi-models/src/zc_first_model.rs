@@ -16,6 +16,9 @@ pub struct StarterModel {
     pub id: String,
     pub hf_repo: String,
     pub hf_file: String,
+    /// Publisher-declared SPDX identifier. Missing metadata is not permission.
+    #[serde(default)]
+    pub license: String,
     /// Weight file size in bytes (drives the disk check).
     pub size_bytes: u64,
     /// Approx. bytes of RAM/VRAM the model needs resident to serve.
@@ -45,31 +48,17 @@ pub fn default_starters() -> Vec<StarterModel> {
         StarterModel {
             id: "qwen2.5-0.5b-instruct-q4".to_string(),
             hf_repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF".to_string(),
-            hf_file: "qwen2.5-0.5b-instruct-q4_k_m.gguf".to_string(),
-            size_bytes: 400_000_000,
+            hf_file: "qwen2.5-0.5b-instruct-q4_0.gguf".to_string(),
+            license: "Apache-2.0".to_string(),
+            size_bytes: 428_730_208,
             resident_bytes: 700_000_000,
             quality: 10,
-        },
-        StarterModel {
-            id: "llama-3.2-1b-instruct-q4".to_string(),
-            hf_repo: "bartowski/Llama-3.2-1B-Instruct-GGUF".to_string(),
-            hf_file: "Llama-3.2-1B-Instruct-Q4_K_M.gguf".to_string(),
-            size_bytes: 800_000_000,
-            resident_bytes: 1_400_000_000,
-            quality: 20,
-        },
-        StarterModel {
-            id: "qwen2.5-3b-instruct-q4".to_string(),
-            hf_repo: "Qwen/Qwen2.5-3B-Instruct-GGUF".to_string(),
-            hf_file: "qwen2.5-3b-instruct-q4_k_m.gguf".to_string(),
-            size_bytes: 1_900_000_000,
-            resident_bytes: 3_200_000_000,
-            quality: 40,
         },
         StarterModel {
             id: "qwen2.5-7b-instruct-q4".to_string(),
             hf_repo: "Qwen/Qwen2.5-7B-Instruct-GGUF".to_string(),
             hf_file: "qwen2.5-7b-instruct-q4_k_m.gguf".to_string(),
+            license: "Apache-2.0".to_string(),
             size_bytes: 4_700_000_000,
             resident_bytes: 6_500_000_000,
             quality: 70,
@@ -80,6 +69,8 @@ pub fn default_starters() -> Vec<StarterModel> {
 /// What the first run decided.
 #[derive(Debug, Clone)]
 pub enum FirstRunPlan {
+    /// None of the supplied starters declares a permitted weight license.
+    NoPermittedModel,
     /// Fetch `model` resumably to `dest` — plan is ready for
     /// `resumable_downloads::download`.
     Fetch {
@@ -107,9 +98,18 @@ pub fn plan_first_run(
     cached: &[(String, PathBuf)],
     models_dir: &Path,
 ) -> FirstRunPlan {
+    let permitted = |m: &StarterModel| {
+        matches!(
+            m.license.as_str(),
+            "Apache-2.0" | "MIT" | "BSD-2-Clause" | "BSD-3-Clause" | "0BSD"
+        )
+    };
+    if !starters.iter().any(permitted) {
+        return FirstRunPlan::NoPermittedModel;
+    }
     let resident_cap = host.ram.saturating_add(host.vram);
     let fits = |m: &StarterModel| -> bool {
-        m.resident_bytes <= resident_cap && m.size_bytes <= host.disk
+        permitted(m) && m.resident_bytes <= resident_cap && m.size_bytes <= host.disk
     };
     let mut candidates: Vec<&StarterModel> = starters.iter().filter(|m| fits(m)).collect();
     candidates.sort_by_key(|a| std::cmp::Reverse(a.quality));
@@ -181,6 +181,66 @@ mod tests {
     const GB: u64 = 1_000_000_000;
 
     #[test]
+    fn zc_first_model_rejects_unapproved_even_when_cached() {
+        let permitted = default_starters().remove(0);
+        for license in [
+            "llama3.2",
+            "qwen-research",
+            "",
+            "unknown",
+            "MIT OR Proprietary",
+        ] {
+            let mut rejected = permitted.clone();
+            rejected.id = "unapproved-cached".to_string();
+            rejected.license = license.to_string();
+            rejected.quality = 100;
+            let cached = vec![(rejected.id.clone(), PathBuf::from("/m/unapproved.gguf"))];
+            let h = host(8 * GB, 0, 100 * GB, false);
+            assert!(matches!(
+                plan_first_run(&h, &[rejected.clone()], &cached, Path::new("/m")),
+                FirstRunPlan::NoPermittedModel
+            ));
+            match plan_first_run(
+                &h,
+                &[rejected.clone(), permitted.clone()],
+                &cached,
+                Path::new("/m"),
+            ) {
+                FirstRunPlan::Fetch { model, .. } => assert_eq!(model.id, permitted.id),
+                other => {
+                    panic!("unapproved license {license:?} displaced permitted starter: {other:?}")
+                }
+            }
+            let offline = FirstRunHost { offline: true, ..h };
+            assert!(matches!(
+                plan_first_run(
+                    &offline,
+                    &[rejected, permitted.clone()],
+                    &cached,
+                    Path::new("/m")
+                ),
+                FirstRunPlan::OfflineNoModel
+            ));
+        }
+    }
+
+    #[test]
+    fn zc_first_model_missing_license_is_not_permission() {
+        let mut record = serde_json::to_value(default_starters().remove(0)).unwrap();
+        record.as_object_mut().unwrap().remove("license");
+        let legacy: StarterModel = serde_json::from_value(record).unwrap();
+        assert!(matches!(
+            plan_first_run(
+                &host(8 * GB, 0, 100 * GB, false),
+                &[legacy],
+                &[],
+                Path::new("/m")
+            ),
+            FirstRunPlan::NoPermittedModel
+        ));
+    }
+
+    #[test]
     fn zc_first_model_picks_best_that_fits() {
         // 8 GB RAM, no VRAM, plenty of disk → 7B's 6.5GB fits
         let h = host(8 * GB, 0, 100 * GB, false);
@@ -197,9 +257,9 @@ mod tests {
     fn zc_first_model_scales_down_on_small_hosts() {
         let cases: &[(u64, u64, u64, &str)] = &[
             (1_200_000_000, 0, 50 * GB, "qwen2.5-0.5b-instruct-q4"),
-            (2 * GB, 0, 50 * GB, "llama-3.2-1b-instruct-q4"),
-            (4 * GB, 0, 50 * GB, "qwen2.5-3b-instruct-q4"),
-            (GB, GB, 50 * GB, "llama-3.2-1b-instruct-q4"), // ram+vram 2GB
+            (2 * GB, 0, 50 * GB, "qwen2.5-0.5b-instruct-q4"),
+            (4 * GB, 0, 50 * GB, "qwen2.5-0.5b-instruct-q4"),
+            (GB, GB, 50 * GB, "qwen2.5-0.5b-instruct-q4"), // ram+vram 2GB
             (500_000_000, 0, 50 * GB, "TOO_SMALL"),
         ];
         for (ram, vram, disk, want) in cases {
@@ -228,13 +288,13 @@ mod tests {
     fn zc_first_model_prefers_cached_over_download() {
         let h = host(8 * GB, 0, 100 * GB, false);
         let cached = vec![(
-            "qwen2.5-3b-instruct-q4".to_string(),
-            PathBuf::from("/m/qwen3b.gguf"),
+            "qwen2.5-0.5b-instruct-q4".to_string(),
+            PathBuf::from("/m/qwen-small.gguf"),
         )];
         match plan_first_run(&h, &default_starters(), &cached, &PathBuf::from("/m")) {
             FirstRunPlan::UseCached { model, path } => {
-                assert_eq!(model.id, "qwen2.5-3b-instruct-q4");
-                assert_eq!(path, PathBuf::from("/m/qwen3b.gguf"));
+                assert_eq!(model.id, "qwen2.5-0.5b-instruct-q4");
+                assert_eq!(path, PathBuf::from("/m/qwen-small.gguf"));
             }
             other => panic!("expected UseCached, got {other:?}"),
         }
