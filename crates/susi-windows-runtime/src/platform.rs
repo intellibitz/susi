@@ -2,16 +2,22 @@
 //! x64 C/system calling conventions, and explicitly qualified OS imports.
 use core::{ffi::c_void, mem::size_of, ptr};
 
+// SAFETY: these declarations match the qualified Windows x64 system ABI.
+#[allow(unsafe_code)]
 #[link(name = "kernel32")]
 extern "system" {
     fn ExitProcess(code: u32) -> !;
     fn GetModuleHandleW(name: *const u16) -> *mut c_void;
 }
+// SAFETY: declarations match the OS UCRT callback and cleanup C ABI.
+#[allow(unsafe_code)]
 #[link(name = "ucrt")]
 extern "C" {
     fn _crt_atexit(callback: unsafe extern "C" fn()) -> i32;
     fn _cexit();
 }
+// SAFETY: pinned rustc emits main(int,char**); no private Rust ABI is called.
+#[allow(unsafe_code)]
 extern "C" {
     #[link_name = "main"]
     fn compiler_main(argc: i32, argv: *const *const u8) -> i32;
@@ -22,30 +28,44 @@ extern "C" {
 /// # Safety
 /// The callback must have the C ABI and remain valid until process termination.
 #[no_mangle]
+// SAFETY: the function-local proof documents each qualified ABI operation.
+#[allow(unsafe_code)]
 pub unsafe extern "C" fn atexit(callback: unsafe extern "C" fn()) -> i32 {
     // SAFETY: C caller supplies a callback with the OS-required ABI/lifetime.
     unsafe { _crt_atexit(callback) }
 }
 
 // Presence marker used by compiler-generated floating-point object metadata.
+// SAFETY: this unique compiler/PE ABI symbol is defined only by this runtime.
+#[allow(unsafe_code)]
 #[no_mangle]
 pub static _fltused: i32 = 0;
 // The Windows loader writes the allocated process TLS slot into this DWORD.
+// SAFETY: this unique compiler/PE ABI symbol is defined only by this runtime.
+#[allow(unsafe_code)]
 #[no_mangle]
 pub static mut _tls_index: u32 = 0;
 // Writable sections are essential: read-only markers split the TLS image away
 // from compiler-emitted mutable thread locals and invalidate their offsets.
+// SAFETY: the qualified PE linker owns this exact metadata section layout.
+#[allow(unsafe_code)]
 #[used]
 #[link_section = ".tls"]
 static mut TLS_BEGIN: u8 = 0;
+// SAFETY: the qualified PE linker owns this exact metadata section layout.
+#[allow(unsafe_code)]
 #[used]
 #[link_section = ".tls$ZZZ"]
 static mut TLS_END: u8 = 0;
 
 type TlsCallback = Option<unsafe extern "system" fn(*mut c_void, u32, *mut c_void)>;
+// SAFETY: the qualified PE linker owns this exact metadata section layout.
+#[allow(unsafe_code)]
 #[used]
 #[link_section = ".CRT$XLA"]
 static CALLBACK_BEGIN: TlsCallback = None;
+// SAFETY: the qualified PE linker owns this exact metadata section layout.
+#[allow(unsafe_code)]
 #[used]
 #[link_section = ".CRT$XLZ"]
 static CALLBACK_END: TlsCallback = None;
@@ -61,10 +81,14 @@ pub struct TlsDirectory {
 }
 // SAFETY: pointers describe immutable loader metadata. Only the loader owns
 // mutation of the separately declared _tls_index before application entry.
+#[allow(unsafe_code)]
 unsafe impl Sync for TlsDirectory {}
 #[used]
 #[no_mangle]
 #[link_section = ".rdata$T"]
+// SAFETY: the unique PE TLS directory has the exact x64 loader structure and
+// points only to this executable's compiler-owned TLS/callback/index storage.
+#[allow(unsafe_code)]
 pub static _tls_used: TlsDirectory = TlsDirectory {
     begin: ptr::addr_of!(TLS_BEGIN),
     end: ptr::addr_of!(TLS_END),
@@ -80,6 +104,8 @@ type Initializer = Option<unsafe extern "C" fn()>;
 type FallibleInitializer = Option<unsafe extern "C" fn() -> i32>;
 macro_rules! marker {
     ($name:ident, $section:literal, $ty:ty) => {
+        // SAFETY: this null sentinel bounds one qualified PE callback range.
+        #[allow(unsafe_code)]
         #[used]
         #[link_section = $section]
         static $name: $ty = None;
@@ -94,11 +120,15 @@ marker!(PRETERM_END, ".CRT$XPZ", Initializer);
 marker!(TERM_BEGIN, ".CRT$XTA", Initializer);
 marker!(TERM_END, ".CRT$XTZ", Initializer);
 
+// SAFETY: the function-local proof documents each qualified ABI operation.
+#[allow(unsafe_code)]
 fn boundary_failure() -> ! {
     // SAFETY: process termination is valid even before Rust runtime setup.
     unsafe { ExitProcess(255) }
 }
 
+// SAFETY: the function-local proof documents each qualified ABI operation.
+#[allow(unsafe_code)]
 fn image() -> (usize, usize) {
     // SAFETY: Windows returns this process's loader-validated PE image base.
     let base = unsafe { GetModuleHandleW(ptr::null()) } as usize;
@@ -128,6 +158,8 @@ fn image() -> (usize, usize) {
     (base, size as usize)
 }
 
+// SAFETY: the function-local proof documents each qualified ABI operation.
+#[allow(unsafe_code)]
 fn visit(start: usize, end: usize, fallible: bool) -> bool {
     let (base, size) = image();
     let Ok(count) = super::table_slots(base, size, start, end) else {
@@ -165,7 +197,7 @@ fn visit(start: usize, end: usize, fallible: bool) -> bool {
     true
 }
 
-unsafe extern "C" fn terminate_tables() {
+extern "C" fn terminate_tables() {
     visit(
         ptr::addr_of!(PRETERM_BEGIN) as usize,
         ptr::addr_of!(PRETERM_END) as usize,
@@ -181,12 +213,11 @@ unsafe extern "C" fn terminate_tables() {
 // Rust's MSVC panic descriptors require a type-info vtable pointer, but matching
 // is by typename strings. They are static descriptors, not general C++ objects.
 // No foreign RTTI/delete capability is claimed. Reject such calls explicitly.
-unsafe extern "C" fn static_descriptor_destructor(
-    _pointer: *mut c_void,
-    _flags: u32,
-) -> *mut c_void {
+extern "C" fn static_descriptor_destructor(_pointer: *mut c_void, _flags: u32) -> *mut c_void {
     boundary_failure()
 }
+// SAFETY: Rust EH requires this identity; all virtual calls fail closed.
+#[allow(unsafe_code)]
 #[export_name = "??_7type_info@@6B@"]
 pub static DESCRIPTOR_VTABLE: [unsafe extern "C" fn(*mut c_void, u32) -> *mut c_void; 1] =
     [static_descriptor_destructor];
@@ -196,6 +227,8 @@ pub static DESCRIPTOR_VTABLE: [unsafe extern "C" fn(*mut c_void, u32) -> *mut c_
 /// # Safety
 /// Called exactly once by the Windows loader after PE import/TLS initialization.
 #[no_mangle]
+// SAFETY: the function-local proof documents each qualified ABI operation.
+#[allow(unsafe_code)]
 pub unsafe extern "system" fn susi_pe_entry() -> ! {
     // Register first: UCRT runs callbacks LIFO, so executable terminators run
     // after callbacks registered by constructors and Rust TLS initialization.
