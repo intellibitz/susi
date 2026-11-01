@@ -15,6 +15,16 @@ use tracing::{info, warn};
 const CPU_LOAD_THRESHOLD: f32 = 8.0;
 const THERMAL_THRESHOLD_C: f32 = 85.0;
 
+// Synthetic diagnostic goals must never compete with the user's first goal.
+// The explicit admin intent-ladder command remains available independently.
+fn background_diagnostics_enabled(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+fn background_diagnostics_requested() -> bool {
+    background_diagnostics_enabled(std::env::var("SUSI_BACKGROUND_DIAGNOSTICS").ok().as_deref())
+}
+
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -43,8 +53,9 @@ impl SusiRuntimeAdmin {
                     let elastic_scheduler = ElasticScheduler::default();
                     let mut maintenance = Maintenance::new(&home);
 
-                    // Mandate: Perform immediate Readiness Pulse on substrate boot
-                    let _ = Self::perform_substrate_audit(&home);
+                    // Keep model provisioning and the credential-exposure scan.
+                    // Evolution/audit work starts on the hourly cadence below,
+                    // never alongside the first user goal.
                     let _ = Self::perform_host_readiness(&home);
 
                     // Bounded start-up slice of the graded user-intent
@@ -53,7 +64,9 @@ impl SusiRuntimeAdmin {
                     // workspace, no live estate, no egress — and the
                     // scorecard lands under the susi home. The ladder
                     // resolves from that home too, never from a cwd.
-                    if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &home) {
+                    if background_diagnostics_requested()
+                        && let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &home)
+                    {
                         // A failed rung lands in the host outbox, and an
                         // agent adopts it as a repair task in its own
                         // checkout; the task closes when the intent passes
@@ -671,7 +684,9 @@ impl Maintenance {
             }
         }
 
-        // The full intent ladder on its own cadence (default daily,
+        // Only explicitly enabled background diagnostics run the full ladder.
+        // Otherwise the first maintenance tick would run every rung immediately.
+        // The full intent ladder has its own cadence (default daily,
         // SUSI_INTENT_LADDER_INTERVAL_SECS): every rung — trivial to
         // extreme — runs hermetically under its own budget, and the
         // scorecard is the reproducible record of what susi can do
@@ -682,8 +697,11 @@ impl Maintenance {
             budget: 8,
             needs_consent: false, // scratch HOME + scrubbed env: no estate, no egress
         };
-        if let crate::eco_probe_scheduler::Decision::Run { .. } =
-            self.probes.decide(&ladder, now, cond)
+        if background_diagnostics_requested()
+            && matches!(
+                self.probes.decide(&ladder, now, cond),
+                crate::eco_probe_scheduler::Decision::Run { .. }
+            )
         {
             match susi_gawd::intent_ladder::full_run(&self.home, &self.home) {
                 Ok(card) => {
@@ -723,6 +741,14 @@ impl Maintenance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_goal_background_diagnostics_require_explicit_opt_in() {
+        for setting in [None, Some(""), Some("0"), Some("false"), Some("true")] {
+            assert!(!background_diagnostics_enabled(setting));
+        }
+        assert!(background_diagnostics_enabled(Some("1")));
+    }
 
     #[test]
     fn no_stress_yields_no_pheromone() {

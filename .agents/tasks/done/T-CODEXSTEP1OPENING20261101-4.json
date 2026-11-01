@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-4",
+  "title": "Finish first goals without inherited pipes or optional catalog delays",
+  "goal": "Preserve live output and child status while preventing shell pipe aliases reaching daemon descendants; skip optional catalogs for Read goals and report installed stopped engines",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "spawn_without_inheriting_stdio",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793527000,
+  "closed": {
+    "at_unix": 1793527134,
+    "commit": "4f70a13584a1338eef9c7360b265319cb1f48c19",
+    "by": "CODEXSTEP1OPENING20261101"
+  }
+}

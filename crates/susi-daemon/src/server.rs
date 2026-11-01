@@ -635,7 +635,7 @@ impl SusiDaemon {
     /// forever waiting for EOF after the CLI exits whenever `susi` started or
     /// restarted the daemon.
     #[allow(unsafe_code)]
-    pub(crate) fn spawn_without_inheriting_stdio(
+    pub fn spawn_without_inheriting_stdio(
         cmd: &mut Command,
     ) -> std::io::Result<std::process::Child> {
         #[cfg(windows)]
@@ -3045,6 +3045,54 @@ mod tests {
         .stderr(std::process::Stdio::null());
         let child = SusiDaemon::spawn_without_inheriting_stdio(&mut cmd).unwrap();
         println!("grandchild_pid={}", child.id());
+        eprintln!("mission stderr remains visible");
+        if std::env::var("SUSI_PIPE_TEST_EXIT").as_deref() == Ok("7") {
+            std::process::exit(7);
+        }
+    }
+
+    #[test]
+    #[ignore = "helper: shell forwards mission output without leaking pipe aliases"]
+    fn shell_forwards_mission_and_exit_status() {
+        let mut cmd = Command::new(std::env::current_exe().unwrap());
+        cmd.args([
+            "--ignored",
+            "--exact",
+            "server::tests::spawn_background_grandchild_and_exit",
+            "--nocapture",
+        ])
+        .stdin(std::process::Stdio::null());
+        let status = SusiDaemon::spawn_without_inheriting_stdio(&mut cmd)
+            .unwrap()
+            .wait()
+            .unwrap();
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    #[test]
+    fn spawn_without_inheriting_stdio_preserves_shell_output_and_status() {
+        for exit in ["0", "7"] {
+            let started = Instant::now();
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "server::tests::shell_forwards_mission_and_exit_status",
+                    "--nocapture",
+                ])
+                .env("SUSI_PIPE_TEST_EXIT", exit)
+                .output()
+                .unwrap();
+            assert_eq!(out.status.code(), Some(exit.parse().unwrap()));
+            assert!(String::from_utf8_lossy(&out.stdout).contains("grandchild_pid="));
+            assert!(
+                String::from_utf8_lossy(&out.stderr).contains("mission stderr remains visible")
+            );
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "shell pipes remained open until detached child exited"
+            );
+        }
     }
 
     #[test]
