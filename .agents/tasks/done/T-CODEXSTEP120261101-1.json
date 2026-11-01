@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXSTEP120261101-1",
+  "title": "Make first-run setup truthful and immediate on Windows",
+  "goal": "CEO Step 1: install to first goal without manual configuration, preserve mandates and Apache2",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_setup_workflow"
+    ]
+  },
+  "created_by": "CODEXSTEP120261101",
+  "created_unix": 1793523995,
+  "closed": {
+    "at_unix": 1793528522,
+    "commit": "05a02f98404c98a7eb3d55a12e9c5a20ac337166",
+    "by": "CODEXSTEP120261101"
+  }
+}
