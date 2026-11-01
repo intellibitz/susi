@@ -217,6 +217,9 @@ fn run() -> std::process::ExitCode {
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
     let mut cli = Cli::parse();
+    if let Some(cli::defs::Commands::Local { args }) = &cli.command {
+        return cli::local_delivery_cli::execute(args);
+    }
     // Installation acts on the native user home before development isolation
     // or service composition can create another instance or start a daemon.
     if matches!(cli.command, Some(cli::defs::Commands::Install)) {

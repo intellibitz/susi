@@ -21,6 +21,7 @@ pub mod install_cli;
 pub mod intent_cli;
 pub mod intent_guard;
 pub mod keys_cli;
+pub mod local_delivery_cli;
 pub mod mcp_cli;
 pub mod mission_cli;
 pub mod model_cli;

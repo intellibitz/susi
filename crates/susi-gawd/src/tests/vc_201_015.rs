@@ -4,10 +4,10 @@ use crate::repo_gate::{
 };
 
 #[test]
-fn vc_201_015_full_pass_is_promotion_ready() {
+fn vc_201_015_legacy_three_checks_require_policy() {
     let report = executed_report(CheckOutcome::Pass, CheckOutcome::Pass, CheckOutcome::Pass);
-    assert!(report.promotion_ready());
-    assert!(report.blocking_reasons().is_empty());
+    assert!(!report.promotion_ready());
+    assert!(report.blocking_reasons().contains(&"policy"));
     let _ = GateCheck::Fmt;
 }
 
