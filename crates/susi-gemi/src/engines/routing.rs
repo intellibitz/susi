@@ -1648,12 +1648,17 @@ impl InferenceRouter {
             .or_else(|| Some(clouds[0].clone()))
     }
 
-    /// Announce a glass-box escalation line (once per decision).
+    /// Announce the selected connection and retain routing detail in diagnostics.
     pub fn announce(escalation: &CloudEscalation) {
+        tracing::debug!(
+            provider = %escalation.provider,
+            reason = %escalation.reason,
+            "Automatic cloud routing decision"
+        );
         let _ = writeln!(
             io::stderr(),
-            "[SUSI ROUTING] {} — using cloud `{}`. Say sticky local via routing_preference or pick [0] when prompted.",
-            escalation.reason, escalation.provider
+            "Using your {} cloud connection.",
+            escalation.provider
         );
     }
 }
