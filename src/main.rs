@@ -216,6 +216,12 @@ fn run() -> std::process::ExitCode {
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
+    let mut cli = Cli::parse();
+    // Installation acts on the native user home before development isolation
+    // or service composition can create another instance or start a daemon.
+    if matches!(cli.command, Some(cli::defs::Commands::Install)) {
+        return cli::install_cli::execute();
+    }
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
     if let Err(error) = dev_instance::isolate_if_dev_build(&get_home_dir()) {
@@ -227,7 +233,6 @@ fn run() -> std::process::ExitCode {
     if env::var_os("CANDLE_NUM_THREADS").is_none() {
         env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
     }
-    let mut cli = Cli::parse();
     // Opening the goal prompt must not wait for every optional framework,
     // model or daemon to boot. Initialize in this process only after a goal
     // arrives, then retain its model cache for the rest of the conversation.
