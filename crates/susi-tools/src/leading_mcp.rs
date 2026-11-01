@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::config::{McpConfig, McpServerConfig};
@@ -340,7 +339,21 @@ fn preflight_definition(
     ))
 }
 
-fn resolve_runner(runner: &str) -> Option<PathBuf> {
+/// Filesystem-only launcher discovery. Version processes do not establish MCP
+/// readiness and must never delay admission; the real handshake verifies use.
+pub(crate) fn resolve_runner(runner: &str) -> Option<PathBuf> {
+    resolve_runner_in(
+        runner,
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+        cfg!(windows),
+    )
+}
+
+fn resolve_runner_in(
+    runner: &str,
+    directories: impl Iterator<Item = PathBuf>,
+    windows: bool,
+) -> Option<PathBuf> {
     fn executable(p: &Path) -> bool {
         if !p.is_file() {
             return false;
@@ -359,24 +372,22 @@ fn resolve_runner(runner: &str) -> Option<PathBuf> {
         return executable(p).then(|| p.to_path_buf());
     }
     // Prefer absolute PATH entries only (never repo-relative discovery).
-    for dir in std::env::split_paths(&std::env::var_os("PATH")?) {
+    for dir in directories {
         if !dir.is_absolute() {
             continue;
         }
         let candidate = dir.join(runner);
-        if executable(&candidate) {
+        // npx is commonly a .cmd launcher; uvx/node are native .exe files.
+        // Return the resolved path so launch uses precisely what was found.
+        if windows && candidate.extension().is_none() {
+            for suffix in ["exe", "com", "cmd", "bat"] {
+                let candidate = candidate.with_extension(suffix);
+                if executable(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        } else if executable(&candidate) {
             return Some(candidate);
-        }
-    }
-    // Soft fallback: ask the OS via `command -v` style presence for common launchers.
-    if matches!(runner, "npx" | "uvx" | "node" | "python3" | "docker") {
-        let ok = crate::susi_core::bounded_cmd::output_within(
-            Command::new(runner).arg("--version"),
-            std::time::Duration::from_secs(10),
-        )
-        .is_ok_and(|o| o.status.success());
-        if ok {
-            return Some(PathBuf::from(runner));
         }
     }
     None
@@ -427,6 +438,38 @@ fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_launcher_native_lookup_does_not_execute_or_accept_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // Node ships an extensionless Unix shell launcher next to npx.cmd.
+        // Native Windows must choose the .cmd, not try executing that script.
+        fs::write(dir.path().join("npx"), "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.path().join("npx"), fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        for name in ["npx.cmd", "uvx.exe"] {
+            let path = dir.path().join(name);
+            // Deliberately invalid executables: discovery must not run them.
+            fs::write(&path, "not an executable program").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let stem = name.split('.').next().unwrap();
+            assert_eq!(
+                resolve_runner_in(stem, std::iter::once(dir.path().to_path_buf()), true),
+                Some(path)
+            );
+        }
+        assert!(resolve_runner_in("npx", std::iter::once(PathBuf::from(".")), true).is_none());
+        assert!(
+            resolve_runner_in("missing", std::iter::once(dir.path().to_path_buf()), true).is_none()
+        );
+    }
 
     #[test]
     fn damaged_user_disabled_list_is_an_error_not_empty() {
