@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::config::{GlobalMcpEntry, McpConfig, McpServerConfig};
 use crate::hooks::hooks;
 use crate::types::McpTool;
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, path::PathBuf};
 
 pub struct GmcpClient;
 
@@ -230,55 +230,36 @@ impl GmcpClient {
     }
 
     pub fn auto_configure_server(name: &str, package: &str) -> String {
+        Self::auto_configure_with(name, package, crate::leading_mcp::resolve_runner)
+    }
+
+    fn auto_configure_with(
+        name: &str,
+        package: &str,
+        resolve: impl Fn(&str) -> Option<PathBuf>,
+    ) -> String {
         let config_path = Self::get_config_path();
         let mut config = match Self::read_mcp_config(&config_path) {
             Ok(config) => config,
             Err(code) => return code.to_string(),
         };
 
-        // Meta Execution Scout: Identify best-suited executor for the host environment
-        let has_uvx = crate::susi_core::bounded_cmd::output_within(
-            Command::new("uvx").arg("--version"),
-            std::time::Duration::from_secs(10),
-        )
-        .is_ok();
-        let has_npx = crate::susi_core::bounded_cmd::output_within(
-            Command::new("npx").arg("--version"),
-            std::time::Duration::from_secs(10),
-        )
-        .is_ok();
-
-        let (cmd, args) = if package.starts_with("pypi:") || package.contains("python") {
-            if has_uvx {
-                (
-                    "uvx".to_string(),
-                    vec![package.trim_start_matches("pypi:").to_string()],
-                )
-            } else if has_npx {
-                (
-                    "npx".to_string(),
-                    vec!["-y".to_string(), package.to_string()],
-                )
-            } else {
-                (
-                    "python3".to_string(),
-                    vec!["-m".to_string(), package.to_string()],
-                )
-            }
-        } else if has_npx {
-            (
-                "npx".to_string(),
-                vec!["-y".to_string(), package.to_string()],
-            )
+        // Resolve only the package's actual launcher. A version subprocess
+        // neither verifies the server nor justifies blocking first-goal boot.
+        let Some((runner, package)) = package_runner(package) else {
+            return "ERROR_UNSUPPORTED_PACKAGE".to_string();
+        };
+        let Some(command) = resolve(runner) else {
+            return "ERROR_LAUNCHER_UNAVAILABLE".to_string();
+        };
+        let args = if runner == "uvx" {
+            vec![package.to_string()]
         } else {
-            (
-                "susi".to_string(),
-                vec!["mcp".to_string(), name.to_string()],
-            )
+            vec!["-y".to_string(), package.to_string()]
         };
 
         let new_srv = McpServerConfig {
-            command: cmd,
+            command: command.to_string_lossy().into_owned(),
             args,
             env: None,
             extra: HashMap::new(),
@@ -459,19 +440,11 @@ impl GmcpClient {
         // Protocol Compliance Benchmarking
         let start = std::time::Instant::now();
 
-        // Attempt trial initialization (Dry-run configuration)
-        let has_uvx = crate::susi_core::bounded_cmd::output_within(
-            Command::new("uvx").arg("--version"),
-            std::time::Duration::from_secs(10),
-        )
-        .is_ok();
-        let has_npx = crate::susi_core::bounded_cmd::output_within(
-            Command::new("npx").arg("--version"),
-            std::time::Duration::from_secs(10),
-        )
-        .is_ok();
-
-        if (package.contains("python") && !has_uvx) || (!package.contains("python") && !has_npx) {
+        // This is launcher availability only, not a server handshake.
+        if package_runner(package)
+            .and_then(|(runner, _)| crate::leading_mcp::resolve_runner(runner))
+            .is_none()
+        {
             return (0.1, 999); // Low trust if environment cannot execute
         }
 
@@ -484,6 +457,23 @@ impl GmcpClient {
 
         (trust, latency)
     }
+}
+
+fn package_runner(package: &str) -> Option<(&str, &str)> {
+    let (runner, package) = if let Some(package) = package.strip_prefix("pypi:") {
+        ("uvx", package)
+    } else if let Some(package) = package.strip_prefix("npm:") {
+        ("npx", package)
+    } else if package.starts_with("ghcr.io/") || package.contains(':') {
+        // Container/remote transports belong to explicit MCP admission or
+        // the leading catalog, never an invented npm invocation.
+        return None;
+    } else if package.contains("python") {
+        ("uvx", package)
+    } else {
+        ("npx", package)
+    };
+    (!package.trim().is_empty() && !package.starts_with('-')).then_some((runner, package))
 }
 
 const LIVE_CACHE_TTL_SECS: u64 = 600;
@@ -558,6 +548,52 @@ fn wildcard_tools() -> Vec<McpTool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_launcher_missing_does_not_write_a_fabricated_server() {
+        let (_guard, dir, prev) = isolated_home();
+        let path = GmcpClient::get_config_path();
+        let original = r#"{"mcp_servers":{"keep":{"command":"echo","args":[]}}}"#;
+        fs::write(&path, original).unwrap();
+        let result = GmcpClient::auto_configure_with("new", "pypi:server-test", |_| None);
+        assert_eq!(result, "ERROR_LAUNCHER_UNAVAILABLE");
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+        let result = GmcpClient::auto_configure_with(
+            "container",
+            "ghcr.io/github/github-mcp-server",
+            |_| panic!("wrong package must not resolve npm"),
+        );
+        assert_eq!(result, "ERROR_UNSUPPORTED_PACKAGE");
+        restore_home(&dir, prev);
+    }
+
+    #[test]
+    fn mcp_launcher_selects_only_the_matching_package_runtime() {
+        let (_guard, dir, prev) = isolated_home();
+        for (name, package, expected, args) in [
+            ("python", "pypi:server-test", "uvx", vec!["server-test"]),
+            (
+                "node",
+                "npm:@example/python-tools",
+                "npx",
+                vec!["-y", "@example/python-tools"],
+            ),
+        ] {
+            let executable = dir.join(expected);
+            let result = GmcpClient::auto_configure_with(name, package, |runner| {
+                assert_eq!(runner, expected, "must not probe unrelated launchers");
+                Some(executable.clone())
+            });
+            assert_eq!(result, "SUCCESS_CONFIGURED");
+            let config = GmcpClient::read_mcp_config(&GmcpClient::get_config_path()).unwrap();
+            assert_eq!(
+                config.mcp_servers[name].command,
+                executable.to_string_lossy()
+            );
+            assert_eq!(config.mcp_servers[name].args, args);
+        }
+        restore_home(&dir, prev);
+    }
 
     /// Shared env-mutation guard: `HOME`/`XDG_CONFIG_HOME` flip the same
     /// config-dir resolution `cluster_key()` reads, so this serializes
