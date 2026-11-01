@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-11",
+  "title": "Start the configured CPU model without blocking on the public model catalog",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "hf_discovery::tests"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793538304
+}
