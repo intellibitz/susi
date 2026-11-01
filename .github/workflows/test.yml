@@ -565,6 +565,9 @@ jobs:
       # workspace crates through RUSTC_WORKSPACE_WRAPPER (they wrap
       # clippy-driver, which sccache caches the same way).
       SCCACHE_GHA_ENABLED: "true"
+      # Branch-only entries are invisible to other task branches and can evict
+      # main's reusable caches. Keep reads, but do not write branch entries.
+      SCCACHE_GHA_RW_MODE: "READ_ONLY"
       RUSTC_WRAPPER: "sccache"
       RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
