@@ -28,7 +28,10 @@ pub(crate) fn glass_box_callback(piece: String) {
 pub(crate) fn run_shell(workspace: &Path) {
     println!("Susi {SUSI_VERSION}");
     println!("What would you like to achieve?");
-    crate::cli::setup_cli::print_readiness();
+    if let Err(error) = crate::cli::setup_cli::execute(None) {
+        eprintln!("Could not check saved availability: {error}");
+    }
+    println!("Checking local AI in the background. You can enter a goal now.");
     println!("Type 'exit' to quit.");
     let _discovery = DiscoveryRefresh::start(workspace);
 

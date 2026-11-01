@@ -135,6 +135,14 @@ fn default_candle_threads() -> usize {
         .unwrap_or(4)
 }
 
+/// A normal goal needs admitted tools and model preference, not a fresh probe
+/// of every optional external agent/framework. The daemon discovers those in
+/// the background; explicitly invoking one still runs its own preflight.
+fn bare_goal_catalogs() -> susi_daemon::discovery_pipeline::Catalogs {
+    use susi_daemon::discovery_pipeline::Catalogs;
+    Catalogs::LEADING_MCP.union(Catalogs::CODING_MODELS)
+}
+
 /// The CLI's clap command tree is large, and a debug build spends enough stack
 /// constructing it to exhaust the default Windows main-thread reserve before
 /// the first line of output — the symptom is an immediate
@@ -285,12 +293,11 @@ fn run() -> std::process::ExitCode {
             susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
         });
     } else {
-        // Prime only the catalogs this command reads (all of them for a
-        // mission or any command not yet classified).
-        let catalogs = command.as_ref().map_or(
-            susi_daemon::discovery_pipeline::Catalogs::ALL,
-            cli::defs::command_catalogs,
-        );
+        // First goals must not wait for unrelated framework/agent probes.
+        // Explicit commands retain their own catalog admission contracts.
+        let catalogs = command
+            .as_ref()
+            .map_or(bare_goal_catalogs(), cli::defs::command_catalogs);
         susi_daemon::boot_trace::phase("composition: cli", || {
             susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
         });
@@ -431,6 +438,13 @@ fn run() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::default_candle_threads;
+
+    #[test]
+    fn first_goal_admits_tools_and_models_without_optional_framework_probes() {
+        let catalogs = super::bare_goal_catalogs();
+        assert!(catalogs.leading_mcp && catalogs.coding_models);
+        assert!(!catalogs.execution_agents && !catalogs.frameworks);
+    }
 
     #[test]
     fn candle_thread_default_is_clamped_and_positive() {
