@@ -220,10 +220,16 @@ nextest)
     # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
     tests_status=0
     nextest_log=$(mktemp)
+    nextest_filter=()
+    # CI's live-service e2e has its own provisioned job; an affected-crate
+    # branch run has no live susi-native service to connect to.
+    if [ "${SUSI_HERMETIC_EXCLUDE_LIVE:-0}" = 1 ]; then
+        nextest_filter=(-E 'not binary(capability_gap_e2e)')
+    fi
     NEXTEST_STATUS_LEVEL="${NEXTEST_STATUS_LEVEL:-slow}" \
     NEXTEST_FINAL_STATUS_LEVEL="${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
     cargo nextest run --locked --no-fail-fast --no-tests=pass \
-        --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}" 2>&1 | tee "$nextest_log" || tests_status=$?
+        --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}" "${nextest_filter[@]}" 2>&1 | tee "$nextest_log" || tests_status=$?
     echo "hermetic: build and tests took $((SECONDS - tests_started))s" >&2
     docs_started=$SECONDS
     if [ -n "$doc_pid" ]; then

@@ -122,15 +122,14 @@ The agent loop is **atomic per task** (own worktree, always synced with
    inside `workflow finish` (which syncs itself) or with
    `SUSI_NO_BRANCH_SYNC=1`; offline it does nothing, and the push guard still
    refuses a branch that is behind.
-4. **Sync again, then push:** `git fetch && git merge origin/main`, pass the
-   gate — `cargo fmt --all --check`, then clippy for the crates the branch
-   touches **and their dependents**, and **their tests, once**
-   (`scripts/ci-changed-crates.sh` names them; the tests run hermetically under
-   nextest with per-test retries, plus the doc-tests; the full workspace suite
-   still runs, the same way, for workspace-wide inputs like the lockfile or
-   toolchain, and `SUSI_LOCAL_GATE=full` forces it) — then push the branch. This gate is the
-   only place a branch's tests run before it merges. Tests are hermetic (never
-   touch `~/.susi` or an inherited `SUSI_HOME`).
+4. **Sync again, then push:** `git fetch && git merge origin/main` and use
+   `susi workflow finish <id>`. On a trusted GitHub branch with unchanged CI
+   machinery, the default no-wait finish checks format and runs the task's own
+   acceptance locally; the required branch check runs affected-crate tests,
+   doc-tests and dependent Clippy before merge. If that remote path cannot be
+   established, finish runs the local diff-scoped gate instead. `--wait`,
+   `SUSI_LOCAL_GATE=full` and `SUSI_GATE_NOCACHE=1` retain local verification.
+   Tests use isolated homes, never an inherited `SUSI_HOME`.
 5. **Close when acceptance passes** (`susi tasks close <id>`), sync again,
    and take the next claim. Do not push to `main`, tag, or cut a release;
    pushed branches open and merge their own PR.
@@ -189,10 +188,11 @@ The concrete loop is:
 1. `susi workflow start`, then `susi workflow sync` in that worktree.
 2. List and claim one available dependency-ready task with its scopes.
 3. Implement and commit the work with its open task trailer.
-4. `susi workflow finish <id>` synchronizes, runs the diff-scoped gate
-   (fmt/clippy/tests for the affected crates) and acceptance, commits
-   completion, synchronizes, pushes, publishes the close receipt and
-   **returns — it does not wait for the branch run or the merge.** The merged
+4. `susi workflow finish <id>` synchronizes, checks format, runs the task's
+   acceptance, commits completion, pushes and publishes the close receipt.
+   For a trusted GitHub branch, affected tests and clippy run in the required
+   branch check rather than holding the agent; otherwise the local diff-scoped
+   gate runs. It **returns without waiting for the branch run or merge.** The merged
    head is proven by its own branch CI run — nothing merges without a green
    run on that exact sha — so the local gate does not re-run for intervening
    merges (`SUSI_FINISH_REGATE=1` restores it). A failed check/conflict stops
@@ -553,40 +553,19 @@ convergent:
 - **Always `git fetch` + merge `origin/main` before pushing.** Pushes to
   `main` must be fast-forward; compile (`cargo check --workspace`) before
   pushing a merge so fixup commits never ship an uncompiled merge.
-- **The branch gate compiles and lints; it executes no test.** Feature-branch
-  pushes run fmt + cargo deny + **clippy `-D warnings` over `--all-targets`** for
-  the crates the diff touches **and their dependents**
-  (`scripts/ci-changed-crates.sh --dependents`: normal, dev and build edges, so a
-  signature change that leaves the changed crate green and breaks its caller
-  fails before the merge). Clippy over every target is a superset of
-  `cargo check` and compiles each test target, so a test that stops compiling
-  still fails here. A workspace-wide input (lockfile, toolchain, lint config, the
-  root `build.rs`) lints the whole workspace. **Why no tests:** the job used to
-  run the affected crates' nextest and then the hermetic re-run, 62-75% of a
-  308-446 s run against 96 s when no crate was touched, to repeat what
-  `susi workflow finish` had just run on the same tree. That length is the
-  latency of the serialized merge queue — each merge makes the next green head
-  stale and every stale head costs one more proof (now ~1-2 min of merge-tree
-  gating inside the merge job instead of a full retest run — see
-  `scripts/merge-gate.sh`) — and a flake here blocks every
-  branch behind it. **What that costs, stated plainly:** a runtime failure (a
-  race, a flake, cross-test interference) is no longer stopped by CI before the
-  merge. It is stopped by the agent's own local gate (scoped to the crates it
-  touched), and what slips past is found by the sharded suite below, which now
-  runs after **every** merge — the old shortcut that skipped it when the merge
-  tree matched the tested head is gone, because its premise (the branch run had
-  proven that tree) no longer holds — attributed to the pull request by
-  `Main Failure Attribution`, and fixed forward: a red `main` is a defect. The
-  main shards run `cargo nextest --retries 2`, so a flaky test is retried alone
-  and reported FLAKY instead of reddening `main` and drawing a misattributed
-  comment onto whichever pull request merged just before it. The hermetic
-  check (`scripts/check-hermetic-tests.sh`, Mandate 52) is the local gate's
-  single test run — a throwaway `HOME`/`XDG`/`SUSI_HOME`, and a failure if a
-  test writes into it — not a CI step. The pre-push hook lints the same scoped
-  set with the same command line as that gate, so it is a cache hit rather than
-  a second compile. Clippy is here because the
-  `lint` job is main-only: 1.99.0 deprecated `Atomic::fetch_update` and it
-  failed on code nobody had touched. **The compiler is pinned** in
+- **The branch gate compiles, lints and tests before merge.** Its required
+  `Compile Check (branch pushes)` job uses `scripts/ci-changed-crates.sh` to
+  lint changed crates and dependents, and runs affected-crate tests and
+  doc-tests hermetically with retries. Root integration-test-only changes run
+  their selected test binaries. The live-service e2e stays in its provisioned
+  CI job. The default no-wait finish runs the task acceptance locally and hands
+  this broader suite to GitHub only when main carries the trusted branch-test
+  workflow and this branch has not modified CI machinery. A missing marker,
+  non-GitHub remote or changed machinery falls back to the local gate. The
+  pre-push hook independently checks that handoff; it never records a local
+  proof for deferred work. `--wait`, `SUSI_LOCAL_GATE=full`, and
+  `SUSI_GATE_NOCACHE=1` retain local checks.
+  **The compiler is pinned** in
   `rust-toolchain.toml`, and the `Repository Invariants` job (the toolchain
   pin, the roadmap and tracked-artifact checks: one runner, not three) asserts that a runner
   which installs `stable` still resolves it: a toolchain roll once reddened
@@ -623,22 +602,12 @@ convergent:
   merge produced the failing commit, because the commit that lands is a merge
   commit and parallel agents would otherwise each bisect the same failure to
   find out whose it is.
-  **A release is gated on the whole workspace's tests, locally and remotely.**
-  The cut's local gate runs `--workspace` (bare `cargo check|test|clippy` at this
-  root selects one package of 86, which is all it covered until this was
-  measured): nextest with retries over every package except the live-service
-  `capability_gap_e2e`, then the doc-tests; cargo-nextest is required, because a
-  silent fallback to the root package is how the gap went unnoticed. On the
-  pushed tag, `release.yml`'s `tests` job runs `scripts/release-await-tests.sh`,
-  which reuses a passed full-suite run for that exact sha (a dispatch, or a push
-  to `main`; a branch-push run only compiles, so it never counts) or dispatches
-  the Test workflow on the tag and waits; `build` and `build-cuda` need it, so a
-  red commit costs one job, not four builds. A tag run restores `main`'s caches
-  and writes none, and skips the coverage ratchet and Kani proofs, which gate
-  merges. The cost is the suite's wall time (about four to five minutes warm)
-  before the builds start; publishing from a separate job after a parallel suite
-  would hide it, but that moves the upload path, which cannot be exercised
-  without cutting a real tag.
+  **A release is gated on the tagged commit's full suite and artifact checks.**
+  A normal cut of a clean, main-equivalent source tree pushes its version bump
+  and returns with GitHub verification pending. The tagged suite and platform
+  builds run concurrently; eligible artifacts publish only after the suite and
+  their own checks pass. An unmerged source tree, explicit local rerun, GPU
+  check or supplied cloud qualification retains the local gate.
   The rolling dev release builds only on `workflow_dispatch` or a
   head-commit subject that starts with `[dev-release]`.
 
@@ -665,6 +634,10 @@ This repository is structurally designed for SUSI to act as the primary intellig
   - External agents invoked this way are bound to the exact same strict mandates listed in this file.
 - **Release cuts push their branch explicitly** (`HEAD:refs/heads/<branch>`, never a bare `git push`): `scripts/susi-worktree.sh` creates its branch from `origin/main`, which makes that branch's upstream `main`, so under `push.default=simple` a bare push is refused *after* the version bump is committed — the release then has to be restarted from a dirty tree. Naming the destination makes the failure impossible and a release cannot be aimed at `main` by accident.
 - **Self-Build Order (Mandate 48)**: SUSI, its delegates, and human developers all build dev in `target/`, verify on the dev instance (`~/.susi-dev`, ports 9190–9194), and change the installed susi only by cutting a release (`susi release`), which `scripts/susi-release-sync.sh` promotes. Never install or hot-swap a dev binary into `~/.susi/bin`. SUSI states this contract in every task it gives a coding agent in its own tree (`susi_core::self_build::BRIEF`: delegated external agents and DAG shell nodes), self-patches clear the full fmt/clippy/test gate, and the CI builder (`susi-builder.yml`) is the *released* susi, landing work as a PR (draft if the gate fails).
-- **End-to-end verification of the built binary**: the release gate (`susi admin release`) runs the freshly built debug binary on its own newest behaviour (`susi_gawd::admin::E2E_CHECKS`: deterministic, offline, scratch HOME, no daemon) after the smoke missions, and `tests/release_e2e_checks.rs` runs the same list on every test run. A release that ships new behaviour adds a check for it; a check that stops matching fails CI, not the cut.
+- **End-to-end verification of the built binary**: the release workflow checks
+  the actual Windows and Linux CPU executables offline before uploading them;
+  local full release gates also run `susi_gawd::admin::E2E_CHECKS` in scratch
+  homes. `tests/release_e2e_checks.rs` exercises the local checks on test runs.
+
 - **The task queue (`susi tasks`).** Every agent, user and susi itself records work as one file per task under `.agents/tasks/` (`T-<AGENT>-<n>`, namespaced like ledger IDs so adding a task never conflicts) and executes from that queue. `susi tasks add "<title>" --accept "<cmd>"` requires an acceptance command, and the one it declares must be something the *merged* tree can re-run: a test (`cargo test <filter>` / `cargo nextest run -E test(<name>)`) or a `scripts/` checker that already exists on `origin/main`. A task may not write the script that declares it done — CI refuses a task file added with one, and with any acceptance that is not test-shaped. `susi tasks claim <id>` first fetches origin and refuses from a worktree behind `origin/main` (`git merge origin/main`), then is atomic: it pushes a blob to `refs/claims/<id>` on the shared remote, the server accepts the first push and rejects the rest, and a claim carries a lease (default 4 h) so a crashed agent cannot hold a task — an expired lease is taken over by compare-and-swap, which also clears the previous holder's `refs/claim-agents/<AGENT>` entry (but only while it still points at the claim being taken over). A task with an open dependency cannot be claimed. An agent that has accepted a task whose close is not yet on `origin/main` cannot claim another at all — the receipt on `refs/closed/<id>` outlives the claim, the worktree and the lease, so a crash or a false "done" cannot be laundered by a fresh checkout (`susi workflow check` reports it as "merge published"), and CI refuses that push server-side as well — a stale installed release or a hand-pushed claim ref cannot skip the client gate and start a second task. `susi tasks release <id> [--force]` frees a claim, and it is bound to the branch the claim was taken on: the agent token alone can be shared or collide between workers (`codex-1` and `codex1` both tokenise to `CODEX1`), so freeing a live claim across branches — including moving your own claim to a recreated worktree — is deliberate, with `--force`. A claim whose branch already carries committed work for the task that no merge has published is refused a plain release for the same reason — give a reason (`--abandon`, recorded on `refs/abandoned/<id>`) or take the explicit `--force` override, so walking away from unfinished work is a record rather than a silence. `--force` frees the claim without clearing that debt, so the next claim is still refused; `susi tasks release <id> --abandon <reason>` is the deliberate way to give an accepted task up, recording the reason on `refs/abandoned/<id>` and clearing the receipt. `susi tasks audit` is the swarm-wide counterpart to `workflow check`: it reconciles every close receipt, abandonment and merge attestation against `origin/main` and reports, per agent, who still owes a merge and what was given up — `--json` is the machine-readable tally the evidence-ranked brain consumes (Mandate 56), and `--strict` exits non-zero for a monitor. It trusts nothing the agents wrote: an attestation only counts when the merge commit is contained in `origin/main` and contains the tested head, and a mismatch is reported as `⚠️` rather than counted. `scripts/check-owed-merges.sh` puts that line on the swarm board at every sync boundary. `susi tasks close <id>` first fetches `origin` and refuses a task that is already in `done/` on `origin/main` — two agents closing one task on divergent branches happened four times, and no merge driver covers `.agents/tasks/**`, so the conflict is resolved by hand and one record silently wins. It then runs the acceptance command and, only if it passes, pushes the close receipt to `refs/closed/<id>` and moves the file to `.agents/tasks/done/` (recording who, when, at which commit), retaining the claim until publication; a `cargo test` check that ran zero tests does not count, and an acceptance command is argv rather than a shell line, so quotes in it are refused at `add` time. Tasks may name the roadmap vector they deliver (`susi tasks add --roadmap VC-201-0NN`, validated against `.agents/roadmap.json`); `susi tasks roadmap [--uncovered]` reports each vector's linked open/closed tasks and totals by priority. Coverage is not completion: a vector is done when its `mastery_target` is verified, not merely when its linked tasks close. Commit task files and `done/` moves with the work. Coarse ownership (which agent works which learning-loop stage) is one file per agent in `.agents/lanes/`; it never replaces a claim.
 - **Continuous Execution**: The `exec_command` native tool explicitly permits `cargo`, `gh`, `bash`, and `sh` to allow SUSI to test itself and manage source control natively without triggering governance violations.

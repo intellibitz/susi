@@ -1,0 +1,19 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-17",
+  "title": "Move affected-crate finish tests to required GitHub branch checks",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "branch_test_handoff"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793512325
+}

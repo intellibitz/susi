@@ -262,6 +262,15 @@ engine artifacts run smoke missions and offline checks before upload.
 the local gate. A cut reports verification as pending until GitHub finishes.
 An installed release predating this change does not have this handoff.
 
+The no-wait task finish also hands affected-crate tests and dependent Clippy to
+the required GitHub branch check, after local formatting and before publishing.
+The task's acceptance still runs locally before its close receipt is created.
+The handoff is enabled only when main contains the branch-test machinery, the
+remote is GitHub, and the branch has not changed CI, hooks or scripts; otherwise
+the original local gate runs. No local proof stamp is written for deferred work.
+`--wait`, `SUSI_LOCAL_GATE=full`, or `SUSI_GATE_NOCACHE=1` keep local checks.
+This describes the implementation, not a measured sub-60-second full workflow.
+
 ## Gate fixture and finish critical path (2026-10-31)
 
 The complete finish for PR #1112 took 353.6 s: lease 1 s, initial sync 9 s,

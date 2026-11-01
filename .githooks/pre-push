@@ -45,7 +45,14 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
     stamp=
     if [ -x "$helper" ]; then stamp=$("$helper") || stamp=; fi
     if [ "${SUSI_RELEASE_PUSH:-}" = 1 ] && [ -z "${SUSI_GATE_NOCACHE:-}" ]; then
-        echo "✅ Release gate already verified this tree — skipping pre-push clippy rerun."
+        echo "⏭️ Release verification is handled by the local gate or the tagged GitHub checks."
+    elif [ "${SUSI_BRANCH_CI_HANDOFF:-0}" = 1 ]; then
+        if "${BASH:-bash}" "$(git rev-parse --show-toplevel)/scripts/ci-branch-handoff.sh"; then
+            echo "⏭️ Clippy and affected tests are pending in the required GitHub branch check."
+        else
+            echo "❌ The GitHub branch-test handoff is no longer valid; rerun finish with the local gate." >&2
+            exit 1
+        fi
     elif [ -n "$stamp" ] && [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
         echo "✅ Clippy already passed in local gate for this exact diff — skipping pre-push rerun."
     else

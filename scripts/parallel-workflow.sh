@@ -480,6 +480,19 @@ gate() {
     # Before the cache: a stamp written before this check existed must not
     # wave a test-deleting diff through.
     timed_step test-integrity gate_tests_kept || return 1
+    unset SUSI_BRANCH_CI_HANDOFF || true
+    if [ "${SUSI_FINISH_REMOTE_GATE:-0}" = 1 ] &&
+       [ -f "$root/scripts/ci-branch-handoff.sh" ] &&
+       "${BASH:-bash}" "$root/scripts/ci-branch-handoff.sh"; then
+        command -v gate_format >/dev/null 2>&1 || gate_format() { cargo fmt --all --check; }
+        timed_step format gate_format || return 1
+        # No local suite ran: close must execute the task acceptance itself.
+        gate_pkgs= gate_lint= gate_root_tests= gate_rootpkg=
+        unset SUSI_ACCEPTANCE_COVERED || true
+        export SUSI_BRANCH_CI_HANDOFF=1
+        echo 'gate: affected tests and clippy will run in the required GitHub branch check; task acceptance still runs locally' >&2
+        return 0
+    fi
     timed_step target seed_own_target
     timed_step scope resolve_gate_plan
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
@@ -691,6 +704,9 @@ finish)
     if [ "$wait" != 1 ]; then
         export SUSI_CLOSE_DEFER_RECEIPT="$task@$root"
         export SUSI_RELEASE_PUBLISH_RECEIPT="$task@$root"
+        export SUSI_FINISH_REMOTE_GATE=1
+    else
+        unset SUSI_FINISH_REMOTE_GATE || true
     fi
     prefetch_finish_refs
     timed_step lease renew_or_readopt
