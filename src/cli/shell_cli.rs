@@ -61,13 +61,16 @@ pub(crate) fn run_shell(workspace: &Path) {
         // exiting cannot silently discard a queued goal. `--` keeps a goal
         // such as "status" as intent rather than a CLI control command.
         let outcome = std::env::current_exe().and_then(|exe| {
-            std::process::Command::new(exe)
+            let mut command = std::process::Command::new(exe);
+            command
                 .arg("--")
                 .arg(goal)
                 .current_dir(workspace)
-                .stdin(std::process::Stdio::null())
-                .status()
+                .stdin(std::process::Stdio::null());
+            susi_daemon::SusiDaemon::spawn_without_inheriting_stdio(&mut command)?.wait()
         });
+        // Answers need not include a final newline; keep the next prompt separate.
+        println!();
         match outcome {
             Ok(status) if status.success() => (),
             Ok(_) => eprintln!(
@@ -174,6 +177,20 @@ fn refresh_local_discovery(workspace: &Path, stop: &AtomicBool) {
         .filter(|engine| engine["running"].as_bool() == Some(true))
         .filter_map(|engine| engine["name"].as_str())
         .collect();
+    let installed: Vec<&str> = engines
+        .into_iter()
+        .flatten()
+        .filter(|engine| {
+            engine["installed"].as_bool() == Some(true) && engine["running"].as_bool() != Some(true)
+        })
+        .filter_map(|engine| engine["name"].as_str())
+        .collect();
+    if !installed.is_empty() {
+        eprintln!(
+            "\nLocal AI installed, not running: {}.",
+            installed.join(", ")
+        );
+    }
     if running.is_empty() {
         eprintln!("\nLocal discovery complete: no running external AI engine found. Cloud connections and Susi's native models are checked when you submit a goal.");
     } else {
