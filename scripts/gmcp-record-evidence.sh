@@ -21,6 +21,8 @@
 #    append the -M records. Commit those too. A mastery test never reads its
 #    own -M record, so this record is exactly what it proved.
 set -euo pipefail
+# Native Windows jq emits CRLF; keep check names and JSONL portable in Git Bash.
+jq() { command jq "$@" | tr -d '\r'; }
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
