@@ -6932,6 +6932,7 @@ dependencies = [
  "susi-vendor-sha1",
  "susi-vendor-sha2",
  "susi-vendor-sysinfo",
+ "susi-windows-runtime",
 ]
 
 [[package]]
