@@ -334,7 +334,25 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
-        let status = Command::new("cargo")
+        let mut command = Command::new("cargo");
+        for (key, _) in env::vars_os() {
+            let name = key.to_string_lossy().to_ascii_uppercase();
+            if name.starts_with("SUSI_")
+                || [
+                    "TOKEN",
+                    "SECRET",
+                    "PASSWORD",
+                    "CREDENTIAL",
+                    "API_KEY",
+                    "ACCESS_KEY",
+                ]
+                .iter()
+                .any(|part| name.contains(part))
+            {
+                command.env_remove(key);
+            }
+        }
+        let status = command
             .current_dir(candidate)
             .args(*args)
             .env("HOME", &home)
@@ -343,6 +361,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("XDG_CONFIG_HOME", home.join("config"))
             .env("XDG_DATA_HOME", home.join("data"))
             .env("XDG_CACHE_HOME", home.join("cache"))
+            .env("APPDATA", home.join("appdata"))
+            .env("LOCALAPPDATA", home.join("localappdata"))
             .env("CARGO_HOME", &cargo_home)
             .env("RUSTUP_HOME", &rustup_home)
             .env("CARGO_TARGET_DIR", &target)
@@ -488,6 +508,23 @@ where
         format!("accepted {head}\nreceipt {receipt_ref}\n"),
     )?;
     fs::remove_file(claim_path)?;
+    // The accepted commit and receipt are durable; retain failure candidates,
+    // but reclaim successful scratch builds without touching agent worktrees.
+    if let Err(error) = git(
+        root,
+        &[
+            "-c",
+            "core.hooksPath=",
+            "worktree",
+            "remove",
+            text(&candidate)?,
+        ],
+    ) {
+        eprintln!(
+            "accepted integration candidate retained at {}: {error}",
+            candidate.display()
+        );
+    }
     println!("Integrated {claimant}: {head}; receipt {receipt_ref}. Primary checkout unchanged.");
     Ok(head)
 }
