@@ -1,6 +1,8 @@
 //! Standalone native qualification driver. Arguments: runtime.obj, OS-UCRT
 //! import library, OS-stack import library, lifecycle.rs, private output dir.
 //! Optional sixth argument supplies a separate production panic-abort rlib.
+//! Optional seventh argument propagates the caller's already verified sysroot;
+//! this diagnostic driver does not grant trust to that path itself.
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -38,14 +40,14 @@ fn run(mut command: Command, directory: &Path, label: &str, seconds: u64) -> Out
 fn main() {
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     assert!(
-        matches!(args.len(), 5 | 6),
-        "runtime.obj OS-UCRT.lib OS-stack.lib lifecycle.rs output-directory"
+        matches!(args.len(), 5..=7),
+        "runtime.obj OS-UCRT.lib OS-stack.lib lifecycle.rs output-directory [abort.rlib [verified-sysroot]]"
     );
     let root = &args[4];
     fs::create_dir_all(root).unwrap();
     for abort in [false, true] {
         let profile = if abort { "abort" } else { "unwind" };
-        let runtime = if abort && args.len() == 6 {
+        let runtime = if abort && args.len() >= 6 {
             &args[5]
         } else {
             &args[0]
@@ -53,6 +55,13 @@ fn main() {
         let executable = root.join(format!("lifecycle-{profile}.exe"));
         let map = root.join(format!("lifecycle-{profile}.map"));
         let mut compile = Command::new("rustc");
+        if let Some(sysroot) = args.get(6) {
+            assert!(
+                sysroot.is_absolute(),
+                "verified sysroot handoff must be absolute"
+            );
+            compile.arg("--sysroot").arg(sysroot);
+        }
         compile
             .arg("--edition=2021")
             .arg(&args[3])
