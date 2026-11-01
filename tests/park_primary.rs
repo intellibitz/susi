@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -120,8 +122,9 @@ impl World {
     }
 
     fn park_with(&self, from: &Path, args: &[&str]) -> (i32, String, String) {
-        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh");
-        run(from, script.to_str().unwrap(), args)
+        let mut native_args = vec!["workflow", "park-primary"];
+        native_args.extend_from_slice(args);
+        run(from, env!("CARGO_BIN_EXE_susi"), &native_args)
     }
 
     fn head_is_detached_at_origin_main(&self) -> bool {
@@ -283,6 +286,8 @@ fn sync_only_fast_forwards_a_clean_main_and_says_so() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn sync_only_reuses_fetched_refs_and_standalone_fetches() {
     let w = World::new("sync-fetched");
     git(&w.primary, &["switch", "--quiet", "main"]);
@@ -423,6 +428,8 @@ fn stop_watcher(child: &mut std::process::Child) {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn watcher_observes_remote_merges_without_local_git_hooks() {
     let w = World::new("watcher");
     git(&w.primary, &["switch", "--quiet", "main"]);
@@ -489,6 +496,8 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
 /// empty. One left between mkdir and writing its pid held the primary-update
 /// lock for a day, and every new worktree waited on it.
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn flock_fallback_reclaims_an_empty_lock_left_by_a_killed_locker() {
     let dir = std::env::temp_dir().join(format!("susi-flock-empty-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -595,6 +604,8 @@ fn the_binary_parks_and_refuses_as_the_script_did() {
 /// already bringing main current) and a park waits for it. A lock whose
 /// holder is gone is taken over.
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn a_sync_never_queues_behind_another_and_a_dead_lock_is_taken_over() {
     let w = World::new("lock");
     git(&w.primary, &["switch", "--quiet", "main"]); // one behind origin/main

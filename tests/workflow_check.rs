@@ -123,16 +123,6 @@ impl World {
             let park = primary.join("scripts/park-primary.sh");
             std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        #[cfg(windows)]
-        {
-            let park = primary.join("scripts/park-primary.sh");
-            let status = Command::new("sh")
-                .args(["-c", "chmod +x \"$1\"", "sh"])
-                .arg(&park)
-                .status()
-                .unwrap();
-            assert!(status.success(), "chmod +x {park:?}");
-        }
         git(&primary, &["add", "-A"]);
         #[cfg(windows)]
         git(
