@@ -71,6 +71,8 @@ impl IntentManifold {
             || focused.contains("verify")
         {
             ScopeOfImpact::Mutate
+        } else if is_reasoning_query(focused) {
+            ScopeOfImpact::Read
         } else {
             ScopeOfImpact::SelfExtend
         };
@@ -104,6 +106,66 @@ impl IntentManifold {
     }
 }
 
+/// Explicit answer requests need inference, not code evolution. Keep action
+/// verbs out of this route even when appended to a question.
+fn is_reasoning_query(focused: &str) -> bool {
+    let words: Vec<_> = focused
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.iter().any(|word| {
+        matches!(
+            *word,
+            "create"
+                | "build"
+                | "implement"
+                | "modify"
+                | "change"
+                | "delete"
+                | "remove"
+                | "install"
+                | "uninstall"
+                | "execute"
+                | "run"
+                | "deploy"
+                | "publish"
+                | "send"
+                | "download"
+                | "upload"
+                | "commit"
+                | "push"
+                | "rename"
+                | "move"
+                | "update"
+                | "write"
+                | "save"
+                | "edit"
+        )
+    }) {
+        return false;
+    }
+    matches!(
+        words.first().copied(),
+        Some(
+            "compute"
+                | "calculate"
+                | "explain"
+                | "summarize"
+                | "summarise"
+                | "describe"
+                | "compare"
+                | "answer"
+                | "what"
+                | "why"
+                | "how"
+                | "when"
+                | "where"
+                | "which"
+                | "who"
+        )
+    )
+}
+
 /// `read Cargo.toml` / `cat src/lib.rs` — zero-mutation path-shaped queries.
 fn is_workspace_file_read(focused: &str) -> bool {
     let rest = focused
@@ -120,6 +182,29 @@ fn is_workspace_file_read(focused: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_goal_questions_use_one_read_path_but_actions_keep_governance() {
+        for goal in [
+            "Compute 17 + 25. Answer with only the number.",
+            "Explain photosynthesis",
+            "Summarize this paragraph: a quiet morning",
+            "What is 9 times 6?",
+        ] {
+            let intent = IntentManifold::analyze(goal);
+            assert_eq!(intent.scope_of_impact, ScopeOfImpact::Read, "{goal}");
+            assert!(!intent.requires_swarm);
+        }
+        for goal in [
+            "Explain then install Python",
+            "Compute 17 + 25 and write the answer",
+            "What is next? Delete the project",
+            "Build a calculator",
+            "Unknown request",
+        ] {
+            assert!(IntentManifold::analyze(goal).requires_swarm, "{goal}");
+        }
+    }
 
     #[test]
     fn run_read_cargo_toml_is_read_not_write() {
