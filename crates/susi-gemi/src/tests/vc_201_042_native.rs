@@ -21,6 +21,7 @@ fn vc_201_042_native_discovered_path_reaches_weight_loader() {
     use crate::engines::native_lifecycle::SusiHost;
     use crate::engines::runtime::InferenceHost;
 
+    let _env = susi_paths::test_env::EnvGuard::isolated();
     let dir = tempfile::tempdir().unwrap();
     let weights = dir.path().join("discovered.gguf");
     std::fs::write(&weights, b"invalid weights").unwrap();
