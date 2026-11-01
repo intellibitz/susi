@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-7",
+  "title": "Cloud target seed: strip .git from the origin URL; record the seeded and cold build measurements",
+  "goal": "The hook derived the release URL from a clone URL ending in .git and looked for the snapshot under a path that does not exist, so the first measured seeding fell back to a cold build; fix it, add --url for the tests, and record the measured cold and seeded builds",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session",
+      "cloud_target_seed"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793507194,
+  "closed": {
+    "at_unix": 1793507421,
+    "commit": "ec80831f4a61e3a8ac4b4d2d448ef99d18679ee0",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}

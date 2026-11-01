@@ -14,14 +14,12 @@ name: Release Binaries
 # this pipeline is proven (`gh workflow run release.yml --ref <branch>`)
 # without releasing anything.
 #
-# Shape: `tests` proves the suite on the tagged commit while every build leg
-# compiles at the same time. `publish` attaches the contracted platforms
-# (linux-x86_64 and Windows) once the suite and those legs have passed.
-# arm64, macOS and CUDA keep building and `publish-extra` attaches them
-# afterward, so an optional leg cannot hold the release. v0.21.29 took 25 min
-# because `publish` waited on the whole matrix; Windows was the slow leg, and
-# once its dependency cache hits, macOS (~19 min) and CUDA (~17 min) would
-# become the wait. A red suite still publishes nothing.
+# The tagged suite and all platform builds run in parallel. Windows and Linux
+# x86-64 publish independently once their own build and the suite pass: the
+# first finished leg creates the release and the other attaches later. ARM,
+# macOS and CUDA attach asynchronously. v0.21.30's Windows leg finished over
+# six minutes before Linux but waited for the shared matrix. A red suite still
+# publishes nothing; release tags retain their own verification.
 #
 # Every leg builds with thin-local LTO over 16 codegen units
 # (`CARGO_PROFILE_DIST_LTO: "false"`, `CARGO_PROFILE_DIST_CODEGEN_UNITS`, below,
@@ -136,15 +134,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            name: linux-x86_64
-            artifact: susi-linux-x86_64
-            src: target/dist/susi
-            harness: susi-harness-linux-x86_64
-            harness_src: target/dist/susi-harness
-          # The Windows artifact is a first-class release leg: the same tag that
-          # publishes the Linux binary publishes this one, and the built binary
-          # is exercised on the runner before it is uploaded.
           - os: windows-latest
             name: windows-x86_64
             artifact: susi-windows-x86_64.exe
@@ -341,6 +330,26 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # Linux has a separate job so a slower Linux build cannot hold the first
+  # Windows artifact (or vice versa). Both use the same verified build steps.
+  build-linux:
+    name: Build ${{ matrix.name }}
+    needs: [verify-tag]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    env: *release-build-env
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+            artifact: susi-linux-x86_64
+            src: target/dist/susi
+            harness: susi-harness-linux-x86_64
+            harness_src: target/dist/susi-harness
+    steps: *release-steps
+
   # Optional platforms. Same steps as `build` (the anchor above). They do not
   # gate `publish`: arm64 and macOS stay soft, and a slow macOS runner must not
   # hold the linux and Windows binaries.
@@ -492,27 +501,61 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Attaches the contracted platforms (linux-x86_64, Windows, and their
-  # harnesses) once the suite has passed. Optional legs are not in `needs`,
-  # so this does not wait on them. Artifacts already uploaded by a fast
-  # optional leg ride along; the rest are attached by `publish-extra`.
-  # A red required leg still fails the run. `!cancelled()` so a cancelled run
-  # publishes nothing, and the tag so a dispatch (a dry run) publishes nothing.
+  # Either first-class platform may create the release as soon as its own
+  # build and the exact-tag suite pass. The two publishers share a concurrency
+  # group so simultaneous completions cannot race to create the release.
+  # There are only two jobs in this group, so neither can replace another
+  # pending publisher. A branch dispatch and a failed suite publish nothing.
   publish:
     name: Publish the release
     needs: [verify-tag, tests, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && contains('success failure', needs.build.result)"
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build.result == 'success'"
+    concurrency:
+      group: release-first-asset-${{ github.ref }}
+      cancel-in-progress: false
     steps:
-      - name: Collect the legs' artifacts
+      - name: Collect the Windows artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
+          name: release-windows-x86_64
           path: release
-          merge-multiple: true
+      - name: Collect the Windows harness
+        uses: actions/download-artifact@v4
+        with:
+          name: release-harness-windows-x86_64
+          path: release
 
-      - name: Publish the release assets
+      - name: Publish the Windows assets
+        if: needs.verify-tag.outputs.tag != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
+          fail_on_unmatched_files: true
+          files: release/*
+
+  publish-linux:
+    name: Publish the Linux x86-64 assets
+    needs: [verify-tag, tests, build-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-linux.result == 'success'"
+    concurrency:
+      group: release-first-asset-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Collect the Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-linux-x86_64
+          path: release
+      - name: Collect the Linux harness
+        uses: actions/download-artifact@v4
+        with:
+          name: release-harness-linux-x86_64
+          path: release
+      - name: Publish the Linux assets
         if: needs.verify-tag.outputs.tag != ''
         uses: softprops/action-gh-release@v3
         with:
@@ -530,7 +573,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.publish.result == 'success' && contains('success failure', needs.build-extra.result) && contains('success failure', needs.build-cuda.result)"
-    steps:
+    steps: &publish-extra-steps
       - name: Collect the optional legs' artifacts
         uses: actions/download-artifact@v4
         with:
@@ -543,21 +586,38 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify-tag.outputs.tag }}
-          fail_on_unmatched_files: true
-          files: release/*
+          # The Linux publisher may be uploading concurrently; optional
+          # assets have distinct names and never replace its files.
+          fail_on_unmatched_files: false
+          files: |
+            release/susi-linux-aarch64*
+            release/susi-harness-linux-aarch64*
+            release/susi-macos-*
+            release/susi-harness-macos-*
+            release/susi-linux-x86_64-cuda*
+
+  # If Windows fails but Linux succeeds, the Linux publisher created the
+  # release and optional artifacts still need to be attached.
+  publish-extra-fallback:
+    name: Attach optional assets after Linux fallback
+    needs: [verify-tag, tests, publish, publish-linux, build-extra, build-cuda]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.publish.result != 'success' && needs.publish-linux.result == 'success' && contains('success failure', needs.build-extra.result) && contains('success failure', needs.build-cuda.result)"
+    steps: *publish-extra-steps
 
   # Retention: keep rolling `dev` (other workflow) + newest 2 semver Releases.
   # Older GitHub Release *objects* (and their ~700MB assets) are deleted;
   # git tags are never removed so history stays intact.
   prune-old-releases:
     name: Prune old GitHub Releases
-    needs: [verify-tag, build, publish]
+    needs: [verify-tag, build, build-linux, publish, publish-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The Tier-1 build job builds the Linux x86_64 binary; non-Tier-1 artifacts
     # (macOS, ARM64, CUDA) are non-blocking, so prune runs as long as Tier-1
     # succeeded and `publish` attached the assets.
-    if: "!cancelled() && needs.build.result == 'success' && needs.publish.result == 'success' && needs.verify-tag.outputs.tag != ''"
+    if: "!cancelled() && needs.build.result == 'success' && needs.build-linux.result == 'success' && needs.publish.result == 'success' && needs.publish-linux.result == 'success' && needs.verify-tag.outputs.tag != ''"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6

@@ -762,6 +762,42 @@ fn cloud_target_seed_key_follows_the_external_lockfile_and_the_toolchain() {
     assert_ne!(key(&w), base, "the toolchain pin is a key input");
 }
 
+/// The assets live on the origin's own `target-seed` release, whatever spelling
+/// the clone URL has: with or without `.git`, over https or ssh. The first
+/// measured seeding looked under `susi.git/releases/…`, which does not exist,
+/// and fell back to a cold build.
+#[cfg(target_os = "linux")]
+#[test]
+fn cloud_target_seed_url_is_the_origins_release_without_a_git_suffix() {
+    let w = World::new("seedurl");
+    for (origin, want) in [
+        (
+            "https://github.com/acme/thing.git",
+            "https://github.com/acme/thing/releases/download/target-seed",
+        ),
+        (
+            "https://github.com/acme/thing",
+            "https://github.com/acme/thing/releases/download/target-seed",
+        ),
+        (
+            "git@github.com:acme/thing.git",
+            "https://github.com/acme/thing/releases/download/target-seed",
+        ),
+    ] {
+        w.git(&w.clone, &["remote", "set-url", "origin", origin]);
+        let (code, out, err) = w.script("scripts/cloud-target-seed.sh", &["--url"], &[]);
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(out, want, "origin {origin}");
+    }
+    let (code, out, _) = w.script(
+        "scripts/cloud-target-seed.sh",
+        &["--url"],
+        &[("SUSI_TARGET_SEED_URL", "file:///elsewhere")],
+    );
+    assert_eq!(code, 0);
+    assert_eq!(out, "file:///elsewhere", "an explicit source wins");
+}
+
 /// The hook's seeding: a published snapshot (parts of one gzip'd tar with a
 /// sha256sum manifest) is fetched, verified and unpacked into an empty target/,
 /// marked as seeded; a target that holds anything is left alone; a part that
