@@ -264,16 +264,22 @@ fn main(){
     assert!(negative_then_positive_macro_survived());
     assert_eq!(susi_vendor_syn::is_valid_rust_checked("fn normal() {}"),Ok(true));
     assert_eq!(susi_vendor_syn::is_valid_rust_checked("fn 😀() {}"),Ok(false));
-    let result=susi_vendor_syn::outline_checked("fn \u{105c0}() {}");
+    let missing = std::env::args().any(|a|a=="missing-capability");
+    // U+10FFFF is permanently unassigned: newer OS Unicode versions must not
+    // make an unavailable-compiler test accidentally rely on OS-known Todhri.
+    let source = if missing { "fn \u{10ffff}() {}" } else { "fn \u{105c0}() {}" };
+    let result=susi_vendor_syn::outline_checked(source);
     // Check automatic final-session teardown BEFORE explicitly requesting it.
     no_owned_helper_files();
-    if std::env::args().any(|a|a=="missing-capability") {
+    if missing {
         let error=result.unwrap_err(); assert!(error.contains("classification unavailable"),"{error}");
-        assert_eq!(unicode_ident::try_is_xid_start('\u{105c0}'),Err("identifier compiler service: Unavailable".into()));
+        assert_eq!(unicode_ident::try_is_xid_start('\u{10ffff}'),Err("identifier compiler service: Unavailable".into()));
         println!("CAPABILITY_ERROR_DISTINCT_FROM_INVALID_SYNTAX: {error}");
     }else{
         let items=result.unwrap().unwrap();assert_eq!(items[0].1,"\u{105c0}");
         assert_eq!(unicode_ident::try_is_xid_continue('\u{feff}'),Ok(false));
+        // Force a real helper even when the OS already knows Todhri.
+        assert_eq!(unicode_ident::try_is_xid_start('\u{10ffff}'),Ok(false));
         println!("TODHRI_ANALYSIS_OK; NEGATIVE_QUERY_DID_NOT_POISON_MACRO");
     }
     unicode_ident::shutdown_compiler().unwrap(); no_owned_helper_files();
