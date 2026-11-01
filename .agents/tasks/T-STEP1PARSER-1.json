@@ -1,0 +1,11 @@
+{
+  "id": "T-STEP1PARSER-1",
+  "title": "Preserve compiler capability errors in runtime source analysis",
+  "goal": "Distinguish unavailable Unicode classification from invalid Rust and reap compiler helpers after parallel analysis",
+  "size": "m",
+  "deps": ["T-STEP1IDENT-1"],
+  "accept": {"cmd": ["cargo", "test", "-p", "susi-vendor-syn", "--offline", "--locked"]},
+  "created_by": "STEP1PARSER",
+  "created_unix": 1793554000,
+  "notes": "Requires integrated table-free identifier patch; task remains open until combined source and production qualification pass."
+}

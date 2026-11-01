@@ -266,7 +266,14 @@ impl BloatAuditor {
             }
         }
 
-        match susi_vendor_syn::analyze(&content, MAX_STATEMENTS_PER_FN).filter(|_| !read_failed) {
+        let analysis = match susi_vendor_syn::analyze_checked(&content, MAX_STATEMENTS_PER_FN) {
+            Ok(metrics) => metrics,
+            Err(error) => {
+                tracing::warn!(path = %rel, %error, "Rust audit capability unavailable");
+                None
+            }
+        };
+        match analysis.filter(|_| !read_failed) {
             Some(m) => FileFinding {
                 path: rel,
                 lines,
