@@ -32,7 +32,7 @@ pub fn execute(action: Option<SetupCommands>) -> Result<()> {
             if json {
                 print_json(&serde_json::to_value(&plan)?)?;
             } else {
-                print_plan(&plan, false);
+                print_plan(&plan);
             }
         }
         SetupCommands::Apply { cloud, json } => {
@@ -51,19 +51,14 @@ pub fn execute(action: Option<SetupCommands>) -> Result<()> {
                 }))?;
             } else {
                 println!("Susi's defaults are installed. Existing settings were preserved.");
-                print_plan(&plan, false);
+                print_plan(&plan);
             }
         }
     }
     Ok(())
 }
 
-/// Opening is a local snapshot, never a catalogue prime or a network probe.
-pub(crate) fn print_readiness() {
-    print_plan(&SetupPlan::detect(&SusiDirs::config_dir()), true);
-}
-
-fn print_plan(plan: &SetupPlan, refreshing: bool) {
+fn print_plan(plan: &SetupPlan) {
     println!("Susi — give me a goal.");
     if plan.keys_present.is_empty() {
         println!("Cloud: no existing provider connection found.");
@@ -97,9 +92,6 @@ fn print_plan(plan: &SetupPlan, refreshing: bool) {
             "Local AI previously available: {} (cached observation).",
             engines.join(", ")
         );
-    }
-    if refreshing {
-        println!("Discovering local capabilities in the background; you can enter a goal now.");
     }
     if !plan.agents.is_empty() {
         println!(
