@@ -27,15 +27,24 @@ static GMCP_HTTP_HOME: Mutex<()> = Mutex::new(());
 /// The record each requirement is judged by in an append-only evidence file:
 /// its newest. `.agents/gmcp/evidence/README.md` never edits or deletes a
 /// record: a superseding proof is a later line for the same requirement whose
-/// `supersedes` names the record it replaces (`recorded_unix`, `identity`,
-/// `artifact_sha256`). Earlier lines stay as history (proof of a ledger the
-/// repository has since moved past). A later line that does not name the
-/// record before it fails, so an unlinked duplicate cannot silently replace
-/// audited proof. Requirements keep the order of their first record; a line
-/// that is not single-line JSON fails, as before.
+/// `supersedes` names a record it replaces (`recorded_unix`, `identity`,
+/// `artifact_sha256`). Earlier lines stay as history. Two branches can each
+/// supersede the same record, and AGENTS.md resolves evidence conflicts by
+/// keeping both sides, so the records form a tree, not a line: a later record
+/// may name any earlier record of its requirement, and the one judged is the
+/// newest tip (a record no later record supersedes) by `recorded_unix`, file
+/// order breaking ties. A later record that names no earlier record fails,
+/// so an unlinked duplicate cannot silently replace audited proof.
+/// Requirements keep the order of their first record; a line that is not
+/// single-line JSON fails, as before.
 fn newest_records(evidence: &str) -> Vec<serde_json::Value> {
+    const LINK: [&str; 3] = ["recorded_unix", "identity", "artifact_sha256"];
+    let names = |record: &serde_json::Value, target: &serde_json::Value| {
+        LINK.iter()
+            .all(|field| record["supersedes"][*field] == target[*field])
+    };
     let mut order: Vec<String> = Vec::new();
-    let mut newest: std::collections::HashMap<String, serde_json::Value> =
+    let mut chains: std::collections::HashMap<String, Vec<serde_json::Value>> =
         std::collections::HashMap::new();
     for line in evidence.lines().filter(|line| !line.trim().is_empty()) {
         let record: serde_json::Value =
@@ -44,22 +53,100 @@ fn newest_records(evidence: &str) -> Vec<serde_json::Value> {
             .as_str()
             .unwrap_or_default()
             .to_string();
-        if let Some(previous) = newest.get(&requirement) {
-            for field in ["recorded_unix", "identity", "artifact_sha256"] {
-                assert_eq!(
-                    record["supersedes"][field], previous[field],
-                    "{requirement}: a later record must name the record it supersedes ({field})"
+        match chains.get_mut(&requirement) {
+            Some(chain) => {
+                assert!(
+                    chain.iter().any(|earlier| names(&record, earlier)),
+                    "{requirement}: a later record must name, in `supersedes`, an earlier \
+                     record of its requirement: {record}"
                 );
+                chain.push(record);
             }
-        } else {
-            order.push(requirement.clone());
+            None => {
+                order.push(requirement.clone());
+                chains.insert(requirement, vec![record]);
+            }
         }
-        newest.insert(requirement, record);
     }
     order
         .into_iter()
-        .filter_map(|requirement| newest.remove(&requirement))
+        .filter_map(|requirement| {
+            let chain = chains.remove(&requirement)?;
+            let tips: Vec<&serde_json::Value> = chain
+                .iter()
+                .filter(|record| !chain.iter().any(|later| names(later, record)))
+                .collect();
+            // max_by_key keeps the last of equal keys: file order breaks ties.
+            tips.into_iter()
+                .max_by_key(|record| record["recorded_unix"].as_u64().unwrap_or(0))
+                .cloned()
+        })
         .collect()
+}
+
+/// A record line for the `newest_records` tests.
+fn evidence_line(requirement: &str, at: u64, who: &str, supersedes: Option<(u64, &str)>) -> String {
+    let mut record = serde_json::json!({
+        "requirement": requirement,
+        "recorded_unix": at,
+        "identity": who,
+        "artifact_sha256": format!("h{at}"),
+    });
+    if let Some((at, who)) = supersedes {
+        record["supersedes"] = serde_json::json!({
+            "recorded_unix": at,
+            "identity": who,
+            "artifact_sha256": format!("h{at}"),
+        });
+    }
+    record.to_string()
+}
+
+#[test]
+fn newest_records_follows_a_linear_supersession_chain() {
+    let evidence = [
+        evidence_line("R-1", 1, "a", None),
+        evidence_line("R-2", 1, "a", None),
+        evidence_line("R-1", 2, "b", Some((1, "a"))),
+        evidence_line("R-1", 3, "c", Some((2, "b"))),
+    ]
+    .join("\n");
+    let judged = newest_records(&evidence);
+    assert_eq!(judged.len(), 2);
+    assert_eq!(judged[0]["requirement"], "R-1");
+    assert_eq!(judged[0]["identity"], "c");
+    assert_eq!(judged[1]["identity"], "a");
+}
+
+/// Two branches superseded the same record and the merge kept both: the
+/// file is A, B (supersedes A), C (supersedes A). The newest tip is judged,
+/// and a later record may still extend either branch.
+#[test]
+fn newest_records_resolves_a_forked_chain_to_its_newest_tip() {
+    let forked = [
+        evidence_line("R-1", 1, "a", None),
+        evidence_line("R-1", 3, "b", Some((1, "a"))),
+        evidence_line("R-1", 2, "c", Some((1, "a"))),
+    ];
+    assert_eq!(newest_records(&forked.join("\n"))[0]["identity"], "b");
+    let extended = [
+        forked.to_vec(),
+        vec![evidence_line("R-1", 4, "d", Some((2, "c")))],
+    ]
+    .concat()
+    .join("\n");
+    assert_eq!(newest_records(&extended)[0]["identity"], "d");
+}
+
+#[test]
+#[should_panic(expected = "must name, in `supersedes`, an earlier record")]
+fn newest_records_refuses_an_unlinked_later_record() {
+    let evidence = [
+        evidence_line("R-1", 1, "a", None),
+        evidence_line("R-1", 2, "b", None),
+    ]
+    .join("\n");
+    newest_records(&evidence);
 }
 
 /// Throwaway HOME for in-process `start_http_server` tests: NetGuard reads
