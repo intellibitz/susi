@@ -77,7 +77,12 @@ curl() {{
         shift
     done
     case "$url" in
-        *.sha256) sha256sum "$FIXTURE" >"$dest";;
+        *.sha256)
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum "$FIXTURE" >"$dest"
+            else
+                shasum -a 256 "$FIXTURE" >"$dest"
+            fi;;
         *) cp "$FIXTURE" "$dest";;
     esac
 }}
