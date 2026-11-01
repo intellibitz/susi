@@ -59,6 +59,57 @@ use susi_vendor_candle::candle_core::quantized::gguf_file;
 #[cfg(test)]
 use susi_vendor_candle::tokenizers::Tokenizer;
 
+/// Prefer an installed runner only for ordinary automatic text work. Output
+/// formatting is not a second reasoning step; the substantive request still
+/// passes both existing classifiers and explicit capability/policy gates.
+#[allow(clippy::too_many_arguments)] // Independent request/policy facts; keep the pure gate explicit without a one-use configuration type.
+fn fast_local_eligible(
+    prompt: &str,
+    requested_model: Option<&str>,
+    min_complexity: Option<crate::models::intent::TaskComplexity>,
+    requires: Option<&str>,
+    policy: &str,
+    engine: &str,
+    preferred_cloud: bool,
+) -> bool {
+    use crate::engines::brain::TaskClass;
+    use crate::models::intent::{IntentClassifier, TaskComplexity};
+    if requested_model.is_some()
+        || min_complexity.is_some()
+        || preferred_cloud
+        || !matches!(policy, "auto" | "local_only")
+        || matches!(engine, "cloud" | "susi-federated")
+        || requires.is_some_and(|r| !matches!(r.to_ascii_lowercase().as_str(), "text" | "chat"))
+        || prompt.len() > 600
+        || !matches!(
+            TaskClass::classify(prompt),
+            TaskClass::Reflex | TaskClass::Chat
+        )
+    {
+        return false;
+    }
+    let substantive = prompt.trim_end_matches(['.', '!', ' ', '\n']);
+    let substantive = substantive
+        .rsplit_once(['.', '?', '!'])
+        .map_or(prompt, |(body, tail)| {
+            let tail = tail.trim().to_ascii_lowercase();
+            if tail.len() <= 80
+                && [
+                    "answer with only ",
+                    "respond with only ",
+                    "reply with only ",
+                ]
+                .iter()
+                .any(|prefix| tail.starts_with(prefix))
+            {
+                &substantive[..body.len() + 1]
+            } else {
+                prompt
+            }
+        });
+    IntentClassifier::classify_complexity(substantive, None) <= TaskComplexity::Simple
+}
+
 pub struct GemiEngine;
 
 impl GemiEngine {
@@ -286,10 +337,60 @@ impl GemiEngine {
         };
         let meta = &tagged_meta;
 
-        // Ensure configured cloud endpoints are registered before routing.
-        crate::engines::http_provider::register_configured_cloud_endpoints(
-            crate::susi_core::registry::CapabilityRegistry::global(),
-        );
+        let global_config =
+            crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let active_engine_identifier =
+            ModelManager::get_selected_engine().unwrap_or_else(|| global_config.default_engine());
+        let fast_local_model = if fast_local_eligible(
+            prompt,
+            requested_model,
+            min_complexity,
+            requires,
+            "auto",
+            &active_engine_identifier,
+            false,
+        ) {
+            let preference = crate::engines::routing::InferenceRouter::load_preference();
+            let placement = crate::engines::routing::InferenceRouter::plan_placement_for(
+                &[],
+                requires,
+                None,
+                true,
+            );
+            fast_local_eligible(
+                prompt,
+                requested_model,
+                min_complexity,
+                requires,
+                &placement.policy,
+                &active_engine_identifier,
+                preference.preferred_cloud.is_some(),
+            )
+            .then(|| {
+                ModelManager::get_selected_model_for_request_with_min_complexity(
+                    prompt,
+                    None,
+                    min_complexity,
+                )
+            })
+            .flatten()
+        } else {
+            None
+        }
+        .filter(|model| {
+            ModelManager::get_model_path(model)
+                .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
+        });
+        let prefer_fast_local = fast_local_model.is_some();
+
+        // Remote model discovery can involve network probes. A ready local
+        // answer does not need them; retain registration before every cloud
+        // route, including the deferred fallback below.
+        if !prefer_fast_local {
+            crate::engines::http_provider::register_configured_cloud_endpoints(
+                crate::susi_core::registry::CapabilityRegistry::global(),
+            );
+        }
 
         // Latency / CPU-only gate: escalate to cloud when local is known-slow
         // (or host has no GPU). Sticky preference + optional interactive pick.
@@ -298,7 +399,7 @@ impl GemiEngine {
         // would misclassify hyphenated GGUF ids like `qwen2.5-0.5b-*`.
         let explicit_local_request =
             requested_model.is_some() && !Self::model_names_a_provider(requested_model);
-        if !explicit_local_request {
+        if !explicit_local_request && !prefer_fast_local {
             let names = crate::susi_core::registry::CapabilityRegistry::global().list_providers();
             if let Some(esc) =
                 crate::engines::routing::InferenceRouter::maybe_escalate_to_cloud(&names)
@@ -331,13 +432,11 @@ impl GemiEngine {
         // Pillar 4/8: prefer zero-config discovered providers (Ollama, vLLM, …)
         // before the native GGUF path. Skips Candle (Local) — that provider
         // delegates back into this function and would recurse.
-        let (provider_answer, mut ladder) = Self::try_discovered_providers(
-            prompt,
-            Some(workspace),
-            requested_model,
-            callback,
-            meta,
-        );
+        let (provider_answer, mut ladder) = if prefer_fast_local {
+            (None, crate::engines::routing::RoutingLadder::new(class))
+        } else {
+            Self::try_discovered_providers(prompt, Some(workspace), requested_model, callback, meta)
+        };
         if let Some(text) = provider_answer {
             if ladder.step_downs() > 0 {
                 callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
@@ -353,18 +452,16 @@ impl GemiEngine {
         // play: no model named (normal route) or the name matched a
         // registered provider. A caller-named local model id reaches here
         // by honoring, not fallback.
-        if requested_model.is_none() || Self::model_names_a_provider(requested_model) {
+        if !prefer_fast_local
+            && (requested_model.is_none() || Self::model_names_a_provider(requested_model))
+        {
             eprintln!("[INFERENCE FAILOVER] Falling back to local inference");
             callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
-        } else {
+        } else if !prefer_fast_local {
             eprintln!("[INFERENCE] Caller-requested local model — native inference");
         }
 
         // Primary Federated vs Native Inference Routing Edge
-        let global_config =
-            crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let active_engine_identifier = crate::models::ModelManager::get_selected_engine()
-            .unwrap_or(global_config.default_engine());
 
         let engine_key = if requested_model.is_none()
             && (active_engine_identifier == "susi-federated" || active_engine_identifier == "cloud")
@@ -383,20 +480,24 @@ impl GemiEngine {
                 std::sync::Arc::new(LlamaCppEngine) as std::sync::Arc<dyn NativeInferenceEngine>
             });
 
-        let selected_model = requested_model.map(str::to_owned).or_else(|| {
-            ModelManager::get_selected_model_for_request_with_min_complexity(
-                prompt,
-                None,
-                min_complexity,
-            )
-        });
+        let selected_model = fast_local_model
+            .or_else(|| requested_model.map(str::to_owned))
+            .or_else(|| {
+                ModelManager::get_selected_model_for_request_with_min_complexity(
+                    prompt,
+                    None,
+                    min_complexity,
+                )
+            });
         // Report the actual local generator before the first content chunk.
         meta(selected_model.as_deref().unwrap_or(engine_key));
         // Why the request reached the local rung — either the provider
         // cascade stepped every candidate down, or it never ran because a
         // caller-named local model was honored (VC-202-004: the trace must
         // say which model ran and why).
-        let local_reason = if ladder.steps.is_empty() {
+        let local_reason = if prefer_fast_local {
+            "ordinary automatic request served by a ready installed local runner".to_string()
+        } else if ladder.steps.is_empty() {
             "no provider cascade ran — routing directly to local".to_string()
         } else {
             format!(
@@ -560,6 +661,24 @@ impl GemiEngine {
                     StepOutcome::Failed,
                     e.to_string(),
                 );
+            }
+        }
+
+        if prefer_fast_local {
+            crate::engines::http_provider::register_configured_cloud_endpoints(
+                crate::susi_core::registry::CapabilityRegistry::global(),
+            );
+            let (answer, provider_ladder) = Self::try_discovered_providers(
+                prompt,
+                Some(workspace),
+                requested_model,
+                callback,
+                meta,
+            );
+            ladder.steps.extend(provider_ladder.steps);
+            if let Some(text) = answer {
+                ladder.persist();
+                return Self::verify_axiomatic_alignment(&text, workspace).unwrap_or(text);
             }
         }
 
@@ -2094,5 +2213,94 @@ mod local_tool_fulfillment_tests {
         let text = "An ordinary answer.";
         let out = GemiEngine::fulfill_emitted_tool_calls(text, Path::new("."), &|_| {});
         assert_eq!(out, text);
+    }
+}
+
+#[cfg(test)]
+mod fast_local_tests {
+    use super::fast_local_eligible;
+    #[test]
+    fn fast_local_respects_explicit_choices_and_capability() {
+        let prompt = "Compute 17 + 25. Answer with only the number.";
+        assert!(fast_local_eligible(
+            prompt, None, None, None, "auto", "llamacpp", false
+        ));
+        for model in ["cloud-provider", "chosen-local-model"] {
+            assert!(!fast_local_eligible(
+                prompt,
+                Some(model),
+                None,
+                None,
+                "auto",
+                "llamacpp",
+                false
+            ));
+        }
+        for policy in ["cloud_first", "ask"] {
+            assert!(!fast_local_eligible(
+                prompt, None, None, None, policy, "llamacpp", false
+            ));
+        }
+        for requirement in ["tools", "vision", "code", "reasoning", "estate"] {
+            assert!(!fast_local_eligible(
+                prompt,
+                None,
+                None,
+                Some(requirement),
+                "auto",
+                "llamacpp",
+                false
+            ));
+        }
+        assert!(!fast_local_eligible(
+            prompt,
+            None,
+            Some(crate::models::intent::TaskComplexity::Complex),
+            None,
+            "auto",
+            "llamacpp",
+            false
+        ));
+        assert!(!fast_local_eligible(
+            prompt, None, None, None, "auto", "cloud", false
+        ));
+        assert!(!fast_local_eligible(
+            prompt, None, None, None, "auto", "llamacpp", true
+        ));
+    }
+    #[test]
+    fn fast_local_formatting_does_not_hide_complex_work() {
+        for prompt in [
+            "What is the capital of France? Answer with only the city name.",
+            "Compute 7 + 8. Answer with only the number.",
+            "Hello",
+        ] {
+            assert!(
+                fast_local_eligible(prompt, None, None, None, "auto", "llamacpp", false),
+                "{prompt}"
+            );
+        }
+        for prompt in [
+            "Prove this theorem. Answer with only the result.",
+            "First, inspect it and then, repair it.",
+            "What is this? Why is that?",
+            "What is this? Why is that? Answer with only the result.",
+            "Implement a parser",
+            "Explain this. Explain that.",
+        ] {
+            assert!(
+                !fast_local_eligible(prompt, None, None, None, "auto", "llamacpp", false),
+                "{prompt}"
+            );
+        }
+        assert!(!fast_local_eligible(
+            &"hello ".repeat(120),
+            None,
+            None,
+            None,
+            "auto",
+            "llamacpp",
+            false
+        ));
     }
 }
