@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-13",
+  "title": "Keep Windows background leaf services out of interactive terminals",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "background_service_console"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793541298,
+  "closed": {
+    "at_unix": 1793541422,
+    "commit": "87ad0bbaf14f2dd131148fe060c3669d3ea30cce",
+    "by": "CODEXSTEP1OPENING20261101"
+  }
+}
