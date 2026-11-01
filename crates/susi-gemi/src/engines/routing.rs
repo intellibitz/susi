@@ -1214,13 +1214,12 @@ impl InferenceRouter {
     /// budget constraints narrow the cloud candidates before policy chooses
     /// a target; the unfiltered method remains the runtime-compatible default.
     pub fn plan_placement_for(
-        available_providers: &[String],
+        _available_providers: &[String],
         requires: Option<&str>,
         max_cost: Option<f64>,
         allow_cloud: bool,
     ) -> PlacementDecision {
         Self::plan_placement_inner(
-            available_providers,
             requires,
             max_cost,
             allow_cloud,
@@ -1233,7 +1232,6 @@ impl InferenceRouter {
     /// branches deterministically — whether a host actually owns a
     /// tool-capable GGUF is environment state, not logic.
     fn plan_placement_inner(
-        _available_providers: &[String],
         requires: Option<&str>,
         max_cost: Option<f64>,
         allow_cloud: bool,
@@ -1756,18 +1754,7 @@ mod tests {
             "http://127.0.0.1:9999/v1",
             "embedding",
         ));
-        let decision = InferenceRouter::plan_placement_inner(
-            &[
-                "susi-fastembed".into(),
-                "unregistered-model".into(),
-                "openai-unregistered".into(),
-            ],
-            None,
-            None,
-            true,
-            |_| true,
-            &registry,
-        );
+        let decision = InferenceRouter::plan_placement_inner(None, None, true, |_| true, &registry);
         assert!(decision.cloud_candidates.is_empty());
         assert_ne!(decision.target, "cloud");
         assert!(!InferenceRouter::is_cloud_provider_name("susi-fastembed"));
@@ -1899,22 +1886,10 @@ mod tests {
         registry.register_provider(http_cloud("openai-gpt-4o-mini"));
         InferenceRouter::record_provider_success("openai-gpt-4o-mini");
         let incapable = |_: Option<&str>| false;
-        let escalated = InferenceRouter::plan_placement_inner(
-            &["openai-gpt-4o-mini".to_string()],
-            Some("tools"),
-            None,
-            true,
-            incapable,
-            &registry,
-        );
-        let blocked = InferenceRouter::plan_placement_inner(
-            &["openai-gpt-4o-mini".to_string()],
-            Some("tools"),
-            None,
-            false,
-            incapable,
-            &registry,
-        );
+        let escalated =
+            InferenceRouter::plan_placement_inner(Some("tools"), None, true, incapable, &registry);
+        let blocked =
+            InferenceRouter::plan_placement_inner(Some("tools"), None, false, incapable, &registry);
         InferenceRouter::save_preference(&prev);
 
         assert_eq!(escalated.target, "cloud");

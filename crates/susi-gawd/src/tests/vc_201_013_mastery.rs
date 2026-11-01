@@ -2,8 +2,7 @@
 //! isolated workspaces that cannot write the installed release, user
 //! files, or another experiment's workspace.
 
-#[path = "native_verifier.rs"]
-mod native_verifier;
+use crate::native_verifier;
 
 use crate::patch_cycle::{apply_patch_cycle, FilePatch, PatchRequest};
 use crate::patch_fence::PatchFence;
