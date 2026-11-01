@@ -36,7 +36,8 @@ fn vc_201_015_mastery_exact_gate_command_rejects_partial_or_wrapped_commands() {
 
 #[test]
 fn vc_201_015_mastery_executed_failures_still_block() {
-    let report = executed_report(CheckOutcome::Pass, CheckOutcome::Fail, CheckOutcome::Pass);
+    let mut report = executed_report(CheckOutcome::Pass, CheckOutcome::Fail, CheckOutcome::Pass);
+    report.policy = CheckOutcome::Pass; // isolate the Clippy failure from missing-policy refusal.
     assert!(!report.promotion_ready());
 }
 
