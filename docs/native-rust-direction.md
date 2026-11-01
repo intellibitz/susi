@@ -1,5 +1,20 @@
 # Native Rust Susi: delivery contract and evidence
 
+## Step 1 continuation: current gate status
+
+The strict Apache-2.0/MIT/BSD-only license check now passes with the local
+IDNA and identifier implementations. No allowlist exception was added. They
+query installed OS/compiler APIs instead of distributing Unicode tables;
+see `unicode-platform.md` and `identifier-platform.md` for their actual
+repertoire, capability and resource contracts. Earlier three-blocker results
+below remain historical evidence, not the current dependency verdict.
+
+The genuinely uncached Windows installation also passed: native placement,
+private startup, authenticated public model/tokenizer download, two actual
+Candle answers and scoped shutdown. Production qualification and combined-tree
+acceptance remain pending until their final gates run. The CEO's Step 1 of 100
+acceptance contract is `step1-acceptance.md`; agents and Susi own its execution.
+
 The CEO does not inspect code. Susi is built and delivered by agents. Agents have
 standing authority to commit, push, resolve conflicts and merge verified work;
 paid services, destructive actions and unrelated publication still require their
