@@ -21,16 +21,20 @@
 //! sweeps any request whose expiry has passed. The leases are the pusher's, so
 //! the replay lands exactly what the pusher proved or nothing; the relay
 //! refuses a request past its expiry, so a client that gave up waiting is
-//! never contradicted later. The client waits for the request to be consumed
-//! and judges the refs it alone writes, so a lost race is still a lost race.
+//! never contradicted later. The client returns when the refs it writes match;
+//! the request branch's deletion is the runner's housekeeping after that, and
+//! a lost race is still a lost race.
 //!
 //! The direct push is tried first, always. The relay is only for a push the
 //! remote refused while every lease still held — a lost compare-and-swap is
 //! reported as one and never relayed — and only for the queue's own
 //! namespaces. `SUSI_QUEUE_TRANSPORT=direct` forbids the relay and `relay`
 //! skips the direct attempt; `SUSI_QUEUE_WAIT_SECS` (300) is a request's
-//! lifetime and `SUSI_QUEUE_POLL_MS` (3000) the polling interval.
+//! lifetime and `SUSI_QUEUE_POLL_MS` (250) the polling interval. The client
+//! returns as soon as the refs it wrote match, which is when the relay's
+//! push lands; it does not wait out the request branch's deletion.
 use crate::susi_error::{EaiError, EaiResult};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -68,7 +72,7 @@ const SHARED_REF_PREFIX: &str = "refs/claim-generation/";
 const REQUEST_VERSION: u64 = 1;
 const DEFAULT_WAIT_SECS: u64 = 300;
 const MAX_WAIT_SECS: u64 = 86_400;
-const DEFAULT_POLL_MS: u64 = 3_000;
+const DEFAULT_POLL_MS: u64 = 250;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Transport {
@@ -258,12 +262,48 @@ fn leases_hold(ws: &Path, remote: &str, leases: &[Lease]) -> EaiResult<bool> {
 /// freeing nothing of ours, say, or taking the task this release just freed).
 /// The shared generation ref is never consulted: every claim and renewal of
 /// every agent rewrites it.
+#[cfg(test)]
 fn not_landed(
     ws: &Path,
     remote: &str,
     leases: &[Lease],
     updates: &[Update],
 ) -> EaiResult<Option<String>> {
+    let names: Vec<String> = updates
+        .iter()
+        .map(|(name, _)| name.clone())
+        .filter(|name| !name.starts_with(SHARED_REF_PREFIX))
+        .collect();
+    let present = remote_map(ws, remote, &names)?;
+    Ok(not_landed_with(&present, leases, updates))
+}
+
+/// `git ls-remote` of every name in one round trip. A name it omits is absent.
+fn remote_map(ws: &Path, remote: &str, names: &[String]) -> EaiResult<HashMap<String, String>> {
+    let mut args = Vec::with_capacity(names.len() + 2);
+    args.push("ls-remote".to_string());
+    args.push(remote.to_string());
+    args.extend(names.iter().cloned());
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    let listed = git(ws, &argv)?;
+    let mut present = HashMap::with_capacity(names.len());
+    for line in listed.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(sha) = parts.next() else { continue };
+        let Some(name) = parts.next() else { continue };
+        if sha.is_empty() || name.is_empty() {
+            continue;
+        }
+        present.insert(name.to_string(), sha.to_string());
+    }
+    Ok(present)
+}
+
+fn not_landed_with(
+    present: &HashMap<String, String>,
+    leases: &[Lease],
+    updates: &[Update],
+) -> Option<String> {
     let mut moved_to_ours = false;
     let mut first_other = None;
     for (name, blob) in updates {
@@ -271,17 +311,18 @@ fn not_landed(
             continue;
         }
         let want = blob.as_deref().unwrap_or("");
+        let have = present.get(name).map(String::as_str).unwrap_or("");
         let lease = leases
             .iter()
             .find(|(leased, _)| leased == name)
             .map(|(_, old)| old.as_str());
-        if remote_sha(ws, remote, name)? == want {
+        if have == want {
             moved_to_ours |= lease != Some(want);
         } else if first_other.is_none() {
             first_other = Some(name.clone());
         }
     }
-    Ok(first_other.filter(|_| !moved_to_ours))
+    first_other.filter(|_| !moved_to_ours)
 }
 
 fn relay(ws: &Path, txn: Txn<'_>, settings: Settings) -> EaiResult<()> {
@@ -315,14 +356,30 @@ fn relay(ws: &Path, txn: Txn<'_>, settings: Settings) -> EaiResult<()> {
         "queue: request {short} published; {WORKFLOW} has {}s to consume it",
         settings.wait.as_secs()
     );
+    // One ls-remote per poll covers the request branch and every ref this
+    // transaction writes. The push is atomic, so the moment those refs match,
+    // the transaction has landed — the runner's later deletion of the request
+    // branch is housekeeping, and waiting out the poll interval for it is the
+    // slack after an already-finished run.
+    let mut watched: Vec<String> = updates
+        .iter()
+        .map(|(update_name, _)| update_name.clone())
+        .filter(|update_name| !update_name.starts_with(SHARED_REF_PREFIX))
+        .collect();
+    watched.push(name.clone());
     let started = Instant::now();
     let give_up = settings.wait.saturating_add(settings.grace());
-    while !remote_sha(ws, remote, &name)?.is_empty() {
+    let missing = loop {
+        let present = remote_map(ws, remote, &watched)?;
+        let missing = not_landed_with(&present, leases, updates);
+        if missing.is_none() {
+            break missing;
+        }
+        let request_pending = present.get(&name).is_some_and(|sha| !sha.is_empty());
+        if !request_pending {
+            break missing;
+        }
         if started.elapsed() >= give_up {
-            // A run may have pushed and not yet deleted the request.
-            if not_landed(ws, remote, leases, updates)?.is_none() {
-                break;
-            }
             return Err(EaiError::process(format!(
                 "queue relay: {short} was not consumed in {}s and has expired: the relay refuses a \
                  request past its expiry, so it will never be applied, and the next relay run \
@@ -333,8 +390,8 @@ fn relay(ws: &Path, txn: Txn<'_>, settings: Settings) -> EaiResult<()> {
             )));
         }
         std::thread::sleep(settings.poll);
-    }
-    if let Some(ref_name) = not_landed(ws, remote, leases, updates)? {
+    };
+    if let Some(ref_name) = missing {
         return Err(EaiError::config(format!(
             "{raced} (relayed as {short}; {remote} does not carry the requested {ref_name} — \
              the Actions run for that branch says why)"
@@ -840,5 +897,102 @@ mod tests {
             not_landed(&f.clone, "origin", &release_leases, &release).unwrap(),
             Some(claim)
         );
+    }
+
+    #[test]
+    fn the_queue_poll_default_is_a_quarter_second() {
+        assert_eq!(DEFAULT_POLL_MS, 250);
+    }
+
+    /// The runner deletes the request branch after the compare-and-swap push.
+    /// The client used to sleep out a poll interval waiting for that deletion
+    /// even though the refs had already landed. Landing the refs, and leaving
+    /// the branch, must be enough.
+    #[test]
+    fn a_relayed_push_returns_when_the_refs_land_before_the_request_is_deleted() {
+        let f = fixture("early");
+        refuse_queue_pushes(&f.bare);
+        let text = r#"{"task":"T-AGENTONE-6"}"#;
+        let sha = blob(&f.clone, text);
+        // The stand-in writes the ref directly in the bare repo, so the object
+        // has to exist there. A push of the claim ref is what the hook refuses.
+        assert_eq!(blob(&f.bare, text), sha);
+        let name = "refs/claims/T-AGENTONE-6".to_string();
+        let bare = f.bare.clone();
+        let sha_for_server = sha.clone();
+        let name_for_server = name.clone();
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            loop {
+                let listed = run(
+                    &bare,
+                    &[
+                        "for-each-ref",
+                        "--format=%(refname)",
+                        "refs/heads/susi-queue/",
+                    ],
+                );
+                if !listed.is_empty() {
+                    run(&bare, &["update-ref", &name_for_server, &sha_for_server]);
+                    return;
+                }
+                if Instant::now() >= deadline {
+                    panic!("the request branch never appeared");
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let started = Instant::now();
+        let result = push_with(
+            &f.clone,
+            Txn {
+                remote: "origin",
+                leases: &[(name.clone(), String::new())],
+                updates: &[(name.clone(), Some(sha.clone()))],
+                raced: "raced",
+            },
+            Settings {
+                transport: Transport::Auto,
+                wait: Duration::from_secs(8),
+                poll: Duration::from_millis(50),
+            },
+        );
+        let elapsed = started.elapsed();
+        server.join().expect("relay stand-in");
+        result.expect("refs landing is enough; the request branch can stay");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "returned in {elapsed:?}; waiting for the request deletion would run out the 8s lifetime"
+        );
+        assert_eq!(run(&f.bare, &["rev-parse", &name]), sha);
+        assert!(
+            !requests(&f.bare).is_empty(),
+            "the request branch is still there: the client did not wait for the runner to delete it"
+        );
+    }
+
+    #[test]
+    fn the_queue_workflow_checks_out_the_relay_script_and_drops_the_request_in_that_step() {
+        let yml = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/queue.yml"),
+        )
+        .unwrap();
+        assert!(
+            yml.contains("sparse-checkout: scripts/queue-relay.sh")
+                && yml.contains("sparse-checkout-cone-mode: false")
+                && yml.contains("fetch-depth: 1"),
+            "the relay job must not check out the whole tree: {yml}"
+        );
+        assert!(
+            !yml.contains("name: Consume the request"),
+            "deleting the request is part of the apply step, not a later step"
+        );
+        let apply = yml
+            .split("name: Apply the request and consume it")
+            .nth(1)
+            .expect("apply step");
+        let apply = apply.split("name: Sweep expired requests").next().unwrap();
+        assert!(apply.contains("scripts/queue-relay.sh \"$GITHUB_SHA\""));
+        assert!(apply.contains("git push --quiet origin --delete"));
     }
 }
