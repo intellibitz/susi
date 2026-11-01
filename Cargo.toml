@@ -234,6 +234,7 @@ tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 console-subscriber = { package = "susi-vendor-console-subscriber", path = "crates/susi-vendor-console-subscriber" , optional = true }
 rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
 
 [build-dependencies]
