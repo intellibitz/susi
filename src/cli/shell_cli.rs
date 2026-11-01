@@ -56,7 +56,10 @@ impl ShellSession {
                     return None;
                 }
             }
-            let goal = input.trim();
+            // Windows redirected text can begin with a UTF-8 BOM. It is a
+            // stream marker, not intent; retaining it hides "Read" from the
+            // normal classifier and needlessly recruits the full swarm.
+            let goal = input.trim().trim_start_matches('\u{feff}').trim();
             if goal.is_empty() {
                 continue;
             }

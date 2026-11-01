@@ -56,7 +56,11 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
             assert!(status.success(), "opening exited with {status}");
             break;
         }
-        let limit = if input.starts_with(b"Read ") { 20 } else { 5 };
+        let limit = if input.windows(5).any(|part| part == b"Read ") {
+            20
+        } else {
+            5
+        };
         if started.elapsed() > Duration::from_secs(limit) {
             let _ = child.kill();
             let _ = child.wait();
@@ -114,7 +118,7 @@ fn first_goal_opening_exits_on_eof_without_booting_catalogs() {
 
 #[test]
 fn first_goal_opening_accepts_quit_without_starting_a_mission() {
-    let (stdout, stderr) = opening(&["shell"], b"\nquit\n");
+    let (stdout, stderr) = opening(&["shell"], b"\xef\xbb\xbf\nquit\n");
     assert_eq!(stdout.matches("susi> ").count(), 2, "{stdout}");
     assert!(!stdout.contains("Goal received"), "{stdout}");
     assert!(!stderr.contains("composition: cli"), "{stderr}");
@@ -129,7 +133,7 @@ fn first_goal_opening_empty_pipe_does_not_boot_a_mission() {
 
 #[test]
 fn first_goal_session_runs_successive_goals_without_rebooting() {
-    let (stdout, stderr) = opening(&["shell"], b"Read first.txt and return its contents.\nRead second.txt and return its contents.\nexit\n");
+    let (stdout, stderr) = opening(&["shell"], b"\xef\xbb\xbfRead first.txt and return its contents.\nRead second.txt and return its contents.\nexit\n");
     assert!(stdout.contains("cedar-1739"), "{stdout}");
     assert!(stdout.contains("maple-2851"), "{stdout}");
     assert_eq!(stdout.matches("Goal received").count(), 2, "{stdout}");

@@ -108,7 +108,7 @@ fn read_stdin_bounded() -> io::Result<Option<String>> {
     }
     let content =
         String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let trimmed = content.trim();
+    let trimmed = content.trim().trim_start_matches('\u{feff}').trim();
     Ok(if trimmed.is_empty() {
         None
     } else {
