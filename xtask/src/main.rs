@@ -16,6 +16,9 @@
 mod extension_watch;
 mod local_build;
 
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};

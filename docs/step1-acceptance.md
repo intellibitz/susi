@@ -256,3 +256,28 @@ access obstruction and extends observed ABI behavior to a clean second Windows
 build. It does **not** attest the final Susi artifact, elimination of compiler
 startup objects, or the uncached product installation/inference journey. Those
 remain separate acceptance gates.
+
+
+### Native helper startup and bootstrap
+
+Every executable delivered by the local Rust tooling uses the same original
+Rust Windows process boundary: `xtask`, `local-workflow`, `local-release`,
+`ci-release-only`, and `susi-dev`, as well as the Susi product. The bootstrap is
+now an explicit Cargo binary. Agents perform its initial Cargo build with
+process-local target/build directories inside their own checkout, before any
+Cargo subprocess can inherit a shared output directory. Bare `rustc` bootstrap
+compilation is not the delivery path: it would reintroduce compiler CRT startup
+objects. This initial toolchain operation is agent-owned; it adds no user
+configuration or mandatory PowerShell workflow. Installed Susi owns subsequent
+local build, integration, qualification and improvement commands.
+
+Windows qualification builds the five tooling binaries in release mode and
+inspects every helper plus Susi. The PE entry address must equal `susi_pe_entry`
+in the actual linker map, backed by a Rust compiler object. The map must not
+contain MSVC CRT startup or static runtime implementation libraries/members.
+OS import libraries remain metadata, not shipped foreign implementations.
+Full map text, map digest, executable digest, entry address and ordinary/delayed
+DLL imports are retained in immutable manifest-hashed gate evidence. Production
+promotion refuses receipts predating this native-runtime qualification policy
+and requires fresh qualification; an older import-only receipt cannot bypass
+entry/object checks.
