@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-11",
+  "title": "drop crates/susi-gmcp/src/eco_mcp_auth.rs again: tests/architecture_tests.rs keeps it pruned (review on #1189)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "eco_mcp"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793491543
+}
