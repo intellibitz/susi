@@ -314,7 +314,6 @@ bon-macros = { opt-level = 0 }
 bytemuck_derive = { opt-level = 0 }
 clap_derive = { opt-level = 0 }
 curve25519-dalek-derive = { opt-level = 0 }
-displaydoc = { opt-level = 0 }
 futures-macro = { opt-level = 0 }
 pin-project-internal = { opt-level = 0 }
 prost-derive = { opt-level = 0 }
