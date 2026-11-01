@@ -254,7 +254,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
         return Err("GMCP recording requires native Windows MSVC".into());
     }
     let target = root.join("target/local-native");
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    super::compiler_env::apply(&mut command);
+    let output = command
         .current_dir(root)
         .args([
             "test",

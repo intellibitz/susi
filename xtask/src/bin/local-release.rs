@@ -10,6 +10,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+#[path = "../compiler_env.rs"]
+mod compiler_env;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
@@ -217,6 +220,7 @@ fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
         .map(PathBuf::from)
         .ok_or("missing provisioned toolchain home")?;
     let mut command = Command::new(program);
+    compiler_env::apply(&mut command);
     for (key, _) in env::vars_os() {
         let name = key.to_string_lossy().to_ascii_uppercase();
         if name.starts_with("SUSI_")
