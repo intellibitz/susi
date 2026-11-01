@@ -570,6 +570,16 @@ fn a_branch_push_starts_from_the_cache_main_writes() {
          main, so its own cache was unreadable by every fresh agent branch - each task's \
          first push compiled the workspace cold (7.5 min against 0.8 once warm)"
     );
+    assert_eq!(
+        value_of(&check.body, "SCCACHE_GHA_RW_MODE").as_deref(),
+        Some("READ_ONLY"),
+        "branch compiler cache entries cannot warm other branches and evict main's caches"
+    );
+    assert_ne!(
+        value_of(&lint.body, "SCCACHE_GHA_RW_MODE").as_deref(),
+        Some("READ_ONLY"),
+        "main must still populate the shared compiler cache"
+    );
     let save = value_of(&check.body, "save-if").unwrap_or_default();
     assert!(
         save.contains("refs/heads/main"),
