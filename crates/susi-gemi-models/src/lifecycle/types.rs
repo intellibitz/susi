@@ -1,6 +1,41 @@
 //! Lifecycle verification / agent report types.
 use serde::{Deserialize, Serialize};
 
+/// Preparation status is control flow, not an inferred meaning of display text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelProvisioningOutcome {
+    Active,
+    Ready(String),
+    Queued,
+    DownloadsDisabled,
+    OfflineNoModel,
+    TooSmall,
+}
+
+impl ModelProvisioningOutcome {
+    pub fn terminal_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::DownloadsDisabled => Some("Automatic downloads disabled"),
+            Self::OfflineNoModel => Some(
+                "No admitted local model is cached; network policy prevents automatic provisioning",
+            ),
+            Self::TooSmall => {
+                Some("Available RAM or disk cannot safely accommodate the small starter")
+            }
+            Self::Active | Self::Ready(_) | Self::Queued => None,
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Active => "Automatic provisioning already active".into(),
+            Self::Ready(model) => format!("Using verified cached local model {model}"),
+            Self::Queued => "Audited 0.5B starter queued; larger downloads require task evidence and resource admission".into(),
+            Self::DownloadsDisabled | Self::OfflineNoModel | Self::TooSmall => self.terminal_reason().unwrap_or_default().into(),
+        }
+    }
+}
+
 pub struct ModelVerificationResult {
     pub model_id: String,
     pub path: String,

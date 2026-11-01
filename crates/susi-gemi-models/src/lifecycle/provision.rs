@@ -220,9 +220,15 @@ impl ModelManager {
     }
 
     pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
+        Self::prepare_hardware_optimal_models(workspace).map(|outcome| outcome.summary())
+    }
+
+    pub fn prepare_hardware_optimal_models(
+        workspace: &Path,
+    ) -> EaiResult<ModelProvisioningOutcome> {
         static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let Ok(_planning) = PLANNING.try_lock() else {
-            return Ok("Automatic provisioning already active".into());
+            return Ok(ModelProvisioningOutcome::Active);
         };
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if cfg
@@ -231,24 +237,21 @@ impl ModelManager {
             .and_then(|v| v.as_bool())
             == Some(false)
         {
-            return Ok("Automatic downloads disabled".into());
+            return Ok(ModelProvisioningOutcome::DownloadsDisabled);
         }
         // Selection admits both actual weights and tokenizer and uses current
         // resource budgets. Retain a better verified cache instead of spending
         // bandwidth/disk on another model merely because a GPU is present.
         if let Some(cached) = Self::identify_best_suited_local_model(workspace, None) {
-            return Ok(format!(
-                "Using verified cached local model {}",
-                cached.model_id()
-            ));
+            return Ok(ModelProvisioningOutcome::Ready(cached.model_id().into()));
         }
         let models_dir = Self::get_models_dir();
-        let available =
-            (HardwareProfiler::determine_available_ram_gb() as u64).saturating_mul(1_073_741_824);
-        let reserve = (cfg.model_scoring_heuristics().system_ram_buffer_gb.max(0.0) as f64
-            * 1_073_741_824.0) as u64;
+        let available = HardwareProfiler::determine_available_ram_bytes();
         let host = crate::zc_first_model::FirstRunHost {
-            ram: available.saturating_sub(reserve),
+            ram: Self::inference_headroom_bytes(
+                available,
+                cfg.model_scoring_heuristics().system_ram_buffer_gb,
+            ),
             vram: HardwareProfiler::gpu_vram_budget_bytes(),
             disk: HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000),
             offline: !crate::susi_core::mac_policy::egress_permitted("https://huggingface.co/"),
@@ -268,17 +271,14 @@ impl ModelManager {
                     .start_download(&plan.url)
                     .map_err(crate::susi_error::EaiError::inference)?;
                 Self::ensure_ladder_tokenizer(&step, &models_dir, &cfg)?;
-                Ok("Audited 0.5B starter queued; larger downloads require task evidence and resource admission".into())
+                Ok(ModelProvisioningOutcome::Queued)
             }
-            crate::zc_first_model::FirstRunPlan::OfflineNoModel => Ok(
-                "No admitted local model is cached; network policy prevents automatic provisioning"
-                    .into(),
-            ),
-            crate::zc_first_model::FirstRunPlan::TooSmall => {
-                Ok("Available RAM or disk cannot safely accommodate the small starter".into())
+            crate::zc_first_model::FirstRunPlan::OfflineNoModel => {
+                Ok(ModelProvisioningOutcome::OfflineNoModel)
             }
+            crate::zc_first_model::FirstRunPlan::TooSmall => Ok(ModelProvisioningOutcome::TooSmall),
             crate::zc_first_model::FirstRunPlan::UseCached { .. } => {
-                Ok("Using verified cached local model".into())
+                Ok(ModelProvisioningOutcome::Ready(String::new()))
             }
         }
     }
@@ -378,6 +378,32 @@ impl ModelManager {
 #[cfg(test)]
 mod license_tests {
     use super::*;
+    #[test]
+    fn fractional_gib_preserves_reserve_and_admits_the_audited_starter() {
+        let available = (4.95_f64 * 1_073_741_824.0) as u64;
+        let host = crate::zc_first_model::FirstRunHost {
+            ram: ModelManager::inference_headroom_bytes(available, 4.0),
+            disk: 2_000_000_000,
+            offline: false,
+            ..Default::default()
+        };
+        assert_eq!(host.ram, available - 4 * 1_073_741_824);
+        assert!(matches!(
+            ModelManager::automatic_download_plan(&host, Path::new("unused-models")),
+            crate::zc_first_model::FirstRunPlan::Fetch { .. }
+        ));
+        for available in [0, 4 * 1_073_741_824, 4 * 1_073_741_824 + 999_999_999] {
+            let too_small = crate::zc_first_model::FirstRunHost {
+                ram: ModelManager::inference_headroom_bytes(available, 4.0),
+                ..host
+            };
+            assert!(matches!(
+                ModelManager::automatic_download_plan(&too_small, Path::new("unused-models")),
+                crate::zc_first_model::FirstRunPlan::TooSmall
+            ));
+        }
+    }
+
     #[test]
     fn unverified_existing_tokenizer_is_not_overwritten() {
         let dir = std::env::temp_dir().join(format!(

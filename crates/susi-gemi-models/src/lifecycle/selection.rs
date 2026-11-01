@@ -83,19 +83,82 @@ impl ModelManager {
         reserve_gb: f32,
         overhead: f32,
     ) -> bool {
+        if !available_gb.is_finite() || available_gb < 0.0 {
+            return false;
+        }
+        // Compatibility API for callers that already supply coarse GiB.
+        // Production admission below observes bytes directly.
+        if !Self::resident(path) {
+            return path.metadata().is_ok_and(|metadata| {
+                Self::fits_memory(
+                    metadata.len() as f32 / 1_073_741_824.0,
+                    available_gb,
+                    reserve_gb,
+                    overhead,
+                )
+            });
+        }
+        Self::weight_allocation_fits_memory_bytes(
+            path,
+            (f64::from(available_gb) * 1_073_741_824.0) as u64,
+            reserve_gb,
+            overhead,
+        )
+    }
+
+    /// Retain the configured reserve while accounting in bytes, including the
+    /// fractional GiB that the human-readable hardware profile omits.
+    pub(crate) fn inference_headroom_bytes(available: u64, reserve_gb: f32) -> u64 {
+        if !reserve_gb.is_finite() {
+            return 0;
+        }
+        let reserve = (f64::from(reserve_gb.max(0.0)) * 1_073_741_824.0).ceil() as u64;
+        available.saturating_sub(reserve)
+    }
+
+    pub(crate) fn allocation_fits_available_bytes(
+        size: u64,
+        available: u64,
+        reserve_gb: f32,
+        overhead: f32,
+        resident: bool,
+    ) -> bool {
+        if size == 0 || !overhead.is_finite() || !reserve_gb.is_finite() {
+            return false;
+        }
+        let factor = f64::from(overhead.max(1.0));
+        let required = if resident {
+            ((size as f64 * (factor - 1.0)).ceil()).max(67_108_864.0)
+        } else {
+            (size as f64 * factor).ceil()
+        };
+        let budget = if resident {
+            available
+        } else {
+            Self::inference_headroom_bytes(available, reserve_gb)
+        };
+        required < u64::MAX as f64 && (required as u64) <= budget
+    }
+
+    pub fn weight_allocation_fits_memory_bytes(
+        path: &Path,
+        available: u64,
+        reserve_gb: f32,
+        overhead: f32,
+    ) -> bool {
         let Ok(metadata) = path.metadata() else {
             return false;
         };
-        let size = metadata.len() as f32 / 1073741824.0;
         // Existing weights need inference workspace, not another weights+OS
         // reservation. Preserve the configured overhead, with a 64MiB floor
         // for incremental work; zero/invalid free memory never admits reuse.
-        let incremental = (size * (overhead.max(1.0) - 1.0)).max(1.0 / 16.0);
-        (available_gb.is_finite()
-            && overhead.is_finite()
-            && available_gb >= incremental
-            && Self::resident(path))
-            || Self::fits_memory(size, available_gb, reserve_gb, overhead)
+        Self::allocation_fits_available_bytes(
+            metadata.len(),
+            available,
+            reserve_gb,
+            overhead,
+            Self::resident(path),
+        )
     }
 
     /// Recheck the unchanged cold-allocation budget immediately before a load.
@@ -105,11 +168,12 @@ impl ModelManager {
             return false;
         };
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        Self::fits_memory(
-            metadata.len() as f32 / 1073741824.0,
-            HardwareProfiler::determine_available_ram_gb() as f32,
+        Self::allocation_fits_available_bytes(
+            metadata.len(),
+            HardwareProfiler::determine_available_ram_bytes(),
             cfg.model_scoring_heuristics().system_ram_buffer_gb,
             cfg.model_lifecycle().memory_overhead_ratio,
+            false,
         )
     }
 
@@ -219,6 +283,7 @@ impl ModelManager {
         complexity: Option<crate::intent::TaskComplexity>,
     ) -> Option<DynamicModelInfo> {
         let hw = HardwareProfiler::get_profile();
+        let available_ram_bytes = HardwareProfiler::determine_available_ram_bytes();
         let models = Self::list_models(workspace);
         let local_models: Vec<DynamicModelInfo> = models
             .into_iter()
@@ -240,9 +305,9 @@ impl ModelManager {
             .into_iter()
             .filter_map(|m| {
                 let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
-                Self::weight_allocation_fits_memory(
+                Self::weight_allocation_fits_memory_bytes(
                     Path::new(m.model_id()),
-                    hw.available_ram_gb as f32,
+                    available_ram_bytes,
                     heuristics.system_ram_buffer_gb,
                     cfg.model_lifecycle().memory_overhead_ratio,
                 )
@@ -420,9 +485,9 @@ impl ModelManager {
                     let cfg =
                         crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
                     if Self::admitted_local_path(&path)
-                        && Self::weight_allocation_fits_memory(
+                        && Self::weight_allocation_fits_memory_bytes(
                             &path,
-                            HardwareProfiler::determine_available_ram_gb() as f32,
+                            HardwareProfiler::determine_available_ram_bytes(),
                             cfg.model_scoring_heuristics().system_ram_buffer_gb,
                             cfg.model_lifecycle().memory_overhead_ratio,
                         )
@@ -609,6 +674,42 @@ impl ModelManager {
 #[cfg(test)]
 mod selection_tests {
     use super::ModelManager;
+
+    #[test]
+    fn cold_allocation_uses_exact_bytes_and_preserves_reserve() {
+        let size = 428_730_208;
+        let reserve = 4 * 1_073_741_824;
+        let required = 535_912_760; // Actual starter bytes * unchanged 1.25 overhead.
+        assert!(ModelManager::allocation_fits_available_bytes(
+            size,
+            (4.95_f64 * 1_073_741_824.0) as u64,
+            4.0,
+            1.25,
+            false,
+        ));
+        assert!(ModelManager::allocation_fits_available_bytes(
+            size,
+            reserve + required,
+            4.0,
+            1.25,
+            false,
+        ));
+        for available in [0, reserve, reserve + required - 1] {
+            assert!(!ModelManager::allocation_fits_available_bytes(
+                size, available, 4.0, 1.25, false,
+            ));
+        }
+        assert!(!ModelManager::allocation_fits_available_bytes(
+            size, 0, 4.0, 1.25, true
+        ));
+        assert!(!ModelManager::allocation_fits_available_bytes(
+            size,
+            u64::MAX,
+            f32::NAN,
+            1.25,
+            false
+        ));
+    }
 
     #[test]
     fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {

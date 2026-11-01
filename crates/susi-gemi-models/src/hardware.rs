@@ -675,15 +675,21 @@ impl HardwareProfiler {
         8
     }
 
+    /// Coarse display value; admission must use the exact byte observation.
     pub fn determine_available_ram_gb() -> usize {
+        (Self::determine_available_ram_bytes() / 1_073_741_824) as usize
+    }
+
+    /// Available physical memory without rounding away inference headroom.
+    pub fn determine_available_ram_bytes() -> u64 {
         if cfg!(target_os = "linux") {
             if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
                 for line in content.lines() {
                     if line.starts_with("MemAvailable:") {
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if let Some(kb_str) = parts.get(1) {
-                            if let Ok(kb) = kb_str.parse::<usize>() {
-                                return kb / (1024 * 1024);
+                            if let Ok(kb) = kb_str.parse::<u64>() {
+                                return kb.saturating_mul(1024);
                             }
                         }
                     }
@@ -716,12 +722,12 @@ impl HardwareProfiler {
                             .ok()
                     })
                     .sum();
-                return (pages.saturating_mul(page_size) / 1073741824) as usize;
+                return pages.saturating_mul(page_size);
             }
         }
         #[cfg(windows)]
         if let Some((_, avail_phys, _)) = win32_hw::memory_status() {
-            return (avail_phys / (1024 * 1024 * 1024)) as usize;
+            return avail_phys;
         }
         0 // Unknown available memory must not authorize automatic downloads.
     }

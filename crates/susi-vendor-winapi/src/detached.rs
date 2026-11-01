@@ -96,13 +96,9 @@ pub fn spawn(
     let mut entries = Vec::with_capacity(environment.len());
     for (key, value) in environment {
         let key = wide(key)?;
-        // Windows drive-current-directory entries (=C:) are legal special keys.
-        let drive = key.len() == 3
-            && key[0] == b'=' as u16
-            && key[2] == b':' as u16
-            && (key[1] as u8).is_ascii_alphabetic()
-            && key[1] < 128;
-        if key.is_empty() || (!drive && key.contains(&(b'=' as u16))) {
+        // Hidden shell entries start with '=' (=C:, =ExitCode): legal keys, so
+        // only an '=' after the first unit would corrupt the block.
+        if key.is_empty() || key[1..].contains(&(b'=' as u16)) {
             return Err(invalid("invalid environment key"));
         }
         let mut entry = key.clone();
@@ -323,6 +319,25 @@ mod tests {
             &[("PATH".into(), "a".into()), ("path".into(), "b".into())]
         )
         .is_err());
+        assert!(spawn(&exe, &[], &cwd, &[("A=B".into(), "c".into())]).is_err());
         assert!(spawn(&cwd.join("susi-missing-detached-test.exe"), &[], &cwd, &[]).is_err());
+    }
+
+    #[test]
+    fn hidden_shell_environment_entries_are_accepted() {
+        // cmd.exe hands every child =ExitCode and =<drive>: entries.
+        let exe = std::env::current_exe().unwrap();
+        let hidden = [
+            ("=ExitCode".into(), "00000000".into()),
+            ("=C:".into(), "C:\\".into()),
+            ("SystemRoot".into(), std::env::var_os("SystemRoot").unwrap()),
+        ];
+        spawn(
+            &exe,
+            &["--exact".into(), "detached::tests::missing_test".into()],
+            &std::env::temp_dir(),
+            &hidden,
+        )
+        .unwrap();
     }
 }
