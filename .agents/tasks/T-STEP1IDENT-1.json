@@ -1,0 +1,11 @@
+{
+  "id": "T-STEP1IDENT-1",
+  "title": "Replace bundled identifier tables with bounded compiler and OS queries",
+  "goal": "Remove the Unicode license blocker without data relabeling or predicate guesses; preserve typed capability failures",
+  "size": "l",
+  "deps": ["T-STEP1UNICODE-1"],
+  "accept": {"cmd": ["cargo", "test", "--manifest-path", "vendor/unicode-ident/Cargo.toml", "--offline"]},
+  "created_by": "STEP1IDENT",
+  "created_unix": 1793554000,
+  "notes": "Standalone tests require the integrated platform adapter patch. Final acceptance additionally requires full combined source tests, production gates and actual first-goal verification. Not closed by component tests."
+}
