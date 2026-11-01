@@ -251,9 +251,6 @@ impl ModelManager {
                 .filter(|s| s.expected_bytes <= vram_budget_bytes)
                 .max_by_key(|s| s.expected_bytes)
             {
-                if let Err(e) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
-                    return Err(crate::susi_error::EaiError::inference(e.to_string()));
-                }
                 let path = models_dir.join(&step.hf_file);
                 if !Self::is_complete_model_file(&path, step.min_bytes) {
                     let url = format!(
@@ -267,6 +264,10 @@ impl ModelManager {
                         .map_err(crate::susi_error::EaiError::inference)?;
                     queued += 1;
                 }
+                // Transfer weights while preparing the tokenizer. Selection
+                // requires both validated artifacts before using the model.
+                Self::ensure_ladder_tokenizer(step, &models_dir, &cfg)
+                    .map_err(|e| crate::susi_error::EaiError::inference(e.to_string()))?;
             }
 
             // Additional tiered prefetch (disk-budget gated).
@@ -297,10 +298,6 @@ impl ModelManager {
                 {
                     continue;
                 }
-                if let Err(error) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
-                    errors.push(error.to_string());
-                    continue;
-                }
                 if !complete {
                     let url = format!(
                         "{}/{}/resolve/main/{}",
@@ -314,27 +311,28 @@ impl ModelManager {
                     remaining = remaining.saturating_sub(needed);
                     queued += 1;
                 }
+                if let Err(error) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
+                    errors.push(error.to_string());
+                }
             }
         } else if available_ram_gb >= CPU_FALLBACK_MIN_RAM_GB {
             // ── No GPU, sufficient RAM: download only the smallest model ──
             if let Some(step) = ladder.iter().min_by_key(|s| s.expected_bytes) {
-                if let Err(e) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
-                    errors.push(e.to_string());
-                } else {
-                    let path = models_dir.join(&step.hf_file);
-                    if !Self::is_complete_model_file(&path, step.min_bytes) {
-                        let url = format!(
-                            "{}/{}/resolve/main/{}",
-                            cfg.hf_base_url(),
-                            step.hf_repo,
-                            step.hf_file
-                        );
-                        ModelDownloadController::global()
-                            .start_download(&url)
-                            .map_err(crate::susi_error::EaiError::inference)?;
-                        queued += 1;
-                    }
+                let path = models_dir.join(&step.hf_file);
+                if !Self::is_complete_model_file(&path, step.min_bytes) {
+                    let url = format!(
+                        "{}/{}/resolve/main/{}",
+                        cfg.hf_base_url(),
+                        step.hf_repo,
+                        step.hf_file
+                    );
+                    ModelDownloadController::global()
+                        .start_download(&url)
+                        .map_err(crate::susi_error::EaiError::inference)?;
+                    queued += 1;
                 }
+                Self::ensure_ladder_tokenizer(step, &models_dir, &cfg)
+                    .map_err(|e| crate::susi_error::EaiError::inference(e.to_string()))?;
             }
         }
         // else: No GPU + low RAM → skip local downloads entirely (cloud-only).

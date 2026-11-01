@@ -1,7 +1,7 @@
 //! Resumable artifact transfer. A model becomes visible only after validation.
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -106,6 +106,57 @@ fn range_bounds(value: &str) -> Option<(u64, u64, u64)> {
     (start <= end && end < total).then_some((start, end, total))
 }
 
+fn hf_cache_roots() -> Vec<PathBuf> {
+    // Unit tests supply disposable roots directly, never the user's cache.
+    if cfg!(test) {
+        return Vec::new();
+    }
+    let mut roots = Vec::new();
+    for key in ["HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"] {
+        if let Some(path) = std::env::var_os(key) {
+            roots.push(PathBuf::from(path));
+        }
+    }
+    if let Some(home) = std::env::var_os("HF_HOME") {
+        roots.push(PathBuf::from(home).join("hub"));
+    }
+    if let Some(cache) = std::env::var_os("XDG_CACHE_HOME") {
+        roots.push(PathBuf::from(cache).join("huggingface/hub"));
+    }
+    roots.push(susi_paths::SusiDirs::home_dir().join(".cache/huggingface/hub"));
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn verified_hf_cache_asset(url: &str, digest: &str, roots: &[PathBuf]) -> Option<PathBuf> {
+    let digest = linked_etag_digest(digest)?;
+    let parsed = url::Url::parse(url).ok()?;
+    let segments: Vec<_> = parsed.path_segments()?.collect();
+    if segments.len() < 5 || segments[2] != "resolve" {
+        return None;
+    }
+    let safe = |name: &str| {
+        !name.is_empty()
+            && name != "."
+            && name != ".."
+            && name
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    };
+    if !safe(segments[0]) || !safe(segments[1]) {
+        return None;
+    }
+    let relative = format!("models--{}--{}/blobs/{digest}", segments[0], segments[1]);
+    roots.iter().find_map(|root| {
+        let path = root.join(&relative);
+        (path.is_file()
+            && susi_vendor_models::resumable_downloads::verify_file(&path, &digest)
+                .unwrap_or(false))
+        .then_some(path)
+    })
+}
+
 #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 pub(crate) fn transfer(
     url: &str,
@@ -150,6 +201,26 @@ pub(crate) fn transfer(
     if destination.is_file() && validate(destination) {
         let size = destination.metadata().map_err(|e| e.to_string())?.len();
         progress(size, size);
+        return Ok(());
+    }
+    // The publisher's digest identifies an exact existing HF blob. Verify it
+    // before replacing a resumable prefix, then verify the copied bytes again
+    // through normal publication. A cache name alone is never trusted.
+    if let Some((expected, cached)) = expected_sha256
+        .and_then(|expected| {
+            verified_hf_cache_asset(url, expected, &hf_cache_roots())
+                .map(|cached| (expected, cached))
+        })
+        .filter(|(_, cached)| validate(cached))
+    {
+        if cancelled() {
+            return Err("Download cancelled".into());
+        }
+        fs::copy(&cached, &part).map_err(|e| e.to_string())?;
+        publish(&part, destination, url, Some(expected))?;
+        let size = destination.metadata().map_err(|e| e.to_string())?.len();
+        progress(size, size);
+        eprintln!("Using a verified model from your existing Hugging Face cache.");
         return Ok(());
     }
     // Migrate interrupted downloads created by older SUSI versions.
@@ -257,13 +328,17 @@ pub(crate) fn transfer(
             return Err("Insufficient free disk for remaining download".into());
         }
     }
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .create(true)
         .write(true)
         .append(partial)
         .truncate(!partial)
         .open(&part)
         .map_err(|e| e.to_string())?;
+    // HTTP readers can return one small TLS record at a time despite the
+    // caller's large read buffer. Batch those writes without growing memory
+    // with artifact size; interrupted transfers still resume from disk length.
+    let mut file = BufWriter::with_capacity(1024 * 1024, file);
     let mut downloaded = start;
     let mut buffer = vec![0; 1024 * 1024];
     progress(downloaded, total);
@@ -281,7 +356,8 @@ pub(crate) fn transfer(
         downloaded += count as u64;
         progress(downloaded, total);
     }
-    file.sync_all().map_err(|e| e.to_string())?;
+    file.flush().map_err(|e| e.to_string())?;
+    file.get_ref().sync_all().map_err(|e| e.to_string())?;
     drop(file);
     if total > 0 && downloaded != total {
         return Err("Incomplete response body".into());
@@ -304,6 +380,30 @@ mod tests {
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn existing_hf_blob_requires_exact_repo_and_verified_publisher_digest() {
+        use sha2::Digest;
+        let root = workspace("hf_cache");
+        let body = b"a cached artifact";
+        let digest = hex::encode(sha2::Sha256::digest(body));
+        let blob = root.join(format!("models--owner--model/blobs/{digest}"));
+        fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        fs::write(&blob, body).unwrap();
+        let roots = std::slice::from_ref(&root);
+        let url = "https://huggingface.co/owner/model/resolve/main/model.gguf";
+        assert_eq!(
+            verified_hf_cache_asset(url, &digest, roots),
+            Some(blob.clone())
+        );
+        assert!(verified_hf_cache_asset(url, "not-a-digest", roots).is_none());
+        assert!(
+            verified_hf_cache_asset(&url.replace("/model/", "/other/"), &digest, roots).is_none()
+        );
+        fs::write(&blob, b"corrupt despite the matching filename").unwrap();
+        assert!(verified_hf_cache_asset(url, &digest, roots).is_none());
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn server(
@@ -337,8 +437,14 @@ mod tests {
         let dir = workspace("resume");
         let path = dir.join("model.gguf");
         let (url, server) = server(vec![
-            ("get /model.gguf", "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nabcde"),
-            ("range: bytes=5-", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 5-9/10\r\nContent-Length: 5\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nfghij"),
+            (
+                "get /model.gguf",
+                "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nabcde",
+            ),
+            (
+                "range: bytes=5-",
+                "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 5-9/10\r\nContent-Length: 5\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nfghij",
+            ),
         ]);
         let validate = |p: &Path| fs::read(p).is_ok_and(|b| b == b"abcdefghij");
         assert!(transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate, None).is_err());
@@ -355,7 +461,10 @@ mod tests {
     fn ignored_range_restarts_without_appending() {
         let dir = workspace("ignored_range");
         let path = dir.join("model.gguf");
-        let (url, server) = server(vec![("range: bytes=5-", "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"v2\"\r\nConnection: close\r\n\r\nabcdefghij")]);
+        let (url, server) = server(vec![(
+            "range: bytes=5-",
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"v2\"\r\nConnection: close\r\n\r\nabcdefghij",
+        )]);
         fs::write(dir.join("model.gguf.part"), b"XXXXX").unwrap();
         fs::write(
             dir.join("model.gguf.download.json"),
@@ -383,10 +492,54 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_keeps_buffered_prefix_unpublished_and_resumable() {
+        let dir = workspace("cancel_resume");
+        let path = dir.join("model.gguf");
+        let (url, server) = server(vec![
+            (
+                "get /model.gguf",
+                "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nabcdefghij",
+            ),
+            (
+                "range: bytes=10-",
+                "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */10\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            ),
+        ]);
+        let done = std::cell::Cell::new(0);
+        let validate = |p: &Path| fs::read(p).is_ok_and(|bytes| bytes == b"abcdefghij");
+        assert_eq!(
+            transfer(
+                &url,
+                &path,
+                5,
+                None,
+                &|| done.get() == 10,
+                &|bytes, _| done.set(bytes),
+                &validate,
+                None,
+            )
+            .unwrap_err(),
+            "Download cancelled"
+        );
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read(dir.join("model.gguf.part")).unwrap(),
+            b"abcdefghij"
+        );
+        transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate, None).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"abcdefghij");
+        server.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn mismatched_resume_offset_never_publishes() {
         let dir = workspace("bad_range");
         let path = dir.join("model.gguf");
-        let (url, server) = server(vec![("range: bytes=5-", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-9/10\r\nContent-Length: 6\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nefghij")]);
+        let (url, server) = server(vec![(
+            "range: bytes=5-",
+            "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-9/10\r\nContent-Length: 6\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nefghij",
+        )]);
         fs::write(dir.join("model.gguf.part"), b"abcde").unwrap();
         fs::write(
             dir.join("model.gguf.download.json"),
