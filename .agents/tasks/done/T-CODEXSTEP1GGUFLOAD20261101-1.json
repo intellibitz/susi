@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CODEXSTEP1GGUFLOAD20261101",
-  "created_unix": 1793534520
+  "created_unix": 1793534520,
+  "closed": {
+    "at_unix": 1793534863,
+    "commit": "99da8510e6fa3dd6d436dccad132956fa1951eb5",
+    "by": "CODEXSTEP1GGUFLOAD20261101"
+  }
 }
