@@ -620,9 +620,18 @@ registry unit's source file by its absolute path, which lives under
 `/root/.cargo`. (Workspace members are hashed relative to the workspace root,
 which is why the laptop's seeding, within one machine, never met this.) The
 job now fetches the registry into `/root/.cargo` and builds under it, like the
-container; the snapshot is republished with the next run and the seeded build
-re-measured then. The expected shape is a first build of the ~80 workspace
-crates only.
+container. Re-measured against that snapshot, in the same clone, same host:
+
+| step | cold | seeded (snapshot built under `/root/.cargo`) |
+| --- | --- | --- |
+| `scripts/cloud-target-seed.sh` | — | 68 s (1.45 GB, 2 957 files) |
+| `cargo build` | 742 s | **93 s** — the first unit compiled was `susi-vendor-serde-json`: workspace crates only |
+| dependents' clippy (the five-package `--all-targets` lint) | 232 s | **35 s** |
+
+So a cloud session's first build is 161 s instead of 742 s including the
+seeding, and the gate's dependents clippy pays for workspace check units only.
+The publishing run itself takes about 18 minutes (13 min build, 3 min export
+and upload), once per key.
 
 The first measurement also found the hook deriving the release URL from a
 clone URL ending in `.git` (a hand clone's; the harness's does not), looking
