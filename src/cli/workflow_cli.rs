@@ -12,9 +12,11 @@ use susi_gawd::worker_identity;
 pub enum WorkflowCommands {
     /// Fetch and merge origin/main into a clean agent worktree.
     Sync,
-    /// Verify, close, push, publish the close receipt and release ownership;
-    /// the branch run and the merge are the machinery's (a red run is
-    /// reported at the next `sync`).
+    /// Verify, close, push, publish the close receipt and release ownership.
+    /// A cloud session's release is applied by GitHub Actions; finish returns
+    /// once that request is published, and the next claim waits only for what
+    /// the run still has left. The branch run and the merge stay the
+    /// machinery's (a red run is reported at the next `sync`).
     Finish {
         id: String,
         /// Poll the branch run in-line instead: stop on a red run, hand off on
@@ -230,6 +232,16 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
     let mut checks = workflow::evaluate(&facts);
     // Right after "own worktree": whose worktree it is comes before anything else.
     checks.insert(1.min(checks.len()), worker_identity::check(&identity));
+    // A deferred release is still GitHub's. Say so without waiting: the next
+    // claim settles it, and check stays a read.
+    if let Some(detail) = crate::cli::tasks_cli::release_still_with_github(&root) {
+        checks.push(workflow::Check {
+            name: "queue",
+            state: State::Warn,
+            detail,
+            fix: "keep working; the next `susi tasks claim` settles the release".to_string(),
+        });
+    }
     let ok = workflow::ok(&checks);
     if json {
         print_json(&serde_json::json!({ "ok": ok, "agent": agent, "checks": checks }))?;
@@ -422,6 +434,12 @@ fn sync_primary(root: &Path) {
     }
 }
 
+/// The default finish hands the release to GitHub and returns. `--wait` asked
+/// to stay until the run is decided, so it confirms the release itself.
+fn finish_wants_queue_defer(args: &[&str]) -> bool {
+    matches!(args.first(), Some(&"finish")) && !args.contains(&"--wait")
+}
+
 fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
     // Windows cannot relink a running executable, and `finish` runs cargo for
     // its gate. Hand the long-running machinery to a copy outside the cargo
@@ -432,6 +450,14 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
     let root = crate::cli::tasks_cli::repo_root(cwd);
     let script = root.join("scripts/parallel-workflow.sh");
     let mut cmd = workflow_script_command(&script, args);
+    // The script's `tasks release` is a child of this process. A finish that
+    // is not polling the run publishes the release and returns; GitHub applies
+    // it while the worker starts the next task. `SUSI_QUEUE_DEFER=0` keeps
+    // the release on the waiting path. `--wait` still confirms before it
+    // returns, because that session asked to see the run through.
+    if finish_wants_queue_defer(args) && std::env::var_os("SUSI_QUEUE_DEFER").is_none() {
+        cmd.env("SUSI_QUEUE_DEFER", "1");
+    }
     let status = cmd
         .env("SUSI_WORKFLOW_BIN", std::env::current_exe()?)
         .current_dir(&root)
@@ -610,6 +636,14 @@ mod finish_exec_guard {
         let file = dir.join("susi.exe");
         std::fs::write(&file, bytes).unwrap();
         file
+    }
+
+    #[test]
+    fn finish_hands_a_release_to_github_unless_it_is_waiting() {
+        assert!(finish_wants_queue_defer(&["finish", "T-A-1"]));
+        assert!(finish_wants_queue_defer(&["finish", "T-A-1", "--no-wait"]));
+        assert!(!finish_wants_queue_defer(&["finish", "T-A-1", "--wait"]));
+        assert!(!finish_wants_queue_defer(&["sync"]));
     }
 
     #[test]
