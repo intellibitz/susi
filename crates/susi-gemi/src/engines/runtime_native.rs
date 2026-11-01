@@ -20,11 +20,12 @@ pub trait NativeInferenceEngine: Send + Sync {
     ) -> EaiResult<String>;
 }
 
+/// Legacy registry/API spelling. This delegates to the in-process Rust Candle engine.
 pub struct LlamaCppEngine;
 
 impl NativeInferenceEngine for LlamaCppEngine {
     fn name(&self) -> String {
-        "LlamaCppEngine".to_string()
+        "CandleGgufEngine".to_string()
     }
     fn run_inference(&self, prompt: &str) -> EaiResult<String> {
         // Native Priority: Use the hardened SusiGgufEngine directly
@@ -44,7 +45,7 @@ pub struct SusiGgufEngine;
 
 impl NativeInferenceEngine for SusiGgufEngine {
     fn name(&self) -> String {
-        "SusiGgufEngine".to_string()
+        "CandleGgufEngine".to_string()
     }
 
     fn run_inference(&self, prompt: &str) -> EaiResult<String> {
@@ -288,9 +289,12 @@ impl SusiGgufEngine {
             .map_err(|e| EaiError::inference(format!("Decoding Error: {}", e)))?;
         text_stream.finish(&output, callback);
         tracing::debug!(
+            backend = "candle",
+            model = %model_path.display(),
             generated_tokens = all_tokens.len(),
+            output_bytes = output.len(),
             elapsed_ms = generation_started.elapsed().as_millis(),
-            "Native generation complete"
+            "In-process Rust Candle generation complete"
         );
         task_handle.mark_completed(&output);
         Ok(output)
@@ -410,9 +414,26 @@ pub fn engine_registry() -> &'static DynamicServiceRegistry {
         registry.register_factory("cloud", || {
             Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>)
         });
+        registry.register_factory("candle", || {
+            Arc::new(Arc::new(SusiGgufEngine) as Arc<dyn NativeInferenceEngine>)
+        });
         registry.register_factory("llamacpp", || {
             Arc::new(Arc::new(LlamaCppEngine) as Arc<dyn NativeInferenceEngine>)
         });
         registry
     })
+}
+
+#[cfg(test)]
+mod candle_routing_tests {
+    use super::*;
+    #[test]
+    fn canonical_and_legacy_registry_names_resolve_to_rust_candle() {
+        for key in ["candle", "llamacpp"] {
+            let engine = engine_registry()
+                .instantiate::<Arc<dyn NativeInferenceEngine>>(key)
+                .unwrap();
+            assert_eq!(engine.name(), "CandleGgufEngine");
+        }
+    }
 }
