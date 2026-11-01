@@ -323,3 +323,30 @@ directory. The guest remains preserved for diagnosis; a rerun cannot be called
 uncached without a separately verified fresh profile or clean guest. This
 result supersedes the earlier host-permission blocker but does not supersede
 the still-open standard-library license and production qualification gates.
+
+
+### Authenticated private standard library
+
+The official Rust1.99.0 rust-src archive was fetched from the Rust distribution
+service and its SHA256 verified against the separately fetched official channel
+manifest. The tracked hash-only manifest covers all3,608 original library files,
+including vendored build dependencies; it redistributes no Unicode tables.
+The native verifier admits exactly the reviewed Windows Unicode backend change
+and the three documented char const-API removals. Missing, extra, changed or
+redirected source files fail verification.
+
+Integration and qualification execute the tracked offline builder freshly for
+each acceptance operation. A JSON receipt or Git reference cannot substitute
+for that execution. The operation retains an in-memory selection, checks the
+stable consumer, and holds Windows read handles denying archive write/delete
+through all compiler commands. Artifact hashes are checked again afterward.
+All product and local helper builds in that operation receive the same explicit
+sysroot after inherited compiler flags are cleared. Original upstream notices
+are retained unchanged together with the selected graph and exact source delta.
+Production still requires the complete test, source, native-link, inference and
+promotion gates; a successful standard-library build alone does not qualify it.
+
+The initial correctness baseline rebuilds the private standard library for each
+operation; nested bootstrap/build operations can repeat this work. Build elapsed
+time is recorded. Faster cache reuse is intentionally deferred until exact
+reviewed artifact pins or equivalent independent verification support it.

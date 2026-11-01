@@ -170,7 +170,16 @@ pub(crate) fn run(args: &[String]) -> io::Result<()> {
         target.display()
     );
     let started = std::time::Instant::now();
-    let status = build_command(&root, &target, &host, profile).status()?;
+    let mut command = build_command(&root, &target, &host, profile);
+    let sysroot = super::trusted_sysroot::prepare(&root)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    sysroot
+        .apply(&mut command)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let status = command.status()?;
+    sysroot
+        .recheck()
+        .map_err(|error| io::Error::other(error.to_string()))?;
     if !status.success() {
         return Err(io::Error::other(format!(
             "local build failed ({status}); see the compiler diagnostics above. If a dependency is missing, provision it before retrying offline"

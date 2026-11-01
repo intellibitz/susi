@@ -17,7 +17,7 @@ use std::process::{Command, ExitCode, Stdio};
 mod compiler_env;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v3\n";
+const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v4\n";
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
@@ -34,6 +34,8 @@ mod prepare_release;
 mod sysroot_license;
 #[path = "../sysroot_sources.rs"]
 mod sysroot_sources;
+#[path = "../trusted_sysroot.rs"]
+mod trusted_sysroot;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
 #[path = "../vendor_regressions.rs"]
@@ -666,7 +668,12 @@ fn native_link_proof(binary: &Path, map: &Path) -> Result<String> {
     ))
 }
 
-fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
+fn run_gates(
+    candidate: &Path,
+    attempt: &Path,
+    host: &str,
+    sysroot: Option<&trusted_sysroot::VerifiedSysroot>,
+) -> Result<String> {
     let target = candidate.join("target");
     let gates: &[&[&str]] = &[
         &["fmt", "--all", "--check"],
@@ -744,7 +751,11 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
-        let status = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?
+        let mut command = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?;
+        if let Some(sysroot) = &sysroot {
+            sysroot.apply(&mut command)?;
+        }
+        let status = command
             .current_dir(candidate)
             .args(args)
             .env("CARGO_TARGET_DIR", &target)
@@ -767,6 +778,13 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
             )
             .into());
         }
+    }
+    if let Some(sysroot) = &sysroot {
+        sysroot.recheck()?;
+        proof.push_str(&format!(
+            "sysroot={}\n",
+            serde_json::to_string(&sysroot.evidence)?
+        ));
     }
     Ok(proof)
 }
@@ -1241,11 +1259,24 @@ fn qualify_with(
         ],
     )?;
     let (host, compiler) = compiler(&candidate)?;
-    if candidate.join("crates/susi-core/Cargo.toml").is_file() {
-        sysroot_license::qualify(&candidate, &attempt, &host, &compiler)?;
+    let sysroot = if candidate.join("crates/susi-core/Cargo.toml").is_file() {
+        Some(sysroot_license::qualify(
+            &candidate, &attempt, &host, &compiler,
+        )?)
+    } else {
+        None
+    };
+    let (sbom, mut notices, native_audit) = inventory(&candidate, &attempt, &host)?;
+    if let Some(sysroot) = &sysroot {
+        notices.push_str("\n===== Original Rust standard-library upstream notices (including omitted upstream components) =====\n");
+        notices.push_str(
+            sysroot.evidence["upstream_copyright"]
+                .as_str()
+                .ok_or("missing original stdlib notices")?,
+        );
+        notices.push_str("\nSelected target dependency graph and exact source delta are retained in manifest-bound gates.txt; upstream notices are preserved without relabeling.\n");
     }
-    let (sbom, notices, native_audit) = inventory(&candidate, &attempt, &host)?;
-    let mut proof = run_gates(&candidate, &attempt, &host)?;
+    let mut proof = run_gates(&candidate, &attempt, &host, sysroot.as_ref())?;
     // Preserve the exact compiler report inside manifest-hashed gate evidence.
     proof.push_str(&format!(
         "compiler-report={}\n",
@@ -1621,6 +1652,9 @@ fn run(args: &[String]) -> Result<()> {
             let imports = pe_imports::inspect(&bytes)?;
             let (entry, map_sha256) = native_link::validate_reader(native_link::entry_address(&bytes)?, std::io::BufReader::new(fs::File::open(&args[2])?), 256 * 1024 * 1024)?;
             println!("{}", serde_json::json!({"diagnostic_only":true,"artifact_sha256":digest(&bytes),"entry":entry,"imports":imports,"map_sha256":map_sha256}));
+        },
+        Some("prepare-sysroot") if args.len() == 1 => {
+            println!("{}", trusted_sysroot::prepare(&ctx.root)?.path().display());
         },
         Some("check-sysroot-sources") if args.len() == 3 => {
             let installed = Command::new("rustc").args(["--print", "sysroot"]).output()?;
