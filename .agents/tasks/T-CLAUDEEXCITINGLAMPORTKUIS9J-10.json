@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-10",
+  "title": "Cloud target seed: build the snapshot under the container CARGO_HOME; the fingerprint hashes the registry source path",
+  "goal": "Registry units are fingerprinted with the absolute path of their source under CARGO_HOME, so a snapshot built under /home/runner/.cargo never matches a container whose CARGO_HOME is /root/.cargo. Build with CARGO_HOME=/root/.cargo, correct the earlier CARGO_INCREMENTAL diagnosis in the docs, republish and re-measure",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session",
+      "cloud_target_seed"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793513766
+}
