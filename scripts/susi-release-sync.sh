@@ -200,7 +200,7 @@ download_release_asset() {
     fi
     local want have
     want="$(awk '{print tolower($1)}' "$dir/${asset}.sha256")"
-    have="$(sha256sum "$dir/$asset" | awk '{print tolower($1)}')"
+    have="$(sha256sum < "$dir/$asset" | awk '{print tolower($1)}')"
     if [ -z "$want" ] || [ "$want" != "$have" ]; then
         log "checksum mismatch for ${asset}; building instead"
         return 0
