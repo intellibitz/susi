@@ -609,26 +609,32 @@ the seeded build began with `Compiling unicode-ident`, `proc-macro2`, `serde`
 — every registry crate again. The units' hashes matched (the same
 `unicode-ident-<hash>` directories in the snapshot and in a target this
 container built itself), so the metadata was right; their fingerprints were
-not. The one input the publishing job added that the container does not was
-`CARGO_INCREMENTAL=0`, and the test is direct: the same seeded target built
-with `CARGO_INCREMENTAL=0` compiled no registry crate at all in its first 45 s
-and only workspace units afterwards. The job now builds with cargo's
-defaults and nothing else — the `incremental/` directories it writes for the
-workspace crates are dropped by the export anyway — and the snapshot is
-republished with the next run; the seeded build is re-measured then, and the
-expected shape is a first build of the ~80 workspace crates only.
+not. The first guess — `CARGO_INCREMENTAL=0`, which the publishing job had and
+the container does not — was wrong: a republish without it measured the same
+(seeding 65 s, build 625 s, dependents' clippy 211 s, `Compiling unicode-ident`
+first again). The fingerprint files settled it. The snapshot's
+`lib-unicode_ident.json` and this container's agree on every field — `rustc`,
+`profile`, `config`, `rustflags`, `features` — except `path`: cargo hashes a
+registry unit's source file by its absolute path, which lives under
+`CARGO_HOME`, and the job's was `/home/runner/.cargo` where the container's is
+`/root/.cargo`. (Workspace members are hashed relative to the workspace root,
+which is why the laptop's seeding, within one machine, never met this.) The
+job now fetches the registry into `/root/.cargo` and builds under it, like the
+container; the snapshot is republished with the next run and the seeded build
+re-measured then. The expected shape is a first build of the ~80 workspace
+crates only.
 
 The first measurement also found the hook deriving the release URL from a
 clone URL ending in `.git` (a hand clone's; the harness's does not), looking
 under a path that does not exist and falling back to a cold build; fixed, with
 `--url` to show the resolved source.
 
-Fingerprint parity across machines otherwise rests on what the laptop seeding
-already relies on — registry units are keyed by package, features, profile and
-compiler, not by the checkout's path or `CARGO_HOME`, and a build script's
-recorded output directory is rewritten by cargo — plus the identical rustflags
-and `ORT_LIB_LOCATION` the workflow reproduces; a unit whose fingerprint does
-not match is simply rebuilt, which is what the first snapshot showed.
+Fingerprint parity across machines, then, needs the same `CARGO_HOME` as
+well as the same compiler, profile, rustflags and `ORT_LIB_LOCATION`; the
+checkout's own path does not matter for the kept units, and a build script's
+recorded output directory is rewritten by cargo. A unit whose fingerprint
+does not match is simply rebuilt, which is what the first two snapshots
+showed.
 
 ## What is not fixed here
 
