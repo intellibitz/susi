@@ -1806,7 +1806,12 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
         !lock.contains("source = \"git+"),
         "development sources must resolve without a Git host"
     );
-    for (name, license) in [("reqwest", "LICENSE-APACHE"), ("esaxx-rs", "LICENSE")] {
+    for (name, license) in [
+        ("reqwest", "LICENSE-APACHE"),
+        ("esaxx-rs", "LICENSE"),
+        ("native-tls", "LICENSE-APACHE"),
+        ("native-tls", "LICENSE-MIT"),
+    ] {
         assert!(root.join("vendor").join(name).join("Cargo.toml").is_file());
         assert!(root.join("vendor").join(name).join(license).is_file());
     }

@@ -6,21 +6,26 @@
 )]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
-//! The Zero-Config Matrix windows leg failed every run on main: every native
-//! wasmer compiler backend except V8 carries a `compile_error!` under
-//! `cfg(windows)` at 7.4.2, and singlepass is BUSL-1.1 besides. The vendored
-//! wasm engine is now wasmtime — Apache-2.0, first-class on windows-msvc —
-//! so the graph assertions pin that the vendored runtime is wasmtime on
-//! every target and that no wasmer crate can creep back into the build.
-//! `cargo tree --target` resolves cfg-gated deps and features offline, so
-//! these run without the target toolchain installed.
+//! Resolve the actual target dependency graph, not historical facade names.
+//! Wasmi supplies Rust-only WebAssembly execution. Windows TLS uses Schannel;
+//! Linux platform OpenSSL is an explicit OS boundary, not a pure Rust claim.
+//! Graph resolution is locked and offline and needs no cross-target compiler.
 
 use std::process::Command;
 
 fn dep_tree(target: &str) -> String {
     let out = Command::new(env!("CARGO"))
         .args([
-            "tree", "--target", target, "-e", "normal", "--prefix", "none", "--locked", "-p",
+            "tree",
+            "--target",
+            target,
+            "-e",
+            "normal",
+            "--prefix",
+            "none",
+            "--locked",
+            "--offline",
+            "-p",
             "susi",
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -34,29 +39,78 @@ fn dep_tree(target: &str) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-#[test]
-fn windows_resolves_wasmtime_not_wasmer() {
-    let tree = dep_tree("x86_64-pc-windows-msvc");
+fn packages(tree: &str) -> std::collections::HashSet<&str> {
+    tree.lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .collect()
+}
+
+fn assert_native_runtime_graph(tree: &str) {
+    let packages = packages(tree);
     assert!(
-        tree.contains("wasmtime"),
-        "windows lost its wasm backend entirely:\n{tree}"
+        packages.contains("wasmi"),
+        "actual Wasmi runtime missing: {tree}"
     );
     assert!(
-        !tree.contains("wasmer"),
-        "the windows build graph must not contain wasmer (no compliant \
-         windows backend exists at 7.4.2; singlepass is BUSL-1.1):\n{tree}"
+        packages.contains("candle-core"),
+        "Rust model runtime missing: {tree}"
+    );
+    for package in &packages {
+        assert!(
+            !matches!(
+                *package,
+                "wasmtime"
+                    | "wasmer"
+                    | "ort"
+                    | "ort-sys"
+                    | "onnxruntime"
+                    | "ring"
+                    | "aws-lc-rs"
+                    | "aws-lc-sys"
+                    | "rustls"
+                    | "rustls-webpki"
+                    | "webpki-roots"
+            ) && !package.starts_with("wasmtime-")
+                && !package.starts_with("wasmer-"),
+            "retired runtime/crypto dependency {package} returned: {tree}"
+        );
+    }
+}
+
+#[test]
+fn windows_resolves_rust_runtime_and_native_tls() {
+    let tree = dep_tree("x86_64-pc-windows-msvc");
+    assert_native_runtime_graph(&tree);
+    let packages = packages(&tree);
+    for required in ["native-tls", "tokio-native-tls", "schannel", "rcgen", "rsa"] {
+        assert!(
+            packages.contains(required),
+            "Windows lost {required}: {tree}"
+        );
+    }
+    for forbidden in ["openssl", "openssl-sys", "openssl-src"] {
+        assert!(
+            !packages.contains(forbidden),
+            "Windows must use Schannel, found {forbidden}: {tree}"
+        );
+    }
+}
+
+#[test]
+fn unix_resolves_rust_runtime_without_retired_engines() {
+    let tree = dep_tree("x86_64-unknown-linux-gnu");
+    assert_native_runtime_graph(&tree);
+    assert!(
+        !packages(&tree).contains("openssl-src"),
+        "platform OpenSSL must not be vendored: {tree}"
     );
 }
 
 #[test]
-fn unix_resolves_wasmtime_not_wasmer() {
-    let tree = dep_tree("x86_64-unknown-linux-gnu");
-    assert!(
-        tree.contains("wasmtime"),
-        "the linux wasm backend regressed:\n{tree}"
-    );
-    assert!(
-        !tree.contains("wasmer"),
-        "the linux build graph must not contain wasmer:\n{tree}"
-    );
+fn graph_assertions_cannot_confuse_facades_with_runtime_packages() {
+    let names =
+        packages("susi-vendor-wasmtime v0.1.0\nwasmi v1.0.9\nsusi-vendor-tokio-rustls v0.1.0\n");
+    assert!(names.contains("wasmi"));
+    assert!(!names.contains("wasmtime"));
+    assert!(!names.contains("rustls"));
 }
