@@ -24,6 +24,44 @@ use susi_paths::test_env::{isolate_home, EnvGuard};
 /// operator's seeded `api_token` mid-exchange.
 static GMCP_HTTP_HOME: Mutex<()> = Mutex::new(());
 
+/// The record each requirement is judged by in an append-only evidence file:
+/// its newest. `.agents/gmcp/evidence/README.md` never edits or deletes a
+/// record: a superseding proof is a later line for the same requirement whose
+/// `supersedes` names the record it replaces (`recorded_unix`, `identity`,
+/// `artifact_sha256`). Earlier lines stay as history (proof of a ledger the
+/// repository has since moved past). A later line that does not name the
+/// record before it fails, so an unlinked duplicate cannot silently replace
+/// audited proof. Requirements keep the order of their first record; a line
+/// that is not single-line JSON fails, as before.
+fn newest_records(evidence: &str) -> Vec<serde_json::Value> {
+    let mut order: Vec<String> = Vec::new();
+    let mut newest: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    for line in evidence.lines().filter(|line| !line.trim().is_empty()) {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        let requirement = record["requirement"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if let Some(previous) = newest.get(&requirement) {
+            for field in ["recorded_unix", "identity", "artifact_sha256"] {
+                assert_eq!(
+                    record["supersedes"][field], previous[field],
+                    "{requirement}: a later record must name the record it supersedes ({field})"
+                );
+            }
+        } else {
+            order.push(requirement.clone());
+        }
+        newest.insert(requirement, record);
+    }
+    order
+        .into_iter()
+        .filter_map(|requirement| newest.remove(&requirement))
+        .collect()
+}
+
 /// Throwaway HOME for in-process `start_http_server` tests: NetGuard reads
 /// `<config_dir>/api_token`, and without this swap a developer's seeded
 /// host token turns every unauthenticated loopback call into 401 before
@@ -1616,9 +1654,8 @@ fn gmcp_req_203_002_01_contract() {
     //    and holds a complete -01 record ──────────────────────────────
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
         .expect("VC-203-002 must retain an evidence artifact");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|r| r["requirement"] == "GMCP-203-002-01")
         .expect("evidence must retain a record for GMCP-203-002-01");
     for field in [
@@ -2565,9 +2602,8 @@ fn gmcp_req_203_002_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
         .expect("VC-203-002 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-002-06")
         .expect("evidence must retain a record for GMCP-203-002-06");
     assert_eq!(
@@ -2812,9 +2848,7 @@ fn gmcp_vc_203_002_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
         .expect("VC-203-002 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -3083,9 +3117,8 @@ fn gmcp_req_203_003_01_contract() {
     //    and holds a complete -01 record ──────────────────────────────
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
         .expect("VC-203-003 must retain an evidence artifact");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|r| r["requirement"] == "GMCP-203-003-01")
         .expect("evidence must retain a record for GMCP-203-003-01");
     for field in [
@@ -3934,9 +3967,8 @@ fn gmcp_req_203_003_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
         .expect("VC-203-003 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-003-06")
         .expect("evidence must retain a record for GMCP-203-003-06");
     assert_eq!(
@@ -4163,9 +4195,7 @@ fn gmcp_vc_203_003_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
         .expect("VC-203-003 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -4434,9 +4464,8 @@ fn gmcp_req_203_008_01_contract() {
     //    and holds a complete -01 record ──────────────────────────────
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
         .expect("VC-203-008 must retain an evidence artifact");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|r| r["requirement"] == "GMCP-203-008-01")
         .expect("evidence must retain a record for GMCP-203-008-01");
     for field in [
@@ -5571,9 +5600,8 @@ fn gmcp_req_203_008_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
         .expect("VC-203-008 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-008-06")
         .expect("evidence must retain a record for GMCP-203-008-06");
     assert_eq!(
@@ -5805,9 +5833,7 @@ fn gmcp_vc_203_008_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
         .expect("VC-203-008 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -7662,9 +7688,8 @@ fn gmcp_req_203_005_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-005.jsonl"))
         .expect("VC-203-005 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-005-06")
         .expect("evidence must retain a record for GMCP-203-005-06");
     assert_eq!(
@@ -8541,9 +8566,8 @@ fn gmcp_req_203_006_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-006.jsonl"))
         .expect("VC-203-006 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-006-06")
         .expect("evidence must retain a record for GMCP-203-006-06");
     assert_eq!(
@@ -8973,9 +8997,8 @@ fn gmcp_req_203_009_04_adversarial() {
 
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|r| r["requirement"] == "GMCP-203-009-04")
         .expect("evidence must retain a record for GMCP-203-009-04");
     assert_eq!(
@@ -9254,9 +9277,8 @@ fn gmcp_req_203_009_05_interop() {
 
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|r| r["requirement"] == "GMCP-203-009-05")
         .expect("evidence must retain a record for GMCP-203-009-05");
     assert_eq!(
@@ -9434,9 +9456,8 @@ fn gmcp_req_203_009_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-009-06")
         .expect("evidence must retain a record for GMCP-203-009-06");
     assert_eq!(
@@ -10536,9 +10557,8 @@ fn gmcp_req_203_004_06_operations() {
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
         .expect("VC-203-004 must retain evidence");
-    let record = evidence
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let record = newest_records(&evidence)
+        .into_iter()
         .find(|record| record["requirement"] == "GMCP-203-004-06")
         .expect("evidence must retain a record for GMCP-203-004-06");
     assert_eq!(
@@ -10736,12 +10756,7 @@ fn gmcp_vc_203_004_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
         .expect("VC-203-004 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -11048,12 +11063,7 @@ fn gmcp_vc_203_005_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-005.jsonl"))
         .expect("VC-203-005 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -11413,12 +11423,7 @@ fn gmcp_vc_203_006_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-006.jsonl"))
         .expect("VC-203-006 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -12938,12 +12943,7 @@ fn gmcp_vc_203_009_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
@@ -13207,12 +13207,7 @@ fn gmcp_vc_203_013_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-013.jsonl"))
         .expect("VC-203-013 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
-    for line in evidence.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: serde_json::Value =
-            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+    for record in newest_records(&evidence) {
         for field in [
             "requirement",
             "check",
