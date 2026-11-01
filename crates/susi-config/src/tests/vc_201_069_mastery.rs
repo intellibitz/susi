@@ -46,10 +46,9 @@ fn vc_201_069_mastery_seeds_bundled_defaults_and_validated_surfaces() {
     let mut plan = SetupPlan::detect(&h);
     plan.apply(&h).expect("apply");
 
-    let config: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(h.join("config").join("config.json")).expect("config"),
-    )
-    .expect("bundled config JSON");
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(h.join("config.json")).expect("config"))
+            .expect("bundled config JSON");
     assert!(config.as_object().is_some_and(|values| !values.is_empty()));
     assert!(h.join("config").join("tools.json").is_file());
     assert!(h.join("config").join("policy.json").is_file());
