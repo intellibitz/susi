@@ -1,0 +1,23 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-16",
+  "title": "Remove timing-dependent queue relay assertion",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "a_relayed_push_returns_when_the_refs_land_before_the_request_is_deleted"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793511362,
+  "closed": {
+    "at_unix": 1793511628,
+    "commit": "9b73ba5d00a44bc6eb3971e6abf45247be5b45a2",
+    "by": "SUSICACHEREPAIR20261101"
+  }
+}
