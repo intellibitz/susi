@@ -663,6 +663,7 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
     let mut proof = String::new();
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
+        let started = std::time::Instant::now();
         let status = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?
             .current_dir(candidate)
             .args(*args)
@@ -672,7 +673,11 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
-        proof.push_str(&format!("cargo {} => {status}\n", args.join(" ")));
+        proof.push_str(&format!(
+            "cargo {} => {status}; elapsed-ms={}\n",
+            args.join(" "),
+            started.elapsed().as_millis()
+        ));
         fs::write(attempt.join("gates.txt"), &proof)?;
         if !status.success() {
             return Err(format!(
@@ -699,11 +704,14 @@ fn measured_health(
     scratch: &Path,
     label: &str,
     timeout: std::time::Duration,
+    input: &[u8],
 ) -> Result<String> {
     let stdout = fs::File::create(scratch.join(format!("{label}.stdout")))?;
     let stderr = fs::File::create(scratch.join(format!("{label}.stderr")))?;
+    let input_path = scratch.join(format!("{label}.stdin"));
+    fs::write(&input_path, input)?;
     command
-        .stdin(Stdio::null())
+        .stdin(fs::File::open(input_path)?)
         .stdout(stdout.try_clone()?)
         .stderr(stderr.try_clone()?);
     let started = std::time::Instant::now();
@@ -765,10 +773,280 @@ fn smoke(binary: &Path, scratch: &Path) -> Result<String> {
     for (index, arg) in ["--version", "--help", "status"].iter().enumerate() {
         let mut command = isolated_command(binary, &scratch.join("home"))?;
         command.current_dir(scratch).arg(arg);
-        let report = measured_health(command, scratch, &format!("smoke-{index}"), HEALTH_BUDGET)?;
+        let report = measured_health(
+            command,
+            scratch,
+            &format!("smoke-{index}"),
+            HEALTH_BUDGET,
+            b"",
+        )?;
         proof.push_str(&format!("health {arg}: {report}\n"));
     }
     Ok(proof)
+}
+
+const INFERENCE_PROMPTS: [&str; 2] = ["What is 2+2?", "Write one short sentence about a red kite."];
+const STARTER_FILES: [&str; 4] = [
+    "qwen2.5-0.5b-instruct-q4_0.gguf",
+    "qwen2.5-0.5b-instruct-q4_0.license.json",
+    "qwen2.5-0.5b-instruct-q4_0.tokenizer.json",
+    "qwen2.5-0.5b-instruct-q4_0.tokenizer.license.json",
+];
+
+fn bounded_evidence(path: &Path) -> Result<String> {
+    let file = fs::File::open(path)?;
+    let mut body = String::new();
+    file.take(8 * 1024 * 1024 + 1).read_to_string(&mut body)?;
+    if body.len() > 8 * 1024 * 1024 {
+        return Err("inference evidence exceeded its 8 MiB read budget".into());
+    }
+    Ok(body)
+}
+
+fn verify_runtime_stopped(runtime: &Path) -> Result<()> {
+    let runtime = runtime.canonicalize()?;
+    let started = std::time::Instant::now();
+    let mut system = sysinfo::System::new();
+    loop {
+        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        let owned = system.processes().values().any(|process| {
+            process
+                .exe()
+                .and_then(|path| path.canonicalize().ok())
+                .is_some_and(|path| path.starts_with(&runtime))
+        });
+        if !owned {
+            return Ok(());
+        }
+        if started.elapsed() > std::time::Duration::from_secs(5) {
+            return Err(
+                "candidate left a process executing from its private installed runtime".into(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+fn verify_inference_evidence(traces: &str, last: &str, audit: &str, stdout: &str) -> Result<()> {
+    let traces = traces
+        .lines()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for prompt in INFERENCE_PROMPTS {
+        let matching: Vec<_> = traces.iter().filter(|v| v["goal"] == prompt).collect();
+        if matching.len() != 1
+            || matching[0]["outcome"] != "SUCCESS"
+            || !matching[0]["tools"]
+                .as_array()
+                .is_some_and(|v| v.is_empty())
+        {
+            return Err(
+                format!("inference goal lacks one successful tool-free trace: {prompt}").into(),
+            );
+        }
+    }
+    let last: serde_json::Value = serde_json::from_str(last)?;
+    let answer = last["final_answer"]
+        .as_str()
+        .unwrap_or_default()
+        .to_lowercase();
+    if last["goal"] != INFERENCE_PROMPTS[1]
+        || last["status"] != "SUCCESS"
+        || !answer.contains("red")
+        || !answer.contains("kite")
+        || answer.contains("recovery")
+        || !stdout.lines().any(|line| {
+            let normalized = line.to_lowercase();
+            (normalized.contains("2+2") || normalized.contains("2 + 2"))
+                && normalized
+                    .split(|c: char| !c.is_alphanumeric())
+                    .any(|word| word == "4")
+        })
+    {
+        return Err("inference answers failed arithmetic/prose semantic acceptance".into());
+    }
+    let generations = audit
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|row| {
+            row["fields"]["message"] == "In-process Rust Candle generation complete"
+                && row["fields"]["backend"] == "candle"
+                && row["fields"]["generated_tokens"]
+                    .as_u64()
+                    .is_some_and(|n| n > 0)
+        })
+        .count();
+    if generations < 2 {
+        return Err("inference did not record two actual nonempty Rust Candle generations".into());
+    }
+    Ok(())
+}
+
+fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
+    let artifact_before = file_digest(binary)?;
+    let native_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .ok_or("native home unavailable")?;
+    let default_cache = env::var_os("SUSI_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| native_home.join(".susi"))
+        .join("models");
+    // Agent orchestration may supply an already admitted read-only cache;
+    // ordinary qualification discovers the installed starter automatically.
+    let cache = env::var_os("SUSI_QUALIFICATION_MODEL_CACHE")
+        .map(PathBuf::from)
+        .unwrap_or(default_cache);
+    let cached = STARTER_FILES.iter().all(|name| cache.join(name).is_file());
+    let scratch = attempt.join("inference");
+    let home = scratch.join("home");
+    let runtime = home.join(".susi");
+    let workspace = scratch.join("workspace");
+    for dir in [&workspace, &runtime.join("models"), &home.join("temp")] {
+        fs::create_dir_all(dir)?;
+    }
+    let ports = release_offset(
+        &native_home,
+        &format!("qualification:{}", scratch.display()),
+    )?;
+    let mut models = Vec::new();
+    if cached {
+        for name in STARTER_FILES {
+            let path = runtime.join("models").join(name);
+            fs::copy(cache.join(name), &path)?;
+            models.push(serde_json::json!({"file":name,"sha256":file_digest(&path)?,"bytes":fs::metadata(path)?.len()}));
+        }
+        // Copying a cache does not admit it: the actual candidate must validate
+        // model/tokenizer licenses and digests before producing audited tokens.
+        fs::write(runtime.join("privacy_mode"), "local_only")?;
+    }
+    let mut command = Command::new(binary);
+    command.env_clear();
+    for key in ["SystemRoot", "WINDIR", "ComSpec"] {
+        if let Some(value) = env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    if let Some(root) = env::var_os("SystemRoot") {
+        let root = PathBuf::from(root);
+        command.env("PATH", env::join_paths([root.join("System32"), root])?);
+    } else {
+        command.env("PATH", "/usr/bin:/bin");
+    }
+    for key in ["HOME", "USERPROFILE"] {
+        command.env(key, &home);
+    }
+    for (key, path) in [
+        ("SUSI_HOME", runtime.clone()),
+        ("APPDATA", home.join("appdata")),
+        ("LOCALAPPDATA", home.join("localappdata")),
+        ("XDG_CONFIG_HOME", home.join("config")),
+        ("XDG_DATA_HOME", home.join("data")),
+        ("XDG_CACHE_HOME", home.join("cache")),
+        ("TEMP", home.join("temp")),
+        ("TMP", home.join("temp")),
+    ] {
+        fs::create_dir_all(&path)?;
+        command.env(key, path);
+    }
+    command
+        .current_dir(&workspace)
+        .arg("shell")
+        .env("SUSI_PORT_OFFSET", ports.to_string())
+        .env("RAYON_NUM_THREADS", "4")
+        .env("CANDLE_NUM_THREADS", "4");
+    if cached {
+        command.env("SUSI_OFFLINE", "1").env("HF_HUB_OFFLINE", "1");
+    }
+    let input = format!("{}\n{}\nquit\n", INFERENCE_PROMPTS[0], INFERENCE_PROMPTS[1]);
+    let mut cleanup = Command::new(binary);
+    cleanup.env_clear().current_dir(&workspace).arg("stop");
+    for (key, value) in command.get_envs() {
+        if let Some(value) = value {
+            cleanup.env(key, value);
+        }
+    }
+    let mut provisioning = Vec::new();
+    if !cached {
+        // Network use is an explicit provisioning phase, performed by the
+        // exact candidate's license/digest-enforcing native installer/runtime.
+        // No credentials, custom endpoints or proxy settings are inherited.
+        for phase in ["install", "start"] {
+            let mut setup = Command::new(binary);
+            setup.env_clear().current_dir(&workspace).arg(phase);
+            for (key, value) in command.get_envs() {
+                if let Some(value) = value {
+                    setup.env(key, value);
+                }
+            }
+            match measured_health(setup, &scratch, phase, HEALTH_BUDGET, b"") {
+                Ok(report) => provisioning.push(report),
+                Err(error) => {
+                    let _ = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
+                    return Err(error);
+                }
+            }
+        }
+    }
+    let resources = measured_health(
+        command,
+        &scratch,
+        "inference",
+        std::time::Duration::from_secs(if cached { 60 } else { 600 }),
+        input.as_bytes(),
+    );
+    // Even rejected candidates may have started their own services. Use only
+    // their isolated runtime and reserved ports; never the installed profile.
+    let stopped = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
+    let resources = resources?;
+    let cleanup_resources = stopped?;
+    verify_runtime_stopped(&runtime)?;
+    let traces = bounded_evidence(&workspace.join(".susi/mission_traces.jsonl"))?;
+    let last = bounded_evidence(&workspace.join(".susi/last_mission_trace.json"))?;
+    let stdout = bounded_evidence(&scratch.join("inference.stdout"))?;
+    let mut audit = String::new();
+    for entry in fs::read_dir(&runtime)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("audit") && name.ends_with(".log") {
+            audit.push_str(&bounded_evidence(&entry.path())?);
+            if audit.len() > 8 * 1024 * 1024 {
+                return Err("aggregate audit budget exceeded".into());
+            }
+        }
+    }
+    verify_inference_evidence(&traces, &last, &audit, &stdout)?;
+    if !cached {
+        for name in STARTER_FILES {
+            let path = runtime.join("models").join(name);
+            models.push(serde_json::json!({"file":name,"sha256":file_digest(&path)?,"bytes":fs::metadata(path)?.len()}));
+        }
+    }
+    for model in &models {
+        let name = required(model, "file")?;
+        if file_digest(&runtime.join("models").join(name))? != required(model, "sha256")? {
+            return Err("starter model evidence changed during inference acceptance".into());
+        }
+    }
+    if file_digest(binary)? != artifact_before {
+        return Err("candidate changed during inference acceptance".into());
+    }
+    let evidence = serde_json::json!({
+        "schema":"susi-inference-acceptance-v1", "artifact_sha256":artifact_before,
+        "provisioning":if cached {"copied-cache-validated-by-candidate"} else {"uncached-native-install-and-public-model-download"},
+        "provisioning_resources":provisioning,"models":models,
+        "cleanup_resources":serde_json::from_str::<serde_json::Value>(&cleanup_resources)?,
+        "private_installed_processes_remaining":0,
+        "prompts":INFERENCE_PROMPTS,"resources":serde_json::from_str::<serde_json::Value>(&resources)?,
+        "mission_traces_sha256":digest(traces.as_bytes()), "last_trace_sha256":digest(last.as_bytes()),
+        "audit_sha256":digest(audit.as_bytes()), "stdout_sha256":digest(stdout.as_bytes()),
+        // Keep the actual evidence inside the manifest-bound gates package,
+        // not merely hashes pointing at mutable diagnostic files elsewhere.
+        "mission_traces":traces,"last_trace":last,"audit":audit,"stdout":stdout,
+        "passed":true,
+    }).to_string();
+    fs::write(scratch.join("acceptance.json"), &evidence)?;
+    Ok(format!("inference-acceptance={evidence}\n"))
 }
 
 #[derive(Debug)]
@@ -847,6 +1125,13 @@ impl Manifest {
 }
 
 fn qualify(ctx: &Context) -> Result<String> {
+    qualify_with(ctx, inference_acceptance)
+}
+
+fn qualify_with(
+    ctx: &Context,
+    prove_inference: fn(&Path, &Path) -> Result<String>,
+) -> Result<String> {
     let _lock = Lock::acquire(&ctx.state)?;
     // The caller may be a dirty primary checkout. Only the immutable integrated
     // snapshot is built; caller files and branches never participate or move.
@@ -883,6 +1168,7 @@ fn qualify(ctx: &Context) -> Result<String> {
         .join(binary_name());
     let before = file_digest(&binary)?;
     proof.push_str(&smoke(&binary, &attempt)?);
+    proof.push_str(&prove_inference(&binary, &attempt)?);
     if file_digest(&binary)? != before {
         return Err("artifact changed during smoke check".into());
     }
@@ -1141,6 +1427,14 @@ fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
+        Some("check-inference") if args.len()==2 => {
+            let binary = PathBuf::from(&args[1]).canonicalize()?;
+            let attempt = ctx.state.join(format!("inference-check-{}",stamp()?));
+            fs::create_dir(&attempt)?;
+            let proof = inference_acceptance(&binary,&attempt)?;
+            fs::write(attempt.join("inference-proof.txt"),proof)?;
+            println!("Candidate inference check passed; evidence {}. Diagnostic only: no release qualified or promoted.",attempt.display());
+        },
         Some("promote") if args.len()==2 => promote(&ctx,&args[1])?,
         Some("rollback") if args.len()==1 => rollback(&ctx)?,
         Some("status") if args.len()==1 => {
@@ -1155,7 +1449,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | promote <release-id> | rollback | status | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
     }
     Ok(())
 }
@@ -1173,6 +1467,78 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Machinery fixtures deliberately do not masquerade as a working AI OS.
+    // The production entry point always calls the real inference acceptance.
+    fn qualify(ctx: &Context) -> Result<String> {
+        qualify_with(ctx, |_, _| Ok("fixture-only inference boundary\n".into()))
+    }
+
+    #[test]
+    fn inference_acceptance_requires_both_real_generations_and_successful_goal_evidence() {
+        let traces = INFERENCE_PROMPTS
+            .iter()
+            .map(|goal| serde_json::json!({"goal":goal,"outcome":"SUCCESS","tools":[]}).to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let last = serde_json::json!({"goal":INFERENCE_PROMPTS[1],"status":"SUCCESS","final_answer":"A red kite flies."}).to_string();
+        let event = serde_json::json!({"fields":{"message":"In-process Rust Candle generation complete","backend":"candle","generated_tokens":3}}).to_string();
+        let audit = format!("{event}\n{event}");
+        let stdout = "2+2 equals 4.\nA red kite flies.";
+        assert!(verify_inference_evidence(&traces, &last, &audit, stdout).is_ok());
+        assert!(verify_inference_evidence(&traces, &last, &event, stdout).is_err());
+        assert!(verify_inference_evidence(
+            &traces.replace("SUCCESS", "FAILED"),
+            &last,
+            &audit,
+            stdout
+        )
+        .is_err());
+        assert!(verify_inference_evidence(
+            &traces.replace("\"tools\":[]", "\"tools\":[\"exec\"]"),
+            &last,
+            &audit,
+            stdout
+        )
+        .is_err());
+        assert!(verify_inference_evidence(
+            &traces,
+            &last,
+            &audit.replace("candle", "cloud"),
+            stdout
+        )
+        .is_err());
+        assert!(verify_inference_evidence(
+            &traces,
+            &last.replace("A red kite flies.", "Recovery pending"),
+            &audit,
+            stdout
+        )
+        .is_err());
+        assert!(verify_inference_evidence(&traces, &last, &audit, "2+2 equals 5.").is_err());
+    }
+
+    #[test]
+    fn failed_inference_cannot_publish_a_qualified_release() {
+        let fixture = Fixture::new();
+        let ctx = Context::open(&fixture.root()).unwrap();
+        let result = qualify_with(&ctx, |_, _| Err("inference acceptance rejected".into()));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("inference acceptance rejected"));
+        assert!(git(
+            &fixture.root(),
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/susi/releases/qualified/"
+            ]
+        )
+        .unwrap()
+        .is_empty());
+        assert!(resolve(&fixture.root(), CURRENT).unwrap().is_none());
+    }
 
     #[test]
     #[ignore = "subprocess fixture; invoked only by the health budget regression"]
@@ -1208,7 +1574,7 @@ mod tests {
                 std::time::Duration::from_secs(10)
             };
             let started = std::time::Instant::now();
-            let result = measured_health(command, &scratch, mode, timeout);
+            let result = measured_health(command, &scratch, mode, timeout, b"");
             assert_eq!(result.is_ok(), mode == "pass", "{mode}: {result:?}");
             assert!(started.elapsed() < std::time::Duration::from_secs(15));
             let evidence: serde_json::Value = serde_json::from_str(
