@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-19",
+  "title": "Keep GMCP evidence bound to sources and meaningful manifest settings across releases",
+  "goal": "Recovered under CODEXSTEP1GOAL20261101 after original accepted PR1243 remained unchanged at0670e7bf with unchanged lease670ece61 since its08:58UTC unrelated workflow-test failure. Original history and close debt preserved by normal merge and supported force-release; no impersonation or abandonment. Normalize only GMCP package.version, retain dependency/feature binding, rerun requirement and mastery evidence against current integrated sources, and pass normal acceptance.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793522638
+}
