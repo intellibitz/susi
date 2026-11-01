@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENTAIOSSURFACEF343-5",
+  "title": "Return a queue relay when its refs land instead of after a 3s poll",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "a_relayed_push_returns_when_the_refs_land_before_the_request_is_deleted"
+    ]
+  },
+  "created_by": "AGENTAIOSSURFACEF343",
+  "created_unix": 1793504147
+}
