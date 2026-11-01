@@ -188,18 +188,76 @@ fn promote_into(workspace: &Path, files: &[FilePatch]) -> EaiResult<Vec<String>>
     Ok(changed)
 }
 
-fn detect_test_command(workspace: &Path) -> String {
-    // A patch to SUSI itself must clear the full gate (Mandate 48), not
-    // just `cargo test`: fmt and `clippy -D warnings` failures block CI too.
-    if crate::susi_core::self_build::is_susi_repo(workspace) {
-        crate::susi_core::self_build::VERIFY_COMMAND.into()
-    } else if workspace.join("Cargo.toml").is_file() {
-        "cargo test".into()
-    } else if workspace.join("package.json").is_file() {
-        "npm test".into()
-    } else {
-        "echo 'no test command detected'".into()
+// Interpret only a native executable plus literal arguments. Shell operators,
+// substitutions and scripts are not silently dispatched to a shell on Windows.
+fn native_test_args(text: &str) -> Result<Vec<String>, &'static str> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut started = false;
+    for ch in text.chars() {
+        if matches!(ch, ';' | '&' | '|' | '<' | '>' | '`' | '$' | '\n' | '\r') {
+            return Err("test command must be one native executable with literal arguments");
+        }
+        if let Some(delimiter) = quote {
+            if ch == delimiter {
+                quote = None;
+            } else {
+                current.push(ch);
+            }
+        } else if ch == '\'' || ch == '"' {
+            quote = Some(ch);
+            started = true;
+        } else if ch.is_whitespace() {
+            if started {
+                args.push(std::mem::take(&mut current));
+                started = false;
+            }
+        } else {
+            current.push(ch);
+            started = true;
+        }
     }
+    if quote.is_some() {
+        return Err("test command has an unterminated quote");
+    }
+    if started {
+        args.push(current);
+    }
+    if args.first().is_none_or(|program| program.is_empty()) {
+        return Err("test executable is missing");
+    }
+    let name = Path::new(&args[0])
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if matches!(
+        name.as_str(),
+        "sh" | "sh.exe"
+            | "bash"
+            | "bash.exe"
+            | "cmd"
+            | "cmd.exe"
+            | "powershell"
+            | "powershell.exe"
+            | "pwsh"
+            | "pwsh.exe"
+    ) || name.ends_with(".cmd")
+        || name.ends_with(".bat")
+        || name.ends_with(".ps1")
+        || name.ends_with(".sh")
+    {
+        return Err("test command requires a native executable, not a shell or script");
+    }
+    Ok(args)
+}
+
+fn detect_test_command(workspace: &Path) -> Option<String> {
+    workspace
+        .join("Cargo.toml")
+        .is_file()
+        .then(|| "cargo test --offline --locked".into())
 }
 
 /// Run a patch-then-test cycle. `trust_level` should be the configured level
@@ -317,33 +375,41 @@ pub fn apply_patch_cycle(
     let mut test_passed = true;
     let mut test_stdout = String::new();
     let mut test_stderr = String::new();
-    if let Some(test_cmd) = request.test_command.clone() {
-        let output = match Command::new("sh")
-            .arg("-c")
-            .arg(&test_cmd)
-            .current_dir(&exec_ws)
-            .output()
-        {
-            Ok(output) => output,
-            Err(e) => return Err(rollback(format!("failed to run test command: {e}"))),
-        };
-        test_passed = output.status.success();
-        test_stdout.push_str(&String::from_utf8_lossy(&output.stdout));
-        test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
-    } else if !susi_repo {
-        let test_cmd = detect_test_command(&exec_ws);
-        let output = match Command::new("sh")
-            .arg("-c")
-            .arg(&test_cmd)
-            .current_dir(&exec_ws)
-            .output()
-        {
-            Ok(output) => output,
-            Err(e) => return Err(rollback(format!("failed to run test command: {e}"))),
-        };
-        test_passed = output.status.success();
-        test_stdout.push_str(&String::from_utf8_lossy(&output.stdout));
-        test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
+    // Susi always executes its complete native repository gate. An optional
+    // caller command cannot add a shell prerequisite or replace that gate.
+    if !susi_repo {
+        let selected = request
+            .test_command
+            .clone()
+            .or_else(|| detect_test_command(&exec_ws));
+        match selected.as_deref().map(native_test_args) {
+            Some(Ok(args)) => {
+                match Command::new(&args[0])
+                    .args(&args[1..])
+                    .current_dir(&exec_ws)
+                    .output()
+                {
+                    Ok(output) => {
+                        test_passed = output.status.success();
+                        test_stdout.push_str(&String::from_utf8_lossy(&output.stdout));
+                        test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
+                    }
+                    Err(error) => {
+                        test_passed = false;
+                        test_stderr
+                            .push_str(&format!("native test command could not run: {error}"));
+                    }
+                }
+            }
+            Some(Err(error)) => {
+                test_passed = false;
+                test_stderr.push_str(error);
+            }
+            None => {
+                test_passed = false;
+                test_stderr.push_str("no native test command detected; patch cannot be accepted without verification");
+            }
+        }
     }
     if susi_repo {
         match crate::repo_gate::run_repository_gate(&exec_ws) {
@@ -440,7 +506,7 @@ mod tests {
                 old: "".into(),
                 new: "hello".into(),
             }],
-            test_command: Some("true".into()),
+            test_command: Some("rustc --version".into()),
             auto_apply: false,
             description: "test".into(),
             isolate: None,
@@ -461,7 +527,7 @@ mod tests {
                 old: "old".into(),
                 new: "new".into(),
             }],
-            test_command: Some("true".into()),
+            test_command: Some("rustc --version".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
@@ -494,7 +560,7 @@ mod tests {
                 old: "old".into(),
                 new: "new".into(),
             }],
-            test_command: Some("true".into()),
+            test_command: Some("rustc --version".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
@@ -519,7 +585,7 @@ mod tests {
                 old: "old".into(),
                 new: "new".into(),
             }],
-            test_command: Some("false".into()),
+            test_command: Some("rustc --susi-invalid-test-option".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
@@ -552,7 +618,7 @@ mod tests {
                     new: "x".into(),
                 },
             ],
-            test_command: Some("true".into()),
+            test_command: Some("rustc --version".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
@@ -573,7 +639,7 @@ mod tests {
                 old: "".into(),
                 new: "clobber".into(),
             }],
-            test_command: Some("true".into()),
+            test_command: Some("rustc --version".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
@@ -593,7 +659,7 @@ mod tests {
                 old: "".into(),
                 new: "x".into(),
             }],
-            test_command: Some("false".into()),
+            test_command: Some("rustc --susi-invalid-test-option".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
@@ -614,12 +680,44 @@ mod tests {
                 old: "".into(),
                 new: "x".into(),
             }],
-            test_command: Some("true".into()),
+            test_command: Some("rustc --version".into()),
             auto_apply: true,
             description: "test".into(),
             isolate: None,
         };
         assert!(apply_patch_cycle(&ws, &req, "autonomous").is_err());
         let _ = std::fs::remove_dir_all(&ws);
+    }
+}
+
+#[cfg(test)]
+mod native_command_tests {
+    use super::*;
+    #[test]
+    fn arguments_preserve_windows_paths_and_quoted_values() {
+        assert_eq!(
+            native_test_args(r#""C:\Program Files\Rust\rustc.exe" --version "literal value""#)
+                .unwrap(),
+            vec![
+                r"C:\Program Files\Rust\rustc.exe",
+                "--version",
+                "literal value"
+            ]
+        );
+    }
+    #[test]
+    fn shell_operators_scripts_and_unclosed_quotes_fail_closed() {
+        for command in [
+            "cargo test && echo pass",
+            "sh -c true",
+            "cmd /c echo pass",
+            "test.cmd",
+            "cargo test; echo pass",
+            "cargo $(echo test)",
+            "cargo test | more",
+            "cargo \"test",
+        ] {
+            assert!(native_test_args(command).is_err(), "{command}");
+        }
     }
 }
