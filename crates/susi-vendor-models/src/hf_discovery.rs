@@ -266,6 +266,96 @@ pub(crate) fn compact_ladder(
     result
 }
 
+/// Bootstrap only the configured starter. Popular-model discovery remains an
+/// explicit catalog operation and cannot delay a CPU user's first goal.
+pub fn resolve_bootstrap_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
+    let configured = cfg.model_ladder();
+    if !configured.is_empty() {
+        return retain_quantized(configured);
+    }
+    if !crate::susi_core::mac_policy::egress_permitted(&cfg.hf_base_url()) {
+        return Vec::new();
+    }
+    let fallback = cfg.default_fallback_model();
+    let auth = hf_auth_headers();
+    resolve_repo_step(
+        cfg,
+        fallback.hf_repo,
+        Some(fallback.tokenizer_repo),
+        Some(&fallback.hf_file),
+        &hf_header_refs(&auth),
+    )
+    .map(|mut step| {
+        step.step = 1;
+        vec![step]
+    })
+    .unwrap_or_default()
+}
+
+fn resolve_repo_step(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    repo: String,
+    base_repo: Option<String>,
+    requested_file: Option<&str>,
+    headers: &[(&str, &str)],
+) -> Option<ModelLadderConfigStep> {
+    let base = cfg.hf_base_url();
+    let policy = cfg.model_lifecycle();
+    let files = hf_get_json::<Vec<HfTreeEntry>>(
+        &format!("{base}/api/models/{repo}/tree/main?limit=1000"),
+        headers,
+    )?;
+    let tokenizer_repo = if files
+        .iter()
+        .any(|f| f.path == cfg.tokenizer_filename() && f.size > 0)
+    {
+        repo.clone()
+    } else {
+        base_repo.clone()?
+    };
+    let tokenizer_url = format!(
+        "{base}/{tokenizer_repo}/resolve/main/{}",
+        cfg.tokenizer_filename()
+    );
+    if !hf_head_ok(&tokenizer_url, headers) {
+        return None;
+    }
+    // Discovery must stay within the backends actually implemented here.
+    let config_repo = base_repo.as_deref().unwrap_or(&tokenizer_repo);
+    let config = hf_get_json::<serde_json::Value>(
+        &format!("{base}/{config_repo}/resolve/main/config.json"),
+        headers,
+    )?;
+    if !supported_model_type(config.get("model_type").and_then(|v| v.as_str())) {
+        return None;
+    }
+    let best = files
+        .into_iter()
+        .filter(|f| {
+            requested_file.is_none_or(|requested| f.path == requested)
+                && f.path.to_ascii_lowercase().ends_with(".gguf")
+                && !f.path.contains("-of-")
+                && !f.path.contains('/')
+                && f.size > 0
+                && is_quantized_gguf(&f.path)
+        })
+        .min_by_key(|f| (!f.path.to_ascii_uppercase().contains("Q4_K_M"), f.size))?;
+    let overhead = policy.memory_overhead_ratio.max(1.0);
+    Some(ModelLadderConfigStep {
+        step: 0,
+        label: format!("{} ({:.1} GiB)", repo, best.size as f64 / 1073741824.0),
+        hf_repo: repo,
+        hf_file: best.path,
+        tokenizer_repo,
+        min_ram_gb: best.size as f32 / 1073741824.0 * overhead,
+        min_bytes: best.size,
+        expected_bytes: best.size,
+        fields: Default::default(),
+    })
+}
+
 fn fetch_dynamic_ladder(
     cfg: &crate::susi_sandbox::manager::SusiConfig,
 ) -> Vec<ModelLadderConfigStep> {
@@ -299,58 +389,8 @@ fn fetch_dynamic_ladder(
         models
             .into_par_iter()
             .filter_map(|model| {
-                let repo = model.id;
                 let base_repo = declared_base_model(model.card_data, &model.tags);
-                let files = hf_get_json::<Vec<HfTreeEntry>>(
-                    &format!("{base}/api/models/{repo}/tree/main?limit=1000"),
-                    &hf_header_refs(&auth),
-                )?;
-                let tokenizer_repo = if files
-                    .iter()
-                    .any(|f| f.path == cfg.tokenizer_filename() && f.size > 0)
-                {
-                    repo.clone()
-                } else {
-                    base_repo.clone()?
-                };
-                let tokenizer_url = format!(
-                    "{base}/{tokenizer_repo}/resolve/main/{}",
-                    cfg.tokenizer_filename()
-                );
-                if !hf_head_ok(&tokenizer_url, &hf_header_refs(&auth)) {
-                    return None;
-                }
-                // Discovery must stay within the backends actually implemented here.
-                let config_repo = base_repo.as_deref().unwrap_or(&tokenizer_repo);
-                let config = hf_get_json::<serde_json::Value>(
-                    &format!("{base}/{config_repo}/resolve/main/config.json"),
-                    &hf_header_refs(&auth),
-                )?;
-                if !supported_model_type(config.get("model_type").and_then(|v| v.as_str())) {
-                    return None;
-                }
-                let best = files
-                    .into_iter()
-                    .filter(|f| {
-                        f.path.to_ascii_lowercase().ends_with(".gguf")
-                            && !f.path.contains("-of-")
-                            && !f.path.contains('/')
-                            && f.size > 0
-                            && is_quantized_gguf(&f.path)
-                    })
-                    .min_by_key(|f| (!f.path.to_ascii_uppercase().contains("Q4_K_M"), f.size))?;
-                let overhead = policy.memory_overhead_ratio.max(1.0);
-                Some(ModelLadderConfigStep {
-                    step: 0,
-                    label: format!("{} ({:.1} GiB)", repo, best.size as f64 / 1073741824.0),
-                    hf_repo: repo,
-                    hf_file: best.path,
-                    tokenizer_repo,
-                    min_ram_gb: best.size as f32 / 1073741824.0 * overhead,
-                    min_bytes: best.size,
-                    expected_bytes: best.size,
-                    fields: Default::default(),
-                })
+                resolve_repo_step(cfg, model.id, base_repo, None, &hf_header_refs(&auth))
             })
             .collect()
     });
@@ -360,6 +400,76 @@ fn fetch_dynamic_ladder(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootstrap_requests_only_exact_starter_and_rejects_unsupported_architecture() {
+        use std::io::{BufRead, Write};
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", home.path());
+        env.remove("HF_TOKEN");
+        for architecture in ["qwen2", "unsupported"] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let worker = std::thread::spawn(move || {
+                let mut paths = Vec::new();
+                for _ in 0..3 {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                    let mut request = String::new();
+                    reader.read_line(&mut request).unwrap();
+                    paths.push(request.split_whitespace().nth(1).unwrap().to_string());
+                    let body = if request.contains("/tree/main") {
+                        r#"[{"path":"starter-q4_k_m.gguf","size":100000000},{"path":"other-q4_k_m.gguf","size":1}]"#.to_string()
+                    } else if request.starts_with("HEAD ") {
+                        String::new()
+                    } else {
+                        format!(r#"{{"model_type":"{architecture}"}}"#)
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+                paths
+            });
+            let mut cfg = crate::susi_sandbox::manager::SusiConfig::default();
+            cfg.settings
+                .insert("hf_base_url".into(), serde_json::json!(base));
+            let mut fallback = cfg.default_fallback_model();
+            fallback.hf_repo = "org/starter".into();
+            fallback.tokenizer_repo = "org/base".into();
+            fallback.hf_file = "starter-q4_k_m.gguf".into();
+            cfg.settings.insert(
+                "default_fallback_model".into(),
+                serde_json::to_value(fallback).unwrap(),
+            );
+            let ladder = resolve_bootstrap_ladder(&cfg);
+            assert_eq!(
+                worker.join().unwrap(),
+                vec![
+                    "/api/models/org/starter/tree/main?limit=1000",
+                    "/org/base/resolve/main/tokenizer.json",
+                    "/org/base/resolve/main/config.json"
+                ]
+            );
+            if architecture == "qwen2" {
+                assert_eq!(ladder.len(), 1);
+                assert_eq!(ladder[0].hf_file, "starter-q4_k_m.gguf");
+                assert_eq!(ladder[0].expected_bytes, 100000000);
+                assert_eq!(ladder[0].min_bytes, 100000000);
+            } else {
+                assert!(ladder.is_empty());
+            }
+        }
+    }
 
     #[test]
     fn compact_ladder_removes_equivalent_sizes_and_spans_capacity() {
