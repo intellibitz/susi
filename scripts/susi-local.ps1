@@ -51,6 +51,7 @@ if ($Action -eq 'Build') {
         CARGO_PROFILE_DEV_OPT_LEVEL = $(if ($Channel -eq 'production') { '1' } else { '0' })
         CARGO_PROFILE_DEV_LTO = 'false'
         CARGO_PROFILE_DEV_INCREMENTAL = 'true'
+        RUSTC_WRAPPER = $null
     }
     $savedSettings = @{}
     foreach ($key in $settings.Keys) {
@@ -59,7 +60,7 @@ if ($Action -eq 'Build') {
     }
     Push-Location $repo
     try {
-        & cargo build --locked --bin susi --profile dev --timings
+        & cargo --config "build.rustc-wrapper=''" build --locked --bin susi --profile dev --timings
         if ($LASTEXITCODE -ne 0) { throw "Local build failed ($LASTEXITCODE); current channel unchanged." }
     } finally {
         Pop-Location

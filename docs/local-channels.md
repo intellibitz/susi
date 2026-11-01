@@ -11,8 +11,10 @@ process-local Cargo development-profile overrides. Incremental compilation,
 debug assertions, overflow checks and line backtraces remain enabled; this is
 distinct from the public release profile. Whole-program LTO is disabled. Cargo
 fingerprints the optimization differences while reusing unchanged dependencies
-in the same worktree cache, without duplicating the target directory. All three
-overridden environment settings are restored, including on build failure.
+in the same worktree cache, without duplicating the target directory. This warm
+incremental path invokes rustc directly, independently of a shared compiler-cache
+server. The compiler-wrapper and profile environment settings are restored,
+including on build failure; global Cargo configuration remains unchanged.
 
 Each candidate is copied to a directory named by its SHA-256. Before activation,
 the script checks its checksum and version, then runs a real offline file goal
@@ -24,7 +26,10 @@ channel intact. Evidence stays in the printed temporary directory.
 offset (development 200, local production 300). `-SusiArgs` passes arguments to
 that executable. `-Action Rollback` selects the previous installed build without
 recompilation; `-Action Status` shows the activation record. Agents operate these
-commands; the CEO supplies goals. Repository acceptance and publication gates
+commands; the CEO supplies goals. Build and rollback refuse activation while
+this channel still has running processes, so agents finish goals and stop its
+daemon before switching. A rollback verifies the previous content-addressed
+executable before running it. Repository acceptance and publication gates
 still apply to publishing code, independently of this local verification loop.
 
 The local smoke check proves the governed file journey, not every model or cloud

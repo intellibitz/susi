@@ -15,7 +15,13 @@ by default. Such hidden compilers competed with foreground work even at low
 priority. Existing seed copies remain available; explicit maintenance refresh
 and opt-in `SUSI_SEED_AUTO_REFRESH=1` remain supported. Required code acceptance
 and publication checks are unchanged. Optimized local production uses the
-local-production profile separately; its build cost is not represented by the dev times.
+local production settings separately. With all external dependencies warm, the
+first O1 workspace build took **152 seconds**, or **160.5 seconds including
+installation and a real governed file goal**. Its no-op build took **1.64 seconds**,
+root source-touch incremental build **16.51 seconds**, and switching back to dev
+**17.05 seconds**. Cargo retained both workspace artifact sets and reused the
+external dependencies; no second target directory was copied. These timings
+used direct rustc invocation (the process-local compiler wrapper was empty).
 
 Measured on 2026-10-30 (Windows 11, 28 logical cores, the shared cargo
 target warm; GitHub-hosted runners). The numbers are the reason for the
