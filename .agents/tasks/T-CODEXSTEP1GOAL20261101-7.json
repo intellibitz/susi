@@ -1,0 +1,21 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-7",
+  "title": "Discover actual models behind configured provider overrides",
+  "goal": "Reuse bounded model discovery for provider overrides; honor native SDK base paths; avoid catalog assumptions at custom endpoints; preserve truthful failures and existing default providers",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-vendor-models",
+      "--lib",
+      "first_"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793530316
+}

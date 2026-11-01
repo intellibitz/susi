@@ -417,7 +417,9 @@ pub fn register_configured_cloud_endpoints(
         let is_cloud = HttpProvider::is_remote_cloud(&api_base);
 
         // Cloud vendors require a key; skip silently when unset so offline installs stay clean.
-        if is_cloud && api_key.is_empty() {
+        if (is_cloud && api_key.is_empty())
+            || key_required_but_missing(&endpoint.api_key_env, &api_key)
+        {
             if std::env::var("SUSI_VERBOSE").is_ok() {
                 eprintln!(
                     "[AUTODISCOVER] Skipping cloud endpoint '{}' — set {} to enable",
@@ -428,6 +430,28 @@ pub fn register_configured_cloud_endpoints(
                         endpoint.api_key_env.as_str()
                     }
                 );
+            }
+            continue;
+        }
+
+        if is_custom_vendor_endpoint(&endpoint) {
+            // A proxy's aliases are not the vendor's bundled model IDs. Admit
+            // one advertised model, not an entire roster of failover attempts.
+            if let Some(model) = custom_endpoint_model(&endpoint, &api_key) {
+                let name = format!(
+                    "{}-{}",
+                    endpoint.name.to_ascii_lowercase().replace(' ', "-"),
+                    model
+                );
+                if registry.get_provider(&name).is_none() {
+                    registry.register_provider(HttpProvider {
+                        name,
+                        api_base,
+                        model,
+                        protocol,
+                        api_key,
+                    });
+                }
             }
             continue;
         }
@@ -610,7 +634,10 @@ pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityR
             continue;
         };
         let api_base = endpoint.api_base.trim();
-        if api_base.is_empty() || !HttpProvider::is_remote_cloud(api_base) {
+        if api_base.is_empty()
+            || !HttpProvider::is_remote_cloud(api_base)
+            || is_custom_vendor_endpoint(endpoint)
+        {
             continue;
         }
         let key_env = if entry.api_key_env.is_empty() {
@@ -652,6 +679,130 @@ fn key_required_but_missing(api_key_env: &str, resolved_key: &str) -> bool {
     !api_key_env.trim().is_empty() && resolved_key.trim().is_empty()
 }
 
+type Endpoint = crate::susi_sandbox::manager::InferenceEndpointItem;
+
+fn bundled_endpoint(name: &str) -> Option<Endpoint> {
+    static DEFAULTS: std::sync::OnceLock<Vec<Endpoint>> = std::sync::OnceLock::new();
+    DEFAULTS
+        .get_or_init(|| {
+            crate::susi_sandbox::manager::SusiConfig::default()
+                .inference_endpoints()
+                .endpoints
+        })
+        .iter()
+        .find(|e| e.name.eq_ignore_ascii_case(name))
+        .cloned()
+}
+
+fn is_custom_vendor_endpoint(endpoint: &Endpoint) -> bool {
+    !endpoint.api_key_env.is_empty()
+        && bundled_endpoint(&endpoint.name).is_none_or(|default| {
+            endpoint.api_base.trim_end_matches('/') != default.api_base.trim_end_matches('/')
+        })
+}
+
+fn fetch_endpoint_models(
+    base: &str,
+    key: &str,
+    protocol: InferenceProtocol,
+) -> Option<Vec<String>> {
+    let (url, headers) = crate::credential_scout::probe_request(protocol, base, key);
+    let call = susi_http_transport::http_call("GET", &url, &header_refs(&headers), 1, 0).ok()?;
+    if !http_ok(call.status) {
+        return None;
+    }
+    let bytes = call.into_bytes(2 * 1024 * 1024).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let rows = json
+        .get(if protocol == InferenceProtocol::Gemini {
+            "models"
+        } else {
+            "data"
+        })?
+        .as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|row| {
+                let id = if protocol == InferenceProtocol::Gemini {
+                    if !row
+                        .get("supportedGenerationMethods")?
+                        .as_array()?
+                        .iter()
+                        .any(|m| m == "generateContent")
+                    {
+                        return None;
+                    }
+                    row.get("name")?.as_str()?.trim_start_matches("models/")
+                } else {
+                    row.get("id")?.as_str()?
+                };
+                (!id.trim().is_empty() && !is_non_chat_model_id(id)).then(|| id.to_string())
+            })
+            .collect(),
+    )
+}
+
+fn cached_endpoint_models(
+    base: &str,
+    key: &str,
+    protocol: InferenceProtocol,
+) -> Option<Vec<String>> {
+    use std::{
+        collections::BTreeMap,
+        sync::{Mutex, OnceLock},
+        time::{Duration, Instant},
+    };
+    type Cache = BTreeMap<String, (Instant, Option<Vec<String>>)>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    let cache_key = format!(
+        "{base}|{protocol:?}|{}",
+        susi_gemi_models::cloud_eligibility::credential_fingerprint(key)
+    );
+    let mut cache = CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    cache.retain(|_, (at, models)| {
+        at.elapsed() < Duration::from_secs(if models.is_some() { 60 } else { 5 })
+    });
+    if let Some((_, models)) = cache.get(&cache_key) {
+        return models.clone();
+    }
+    let models = fetch_endpoint_models(base, key, protocol);
+    cache.insert(cache_key, (Instant::now(), models.clone()));
+    models
+}
+
+fn custom_endpoint_model(endpoint: &Endpoint, key: &str) -> Option<String> {
+    let protocol = InferenceProtocol::from_config(&endpoint.protocol_type);
+    if let Some(models) = cached_endpoint_models(&endpoint.api_base, key, protocol) {
+        let family = match protocol {
+            InferenceProtocol::Anthropic => "claude",
+            InferenceProtocol::Gemini => "gemini",
+            _ => "",
+        };
+        return models
+            .iter()
+            .find(|id| *id == &endpoint.model)
+            .or_else(|| {
+                models
+                    .iter()
+                    .find(|id| !family.is_empty() && id.starts_with(family))
+            })
+            .or_else(|| models.first())
+            .cloned();
+    }
+    // A saved nondefault model is intentional, unlike an automatically seeded
+    // bundled guess. Preserve it when this service cannot list its models.
+    let explicit = !endpoint.model.is_empty()
+        && bundled_endpoint(&endpoint.name).is_none_or(|default| endpoint.model != default.model);
+    if explicit {
+        return Some(endpoint.model.clone());
+    }
+    tracing::debug!(endpoint = %endpoint.name, "Custom endpoint model listing unavailable; bundled model remains unverified");
+    None
+}
+
 /// Probe an OpenAI-compatible `/models` listing and register each model id.
 /// Returns how many new providers were registered.
 pub fn register_openai_compat_models(
@@ -661,32 +812,11 @@ pub fn register_openai_compat_models(
     api_key: &str,
 ) -> usize {
     let base = api_base.trim_end_matches('/');
-    let url = format!("{base}/models");
-    let owned = openai_headers(api_key, api_base);
-    let refs = header_refs(&owned);
-    let Ok(call) = susi_http_transport::http_call("GET", &url, &refs, 1, 0) else {
-        return 0;
-    };
-    if !http_ok(call.status) {
-        return 0;
-    }
-    let Ok(bytes) = call.into_bytes(32 * 1024 * 1024) else {
-        return 0;
-    };
-    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return 0;
-    };
-    let Some(models) = json.get("data").and_then(|d| d.as_array()) else {
+    let Some(models) = fetch_endpoint_models(base, api_key, InferenceProtocol::OpenAiChat) else {
         return 0;
     };
     let mut registered = 0usize;
-    for model in models {
-        let Some(model_id) = model.get("id").and_then(|id| id.as_str()) else {
-            continue;
-        };
-        if is_non_chat_model_id(model_id) {
-            continue;
-        }
+    for model_id in &models {
         let name = format!(
             "{}-{}",
             engine_label.to_ascii_lowercase().replace(' ', "-"),
@@ -785,6 +915,9 @@ pub async fn auto_discover_local_engines(
 
     // Open admission: any user/bundled inference_endpoints base joins discovery.
     for ep in effective_inference_endpoints() {
+        if is_custom_vendor_endpoint(&ep) {
+            continue;
+        }
         let api_base = ep.api_base.trim().to_string();
         if api_base.is_empty() {
             continue;
@@ -873,6 +1006,90 @@ mod tests {
         );
         server.join().unwrap();
         assert!(registry.get_provider("ollama-installed-model").is_some());
+    }
+
+    #[test]
+    fn first_override_models_are_cached_and_do_not_invent_bundled_ids() {
+        use std::io::{Read, Write};
+        let _guard = crate::engines::env_test_lock();
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+                        .unwrap();
+                    let mut request = [0; 2048];
+                    let n = stream.read(&mut request).unwrap();
+                    let request = String::from_utf8_lossy(&request[..n]);
+                    assert!(request.starts_with("GET /v1/models "));
+                    assert!(request
+                        .to_ascii_lowercase()
+                        .contains("x-api-key: fixture-key"));
+                    let body = r#"{"data":[{"id":"embedding-only"},{"id":"unrelated-alias"},{"id":"claude-actual"},{"id":"claude-preferred"}]}"#;
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                    return;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "model discovery did not connect"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+        let mut endpoint = bundled_endpoint("Anthropic").unwrap();
+        endpoint.api_base = format!("http://{address}/v1");
+        assert!(is_custom_vendor_endpoint(&endpoint));
+        assert_eq!(
+            custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
+            Some("claude-actual")
+        );
+        server.join().unwrap();
+        // The listener is gone: this second selection must use the same live
+        // roster, not another probe, and must honor a listed preferred model.
+        endpoint.model = "claude-preferred".into();
+        assert_eq!(
+            custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
+            Some("claude-preferred")
+        );
+        endpoint.model = "invented-bundled-id".into();
+        assert_eq!(
+            custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
+            Some("claude-actual")
+        );
+    }
+
+    #[test]
+    fn first_unavailable_override_preserves_only_explicit_model() {
+        let _guard = crate::engines::env_test_lock();
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let mut endpoint = bundled_endpoint("GoogleGemini").unwrap();
+        endpoint.api_base = format!("http://{address}/v1");
+        assert!(custom_endpoint_model(&endpoint, "fixture-key").is_none());
+        endpoint.model = "explicit-user-model".into();
+        assert_eq!(
+            custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
+            Some("explicit-user-model")
+        );
     }
 
     #[test]
