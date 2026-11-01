@@ -32,7 +32,9 @@ if ($Action -eq 'Install') {
     $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
     $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`" -Channel $Channel -Root `"$Root`""
     if ($CanonicalHome) { $shortcut.Arguments += " -CanonicalHome `"$CanonicalHome`"" }
-    $shortcut.WorkingDirectory = [Environment]::GetFolderPath('UserProfile')
+    $workspace = Join-Path $channelRoot 'workspace'
+    New-Item -ItemType Directory -Path $workspace -Force | Out-Null
+    $shortcut.WorkingDirectory = $workspace
     $shortcut.Description = $name
     $shortcut.IconLocation = $state.current
     $shortcut.Save()
