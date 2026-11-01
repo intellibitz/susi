@@ -21,7 +21,8 @@
   "evidence": [
     "419 library tests passed, including 40 adapter tests",
     "Installed workflow protocol uses local native start/extend/commit/integrate/release",
-    "No legacy sync, remote fetch, shell seed, watcher or automatic stale directory removal"
+    "No legacy sync, remote fetch, shell seed, watcher or automatic stale directory removal",
+    "41 adapter tests pass including real queue dependency contract: private done record never changes primary queue on failed integration"
   ],
   "integration": "pending_native_receipt"
 }

@@ -101,6 +101,13 @@ fn local_task_id(name: &str) -> String {
     format!("T-LOCAL-{}-1", name.to_ascii_uppercase())
 }
 
+fn task_scopes(id: &str) -> [String; 2] {
+    [
+        format!(".agents/tasks/{id}.json"),
+        format!(".agents/tasks/done/{id}.json"),
+    ]
+}
+
 fn validate_task_id(id: &str) -> EaiResult<()> {
     if !id.starts_with("T-")
         || !id
@@ -377,11 +384,7 @@ impl<R: CommandRunner> SusiTarget<R> {
             "start".into(),
             name.into(),
         ];
-        for scope in scopes
-            .iter()
-            .cloned()
-            .chain(std::iter::once(format!(".agents/tasks/{id}.json")))
-        {
+        for scope in scopes.iter().cloned().chain(task_scopes(&id)) {
             args.extend(["--scope".into(), scope]);
         }
         let output = self.susi(args, &self.repo)?;
@@ -488,11 +491,7 @@ impl<R: CommandRunner> SusiTarget<R> {
             "extend".into(),
             claim.name.clone(),
         ];
-        for scope in scopes
-            .iter()
-            .cloned()
-            .chain(std::iter::once(format!(".agents/tasks/{id}.json")))
-        {
+        for scope in scopes.iter().cloned().chain(task_scopes(id)) {
             args.extend(["--scope".into(), scope]);
         }
         let output = self.susi(args, worktree)?;
@@ -633,25 +632,47 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// Returns an error when the close is refused (for example, no live claim).
     pub fn close(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
         let claim = local_claim(worktree)?;
-        claim.require_scope(&format!(".agents/tasks/{id}.json"))?;
+        for scope in task_scopes(id) {
+            claim.require_scope(&scope)?;
+        }
         let accepted = self.accept(worktree, id)?;
         let path = task_file(worktree, id)?;
-        if path != worktree.join(format!(".agents/tasks/{id}.json")) {
-            return Err(EaiError::process(
-                "closed task records cannot be reclaimed or changed",
-            ));
-        }
+        let done = worktree.join(format!(".agents/tasks/done/{id}.json"));
+        check_task_path(worktree, &done)?;
         let mut record: Value = serde_json::from_str(
             &std::fs::read_to_string(&path).map_err(|e| EaiError::io(e.to_string()))?,
         )
         .map_err(|e| EaiError::config(e.to_string()))?;
+        if path == done {
+            if record["status"] == "verified"
+                && record["owner"] == claim.name
+                && record["integration"] == "pending_native_receipt"
+            {
+                return Ok(accepted);
+            }
+            return Err(EaiError::process(
+                "existing closed task is not this candidate's verified record",
+            ));
+        }
         record["status"] = Value::String("verified".into());
         record["integration"] = Value::String("pending_native_receipt".into());
-        std::fs::write(
-            path,
-            serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?,
+        std::fs::create_dir_all(
+            done.parent()
+                .ok_or_else(|| EaiError::io("done task has no parent"))?,
         )
         .map_err(|e| EaiError::io(e.to_string()))?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&done)
+            .map_err(|e| EaiError::io(format!("preserve existing done record: {e}")))?;
+        file.write_all(
+            &serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?,
+        )
+        .map_err(|e| EaiError::io(e.to_string()))?;
+        drop(file);
+        std::fs::remove_file(path).map_err(|e| EaiError::io(e.to_string()))?;
         Ok(accepted)
     }
 
@@ -2079,7 +2100,9 @@ mod tests {
                 "start",
                 "demo",
                 "--scope",
-                ".agents/tasks/T-LOCAL-DEMO-1.json"
+                ".agents/tasks/T-LOCAL-DEMO-1.json",
+                "--scope",
+                ".agents/tasks/done/T-LOCAL-DEMO-1.json"
             ]
         );
     }
@@ -2205,6 +2228,70 @@ mod tests {
             serde_json::from_slice(&std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap())
                 .unwrap();
         assert_eq!(record["integration"], "pending_native_receipt");
+    }
+
+    #[test]
+    fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
+        let candidate = tempfile::tempdir().unwrap();
+        let primary = tempfile::tempdir().unwrap();
+        let target = native_target(candidate.path());
+        target
+            .start_scoped_worktree("demo", &["docs/first.md".into()], None)
+            .unwrap();
+        let id = target
+            .add_task(candidate.path(), "first", "cargo test")
+            .unwrap();
+        let open = task_file(candidate.path(), &id).unwrap();
+        let original = std::fs::read(&open).unwrap();
+        let dependent = serde_json::json!({"id":"T-DEPENDENT-1","title":"dependent","deps":[id],"scopes":["docs/second.md"],"accept":{"cmd":["cargo","test"]}});
+        for repo in [primary.path(), candidate.path()] {
+            std::fs::create_dir_all(repo.join(".agents/tasks/done")).unwrap();
+            std::fs::write(
+                repo.join(".agents/tasks/T-DEPENDENT-1.json"),
+                serde_json::to_vec(&dependent).unwrap(),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            primary.path().join(format!(".agents/tasks/{id}.json")),
+            &original,
+        )
+        .unwrap();
+        let plan = |repo: &Path| {
+            crate::queue::plan_batch(repo, "contract", 2, &["worker".into()], None, &[]).unwrap()
+        };
+        assert_eq!(
+            plan(primary.path()).tasks[0].task.as_deref(),
+            Some(id.as_str())
+        );
+        target.runner.state.lock().unwrap().integration_failure = true;
+        assert!(target.finish(candidate.path(), &id).is_err());
+        assert!(!open.exists());
+        assert!(candidate
+            .path()
+            .join(format!(".agents/tasks/done/{id}.json"))
+            .is_file());
+        // A second close validates the same artifact and does not overwrite it.
+        target.close(candidate.path(), &id).unwrap();
+        let candidate_plan = plan(candidate.path());
+        assert_eq!(candidate_plan.tasks.len(), 1);
+        assert_eq!(
+            candidate_plan.tasks[0].task.as_deref(),
+            Some("T-DEPENDENT-1")
+        );
+        // Failed native integration has never published that artifact to the
+        // primary queue, so its dependency remains blocked there.
+        let primary_plan = plan(primary.path());
+        assert_eq!(primary_plan.tasks.len(), 1);
+        assert_eq!(primary_plan.tasks[0].task.as_deref(), Some(id.as_str()));
+        assert_eq!(
+            std::fs::read(primary.path().join(format!(".agents/tasks/{id}.json"))).unwrap(),
+            original
+        );
+        assert!(!primary
+            .path()
+            .join(format!(".agents/tasks/done/{id}.json"))
+            .exists());
     }
 
     #[test]
