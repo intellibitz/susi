@@ -9,8 +9,8 @@ description = "Candle/CUDA/Metal vendor substrate: device probe, Qwen2 GGUF spli
 [dependencies]
 tracing = { workspace = true }
 # Pretrained inference does not use the optional C++ suffix-array trainer.
-# Keep regex/progress behavior; unigram training uses tokenizers' Rust suffix_rs path.
-tokenizers = { version = "0.23.2", default-features = false, features = ["onig", "progressbar"] }
+# Rust regex and suffix-array implementations avoid native Oniguruma/C++ builds.
+tokenizers = { version = "0.23.2", default-features = false, features = ["fancy-regex", "progressbar"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.1" }
