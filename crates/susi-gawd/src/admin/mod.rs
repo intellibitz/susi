@@ -200,8 +200,12 @@ impl SusiAdmin {
         }
     }
 
-    /// Dynamic Neural Cascade Classifier (Tier 0 Reflex -> Tier 2 GEMI -> Motion)
-    pub fn classify_natural_intent(workspace: &Path, intent: &str) -> (&'static str, &'static str) {
+    /// Classify the evidence entry without executing the goal. Configured
+    /// labels remain authoritative; inference belongs to mission execution.
+    pub fn classify_natural_intent(
+        _workspace: &Path,
+        intent: &str,
+    ) -> (&'static str, &'static str) {
         let trimmed = intent.trim();
         let lower = trimmed.to_lowercase();
         // Mandate 35: the keyword lists live in config (`intent_classify`);
@@ -226,27 +230,13 @@ impl SusiAdmin {
             return ("[MOTION]", "Architectural Evolution");
         }
 
+        // The ledger label must not warm a model or generate an answer before
+        // the governed mission begins. Reuse the same deterministic scope
+        // classification as execution; unrecognized intent is a mission.
+        if crate::susi_core::manifold::IntentManifold::analyze(trimmed).scope_of_impact
+            == crate::susi_core::manifold::ScopeOfImpact::Read
         {
-            let reflex_action = crate::susi_core::plane_bus::gemi::pulse_reason(trimmed, workspace);
-            let reflex_lower = reflex_action.to_lowercase();
-            if reflex_action.is_empty() {
-                // fall through
-            } else if ["query", "status", "identity"]
-                .iter()
-                .any(|w| contains_phrase(&reflex_lower, w))
-            {
-                return ("[QUERY]", "Zero-Mutation Interrogation");
-            } else if ["motion", "recompile"]
-                .iter()
-                .any(|w| contains_phrase(&reflex_lower, w))
-            {
-                return ("[MOTION]", "Architectural Evolution");
-            } else if ["mission", "solve"]
-                .iter()
-                .any(|w| contains_phrase(&reflex_lower, w))
-            {
-                return ("[MISSION]", "Dynamic Task Fulfillment");
-            }
+            return ("[QUERY]", "Zero-Mutation Interrogation");
         }
 
         ("[MISSION]", "Dynamic Task Fulfillment")
@@ -357,6 +347,61 @@ fn contains_phrase(text: &str, phrase: &str) -> bool {
 #[cfg(test)]
 mod intent_classify_tests {
     use super::{contains_phrase, SusiAdmin};
+
+    #[test]
+    fn first_goal_evidence_labels_do_not_infer() {
+        const CHILD: &str = "SUSI_INGEST_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "admin::intent_classify_tests::first_goal_evidence_labels_do_not_infer",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        let _env = susi_paths::test_env::EnvGuard::isolated();
+        use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        struct PulseProbe(Arc<AtomicUsize>);
+        impl PlaneHandler for PulseProbe {
+            fn handle(&self, _: &str, _: serde_json::Value) -> Result<serde_json::Value, String> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(serde_json::json!({"text":"motion"}))
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        PlaneBus::global().register(
+            topics::GEMI_PULSE_REASON,
+            Arc::new(PulseProbe(calls.clone())),
+        );
+        let workspace = susi_paths::SusiDirs::data_dir();
+        for goal in [
+            "Read step1-note.txt and tell me its launch code",
+            "Compute 17 + 25. Answer with only the number.",
+        ] {
+            assert_eq!(
+                SusiAdmin::classify_natural_intent(&workspace, goal).0,
+                "[QUERY]"
+            );
+        }
+        assert_eq!(
+            SusiAdmin::classify_natural_intent(&workspace, "draft a promotion plan").0,
+            "[MISSION]"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "evidence ingestion must not perform inference"
+        );
+    }
 
     #[test]
     fn keywords_match_whole_words_only() {

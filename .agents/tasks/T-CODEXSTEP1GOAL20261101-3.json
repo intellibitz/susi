@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-3",
+  "title": "Record goals without redundant neural classification",
+  "goal": "Step1: evidence ingestion must not load and query a model before executing the actual governed goal",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "intent_classify_tests"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793526014
+}
