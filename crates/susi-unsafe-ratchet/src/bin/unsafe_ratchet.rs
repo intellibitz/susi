@@ -66,7 +66,7 @@ fn read_json(path: &str) -> Result<serde_json::Value, String> {
 
 /// Exposure count for one geiger package entry. Two report shapes are
 /// supported: full `cargo geiger` scans carry
-/// `unsafety.used.functions.unsafe` counts; `--forbid-only` scans carry a
+/// `unsafety.used.functions.unsafe` (or `unsafe_`) counts; `--forbid-only` scans carry a
 /// `forbids_unsafe` bool — the exposure unit is then the crate itself (1).
 fn unsafe_fns_of(item: &serde_json::Value) -> u64 {
     if let Some(forbids) = item.get("forbids_unsafe").and_then(|f| f.as_bool()) {
@@ -77,16 +77,19 @@ fn unsafe_fns_of(item: &serde_json::Value) -> u64 {
 }
 
 fn unsafe_counts_of(unsafety: &serde_json::Value) -> u64 {
+    fn leaf(v: &serde_json::Value) -> Option<u64> {
+        // Older exports use `unsafe`; current cargo-geiger serializes the
+        // Rust field name `unsafe_`. Never let a duplicate zero hide exposure.
+        ["unsafe", "unsafe_"]
+            .into_iter()
+            .filter_map(|key| v.get(key).and_then(serde_json::Value::as_u64))
+            .max()
+    }
     fn count(v: &serde_json::Value) -> Option<u64> {
         v.get("used")
             .and_then(|u| u.get("functions"))
-            .and_then(|f| f.get("unsafe"))
-            .and_then(|n| n.as_u64())
-            .or_else(|| {
-                v.get("functions")
-                    .and_then(|f| f.get("unsafe"))
-                    .and_then(|n| n.as_u64())
-            })
+            .and_then(leaf)
+            .or_else(|| v.get("functions").and_then(leaf))
     }
     if let Some(n) = count(unsafety) {
         return n;
@@ -95,7 +98,7 @@ fn unsafe_counts_of(unsafety: &serde_json::Value) -> u64 {
     let mut total = 0u64;
     if let Some(used) = unsafety.get("used").and_then(|u| u.as_object()) {
         for section in used.values() {
-            if let Some(n) = section.get("unsafe").and_then(|n| n.as_u64()) {
+            if let Some(n) = leaf(section) {
                 total = total.saturating_add(n);
             }
         }
@@ -273,5 +276,55 @@ fn main() -> ExitCode {
             eprintln!("unsafe_ratchet: {e}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn both_geiger_schemas_record_nonzero_exposure_and_require_review() {
+        for key in ["unsafe", "unsafe_"] {
+            let report = json!({"packages": [{
+                "package": {"id": {"name": "third-party-ffi"}},
+                "unsafety": {"used": {"functions": {"safe": 6, (key): 2},
+                    "exprs": {(key): 45}}, "forbids_unsafe": false}
+            }]});
+            let current = current_exposure(&report, &Default::default());
+            assert_eq!(current.len(), 1);
+            assert_eq!(current[0].unsafe_fns, 2);
+            assert!(matches!(ratchet_unsafe(&[], &current, &[], &[]),
+                GeigerVerdict::NeedsReview { new_crates } if new_crates == ["third-party-ffi"]));
+        }
+    }
+
+    #[test]
+    fn fallback_and_duplicate_keys_do_not_hide_exposure() {
+        assert_eq!(
+            unsafe_counts_of(&json!({"used": {
+                "exprs": {"unsafe_": 45}, "item_impls": {"unsafe": 1}
+            }})),
+            46
+        );
+        assert_eq!(
+            unsafe_counts_of(&json!({"functions": {"unsafe": 0, "unsafe_": 2}})),
+            2
+        );
+        // Function-count measurement remains stable: a measured zero is not
+        // replaced with an expression count from a different exposure unit.
+        assert_eq!(
+            unsafe_counts_of(&json!({"used": {
+                "functions": {"unsafe_": 0}, "exprs": {"unsafe_": 45}
+            }})),
+            0
+        );
+    }
+
+    #[test]
+    fn forbid_only_measurement_preserves_existing_baseline_units() {
+        assert_eq!(unsafe_fns_of(&json!({"forbids_unsafe": false})), 1);
+        assert_eq!(unsafe_fns_of(&json!({"forbids_unsafe": true})), 0);
     }
 }

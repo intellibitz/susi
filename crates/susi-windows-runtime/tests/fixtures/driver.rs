@@ -1,5 +1,6 @@
 //! Standalone native qualification driver. Arguments: runtime.obj, OS-UCRT
 //! import library, OS-stack import library, lifecycle.rs, private output dir.
+//! Optional sixth argument supplies a separate production panic-abort rlib.
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -36,15 +37,19 @@ fn run(mut command: Command, directory: &Path, label: &str, seconds: u64) -> Out
 
 fn main() {
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
-    assert_eq!(
-        args.len(),
-        5,
+    assert!(
+        matches!(args.len(), 5 | 6),
         "runtime.obj OS-UCRT.lib OS-stack.lib lifecycle.rs output-directory"
     );
     let root = &args[4];
     fs::create_dir_all(root).unwrap();
     for abort in [false, true] {
         let profile = if abort { "abort" } else { "unwind" };
+        let runtime = if abort && args.len() == 6 {
+            &args[5]
+        } else {
+            &args[0]
+        };
         let executable = root.join(format!("lifecycle-{profile}.exe"));
         let map = root.join(format!("lifecycle-{profile}.map"));
         let mut compile = Command::new("rustc");
@@ -53,13 +58,13 @@ fn main() {
             .arg(&args[3])
             .arg("-o")
             .arg(&executable);
-        let rlib = args[0]
+        let rlib = runtime
             .extension()
             .is_some_and(|extension| extension == "rlib");
         if rlib {
             compile
                 .arg("--extern")
-                .arg(format!("susi_windows_runtime={}", args[0].display()))
+                .arg(format!("susi_windows_runtime={}", runtime.display()))
                 .args(["--cfg", "susi_runtime_rlib"]);
         }
         for arg in [
@@ -78,7 +83,7 @@ fn main() {
         if !rlib {
             compile
                 .arg("-C")
-                .arg(format!("link-arg={}", args[0].display()));
+                .arg(format!("link-arg={}", runtime.display()));
         }
         if abort {
             compile.args(["-C", "panic=abort", "-C", "opt-level=3", "-C", "lto=fat"]);
@@ -103,7 +108,7 @@ fn main() {
             );
         }
         assert!(map.contains("susi_pe_entry"));
-        let runtime_name = args[0].file_name().unwrap().to_str().unwrap();
+        let runtime_name = runtime.file_name().unwrap().to_str().unwrap();
         for line in map.lines() {
             let fields: Vec<_> = line.split_whitespace().collect();
             if fields.len() >= 4

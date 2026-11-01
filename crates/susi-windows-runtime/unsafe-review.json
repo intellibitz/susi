@@ -31,5 +31,5 @@
   },
   "baseline_modified": false,
   "scope": "Hash-identical isolated crate scan, not final production graph",
-  "geiger_report_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  "geiger_report_sha256": "80C6CFB0B1691D0DF7E9B3D0542B5460BC47D666D9711C03348E4766FAB27987"
 }
