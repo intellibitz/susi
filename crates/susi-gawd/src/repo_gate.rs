@@ -148,6 +148,9 @@ pub(crate) fn executed_report(
 }
 
 fn run_cargo_check(workspace: &Path, args: &[&str]) -> EaiResult<CheckOutcome> {
+    let mut gates = [args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()];
+    vendor_regressions::include_release_tooling(workspace, &mut gates);
+    let args = &gates[0];
     let status = cargo_command(workspace)?
         .args(args)
         .status()
@@ -184,8 +187,6 @@ pub fn run_repository_gate(workspace: &Path) -> EaiResult<GateReport> {
             "clippy",
             "--workspace",
             "--all-targets",
-            "--features",
-            "xtask/release-tooling",
             "--locked",
             "--offline",
             "--",
@@ -193,17 +194,7 @@ pub fn run_repository_gate(workspace: &Path) -> EaiResult<GateReport> {
             "warnings",
         ],
     )?;
-    let test = run_cargo_check(
-        workspace,
-        &[
-            "test",
-            "--workspace",
-            "--locked",
-            "--offline",
-            "--features",
-            "xtask/release-tooling",
-        ],
-    )?;
+    let test = run_cargo_check(workspace, &["test", "--workspace", "--locked", "--offline"])?;
     let mut report = executed_report(fmt, clippy, test);
     // Never call an older three-check report complete. Every policy command
     // must have executed successfully against this same candidate workspace.
