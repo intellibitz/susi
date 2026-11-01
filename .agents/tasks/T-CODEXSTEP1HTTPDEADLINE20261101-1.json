@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1HTTPDEADLINE20261101-1",
+  "title": "Bound shared HTTP requests across headers redirects and body reads",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-http-transport",
+      "http_deadline",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1HTTPDEADLINE20261101",
+  "created_unix": 1793530926
+}
