@@ -15,6 +15,24 @@ Candle answers and scoped shutdown. Production qualification and combined-tree
 acceptance remain pending until their final gates run. The CEO's Step 1 of 100
 acceptance contract is `step1-acceptance.md`; agents and Susi own its execution.
 
+Windows runtime inspection also found that eliminating redistributable DLL
+imports alone did not eliminate copied Microsoft CRT startup implementation.
+The original `susi-windows-runtime` Rust crate now supplies executable entry,
+TLS metadata and initializer/termination handling. Its qualified compiler is
+Rust 1.99.0 at commit `b940084d7eb6a299eb4bfeb8e34901bc051e7ac4` on native
+x64 Windows MSVC. Changing that ABI requires fresh qualification, not removal
+of the guard. OS UCRT and kernel imports remain explicit platform boundaries.
+The final product and developer executables require both PE-import inspection
+and artifact-bound link-map evidence; an allowed DLL list alone is insufficient.
+Lifecycle fixtures and full Susi inference have passed diagnostic builds;
+combined-source release qualification remains a separate gate.
+
+The CEO authorized Hyper-V administration through `gsudo`. Agents have created
+an isolated clean Windows 11 VM and verified the OS runtime boundary there.
+Its baseline lacks Rust, Git, Python, Node, the C++ compiler and the separate
+Visual C++ runtime DLL. The final packaged executable still needs its own
+uncached installation and first-goal evidence in that VM before Step 1 closes.
+
 The CEO does not inspect code. Susi is built and delivered by agents. Agents have
 standing authority to commit, push, resolve conflicts and merge verified work;
 paid services, destructive actions and unrelated publication still require their
