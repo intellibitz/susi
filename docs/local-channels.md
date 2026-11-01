@@ -11,8 +11,10 @@ process-local Cargo development-profile overrides. Incremental compilation,
 debug assertions, overflow checks and line backtraces remain enabled; this is
 distinct from the public release profile. Whole-program LTO is disabled. Cargo
 fingerprints the optimization differences while reusing unchanged dependencies
-in the same worktree cache, without duplicating the target directory. All three
-overridden environment settings are restored, including on build failure.
+in the same worktree cache, without duplicating the target directory. This warm
+incremental path invokes rustc directly, independently of a shared compiler-cache
+server. The compiler-wrapper and profile environment settings are restored,
+including on build failure; global Cargo configuration remains unchanged.
 
 Each candidate is copied to a directory named by its SHA-256. Before activation,
 the script checks its checksum and version, then runs a real offline file goal
