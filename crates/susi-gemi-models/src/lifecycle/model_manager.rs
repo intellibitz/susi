@@ -690,12 +690,11 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
-        let _environment = susi_paths::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let root = std::env::temp_dir().join(format!(
             "susi-managed-download-{}-{}",
             std::process::id(),
@@ -1169,7 +1168,9 @@ mod tests {
 
     #[test]
     fn test_downloads_expert_audit() {
-        std::env::set_var("SUSI_USE_DOWNLOADS_DIR", "1");
+        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let mut environment = susi_paths::test_env::EnvGuard::isolated();
+        environment.set("SUSI_USE_DOWNLOADS_DIR", "1");
         let tmp_dir =
             std::env::temp_dir().join(format!("susi_downloads_audit_test-{}", std::process::id()));
         let _ = fs::create_dir_all(&tmp_dir);
