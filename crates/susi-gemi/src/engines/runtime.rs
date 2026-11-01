@@ -1002,9 +1002,8 @@ impl GemiEngine {
     }
 
     /// Kicks off hardware-optimal provisioning and blocks, polling for a
-    /// valid GGUF to land, up to `model_provisioning_wait_secs`. Streams
-    /// progress through `callback` so a caller waiting on a fresh install
-    /// isn't staring at silence for however long the download takes.
+    /// valid GGUF to land, up to `model_provisioning_wait_secs`. Progress goes to stderr separately
+    /// from answer tokens, including for non-streaming governed missions.
     /// Returns `None` (never `Some("[FAIL]...")`) if provisioning didn't
     /// finish in time, so the caller falls through to its next fallback
     /// rather than treating a timeout as a completed retry.
@@ -1014,9 +1013,6 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         min_complexity: Option<crate::models::intent::TaskComplexity>,
     ) -> Option<String> {
-        callback(
-            "[SUSI] No local model provisioned yet - fetching a hardware-fit model to solve this intent...\n".to_string(),
-        );
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if cfg
             .settings
@@ -1026,6 +1022,9 @@ impl GemiEngine {
         {
             return None;
         }
+        eprintln!(
+            "Susi is preparing a local AI model for your first goal. This requires a download."
+        );
         let (sender, provisioning) = std::sync::mpsc::channel();
         let provisioning_workspace = workspace.to_path_buf();
         std::thread::spawn(move || {
@@ -1034,20 +1033,21 @@ impl GemiEngine {
         });
 
         let wait_secs = cfg.model_provisioning_wait_secs();
-        // checked_add: a huge configured wait means "no deadline", not an
-        // overflow panic (which aborts the daemon under panic = "abort").
-        let deadline =
-            std::time::Instant::now().checked_add(std::time::Duration::from_secs(wait_secs));
-        let poll_interval = std::time::Duration::from_secs(10);
-        let mut last_reported_pct: i64 = -1;
+        let started = std::time::Instant::now();
+        let Some(deadline) = started.checked_add(std::time::Duration::from_secs(wait_secs)) else {
+            eprintln!("Susi could not start the model wait: the configured deadline is invalid.");
+            return None;
+        };
+        let poll_interval = std::time::Duration::from_millis(500);
+        let mut last_reported = started;
 
-        while deadline.is_none_or(|d| std::time::Instant::now() < d) {
+        while std::time::Instant::now() < deadline {
             if let Ok(Err(error)) = provisioning.try_recv() {
-                callback(format!("[SUSI] Provisioning unavailable: {error}\n"));
+                eprintln!("Susi could not prepare a local model: {error}");
                 return None;
             }
             if Self::has_usable_local_model(workspace) {
-                callback("[SUSI] Model provisioned. Resuming inference...\n".to_string());
+                eprintln!("Local model downloaded. Continuing your goal...");
                 let engine = LlamaCppEngine;
                 let selected = ModelManager::get_selected_model_for_request_with_min_complexity(
                     prompt,
@@ -1066,21 +1066,26 @@ impl GemiEngine {
                 return None;
             }
 
-            if let Some(progress) = ModelManager::download_controller_progress() {
-                let pct = progress as i64;
-                if pct != last_reported_pct {
-                    callback(format!("[SUSI] Provisioning model... {}%\n", pct));
-                    last_reported_pct = pct;
+            if last_reported.elapsed() >= std::time::Duration::from_secs(5) {
+                if let Some(progress) = ModelManager::download_controller_progress() {
+                    eprintln!(
+                        "Preparing local model: {:.0}% downloaded ({} seconds).",
+                        progress,
+                        started.elapsed().as_secs()
+                    );
+                } else {
+                    eprintln!(
+                        "Waiting for the local model download ({} seconds elapsed).",
+                        started.elapsed().as_secs()
+                    );
                 }
+                last_reported = std::time::Instant::now();
             }
 
             std::thread::sleep(poll_interval);
         }
 
-        callback(
-            "[SUSI] Model provisioning did not complete in time; trying alternate reasoning path...\n"
-                .to_string(),
-        );
+        eprintln!("The local model was not ready within {wait_secs} seconds. This goal has not completed.");
         None
     }
 
@@ -1167,6 +1172,24 @@ mod tests {
     use super::*;
 
     use std::thread;
+
+    #[test]
+    fn first_model_disabled_download_does_not_start_or_emit_answer_tokens() {
+        let _guard = crate::engines::env_test_lock();
+        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let home = susi_paths::SusiDirs::config_dir();
+        let mut cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        cfg.settings
+            .insert("auto_download_models".into(), serde_json::json!(false));
+        cfg.save(&home).unwrap();
+        assert!(GemiEngine::provision_and_retry(
+            "Compute 17 + 25",
+            &home,
+            &|_| panic!("provisioning is not answer content"),
+            None
+        )
+        .is_none());
+    }
 
     #[test]
     fn error_text_detection_rejects_stringified_failures() {

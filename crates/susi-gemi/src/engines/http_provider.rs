@@ -526,8 +526,9 @@ pub fn register_configured_cloud_endpoints(
 
 /// Register the curated models catalog (~50) plus the top coding/agent models.
 /// Each entry mounts when its engine api_base is known and any required API key
-/// is present (local engines with empty api_key_env always admit). Live `/models`
-/// discovery remains unbounded on top of this ladder.
+/// is present. Local catalog entries describe installable models, not running
+/// providers: only live `/models` discovery or an explicit configured model
+/// can admit those endpoints.
 pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityRegistry) {
     let endpoints = effective_inference_endpoints();
     let by_name: std::collections::BTreeMap<String, _> = endpoints
@@ -609,7 +610,7 @@ pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityR
             continue;
         };
         let api_base = endpoint.api_base.trim();
-        if api_base.is_empty() {
+        if api_base.is_empty() || !HttpProvider::is_remote_cloud(api_base) {
             continue;
         }
         let key_env = if entry.api_key_env.is_empty() {
@@ -618,7 +619,7 @@ pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityR
             entry.api_key_env.as_str()
         };
         let api_key = HttpProvider::resolve_api_key(key_env, &entry.engine);
-        if HttpProvider::is_remote_cloud(api_base) && api_key.is_empty() {
+        if api_key.is_empty() {
             continue;
         }
         let protocol = InferenceProtocol::from_config(if entry.protocol_type.is_empty() {
@@ -822,6 +823,49 @@ mod tests {
 
     use super::*;
     use crate::susi_core::registry::CapabilityRegistry;
+
+    #[test]
+    fn first_model_catalog_does_not_invent_local_providers_but_live_models_register() {
+        let _guard = crate::engines::env_test_lock();
+        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let registry = CapabilityRegistry::new();
+        register_model_catalog(&registry);
+        assert!(!registry
+            .list_providers()
+            .iter()
+            .any(|name| name.starts_with("catalog-ollama-")));
+
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+                        .unwrap();
+                    let mut request = [0; 2048];
+                    let _ = stream.read(&mut request).unwrap();
+                    let body = r#"{"data":[{"id":"installed-model"}]}"#;
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                    return;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "live model probe never connected"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+        assert_eq!(
+            register_openai_compat_models(&registry, "Ollama", &format!("http://{address}/v1"), ""),
+            1
+        );
+        server.join().unwrap();
+        assert!(registry.get_provider("ollama-installed-model").is_some());
+    }
 
     #[test]
     fn keyed_endpoints_without_a_key_are_not_probed() {
