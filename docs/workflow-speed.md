@@ -575,17 +575,42 @@ a build alone; no snapshot for the exact key takes the newest, and cargo
 recompiles the crates that differ. The registry-only part of this session's
 target measured 4.9 GB uncompressed, so expect about 1.5–2 GB to download.
 
-What this does not yet establish: the seeded cold build and the seeded gate
-have not been measured — the first snapshot is published by the workflow's
-first run on `main`, after this merges, and the next cloud session measures
-them (expected: the first build compiles the workspace crates only, as a
-laptop worktree's does, and the dependents' clippy pays for workspace check
-units only). Fingerprint parity across machines rests on what the laptop
-seeding already relies on — registry units are keyed by package, features,
-profile and compiler, not by the checkout's path or `CARGO_HOME`, and a build
-script's recorded output directory is rewritten by cargo — plus the identical
-rustflags and `ORT_LIB_LOCATION` the workflow reproduces; a unit whose
-fingerprint does not match is simply rebuilt.
+**Measured, in this session's container** (a fresh clone beside this
+checkout; 4 vCPU; the numbers are what the hook pays before a session's first
+`susi workflow check`, then what the gate's dependents clippy pays):
+
+| step | cold | seeded (first snapshot) | note |
+| --- | --- | --- | --- |
+| `git clone` | 15 s | 15 s | |
+| `scripts/cloud-target-seed.sh` | 0 s (nothing published) | 54 s | 1.45 GB in one part, verified and unpacked: 2 957 files, 4.5 GB |
+| `cargo build` | 742 s | 626 s | |
+| dependents' clippy (`-p susi -p susi-daemon -p susi-gawd -p susi-gawd-a2a -p xtask --all-targets`) | 232 s | 207 s | |
+
+The first snapshot bought almost nothing, and cargo's own output said why:
+the seeded build began with `Compiling unicode-ident`, `proc-macro2`, `serde`
+— every registry crate again. The units' hashes matched (the same
+`unicode-ident-<hash>` directories in the snapshot and in a target this
+container built itself), so the metadata was right; their fingerprints were
+not. The one input the publishing job added that the container does not was
+`CARGO_INCREMENTAL=0`, and the test is direct: the same seeded target built
+with `CARGO_INCREMENTAL=0` compiled no registry crate at all in its first 45 s
+and only workspace units afterwards. The job now builds with cargo's
+defaults and nothing else — the `incremental/` directories it writes for the
+workspace crates are dropped by the export anyway — and the snapshot is
+republished with the next run; the seeded build is re-measured then, and the
+expected shape is a first build of the ~80 workspace crates only.
+
+The first measurement also found the hook deriving the release URL from a
+clone URL ending in `.git` (a hand clone's; the harness's does not), looking
+under a path that does not exist and falling back to a cold build; fixed, with
+`--url` to show the resolved source.
+
+Fingerprint parity across machines otherwise rests on what the laptop seeding
+already relies on — registry units are keyed by package, features, profile and
+compiler, not by the checkout's path or `CARGO_HOME`, and a build script's
+recorded output directory is rewritten by cargo — plus the identical rustflags
+and `ORT_LIB_LOCATION` the workflow reproduces; a unit whose fingerprint does
+not match is simply rebuilt, which is what the first snapshot showed.
 
 ## What is not fixed here
 
