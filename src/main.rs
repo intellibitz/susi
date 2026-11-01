@@ -345,15 +345,30 @@ fn run() -> std::process::ExitCode {
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
 
     // The console layer goes to stderr: stdout is the data plane
     // (`susi audit query --json`, `susi status`, every machine-readable
     // surface), and a boot-time INFO line there makes it unparseable.
+    // Routine engine diagnostics belong in the durable audit log, not in the
+    // first-goal conversation. Warnings/errors remain visible; explicit log
+    // settings or verbose mode restore diagnostic detail on the console.
+    let verbose_console =
+        env::var_os("RUST_LOG").is_some() || env::var_os("SUSI_VERBOSE").is_some();
+    let console_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            tracing_subscriber::EnvFilter::new(if verbose_console {
+                "info,susi=debug"
+            } else {
+                "warn"
+            })
+        });
     let console_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_line_number(true);
+        .with_target(verbose_console)
+        .with_thread_ids(verbose_console)
+        .with_line_number(verbose_console)
+        .with_filter(console_filter);
 
     let json_file_layer = tracing_subscriber::fmt::layer()
         .json()
