@@ -891,9 +891,13 @@ jobs:
   # for main's jobs to finish so Test caches have been saved, then start the
   # warmer when release-relevant checks pass. A red coverage/Kani/acceptance
   # job keeps Test red but cannot make building a dependency cache unsafe.
-  # Warming is best effort and never changes the Test verdict.
+  # Warming is best effort and never changes the Test verdict. The cloud target
+  # seed is dispatched here too: the merge job writes main with GITHUB_TOKEN,
+  # whose pushes trigger no `push` workflow, so this green run on main is the
+  # moment a lockfile or toolchain merge gets its snapshot
+  # (.github/workflows/target-seed.yml; a key already published costs one checkout).
   warm-release:
-    name: Start Windows release cache warmer
+    name: Start Windows release cache warmer and the cloud target seed
     needs: [fmt, invariants, deny, unsafe-ratchet, test, lint, kani, verify, e2e, windows]
     if: always() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.lint.result == 'success' && needs.fmt.result == 'success' && needs.invariants.result == 'success' && needs.deny.result == 'success' && needs['unsafe-ratchet'].result == 'success' && (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
@@ -906,6 +910,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run release-warm.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Dispatch the cloud target seed without blocking Test on its build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run target-seed.yml --repo "$GITHUB_REPOSITORY" --ref main
 
   # The formal model is intentionally small and pure, so Kani can exhaust its
   # bounded inputs without starting the daemon or contacting a provider. Keep
