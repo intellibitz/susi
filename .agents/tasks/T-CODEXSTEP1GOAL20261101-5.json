@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-5",
+  "title": "Require explicit mission verbosity for diagnostic narration",
+  "goal": "Actual terminal first-goal regression: inherited RUST_LOG=warn must not enable thinking/protocol output; only SUSI_VERBOSE=1 or true enables mission narration, with persisted audit unchanged",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "first_goal"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793527479
+}
