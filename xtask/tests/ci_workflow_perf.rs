@@ -4447,8 +4447,10 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     let hermetic = read("scripts/check-hermetic-tests.sh");
     assert!(
         hermetic.contains("if [ \"$arg\" = --test ]; then has_test_filter=1; fi")
-            && hermetic.contains("if [ \"$has_test_filter\" -eq 0 ]; then"),
-        "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries"
+            && hermetic.contains("if [ \"$has_test_filter\" -eq 0 ]; then")
+            && hermetic.contains("NEXTEST_TEST_THREADS=1 cargo nextest run --locked"),
+        "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries \
+         and retry failed tests alone (`NEXTEST_TEST_THREADS=1`) when parallel load causes a flake"
     );
     let mg = read("scripts/merge-gate.sh");
     assert!(
