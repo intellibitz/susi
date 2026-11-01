@@ -271,6 +271,14 @@ the original local gate runs. No local proof stamp is written for deferred work.
 `--wait`, `SUSI_LOCAL_GATE=full`, or `SUSI_GATE_NOCACHE=1` keep local checks.
 This describes the implementation, not a measured sub-60-second full workflow.
 
+On v0.21.32, the local cut returned in 56.4 s and the first release assets
+appeared 10 min 1 s after the tagged workflow started. Linux ARM64 finished
+28 s before Windows but waited behind the optional-platform matrix. Each
+platform now publishes independently after the tagged suite and its own checks;
+queued publishers serialize release creation without cancelling one another.
+The release can temporarily lack platforms that are still building. The new
+ordering still needs a real release measurement.
+
 ## Gate fixture and finish critical path (2026-10-31)
 
 The complete finish for PR #1112 took 353.6 s: lease 1 s, initial sync 9 s,

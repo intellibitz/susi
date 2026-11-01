@@ -14,11 +14,10 @@ name: Release Binaries
 # this pipeline is proven (`gh workflow run release.yml --ref <branch>`)
 # without releasing anything.
 #
-# The tagged suite and all platform builds run in parallel. Windows and Linux
-# x86-64 publish independently once their own build and the suite pass: the
-# first finished leg creates the release and the other attaches later. ARM,
-# macOS and CUDA attach asynchronously. v0.21.30's Windows leg finished over
-# six minutes before Linux but waited for the shared matrix. A red suite still
+# The tagged suite and all platform builds run in parallel. Each successful
+# platform publishes independently after the suite: the first finished one
+# creates the release and the others attach later. A release can therefore be
+# temporarily missing a platform while its build is still running. A red suite
 # publishes nothing; release tags retain their own verification.
 #
 # Every leg builds with thin-local LTO over 16 codegen units
@@ -122,6 +121,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
+    outputs:
+      engine_ready: ${{ steps.engine_upload.outcome }}
+      harness_ready: ${{ steps.harness_upload.outcome }}
     env: &release-build-env
       SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
@@ -305,6 +307,7 @@ jobs:
       # Into the run's artifact store, not the release: `publish` attaches it
       # once the suite has passed. A dispatch is a dry run and stores nothing.
       - name: Upload Artifacts
+        id: engine_upload
         if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success' && steps.mission_smoke.outcome == 'success' && (runner.os == 'Windows' || steps.portable_e2e.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
@@ -379,6 +382,7 @@ jobs:
       # under `always()`, a harness that failed the check above was still
       # attached to the release, and a cancelled run could still publish.
       - name: Upload Harness
+        id: harness_upload
         if: needs.verify-tag.outputs.tag != '' && !cancelled() && steps.harness_verify.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
@@ -396,6 +400,9 @@ jobs:
     needs: [verify-tag]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
+    outputs:
+      engine_ready: ${{ steps.engine_upload.outcome }}
+      harness_ready: ${{ steps.harness_upload.outcome }}
     env: *release-build-env
     strategy:
       fail-fast: false
@@ -409,14 +416,16 @@ jobs:
             harness_src: target/dist/susi-harness
     steps: *release-steps
 
-  # Optional platforms. Same steps as `build` (the anchor above). They do not
-  # gate `publish`: arm64 and macOS stay soft, and a slow macOS runner must not
-  # hold the linux and Windows binaries.
-  build-extra:
+  # Separate jobs let each optional platform publish without waiting for its
+  # sibling. They share the same artifact checks as the first-class platforms.
+  build-arm:
     name: Build ${{ matrix.name }}
     needs: [verify-tag]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
+    outputs:
+      engine_ready: ${{ steps.engine_upload.outcome }}
+      harness_ready: ${{ steps.harness_upload.outcome }}
     env: *release-build-env
     strategy:
       fail-fast: false
@@ -428,10 +437,22 @@ jobs:
             src: target/dist/susi
             harness: susi-harness-linux-aarch64
             harness_src: target/dist/susi-harness
-          # macos-x86_64 is not published: ort-sys (ONNX Runtime, via
-          # fastembed) no longer ships prebuilt binaries for
-          # x86_64-apple-darwin, so the build fails in the ort-sys build
-          # script. Re-add if the embedder gains a source-build path.
+    steps: *release-steps
+
+  # macos-x86_64 is not published: ort-sys does not ship its binary.
+  build-macos:
+    name: Build ${{ matrix.name }}
+    needs: [verify-tag]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    outputs:
+      engine_ready: ${{ steps.engine_upload.outcome }}
+      harness_ready: ${{ steps.harness_upload.outcome }}
+    env: *release-build-env
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - os: macos-15
             name: macos-aarch64
             artifact: susi-macos-aarch64
@@ -449,6 +470,8 @@ jobs:
     # release from v0.21.22 shipped no CUDA build. 24.04 carries CUDA 12.0.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    outputs:
+      engine_ready: ${{ steps.cuda_upload.outcome }}
     env:
       SCCACHE_GHA_ENABLED: "false"
       RUSTC_WRAPPER: sccache
@@ -550,6 +573,7 @@ jobs:
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
+        id: cuda_upload
         if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
@@ -560,33 +584,36 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Either first-class platform may create the release as soon as its own
-  # build and the exact-tag suite pass. The two publishers share a concurrency
-  # group so simultaneous completions cannot race to create the release.
-  # There are only two jobs in this group, so neither can replace another
-  # pending publisher. A branch dispatch and a failed suite publish nothing.
+  # Every publisher waits only for the tagged suite and its own verified
+  # artifact. A shared queued concurrency group serializes release creation and
+  # attachment without dropping pending publishers when several finish at once.
   publish:
-    name: Publish the release
+    name: Publish Windows assets
     needs: [verify-tag, tests, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build.result == 'success'"
-    concurrency:
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build.result == 'success' && needs.build.outputs.engine_ready == 'success'"
+    concurrency: &publisher-concurrency
       group: release-first-asset-${{ github.ref }}
+      queue: max
       cancel-in-progress: false
-    steps:
-      - name: Collect the Windows artifact
+    env:
+      RELEASE_ENGINE: release-windows-x86_64
+      RELEASE_HARNESS: release-harness-windows-x86_64
+      RELEASE_HARNESS_READY: ${{ needs.build.outputs.harness_ready }}
+    steps: &publisher-steps
+      - name: Collect the verified engine artifact
         uses: actions/download-artifact@v4
         with:
-          name: release-windows-x86_64
+          name: ${{ env.RELEASE_ENGINE }}
           path: release
-      - name: Collect the Windows harness
+      - name: Collect the verified harness artifact
+        if: env.RELEASE_HARNESS_READY == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: release-harness-windows-x86_64
+          name: ${{ env.RELEASE_HARNESS }}
           path: release
-
-      - name: Publish the Windows assets
+      - name: Publish this platform's assets
         if: needs.verify-tag.outputs.tag != ''
         uses: softprops/action-gh-release@v3
         with:
@@ -595,75 +622,56 @@ jobs:
           files: release/*
 
   publish-linux:
-    name: Publish the Linux x86-64 assets
+    name: Publish Linux x86-64 assets
     needs: [verify-tag, tests, build-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-linux.result == 'success'"
-    concurrency:
-      group: release-first-asset-${{ github.ref }}
-      cancel-in-progress: false
-    steps:
-      - name: Collect the Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: release-linux-x86_64
-          path: release
-      - name: Collect the Linux harness
-        uses: actions/download-artifact@v4
-        with:
-          name: release-harness-linux-x86_64
-          path: release
-      - name: Publish the Linux assets
-        if: needs.verify-tag.outputs.tag != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.verify-tag.outputs.tag }}
-          fail_on_unmatched_files: true
-          files: release/*
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-linux.result == 'success' && needs.build-linux.outputs.engine_ready == 'success'"
+    concurrency: *publisher-concurrency
+    env:
+      RELEASE_ENGINE: release-linux-x86_64
+      RELEASE_HARNESS: release-harness-linux-x86_64
+      RELEASE_HARNESS_READY: ${{ needs.build-linux.outputs.harness_ready }}
+    steps: *publisher-steps
 
-  # Optional assets, after arm64, macOS and CUDA have finished. The release
-  # already exists; this only adds files. A failed optional leg uploaded
-  # nothing, and re-uploading a file the first publish already attached
-  # replaces it with the same bytes.
-  publish-extra:
-    name: Attach the optional release assets
-    needs: [verify-tag, tests, publish, build-extra, build-cuda]
+  publish-arm:
+    name: Publish Linux ARM64 assets
+    needs: [verify-tag, tests, build-arm]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.publish.result == 'success' && contains('success failure', needs.build-extra.result) && contains('success failure', needs.build-cuda.result)"
-    steps: &publish-extra-steps
-      - name: Collect the optional legs' artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: release
-          merge-multiple: true
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-arm.result == 'success' && needs.build-arm.outputs.engine_ready == 'success'"
+    concurrency: *publisher-concurrency
+    env:
+      RELEASE_ENGINE: release-linux-aarch64
+      RELEASE_HARNESS: release-harness-linux-aarch64
+      RELEASE_HARNESS_READY: ${{ needs.build-arm.outputs.harness_ready }}
+    steps: *publisher-steps
 
-      - name: Attach the optional release assets
-        if: needs.verify-tag.outputs.tag != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.verify-tag.outputs.tag }}
-          # The Linux publisher may be uploading concurrently; optional
-          # assets have distinct names and never replace its files.
-          fail_on_unmatched_files: false
-          files: |
-            release/susi-linux-aarch64*
-            release/susi-harness-linux-aarch64*
-            release/susi-macos-*
-            release/susi-harness-macos-*
-            release/susi-linux-x86_64-cuda*
-
-  # If Windows fails but Linux succeeds, the Linux publisher created the
-  # release and optional artifacts still need to be attached.
-  publish-extra-fallback:
-    name: Attach optional assets after Linux fallback
-    needs: [verify-tag, tests, publish, publish-linux, build-extra, build-cuda]
+  publish-macos:
+    name: Publish macOS ARM64 assets
+    needs: [verify-tag, tests, build-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.publish.result != 'success' && needs.publish-linux.result == 'success' && contains('success failure', needs.build-extra.result) && contains('success failure', needs.build-cuda.result)"
-    steps: *publish-extra-steps
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-macos.result == 'success' && needs.build-macos.outputs.engine_ready == 'success'"
+    concurrency: *publisher-concurrency
+    env:
+      RELEASE_ENGINE: release-macos-aarch64
+      RELEASE_HARNESS: release-harness-macos-aarch64
+      RELEASE_HARNESS_READY: ${{ needs.build-macos.outputs.harness_ready }}
+    steps: *publisher-steps
+
+  publish-cuda:
+    name: Publish Linux CUDA assets
+    needs: [verify-tag, tests, build-cuda]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-cuda.result == 'success' && needs.build-cuda.outputs.engine_ready == 'success'"
+    concurrency: *publisher-concurrency
+    env:
+      RELEASE_ENGINE: release-cuda-linux-x86_64
+      RELEASE_HARNESS: ''
+      RELEASE_HARNESS_READY: skipped
+    steps: *publisher-steps
 
   # Retention: keep rolling `dev` (other workflow) + newest 2 semver Releases.
   # Older GitHub Release *objects* (and their ~700MB assets) are deleted;
