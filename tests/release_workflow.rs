@@ -303,13 +303,13 @@ fn a_merged_version_bump_publishes_itself() {
         code.contains("case \"$GITHUB_REF\" in refs/tags/*) tag=\"$GITHUB_REF_NAME\" ;; esac"),
         "a run on a tag ref - pushed, or dispatched by the merge bot - must publish that tag"
     );
-    // Two publish steps: `publish` opens the release with the contracted
-    // platforms once the suite has passed, and `publish-extra` attaches arm64,
-    // macOS and CUDA when those legs finish (xtask ci_workflow_perf).
+    // Windows and Linux can each create the release independently once the
+    // suite passes; the third step attaches the optional platforms. The
+    // fallback reuses that step through a YAML alias.
     let publishes = code.matches("softprops/action-gh-release").count();
     assert_eq!(
-        publishes, 2,
-        "expected the contracted publish and the optional attach"
+        publishes, 3,
+        "expected independent Windows and Linux publishers and the optional attach"
     );
     assert_eq!(
         code.matches("tag_name: ${{ needs.verify-tag.outputs.tag }}")
