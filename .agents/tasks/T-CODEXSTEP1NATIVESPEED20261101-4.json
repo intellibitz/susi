@@ -10,8 +10,7 @@
       "test",
       "-p",
       "susi-gemi-models",
-      "--lib",
-      "checksum"
+      "--lib"
     ]
   },
   "created_by": "CODEXSTEP1NATIVESPEED20261101",

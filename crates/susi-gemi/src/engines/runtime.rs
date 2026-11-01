@@ -365,28 +365,20 @@ impl GemiEngine {
             false,
         ) {
             let preference = crate::engines::routing::InferenceRouter::load_preference();
-            let placement = crate::engines::routing::InferenceRouter::plan_placement_for(
-                &[],
-                requires,
-                None,
-                true,
+            let policy = crate::engines::routing::InferenceRouter::effective_policy(
+                &global_config.inference_routing(),
+                &preference,
             );
             fast_local_eligible(
                 prompt,
                 requested_model,
                 min_complexity,
                 requires,
-                &placement.policy,
+                &policy,
                 &active_engine_identifier,
                 preference.preferred_cloud.is_some(),
             )
-            .then(|| {
-                ModelManager::get_selected_model_for_request_with_min_complexity(
-                    prompt,
-                    None,
-                    min_complexity,
-                )
-            })
+            .then(|| ModelManager::get_selected_model_for_installed_runner(prompt))
             .flatten()
         } else {
             None
@@ -560,8 +552,9 @@ impl GemiEngine {
         // must fetch a hardware-fit model and retry before giving up. Only
         // engaged when no local GGUF actually exists yet (not on inference
         // errors against an existing model, which a re-download can't fix).
-        let provision_needed =
-            requested_model.is_none() && !Self::has_usable_local_model(workspace);
+        let provision_needed = !prefer_fast_local
+            && requested_model.is_none()
+            && !Self::has_usable_local_model(workspace);
         if provision_needed {
             if let Some(res) =
                 Self::provision_and_retry(prompt, workspace, callback, min_complexity)
