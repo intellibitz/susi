@@ -3339,9 +3339,9 @@ fn gmcp_vc_203_002_mastery() {
     //    answered once, bounded before the SDK buffers it, and cannot
     //    corrupt the request that shares its read chunk or any request
     //    after it ────────────────────────────────────────────────────
-    // Dev binaries run as their own instance — the bound lands in the
-    // `.susi-dev` root a `target/` build resolves (Mandate 48).
-    let susi_home = home.join(".susi-dev");
+    // susi_command explicitly selects this fixture-owned runtime via SUSI_HOME.
+    // Write the limit to that same root; automatic dev discovery is bypassed.
+    let susi_home = home.join(".susi");
     std::fs::create_dir_all(&susi_home).unwrap();
     std::fs::write(
         susi_home.join("config.json"),
