@@ -130,6 +130,8 @@ fn build_command(root: &Path, target: &Path, host: &str, profile: Profile) -> Co
         .arg("--no-default-features")
         // Explicit CLI arguments take precedence over user Cargo target settings.
         .env("CARGO_TARGET_DIR", target)
+        .env("CARGO_BUILD_TARGET_DIR", target)
+        .env("CARGO_BUILD_BUILD_DIR", target)
         .env("CARGO_BUILD_TARGET", host);
     if profile == Profile::Production {
         command.arg("--release");

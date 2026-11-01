@@ -366,6 +366,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("CARGO_HOME", &cargo_home)
             .env("RUSTUP_HOME", &rustup_home)
             .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO_BUILD_TARGET_DIR", &target)
+            .env("CARGO_BUILD_BUILD_DIR", &target)
             // Host compiler wrappers may consult non-hermetic user-profile
             // configuration or run a shared daemon. The local gate is self-contained.
             .env("RUSTC_WRAPPER", "")

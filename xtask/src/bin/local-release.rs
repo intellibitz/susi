@@ -593,6 +593,8 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
             .current_dir(candidate)
             .args(*args)
             .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO_BUILD_TARGET_DIR", &target)
+            .env("CARGO_BUILD_BUILD_DIR", &target)
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
@@ -909,6 +911,87 @@ fn rollback(ctx: &Context) -> Result<()> {
     activate(ctx, &blob)
 }
 
+// Shares the application's global allocation protocol so repositories and dev
+// executables cannot accidentally claim the same port range. Ownership persists
+// across promotion/rollback, with a native OS lock released on process exit.
+fn release_offset(home: &Path, identity: &str) -> Result<u16> {
+    let base = home.join(".susi-dev");
+    real_directory(&base)?;
+    let lock_path = base.join("allocation.lock");
+    if let Ok(metadata) = fs::symlink_metadata(&lock_path) {
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err("unsafe port allocation lock".into());
+        }
+    }
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)?;
+    lock.lock()?;
+    let slots = base.join("port-owners");
+    real_directory(&slots)?;
+    let mut free = None;
+    for slot in 0..400_u16 {
+        let offset = 1000 + slot * 100;
+        let owner = slots.join(offset.to_string());
+        match fs::read_to_string(&owner) {
+            Ok(value) if value == identity => return Ok(offset),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if free.is_none() {
+                    free = Some(offset);
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let offset = free.ok_or("no private local-release port range available")?;
+    let mut owner = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(slots.join(offset.to_string()))?;
+    owner.write_all(identity.as_bytes())?;
+    owner.sync_all()?;
+    Ok(offset)
+}
+
+fn production_command_at(
+    ctx: &Context,
+    binary: &Path,
+    args: &[String],
+    home: &Path,
+) -> Result<Command> {
+    let runtime = ctx.packages.join("runtime");
+    real_directory(&runtime)?;
+    let identity = format!("local-release:{}", text(&ctx.packages.canonicalize()?)?);
+    let offset = release_offset(home, &identity)?;
+    let mut command = Command::new(binary);
+    // Parent development endpoints must not redirect this release into another
+    // instance. Provider credentials outside Susi's namespace remain available.
+    for (key, _) in env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("SUSI_")
+        {
+            command.env_remove(key);
+        }
+    }
+    command
+        .args(args)
+        .env("SUSI_HOME", runtime)
+        .env("SUSI_PORT_OFFSET", offset.to_string());
+    Ok(command)
+}
+
+fn production_command(ctx: &Context, binary: &Path, args: &[String]) -> Result<Command> {
+    let home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .ok_or("native user home is unavailable")?;
+    production_command_at(ctx, binary, args, Path::new(&home))
+}
+
 fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
@@ -924,8 +1007,7 @@ fn run(args: &[String]) -> Result<()> {
         Some("run") => {
             let blob = resolve(&ctx.root,CURRENT)?.ok_or("no promoted local release")?;
             let(_,binary)=checked_package(&ctx,&blob)?;
-            let runtime=ctx.packages.join("runtime");real_directory(&runtime)?;
-            let status=Command::new(binary).args(&args[1..]).env("SUSI_HOME",runtime).status()?;
+            let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
         _ => return Err("usage: local-release qualify | promote <release-id> | rollback | status | run [susi arguments]".into()),
@@ -1006,6 +1088,21 @@ mod tests {
             // test releases contain readonly immutable artifacts; leave their
             // bounded temp tree to the host's normal temporary-file cleanup.
         }
+    }
+
+    #[test]
+    fn releases_share_global_port_ownership_without_using_installed_ports() {
+        let fixture = Fixture::new();
+        let home = &fixture.0;
+        let first = release_offset(home, "release:first").unwrap();
+        let second = release_offset(home, "release:second").unwrap();
+        assert_eq!(first, 1000);
+        assert_eq!(second, 1100);
+        assert_eq!(release_offset(home, "release:first").unwrap(), first);
+        assert_eq!(
+            release_offset(home, "development-executable").unwrap(),
+            1200
+        );
     }
 
     #[test]
@@ -1152,12 +1249,58 @@ mod tests {
             resolve(&ctx.root, CURRENT).unwrap(),
             Some(first_blob.clone())
         );
-        assert_eq!(resolve(&ctx.root, PREVIOUS).unwrap(), Some(second_blob));
+        assert_eq!(
+            resolve(&ctx.root, PREVIOUS).unwrap(),
+            Some(second_blob.clone())
+        );
         fixture.revision("broken", false);
         assert!(qualify(&ctx).is_err());
-        assert_eq!(resolve(&ctx.root, CURRENT).unwrap(), Some(first_blob));
+        assert_eq!(
+            resolve(&ctx.root, CURRENT).unwrap(),
+            Some(first_blob.clone())
+        );
         assert!(promote(&ctx, &"a".repeat(64)).is_err());
         assert!(promote(&ctx, "../escape").is_err());
+        // An interrupted prepared transaction cannot publish half the pair.
+        let interrupted=format!("start\nupdate {CURRENT} {second_blob} {first_blob}\nupdate {PREVIOUS} {first_blob} {second_blob}\nprepare\n");
+        let _ = git_input(
+            &ctx.root,
+            &["update-ref", "--stdin"],
+            interrupted.as_bytes(),
+        );
+        assert_eq!(
+            resolve(&ctx.root, CURRENT).unwrap(),
+            Some(first_blob.clone())
+        );
+        assert_eq!(
+            resolve(&ctx.root, PREVIOUS).unwrap(),
+            Some(second_blob.clone())
+        );
+        let corrupt = git_input(
+            &ctx.root,
+            &["hash-object", "-w", "--stdin"],
+            b"broken manifest",
+        )
+        .unwrap();
+        git(&ctx.root, &["update-ref", CURRENT, &corrupt]).unwrap();
+        git(&ctx.root, &["update-ref", PREVIOUS, &first_blob]).unwrap();
+        assert!(checked_package(&ctx, &corrupt).is_err());
+        rollback(&ctx).unwrap();
+        assert_eq!(
+            resolve(&ctx.root, CURRENT).unwrap(),
+            Some(first_blob.clone())
+        );
+        assert!(rollback(&ctx).is_err());
+        git(&ctx.root, &["update-ref", PREVIOUS, &second_blob]).unwrap();
+        let (_, binary) = checked_package(&ctx, &first_blob).unwrap();
+        let command =
+            production_command_at(&ctx, &binary, &["--version".into()], &ctx.root).unwrap();
+        assert!(command.get_envs().any(|(key, value)| key == "SUSI_HOME"
+            && value == Some(ctx.packages.join("runtime").as_os_str())));
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "SUSI_PORT_OFFSET"
+                && value == Some(std::ffi::OsStr::new("1000"))));
         // Missing or replaced artifact bytes cannot be activated from a valid
         // reference. Removing only this fixture file models corruption.
         let corrupted = ctx
