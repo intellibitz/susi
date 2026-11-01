@@ -247,6 +247,7 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 # the registry build is one graph with a fixed zip, and a registry crate is a
 # compiler-cache hit where a git one is not (susi-vendor-candle asks for it).
 [patch.crates-io]
+idna_adapter = { path = "vendor/idna-adapter" }
 native-tls = { path = "vendor/native-tls" }
 fluent-uri = { path = "vendor/fluent-uri" }
 # Ship the exact patched sources with Susi: a fresh checkout must not need

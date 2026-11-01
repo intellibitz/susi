@@ -4,6 +4,7 @@
 //! No Unicode data files or foreign implementation are distributed by this crate.
 //! The Unicode version follows the installed OS, available through `unicode_version`.
 
+mod native_library;
 mod platform;
 use platform::*;
 pub use platform::{

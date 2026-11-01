@@ -2,7 +2,7 @@
 
 Susi's IDNA adapter contains Rust implementation code under Apache-2.0 OR MIT.
 It distributes no Unicode property or mapping tables and no ICU implementation.
-Its only dependency is MIT-licensed `libloading`, which invokes the installed
+It has no implementation dependencies. An independently written Rust loader invokes the installed
 operating system's library loader. This is the OS ABI boundary allowed by the
 CEO mandates, not a relicensing of Unicode or ICU.
 

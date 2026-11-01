@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 //! Dynamic OS ABI access. No library or Unicode data is installed or bundled.
 #![allow(non_snake_case)]
-use libloading::Library;
+use crate::native_library::Library;
 use std::ffi::{c_char, c_void};
 use std::sync::OnceLock;
 
@@ -143,17 +143,7 @@ fn load() -> Result<Api, PlatformError> {
 fn load_candidates(paths: Vec<String>) -> Result<Api, PlatformError> {
     let mut failure = PlatformError::SystemLibraryUnavailable;
     for path in paths {
-        #[cfg(windows)]
-        let library = unsafe {
-            libloading::os::windows::Library::load_with_flags(
-                &path,
-                libloading::os::windows::LOAD_LIBRARY_SEARCH_SYSTEM32,
-            )
-            .map(Library::from)
-        };
-        #[cfg(not(windows))]
-        // SAFETY: Only platform system-library paths above are considered.
-        let library = unsafe { Library::new(&path) };
+        let library = Library::new(&path);
         if let Ok(library) = library {
             match bind(library, path) {
                 Ok(api) => return Ok(api),
@@ -183,7 +173,7 @@ fn bind(library: Library, path: String) -> Result<Api, PlatformError> {
         // All symbols must resolve from the same library and version suffix.
         let loaded = unsafe {
             (|| {
-                Ok::<_, libloading::Error>((
+                Ok::<_, std::io::Error>((
                     *library.get::<Version>(format!("u_getUnicodeVersion{suffix}\0").as_bytes())?,
                     *library.get::<Property>(format!("u_charDirection{suffix}\0").as_bytes())?,
                     *library.get::<Category>(format!("u_charType{suffix}\0").as_bytes())?,
@@ -290,15 +280,9 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn non_icu_system_library_is_rejected() {
-        let library = unsafe {
-            libloading::os::windows::Library::load_with_flags(
-                "kernel32.dll",
-                libloading::os::windows::LOAD_LIBRARY_SEARCH_SYSTEM32,
-            )
-            .unwrap()
-        };
+        let library = Library::new("kernel32.dll").unwrap();
         assert!(matches!(
-            bind(library.into(), "kernel32.dll".into()),
+            bind(library, "kernel32.dll".into()),
             Err(PlatformError::RequiredApiUnavailable)
         ));
     }
