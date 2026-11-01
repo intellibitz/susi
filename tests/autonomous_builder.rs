@@ -22,6 +22,37 @@ use susi_gawd::autonomous_builder::{run_cycle, Delegation};
 // claim's `SUSI_TASK_REMOTE` env is process-global — serialize the tests.
 static SERIAL: Mutex<()> = Mutex::new(());
 
+struct PrivateCargoTarget(Vec<(&'static str, Option<std::ffi::OsString>)>);
+impl PrivateCargoTarget {
+    fn new(repo: &Path) -> Self {
+        let target = repo.parent().unwrap().join("private-cargo-target");
+        Self(
+            [
+                "CARGO_TARGET_DIR",
+                "CARGO_BUILD_TARGET_DIR",
+                "CARGO_BUILD_BUILD_DIR",
+            ]
+            .into_iter()
+            .map(|key| {
+                let previous = std::env::var_os(key);
+                std::env::set_var(key, &target);
+                (key, previous)
+            })
+            .collect(),
+        )
+    }
+}
+impl Drop for PrivateCargoTarget {
+    fn drop(&mut self) {
+        for (key, previous) in &self.0 {
+            match previous {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(args)
@@ -38,7 +69,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 /// A cloneable fixture repo: `origin` is a local bare remote; the working
-/// tree ships an open task, an acceptance script, `.agents/identity.json`
+/// tree ships an open task, a Cargo marker test, `.agents/identity.json`
 /// and a `susi`-named Cargo.toml so the self-build brief applies.
 fn fixture(tag: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!("builder-{tag}-{}", std::process::id()));
@@ -60,18 +91,24 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf) {
     // A SUSI-shaped tree: the brief attaches inside a worktree of it.
     std::fs::write(
         repo.join("Cargo.toml"),
-        "[package]\nname = \"susi\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"susi\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
     std::fs::create_dir_all(repo.join(".agents/tasks/done")).unwrap();
     std::fs::write(repo.join(".agents/identity.json"), "{\"mandates\":[]}\n").unwrap();
-    // Native toolchain success seam; marker/delegation assertions below prove the cycle.
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join(".gitignore"), "/target/\n").unwrap();
+    std::fs::write(
+        repo.join("src/lib.rs"),
+        "#[test]\nfn built_marker() {\n    assert_eq!(\n        std::fs::read_to_string(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/built.marker\")).unwrap(),\n        \"done\\n\"\n    );\n}\n",
+    ).unwrap();
+    // Real Cargo acceptance executes a nonzero test and verifies agent output.
     let task = serde_json::json!({
         "id": "T-INTELLIBITZ-901",
         "title": "Build the marker",
         "goal": "Create built.marker proving the fake agent ran",
         "size": "s",
-        "accept": {"cmd": ["rustc", "--version"]},
+        "accept": {"cmd": ["cargo", "test", "--offline", "--lib", "built_marker", "--", "--exact"]},
         "created_by": "TEST",
         "created_unix": 0
     });
@@ -90,6 +127,7 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf) {
 fn autonomous_builder_full_cycle_with_fake_agent() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (remote, repo) = fixture("full");
+    let _target = PrivateCargoTarget::new(&repo);
 
     // Fake agent: proves it saw the brief and leaves a marker file.
     let saw_brief = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -171,4 +209,30 @@ fn autonomous_builder_aborts_without_agent_or_task() {
 
     std::fs::remove_dir_all(repo.parent().unwrap()).ok();
     std::fs::remove_dir_all(&empty).ok();
+}
+
+#[test]
+fn autonomous_builder_acceptance_rejects_a_missing_marker() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (_, repo) = fixture("missing-marker");
+    let _target = PrivateCargoTarget::new(&repo);
+    let result = Command::new("cargo")
+        .args([
+            "test",
+            "--offline",
+            "--lib",
+            "built_marker",
+            "--",
+            "--exact",
+        ])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(
+        stdout.contains("1 failed"),
+        "the real marker test must execute: {stdout}"
+    );
+    std::fs::remove_dir_all(repo.parent().unwrap()).ok();
 }
