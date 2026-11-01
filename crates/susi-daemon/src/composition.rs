@@ -390,6 +390,17 @@ pub fn wire_cli_substrate(substrate: &Path) {
     wire_cli_substrate_priming(substrate, crate::discovery_pipeline::Catalogs::ALL);
 }
 
+/// A first read goal can use native inference or verified local tools without
+/// enumerating cloud providers. The inference router registers them if needed;
+/// later catalog-dependent goals and explicit commands retain full composition.
+pub fn wire_goal_substrate(substrate: &Path, catalogs: crate::discovery_pipeline::Catalogs) {
+    if catalogs.is_empty() {
+        wire_mcp_substrate(substrate, false);
+    } else {
+        wire_cli_substrate_priming(substrate, catalogs);
+    }
+}
+
 /// [`wire_cli_substrate`] that primes only `catalogs` — the ones the
 /// command's output or work reads. Priming still runs last, after the
 /// essential MCP servers are linked, and against the substrate home (never
@@ -422,8 +433,18 @@ pub fn wire_cli_substrate_priming(substrate: &Path, catalogs: crate::discovery_p
 /// (`defs::command_catalogs`), so on a host where none of those has run,
 /// `mcp serve` sees only the servers enabled explicitly.
 pub fn wire_mcp_serve_substrate(substrate: &Path) {
+    wire_mcp_substrate(substrate, true);
+}
+
+fn wire_mcp_substrate(substrate: &Path, register_cloud: bool) {
     use crate::boot_trace::phase;
-    phase("mcp-serve: engine hooks", wire_engine_hooks);
+    phase("mcp-serve: engine hooks", || {
+        if register_cloud {
+            wire_engine_hooks();
+        } else {
+            wire_daemon_engine_hooks();
+        }
+    });
     let _ = crate::susi_sandbox::extensions::ensure_extensions_substrate();
     let _ = std::fs::create_dir_all(substrate);
     phase("mcp-serve: context graph", || {

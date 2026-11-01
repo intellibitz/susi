@@ -75,7 +75,7 @@ impl ModelManager {
         use std::io::Read;
         let mut file = fs::File::open(path)?;
         let mut hasher = Sha256::new();
-        let mut buffer = [0u8; 8192];
+        let mut buffer = [0u8; 128 * 1024];
         loop {
             let n = file.read(&mut buffer)?;
             if n == 0 {

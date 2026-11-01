@@ -10,9 +10,13 @@ use std::time::{Duration, Instant};
 use susi_paths::test_env::isolate_home;
 
 fn opening(args: &[&str], input: &[u8]) -> (String, String) {
+    // Windows wall-clock resolution can give concurrent tests the same
+    // nanosecond value. Each child must own a distinct fixture and cleanup.
+    static NEXT_HOME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let home = std::env::temp_dir().join(format!(
-        "susi-first-goal-{}-{}",
+        "susi-first-goal-{}-{}-{}",
         std::process::id(),
+        NEXT_HOME.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

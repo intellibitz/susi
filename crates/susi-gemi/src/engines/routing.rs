@@ -1151,7 +1151,10 @@ impl InferenceRouter {
         }
     }
 
-    fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
+    pub(crate) fn effective_policy(
+        cfg: &InferenceRoutingConfig,
+        pref: &RoutingPreference,
+    ) -> String {
         if let Some(until) = pref.force_local_until_unix {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
