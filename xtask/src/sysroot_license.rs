@@ -1,9 +1,12 @@
 //! The linked standard library is shipped software, outside Cargo's graph.
-//! Until the audited custom-sysroot builder has a verified receipt contract,
-//! no stock or self-asserted custom sysroot is eligible for production.
-use std::{fs, path::Path, process::Command};
+//! Only a freshly executed, source-authenticated custom build can enter a
+//! qualification operation; stock or self-asserted receipts remain ineligible.
+#[cfg(test)]
+use std::process::Command;
+use std::{fs, path::Path};
 
-pub(crate) fn qualify(
+#[cfg(test)]
+pub(crate) fn reject_unverified(
     candidate: &Path,
     attempt: &Path,
     target: &str,
@@ -55,8 +58,29 @@ pub(crate) fn qualify(
     Err(rejection_reason().into())
 }
 
+#[cfg(test)]
 fn rejection_reason() -> &'static str {
     "standard-library license qualification is unavailable: stock Rust includes Unicode-3.0 material; a verified custom-sysroot source/build/artifact provenance contract is required. Compiler identity, Cargo license results and editable license receipts do not authorize production"
+}
+
+pub(crate) fn qualify(
+    candidate: &Path,
+    attempt: &Path,
+    target: &str,
+    compiler: &str,
+) -> super::Result<super::trusted_sysroot::VerifiedSysroot> {
+    if target != "x86_64-pc-windows-msvc" {
+        return Err("no reviewed custom sysroot for this target".into());
+    }
+    let verified = super::trusted_sysroot::prepare(candidate)?;
+    if verified.evidence["compiler"] != compiler {
+        return Err("compiler changed during sysroot qualification".into());
+    }
+    fs::write(
+        attempt.join("sysroot-executed-evidence.json"),
+        serde_json::to_vec_pretty(&verified.evidence)?,
+    )?;
+    Ok(verified)
 }
 
 #[cfg(test)]
@@ -68,7 +92,7 @@ mod tests {
             std::env::temp_dir().join(format!("susi-sysroot-gate-{}", std::process::id()));
         std::fs::create_dir_all(&attempt).unwrap();
         let (target, compiler) = super::super::compiler(root).unwrap();
-        let error = super::qualify(root, &attempt, &target, &compiler).unwrap_err();
+        let error = super::reject_unverified(root, &attempt, &target, &compiler).unwrap_err();
         assert!(error.to_string().contains("verified custom-sysroot"));
         let path = attempt.join("sysroot-license-diagnostic.json");
         let evidence: serde_json::Value =
@@ -83,7 +107,7 @@ mod tests {
             br#"{"license_expression":"MIT","qualified":true}"#,
         )
         .unwrap();
-        assert!(super::qualify(root, &attempt, &target, &compiler).is_err());
+        assert!(super::reject_unverified(root, &attempt, &target, &compiler).is_err());
         std::fs::remove_file(path).unwrap();
         std::fs::remove_file(attempt.join("sysroot-license-receipt.json")).unwrap();
         std::fs::remove_dir(attempt).unwrap();

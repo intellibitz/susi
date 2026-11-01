@@ -15,6 +15,10 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[path = "../compiler_env.rs"]
 mod compiler_env;
+#[path = "../sysroot_sources.rs"]
+mod sysroot_sources;
+#[path = "../trusted_sysroot.rs"]
+mod trusted_sysroot;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -346,6 +350,11 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .collect();
     vendor_regressions::include_release_tooling(candidate, &mut gates);
     gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+    let sysroot = if candidate.join("crates/susi-core/Cargo.toml").is_file() {
+        Some(trusted_sysroot::prepare(candidate)?)
+    } else {
+        None
+    };
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
@@ -375,6 +384,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             {
                 command.env_remove(key);
             }
+        }
+        if let Some(sysroot) = &sysroot {
+            sysroot.apply(&mut command)?;
         }
         let status = command
             .current_dir(candidate)
@@ -413,6 +425,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             )
             .into());
         }
+    }
+    if let Some(sysroot) = &sysroot {
+        sysroot.recheck()?;
+        evidence.push(format!(
+            "sysroot={}",
+            serde_json::to_string(&sysroot.evidence)?
+        ));
     }
     Ok(evidence)
 }

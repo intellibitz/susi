@@ -2,6 +2,12 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+#[path = "../src/compiler_env.rs"]
+mod compiler_env;
+#[path = "../src/sysroot_sources.rs"]
+mod sysroot_sources;
+#[path = "../src/trusted_sysroot.rs"]
+mod trusted_sysroot;
 use std::env;
 use std::fs;
 use std::io;
@@ -162,11 +168,19 @@ pub(crate) fn run(args: &[String]) -> io::Result<ExitCode> {
     let output = private_output(&root, &host)?;
     let mut command = Command::new("cargo");
     configure(&mut command, &root, &output, &host, &action);
+    let sysroot =
+        trusted_sysroot::prepare(&root).map_err(|error| io::Error::other(error.to_string()))?;
+    sysroot
+        .apply(&mut command)
+        .map_err(|error| io::Error::other(error.to_string()))?;
     println!(
         "susi-dev: native {host}; private launcher output {}",
         output.display()
     );
     let status = command.status()?;
+    sysroot
+        .recheck()
+        .map_err(|error| io::Error::other(error.to_string()))?;
     Ok(ExitCode::from(
         status
             .code()

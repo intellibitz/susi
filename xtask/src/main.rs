@@ -12,9 +12,12 @@
 
 // Extension-watch logic lands ahead of its CLI wiring; keep the pure API
 // compiled (and unit-tested) without emitting dead-code noise.
+mod compiler_env;
 #[allow(dead_code)]
 mod extension_watch;
 mod local_build;
+mod sysroot_sources;
+mod trusted_sysroot;
 
 #[cfg(windows)]
 extern crate susi_windows_runtime;
