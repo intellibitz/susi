@@ -1,0 +1,18 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-14",
+  "title": "Remove side-effectful release promotion smoke test",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cross_platform_service::tests"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793510746
+}
