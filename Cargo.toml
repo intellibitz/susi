@@ -302,17 +302,6 @@ codegen-units = 1
 # file:line, but DWARF emission and link I/O drop sharply on this dep tree
 # (candle/wasmtime/ort are multi-hundred-MB debug payloads).
 debug = "line-tables-only"
-
-# Locally installed production: optimize Susi without a whole-program LTO
-# pass on every agent change. Keep native inference dependencies at the same
-# O3 overrides as dev, and retain incremental compilation and line backtraces.
-# Published distribution profiles remain independent.
-[profile.local-production]
-inherits = "dev"
-opt-level = 1
-lto = false
-incremental = true
-
 # Optimize dependencies in debug builds. This greatly improves runtime performance of
 # non-release builds without significantly slowing down compilation of the core code!
 #

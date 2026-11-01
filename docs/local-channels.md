@@ -4,13 +4,15 @@ Agents can build, install and exercise Susi without waiting for GitHub. From
 their own warm worktree, run `scripts/susi-local.ps1`. The default `Build`
 action uses the existing incremental development profile and installs under
 `%LOCALAPPDATA%/SusiLocal/dev`; it never replaces the public production install.
-`-Channel production` uses the optimized `local-production` profile and a separate local
+`-Channel production` uses an optimized local build and a separate local
 production installation. Neither channel needs a release tag or remote CI.
-That profile keeps inference dependencies optimized at O3, optimizes Susi at O1,
-and retains incremental compilation without whole-program LTO. Its cache is
-seeded once from this worktree's development artifacts; Cargo validates all
-fingerprints and rebuilds incompatible units. Public release profiles remain
-independent of this local production channel.
+It keeps inference dependencies optimized at O3 and optimizes Susi at O1 using
+process-local Cargo development-profile overrides. Incremental compilation,
+debug assertions, overflow checks and line backtraces remain enabled; this is
+distinct from the public release profile. Whole-program LTO is disabled. Cargo
+fingerprints the optimization differences while reusing unchanged dependencies
+in the same worktree cache, without duplicating the target directory. All three
+overridden environment settings are restored, including on build failure.
 
 Each candidate is copied to a directory named by its SHA-256. Before activation,
 the script checks its checksum and version, then runs a real offline file goal

@@ -42,25 +42,30 @@ if ($Action -eq 'Rollback') {
 }
 if ($Action -eq 'Build') {
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    $profile = if ($Channel -eq 'dev') { 'dev' } else { 'local-production' }
-    $output = if ($Channel -eq 'dev') { 'debug' } else { 'local-production' }
     $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
     if (![IO.Path]::IsPathRooted($target)) { $target = Join-Path $repo $target }
-    # Seed only from this checkout's existing dev artifacts. No hardlinks,
-    # fingerprint rewriting, or cross-worktree workspace objects: Cargo still
-    # validates every unit and rebuilds those whose effective profile changed.
-    $warm = Join-Path $target 'debug'
-    $production = Join-Path $target 'local-production'
-    if ($Channel -eq 'production' -and !(Test-Path -LiteralPath $production) -and (Test-Path -LiteralPath $warm)) {
-        & robocopy $warm $production /E /COPY:DAT /DCOPY:DAT /XD incremental examples /XF susi.exe 'susi-*.exe' /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-        if ($LASTEXITCODE -ge 8) { throw 'Could not seed the local production cache; no channel was changed.' }
+    # Reuse the same worktree's native dependency cache. Cargo fingerprints
+    # the changed workspace optimization and keeps both sets of artifacts;
+    # no duplicated target, copied fingerprints, or global compiler settings.
+    $settings = @{
+        CARGO_PROFILE_DEV_OPT_LEVEL = $(if ($Channel -eq 'production') { '1' } else { '0' })
+        CARGO_PROFILE_DEV_LTO = 'false'
+        CARGO_PROFILE_DEV_INCREMENTAL = 'true'
+    }
+    $savedSettings = @{}
+    foreach ($key in $settings.Keys) {
+        $savedSettings[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+        [Environment]::SetEnvironmentVariable($key, $settings[$key], 'Process')
     }
     Push-Location $repo
     try {
-        & cargo build --locked --bin susi --profile $profile --timings
+        & cargo build --locked --bin susi --profile dev --timings
         if ($LASTEXITCODE -ne 0) { throw "Local build failed ($LASTEXITCODE); current channel unchanged." }
-    } finally { Pop-Location }
-    $built = Join-Path $target "$output/susi.exe"
+    } finally {
+        Pop-Location
+        foreach ($key in $settings.Keys) { [Environment]::SetEnvironmentVariable($key, $savedSettings[$key], 'Process') }
+    }
+    $built = Join-Path $target 'debug/susi.exe'
     if (!(Test-Path -LiteralPath $built)) { throw "Expected native Windows executable missing: $built" }
     $digest = (Get-FileHash -LiteralPath $built -Algorithm SHA256).Hash.ToLowerInvariant()
     $slot = Join-Path $channelRoot "builds/$digest"
