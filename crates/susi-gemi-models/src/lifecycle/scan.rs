@@ -20,7 +20,7 @@ impl ModelManager {
             .collect();
         let mut results = Vec::new();
         for m in models {
-            if m.is_local() && !m.model_id().contains("native") {
+            if m.is_local() && !Self::is_synthetic_model_id(m.model_id()) {
                 let path = PathBuf::from(m.model_id());
                 if path.is_file() {
                     let size_bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);

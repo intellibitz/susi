@@ -63,6 +63,23 @@ fn parsed_tokenizer(
 }
 
 impl ModelManager {
+    pub(crate) fn is_synthetic_model_id(model_id: &str) -> bool {
+        model_id == "susi-native-synthesis"
+    }
+
+    pub(crate) fn admitted_local_candidate(model: &DynamicModelInfo) -> bool {
+        if !model.is_local() || Self::is_synthetic_model_id(model.model_id()) {
+            return false;
+        }
+        let path = PathBuf::from(model.model_id());
+        path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
+            && !Self::cooling_down(model.model_id())
+            && Self::valid_gguf_payload(&path)
+            && Self::verify_model_integrity(&path).is_ok()
+            && Self::get_tokenizer_path(model.model_id()).is_some_and(|tokenizer| {
+                susi_vendor_models::model_license::verify_local(&tokenizer).is_ok()
+            })
+    }
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
         susi_vendor_models::set_selected_model_override(model_name)
     }
@@ -150,17 +167,7 @@ impl ModelManager {
         let models = Self::list_models(workspace);
         let local_models: Vec<DynamicModelInfo> = models
             .into_iter()
-            .filter(|m| m.is_local() && !m.model_id().contains("native"))
-            .filter(|m| {
-                let path = PathBuf::from(m.model_id());
-                path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
-                    && !Self::cooling_down(m.model_id())
-                    && Self::valid_gguf_payload(&path)
-                    && Self::verify_model_integrity(&path).is_ok()
-                    && Self::get_tokenizer_path(m.model_id()).is_some_and(|tokenizer| {
-                        susi_vendor_models::model_license::verify_local(&tokenizer).is_ok()
-                    })
-            })
+            .filter(Self::admitted_local_candidate)
             .collect();
 
         if local_models.is_empty() {
@@ -448,10 +455,7 @@ impl ModelManager {
     }
 
     pub(crate) fn verify_model_checksum(model_path: &Path) -> EaiResult<()> {
-        if model_path
-            .to_string_lossy()
-            .contains("susi-native-synthesis")
-        {
+        if Self::is_synthetic_model_id(&model_path.to_string_lossy()) {
             return Ok(());
         }
 

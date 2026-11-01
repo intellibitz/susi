@@ -258,6 +258,20 @@ mod tests {
         ));
     }
     #[test]
+    fn synthetic_identifier_does_not_match_real_model_paths() {
+        assert!(crate::ModelManager::is_synthetic_model_id(
+            "susi-native-synthesis"
+        ));
+        for path in [
+            "F:/src/susi-native-review/models/qwen.gguf",
+            "C:/models/native-model.gguf",
+            "C:/susi-native-synthesis/model.gguf",
+            "native.gguf",
+        ] {
+            assert!(!crate::ModelManager::is_synthetic_model_id(path));
+        }
+    }
+    #[test]
     fn arbitrary_cache_paths_are_not_trusted() {
         let cached = vec![(
             audited_starter().id,
@@ -315,6 +329,23 @@ mod tests {
         let tokenizer_receipt = susi_vendor_models::model_license::admit_download("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/7ae557604adf67be50417f59c2c2f167def9a775/tokenizer.json").unwrap();
         tokenizer_receipt.record(&tokenizer_path).unwrap();
         susi_vendor_models::model_license::verify_local_offline(&tokenizer_path).unwrap();
+        assert!(
+            path.to_string_lossy().contains("native"),
+            "regression qualification must include native in an ancestor directory"
+        );
+        let candidate = crate::susi_sandbox::manager::DynamicModelInfo::new(
+            "Qwen audited fixture".into(),
+            "SUSI".into(),
+            path.to_string_lossy().into_owned(),
+            "Real publisher-verified GGUF".into(),
+            true,
+            "LocalGGUF".into(),
+            Some(0),
+            "LocalGGUF".into(),
+            None,
+            None,
+        );
+        assert!(crate::ModelManager::admitted_local_candidate(&candidate), "real cached model under native-named ancestor must survive production candidate selection");
         let cached = vec![(audited_starter().id, path.clone())];
         assert!(
             matches!(plan_first_run(&host(2*GB,0,true),&default_starters(),&cached,Path::new("unused")),FirstRunPlan::UseCached {path:found,..} if found == path)
