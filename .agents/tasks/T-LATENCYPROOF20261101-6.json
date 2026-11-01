@@ -1,0 +1,18 @@
+{
+  "id": "T-LATENCYPROOF20261101-6",
+  "title": "Correct release workflow check to inspect production code",
+  "goal": "Keep the release handoff invariant while ignoring test-only Git tag fixture commands.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_workflow",
+      "a_merged_version_bump_publishes_itself"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793518443
+}
