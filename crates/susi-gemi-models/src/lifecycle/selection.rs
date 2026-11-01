@@ -11,6 +11,57 @@ use crate::hardware::HardwareProfiler;
 use super::types::ModelProvenance;
 use super::ModelManager;
 
+/// Keep one parsed tokenizer for selection and inference together. Comparing
+/// bytes also catches same-size replacements within a filesystem timestamp tick.
+#[derive(Default)]
+struct TokenizerCache {
+    entry: Option<CachedTokenizer>,
+}
+
+struct CachedTokenizer {
+    path: PathBuf,
+    digest: [u8; 32],
+    tokenizer: std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>,
+}
+
+impl TokenizerCache {
+    fn load(
+        &mut self,
+        path: &Path,
+    ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+        use sha2::{Digest, Sha256};
+        let bytes = fs::read(path)?;
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        if let Some(entry) = &self.entry {
+            if entry.path == path && entry.digest == digest {
+                return Ok(std::sync::Arc::clone(&entry.tokenizer));
+            }
+        }
+        let tokenizer = std::sync::Arc::new(
+            susi_vendor_candle::tokenizers::Tokenizer::from_bytes(bytes)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
+        );
+        self.entry = Some(CachedTokenizer {
+            path: path.to_owned(),
+            digest,
+            tokenizer: std::sync::Arc::clone(&tokenizer),
+        });
+        Ok(tokenizer)
+    }
+}
+
+fn parsed_tokenizer(
+    path: &Path,
+) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<TokenizerCache>> =
+        std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .load(path)
+}
+
 impl ModelManager {
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
         susi_vendor_models::set_selected_model_override(model_name)
@@ -445,19 +496,23 @@ impl ModelManager {
         })
     }
 
-    /// Whether `path` parses as a tokenizer — `Tokenizer::from_file`, whose
-    /// read is one whole-file read, with the read and the parse told apart:
-    /// `None` when an I/O error ended the read (text that is not UTF-8 is the
-    /// file's own fault, a parse failure like `from_file` reports it).
+    /// Selection and inference share one bounded parser cache. Errors reading
+    /// the artifact remain retryable; only content failures become verdicts.
     fn judge_tokenizer(path: &Path) -> Option<bool> {
-        match std::fs::read_to_string(path) {
-            Ok(text) => Some(
-                text.parse::<susi_vendor_candle::tokenizers::Tokenizer>()
-                    .is_ok(),
-            ),
+        match parsed_tokenizer(path) {
+            Ok(_) => Some(true),
             Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
             Err(_) => None,
         }
+    }
+
+    /// Resolve the same validated tokenizer used during model selection without
+    /// parsing its JSON twice. The cache retains at most one tokenizer.
+    pub fn load_tokenizer(
+        path: &Path,
+    ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+        parsed_tokenizer(path)
+            .map_err(|e| crate::susi_error::EaiError::inference(format!("Tokenizer Error: {e}")))
     }
 
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {
@@ -489,6 +544,40 @@ impl ModelManager {
 #[cfg(test)]
 mod selection_tests {
     use super::ModelManager;
+
+    #[test]
+    fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {
+        use susi_vendor_candle::tokenizers::{models::wordlevel::WordLevel, Tokenizer};
+        let dir = std::env::temp_dir().join(format!("susi-tokenizer-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tokenizer.json");
+        Tokenizer::new(WordLevel::default())
+            .save(&path, false)
+            .unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let mut cache = super::TokenizerCache::default();
+        let first = cache.load(&path).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &cache.load(&path).unwrap()));
+
+        // Same-size replacement must never return the previously parsed file.
+        std::fs::write(&path, vec![b'x'; original.len()]).unwrap();
+        assert!(cache.load(&path).is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(cache.load(&path).is_err());
+        std::fs::write(&path, original).unwrap();
+        assert!(cache.load(&path).is_ok());
+
+        // Retain only one parser even when many model candidates are scanned.
+        let other = dir.join("other.json");
+        Tokenizer::new(WordLevel::default())
+            .save(&other, false)
+            .unwrap();
+        cache.load(&other).unwrap();
+        assert_eq!(std::sync::Arc::strong_count(&first), 1);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(other).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     #[test]
     fn invalid_override_names_are_rejected_before_any_write() {
