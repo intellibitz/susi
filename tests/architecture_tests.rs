@@ -1450,7 +1450,7 @@ fn ci_has_no_bot_pr_triggered_noise_runs() {
 
 /// The development workflow is a constitutional mandate, not a convention:
 /// identity.json (compiled into susi and read by every agent) must carry
-/// Mandates 49–60, and each must name an enforcement artifact that exists.
+/// local-workflow mandates, with real enforcement artifacts and honest gaps.
 #[test]
 fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1469,38 +1469,29 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         );
         m["imperative"].as_str().unwrap_or("").to_string()
     };
-    // (mandate, phrase it must state, file that enforces it)
+    // Existing machinery must be named accurately; the constitution must not
+    // pretend an implementation gap is a working gate.
     for (id, phrase, artifact) in [
-        (49, "scripts/susi-worktree.sh", ".githooks/workflow-guard"),
-        (49, "no bypass actors", "scripts/github-enforce.sh"),
-        (
-            49,
-            "susi workflow check",
-            "crates/susi-gawd/src/admin/workflow.rs",
-        ),
-        (49, "park-primary.sh", "scripts/park-primary.sh"),
-        (49, "SessionStart hook", ".claude/settings.json"),
+        (49, "atomic per task", "xtask/src/bin/local-workflow.rs"),
         (49, "CLAUDE.md", "CLAUDE.md"),
-        (49, "atomic per task", ".githooks/workflow-guard"),
-        (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
+        (50, "Task: T-<AGENT>-<n>", "xtask/src/bin/local-workflow.rs"),
         (
             50,
-            "Task: T-<AGENT>-<n>",
-            "scripts/check-workflow-compliance.sh",
+            "One live claim at a time",
+            "xtask/src/bin/local-workflow.rs",
         ),
-        (50, "commit-msg", ".githooks/commit-msg"),
-        (50, "One live claim at a time", ".githooks/workflow-guard"),
-        (50, "sync-before-push", ".githooks/workflow-guard"),
         (
             51,
             "union the entries",
             ".agents/schemas/evidence.schema.json",
         ),
-        (52, "SUSI_HOME", "scripts/check-hermetic-tests.sh"),
+        (52, "SUSI_HOME", "src/dev_instance.rs"),
         (53, "E2E_CHECKS", "tests/release_e2e_checks.rs"),
-        (54, "pull_request", ".github/workflows/auto-merge.yml"),
-        (54, "scripts/reconcile-prs.sh", "scripts/reconcile-prs.sh"),
-        (54, "scripts/auto-merge-pr.sh", "scripts/auto-merge-pr.sh"),
+        (
+            54,
+            "actual candidate integration tree",
+            "xtask/src/bin/local-workflow.rs",
+        ),
         (55, "did-you-mean", "src/cli/intent_guard.rs"),
         (
             56,
@@ -1519,6 +1510,8 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
             ".github/workflows/unsafe-exposure-ratchet.sh",
         ),
         (60, "susi-vendor-", "tests/architecture_tests.rs"),
+        (61, "migration building blocks", "xtask/src/local_build.rs"),
+        (68, "AND obligations", "deny.toml"),
     ] {
         assert!(
             text_of(id).contains(phrase),
@@ -1530,7 +1523,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         );
     }
     // Every code-writing agent receives the workflow in its task itself.
-    for needle in ["susi tasks claim", "susi-worktree.sh", "hermetic"] {
+    for needle in ["cargo local-workflow", "GitHub is optional", "hermetic"] {
         assert!(
             susi_core::self_build::BRIEF.contains(needle),
             "the self-build brief must carry `{needle}`"
@@ -1664,7 +1657,7 @@ fn roadmap_vectors_and_tasks_stay_linked() {
 }
 
 /// Agents read the top of AGENTS.md: it must open with the START HERE block
-/// whose first act is `susi workflow check`, before any other rule.
+/// whose first act is the CEO contract and local isolation, before engineering rules.
 #[test]
 fn agents_md_opens_with_start_here_and_the_workflow_check() {
     let text =
@@ -1672,17 +1665,18 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
             .unwrap();
     let first = text.lines().next().unwrap();
     assert!(
-        first.starts_with("**START HERE") && first.contains("susi workflow check"),
+        first.starts_with("**START HERE") && first.contains("CEO mandates"),
         "AGENTS.md line 1 must be the START HERE instruction, got: {first}"
     );
     let start = text.find("START HERE").unwrap();
     let mandates = text.find("# Agent Engineering Mandates").unwrap();
     assert!(start < mandates, "START HERE must precede the mandates");
     for step in [
-        "susi-worktree.sh",
-        "susi tasks claim",
+        "cargo local-workflow",
+        "cargo local-build debug",
         "Task: T-<AGENT>-<n>",
-        "susi tasks close",
+        "actual combined tree",
+        "CEO never looks at code",
     ] {
         assert!(
             text[..mandates].contains(step),
@@ -1699,19 +1693,15 @@ fn readme_covers_the_workflow_ecosystem_and_brain() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let readme = std::fs::read_to_string(root.join("README.md")).unwrap();
     for needle in [
-        "susi workflow check",
-        "susi workflow start",
-        "scripts/susi-worktree.sh",
-        "susi tasks claim",
-        "susi tasks roadmap",
+        "cargo local-workflow",
+        "cargo local-build debug",
         "Task: T-<AGENT>-<n>",
-        "Workflow Compliance",
-        "scripts/github-enforce.sh",
+        "actual combined tree",
+        "CEO never inspects code",
         "susi ecosystem scan",
         "susi keys check",
         "susi brain",
         "SUSI_BUDGET",
-        "susi admin release",
         ".agents/tasks/",
         ".agents/lanes/",
     ] {
@@ -2148,6 +2138,55 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         assert!(
             !name.ends_with(".py"),
             "scripts/ must contain zero Python scripts in 100% Rust Susi: found scripts/{name}"
+        );
+    }
+}
+
+/// New policy must preserve citable historical identities, cover all CEO goals,
+/// and keep the requirement/implementation distinction explicit.
+#[test]
+fn ceo_mandates_are_complete_and_keep_evidence_honest() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/identity.json")).unwrap())
+            .unwrap();
+    let mandates = identity["pillars"]["dna"]["mandates"].as_array().unwrap();
+    let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
+    assert_eq!(
+        ids,
+        (1..=71).collect::<Vec<_>>(),
+        "mandate IDs must not be lost, duplicated or renumbered"
+    );
+    for (id, phrase) in [
+        (62, "CEO never looks at code"),
+        (63, "full shipped dependency closure"),
+        (64, "native MSVC"),
+        (65, "Measure cold/warm build time"),
+        (66, "without GitHub"),
+        (67, "roll back on failure"),
+        (68, "never relabel third-party code"),
+        (69, "measured justification"),
+        (70, "without user-written config"),
+        (71, "earns its next upgrade"),
+    ] {
+        assert!(
+            mandates[(id - 1) as usize]["imperative"]
+                .as_str()
+                .unwrap()
+                .contains(phrase),
+            "Mandate {id} lost its requirement: {phrase}"
+        );
+    }
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(agents.contains("not claims of completed implementation"));
+    for forbidden in [
+        "Do not push to `main`, tag, or cut a release",
+        "scripts/susi-release-sync.sh` is the only path in",
+        "No offline freshness or unavailable claim snapshot",
+    ] {
+        assert!(
+            !agents.contains(forbidden),
+            "legacy remote-only prerequisite returned: {forbidden}"
         );
     }
 }

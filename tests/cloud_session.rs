@@ -1472,9 +1472,6 @@ fn cloud_session_settings_json_permissions() {
     let expected_allow = vec![
         "Bash(cargo*)",
         "Bash(git*)",
-        "Bash(gh api*)",
-        "Bash(scripts/*)",
-        "Bash(.githooks/*)",
         "Bash(target/debug/susi*)",
         "Bash(susi*)",
     ];

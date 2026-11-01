@@ -29,8 +29,9 @@ susi runs a persistent host daemon, stable network ports external clients can ha
 ### What RSI means here
 
 Scoped claim (Mandate 1, Mandate 45). Recursive self-improvement is two
-loops; only one runs unattended. This is not an unattended rewrite of
-SUSI's own source.
+loops in the audited baseline; only one runs unattended. Full agent-owned
+self-development is the required direction, not a claim that the baseline
+already schedules unattended source rewrites.
 
 - **Automatic: learning from receipts.** Successful execution receipts are
   staged as training samples; after each swarm mission SUSI checks the
@@ -47,7 +48,9 @@ SUSI's own source.
   that builds the next susi.
 
 The drift audit (`evolution.rs`) suggests reflex candidates; it does not
-write code. SUSI does not recursively rewrite itself without an operator.
+write code. That describes current implementation, not a required human step.
+Mandates 62–71 require agents to complete authorized self-development and prove
+each upgrade locally; missing orchestration is engineering work, not completed RSI.
 
 ---
 
@@ -290,6 +293,11 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 
 ## Install
 
+The scripts below describe existing compatibility installers. They are not proof
+of compliance with the new native Rust installer requirements (Mandates 47 and
+64). Agents follow AGENTS.md for development; native provisioning remains subject
+to the acceptance evidence in docs/native-rust-direction.md.
+
 Primary surface (Mandate 47): one pipeable command on Unix-like hosts; Windows uses `install.ps1`.
 
 ### Linux / macOS / WSL
@@ -304,98 +312,53 @@ By default a login-persistent daemon is registered (systemd user unit / launchd)
 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | SUSI_NO_DAEMON=1 bash
 ```
 
-### Developing susi: the local susi tracks releases only (Mandate 48)
+### Developing susi: agent-owned native delivery (Mandate 48)
 
-The installed susi (`~/.susi/bin/susi` and the daemon it runs) is the
-toolchain that builds the next susi, so dev builds never replace it:
-`cargo xb` / `./build-gpu.sh` build into `target/` and stop there, and a
-`target/` binary no longer copies itself over the install. Releases are the
-only way in:
+The CEO never inspects code. Agents own development, verification, integration
+and production qualification. The installed production Susi stays stable while
+agents build candidates in private worktrees, build directories and runtime
+homes. Do not test against production or share `.susi-dev` between workers.
 
-```bash
-./scripts/susi-release-sync.sh --install-timer
+The current native build entrypoint is `cargo local-build debug`; an optimized
+candidate uses `cargo local-build production`. A candidate is not an approved
+release. Production qualification must bind the exact source/dependency/toolchain
+identity to passing tests and policy audits, executable smoke tests and artifact
+digests, followed by atomic promotion, health verification and tested rollback.
+The production license gate currently refuses incompatible dependencies; agents
+must replace them legitimately rather than weakening the policy.
+
+### Building susi: the workflow (Mandates 49–71)
+
+Read [`AGENTS.md`](AGENTS.md), the canonical instructions for every agent.
+The native local workflow has no GitHub account, Actions, pull-request or remote
+claim prerequisite. Use separate branches/worktrees and disjoint task scopes:
+
+```text
+cargo local-workflow start worker-a --scope crates/susi-paths
+cargo local-workflow list
 ```
 
-The hourly systemd user timer (and `susi release`, right after it pushes a
-new `vX.Y.Z` tag) builds the newest tag natively for this host's GPU in a
-private checkout (`~/.susi/release-src`, target `~/.susi/build-cache/release-sync`),
-checks the binary reports the tag's version, waits until no susi client is
-mid-mission, swaps it in atomically, and restarts the daemon — rolling back
-to `susi.prev` if `/health` does not answer. `--check` reports installed vs
-latest; `--tag vX.Y.Z` pins; `--rollback` restores the previous binary. It
-builds locally instead of downloading the CI CUDA asset because that asset
-targets compute capability 7.5 and lacks candle's sm_80+ (bf16) kernels.
+Inside that worker's worktree, implement and verify its task, then use
+`cargo local-workflow commit worker-a "message"` for a scope-checked local commit.
+The command checks staged, unstaged and untracked files and does not change
+shared hook settings. It records ownership, not test success. Task records under
+`.agents/tasks/` use namespaced IDs and meaningful acceptance; task-based commits
+carry `Task: T-<AGENT>-<n>` and the native launcher records `Task: LOCAL-<name>`.
+`.agents/lanes/` documents history and never substitutes for a reservation.
 
-Dev binaries run as their own instance. Any `susi` other than the installed
-one (e.g. `target/release/susi`) defaults to `SUSI_HOME=~/.susi-dev` and
-`SUSI_PORT_OFFSET=100`, so `target/release/susi start` brings up a dev daemon
-running the dev binary on 9190–9194 beside the release daemon on 9090–9094.
-The release instance's `models/` and `cloud.env` are symlinked in (shared,
-not copied); config, audit chain, locks, and ports are separate. An explicit
-`SUSI_HOME` overrides this.
+Integration must serialize changes and verify the actual combined tree against
+the current local head. Close a task only after its complete acceptance passes
+there. A clean merge, a compile, zero selected tests or a remote CI result is
+not enough. The current launcher is a migration building block, not a claim
+that all integration and promotion requirements have been implemented.
 
-### Building susi: the workflow (Mandates 49–61)
-
-Humans and agents (Claude, Codex, Cursor, Devin, Gemini, susi itself) follow one
-workflow, and it is enforced by git and CI, not by goodwill. The short version
-is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
-
-1. **Run `susi workflow check` first.** It says whether you are in your own
-   worktree, current with `origin/main`, have the hooks, and hold a claim, and
-   prints the command that fixes each failure. It also fast-forwards the primary
-   checkout's `main` when that is safe (clean, on `main`, no local commits), so it
-   never goes stale. No installed susi: `scripts/seed-target.sh; cargo run -q -- workflow check`
-   (in the primary checkout, only once that script no longer says worktrees still share its
-   `target/`, where a crate one of them built can run in place of main's; until then go
-   straight to step 2, which runs no cargo).
-2. **Work in your own worktree, never the primary checkout or `main`:**
-   `scripts/susi-worktree.sh` (no name needed; or `susi workflow start`). It
-   branches off the latest `origin/main`, installs the hooks, parks the primary
-   checkout at `origin/main`, and prints `cd <path>`.
-3. **Atomic per-task loop.** Sync with `origin/main`, `susi tasks claim <id>`
-   (one live claim; an atomic git ref with a lease), do the work, end every
-   commit with `Task: T-<AGENT>-<n>`, sync again, push, then sync before the
-   next claim — so parallel agents always build on latest main.
-4. **Done means the acceptance check passes:** `susi tasks close <id>` runs it,
-   and a `cargo test` filter that ran zero tests does not count. Closing
-   publishes a receipt (`refs/closed/<id>`) that blocks the next claim until the
-   close is *observed* on `origin/main` — so a crash, a Ctrl-C or a report of
-   success nobody published cannot start a second task, and CI refuses it
-   server-side too. Giving the task up is deliberate and recorded:
-   `susi tasks release <id> --abandon <reason>`. After the merge, the merge is
-   attested (`refs/merged/<id>`) and a main-only job re-runs the task's own
-   acceptance on the merged tree, recording `refs/verified/<id>`. Tasks may link
-   to a roadmap vector (`--roadmap VC-201-0NN`); `susi tasks roadmap` reports
-   coverage, and `susi tasks audit` reports who still owes a merge.
-5. **Push the branch; the rest is automatic.** The branch-push `Test` run is
-   the gate, a PR opens itself and merges itself when green, and a 15-minute
-   reconciler merges green PRs that events missed, comments once on red or
-   conflicting ones and closes ones idle for 7 days. Tests are hermetic: they
-   never touch `~/.susi`, `~/.susi-dev` or an inherited `SUSI_HOME`.
-6. **Cloud sessions need no laptop.** A session that clones the repository
-   into a disposable container (Claude Code on the web) works in that clone,
-   on the branch the harness checked out: `scripts/cloud-session.sh` marks it
-   as the worker's own worktree, `susi workflow check`, the hooks and the loop
-   scripts read the mark, and the identity is `<TOOL><BRANCH>`. The
-   session-start hook fetches the ONNX Runtime the build needs from GitHub
-   (`scripts/cloud-onnxruntime.sh`; the CDN `ort-sys` uses is refused by the
-   container's network policy) and starts the build in the background. Such a
-   session never asks for the operator's machine — no Remote Control, no
-   computer folder, no button to press. See [`docs/cloud-sessions.md`](docs/cloud-sessions.md).
-
-What makes it binding: the `commit-msg` and pre-push hooks and the CI job
-**Workflow Compliance** reject commits without a valid `Task:` trailer (the CI
-job cannot be skipped with `--no-verify`), and `scripts/github-enforce.sh`
-installs a ruleset on `main` — pull requests only, no force-push, no deletion,
-no bypass actor — in phases (`--apply`, then `--apply --phase 2` for required
-checks), with `--relax` as an audited emergency switch. Releases are cut only by
-`susi admin release --cut <patch|minor|major>`; the gate also runs the freshly
-built binary on its own newest behaviour (`E2E_CHECKS`) before it tags.
-
-Each agent tool loads the first step on its own: `CLAUDE.md`, `GEMINI.md`,
-and `.github/copilot-instructions.md`, and SessionStart hooks
-(`.claude/settings.json`, `.codex/hooks.json`) that run
-the check.
+`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical
+pointers to the canonical contract. Automatic shell-based SessionStart hooks
+have been removed. Optional remote publishing adapters remain historical
+compatibility tooling and cannot govern local engineering. See
+[`docs/native-rust-direction.md`](docs/native-rust-direction.md) for verified
+implementation status, and [`docs/cloud-sessions.md`](docs/cloud-sessions.md)
+for isolated cloud workers.
 
 ### Windows PowerShell (native, not WSL)
 ```powershell
@@ -464,14 +427,10 @@ susi ecosystem start ollama   # only engines that need no model choice
 susi brain
 susi brain classify "fix this bug in my parser"
 
-# Building susi (agents and humans): start here
-susi workflow check           # own worktree? current with origin/main? hooks? a claim?
-susi workflow start           # your own worktree, ready to work in
-susi tasks list               # the shared queue
-susi tasks claim T-CLAUDE-42  # atomic; nobody else can take it
-susi tasks roadmap --uncovered
-susi tasks audit              # who accepted work that never reached origin/main
-susi tasks release T-CLAUDE-42 --abandon "superseded"  # give an accepted task up, on the record
+# Building susi: agents follow AGENTS.md in isolated worktrees
+cargo local-workflow list
+cargo local-build debug
+# Production candidates require passing policy gates; never overwrite production
 
 # Automation (evidence-gated swarm mission)
 susi automate "refactor the auth module and verify with tests"
@@ -634,11 +593,11 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Grounded outputs** — claims checked against tools and workspace state.
 - **Traceable reasoning** — Mandate 26; thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`); not “100% transparency” of secrets or vendor internals.
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware (Mandates 5, 28–30; lock-preferring, not “zero blocking forever”).
-- **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
-- **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
+- **Rust-only implementation** — runtime, tooling and shipped dependency closure must be Rust (Mandates 43 and 63); incompatible existing components remain migration defects.
+- **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); agents own technical setup; credentials and paid-service consent remain explicit gates.
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
-- **One-line install** — Unix `curl …/install.sh | bash` (Mandate 47); not “always frictionless.”
-- **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only tagged releases replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
+- **Native installation** — verified artifacts and native provisioning without a Windows shell/emulation prerequisite (Mandates 47 and 64); legacy installer scripts are migration work.
+- **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only locally qualified, health-checked promotion may replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
 
 Crate boundaries, composition roots, ports, and the plugin triad are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
 ---
