@@ -110,32 +110,32 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
     ("susi-vendor-tantivy", 2),
-    ("susi-vendor-fastembed", 2),
+    ("susi-vendor-fastembed", 4),
     ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
     ("susi-vendor-cloud", 0),
     // No SUSI dependencies: the unsafe-exposure ratchet reads the tree only.
     ("susi-unsafe-ratchet", 0),
-    ("susi-vendor-agents", 4),
-    ("susi-vendor-models", 4),
-    ("susi-vendor-web", 4),
-    ("susi-sandbox", 4),
-    ("susi-leaf-services", 5),
-    ("susi-agents", 5),
-    ("susi-tools", 4),
-    ("susi-gemi-models", 5),
-    ("susi-gawd-agents", 5),
-    ("susi-gmcp", 4),
-    ("susi-server", 4),
-    ("susi-dsh-cell", 4),
-    ("susi-universal-cell", 4),
-    ("susi-gawd-swarm", 6),
-    ("susi-gemi", 6),
-    ("susi-gawd-a2a", 7),
-    ("susi-harness", 8),
-    ("susi-gawd", 8),
-    ("susi-daemon", 9),
-    ("susi", 10),
+    ("susi-vendor-agents", 5),
+    ("susi-vendor-models", 5),
+    ("susi-vendor-web", 5),
+    ("susi-sandbox", 5),
+    ("susi-leaf-services", 6),
+    ("susi-agents", 6),
+    ("susi-tools", 5),
+    ("susi-gemi-models", 6),
+    ("susi-gawd-agents", 6),
+    ("susi-gmcp", 5),
+    ("susi-server", 5),
+    ("susi-dsh-cell", 5),
+    ("susi-universal-cell", 5),
+    ("susi-gawd-swarm", 7),
+    ("susi-gemi", 7),
+    ("susi-gawd-a2a", 8),
+    ("susi-harness", 9),
+    ("susi-gawd", 9),
+    ("susi-daemon", 10),
+    ("susi", 11),
 ];
 
 /// Pure re-export facades (`susi-vendor-*` crates whose only dependency is
@@ -1823,7 +1823,7 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
 /// that kept the workspace on one tokenizers could go. A registry crate is
 /// also a compiler-cache hit where a git one never is.
 #[test]
-fn the_lockfile_carries_the_dependabot_fixed_zip_and_registry_candle() {
+fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
     let lock = std::fs::read_to_string(workspace_root().join("Cargo.lock")).unwrap();
     let packages: Vec<&str> = lock.split("[[package]]").collect();
     let field = |package: &str, name: &str| -> Option<String> {
@@ -1863,10 +1863,27 @@ fn the_lockfile_carries_the_dependabot_fixed_zip_and_registry_candle() {
         let found = named(crate_name);
         assert_eq!(found.len(), 1, "one {crate_name} in the lockfile");
         let source = field(found[0], "source").unwrap_or_default();
-        assert!(
-            source.starts_with("registry+"),
-            "{crate_name} comes from crates.io, not {source}"
-        );
+        if crate_name == "candle-core" {
+            assert!(
+                source.is_empty(),
+                "candle-core uses the audited local patch"
+            );
+            let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
+            assert!(manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
+            let patched =
+                std::fs::read_to_string(workspace_root().join("vendor/candle-core/Cargo.toml"))
+                    .unwrap();
+            let version = field(found[0], "version").unwrap();
+            assert!(patched.contains(&format!("version = \"{version}\"")));
+            assert!(workspace_root()
+                .join("vendor/candle-core/LICENSE")
+                .is_file());
+        } else {
+            assert!(
+                source.starts_with("registry+"),
+                "{crate_name} comes from crates.io, not {source}"
+            );
+        }
     }
     let tokenizers = named("tokenizers");
     assert_eq!(
@@ -1891,7 +1908,7 @@ fn release_sync_downloads_the_published_binary_and_falls_back_to_a_build() {
         "download_release_asset()",
         "gh release download \"$tag\"",
         "--pattern \"${asset}.sha256\"",
-        "sha256sum \"$dir/$asset\"",
+        "sha256sum < \"$dir/$asset\"",
         "SUSI_RELEASE_BUILD",
         "susi-windows-x86_64.exe",
         "susi-linux-x86_64",
