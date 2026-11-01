@@ -15,6 +15,8 @@ const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../prepare_release.rs"]
+mod prepare_release;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
 #[path = "../vendor_regressions.rs"]
@@ -1446,6 +1448,7 @@ fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
+        Some("prepare-next") if args.len()==2 && args[1]=="patch" => prepare_release::run(&ctx)?,
         Some("check-inventory") if args.len()==1 => {
             let attempt = ctx.state.join(format!("inventory-check-{}",stamp()?));
             fs::create_dir(&attempt)?;
@@ -1478,7 +1481,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
     }
     Ok(())
 }

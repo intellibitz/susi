@@ -132,3 +132,17 @@ pinned source match against actual Rust files in the registry package. Every
 path is confined, and empty files or a supplement without a license file fail.
 This supplies missing original attribution; it does not override SPDX policy,
 relicense code, mutate registry caches or accept Susi's own license as a proxy.
+
+`local-release prepare-next patch` prepares candidate B only in a clean,
+freshly claimed `local-agent/` worktree at the exact promoted A source. The
+claim must cover all twelve version files. It rechecks A's package integrity
+and bounded version output, updates all seven engine manifests and only the
+three top-level governance versions plus README badge, then runs an offline
+workspace lock update. Non-engine lock entries must remain identical. Original
+bytes are snapshotted and synced before mutation; command failures restore all
+twelve files and retain the recovery journal. A process interruption leaves
+that journal for agent recovery; this is not an atomic multi-file filesystem
+transaction. Production references and runtime binary.hash are not changed.
+The prepared source still needs a scoped commit, local integration and genuine
+qualification before B can be promoted. The htmlescape platform replacement is
+also a mandatory standalone regression gate alongside IDNA and identifiers.

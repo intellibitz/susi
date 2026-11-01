@@ -9,7 +9,7 @@ pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec
     if !root.join("crates/susi-core/Cargo.toml").is_file() {
         return Ok(Vec::new());
     }
-    for name in ["idna-adapter", "unicode-ident"] {
+    for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
         if !root.join("vendor").join(name).join("Cargo.toml").is_file() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -33,7 +33,7 @@ pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec
         path.replace('"', "\\\"")
     );
     let mut commands = Vec::new();
-    for name in ["idna-adapter", "unicode-ident"] {
+    for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
         let manifest = format!("vendor/{name}/Cargo.toml");
         // Their generated lockfiles are ignored, private build evidence. All
         // actual dependencies are pinned local source; resolution stays offline.
@@ -72,7 +72,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn product_requires_both_adapters_and_tests_exact_local_source_offline() {
+    fn product_requires_all_adapters_and_tests_exact_local_source_offline() {
         let root = std::env::temp_dir().join(format!(
             "susi-vendor-gates-{}-{}",
             std::process::id(),
@@ -84,7 +84,7 @@ mod tests {
         std::fs::create_dir_all(root.join("crates/susi-core")).unwrap();
         std::fs::write(root.join("crates/susi-core/Cargo.toml"), "[package]").unwrap();
         assert!(commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).is_err());
-        for name in ["idna-adapter", "unicode-ident"] {
+        for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
             std::fs::create_dir_all(root.join("vendor").join(name)).unwrap();
             std::fs::write(
                 root.join("vendor").join(name).join("Cargo.toml"),
@@ -93,14 +93,14 @@ mod tests {
             .unwrap();
         }
         let commands = commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).unwrap();
-        assert_eq!(commands.len(), 4);
+        assert_eq!(commands.len(), 6);
         for command in &commands {
             assert!(command.contains(&"--offline".into()));
             assert!(command
                 .iter()
                 .any(|arg| arg.starts_with("patch.crates-io.idna_adapter.path=")));
         }
-        for command in [&commands[1], &commands[3]] {
+        for command in [&commands[1], &commands[3], &commands[5]] {
             assert_eq!(command[0], "test");
             for arg in ["--locked", "--lib", "--target", "x86_64-pc-windows-msvc"] {
                 assert!(command.contains(&arg.into()));
