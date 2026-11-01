@@ -24,7 +24,10 @@ channel intact. Evidence stays in the printed temporary directory.
 offset (development 200, local production 300). `-SusiArgs` passes arguments to
 that executable. `-Action Rollback` selects the previous installed build without
 recompilation; `-Action Status` shows the activation record. Agents operate these
-commands; the CEO supplies goals. Repository acceptance and publication gates
+commands; the CEO supplies goals. Build and rollback refuse activation while
+this channel still has running processes, so agents finish goals and stop its
+daemon before switching. A rollback verifies the previous content-addressed
+executable before running it. Repository acceptance and publication gates
 still apply to publishing code, independently of this local verification loop.
 
 The local smoke check proves the governed file journey, not every model or cloud
