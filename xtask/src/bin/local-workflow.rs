@@ -334,6 +334,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
+        let started = std::time::Instant::now();
         let mut command = Command::new("cargo");
         for (key, _) in env::vars_os() {
             let name = key.to_string_lossy().to_ascii_uppercase();
@@ -382,7 +383,11 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
-        let result = format!("cargo {} => {status}", args.join(" "));
+        let result = format!(
+            "cargo {} => {status}; elapsed-ms={}",
+            args.join(" "),
+            started.elapsed().as_millis()
+        );
         evidence.push(result.clone());
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
         if !status.success() {

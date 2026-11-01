@@ -169,6 +169,7 @@ pub(crate) fn run(args: &[String]) -> io::Result<()> {
         profile.directory(),
         target.display()
     );
+    let started = std::time::Instant::now();
     let status = build_command(&root, &target, &host, profile).status()?;
     if !status.success() {
         return Err(io::Error::other(format!(
@@ -185,8 +186,8 @@ pub(crate) fn run(args: &[String]) -> io::Result<()> {
         ));
     }
     println!(
-        "xtask: built {}; candidate only, not qualified or installed",
-        executable.display()
+        "xtask: built {}; build elapsed-ms={}; artifact-bytes={}; candidate only, not qualified or installed",
+        executable.display(), started.elapsed().as_millis(), fs::metadata(&executable)?.len()
     );
     Ok(())
 }

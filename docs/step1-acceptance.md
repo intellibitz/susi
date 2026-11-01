@@ -41,17 +41,49 @@ model-cache storage and whole-machine use are not included. A timeout or
 budget violation kills and reaps the exact owned child and fails qualification.
 The evidence must never call sampled RSS an OS peak working set.
 
-## Remaining acceptance beyond CLI health
+## Required inference acceptance and remaining production evidence
 
 Version, help and status do not establish model inference, daemon service
 health, an uncached installation or recovery of a running production service.
-Production must additionally execute real first-goal prompts using the exact
-candidate under isolated runtime state with inherited provider credentials
-and endpoints removed. Model identity/license/digest and provisioning mode
-(verified cache versus uncached download) must be explicit. Retain bounded
-output, actual inference traces and resource measurements, and bind them to
-the artifact receipt. An editable external success report is insufficient.
+The production qualifier additionally executes real first-goal prompts using
+the exact candidate under isolated runtime state with inherited provider
+credentials and endpoints removed. It runs arithmetic and prose prompts,
+requires successful tool-free mission traces, checks answer semantics, and
+requires two audited nonempty Rust Candle generations. The cached session
+budget is 60 seconds; uncached provisioning and inference have 600 seconds.
+Both use the same sampled memory/output ceilings. Actual output, traces,
+audits, model identities/digests and measurements are embedded in the
+manifest-hashed gate package. An editable external success report cannot
+satisfy production acceptance.
 
-Until that integrated acceptance and all strict license gates pass, the
+Qualification discovers the installed default starter cache automatically.
+Agent orchestration may supply a read-only cache with the process-local
+`SUSI_QUALIFICATION_MODEL_CACHE` environment variable; users do not configure
+this. When all four default model/tokenizer artifacts exist, they are copied
+into fresh state and the candidate must admit them before offline inference.
+Otherwise the exact candidate performs native install/start and its licensed
+public model download under the default policy. Credentials, cloud endpoints,
+proxies and third-party tool paths are absent. This explicit uncached phase
+needs public network access; Cargo build/test gates remain offline.
+
+`local-release check-inference <candidate>` runs the same check diagnostically
+without qualifying or promoting a release. Both modes invoke scoped stop and
+check that no process still executes from the private installed runtime.
+This is not a claim about unrelated system processes or descendants running
+outside that private runtime. Machinery fixtures do not bypass the production
+entry point's real inference requirement.
+
+On debug candidate SHA-256
+`3ac99979c0a3dcac0192880f57c1d16752d76d9de316e0a9dd5463528103af0b`,
+the cached check completed both prompts in 7.382 seconds, sampled
+1,036,754,944 bytes foreground RSS and captured 829 bytes output; scoped stop
+took 282 ms. An independent uncached check performed native install in 396 ms,
+start in 786 ms, public model download plus both goals in 57.865 seconds,
+sampled 1,066,831,872 bytes RSS and captured 1,345 bytes output; scoped stop
+took 1.316 seconds. Both were actual Windows runs, not optimized-production
+qualification. Per-command integration/release gates and local builds now
+record elapsed milliseconds; no unmeasured "blazing fast" guarantee follows.
+
+Until integrated acceptance and all strict license gates pass, the
 production qualification remains incomplete. Do not label Step 1 complete,
 claim every mandate fulfilled, or promote a fixture as the product.
