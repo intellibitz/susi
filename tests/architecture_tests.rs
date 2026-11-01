@@ -97,6 +97,7 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
+    ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
@@ -179,6 +180,7 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-shlex",
     "susi-vendor-signal-hook",
     "susi-vendor-sysinfo",
+    "susi-vendor-windows-registry",
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
@@ -1290,21 +1292,23 @@ fn dev_builds_never_install_the_release_binary() {
     let isolate = body
         .find("dev_instance::isolate_if_dev_build")
         .unwrap_or(usize::MAX);
-    let parse = body.find("Cli::parse()").unwrap();
+    let local = body.find("local_delivery_cli::execute").unwrap();
+    let install = body.find("install_cli::execute").unwrap();
+    let runtime = body.find("ShellSession::open").unwrap();
     assert!(
-        isolate < parse,
-        "dev instance isolation must run first in main, before any other work (Mandate 48)"
+        local < isolate && install < isolate && isolate < runtime,
+        "native delivery/install dispatch must precede development isolation, which must precede runtime startup"
     );
 
     assert!(
-        root.join("scripts/susi-release-sync.sh").is_file(),
-        "release promotion script missing (Mandate 48)"
+        root.join("xtask/src/bin/local-release.rs").is_file(),
+        "native release qualification and promotion implementation missing"
     );
 }
 
 /// Mandate 48 ("SUSI writes SUSI"): every code-writing path into a SUSI
-/// tree carries the self-build contract, and the CI builder is the released
-/// susi working on a branch. Targeted guard over the known paths, not a
+/// tree carries the self-build contract, and installed Susi exposes guarded
+/// local delivery. Targeted guard over the known paths, not a
 /// proof that no other path exists.
 #[test]
 fn self_build_contract_reaches_every_code_writing_path() {
@@ -1326,7 +1330,7 @@ fn self_build_contract_reaches_every_code_writing_path() {
         ),
         (
             "crates/susi-gawd/src/patch_cycle.rs",
-            "self_build::VERIFY_COMMAND",
+            "repo_gate::run_repository_gate",
         ),
     ] {
         assert!(
@@ -1335,19 +1339,13 @@ fn self_build_contract_reaches_every_code_writing_path() {
         );
     }
 
-    let builder = read(".github/workflows/susi-builder.yml");
-    assert!(
-        builder.contains("bash ./install.sh"),
-        "susi-builder must run the released susi, not a build of the branch it changes"
-    );
-    assert!(
-        !builder.contains("build-gpu.sh"),
-        "susi-builder must not bootstrap its builder from the dev tree"
-    );
-    assert!(
-        builder.contains("gh pr create"),
-        "susi-builder work must land as a PR"
-    );
+    let delivery = read("src/cli/local_delivery_cli.rs");
+    assert!(delivery.contains("xtask/bootstrap/susi-dev.rs"));
+    assert!(delivery.contains("bootstrap::run(args)"));
+    let bootstrap = read("xtask/bootstrap/susi-dev.rs");
+    assert!(bootstrap.contains("CARGO_BUILD_BUILD_DIR"));
+    assert!(bootstrap.contains("local-workflow"));
+    assert!(bootstrap.contains("local-release"));
 }
 
 /// Mandate 49 regression guard: the worktree-workflow guard exists, is

@@ -1,32 +1,54 @@
 # Native development bootstrap
 
-Agents use the standalone Rust launcher when starting local development. It sets
+Installed Susi exposes the same launcher through `susi local build`,
+`susi local workflow` and `susi local release`. This dispatch runs before model,
+daemon or runtime initialization, so development does not require inference or
+cloud credentials. Agents use the standalone Rust launcher for the initial build
+before an installed Susi exists. Both entry points share the same Rust source.
+It sets
 private Cargo output before Cargo compiles xtask, so an inherited shared target
 directory cannot contaminate even the launcher build. No Bash, PowerShell script,
 Python, Node, GitHub service, or user-written configuration is involved.
 
-From an agent's own checkout on Windows, compile it once with the provisioned
-native MSVC Rust compiler:
+For the first bootstrap, an agent provisions the pinned native MSVC Rust
+toolchain, its matching rust-src component and offline dependency cache. Build
+the Cargo bootstrap binary with all output locations private to the checkout.
+These are temporary process environment settings managed by agents, not files
+or configuration the CEO must create:
 
-```text
-rustc --edition=2021 xtask/bootstrap/susi-dev.rs -o xtask/bootstrap/susi-dev.exe
+```powershell
+$env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target/bootstrap'
+$env:CARGO_BUILD_TARGET_DIR = $env:CARGO_TARGET_DIR
+$env:CARGO_BUILD_BUILD_DIR = $env:CARGO_TARGET_DIR
+cargo build --offline --locked --target x86_64-pc-windows-msvc -p xtask --bin susi-dev
 ```
 
-The output path exists in every checkout, is private to that checkout, and is
-ignored by Git. Direct rustc does not use Cargo's target-directory environment
-settings. Recompile this small dependency-free executable when its source changes.
+Before doing this, the agent verifies that the checkout and target paths are
+real directories, not redirected shared outputs. The temporary bootstrap is
+compiler-side development infrastructure, not a qualified distributable. Its
+Cargo wrapper supplies the Rust Windows entry point and the authenticated
+source verifier's hashing/JSON dependencies. Compiling susi-dev.rs directly with
+rustc is no longer a supported bootstrap path.
 
 ```text
-xtask\bootstrap\susi-dev.exe build debug
-xtask\bootstrap\susi-dev.exe workflow start worker-a --scope crates/susi-paths
-xtask\bootstrap\susi-dev.exe workflow integrate worker-a
-xtask\bootstrap\susi-dev.exe release qualify
-xtask\bootstrap\susi-dev.exe release status
+target\bootstrap\x86_64-pc-windows-msvc\debug\susi-dev.exe build debug
+target\bootstrap\x86_64-pc-windows-msvc\debug\susi-dev.exe workflow start worker-a --scope crates/susi-paths
+target\bootstrap\x86_64-pc-windows-msvc\debug\susi-dev.exe workflow integrate worker-a
+target\bootstrap\x86_64-pc-windows-msvc\debug\susi-dev.exe release qualify
+target\bootstrap\x86_64-pc-windows-msvc\debug\susi-dev.exe release status
 ```
 
-On Unix, omit `.exe` in the compilation output and invoke the result with `./`.
-The launcher selects the native compiler host automatically; Windows requires
-MSVC. Arguments are passed directly to executables, without shell interpretation.
+The qualified bootstrap target is native x64 Windows/MSVC. Other platforms need
+their own standard-library and OS-boundary qualification. Arguments are passed
+directly to executables, without shell interpretation.
+
+Product build operations execute the reviewed private standard-library builder,
+authenticate the complete pinned upstream source and permitted replacements,
+and run the consumer test. The resulting archive handles remain locked through
+compilation and are rechecked afterward. Compiler and rustdoc use the same
+verified selection. A saved receipt or environment variable cannot authorize a
+different standard library. Production qualification also checks all packaged
+helper executables; the initial bootstrap is never substituted for them.
 
 The launcher rejects a redirected `target/` or launcher artifact directory,
 including Windows junctions. It overrides `CARGO_TARGET_DIR`,

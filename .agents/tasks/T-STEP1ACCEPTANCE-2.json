@@ -1,0 +1,32 @@
+{
+  "id": "T-STEP1ACCEPTANCE-2",
+  "title": "Verify the repaired combined native Step 1 tree through immutable local integration",
+  "status": "failed",
+  "owner": "step1-acceptance-v2",
+  "scopes": [
+    ".agents/tasks/T-STEP1ACCEPTANCE-2.json"
+  ],
+  "dependencies": [
+    "T-STEP1RUSTENTRY-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked",
+      "--features",
+      "xtask/release-tooling"
+    ]
+  },
+  "required_evidence": [
+    "Native coordinator acceptance receipt for this exact combined tree",
+    "Fresh authenticated standard-library build with guarded archive identity",
+    "Formatting, strict licenses, workspace Clippy and tests, all five platform adapters",
+    "Native lifecycle fixtures using the admitted product standard library"
+  ],
+  "prior_attempt": "step1-acceptance-1793559888818643600-1492 failed Clippy; both repairs are included in this baseline",
+  "production_status": "Separate production qualification and clean-machine A/B rollback acceptance remain required",
+  "integration": "No acceptance reference published; rustfmt rejected native_verifier module ordering in gawd/src/lib.rs. Retained attempt step1-acceptance-v2-1793560235141949300-12380."
+}

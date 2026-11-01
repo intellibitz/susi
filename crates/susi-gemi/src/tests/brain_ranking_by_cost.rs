@@ -211,16 +211,20 @@ fn brain_ranking_by_cost_floor_still_dominates_the_cheap() {
     let _env = crate::engines::env_test_lock();
     install_catalog();
     let s = Store::default();
-    // Code floor is Coding-capable: the cloud default (Coding) meets it,
+    // Code floor is Coding-capable: the explicit DeepSeek rule meets it,
     // a local name (Basic) is below — and cheaper.
     let ranked = s.rank_with_budget(
-        &names(&["vllm-bargainmodel", "acme-apricymodel"]),
+        &names(&["vllm-bargainmodel", "deepseek-apricymodel"]),
         TaskClass::Code,
         Budget::Balanced,
     );
     assert_eq!(
-        ranked[0].provider, "acme-apricymodel",
+        ranked[0].provider, "deepseek-apricymodel",
         "a cheap below-floor model cannot outrank a floor-meeting pricey one"
+    );
+    assert!(
+        ranked[0].meets_floor,
+        "the explicit capability rule must meet Code"
     );
     assert!(ranked[1].provider.contains("bargainmodel"));
     assert!(!ranked[1].meets_floor, "kept as the last rung, not dropped");

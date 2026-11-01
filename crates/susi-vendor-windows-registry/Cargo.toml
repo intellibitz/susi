@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-windows-registry"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "SUSI vendor facade for native Windows registry APIs."
+
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6.1"
+
+[lints]
+workspace = true

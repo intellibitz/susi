@@ -4,6 +4,7 @@ members = [
     "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
+    "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
     "crates/susi-vendor-criterion",
@@ -73,6 +74,7 @@ members = [
     "crates/susi-vendor-shlex",
     "crates/susi-vendor-signal-hook",
     "crates/susi-vendor-sysinfo",
+    "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
     "crates/susi-vendor-tokio-stream",
@@ -234,7 +236,11 @@ tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 console-subscriber = { package = "susi-vendor-console-subscriber", path = "crates/susi-vendor-console-subscriber" , optional = true }
 rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
+
+[target.'cfg(windows)'.dependencies]
+susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 
 [build-dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
@@ -246,6 +252,10 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 # the registry build is one graph with a fixed zip, and a registry crate is a
 # compiler-cache hit where a git one is not (susi-vendor-candle asks for it).
 [patch.crates-io]
+regex-syntax = { path = "vendor/regex-syntax" }
+idna_adapter = { path = "vendor/idna-adapter" }
+unicode-ident = { path = "vendor/unicode-ident" }
+htmlescape = { path = "vendor/htmlescape" }
 native-tls = { path = "vendor/native-tls" }
 fluent-uri = { path = "vendor/fluent-uri" }
 # Ship the exact patched sources with Susi: a fresh checkout must not need

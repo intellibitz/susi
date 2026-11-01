@@ -1811,8 +1811,12 @@ fn low_priority_cargo(src: &Path, args: &[&str], out: &Out) -> bool {
     let (stdout, stderr) = out.stdio();
     cmd.args(args)
         .current_dir(src)
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("CARGO_BUILD_TARGET_DIR")
+        // A refresh owns both final artifacts and Cargo's intermediate files.
+        // Inherited gate settings (or user Cargo configuration) must not redirect
+        // fingerprints into another worktree while we publish this target tree.
+        .env("CARGO_TARGET_DIR", src.join("target"))
+        .env("CARGO_BUILD_TARGET_DIR", src.join("target"))
+        .env("CARGO_BUILD_BUILD_DIR", src.join("target"))
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr)

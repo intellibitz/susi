@@ -9,6 +9,32 @@ use std::time::SystemTime;
 use susi_vendor_candle::candle_core::Device;
 
 #[derive(Debug, PartialEq, Eq)]
+struct SidecarVersion {
+    file: FileVersion,
+    digest: [u8; 32],
+}
+
+impl SidecarVersion {
+    fn read(path: &Path) -> EaiResult<Self> {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        const MAX_BYTES: u64 = 4 * 1024 * 1024;
+        let file = FileVersion::read(path)?;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(EaiError::inference("Model identity sidecar exceeds 4MiB"));
+        }
+        Ok(Self {
+            file,
+            digest: Sha256::digest(&bytes).into(),
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 struct FileVersion {
     len: u64,
     modified: SystemTime,
@@ -33,19 +59,24 @@ impl FileVersion {
 #[derive(Debug, PartialEq, Eq)]
 struct ModelVersion {
     weights: FileVersion,
-    provenance: Option<FileVersion>,
+    provenance: Option<SidecarVersion>,
+    license: Option<SidecarVersion>,
 }
 
 impl ModelVersion {
     fn read(path: &Path) -> EaiResult<Self> {
         let provenance_path = path.with_extension("provenance.json");
         let provenance = match provenance_path.try_exists()? {
-            true => Some(FileVersion::read(&provenance_path)?),
+            true => Some(SidecarVersion::read(&provenance_path)?),
             false => None,
         };
         Ok(Self {
             weights: FileVersion::read(path)?,
             provenance,
+            license: match path.with_extension("license.json").try_exists()? {
+                true => Some(SidecarVersion::read(&path.with_extension("license.json"))?),
+                false => None,
+            },
         })
     }
 }
@@ -134,6 +165,29 @@ impl<T> ModelCache<T> {
             return false;
         };
         slot.try_lock().is_none_or(|entry| entry.is_some())
+    }
+
+    /// A completed cache entry that can be reused by `get_or_load` with these
+    /// exact inputs. Loading, obsolete files and a different runtime budget
+    /// are not residency evidence. Observation never waits for a model load.
+    pub fn is_reusable(&self, path: &Path, device: &Device, kv_capacity: usize) -> bool {
+        let Ok(path) = path.canonicalize() else {
+            return false;
+        };
+        let Ok(version) = ModelVersion::read(&path) else {
+            return false;
+        };
+        let Some(slot) = self.slots.lock().get(&path).cloned() else {
+            return false;
+        };
+        let Some(guard) = slot.try_lock() else {
+            return false;
+        };
+        guard.as_ref().is_some_and(|entry| {
+            entry.version == version
+                && entry.device.same_device(device)
+                && entry.kv_capacity == kv_capacity
+        })
     }
 
     /// Idle entries (no request holds the weights) on devices matching
@@ -281,6 +335,75 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
         }
+    }
+
+    #[test]
+    fn same_length_timestamp_receipt_replacement_invalidates_residency() {
+        let file = Fixture::new();
+        let receipt = file.0.with_extension("license.json");
+        std::fs::write(&receipt, "first").unwrap();
+        let modified = receipt.metadata().unwrap().modified().unwrap();
+        let cache = ModelCache::default();
+        cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(1))
+            .unwrap();
+        std::fs::write(&receipt, "other").unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&receipt)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert_eq!(receipt.metadata().unwrap().modified().unwrap(), modified);
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
+        let reloaded = cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
+            .unwrap();
+        assert_eq!(*reloaded.read(), 2);
+    }
+
+    #[test]
+    fn residency_requires_current_identity_capacity_and_completed_load() {
+        let file = Fixture::new();
+        let other = Fixture::new();
+        let cache = ModelCache::default();
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
+        let weights = cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| {
+                // A loading slot must not be advertised as reusable allocation.
+                assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
+                Ok(7)
+            })
+            .unwrap();
+        let alias = file.0.parent().unwrap().join(".").join("weights.gguf");
+        assert!(cache.is_reusable(&alias, &Device::Cpu, 32));
+        assert!(!cache.is_reusable(&other.0, &Device::Cpu, 32)); // same basename
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 64));
+        let busy = weights.write();
+        assert!(cache.is_reusable(&file.0, &Device::Cpu, 32));
+        drop(busy);
+        std::fs::write(file.0.with_extension("license.json"), "changed-license").unwrap();
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
+        cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(8))
+            .unwrap();
+        assert!(cache.is_reusable(&file.0, &Device::Cpu, 32));
+        std::fs::write(
+            file.0.with_extension("provenance.json"),
+            "changed-provenance",
+        )
+        .unwrap();
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
+        cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(9))
+            .unwrap();
+        std::fs::write(&file.0, "changed weight bytes").unwrap();
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
+        cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(10))
+            .unwrap();
+        cache.evict(&file.0).unwrap();
+        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
     }
 
     #[test]

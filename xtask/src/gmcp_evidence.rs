@@ -254,7 +254,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
         return Err("GMCP recording requires native Windows MSVC".into());
     }
     let target = root.join("target/local-native");
-    let mut command = Command::new("cargo");
+    let mut command =
+        super::isolated_command(Path::new("cargo"), &target.join("gmcp-evidence-home"))?;
     super::compiler_env::apply(&mut command);
     let output = command
         .current_dir(root)
@@ -271,6 +272,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
         ])
         .args(&checks)
         .env("CARGO_TARGET_DIR", &target)
+        .env("CARGO_BUILD_TARGET_DIR", &target)
         .env("CARGO_BUILD_BUILD_DIR", &target)
         .output()?;
     std::io::stdout().write_all(&output.stdout)?;

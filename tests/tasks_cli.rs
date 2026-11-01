@@ -1,3 +1,5 @@
+// Native task checks remain mandatory; legacy shebang/script compatibility is Unix-only.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -240,6 +242,7 @@ fn susi_no_agent(dir: &Path, home: &Path, program: &str, args: &[&str]) -> (i32,
 /// `refs/claim-agents/<TOKEN>` and one task-id namespace. The tool the agent
 /// runs inside now names it — without inventing one when nothing matches.
 #[test]
+#[cfg(unix)]
 fn the_tool_in_the_process_tree_names_the_agent() {
     if !Path::new("/proc/self/stat").exists() {
         return; // No /proc: the fallback is unchanged, nothing to assert.
@@ -450,6 +453,7 @@ fn a_large_task_is_claimed_with_a_lease_that_outlives_the_work() {
 /// argv split, the cwd, the exit-code reading and the zero-evidence guard were
 /// all assumed. If it were wrong, all 30 would be unclosable.
 #[test]
+#[cfg(unix)]
 fn a_script_acceptance_with_arguments_closes_a_task() {
     let root = std::env::temp_dir().join(format!("susi-tasks-script-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

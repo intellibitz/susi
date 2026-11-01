@@ -8,6 +8,11 @@ tests, debugging, dependency replacement, conflict resolution, integration and
 production qualification. Communicate outcomes and evidence; never ask the CEO
 to inspect code, perform technical steps, or provide routine engineering review.
 
+This delivery is **Step 1 of the CEO's 100-step vision**. A CEO must be able to
+build, test, improve and use Susi through agents and Susi itself. Finish and
+measure the native local delivery loop in `docs/step1-acceptance.md` before
+declaring Step 1 complete or moving its unfinished obligations into later steps.
+
 The constitution is `.agents/identity.json`, compiled into the runtime. Mandates
 62–71 express the CEO's ten requirements; revised Mandates 43–54 and 61 remove
 conflicting historical shell/GitHub/human-engineering prerequisites. Existing
@@ -35,6 +40,14 @@ service licenses accurately; connecting to a service does not relicense it or
 certify its compliance. Credentials, privacy consent, paid-service authorization,
 spend caps and destructive-action authorization remain explicit. Never weaken
 safety, truth or license checks to manufacture a passing result.
+
+License qualification must include code copied from the Rust standard library
+and source-specific license exceptions inside selected dependencies. A passing
+Cargo SPDX check does not override nested notices or generated-table provenance.
+Treat installed compiler tools as platform boundaries, but audit standard-library
+implementation statically linked into Susi. Preserve original attribution and
+bind any custom standard-library replacement to its source, builder, compiler,
+selected dependency graph and actual linked artifacts before production approval.
 
 ## Native local agent loop
 
@@ -121,6 +134,11 @@ self-improvement claims require persisted and retrievable outcome evidence.
     susi-gawd-a2a, susi-gawd-swarm, susi-gemi, susi-gemi-models, susi-tools.
     Justified sites are FFI only (libc syscalls, candle mmap, env mutation in
     tests).
+  - `susi-windows-runtime` also denies unsafe code by default. Its qualified
+    Windows process-entry, TLS and exception ABI boundary permits only narrow
+    per-function or per-FFI-metadata-item allowances with `// SAFETY:` evidence.
+    Never allow unsafe code for the whole module or copy foreign CRT startup
+    implementations. Preserve lifecycle tests and artifact-bound link-map checks.
 - **No panic-path macros in production code.** Workspace clippy denies:
   `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`,
   `unreachable`. Every crate has

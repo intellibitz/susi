@@ -142,21 +142,21 @@ mod tests {
             isolate_if_dev_build(Path::new(&home)).unwrap();
             assert_ne!(env::var("SUSI_PORT_OFFSET").unwrap(), "0");
             assert!(PathBuf::from(env::var_os("SUSI_HOME").unwrap()).starts_with(&home));
+            fs::write(Path::new(&home).join("child-verified"), b"isolated").unwrap();
             return;
         }
         let home = env::temp_dir().join(format!("susi-inherited-port-test-{}", std::process::id()));
+        let module = module_path!().split_once("::").unwrap().1;
+        let test = format!("{module}::auto_instance_overrides_inherited_parent_ports");
         let status = std::process::Command::new(env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "tests::auto_instance_overrides_inherited_parent_ports",
-                "--nocapture",
-            ])
+            .args(["--exact", &test, "--nocapture"])
             .env(CHILD, &home)
             .env_remove("SUSI_HOME")
             .env("SUSI_PORT_OFFSET", "0")
             .status()
             .unwrap();
         assert!(status.success());
+        assert_eq!(fs::read(home.join("child-verified")).unwrap(), b"isolated");
         fs::remove_dir_all(home).unwrap();
     }
 

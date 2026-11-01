@@ -1,5 +1,45 @@
 # Native Rust Susi: delivery contract and evidence
 
+## Step 1 continuation: current gate status
+
+The artifact-level audit found additional issues beyond Cargo package metadata:
+the stock Rust standard library's `core/src/unicode` implementation is covered
+by Unicode-3.0, and the selected regex-syntax package has a nested Unicode data
+license. Production qualification now fails closed without verified standard-
+library provenance. Agents are implementing original OS-backed replacements;
+these findings do not authorize license exceptions or relabeling copied tables.
+
+The strict Apache-2.0/MIT/BSD-only license check now passes with the local
+IDNA and identifier implementations. No allowlist exception was added. They
+query installed OS/compiler APIs instead of distributing Unicode tables;
+see `unicode-platform.md` and `identifier-platform.md` for their actual
+repertoire, capability and resource contracts. Earlier three-blocker results
+below remain historical evidence, not the current dependency verdict.
+
+The genuinely uncached Windows installation also passed: native placement,
+private startup, authenticated public model/tokenizer download, two actual
+Candle answers and scoped shutdown. Production qualification and combined-tree
+acceptance remain pending until their final gates run. The CEO's Step 1 of 100
+acceptance contract is `step1-acceptance.md`; agents and Susi own its execution.
+
+Windows runtime inspection also found that eliminating redistributable DLL
+imports alone did not eliminate copied Microsoft CRT startup implementation.
+The original `susi-windows-runtime` Rust crate now supplies executable entry,
+TLS metadata and initializer/termination handling. Its qualified compiler is
+Rust 1.99.0 at commit `b940084d7eb6a299eb4bfeb8e34901bc051e7ac4` on native
+x64 Windows MSVC. Changing that ABI requires fresh qualification, not removal
+of the guard. OS UCRT and kernel imports remain explicit platform boundaries.
+The final product and developer executables require both PE-import inspection
+and artifact-bound link-map evidence; an allowed DLL list alone is insufficient.
+Lifecycle fixtures and full Susi inference have passed diagnostic builds;
+combined-source release qualification remains a separate gate.
+
+The CEO authorized Hyper-V administration through `gsudo`. Agents have created
+an isolated clean Windows 11 VM and verified the OS runtime boundary there.
+Its baseline lacks Rust, Git, Python, Node, the C++ compiler and the separate
+Visual C++ runtime DLL. The final packaged executable still needs its own
+uncached installation and first-goal evidence in that VM before Step 1 closes.
+
 The CEO does not inspect code. Susi is built and delivered by agents. Agents have
 standing authority to commit, push, resolve conflicts and merge verified work;
 paid services, destructive actions and unrelated publication still require their
@@ -21,7 +61,7 @@ marketed as durable memory.
 ## Current implementation
 
 - Native development starts through `xtask/bootstrap/susi-dev.rs`; see
-  `native-bootstrap.md`. The std-only launcher isolates both Cargo target and
+  `native-bootstrap.md`. The Rust launcher isolates both Cargo target and
   intermediate build directories before compiling any tooling. Windows selects
   MSVC. No Bash, WSL, Python, Node or GitHub service is required for this path.
 - `workflow start/commit/integrate/release` reserves private worktrees and scopes,

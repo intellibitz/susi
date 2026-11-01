@@ -219,7 +219,8 @@ impl ReflexSynthesizer {
         );
         let source = extract_rust_block(&reply)
             .ok_or_else(|| EaiError::inference("model reply contained no Rust code block"))?;
-        if !susi_vendor_syn::is_valid_rust(&source) || !source.contains("fn main") {
+        let valid = susi_vendor_syn::is_valid_rust_checked(&source).map_err(EaiError::inference)?;
+        if !valid || !source.contains("fn main") {
             return Err(EaiError::inference(
                 "model-written reflex is not a valid Rust program with fn main",
             ));

@@ -1,0 +1,35 @@
+{
+  "schema": "susi/first-party-unsafe-review/v1",
+  "target": "x86_64-pc-windows-msvc",
+  "measured_package": "susi-windows-runtime@0.1.0",
+  "measured_used": {
+    "functions": {
+      "safe": 6,
+      "unsafe_": 2
+    },
+    "exprs": {
+      "safe": 98,
+      "unsafe_": 45
+    },
+    "item_impls": {
+      "safe": 0,
+      "unsafe_": 1
+    },
+    "item_traits": {
+      "safe": 0,
+      "unsafe_": 0
+    },
+    "methods": {
+      "safe": 0,
+      "unsafe_": 0
+    }
+  },
+  "canonical_source_sha256": {
+    "build.rs": "C8C016C624F1C623EB85AF597E057F46CD7A7FADC5947DB11E0BB59EBCC87695",
+    "src/platform.rs": "E049F7961CEBAF0515FADD52AC4F77A6D0C11D80754906D80902B7974667DC00",
+    "src/lib.rs": "502B7D386A3001C4854FEC0CC9CEBEFFC040318C46371A32C7C40904824F3DF4"
+  },
+  "baseline_modified": false,
+  "scope": "Hash-identical isolated crate scan, not final production graph",
+  "geiger_report_sha256": "80C6CFB0B1691D0DF7E9B3D0542B5460BC47D666D9711C03348E4766FAB27987"
+}

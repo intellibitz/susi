@@ -1,0 +1,28 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "bollard-stubs",
+  "version": "1.53.1-rc.29.3.1",
+  "repository": "https://github.com/fussybeaver/bollard",
+  "revision": "2094713a48ea9fded7189cef4283f1cbd8ef944a",
+  "path_in_vcs": "codegen/swagger",
+  "crate_checksum": "ce412eb6f7096743011dc3cb5c674caeb24ced61d8c498fe07cf7998a4fea889",
+  "crate_checksum_origin": "SHA256 of cached published .crate archive, matched to Cargo.lock",
+  "files": [
+    {
+      "path": "LICENSE",
+      "source_path": "LICENSE",
+      "sha256": "9231b34da0d3ca12b3122afbdcb91637a5bc91c3195fa74c871b8fe73c821e0e",
+      "git_blob_sha1": "44c349fe56601a95ce3cac3397c887d5d6fbfb3d",
+      "url": "https://github.com/fussybeaver/bollard/blob/2094713a48ea9fded7189cef4283f1cbd8ef944a/LICENSE"
+    }
+  ],
+  "source_match": [
+    {
+      "package_path": "src/lib.rs",
+      "source_path": "codegen/swagger/src/lib.rs",
+      "sha256": "74b2ccd6ae8bc4c953d9e6a51aaebcba296770ed97203faf46d1d37c7183797d",
+      "git_blob_sha1": "3f66e2c32d7103e7ae99fe2b9012f6c7dd771b03",
+      "url": "https://github.com/fussybeaver/bollard/blob/2094713a48ea9fded7189cef4283f1cbd8ef944a/codegen/swagger/src/lib.rs"
+    }
+  ]
+}

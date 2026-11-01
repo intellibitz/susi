@@ -4,7 +4,7 @@
 
 **The RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS or a chatbot wrapper; Mandate 45). Verify the crown with `susi crown`.
 
-susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
+susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
 
 > Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers (Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools, …) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
 
@@ -293,24 +293,17 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 
 ## Install
 
-The scripts below describe existing compatibility installers. They are not proof
-of compliance with the new native Rust installer requirements (Mandates 47 and
-64). Agents follow AGENTS.md for development; native provisioning remains subject
-to the acceptance evidence in docs/native-rust-direction.md.
+Agents obtain an identified native artifact and invoke its Rust installer with
+`susi install`. It discovers the user profile, verifies the staged executable,
+and installs without replacing a different existing executable. No shell script,
+GitHub connection or user-written configuration is required for placement.
+The default first-goal journey provisions the licensed starter model when needed.
+Native installation does not by itself qualify a candidate for production;
+qualification, promotion and rollback have separate evidence gates.
 
-Primary surface (Mandate 47): one pipeable command on Unix-like hosts; Windows uses `install.ps1`.
-
-### Linux / macOS / WSL
-```bash
-curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash
-```
-
-Pipe into `bash`, not `sh` (Debian/Ubuntu/Alpine `sh` is not bash). The installer checksum-verifies binaries; model downloads (`susi models`) are verified against the publisher's SHA-256 when the host publishes one (Hugging Face `X-Linked-ETag`) and recorded as provenance, otherwise validated structurally only. If no platform binary exists, the installer builds from source ([rustup.rs](https://rustup.rs)). Prefers a prebuilt release even inside a source checkout (set `SUSI_FORCE_SOURCE=1` to build that tree). Source builds reuse `~/.susi/build-cache` unless `SUSI_USE_REPO_TARGET=1` or `CARGO_TARGET_DIR` is set. On Linux, a missing mold linker is bootstrapped into `~/.susi/mold` (skip with `SUSI_SKIP_MOLD_BOOTSTRAP=1`). GPU without CUDA toolkit → explicit CPU-only warning (not silent success theater).
-
-By default a login-persistent daemon is registered (systemd user unit / launchd). Skip with:
-```bash
-curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | SUSI_NO_DAEMON=1 bash
-```
+Legacy `install.sh` and `install.ps1` remain compatibility artifacts. They are
+not the mandated development or installation path and their historical download,
+autostart and build behavior must not be treated as current acceptance evidence.
 
 ### Developing susi: agent-owned native delivery (Mandate 48)
 
@@ -319,13 +312,15 @@ and production qualification. The installed production Susi stays stable while
 agents build candidates in private worktrees, build directories and runtime
 homes. Do not test against production or share `.susi-dev` between workers.
 
-The current native build entrypoint is `cargo local-build debug`; an optimized
-candidate uses `cargo local-build production`. A candidate is not an approved
+Installed Susi exposes `susi local build debug`; an optimized candidate uses
+`susi local build production`. For the initial build before Susi is installed,
+agents use the Rust [native bootstrap](docs/native-bootstrap.md).
+A candidate is not an approved
 release. Production qualification must bind the exact source/dependency/toolchain
 identity to passing tests and policy audits, executable smoke tests and artifact
 digests, followed by atomic promotion, health verification and tested rollback.
-The production license gate currently refuses incompatible dependencies; agents
-must replace them legitimately rather than weakening the policy.
+The strict dependency license gate passes with the replacement implementations;
+future dependency changes must pass the same unchanged policy.
 
 ### Building susi: the workflow (Mandates 49–71)
 
@@ -334,12 +329,12 @@ The native local workflow has no GitHub account, Actions, pull-request or remote
 claim prerequisite. Use separate branches/worktrees and disjoint task scopes:
 
 ```text
-cargo local-workflow start worker-a --scope crates/susi-paths
-cargo local-workflow list
+susi local workflow start worker-a --scope crates/susi-paths
+susi local workflow list
 ```
 
 Inside that worker's worktree, implement and verify its task, then use
-`cargo local-workflow commit worker-a "message"` for a scope-checked local commit.
+`susi local workflow commit worker-a "message"` for a scope-checked local commit.
 The command checks staged, unstaged and untracked files and does not change
 shared hook settings. It records ownership, not test success. Task records under
 `.agents/tasks/` use namespaced IDs and meaningful acceptance; task-based commits
@@ -349,8 +344,8 @@ carry `Task: T-<AGENT>-<n>` and the native launcher records `Task: LOCAL-<name>`
 Integration must serialize changes and verify the actual combined tree against
 the current local head. Close a task only after its complete acceptance passes
 there. A clean merge, a compile, zero selected tests or a remote CI result is
-not enough. The current launcher is a migration building block, not a claim
-that all integration and promotion requirements have been implemented.
+not enough. `susi local workflow integrate worker-a` performs those local gates;
+`susi local release qualify` independently qualifies the integrated source.
 
 `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical
 pointers to the canonical contract. Automatic shell-based SessionStart hooks
@@ -360,16 +355,11 @@ compatibility tooling and cannot govern local engineering. See
 implementation status, and [`docs/cloud-sessions.md`](docs/cloud-sessions.md)
 for isolated cloud workers.
 
-### Windows PowerShell (native, not WSL)
-```powershell
-irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
-```
-The installer fetches `susi-windows-x86_64.exe` and its published `.sha256`
-from the latest release — the same `<product>-<platform>-<arch>` naming the Unix
-installer resolves — verifies the checksum, and only falls back to a source
-build when the download or the checksum fails. A Windows release is gated on the
-built `susi.exe` answering the release gate's offline checks on the runner, and
-every push that can change the binary re-runs those checks on Windows.
+### Native Windows
+
+The agent-owned Windows path uses native Rust executables, MSVC and OS APIs.
+There is no Bash, WSL, MSYS, Python or Node prerequisite. Release receipts retain
+the exact source, lockfile, compiler, target, artifact and measured gate results.
 
 Interactive installation opens Susi directly: enter a goal without restarting
 the terminal or editing configuration. Opening shows existing cloud connections

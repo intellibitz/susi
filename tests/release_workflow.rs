@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -21,6 +23,8 @@ fn root() -> PathBuf {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn windows_release_promotion() {
     // Run the real Windows process and file mechanics where they exist; the
     // same entrypoint checks shell syntax on other release builders.
@@ -478,6 +482,8 @@ fn tag_merged_bump(work: &std::path::Path, sha: &str) -> std::process::Output {
 /// the merge commit and published; a version already tagged is left alone, so
 /// the merges after a release build nothing.
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn a_merged_bump_is_tagged_once() {
     let root_dir =
         std::env::temp_dir().join(format!("susi-tag-merged-bump-{}", std::process::id()));

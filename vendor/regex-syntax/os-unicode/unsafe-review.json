@@ -1,0 +1,35 @@
+{
+  "schema": "susi/first-party-unsafe-review/v1",
+  "target": "x86_64-pc-windows-msvc",
+  "measured_package": "susi-os-unicode@0.1.0",
+  "measured_used": {
+    "functions": {
+      "safe": 12,
+      "unsafe_": 3
+    },
+    "exprs": {
+      "safe": 306,
+      "unsafe_": 133
+    },
+    "item_impls": {
+      "safe": 4,
+      "unsafe_": 2
+    },
+    "item_traits": {
+      "safe": 0,
+      "unsafe_": 0
+    },
+    "methods": {
+      "safe": 4,
+      "unsafe_": 1
+    }
+  },
+  "canonical_source_sha256": {
+    "src/lib.rs": "9B6EC804C251F7BF5731DDEEBA7076D11DEAF1D6EAF9E5B63E85E6F88FE3C110",
+    "src/native_library.rs": "279CF2E06F3146B00D8555AE7CD82CFAE502878E405E6C59C384A7FBD54C2645",
+    "Cargo.toml": "A97F571D16BE8969A4CED0F78B5C75FA4B2691D60C8D43F1D39A36D0365EE4A3"
+  },
+  "baseline_modified": false,
+  "scope": "Actual isolated nested crate scan, not final production graph",
+  "geiger_report_sha256": "318770CC0A436174345C8502FC0BE13AD693BE7CEE8ED76CE0C5A2F9F4596288"
+}

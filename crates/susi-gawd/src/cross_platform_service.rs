@@ -12,7 +12,7 @@
 
 //! Cross-platform service and lifecycle manager.
 //!
-//! Provides unified background service lifecycle, release promotion, and
+//! Provides unified background service lifecycle and
 //! service definition templates across Linux (`systemd`), macOS (`launchd`),
 //! and Windows (`schtasks` / background worker).
 
@@ -186,128 +186,6 @@ impl PlatformDiagnostics {
     }
 }
 
-/// Result of attempting to trigger a local release promotion.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PromotionOutcome {
-    pub success: bool,
-    pub manager: ServiceManagerKind,
-    pub message: String,
-}
-
-/// Trigger local release promotion using the host's platform-native mechanism.
-#[must_use]
-pub fn promote_release_cross_platform() -> PromotionOutcome {
-    let platform = PlatformKind::current();
-    let manager = ServiceManagerKind::detect(platform);
-
-    match manager {
-        ServiceManagerKind::Systemd => {
-            const UNIT: &str = "susi-release-sync.service";
-            let started = Command::new("systemctl")
-                .args(["--user", "start", "--no-block", UNIT])
-                .output()
-                .is_ok_and(|out| out.status.success());
-
-            if started {
-                PromotionOutcome {
-                    success: true,
-                    manager,
-                    message: format!(
-                        "Local promotion queued ({UNIT}): the release is built for this host and \
-                         installed once this command exits. Follow: journalctl --user -fu {UNIT}"
-                    ),
-                }
-            } else {
-                PromotionOutcome {
-                    success: false,
-                    manager,
-                    message: "Local susi not updated: the release-sync timer is not installed. \
-                              Run scripts/susi-release-sync.sh (once) or --install-timer (always)."
-                        .to_string(),
-                }
-            }
-        }
-        ServiceManagerKind::Launchd => {
-            const LABEL: &str = "com.intellibitz.susi.release-sync";
-            let started = Command::new("launchctl")
-                .args(["start", LABEL])
-                .output()
-                .is_ok_and(|out| out.status.success());
-
-            if started {
-                PromotionOutcome {
-                    success: true,
-                    manager,
-                    message: format!(
-                        "Local promotion queued via launchd ({LABEL}): the release will install in background. \
-                         Follow: log stream --predicate 'subsystem == \"com.intellibitz.susi\"'"
-                    ),
-                }
-            } else {
-                // Attempt direct background fallback invocation
-                let fallback = spawn_background_script("scripts/susi-release-sync.sh");
-                PromotionOutcome {
-                    success: fallback,
-                    manager,
-                    message: if fallback {
-                        "Local promotion spawned via background shell worker. Follow: ~/.susi/release-sync.log".to_string()
-                    } else {
-                        "Local susi not updated: launchd service not registered and background script spawn failed. \
-                         Run scripts/susi-release-sync.sh manually."
-                            .to_string()
-                    },
-                }
-            }
-        }
-        ServiceManagerKind::WindowsTask => {
-            const TASK: &str = "susi-release-sync";
-            let started = Command::new("schtasks.exe")
-                .args(["/run", "/tn", TASK])
-                .output()
-                .is_ok_and(|out| out.status.success());
-
-            if started {
-                PromotionOutcome {
-                    success: true,
-                    manager,
-                    message: format!(
-                        "Local promotion queued via Windows Scheduled Task ({TASK}). Follow: ~/.susi/release-sync.log"
-                    ),
-                }
-            } else {
-                // Attempt powershell background spawn fallback
-                let fallback = spawn_windows_background_script();
-                PromotionOutcome {
-                    success: fallback,
-                    manager,
-                    message: if fallback {
-                        "Local promotion queued via Windows background process. Follow: ~/.susi/release-sync.log".to_string()
-                    } else {
-                        "Local susi not updated: Windows task not found and background process spawn failed. \
-                         Run scripts/susi-release-sync.sh from Git Bash or install scheduled task via install.ps1 -Service."
-                            .to_string()
-                    },
-                }
-            }
-        }
-        ServiceManagerKind::ProcessFallback => {
-            let fallback = spawn_background_script("scripts/susi-release-sync.sh");
-            PromotionOutcome {
-                success: fallback,
-                manager,
-                message: if fallback {
-                    "Local promotion spawned in background. Follow: ~/.susi/release-sync.log"
-                        .to_string()
-                } else {
-                    "Local susi not updated: no native service manager detected. \
-                     Run scripts/susi-release-sync.sh manually."
-                        .to_string()
-                },
-            }
-        }
-    }
-}
-
 /// Helper to locate a repository script relative to the current working directory.
 fn find_script_path(script: &str) -> Option<std::path::PathBuf> {
     let p = Path::new(script);
@@ -319,39 +197,6 @@ fn find_script_path(script: &str) -> Option<std::path::PathBuf> {
         return Some(p_up);
     }
     None
-}
-
-/// Helper to launch a shell script detached in the background on POSIX systems.
-fn spawn_background_script(script_path: &str) -> bool {
-    if let Some(path) = find_script_path(script_path) {
-        Command::new("sh")
-            .args(["-c", &format!("{} >/dev/null 2>&1 &", path.display())])
-            .status()
-            .is_ok_and(|s| s.success())
-    } else {
-        false
-    }
-}
-
-/// Helper to launch background release-sync on Windows hosts.
-fn spawn_windows_background_script() -> bool {
-    let git_bash = Path::new("C:\\Program Files\\Git\\bin\\bash.exe");
-    if git_bash.exists() {
-        if let Some(script) = find_script_path("scripts/susi-release-sync.sh") {
-            return Command::new(git_bash).arg(script).spawn().is_ok();
-        }
-    }
-    Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            "if (Get-Command gsudo -ErrorAction SilentlyContinue) { gsudo --m 'susi release --sync' } else { Start-Process -FilePath 'susi.exe' -ArgumentList 'release --sync' -WindowStyle Hidden }",
-        ])
-        .spawn()
-        .is_ok()
 }
 
 /// Render a Linux systemd user service unit definition.

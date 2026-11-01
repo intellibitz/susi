@@ -95,29 +95,8 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             ama.solve_stream_report(goal, cwd, SUSI_VERSION, &glass_box_callback)
                 .exit_code()
         }),
-        Commands::Install => {
-            println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
-            // The initializer itself (the swarm used to be asked to do it
-            // and report back).
-            match susi_sandbox::manager::SandboxManager::ensure_global_sandbox(global_dir) {
-                Ok(()) => println!("- Substrate home ready: {}", global_dir.display()),
-                Err(e) => {
-                    eprintln!("Substrate initialization failed: {}", e);
-                    std::process::exit(1);
-                }
-            }
-
-            println!("\n[AGGRESSIVE PRIMING: Enqueuing Optimal Substrate]");
-            println!(
-                "- The daemon will autonomously provision the highest-tier model compatible with your hardware."
-            );
-            println!("- This pulse runs in the background. Check progress with 'susi status'.");
-
-            println!("\n[SOVEREIGN HANDSHAKE]");
-            return ama
-                .solve_stream_report("identity", cwd, SUSI_VERSION, &glass_box_callback)
-                .exit_code();
-        }
+        Commands::Install => return super::install_cli::execute(),
+        Commands::Local { args } => return super::local_delivery_cli::execute(&args),
         Commands::Uninstall => {
             uninstall(global_dir);
         }

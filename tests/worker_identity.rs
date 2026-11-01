@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -267,6 +269,8 @@ fn worker_identity_is_not_swapped_under_a_live_claim() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn worker_identity_start_never_names_the_worker_after_the_git_login() {
     let w = World::new("start");
     let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
@@ -329,6 +333,8 @@ fn worker_identity_start_never_names_the_worker_after_the_git_login() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn worker_identity_commit_hook_rejects_a_login_token_and_login_authored_commits() {
     let w = World::new("hook");
     let wt = w.inheriting("claude/hooked-9f8e7d");

@@ -1,0 +1,25 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "wasmi_ir",
+  "version": "1.1.0",
+  "repository": "https://github.com/wasmi-labs/wasmi",
+  "revision": "8273dfb09d493971b7bb12fe614d740cdc857175",
+  "path_in_vcs": "crates/ir",
+  "crate_checksum": "ba1fa003f79156f406d62ef0e1464dc03e11ace37170e9fa7524299a75ad8f68",
+  "files": [
+    {
+      "sha256": "172bc1497507c1c363496bc23b0f16de8fa8e94befa85db6c8d9fa790e0a8657",
+      "source_path": "LICENSE-MIT",
+      "url": "https://github.com/wasmi-labs/wasmi/blob/8273dfb09d493971b7bb12fe614d740cdc857175/LICENSE-MIT",
+      "git_blob_sha1": "1399b075915d94e530b1aa7de1938139d713ab31",
+      "path": "LICENSE-MIT"
+    },
+    {
+      "sha256": "f031c1608e4a19e8cbcc3394cdba838067e79189610227459e8ffcd669e6f52d",
+      "source_path": "LICENSE-APACHE",
+      "url": "https://github.com/wasmi-labs/wasmi/blob/8273dfb09d493971b7bb12fe614d740cdc857175/LICENSE-APACHE",
+      "git_blob_sha1": "b35f96d23531d1d9108fdbfe418eba812d3f3fb7",
+      "path": "LICENSE-APACHE"
+    }
+  ]
+}

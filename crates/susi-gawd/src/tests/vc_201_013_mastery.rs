@@ -2,6 +2,8 @@
 //! isolated workspaces that cannot write the installed release, user
 //! files, or another experiment's workspace.
 
+use crate::native_verifier;
+
 use crate::patch_cycle::{apply_patch_cycle, FilePatch, PatchRequest};
 use crate::patch_fence::PatchFence;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -148,7 +150,11 @@ fn vc_201_013_mastery_patch_cycle_runs_fenced_and_promotes_on_pass() {
         &ws,
         &request(
             Some("exp1"),
-            "test \"$(cat a.txt)\" = new && echo x > byproduct.txt",
+            &native_verifier::argv(&["check-write", "a.txt", "new", "byproduct.txt"])
+                .iter()
+                .map(|arg| format!("\"{arg}\""))
+                .collect::<Vec<_>>()
+                .join(" "),
         ),
         "autonomous",
     )
@@ -185,7 +191,12 @@ fn vc_201_013_mastery_patch_cycle_runs_fenced_and_promotes_on_pass() {
 #[test]
 fn vc_201_013_mastery_failed_candidate_never_touches_the_live_tree() {
     let (root, ws) = fixture("fail");
-    let outcome = apply_patch_cycle(&ws, &request(Some("exp2"), "false"), "autonomous").unwrap();
+    let outcome = apply_patch_cycle(
+        &ws,
+        &request(Some("exp2"), "rustc --susi-invalid-test-option"),
+        "autonomous",
+    )
+    .unwrap();
 
     assert!(!outcome.test_passed);
     assert!(outcome.reverted);
@@ -212,8 +223,17 @@ fn vc_201_013_mastery_failed_candidate_never_touches_the_live_tree() {
 #[test]
 fn vc_201_013_mastery_concurrent_candidates_get_disjoint_fences() {
     let (root, ws) = fixture("conc");
-    let a = apply_patch_cycle(&ws, &request(Some("shared"), "true"), "autonomous").unwrap();
-    let mut req2 = request(Some("shared"), "true");
+    let a = apply_patch_cycle(
+        &ws,
+        &request(Some("shared"), "rustc --version"),
+        "autonomous",
+    )
+    .unwrap();
+    assert!(
+        a.test_passed,
+        "first candidate must pass before the next expects its output: {a:?}"
+    );
+    let mut req2 = request(Some("shared"), "rustc --version");
     req2.files[0].old = "new\n".into();
     req2.files[0].new = "newer\n".into();
     let b = apply_patch_cycle(&ws, &req2, "autonomous").unwrap();
@@ -232,7 +252,7 @@ fn vc_201_013_mastery_concurrent_candidates_get_disjoint_fences() {
 #[test]
 fn vc_201_013_mastery_candidate_patch_paths_stay_confined() {
     let (root, ws) = fixture("conf");
-    let mut req = request(Some("exp3"), "true");
+    let mut req = request(Some("exp3"), "rustc --version");
     req.files[0].path = "../escaped.txt".into();
     assert!(
         apply_patch_cycle(&ws, &req, "autonomous").is_err(),

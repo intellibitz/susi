@@ -1,0 +1,31 @@
+{
+  "id": "T-STEP1ACCEPTANCE-1",
+  "title": "Integrate the combined native Rust Step 1 tree through actual local acceptance",
+  "status": "failed",
+  "owner": "step1-acceptance",
+  "scopes": [
+    ".agents/tasks/T-STEP1ACCEPTANCE-1.json"
+  ],
+  "dependencies": [
+    "T-STEP1RUSTENTRY-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked",
+      "--features",
+      "xtask/release-tooling"
+    ]
+  },
+  "required_evidence": [
+    "Native coordinator receipt for the actual combined immutable tree",
+    "Authenticated original Rust standard-library build and protected archive identity",
+    "Formatting, strict Cargo licensing, workspace lint/tests and all standalone platform adapters",
+    "Lifecycle fixtures using the same admitted standard library as the product"
+  ],
+  "production_status": "Separate qualification, clean-machine acceptance and real A/B rollback remain required",
+  "integration": "No integration reference published; immutable Clippy gate rejected duplicate_mod and too_many_arguments; retained attempt step1-acceptance-1793559888818643600-1492"
+}

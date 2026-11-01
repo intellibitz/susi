@@ -56,7 +56,7 @@ pub trait HeldOut: Send + Sync {
 /// and writes `metrics_file` (`name=value` lines) which is then parsed.
 /// Deterministic and offline — no model involvement in the measurement.
 pub struct ScriptSuite {
-    /// Suite argv (e.g. `["sh", "suite.sh"]`).
+    /// Suite argv (e.g. `["native-verifier", "suite"]`).
     pub argv: Vec<String>,
     /// Worktree-relative metrics file the suite writes.
     pub metrics_file: String,
@@ -637,6 +637,9 @@ fn restore(dir: &Path, snap: &BTreeMap<PathBuf, String>) {
 }
 
 #[cfg(test)]
+use crate::native_verifier;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::cloud_rsi::ImplBrief;
@@ -734,46 +737,22 @@ mod tests {
         }
     }
 
-    /// Real held-out suite: `suite.sh` counts how many `cases.txt` lines
+    /// Real held-out native suite counts how many `cases.txt` lines
     /// appear in `solved.txt`, writes metrics.txt.
     fn mk_worktree(tag: &str) -> PathBuf {
         let wt = std::env::temp_dir().join(format!("rsie2e-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&wt);
         std::fs::create_dir_all(&wt).unwrap();
         std::fs::write(wt.join("cases.txt"), "case-1\ncase-2\ncase-3\n").unwrap();
-        std::fs::write(
-            wt.join("suite.sh"),
-            "#!/bin/sh\npass=0\nwhile read c; do grep -q \"$c\" solved.txt 2>/dev/null && pass=$((pass+1)); done < cases.txt\necho \"cases_passed=$pass\" > metrics.txt\nexit 0\n",
-        )
-        .unwrap();
-        // Per-task acceptance scripts — argv must survive apply_patch_cycle's
-        // `join(" ")` + `sh -c`, so multi-condition checks live in files.
-        std::fs::write(
-            wt.join("accept-201.sh"),
-            "#!/bin/sh\ngrep -q case-1 solved.txt && grep -q case-2 solved.txt\n",
-        )
-        .unwrap();
-        std::fs::write(
-            wt.join("accept-202.sh"),
-            "#!/bin/sh\ngrep -q case-2 solved.txt\n",
-        )
-        .unwrap();
-        std::fs::write(
-            wt.join("accept-203.sh"),
-            "#!/bin/sh\ngrep -q case-3 solved.txt\n",
-        )
-        .unwrap();
-        std::fs::write(
-            wt.join("accept-1.sh"),
-            "#!/bin/sh\ngrep -q case-1 solved.txt\n",
-        )
-        .unwrap();
         wt
     }
 
     fn suite() -> ScriptSuite {
         ScriptSuite {
-            argv: vec!["sh".into(), "suite.sh".into()],
+            argv: super::native_verifier::argv(&["suite"])
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
             metrics_file: "metrics.txt".into(),
         }
     }
@@ -931,16 +910,24 @@ mod tests {
                     vec![
                         AttemptOutcome::Success(proposal(
                             "case-1+case-2",
-                            &["sh", "accept-201.sh"],
+                            &super::native_verifier::argv(&[
+                                "contains",
+                                "solved.txt",
+                                "case-1",
+                                "case-2",
+                            ]),
                         )),
-                        AttemptOutcome::Success(proposal("case-2", &["sh", "accept-202.sh"])),
+                        AttemptOutcome::Success(proposal(
+                            "case-2",
+                            &super::native_verifier::argv(&["contains", "solved.txt", "case-2"]),
+                        )),
                     ],
                 ),
                 (
                     "mB".into(),
                     vec![AttemptOutcome::Success(proposal(
                         "case-3",
-                        &["sh", "accept-203.sh"],
+                        &super::native_verifier::argv(&["contains", "solved.txt", "case-3"]),
                     ))],
                 ),
             ])),
@@ -1055,7 +1042,7 @@ mod tests {
                 "mA".into(),
                 vec![AttemptOutcome::Success(proposal(
                     "case-1",
-                    &["sh", "accept-1.sh"],
+                    &super::native_verifier::argv(&["contains", "solved.txt", "case-1"]),
                 ))],
             )])),
         };
@@ -1186,7 +1173,10 @@ mod tests {
                 TaskSpec {
                     id: "T-DEVIN-301".into(),
                     task_class: "coding".into(),
-                    accept: vec!["test".into(), "-f".into(), "T-DEVIN-301.txt".into()],
+                    accept: super::native_verifier::argv(&["exists", "T-DEVIN-301.txt"])
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
                     title: "t1".into(),
                 },
             ),
@@ -1195,7 +1185,10 @@ mod tests {
                 TaskSpec {
                     id: "T-DEVIN-302".into(),
                     task_class: "coding".into(),
-                    accept: vec!["test".into(), "-f".into(), "T-DEVIN-302.txt".into()],
+                    accept: super::native_verifier::argv(&["exists", "T-DEVIN-302.txt"])
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
                     title: "t2".into(),
                 },
             ),
@@ -1248,8 +1241,14 @@ mod tests {
             out: Mutex::new(BTreeMap::from([(
                 "mA".into(),
                 vec![
-                    AttemptOutcome::Success(proposal("case-1", &["sh", "accept-1.sh"])),
-                    AttemptOutcome::Success(proposal("case-2", &["sh", "accept-202.sh"])),
+                    AttemptOutcome::Success(proposal(
+                        "case-1",
+                        &super::native_verifier::argv(&["contains", "solved.txt", "case-1"]),
+                    )),
+                    AttemptOutcome::Success(proposal(
+                        "case-2",
+                        &super::native_verifier::argv(&["contains", "solved.txt", "case-2"]),
+                    )),
                 ],
             )])),
         };

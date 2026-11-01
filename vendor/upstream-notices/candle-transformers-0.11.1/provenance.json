@@ -1,0 +1,25 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "candle-transformers",
+  "version": "0.11.1",
+  "repository": "https://github.com/huggingface/candle",
+  "revision": "59f8e903ca80a32ea7f8514b39748fc979e69e82",
+  "path_in_vcs": "candle-transformers",
+  "crate_checksum": "2b1e1abeac23d7df4f94e8a3852b3dbb661d332e37c3bef479507bac867187b2",
+  "files": [
+    {
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "source_path": "LICENSE-MIT",
+      "url": "https://github.com/huggingface/candle/blob/59f8e903ca80a32ea7f8514b39748fc979e69e82/LICENSE-MIT",
+      "git_blob_sha1": "31aa79387f27e730e33d871925e152e35e428031",
+      "path": "LICENSE-MIT"
+    },
+    {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "source_path": "LICENSE-APACHE",
+      "url": "https://github.com/huggingface/candle/blob/59f8e903ca80a32ea7f8514b39748fc979e69e82/LICENSE-APACHE",
+      "git_blob_sha1": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "path": "LICENSE-APACHE"
+    }
+  ]
+}

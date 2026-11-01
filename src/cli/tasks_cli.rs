@@ -1120,13 +1120,27 @@ mod queue_handoff {
         Repo { root, worker: None }
     }
 
+    // A native Rust child replaces the Unix sleep executable. Its explicit
+    // readiness receipt prevents a zero-matching-test exit from passing.
+    #[test]
+    fn native_release_worker_child() {
+        if let Some(ready) = std::env::var_os("SUSI_QUEUE_WORKER_TEST_READY") {
+            std::fs::write(ready, b"ready").unwrap();
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    }
+
     /// Finish returns while the release worker is still alive. The next claim
     /// waits only until that worker writes its status, not for a fresh budget.
     #[test]
     fn a_deferred_release_returns_before_the_worker_finishes() {
         let mut repo = repo("return");
-        let worker = Command::new("sleep")
-            .arg("30")
+        let ready = repo.root.join("worker-ready");
+        let module = module_path!().split_once("::").unwrap().1;
+        let test = format!("{module}::native_release_worker_child");
+        let worker = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &test, "--nocapture"])
+            .env("SUSI_QUEUE_WORKER_TEST_READY", &ready)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1134,6 +1148,15 @@ mod queue_handoff {
             .unwrap();
         write_pid(&repo.root, worker.id()).unwrap();
         repo.worker = Some(worker);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.is_file() && Instant::now() < deadline {
+            assert!(
+                repo.worker.as_mut().unwrap().try_wait().unwrap().is_none(),
+                "native worker exited before becoming ready"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read(ready).unwrap(), b"ready");
         assert!(
             release_still_with_github(&repo.root)
                 .is_some_and(|detail| detail.contains("keep working")),
