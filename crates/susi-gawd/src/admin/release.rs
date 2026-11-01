@@ -18,6 +18,12 @@ fn phase_done(label: &str, started: Instant) {
     );
 }
 
+// A normal cut hands verification to the tagged GitHub workflow. Explicit
+// local verification, GPU checks and qualification still run the full gate.
+fn release_handoff(cut: bool, rerun: bool, gpu: bool, qualification: bool) -> bool {
+    cut && !rerun && !gpu && !qualification
+}
+
 /// The branch `--cut` is allowed to push: the version commit travels to `main`
 /// through its own pull request, never by a direct push (Mandate 49).
 fn release_branch(workspace: &Path) -> EaiResult<String> {
@@ -54,9 +60,8 @@ fn release_branch(workspace: &Path) -> EaiResult<String> {
 /// aim a release at main by accident.
 fn push_release_branch(workspace: &Path) -> EaiResult<()> {
     let branch = release_branch(workspace)?;
-    // Steps 1-5b already ran the release gate (and any version cut only updates
-    // the version strings in the engine manifests), so tell `.githooks/pre-push`
-    // not to re-run `cargo clippy --workspace` a second time during the push.
+    // The local gate or the tagged GitHub suite verifies this release. Avoid
+    // an additional local clippy run during the branch push.
     let out = Command::new("git")
         .args([
             "push",
@@ -514,239 +519,246 @@ impl SusiAdmin {
         // green main Test run skips check, the workspace suite and clippy —
         // each is a full workspace pass over bytes CI already proved.
         let gate_started = Instant::now();
-        let proven_started = Instant::now();
-        let proven_on_main = !check_gpu && suite_proven_on_main(workspace);
-        phase_done(
-            if proven_on_main {
-                "suite-proven lookup (reuse)"
-            } else {
-                "suite-proven lookup (miss — full local gate)"
-            },
-            proven_started,
+        let handoff = release_handoff(
+            cut.is_some(),
+            env::var("SUSI_RELEASE_RERUN_TESTS").ok().as_deref() == Some("1"),
+            check_gpu,
+            env::var_os("SUSI_RELEASE_CLOUD_EVIDENCE").is_some(),
         );
+        if !handoff {
+            let proven_started = Instant::now();
+            let proven_on_main = !check_gpu && suite_proven_on_main(workspace);
+            phase_done(
+                if proven_on_main {
+                    "suite-proven lookup (reuse)"
+                } else {
+                    "suite-proven lookup (miss — full local gate)"
+                },
+                proven_started,
+            );
 
-        let step1 = Instant::now();
-        if proven_on_main {
-            eprintln!(
-                "[Release Gatekeeper] 1. Static Type Check skipped — HEAD's tree already \
+            let step1 = Instant::now();
+            if proven_on_main {
+                eprintln!(
+                    "[Release Gatekeeper] 1. Static Type Check skipped — HEAD's tree already \
                  passed the main Test suite's clippy/compile jobs (SUSI_RELEASE_RERUN_TESTS=1 \
                  forces a re-run)."
-            );
-        } else {
-            eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
-            for features in &feature_sets {
-                let args = gate_args(&["check", "--all-targets"], *features);
-                eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
-                let mut cmd = Command::new("cargo");
-                cmd.args(&args).current_dir(workspace);
-                if *features == Some("cuda") {
-                    if let Some((key, val)) = Self::cuda_version_clamp_env() {
-                        cmd.env(key, val);
+                );
+            } else {
+                eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
+                for features in &feature_sets {
+                    let args = gate_args(&["check", "--all-targets"], *features);
+                    eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+                    let mut cmd = Command::new("cargo");
+                    cmd.args(&args).current_dir(workspace);
+                    if *features == Some("cuda") {
+                        if let Some((key, val)) = Self::cuda_version_clamp_env() {
+                            cmd.env(key, val);
+                        }
+                    }
+                    let mut check = cmd
+                        .stdout(std::process::Stdio::inherit())
+                        .stderr(std::process::Stdio::inherit())
+                        .spawn()?;
+                    let status = check.wait()?;
+                    if !status.success() {
+                        return Err(EaiError::process(
+                            "Release aborted: cargo check failed.".to_string(),
+                        ));
                     }
                 }
-                let mut check = cmd
-                    .stdout(std::process::Stdio::inherit())
-                    .stderr(std::process::Stdio::inherit())
-                    .spawn()?;
-                let status = check.wait()?;
-                if !status.success() {
-                    return Err(EaiError::process(
-                        "Release aborted: cargo check failed.".to_string(),
-                    ));
-                }
             }
-        }
-        phase_done("1 type-check", step1);
+            phase_done("1 type-check", step1);
 
-        let step2 = Instant::now();
-        eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
-        let _ = Self::audit_compliance(workspace, Some("release"))?;
-        phase_done("2 compliance audit", step2);
+            let step2 = Instant::now();
+            eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
+            let _ = Self::audit_compliance(workspace, Some("release"))?;
+            phase_done("2 compliance audit", step2);
 
-        let step3 = Instant::now();
-        eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
-        if proven_on_main {
-            eprintln!(
-                "[Release Gatekeeper]    -> HEAD's tree already passed the main Test suite — \
+            let step3 = Instant::now();
+            eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
+            if proven_on_main {
+                eprintln!(
+                    "[Release Gatekeeper]    -> HEAD's tree already passed the main Test suite — \
                  reusing that evidence (SUSI_RELEASE_RERUN_TESTS=1 forces a re-run)."
-            );
-        } else {
-            // Required, not preferred: the fallback was bare `cargo test`, which tests
-            // one package of 86, and a gate that silently narrows is how that went
-            // unnoticed.
-            let nextest_present = Command::new("cargo")
-                .args(["nextest", "--version"])
-                .output()
-                .is_ok_and(|out| out.status.success());
-            if !nextest_present {
-                return Err(EaiError::process(
-                    "Release aborted: cargo-nextest is required for the workspace test gate \
-                     (`cargo install cargo-nextest --locked`)."
-                        .to_string(),
-                ));
-            }
-            // A prior gate / smoke / auto-started daemon can leave
-            // `service-run` children holding `target/debug/susi.exe`; nextest's
-            // `--no-run` rebuild then dies with Access denied on Windows. Same
-            // sweep the hermetic wrapper runs on EXIT.
-            sweep_leftover_service_runs(workspace);
-
-            // Scratch HOME for the whole suite: without it, in-process HTTP
-            // tests read the operator's seeded `~/.susi/api_token` and turn
-            // every unauthenticated loopback call into 401 — the finish gate
-            // already wraps nextest in a throwaway home; the cut must too.
-            // Keep CARGO_HOME/RUSTUP_HOME on the real profile (same as
-            // `scripts/check-hermetic-tests.sh`): isolate_home moves
-            // USERPROFILE, and cargo would otherwise look for the registry
-            // under the throwaway.
-            let gate_home = workspace.join("target").join("susi-release-gate-home");
-            let _ = std::fs::remove_dir_all(&gate_home);
-            // Mirror `scripts/check-hermetic-tests.sh`: Windows tools and
-            // sccache resolve config under APPDATA/LOCALAPPDATA, which
-            // isolate_home re-points under gate_home — create those dirs
-            // before cargo runs or sccache panics with "Unable to get
-            // config directory".
-            for sub in [
-                gate_home.join(".susi"),
-                gate_home.join(".config"),
-                gate_home.join(".cache"),
-                gate_home.join("AppData").join("Roaming"),
-                gate_home.join("AppData").join("Local").join("temp"),
-                gate_home.join("AppData").join("Local").join("ort-cache"),
-            ] {
-                std::fs::create_dir_all(&sub).map_err(|e| {
-                    EaiError::io(format!(
-                        "create release-gate scratch HOME {}: {e}",
-                        sub.display()
-                    ))
-                })?;
-            }
-            let real_home = env::var_os("USERPROFILE")
-                .or_else(|| env::var_os("HOME"))
-                .map(std::path::PathBuf::from)
-                .filter(|p| p.is_absolute())
-                .unwrap_or_else(|| {
-                    susi_paths::SusiDirs::substrate_home()
-                        .parent()
-                        .map(std::path::Path::to_path_buf)
-                        .unwrap_or_else(|| gate_home.clone())
-                });
-            let cargo_home = env::var_os("CARGO_HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| real_home.join(".cargo"));
-            let rustup_home = env::var_os("RUSTUP_HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| real_home.join(".rustup"));
-            // Keep the machine sccache (and ONNX cache) off the throwaway
-            // home so a wrapper started under the real profile stays usable.
-            let sccache_dir = env::var_os("SCCACHE_DIR")
-                .or_else(|| env::var_os("SUSI_SCCACHE_DIR"))
-                .map(std::path::PathBuf::from);
-            let ort_cache = gate_home.join("AppData").join("Local").join("ort-cache");
-            let setup_sccache = workspace.join("scripts").join("setup-sccache.sh");
-            if setup_sccache.is_file() {
-                let _ = super::tasks::posix_shell_command("bash")
-                    .arg(&setup_sccache)
-                    .arg("--ensure-server")
-                    .current_dir(workspace)
-                    .status();
-            }
-            for args in workspace_test_commands() {
-                eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
-                let mut test_cmd = Command::new("cargo");
-                test_cmd.args(&args).current_dir(workspace);
-                susi_paths::test_env::isolate_home(&mut test_cmd, &gate_home);
-                scrub_instance_env(&mut test_cmd);
-                test_cmd
-                    .env("CARGO_HOME", &cargo_home)
-                    .env("RUSTUP_HOME", &rustup_home)
-                    .env("ORT_CACHE_DIR", &ort_cache)
-                    .env("SCCACHE_IGNORE_SERVER_IO_ERROR", "1")
-                    .env("TMP", gate_home.join("AppData").join("Local").join("temp"))
-                    .env("TEMP", gate_home.join("AppData").join("Local").join("temp"));
-                if let Some(ref dir) = sccache_dir {
-                    test_cmd.env("SCCACHE_DIR", dir);
-                }
-                let mut test = test_cmd
-                    .stdout(std::process::Stdio::inherit())
-                    .stderr(std::process::Stdio::inherit())
-                    .spawn()?;
-                let status = test.wait()?;
-                if !status.success() {
+                );
+            } else {
+                // Required, not preferred: the fallback was bare `cargo test`, which tests
+                // one package of 86, and a gate that silently narrows is how that went
+                // unnoticed.
+                let nextest_present = Command::new("cargo")
+                    .args(["nextest", "--version"])
+                    .output()
+                    .is_ok_and(|out| out.status.success());
+                if !nextest_present {
                     return Err(EaiError::process(
-                        "Release aborted: Native tests failed.".to_string(),
+                        "Release aborted: cargo-nextest is required for the workspace test gate \
+                     (`cargo install cargo-nextest --locked`)."
+                            .to_string(),
                     ));
                 }
-            }
-            let _ = std::fs::remove_dir_all(&gate_home);
-        }
-        phase_done("3 workspace tests", step3);
+                // A prior gate / smoke / auto-started daemon can leave
+                // `service-run` children holding `target/debug/susi.exe`; nextest's
+                // `--no-run` rebuild then dies with Access denied on Windows. Same
+                // sweep the hermetic wrapper runs on EXIT.
+                sweep_leftover_service_runs(workspace);
 
-        let step4 = Instant::now();
-        if proven_on_main {
-            eprintln!(
-                "[Release Gatekeeper] 4. Static Analysis skipped — HEAD's tree already \
+                // Scratch HOME for the whole suite: without it, in-process HTTP
+                // tests read the operator's seeded `~/.susi/api_token` and turn
+                // every unauthenticated loopback call into 401 — the finish gate
+                // already wraps nextest in a throwaway home; the cut must too.
+                // Keep CARGO_HOME/RUSTUP_HOME on the real profile (same as
+                // `scripts/check-hermetic-tests.sh`): isolate_home moves
+                // USERPROFILE, and cargo would otherwise look for the registry
+                // under the throwaway.
+                let gate_home = workspace.join("target").join("susi-release-gate-home");
+                let _ = std::fs::remove_dir_all(&gate_home);
+                // Mirror `scripts/check-hermetic-tests.sh`: Windows tools and
+                // sccache resolve config under APPDATA/LOCALAPPDATA, which
+                // isolate_home re-points under gate_home — create those dirs
+                // before cargo runs or sccache panics with "Unable to get
+                // config directory".
+                for sub in [
+                    gate_home.join(".susi"),
+                    gate_home.join(".config"),
+                    gate_home.join(".cache"),
+                    gate_home.join("AppData").join("Roaming"),
+                    gate_home.join("AppData").join("Local").join("temp"),
+                    gate_home.join("AppData").join("Local").join("ort-cache"),
+                ] {
+                    std::fs::create_dir_all(&sub).map_err(|e| {
+                        EaiError::io(format!(
+                            "create release-gate scratch HOME {}: {e}",
+                            sub.display()
+                        ))
+                    })?;
+                }
+                let real_home = env::var_os("USERPROFILE")
+                    .or_else(|| env::var_os("HOME"))
+                    .map(std::path::PathBuf::from)
+                    .filter(|p| p.is_absolute())
+                    .unwrap_or_else(|| {
+                        susi_paths::SusiDirs::substrate_home()
+                            .parent()
+                            .map(std::path::Path::to_path_buf)
+                            .unwrap_or_else(|| gate_home.clone())
+                    });
+                let cargo_home = env::var_os("CARGO_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| real_home.join(".cargo"));
+                let rustup_home = env::var_os("RUSTUP_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| real_home.join(".rustup"));
+                // Keep the machine sccache (and ONNX cache) off the throwaway
+                // home so a wrapper started under the real profile stays usable.
+                let sccache_dir = env::var_os("SCCACHE_DIR")
+                    .or_else(|| env::var_os("SUSI_SCCACHE_DIR"))
+                    .map(std::path::PathBuf::from);
+                let ort_cache = gate_home.join("AppData").join("Local").join("ort-cache");
+                let setup_sccache = workspace.join("scripts").join("setup-sccache.sh");
+                if setup_sccache.is_file() {
+                    let _ = super::tasks::posix_shell_command("bash")
+                        .arg(&setup_sccache)
+                        .arg("--ensure-server")
+                        .current_dir(workspace)
+                        .status();
+                }
+                for args in workspace_test_commands() {
+                    eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+                    let mut test_cmd = Command::new("cargo");
+                    test_cmd.args(&args).current_dir(workspace);
+                    susi_paths::test_env::isolate_home(&mut test_cmd, &gate_home);
+                    scrub_instance_env(&mut test_cmd);
+                    test_cmd
+                        .env("CARGO_HOME", &cargo_home)
+                        .env("RUSTUP_HOME", &rustup_home)
+                        .env("ORT_CACHE_DIR", &ort_cache)
+                        .env("SCCACHE_IGNORE_SERVER_IO_ERROR", "1")
+                        .env("TMP", gate_home.join("AppData").join("Local").join("temp"))
+                        .env("TEMP", gate_home.join("AppData").join("Local").join("temp"));
+                    if let Some(ref dir) = sccache_dir {
+                        test_cmd.env("SCCACHE_DIR", dir);
+                    }
+                    let mut test = test_cmd
+                        .stdout(std::process::Stdio::inherit())
+                        .stderr(std::process::Stdio::inherit())
+                        .spawn()?;
+                    let status = test.wait()?;
+                    if !status.success() {
+                        return Err(EaiError::process(
+                            "Release aborted: Native tests failed.".to_string(),
+                        ));
+                    }
+                }
+                let _ = std::fs::remove_dir_all(&gate_home);
+            }
+            phase_done("3 workspace tests", step3);
+
+            let step4 = Instant::now();
+            if proven_on_main {
+                eprintln!(
+                    "[Release Gatekeeper] 4. Static Analysis skipped — HEAD's tree already \
                  passed `cargo clippy --workspace --all-targets --locked -- -D warnings` \
                  on the pinned toolchain."
-            );
-        } else {
-            eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
-            for features in &feature_sets {
-                let mut args = gate_args(&["clippy", "--all-targets"], *features);
-                eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
-                args.extend(["--", "-D", "warnings"].map(String::from));
-                let mut cmd = Command::new("cargo");
-                cmd.args(&args).current_dir(workspace);
-                if *features == Some("cuda") {
-                    if let Some((key, val)) = Self::cuda_version_clamp_env() {
-                        cmd.env(key, val);
+                );
+            } else {
+                eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
+                for features in &feature_sets {
+                    let mut args = gate_args(&["clippy", "--all-targets"], *features);
+                    eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+                    args.extend(["--", "-D", "warnings"].map(String::from));
+                    let mut cmd = Command::new("cargo");
+                    cmd.args(&args).current_dir(workspace);
+                    if *features == Some("cuda") {
+                        if let Some((key, val)) = Self::cuda_version_clamp_env() {
+                            cmd.env(key, val);
+                        }
+                    }
+                    let mut clippy = cmd
+                        .stdout(std::process::Stdio::inherit())
+                        .stderr(std::process::Stdio::inherit())
+                        .spawn()?;
+                    let status = clippy.wait()?;
+                    if !status.success() {
+                        return Err(EaiError::process(
+                            "Release aborted: Linting failed.".to_string(),
+                        ));
                     }
                 }
-                let mut clippy = cmd
-                    .stdout(std::process::Stdio::inherit())
-                    .stderr(std::process::Stdio::inherit())
-                    .spawn()?;
-                let status = clippy.wait()?;
-                if !status.success() {
-                    return Err(EaiError::process(
-                        "Release aborted: Linting failed.".to_string(),
-                    ));
-                }
             }
-        }
-        phase_done("4 clippy", step4);
+            phase_done("4 clippy", step4);
 
-        let step5 = Instant::now();
-        eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
-        // Build once, then invoke the binary directly for each mission —
-        // 3x `cargo run` re-resolves/relinks per invocation for no benefit.
-        eprintln!(
-            "[Release Gatekeeper]    -> cargo build --bin susi (once for all smoke missions)"
-        );
-        let mut build = Command::new("cargo")
-            .args(["build", "--quiet", "--bin", "susi"])
-            .current_dir(workspace)
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()?;
-        if !build.wait()?.success() {
-            return Err(EaiError::process(
-                "Release aborted: smoke-test build failed.".to_string(),
-            ));
-        }
-        let susi_bin = workspace
-            .join("target")
-            .join("debug")
-            .join(if cfg!(windows) { "susi.exe" } else { "susi" });
-        // Bare mission commands persist intent evidence in their current
-        // workspace. Run release smoke checks in parallel in isolated scratch
-        // workspaces so validating a clean source tree cannot dirty
-        // `.agents/evidence.json` and then fail the cut's clean-tree gate.
-        let smoke_workspace = workspace.join("target").join("release-smoke-workspace");
-        std::fs::create_dir_all(&smoke_workspace)?;
-        let missions = ["identity", "status", "models"];
-        let mission_outcomes = std::thread::scope(|scope| {
-            let handles: Vec<_> = missions
+            let step5 = Instant::now();
+            eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
+            // Build once, then invoke the binary directly for each mission —
+            // 3x `cargo run` re-resolves/relinks per invocation for no benefit.
+            eprintln!(
+                "[Release Gatekeeper]    -> cargo build --bin susi (once for all smoke missions)"
+            );
+            let mut build = Command::new("cargo")
+                .args(["build", "--quiet", "--bin", "susi"])
+                .current_dir(workspace)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?;
+            if !build.wait()?.success() {
+                return Err(EaiError::process(
+                    "Release aborted: smoke-test build failed.".to_string(),
+                ));
+            }
+            let susi_bin = workspace
+                .join("target")
+                .join("debug")
+                .join(if cfg!(windows) { "susi.exe" } else { "susi" });
+            // Bare mission commands persist intent evidence in their current
+            // workspace. Run release smoke checks in parallel in isolated scratch
+            // workspaces so validating a clean source tree cannot dirty
+            // `.agents/evidence.json` and then fail the cut's clean-tree gate.
+            let smoke_workspace = workspace.join("target").join("release-smoke-workspace");
+            std::fs::create_dir_all(&smoke_workspace)?;
+            let missions = ["identity", "status", "models"];
+            let mission_outcomes = std::thread::scope(|scope| {
+                let handles: Vec<_> = missions
                 .iter()
                 .map(|mission| {
                     let bin = &susi_bin;
@@ -766,29 +778,33 @@ impl SusiAdmin {
                     })
                 })
                 .collect();
-            handles
-                .into_iter()
-                .map(|h| {
-                    h.join()
-                        .unwrap_or_else(|_| Err(EaiError::process("smoke mission panicked")))
-                })
-                .collect::<Vec<_>>()
-        });
-        let _ = std::fs::remove_dir_all(&smoke_workspace);
-        for outcome in mission_outcomes {
-            outcome?;
-        }
-        phase_done("5 smoke missions", step5);
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join()
+                            .unwrap_or_else(|_| Err(EaiError::process("smoke mission panicked")))
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let _ = std::fs::remove_dir_all(&smoke_workspace);
+            for outcome in mission_outcomes {
+                outcome?;
+            }
+            phase_done("5 smoke missions", step5);
 
-        let step5b = Instant::now();
-        eprintln!("[Release Gatekeeper] 5b. Running the built binary on its own new behaviour (e2e checks)...");
-        let e2e_scratch = workspace.join("target").join("release-e2e-scratch");
-        let e2e = Self::run_e2e_checks(&susi_bin, &e2e_scratch);
-        let _ = std::fs::remove_dir_all(&e2e_scratch);
-        for line in e2e? {
-            eprintln!("[Release Gatekeeper]    ok: {line}");
+            let step5b = Instant::now();
+            eprintln!("[Release Gatekeeper] 5b. Running the built binary on its own new behaviour (e2e checks)...");
+            let e2e_scratch = workspace.join("target").join("release-e2e-scratch");
+            let e2e = Self::run_e2e_checks(&susi_bin, &e2e_scratch);
+            let _ = std::fs::remove_dir_all(&e2e_scratch);
+            for line in e2e? {
+                eprintln!("[Release Gatekeeper]    ok: {line}");
+            }
+            phase_done("5b e2e checks", step5b);
+        } else {
+            eprintln!("[Release Gatekeeper] Handing full-suite and built-artifact verification to the tagged GitHub release workflow; publication remains gated on their success.");
+            Self::audit_compliance(workspace, Some("release"))?;
         }
-        phase_done("5b e2e checks", step5b);
 
         // The complete qualification is opt-in because cloud evidence must be
         // explicitly supplied by the operator; a local release must never
@@ -945,15 +961,23 @@ impl SusiAdmin {
                 &format!("git push failed after a clean release/sync: {push_failed}"),
             );
             return Err(EaiError::process(format!(
-                "Release, tests, and sync succeeded, but the push failed:\n{push_failed}"
+                "Release preparation succeeded, but the push failed:\n{push_failed}"
             )));
         }
 
         crate::susi_sandbox::manager::SusiAuditLogger::log(
             &global_dir,
             crate::susi_sandbox::manager::LogLevel::Axiomatic,
-            "MOTION_RULE_COMPLETE",
-            "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
+            if handoff {
+                "RELEASE_HANDOFF"
+            } else {
+                "MOTION_RULE_COMPLETE"
+            },
+            if handoff {
+                "Release branch pushed; tagged verification is pending on GitHub."
+            } else {
+                "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully."
+            },
         );
 
         if let Some((version, _)) = new_version {
@@ -970,12 +994,11 @@ impl SusiAdmin {
                 &format!("Cut {tag_name}; CI tags and publishes it when its branch merges."),
             );
             phase_done("gate total", gate_started);
-            return Ok(format!(
-                "Motion Rule complete: check, tests, audit, lints, smoke-tests, sync and push all \
-                 succeeded. Release {tag_name} is cut: when its branch merges into main, the \
-                 merge bot tags it {tag_name} and release.yml builds and publishes the \
-                 binaries. Nothing to wait for here."
-            ));
+            return Ok(if handoff {
+                format!("Release {tag_name} was pushed for merge. GitHub will verify the tagged commit and each artifact before publishing; verification is pending.")
+            } else {
+                format!("Local release checks passed and {tag_name} was pushed for merge. GitHub will verify the tagged commit and artifacts before publishing.")
+            });
         }
 
         phase_done("gate total", gate_started);
@@ -1379,6 +1402,15 @@ fn sweep_leftover_service_runs(workspace: &Path) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn release_handoff_only_defers_normal_cuts() {
+        use super::release_handoff;
+        assert!(release_handoff(true, false, false, false));
+        assert!(!release_handoff(false, false, false, false));
+        assert!(!release_handoff(true, true, false, false));
+        assert!(!release_handoff(true, false, true, false));
+        assert!(!release_handoff(true, false, false, true));
+    }
     use super::*;
 
     /// A clone with a bare `origin`, for the tag-publishing path.

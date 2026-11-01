@@ -1,7 +1,7 @@
 name: Release Binaries
 
 # Merging a version bump into main PUBLISHES it. `susi admin release --cut`
-# runs the local gate and pushes the bump's branch, and returns: it never waits
+# pushes the bump's branch and returns: it never waits
 # for the merge or for CI, and nobody pushes a tag by hand. The merge bot
 # (scripts/auto-merge-pr.sh) tags a merged, untagged version
 # (scripts/release-tag-merged-bump.sh) and dispatches this workflow on the tag:
@@ -203,6 +203,34 @@ jobs:
             sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
           fi
 
+      # These missions previously held the local cut. Run them against each
+      # actual release binary in separate scratch homes before it can ship.
+      - name: Verify artifact missions
+        id: mission_smoke
+        if: steps.build.outcome == 'success'
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
+        shell: bash
+        run: |
+          bin="$GITHUB_WORKSPACE/${{ matrix.artifact }}"
+          scratch="$RUNNER_TEMP/release-missions"
+          missions=(identity status models)
+          pids=()
+          for mission in "${missions[@]}"; do
+            dir="$scratch/$mission"
+            mkdir -p "$dir"
+            (cd "$dir" && HOME="$dir" USERPROFILE="$dir" XDG_CONFIG_HOME="$dir/config" SUSI_HOME="$dir/.susi" "$bin" "$mission" >output.log 2>&1) &
+            pids+=("$!")
+          done
+          failed=0
+          for i in "${!pids[@]}"; do
+            if ! wait "${pids[$i]}"; then
+              echo "Mission ${missions[$i]} failed:"
+              cat "$scratch/${missions[$i]}/output.log"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
       # The artifact, not just the source tree, must answer on Windows before
       # it is uploaded: the published .exe is what users run.
       - name: Verify the Windows artifact answers offline
@@ -243,10 +271,41 @@ jobs:
           # and published no Windows binary.
           exit 0
 
+      # The Linux publisher can now create the release before Windows, so it
+      # must verify the same offline behavior on its own executable first.
+      - name: Verify non-Windows artifact answers offline
+        id: portable_e2e
+        if: runner.os != 'Windows' && steps.build.outcome == 'success'
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
+        shell: bash
+        run: |
+          bin="$GITHUB_WORKSPACE/${{ matrix.artifact }}"
+          export HOME="$RUNNER_TEMP/e2e-home" USERPROFILE="$RUNNER_TEMP/e2e-home"
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/e2e-home/xdg-config"
+          mkdir -p "$HOME"
+          cd "$HOME"
+          export GIT_CEILING_DIRECTORIES="$HOME"
+          check() {
+            name=$1; want=$2; needle=$3; shift 3
+            if out=$("$bin" "$@" 2>&1); then result=0; else result=$?; fi
+            if [ "$result" -ne "$want" ] || ! printf '%s' "$out" | grep -F -- "$needle" >/dev/null; then
+              printf '%s: exit %s (expected %s), output:\n%s\n' "$name" "$result" "$want" "$out" >&2
+              return 1
+            fi
+            echo "ok: $name"
+          }
+          check 'brain classify' 0 '"task_class": "code"' brain classify fix this bug in my parser
+          check 'brain status' 0 'cooled_providers' brain status --json
+          check 'ecosystem scan' 0 '"engines"' ecosystem scan
+          check tasks 0 '"open": []' tasks
+          check 'workflow check' 1 'not ready' workflow check
+          check 'release --help refused' 2 'looks like a command' release --help
+          check 'nested command refused' 2 'susi ecosystem scan' scan
+
       # Into the run's artifact store, not the release: `publish` attaches it
       # once the suite has passed. A dispatch is a dry run and stores nothing.
       - name: Upload Artifacts
-        if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success'
+        if: needs.verify-tag.outputs.tag != '' && steps.build.outcome == 'success' && steps.mission_smoke.outcome == 'success' && (runner.os == 'Windows' || steps.portable_e2e.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}

@@ -101,6 +101,49 @@ fn steps(body: &str) -> Vec<String> {
     out
 }
 
+#[test]
+fn every_engine_artifact_passes_its_own_checks_before_upload() {
+    let text = read(".github/workflows/release.yml");
+    let jobs = jobs(&text);
+    let build_steps = steps(&job(&jobs, "build").body);
+    let find = |name: &str| {
+        build_steps
+            .iter()
+            .find(|step| step.contains(&format!("- name: {name}\n")))
+            .unwrap_or_else(|| panic!("missing {name}"))
+    };
+    let missions = find("Verify artifact missions");
+    for mission in ["identity", "status", "models"] {
+        assert!(missions.contains(mission), "missing {mission} mission");
+    }
+    assert!(missions.contains("wait ") && missions.contains("exit \"$failed\""));
+    let portable = find("Verify non-Windows artifact answers offline");
+    for command in [
+        "brain classify",
+        "brain status",
+        "ecosystem scan",
+        "tasks",
+        "workflow check",
+        "release --help",
+        " scan",
+    ] {
+        assert!(
+            portable.contains(command),
+            "missing offline check {command}"
+        );
+    }
+    let upload = find("Upload Artifacts");
+    assert!(upload.contains("steps.mission_smoke.outcome == 'success'"));
+    assert!(upload.contains("steps.portable_e2e.outcome == 'success'"));
+    let windows = find("Verify the Windows artifact answers offline");
+    assert!(windows.contains("runner.os == 'Windows'"));
+    for publisher in ["publish", "publish-linux"] {
+        assert!(job(&jobs, publisher)
+            .body
+            .contains("needs.tests.result == 'success'"));
+    }
+}
+
 /// The harness ships only what passed its own offline check. Upload Harness
 /// used to gate on Build Harness alone, under `always()`, which drops the
 /// implicit `success()`: a binary that failed the check was still attached to

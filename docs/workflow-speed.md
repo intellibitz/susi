@@ -254,12 +254,13 @@ report fetches branch tips and receipts together and reuses the batch receipt
 reader; a live run took 4.2 s. All 104 administration tests and 63 workflow
 acceptance tests passed before the full branch gate.
 
-Release smoke missions and the seven isolated offline checks run in parallel.
-The release gate builds only `susi`, reuses successful main evidence for
-identical code trees with task-queue-only differences, and marks its final push
-so the pre-push hook does not repeat clippy. These are source changes: a stale
-installed release does not gain the new task/release implementation until it
-is updated. No new complete finish or binary-release duration is claimed here.
+Normal release cuts push the version bump and hand verification to GitHub.
+The tagged suite gates publication, and the Windows, Linux CPU and macOS
+engine artifacts run smoke missions and offline checks before upload.
+`SUSI_RELEASE_RERUN_TESTS=1`,
+`SUSI_RELEASE_CHECK_GPU=1`, cloud qualification, and non-cut invocations retain
+the local gate. A cut reports verification as pending until GitHub finishes.
+An installed release predating this change does not have this handoff.
 
 ## Gate fixture and finish critical path (2026-10-31)
 
