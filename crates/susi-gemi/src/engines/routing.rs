@@ -869,6 +869,7 @@ impl InferenceRouter {
             || lower.contains("lmdeploy")
             || lower.contains("triton")
             || lower.contains("candle")
+            || lower.contains("fastembed")
     }
 
     /// True when `name` looks like a cloud / remote vendor (not a local engine).
@@ -882,7 +883,7 @@ impl InferenceRouter {
         if lower.starts_with("mcp-") {
             return true;
         }
-        // Common vendors + any non-local registered `vendor-model` style name.
+        // Advisory known-vendor names only; runtime decisions use registry metadata.
         lower.contains("openai")
             || lower.contains("anthropic")
             || lower.contains("gemini")
@@ -896,8 +897,6 @@ impl InferenceRouter {
             || lower.contains("groq")
             || lower.contains("together")
             || lower.contains("fireworks")
-            // Config-registered remotes are named `{endpoint}-{model}`.
-            || lower.contains('-')
     }
 
     /// Cloud providers = registered remote HTTPS `HttpProvider`s plus MCP-bridged
@@ -1226,6 +1225,7 @@ impl InferenceRouter {
             max_cost,
             allow_cloud,
             Self::local_supports_requirement,
+            crate::susi_core::registry::CapabilityRegistry::global(),
         )
     }
 
@@ -1233,11 +1233,12 @@ impl InferenceRouter {
     /// branches deterministically — whether a host actually owns a
     /// tool-capable GGUF is environment state, not logic.
     fn plan_placement_inner(
-        available_providers: &[String],
+        _available_providers: &[String],
         requires: Option<&str>,
         max_cost: Option<f64>,
         allow_cloud: bool,
         local_capable: impl Fn(Option<&str>) -> bool,
+        registry: &crate::susi_core::registry::CapabilityRegistry,
     ) -> PlacementDecision {
         let global_cfg = SusiConfig::load_global().unwrap_or_default();
         let cfg = global_cfg.inference_routing();
@@ -1309,14 +1310,10 @@ impl InferenceRouter {
             };
         }
 
-        // Prefer registry HTTPS remotes (any OpenAI-compat vendor); fall back
-        // to name heuristics when only bare names are supplied (tests).
-        let mut clouds = Self::list_cloud_providers_from_registry(
-            crate::susi_core::registry::CapabilityRegistry::global(),
-        );
-        if clouds.is_empty() {
-            clouds = Self::list_cloud_providers(available_providers);
-        }
+        // A provider name is not evidence of a cloud connection. In particular,
+        // local embedding providers can have hyphenated names. Only actual
+        // registry transport metadata may supply runtime cloud candidates.
+        let mut clouds = Self::list_cloud_providers_from_registry(registry);
         let cooled_candidates: Vec<ProviderCooldown> = clouds
             .iter()
             .filter_map(|name| {
@@ -1750,6 +1747,40 @@ mod tests {
     }
 
     #[test]
+    fn local_embedding_or_unregistered_names_never_create_cloud_connections() {
+        let _env = crate::engines::env_test_lock();
+        let _sandbox = PrefSandbox::new("cloudidentity");
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(crate::engines::http_provider::HttpProvider::openai_local(
+            "susi-fastembed",
+            "http://127.0.0.1:9999/v1",
+            "embedding",
+        ));
+        let decision = InferenceRouter::plan_placement_inner(
+            &[
+                "susi-fastembed".into(),
+                "unregistered-model".into(),
+                "openai-unregistered".into(),
+            ],
+            None,
+            None,
+            true,
+            |_| true,
+            &registry,
+        );
+        assert!(decision.cloud_candidates.is_empty());
+        assert_ne!(decision.target, "cloud");
+        assert!(!InferenceRouter::is_cloud_provider_name("susi-fastembed"));
+        assert!(!InferenceRouter::is_cloud_provider_name(
+            "unregistered-model"
+        ));
+        registry.register_provider(http_cloud("custom-endpoint-model"));
+        assert_eq!(
+            InferenceRouter::list_cloud_providers_from_registry(&registry),
+            vec!["custom-endpoint-model"]
+        );
+    }
+    #[test]
     fn local_slow_gate() {
         let cfg = InferenceRoutingConfig {
             local_min_tokens_per_sec: 8.0,
@@ -1859,29 +1890,14 @@ mod tests {
     /// which GGUFs the host actually owns is environment state, not logic.
     #[test]
     fn tools_request_routes_away_from_tool_less_local() {
-        // `cargo test` runs every test in one process (the coverage job uses
-        // it — nextest would isolate each test into its own), so the sticky
-        // preference file, the cooldown map and the global provider registry
-        // can all carry a sibling test's leftovers: a `local_only` override or
-        // a quarantined `openai` scope turns the escalation into "unavailable",
-        // and a populated registry makes `available_providers` (and its
-        // provider assert) moot. Pin the shared inputs instead of inheriting
-        // whatever ran first.
+        // Isolate preferences/cooldowns and inject real registry transport metadata.
         let _env = crate::engines::env_test_lock();
         let _sb = PrefSandbox::new("toolsroute");
         let prev = InferenceRouter::load_preference();
         InferenceRouter::save_preference(&RoutingPreference::default());
-        let registry_clouds = InferenceRouter::list_cloud_providers_from_registry(
-            crate::susi_core::registry::CapabilityRegistry::global(),
-        );
-        for name in registry_clouds
-            .iter()
-            .map(String::as_str)
-            .chain(["openai-gpt-4o-mini"])
-        {
-            InferenceRouter::record_provider_success(name);
-        }
-
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(http_cloud("openai-gpt-4o-mini"));
+        InferenceRouter::record_provider_success("openai-gpt-4o-mini");
         let incapable = |_: Option<&str>| false;
         let escalated = InferenceRouter::plan_placement_inner(
             &["openai-gpt-4o-mini".to_string()],
@@ -1889,6 +1905,7 @@ mod tests {
             None,
             true,
             incapable,
+            &registry,
         );
         let blocked = InferenceRouter::plan_placement_inner(
             &["openai-gpt-4o-mini".to_string()],
@@ -1896,6 +1913,7 @@ mod tests {
             None,
             false,
             incapable,
+            &registry,
         );
         InferenceRouter::save_preference(&prev);
 
