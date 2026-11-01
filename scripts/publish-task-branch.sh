@@ -94,10 +94,12 @@ parsed=$(printf '%s\n%s\n%s\n%s\n' "$claim_body" "$index_body" "$done_body" "$re
         if ($claim | owned | not) or ($has_index != "" and ($index | owned | not))
         then error("ownership changed before publication; claim retained") else . end |
         (if $has_receipt == "" then
-            {task: $task, agent: $agent, head: $done.closed.commit, closed_unix: ($done.closed.at_unix // 0)}
+            {task: $task, agent: $agent, branch: $branch, head: $done.closed.commit, closed_unix: ($done.closed.at_unix // 0)}
             + (if ($claim.scopes | type) == "array" and ($claim.scopes | length) > 0
                then {scopes: $claim.scopes} else {} end)
          else $old end) as $receipt |
+        if ($receipt.branch != null and $receipt.branch != $branch) then
+            error("accepted receipt belongs to another branch; claim retained") else . end |
         if $receipt.task != $task or $receipt.agent != $agent or $done.id != $task or
            $done.closed.by != $agent or $done.closed.commit != $receipt.head
         then error("the accepted receipt and completion do not agree") else . end |

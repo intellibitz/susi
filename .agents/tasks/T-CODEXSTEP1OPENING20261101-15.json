@@ -1,0 +1,17 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-15",
+  "title": "Preserve branch ownership in atomic workflow publication receipts",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "workflow_publication"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793542370
+}
