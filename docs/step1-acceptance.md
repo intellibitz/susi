@@ -148,9 +148,10 @@ qualification before B can be promoted. The htmlescape platform replacement is
 also a mandatory standalone regression gate alongside IDNA and identifiers.
 
 
-### Clean-machine validation constraint (2026-11-01)
+### Initial clean-machine access constraint (2026-11-01)
 
-The current Windows host, `FURY16G10-OT54R`, supports successful fresh-profile
+Before explicit Hyper-V elevation authorization, the Windows host,
+`FURY16G10-OT54R`, supported successful fresh-profile
 installation and inference checks, but these are not clean virtual-machine
 proof. A read-only host inspection found the Hyper-V PowerShell commands;
 `Get-VM` and `Get-VMHost` both returned “You do not have the required permission
@@ -206,8 +207,8 @@ production abort policies remain unchanged.
 
 The minimum product platform for this boundary is x64 Windows with the OS UCRT
 and every compiler-required export present. Actual ABI behavior has currently
-been tested on Windows version `10.0.26300` (build 26300), not on every Windows
-10/11 release. This is an explicit tested capability boundary, **not a claim
+been tested on Windows version `10.0.26300` (build 26300) and a clean
+Windows 11 Pro `10.0.26200` guest, not on every Windows 10/11 release. This is an explicit tested capability boundary, **not a claim
 that these private compiler-runtime exports are a stable Microsoft application
 contract**. Additional Windows versions and architectures require their own
 acceptance evidence. Other Windows build targets fail configuration rather
@@ -224,3 +225,34 @@ fixtures are necessary compatibility evidence; final Susi production inference,
 its artifact PE gate, and clean-machine acceptance remain separate mandatory
 checks. The earlier diagnostic production artifact predates this mapping and
 correctly failed the external-runtime gate.
+
+
+### Clean Windows guest ABI evidence (2026-11-01)
+
+After the CEO explicitly authorized Hyper-V access, bounded elevated helpers
+created the uniquely owned `susi-step1-clean-20261101` VM from the existing
+Windows 11 25H2 ISO, Windows 11 Pro image index 6. No pre-existing VM was
+modified. Later elevated operations use the CEO-requested installed `gsudo`.
+The image was applied to a new private VHD; no developer software or Visual C++
+redistributable was installed. Secure Boot remains enabled. The VM's virtual
+TPM was disabled because this host's virtualization-based security was not
+running; no host security setting or reboot was changed for this workaround.
+
+Guest inventory reports Windows 11 Pro `10.0.26200`, no `vcruntime140.dll`, no
+Git/Rust/Cargo/Node/Python/MSVC command, and no Susi/model state. The installed
+program inventory contains only the image's Edge and WebView2 entries. Windows
+setup and OOBE state flags are all zero. PowerShell Direct ran the exact same
+hash-verified OS-UCRT ABI fixtures as the host:
+
+- Unwind fixture: `93DAC1BD1D486077BAC7C90BC7F9022F1A84275BA151D28444B8D2E31B186222`.
+- Optimized abort fixture: `E1B1275526CE5E8ED0B5A1F3F5E285E4506D2A11D187A1A0A6BA841946F31428`.
+- Missing-capability fixture: `D4412EC3E7E24A1FFAE2CC694CB86817D696E4A7B7314BCEC035FA4C9FE14646`.
+- OS-linked driver: `B8C78A2D404672DE7CC3BAA5973FC62DFF460559D7655C6DC400DD8CF18A0934`.
+
+Unwind payload/drop/nested/thread/resume and optimized thread/memory checks
+passed. Intentional abort returned `0xC0000409`; an unavailable OS export
+returned `0xC0000139` before application output. This resolves the earlier
+access obstruction and extends observed ABI behavior to a clean second Windows
+build. It does **not** attest the final Susi artifact, elimination of compiler
+startup objects, or the uncached product installation/inference journey. Those
+remain separate acceptance gates.
