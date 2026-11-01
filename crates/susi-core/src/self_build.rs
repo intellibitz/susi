@@ -23,46 +23,61 @@ pub fn is_susi_repo(workspace: &Path) -> bool {
     })
 }
 
-/// The gate a change to SUSI must pass (AGENTS.md "Verify before pushing").
+/// Baseline native local checks; production also requires artifact and rollback evidence.
 pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
-     && cargo clippy --workspace --all-targets --locked -- -D warnings \
-     && cargo test --workspace --locked";
+     && cargo clippy --workspace --all-targets --offline --locked -- -D warnings \
+     && cargo test --workspace --offline --locked \
+     && cargo deny --offline --locked check licenses";
 
-/// The contract, prepended to every task an agent receives in a SUSI tree.
+/// The CEO's contract, prepended to every coding task in a Susi checkout.
+/// Requirements are distinct from verified implementation status.
 pub const BRIEF: &str = "\
-[SUSI SELF-BUILD CONTRACT — identity.json Mandates 48-60; full rules in AGENTS.md]
-Run `susi workflow check` first; it says whether you may start. You are changing SUSI's own source. The installed ~/.susi/bin/susi is the release \
-toolchain running this work; do not break it.
-1. Build dev only into target/ (cargo build, cargo xb, ./build-gpu.sh). Never copy, \
-install, or symlink a binary into ~/.susi/bin, and never run install.sh or \
-scripts/susi-release-sync.sh.
-2. Verify on the dev instance: run target/debug/susi or target/release/susi (it uses \
-~/.susi-dev and ports 9190-9194 automatically). Do not point it at ~/.susi or \
-ports 9090-9094.
-3. Before finishing, pass: cargo fmt --all --check && cargo clippy --workspace \
---all-targets --locked -- -D warnings && cargo test --workspace --locked. \
-Report the real result.
-4. Commit on a branch with a conventional-commit message; add an .agents/evidence.json \
-entry for behavior changes (id EV-<AGENT>-<n>). Do not push to main, create tags, or cut \
-a release — releases are cut by the operator (susi admin release) and promoted to this \
-host automatically.
-5. Work in your own git worktree on your own branch (scripts/susi-worktree.sh <name>); \
-never commit in the primary checkout or on main (Mandate 49). The loop is atomic per \
-task: sync origin/main → claim one → work → commit → sync → push → sync again.
-6. Work from the task queue (Mandate 50): `susi tasks add '<title>' --accept '<cmd>'`, \
-`susi tasks claim <id>` before starting (one live claim at a time; claim refuses if \
-behind origin/main), `susi tasks close <id>` only when its acceptance check passes. \
-An accepted task is not done until its merge is on `origin/main`: close publishes a \
-receipt on the shared remote, and while it is unpublished no further task can be \
-claimed — releasing the claim does not clear it, so `susi tasks release <id> --abandon \
-<reason>` is the deliberate way to give it up. Never report a task complete before \
-that merge. Never start a task another agent has claimed. End EVERY commit message with the \
-trailer `Task: T-<AGENT>-<n>`; the commit-msg hook, the pre-push hook and the CI \
-job 'Workflow Compliance' reject commits without it. Sync-before-claim and \
-sync-before-push are part of the atomic unit.
-7. Never edit a line another agent owns (Mandate 51): add files/entries, do not \
-rewrite or renumber others'; merge origin/main before pushing. Tests must be hermetic \
-(Mandate 52): never read or write ~/.susi, ~/.susi-dev or an inherited SUSI_HOME.
+[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-71; canonical rules in AGENTS.md]
+The CEO never looks at code. Agents own authorized architecture, implementation, \
+testing, debugging, dependency replacement, integration and production qualification \
+end-to-end. Do not ask the CEO to inspect code or perform technical steps. \
+The CEO grants standing authority to commit, push and merge without routine CEO approval; \
+automated agent review, required tests and serialized integration remain mandatory. \
+This Git authority does not waive production evidence gates or authorize unrelated spending, \
+destructive operations or external publication.
+1. Read AGENTS.md and live task/evidence state. Work in your own worktree and branch, \
+with unique identity and disjoint scopes. Use cargo local-workflow for available \
+local reservations and guarded commits. Never edit the primary checkout, share \
+writable targets/runtime homes/ports, or change another agent's files. Keep one \
+live claim per worker; parallelize independent tasks with isolated agents.
+2. Susi runtime, build/install/release tooling and shipped implementation dependencies \
+must be Rust. Windows must be native MSVC with no Bash, WSL, MSYS, Python, Node or \
+container prerequisite. Replace incompatible dependencies without hiding them behind \
+facades or silently dropping required capabilities. OS ABI/toolchain boundaries \
+are explicit; remote services are not claims about the local implementation.
+3. GitHub is optional. Local development, debug builds, integration and qualification \
+must not require hosted CI, remote claims, origin/main, pull requests or human code \
+review. Use cargo local-build debug for the native candidate path. Complete missing \
+native workflow capabilities rather than claiming they exist.
+4. Debug and optimized candidates stay separate from the installed production \
+toolchain. Tests must be hermetic: private scratch HOME/USERPROFILE/XDG/SUSI_HOME, \
+no production ~/.susi, shared ~/.susi-dev, inherited ports or real credentials. \
+Never copy an unqualified candidate over production.
+5. Allow only Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause for distributed \
+components. Audit transitive dependencies, native objects, build helpers and model \
+assets. Preserve upstream notices and evaluate AND/OR obligations correctly; never \
+relabel third-party code, broaden the allowlist or hide shipped audit failures.
+6. Zero bloat means measured size/memory/latency/build budgets and justified \
+capabilities. Zero required user configuration means automatic discovery, defaults \
+and agent repair. Credentials, privacy consent, spending and destructive-action \
+authorization remain explicit. Do not invent permissions or secret values.
+7. Verify locally with cargo fmt, clippy, required nonempty tests, license and Rust \
+audits, then serialize integration and re-test the actual combined tree. Each commit \
+has task ownership (Task: T-<AGENT>-<n>, or native Task: LOCAL-<name> during migration). \
+Namespace evidence EV-<AGENT>-<n>; preserve others' history. A scope receipt or compile \
+is not acceptance. Close only when the entire task's acceptance check passes on the \
+verified local integration head; a partial result does not close a larger requirement.
+8. Susi: AI that earns its next upgrade. Production promotion requires exact \
+source/lock/toolchain/target evidence, executable smoke tests, artifact digest, \
+atomic replacement, health checks and tested rollback to the previous verified \
+artifact. Durable learning requires persisted and retrievable evidence. No model \
+assertion or hosted tag certifies success. Keep unmet requirements open and continue \
+repairing them; report actual evidence without declaring aspirational compliance.
 [END CONTRACT]
 
 ";
@@ -95,22 +110,24 @@ mod tests {
     #[test]
     fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
         for needle in [
-            "Mandates 48-60",
-            "susi workflow check",
-            "scripts/susi-worktree.sh",
-            "susi tasks claim",
-            "susi tasks close",
-            "acceptance check passes",
-            "not done until its merge is on `origin/main`",
-            "--abandon",
+            "Mandates 43-71",
+            "CEO never looks at code",
+            "cargo local-workflow",
+            "cargo local-build debug",
+            "native MSVC",
+            "GitHub is optional",
+            "Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause",
+            "Zero bloat",
+            "Zero required user configuration",
             "Task: T-<AGENT>-<n>",
-            "Workflow Compliance",
             "EV-<AGENT>-<n>",
             "hermetic",
             "SUSI_HOME",
-            "atomic per",
-            "sync-before-push",
-            "one live claim",
+            "actual combined tree",
+            "tested rollback",
+            "acceptance check passes",
+            "live claim per worker",
+            "earns its next upgrade",
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
         }

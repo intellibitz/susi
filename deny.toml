@@ -6,8 +6,8 @@
 [graph]
 # Restrict the dependency graph to the targets we actually build and
 # publish binaries for (see release.yml / dev-release.yml). Windows is
-# included: the wasm runtime is wasmtime (Apache-2.0), so the license
-# gate now covers x86_64-pc-windows-msvc like every other target.
+# included. The gate exposes remaining dependency-license incompatibilities
+# rather than exempting shipped components.
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
@@ -15,40 +15,18 @@ targets = [
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
 ]
-# intel-mkl-src is an optional dependency reachable only through the
-# `mkl` Cargo feature (candle-core/candle-nn/candle-transformers), which
-# nothing this repo actually builds ever enables - install.sh, xtask,
-# and release.yml/dev-release.yml only ever pass `cuda`, `metal`, or no
-# GPU feature at all (see admin.rs: mkl "cannot assume [the toolkit] is
-# installed", intentionally left out of the release pipeline). It ships
-# in no published binary. Its License.txt is the real Intel Simplified
-# Software License, just not auto-detectable as a clean SPDX expression
-# (cargo-deny's license-text confidence scoring varies by tool version -
-# passes locally on cargo-deny 0.20.2, hard-fails in CI's action), so
-# excluding it from the graph is more robust than an allow-list that
-# depends on the exact scanner version being used.
-exclude = ["intel-mkl-src"]
-
 [advisories]
 ignore = [
     "RUSTSEC-2024-0436", # paste is unmaintained/archived by its author; no safe upgrade, pulled transitively via candle's gemm crates
-    "RUSTSEC-2026-0391", # zstd 0.13.3 reused-context stream leak; transitive via tantivy and wasmtime, which pin zstd ^0.13 (the fix needs 0.14.3), and this repo compresses only index/cache data it produced
-    "RUSTSEC-2026-0398", # zstd-safe 7.3.0 Seekable::decompress capacity; transitive, no seekable decompression of untrusted frames is performed
-    "RUSTSEC-2026-0403", # zstd-safe 7.3.0 legacy-frame uninitialized memory; transitive, legacy frames are not accepted from users
 ]
 
 [licenses]
+# Strict product policy: no exceptions are silently grandfathered in.
 allow = [
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
     "MIT",
-    "MIT-0",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "ISC",
-    "Unicode-3.0",
-    "Zlib",
-    "CDLA-Permissive-2.0",
 ]
 
 [bans]
@@ -57,8 +35,4 @@ multiple-versions = "allow"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-git = [
-    # The reqwest and esaxx-rs patches, on this repository's nopr/vendor-patches
-    # branch (vendor/README.md), pinned by revision in [patch.crates-io].
-    "https://github.com/intellibitz/susi",
-]
+allow-git = []

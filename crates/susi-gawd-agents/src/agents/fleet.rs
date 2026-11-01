@@ -1426,7 +1426,7 @@ mod tests {
     }
 
     #[test]
-    fn test_devops_agent_observes_disk_via_exec() {
+    fn test_devops_agent_observes_disk_natively() {
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
         let agent = DevOpsAgent;
         let res = agent
@@ -1438,15 +1438,18 @@ mod tests {
             .unwrap();
         assert!(
             res.contains("Live system observation"),
-            "DevOpsAgent must exec df, got: {res}"
+            "DevOpsAgent must obtain native disk measurements, got: {res}"
         );
-        assert!(!res.contains("C4 BLOCK"), "df must be allowlisted: {res}");
+        assert!(
+            !res.contains("C4 BLOCK"),
+            "native disk query must be permitted: {res}"
+        );
         assert!(
             res.contains("Filesystem")
                 || res.contains("Size")
                 || res.contains("Used")
                 || res.contains("1K-blocks"),
-            "expected df output: {res}"
+            "expected native filesystem measurements: {res}"
         );
         assert_eq!(blackboard.get("DevOpsAgent").as_deref(), Some(res.as_str()));
     }

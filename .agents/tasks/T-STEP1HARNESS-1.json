@@ -1,0 +1,28 @@
+{
+  "id": "T-STEP1HARNESS-1",
+  "title": "Route autonomous harness through native isolated local workflow",
+  "status": "verified",
+  "owner": "step1-harness-native",
+  "scopes": [
+    "crates/susi-harness/src/adapter.rs",
+    ".agents/tasks/T-STEP1HARNESS-1.json"
+  ],
+  "dependencies": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "--offline"
+    ]
+  },
+  "evidence": [
+    "419 library tests passed, including 40 adapter tests",
+    "Installed workflow protocol uses local native start/extend/commit/integrate/release",
+    "No legacy sync, remote fetch, shell seed, watcher or automatic stale directory removal",
+    "41 adapter tests pass including real queue dependency contract: private done record never changes primary queue on failed integration"
+  ],
+  "integration": "pending_native_receipt"
+}

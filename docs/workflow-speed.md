@@ -1,3 +1,12 @@
+# Historical workflow measurements
+
+This document preserves measurements and implementation history from the former
+shell/GitHub workflow. Its setup commands and operator instructions are historical,
+not the current agent contract. Follow `AGENTS.md` and Mandates 62–71 for native
+Rust, local development and agent-owned setup. Re-measure changes on the current
+source; old timings and git-source cache assumptions are not proof of current
+performance. Current verified status is in `docs/native-rust-direction.md`.
+
 # Workflow speed: where the minutes go, and what moves them
 
 ## Local Windows iteration, measured 2026-11-01

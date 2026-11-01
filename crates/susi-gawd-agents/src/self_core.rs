@@ -182,7 +182,9 @@ mod tests {
             .find(|rule| rule.cite == "Mandate 61")
             .expect("identity.json DNA must compile Mandate 61 into the genome");
         assert!(
-            mandate.imperative.contains("susi harness"),
+            mandate.imperative.contains("Susi harness")
+                && mandate.imperative.contains("serialized local integration")
+                && mandate.imperative.contains("CEO mandates"),
             "Mandate 61 must name the harness: {}",
             mandate.imperative
         );

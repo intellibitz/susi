@@ -177,8 +177,10 @@ pub fn capture_verified_read(
             serde_json::Value::String(cmd),
         ));
     }
+    if matches!(normalized.as_str(), "disk usage" | "disk space" | "df") {
+        return Some(capture_disk_read(&normalized, workspace));
+    }
     let command = match normalized.as_str() {
-        "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
         "uptime" => "uptime",
         "hostname" => "hostname",
         "whoami" | "who am i" => "whoami",
@@ -206,6 +208,65 @@ pub fn capture_verified_read(
             answer: format!("Command `{command}` (host execution, exit 0; observed at Unix {observed_at}):\n{output}"),
         })
     })())
+}
+
+/// Query mounted local filesystems through native Rust OS bindings, capturing
+/// the same evidence ledger as other deterministic observations.
+fn native_disk_usage(workspace: &Path) -> crate::susi_error::EaiResult<String> {
+    crate::safety::SafetyDetector::audit_action("native_disk_usage", "", workspace)?;
+    crate::security::SecurityDetector::audit_action("native_disk_usage", "", workspace)?;
+    crate::susi_core::capture::EvidenceSession::capture_call(
+        "native_disk_usage",
+        &serde_json::Value::Null,
+        workspace,
+        || {
+            let disks = sysinfo::Disks::new_with_refreshed_list();
+            if disks.list().is_empty() {
+                return Err(crate::susi_error::EaiError::process(
+                    "native disk query returned no filesystems",
+                ));
+            }
+            let mut report =
+                String::from("Filesystem Size(bytes) Used(bytes) Available(bytes) Mounted\n");
+            for disk in disks.list() {
+                let total = disk.total_space();
+                let available = disk.available_space();
+                report.push_str(&format!(
+                    "{} {} {} {} {}\n",
+                    disk.file_system().to_string_lossy(),
+                    total,
+                    total.saturating_sub(available),
+                    available,
+                    disk.mount_point().display()
+                ));
+            }
+            Ok(report)
+        },
+    )
+}
+
+fn capture_disk_read(
+    goal: &str,
+    workspace: &Path,
+) -> crate::susi_error::EaiResult<VerifiedSystemRead> {
+    let workspace = workspace
+        .canonicalize()
+        .map_err(|error| crate::susi_error::EaiError::filesystem(error.to_string()))?;
+    let captured_at = std::time::Instant::now();
+    let answer = native_disk_usage(&workspace)?;
+    Ok(VerifiedSystemRead {
+        goal: goal.to_owned(),
+        workspace,
+        captured_at,
+        answer,
+    })
+}
+
+fn disk_observation(workspace: &Path) -> String {
+    match native_disk_usage(workspace) {
+        Ok(output) => format!("Native disk observation:\n{output}"),
+        Err(error) => format!("Native disk observation failed:\n{error}"),
+    }
 }
 
 /// Deterministic status projection: the same `HardwareProfiler` bus read a
@@ -463,11 +524,8 @@ pub fn observe_system(goal: &str, workspace: &Path) -> Option<String> {
     .iter()
     .any(|k| lower.contains(k))
     {
-        sections.push(run_exec(
-            workspace,
-            "df -h -x tmpfs -x devtmpfs -x squashfs --total",
-        ));
-        sections.push(run_exec(workspace, "df -h /"));
+        sections.push(disk_observation(workspace));
+        #[cfg(not(windows))]
         if lower.contains("lsblk") || lower.contains("block") {
             sections.push(run_exec(workspace, "lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS"));
         }
@@ -487,10 +545,7 @@ pub fn observe_system(goal: &str, workspace: &Path) -> Option<String> {
     }
 
     if sections.is_empty() {
-        sections.push(run_exec(
-            workspace,
-            "df -h -x tmpfs -x devtmpfs -x squashfs --total",
-        ));
+        sections.push(disk_observation(workspace));
     }
 
     Some(format!(
@@ -514,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn observe_disk_runs_df() {
+    fn observe_disk_reports_native_filesystem_measurements() {
         let report = observe_system(
             "Find the total disk usage on this system. Report filesystem totals.",
             Path::new("."),
@@ -525,13 +580,36 @@ mod tests {
             "unexpected report: {report}"
         );
         assert!(
-            report.contains("Filesystem")
-                || report.contains("Size")
-                || report.contains("Used")
-                || report.contains("failed"),
-            "expected df-like evidence: {report}"
+            report.contains("Filesystem Size(bytes) Used(bytes) Available(bytes) Mounted")
+                && !report.contains("failed")
+                && report.lines().count() > 4,
+            "expected successful native disk measurements: {report}"
         );
     }
+    #[test]
+    fn native_disk_read_records_evidence_and_binds_the_answer() {
+        let workspace = std::env::current_dir().unwrap();
+        let session = crate::susi_core::capture::EvidenceSession::new(
+            "native disk test",
+            &workspace,
+            crate::security::SecurityDetector::redact,
+        )
+        .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+        let read = capture_verified_read("disk usage", &workspace)
+            .unwrap()
+            .unwrap();
+        assert!(read.answer().contains("Available(bytes)"));
+        assert!(read.verify("disk usage", read.answer(), &workspace).is_ok());
+        assert!(read
+            .verify("disk usage", "invented capacity", &workspace)
+            .is_err());
+        assert!(
+            !session.receipts().is_empty(),
+            "native query must mint tool evidence"
+        );
+    }
+
     #[test]
     fn native_receipt_binds_output_goal_workspace_and_freshness() {
         let workspace = std::env::current_dir().unwrap();

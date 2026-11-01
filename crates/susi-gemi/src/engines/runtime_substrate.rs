@@ -252,7 +252,7 @@ impl InferenceHost {
     pub(super) fn cache() -> &'static crate::models::model_cache::ModelCache<ModelSubstrate> {
         static CACHE: OnceLock<crate::models::model_cache::ModelCache<ModelSubstrate>> =
             OnceLock::new();
-        CACHE.get_or_init(|| {
+        let cache = CACHE.get_or_init(|| {
             // Only processes that actually load models run the sweeper.
             let spawned = std::thread::Builder::new()
                 .name("model-idle-sweeper".to_string())
@@ -261,7 +261,27 @@ impl InferenceHost {
                 tracing::warn!(%error, "model idle sweeper did not start; idle models stay loaded");
             }
             crate::models::model_cache::ModelCache::default()
-        })
+        });
+        ModelManager::register_residency_probe(Self::model_is_reusable);
+        cache
+    }
+
+    /// Current admitted weights on the device and KV budget inference would
+    /// request. This is stronger than a diagnostic snapshot or filename match.
+    pub(crate) fn model_is_reusable(path: &Path) -> bool {
+        if !ModelManager::admitted_local_path(path) {
+            return false;
+        }
+        let Ok(metadata) = path.metadata() else {
+            return false;
+        };
+        let device = HardwareProfiler::get_dynamic_device(
+            usize::try_from(metadata.len()).unwrap_or(usize::MAX),
+        );
+        let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .kv_cache_capacity_tokens();
+        Self::cache().is_reusable(path, &device, kv_capacity)
     }
 
     /// Background loop: unload models idle longer than
@@ -448,11 +468,18 @@ impl InferenceHost {
         let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
+        // Cache hits do not waive current publisher/license admission.
+        ModelManager::verify_model_integrity(model_path)?;
         Self::make_room(model_path, device);
         Self::cache().get_or_load(model_path, device, kv_capacity, |path| {
             if task_handle.is_cancelled() {
                 return Err(susi_gemi_models::susi_error::EaiError::inference(
                     "Model loading cancelled",
+                ));
+            }
+            if !ModelManager::cold_load_fits_memory(path) {
+                return Err(susi_gemi_models::susi_error::EaiError::inference(
+                    "Insufficient current memory for a new model allocation; cached residency changed",
                 ));
             }
             let model = Self::load_model(path, device, kv_capacity)?;
@@ -709,6 +736,56 @@ impl ContextSummarizer {}
 
 #[cfg(test)]
 mod eviction_tests {
+    #[test]
+    #[ignore = "requires immutable verified Qwen qualification cache copied to a private model directory"]
+    fn real_resident_qwen_is_reused_under_low_free_memory_without_waiving_license() {
+        use super::*;
+        let directory = std::env::var_os("SUSI_QUALIFICATION_MODEL_CACHE")
+            .expect("private verified qualification cache required");
+        let directory = std::path::PathBuf::from(directory);
+        assert!(
+            directory.join(".susi-owned-residency-fixture").is_file(),
+            "refuse to mutate a cache without the private qualification ownership marker"
+        );
+        let path = directory.join("qwen2.5-0.5b-instruct-q4_0.gguf");
+        assert!(ModelManager::admitted_local_path(&path));
+        // A cold .5B load must still honor the unchanged 4GiB reserve.
+        assert!(!ModelManager::weight_allocation_fits_memory(
+            &path, 3.0, 4.0, 1.25
+        ));
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("resident_model_qualification", "real Qwen cache reuse");
+        let device = HardwareProfiler::get_dynamic_device(path.metadata().unwrap().len() as usize);
+        let first = InferenceHost::get_model(&path, &device, &task).unwrap();
+        assert!(InferenceHost::model_is_reusable(&path));
+        assert!(!ModelManager::weight_allocation_fits_memory(
+            &path, 0.0, 4.0, 1.25
+        ));
+        assert!(ModelManager::weight_allocation_fits_memory(
+            &path, 3.0, 4.0, 1.25
+        ));
+        let second = InferenceHost::get_model(&path, &device, &task).unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "second request must reuse actual weights"
+        );
+        // This fixture is explicitly a private copy; never edit source cache.
+        let receipt = path.with_extension("license.json");
+        let original = std::fs::read(&receipt).unwrap();
+        struct RestoreReceipt(std::path::PathBuf, Vec<u8>);
+        impl Drop for RestoreReceipt {
+            fn drop(&mut self) {
+                let _ = std::fs::write(&self.0, &self.1);
+            }
+        }
+        let restore = RestoreReceipt(receipt.clone(), original);
+        std::fs::write(&receipt, b"invalid receipt").unwrap();
+        let rejected = !ModelManager::weight_allocation_fits_memory(&path, 3.0, 4.0, 1.25)
+            && InferenceHost::get_model(&path, &device, &task).is_err();
+        drop(restore);
+        assert!(rejected, "residency cannot waive current license admission");
+        task.mark_completed("real resident Qwen reuse verified");
+    }
     use super::*;
     use std::path::PathBuf;
 

@@ -26,3 +26,74 @@ pub use tokenizers;
 pub mod device;
 pub mod moe_gguf;
 pub mod qwen2_split;
+
+#[cfg(test)]
+mod tests {
+    use tokenizers::Tokenizer;
+
+    #[test]
+    fn owned_safetensors_survive_source_drop_and_owner_move() {
+        use candle_core::{safetensors::BufferedSafetensors, Device, Tensor};
+        let path = std::env::temp_dir().join(format!(
+            "susi-tensor-owner-{}.safetensors",
+            std::process::id()
+        ));
+        let tensor = Tensor::new(&[1.0_f32, -2.5, 3.25], &Device::Cpu).unwrap();
+        tensor.save_safetensors("weights", &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let owner = BufferedSafetensors::new(bytes).unwrap();
+        let moved = Box::new(owner);
+        assert_eq!(
+            moved
+                .load("weights", &Device::Cpu)
+                .unwrap()
+                .to_vec1::<f32>()
+                .unwrap(),
+            [1.0, -2.5, 3.25]
+        );
+        assert!(moved.get("missing").is_err());
+        assert!(BufferedSafetensors::new(vec![0, 1, 2]).is_err());
+    }
+
+    #[test]
+    fn pretrained_wordlevel_tokenization_round_trips_without_cpp_training() {
+        // A complete, fixed pretrained vocabulary exercises the same JSON load,
+        // encode and decode API used for downloaded model tokenizers, without I/O.
+        let tokenizer = Tokenizer::from_bytes(
+            br#"{
+                "version":"1.0",
+                "truncation":null,
+                "padding":null,
+                "added_tokens":[],
+                "normalizer":null,
+                "pre_tokenizer":{"type":"WhitespaceSplit"},
+                "post_processor":null,
+                "decoder":null,
+                "model":{
+                    "type":"WordLevel",
+                    "vocab":{"[UNK]":0,"susi":1,"runs":2,"local":3,"ai":4},
+                    "unk_token":"[UNK]"
+                }
+            }"#,
+        )
+        .unwrap();
+        let input = "susi runs local ai";
+        let encoded = tokenizer.encode(input, false).unwrap();
+        assert_eq!(encoded.get_ids(), &[1, 2, 3, 4]);
+        assert_eq!(encoded.get_tokens(), &["susi", "runs", "local", "ai"]);
+        assert_eq!(encoded.get_offsets(), &[(0, 4), (5, 9), (10, 15), (16, 18)]);
+        assert_eq!(tokenizer.decode(encoded.get_ids(), false).unwrap(), input);
+        assert_eq!(
+            tokenizer.encode("susi unknown", false).unwrap().get_ids(),
+            &[1, 0]
+        );
+
+        let serialized = tokenizer.to_string(false).unwrap();
+        let restored = Tokenizer::from_bytes(serialized.as_bytes()).unwrap();
+        assert_eq!(
+            restored.encode(input, false).unwrap().get_ids(),
+            encoded.get_ids()
+        );
+    }
+}

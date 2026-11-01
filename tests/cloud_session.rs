@@ -964,7 +964,8 @@ fn cloud_target_seed_runs_in_the_start_hook_before_the_background_build() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn cloud_onnxruntime_points_cargo_at_the_release_without_touching_the_repository() {
+// Compatibility test for the retained legacy script, not a native development prerequisite.
+fn legacy_cloud_onnxruntime_does_not_touch_the_repository() {
     let w = World::new("onnx");
     let arch = match std::env::consts::ARCH {
         "x86_64" => "x64",
@@ -1472,9 +1473,6 @@ fn cloud_session_settings_json_permissions() {
     let expected_allow = vec![
         "Bash(cargo*)",
         "Bash(git*)",
-        "Bash(gh api*)",
-        "Bash(scripts/*)",
-        "Bash(.githooks/*)",
         "Bash(target/debug/susi*)",
         "Bash(susi*)",
     ];

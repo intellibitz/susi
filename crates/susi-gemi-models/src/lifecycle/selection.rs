@@ -11,6 +11,8 @@ use crate::hardware::HardwareProfiler;
 use super::types::ModelProvenance;
 use super::ModelManager;
 
+static RESIDENCY_PROBE: std::sync::OnceLock<fn(&Path) -> bool> = std::sync::OnceLock::new();
+
 /// Keep one parsed tokenizer for selection and inference together. Comparing
 /// bytes also catches same-size replacements within a filesystem timestamp tick.
 #[derive(Default)]
@@ -63,6 +65,76 @@ fn parsed_tokenizer(
 }
 
 impl ModelManager {
+    /// The inference owner supplies its typed cache identity check. Model
+    /// discovery alone cannot know whether weights already occupy memory.
+    pub fn register_residency_probe(probe: fn(&Path) -> bool) {
+        let _ = RESIDENCY_PROBE.set(probe);
+    }
+
+    fn resident(path: &Path) -> bool {
+        RESIDENCY_PROBE.get().is_some_and(|probe| probe(path))
+    }
+
+    /// Allocation accounting only; callers still perform model admission and
+    /// capability filtering. Resident weights are not a second allocation.
+    pub fn weight_allocation_fits_memory(
+        path: &Path,
+        available_gb: f32,
+        reserve_gb: f32,
+        overhead: f32,
+    ) -> bool {
+        let Ok(metadata) = path.metadata() else {
+            return false;
+        };
+        let size = metadata.len() as f32 / 1073741824.0;
+        // Existing weights need inference workspace, not another weights+OS
+        // reservation. Preserve the configured overhead, with a 64MiB floor
+        // for incremental work; zero/invalid free memory never admits reuse.
+        let incremental = (size * (overhead.max(1.0) - 1.0)).max(1.0 / 16.0);
+        (available_gb.is_finite()
+            && overhead.is_finite()
+            && available_gb >= incremental
+            && Self::resident(path))
+            || Self::fits_memory(size, available_gb, reserve_gb, overhead)
+    }
+
+    /// Recheck the unchanged cold-allocation budget immediately before a load.
+    /// A residency observation is not a reservation against concurrent eviction.
+    pub fn cold_load_fits_memory(path: &Path) -> bool {
+        let Ok(metadata) = path.metadata() else {
+            return false;
+        };
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        Self::fits_memory(
+            metadata.len() as f32 / 1073741824.0,
+            HardwareProfiler::determine_available_ram_gb() as f32,
+            cfg.model_scoring_heuristics().system_ram_buffer_gb,
+            cfg.model_lifecycle().memory_overhead_ratio,
+        )
+    }
+
+    pub(crate) fn is_synthetic_model_id(model_id: &str) -> bool {
+        model_id == "susi-native-synthesis"
+    }
+
+    pub(crate) fn admitted_local_candidate(model: &DynamicModelInfo) -> bool {
+        if !model.is_local() || Self::is_synthetic_model_id(model.model_id()) {
+            return false;
+        }
+        let path = PathBuf::from(model.model_id());
+        Self::admitted_local_path(&path)
+    }
+
+    /// Admission remains mandatory for resident weights as well as cold loads.
+    pub fn admitted_local_path(path: &Path) -> bool {
+        path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
+            && !Self::cooling_down(&path.to_string_lossy())
+            && Self::valid_gguf_payload(path)
+            && Self::verify_model_integrity(path).is_ok()
+            && Self::get_tokenizer_path(&path.to_string_lossy()).is_some_and(|tokenizer| {
+                susi_vendor_models::model_license::verify_local(&tokenizer).is_ok()
+            })
+    }
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
         susi_vendor_models::set_selected_model_override(model_name)
     }
@@ -150,14 +222,7 @@ impl ModelManager {
         let models = Self::list_models(workspace);
         let local_models: Vec<DynamicModelInfo> = models
             .into_iter()
-            .filter(|m| m.is_local() && !m.model_id().contains("native"))
-            .filter(|m| {
-                let path = PathBuf::from(m.model_id());
-                path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
-                    && !Self::cooling_down(m.model_id())
-                    && Self::valid_gguf_payload(&path)
-                    && Self::get_tokenizer_path(m.model_id()).is_some()
-            })
+            .filter(Self::admitted_local_candidate)
             .collect();
 
         if local_models.is_empty() {
@@ -175,8 +240,8 @@ impl ModelManager {
             .into_iter()
             .filter_map(|m| {
                 let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
-                Self::fits_memory(
-                    size_gb,
+                Self::weight_allocation_fits_memory(
+                    Path::new(m.model_id()),
                     hw.available_ram_gb as f32,
                     heuristics.system_ram_buffer_gb,
                     cfg.model_lifecycle().memory_overhead_ratio,
@@ -354,14 +419,9 @@ impl ModelManager {
                 if let Some(path) = Self::get_model_path(trimmed) {
                     let cfg =
                         crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-                    let size = path
-                        .metadata()
-                        .map(|m| m.len() as f32 / 1073741824.0)
-                        .unwrap_or(0.0);
-                    if Self::valid_gguf_payload(&path)
-                        && Self::get_tokenizer_path(trimmed).is_some()
-                        && Self::fits_memory(
-                            size,
+                    if Self::admitted_local_path(&path)
+                        && Self::weight_allocation_fits_memory(
+                            &path,
                             HardwareProfiler::determine_available_ram_gb() as f32,
                             cfg.model_scoring_heuristics().system_ram_buffer_gb,
                             cfg.model_lifecycle().memory_overhead_ratio,
@@ -439,10 +499,13 @@ impl ModelManager {
     }
 
     pub fn verify_model_integrity(model_path: &Path) -> EaiResult<()> {
-        if model_path
-            .to_string_lossy()
-            .contains("susi-native-synthesis")
-        {
+        susi_vendor_models::model_license::verify_local(model_path)
+            .map_err(crate::susi_error::EaiError::governance)?;
+        Self::verify_model_checksum(model_path)
+    }
+
+    pub(crate) fn verify_model_checksum(model_path: &Path) -> EaiResult<()> {
+        if Self::is_synthetic_model_id(&model_path.to_string_lossy()) {
             return Ok(());
         }
 
@@ -511,6 +574,8 @@ impl ModelManager {
     pub fn load_tokenizer(
         path: &Path,
     ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+        susi_vendor_models::model_license::verify_local(path)
+            .map_err(crate::susi_error::EaiError::governance)?;
         parsed_tokenizer(path)
             .map_err(|e| crate::susi_error::EaiError::inference(format!("Tokenizer Error: {e}")))
     }

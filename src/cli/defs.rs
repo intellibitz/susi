@@ -77,6 +77,12 @@ pub(crate) enum Commands {
     Shell,
     /// Initialize sandboxed .susi environment
     Install,
+    /// Build, test, integrate and qualify Susi locally through native guarded tools
+    Local {
+        /// build debug|production, workflow <command>, or release <command>
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Clean up sandboxed .susi environment
     Uninstall,
     /// Manage leading MCP tool servers, or serve SUSI's native MCP stdio endpoint

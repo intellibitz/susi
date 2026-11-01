@@ -1,8 +1,7 @@
 use crate::cloud_rsi::{ReviewVerdict, Verification};
 use crate::rsi_promotion::{
-    decide_promotion, produce_release_candidate, rejects_target_install,
-    self_build_brief_mentions_release_only, PromotionAttempt, PromotionDecision, PromotionPath,
-    ALLOWED_PROMOTERS,
+    decide_promotion, produce_release_candidate, rejects_target_install, PromotionAttempt,
+    PromotionDecision, PromotionPath, ALLOWED_PROMOTERS,
 };
 fn verified() -> Verification {
     Verification {
@@ -53,5 +52,40 @@ fn vc_201_018_rejects_target_bin_install_into_susi_home() {
         &root.join("repo/target/release/susi"),
         &root.join("repo/target/debug/susi"),
     ));
-    assert!(self_build_brief_mentions_release_only());
+}
+
+#[test]
+fn vc_201_018_self_build_requires_verified_local_production_promotion() {
+    let brief = crate::susi_core::self_build::BRIEF;
+    for requirement in [
+        "Debug and optimized candidates stay separate from the installed production",
+        "Never copy an unqualified candidate over production",
+        "Production promotion requires exact",
+        "source/lock/toolchain/target evidence",
+        "executable smoke tests",
+        "artifact digest",
+        "atomic replacement",
+        "health checks",
+        "tested rollback to the previous verified",
+    ] {
+        assert!(
+            brief.contains(requirement),
+            "delegated production contract lost: {requirement}"
+        );
+    }
+}
+
+#[test]
+fn vc_201_018_debug_and_staged_candidates_cannot_enter_production_directly() {
+    let root = std::env::temp_dir().join("susi-vc-201-018");
+    for source in [
+        "repo/target/debug/susi",
+        "repo/target/release/susi",
+        "staging/susi",
+    ] {
+        assert!(
+            rejects_target_install(&root.join(source), &root.join("home/.susi/bin/susi")),
+            "direct production install admitted {source}"
+        );
+    }
 }

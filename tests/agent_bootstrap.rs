@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -6,9 +8,9 @@
 )]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
-//! An agent lands in its own, ready-to-work worktree without anyone telling it
-//! how: `scripts/susi-worktree.sh` (no name needed) and `susi workflow start`
-//! do the whole setup, and every agent tool's auto-loaded file points there.
+//! Current agent-directive drift guards plus legacy worktree-script regression
+//! coverage. The scripts remain compatibility behavior; automatic agent startup
+//! follows the native local contract in AGENTS.md.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -161,6 +163,8 @@ fn cd_target(stdout: &str) -> PathBuf {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn no_name_needed_the_agent_gets_a_ready_worktree() {
     let w = World::new("auto");
     let (code, out, err) = w.worktree(&[], "Codex Agent");
@@ -191,6 +195,8 @@ fn no_name_needed_the_agent_gets_a_ready_worktree() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn a_named_worktree_is_reused_not_duplicated() {
     let w = World::new("named");
     let (code, out, err) = w.worktree(&["my-feature"], "claude");
@@ -204,6 +210,8 @@ fn a_named_worktree_is_reused_not_duplicated() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn main_and_head_are_not_valid_branch_names() {
     let w = World::new("badname");
     for bad in ["main", "HEAD"] {
@@ -214,6 +222,8 @@ fn main_and_head_are_not_valid_branch_names() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn susi_workflow_start_wraps_the_same_setup() {
     let w = World::new("cli");
     let home = w.root.join("home");
@@ -238,46 +248,46 @@ fn susi_workflow_start_wraps_the_same_setup() {
 fn every_agent_tool_auto_loads_the_same_first_step() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let files = ["CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"];
-    let mut blocks: Vec<(&str, String)> = Vec::new();
+    let canonical = std::fs::read_to_string(root.join(files[0])).unwrap();
     for file in files {
-        let text =
-            std::fs::read_to_string(root.join(file)).unwrap_or_else(|_| panic!("{file} missing"));
-        for needle in [
-            "susi workflow check",
-            "scripts/susi-worktree.sh",
-            "Task: <id>",
-            "AGENTS.md",
-        ] {
-            assert!(text.contains(needle), "{file} must mention `{needle}`");
-        }
-        // One source, multiple copies: the instructions themselves are
-        // byte-identical. A wording drift in one tool's copy is a bug, not a
-        // style choice.
-        let (_, block) = text
-            .split_once("Before you change anything in this repository, do these, in order:")
-            .unwrap_or_else(|| panic!("{file} must carry the shared first-step block"));
-        blocks.push((file, block.to_string()));
-    }
-    let (first_file, first_block) = &blocks[0];
-    for (file, block) in &blocks[1..] {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
         assert_eq!(
-            block, first_block,
-            "the first-step block in {file} drifted from {first_file}"
+            text, canonical,
+            "{file} diverged from the canonical pointer"
         );
+        for required in ["AGENTS.md", "Mandates 62–71", "CEO never inspects code"] {
+            assert!(text.contains(required), "{file} must carry {required}");
+        }
+        for forbidden in [
+            "workflow-session-start.sh",
+            "scripts/seed-target.sh",
+            "susi tasks claim",
+            "git fetch",
+        ] {
+            assert!(
+                !text.contains(forbidden),
+                "{file} reinstated legacy bootstrap: {forbidden}"
+            );
+        }
     }
-    // Claude Code and Codex run the check at session start via a "hooks" key.
+    // No tool may silently run the old shell/network bootstrap before reading
+    // the canonical local contract. Useful per-tool permissions remain intact.
     for hook_file in [".claude/settings.json", ".codex/hooks.json"] {
-        let settings: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(root.join(hook_file)).unwrap()).unwrap();
-        let cmd = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap();
-        assert!(cmd.contains("scripts/workflow-session-start.sh"), "{cmd}");
+        if let Ok(text) = std::fs::read_to_string(root.join(hook_file)) {
+            let settings: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert!(
+                settings
+                    .get("hooks")
+                    .is_none_or(|h| h.as_object().is_some_and(|h| h.is_empty())),
+                "{hook_file} contains unreviewed automatic startup hooks"
+            );
+        }
     }
-    assert!(root.join("scripts/workflow-session-start.sh").is_file());
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn the_session_start_hook_never_blocks_a_session() {
     // Outside any repo and with no susi on PATH it still exits 0 and explains.
     let dir = std::env::temp_dir().join(format!("susi-boot-hook-{}", std::process::id()));
@@ -298,6 +308,8 @@ fn the_session_start_hook_never_blocks_a_session() {
 }
 
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn simultaneous_workers_get_distinct_worktrees_and_local_identities() {
     let w = World::new("parallel-start");
     let (left, right) = std::thread::scope(|scope| {
@@ -469,5 +481,83 @@ fn the_start_needs_no_git_userland_on_windows() {
         git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
         "main",
         "the primary was parked without a shell"
+    );
+}
+
+/// Discover tracked tool directives so adding a new agent cannot quietly bring
+/// back the retired shell/network bootstrap or a divergent policy document.
+#[test]
+fn tracked_agent_directives_do_not_reintroduce_legacy_bootstrap() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let listed = Command::new("git")
+        .current_dir(root)
+        .args(["ls-files", "-z"])
+        .output()
+        .unwrap();
+    assert!(listed.status.success());
+    let mut inspected = 0;
+    for bytes in listed.stdout.split(|b| *b == 0).filter(|b| !b.is_empty()) {
+        let path = std::str::from_utf8(bytes).unwrap();
+        let tool_directory = [
+            ".claude/",
+            ".codex/",
+            ".cursor/",
+            ".gemini/",
+            ".windsurf/",
+            ".roo/",
+            ".kilocode/",
+            ".kiro/",
+            ".junie/",
+            ".opencode/",
+            ".openhands/",
+            ".continue/",
+            ".github/instructions/",
+        ]
+        .iter()
+        .any(|prefix| path.starts_with(prefix));
+        let tool_file = [
+            "CLAUDE.md",
+            "GEMINI.md",
+            ".github/copilot-instructions.md",
+            ".cursorrules",
+            ".windsurfrules",
+            ".clinerules",
+            ".aider.conf.yml",
+        ]
+        .contains(&path);
+        if !tool_directory && !tool_file {
+            continue;
+        }
+        // A deleted tracked file is absent before the commit; its removal is
+        // intentional, not a reason to resurrect its obsolete directive.
+        let Ok(text) = std::fs::read_to_string(root.join(path)) else {
+            assert!(
+                !root.join(path).exists(),
+                "unreadable tracked directive {path}"
+            );
+            continue;
+        };
+        inspected += 1;
+        for retired in [
+            "workflow-session-start.sh",
+            "scripts/seed-target.sh",
+            "scripts/susi-worktree.sh",
+            "git fetch origin",
+        ] {
+            assert!(
+                !text.contains(retired),
+                "{path} reinstated retired bootstrap: {retired}"
+            );
+        }
+        if path.ends_with(".md") || path.ends_with(".mdc") || tool_file {
+            assert!(
+                text.contains("AGENTS.md"),
+                "{path} must reference the canonical contract"
+            );
+        }
+    }
+    assert!(
+        inspected >= 4,
+        "the known agent entrypoints must be inspected"
     );
 }

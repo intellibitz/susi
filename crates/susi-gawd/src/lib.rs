@@ -138,6 +138,9 @@ pub mod zc_tasks_next;
 #[path = "tests/formal_invariants.rs"]
 mod formal_invariants_tests;
 #[cfg(test)]
+#[path = "tests/native_verifier.rs"]
+mod native_verifier;
+#[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
 #[cfg(test)]

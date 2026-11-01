@@ -1,0 +1,11 @@
+[package]
+name = "idna_adapter"
+version = "1.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Susi OS-native Unicode backend for idna without bundled character tables"
+
+[features]
+compiled_data = []
+
+[workspace]

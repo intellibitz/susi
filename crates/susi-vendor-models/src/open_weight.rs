@@ -8,7 +8,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::cloud::{is_remote_cloud, resolve_api_key};
@@ -240,30 +239,12 @@ impl OpenWeightManager {
         })
     }
 
-    /// Pull weights via `ollama pull <tag>` when the CLI is available.
+    /// Managed pulls require an artifact-bound license proof before transfer.
     pub fn pull(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
-        let ollama = which("ollama").context(
-            "ollama CLI not found on PATH; install from https://ollama.com or host via vLLM",
-        )?;
-        validate_ollama_tag(&def.ollama_tag)?;
-        let status = Command::new(&ollama)
-            .args(["pull", &def.ollama_tag])
-            .status()
-            .with_context(|| format!("failed to spawn ollama pull {}", def.ollama_tag))?;
-        if !status.success() {
-            bail!(
-                "ollama pull {} failed with status {}",
-                def.ollama_tag,
-                status
-            );
-        }
-        Ok(format!(
-            "pulled {}; prefer with `susi openweight prefer {}`",
-            def.ollama_tag, def.id
-        ))
+        Err(crate::susi_error::EaiError::governance(format!(
+            "[MODEL LICENSE] Refusing unmanaged registry tag {}: Ollama tag manifests are not yet bound to verified Apache/MIT/BSD license receipts. Agents should install a verified Hugging Face artifact with Susi's native model installer. Existing external-service inference remains available.", def.ollama_tag)))
     }
-
     /// Prefer this open-weight model for subsequent local routing.
     pub fn prefer(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;

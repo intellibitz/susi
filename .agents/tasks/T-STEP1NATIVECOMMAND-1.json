@@ -1,0 +1,34 @@
+{
+  "id": "T-STEP1NATIVECOMMAND-1",
+  "title": "Remove implicit shell execution and PowerShell environment discovery",
+  "status": "verified",
+  "owner": "step1-harness-native",
+  "scopes": [
+    "crates/susi-core/src/intent_plan.rs",
+    "crates/susi-harness/src/secrets.rs",
+    "crates/susi-harness/Cargo.toml",
+    ".agents/tasks/T-STEP1NATIVECOMMAND-1.json",
+    "crates/susi-vendor-windows-registry"
+  ],
+  "dependencies": [
+    "T-STEP1HARNESS-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "--offline"
+    ]
+  },
+  "evidence": [
+    "6 intent_plan tests pass, including real native executable subprocess without shell",
+    "420 harness library tests pass, including real uniquely owned Windows registry read and cleanup",
+    "windows-registry 0.6.1 already exists in dependency graph; only harness dependency edge changes",
+    "Shared command_argv preserves literal quotes/backslashes and explicit interpreter authorization",
+    "Registry dependency routed through a thin native Rust vendor facade, preserving the architectural dependency boundary"
+  ],
+  "integration": "pending_native_receipt"
+}

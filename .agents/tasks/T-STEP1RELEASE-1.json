@@ -1,0 +1,10 @@
+{
+  "id": "T-STEP1RELEASE-1",
+  "title": "Enforce measured native release health and Step 1 acceptance",
+  "goal": "Bound and record artifact health while preserving strict production evidence gates",
+  "size": "m",
+  "deps": [],
+  "accept": { "cmd": ["cargo", "test", "-p", "xtask", "--features", "release-tooling", "--bin", "local-release", "--offline", "--locked"] },
+  "created_by": "CODEXQUALIFICATION20261102",
+  "created_unix": 1793557200
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXCEOMANDATES20261101-2",
+  "title": "Persist CEO authority for agent commits pushes and merges",
+  "goal": "Make Git action authority explicit without weakening validation or spending boundaries",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "ceo_git_authority_preserves_evidence_and_scope",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXCEOMANDATES20261101",
+  "created_unix": 1793550270
+}

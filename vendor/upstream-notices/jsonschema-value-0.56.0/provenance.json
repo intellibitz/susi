@@ -1,0 +1,19 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "jsonschema-value",
+  "version": "0.56.0",
+  "repository": "https://github.com/Stranger6667/jsonschema",
+  "revision": "1e244c994dd81a1feb7801556a813c6bf2d45dad",
+  "path_in_vcs": "crates/jsonschema-value",
+  "crate_checksum": "a05cd404c5ff6e2731dbbf7e290a27417750acfb59e329560a1d0af384c93fb0",
+  "crate_checksum_origin": "SHA256 of cached published .crate archive, matched to Cargo.lock",
+  "files": [
+    {
+      "path": "LICENSE",
+      "source_path": "LICENSE",
+      "sha256": "117829c3ca21efb132d81a44b55363d395ab8eea18526873bc828da4c0e5f038",
+      "git_blob_sha1": "20c070f6401feda6f47be1b158f4f5a4a9d14062",
+      "url": "https://github.com/Stranger6667/jsonschema/blob/1e244c994dd81a1feb7801556a813c6bf2d45dad/LICENSE"
+    }
+  ]
+}

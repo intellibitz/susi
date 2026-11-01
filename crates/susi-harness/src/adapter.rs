@@ -2,8 +2,8 @@
 //!
 //! The operations needed to run a task against susi itself: create a worktree
 //! with its own worker identity, add and claim a task, run the task's declared
-//! acceptance, and publish through `workflow finish`. Every operation shells
-//! out to the `susi` binary; the command runner is a trait so the adapter is
+//! acceptance, and integrate through the native local coordinator. Commands run
+//! directly without a shell; the command runner is a trait so the adapter is
 //! testable without a repository.
 //!
 //! The adapter does not decide *what* to build — a mission does. It only makes
@@ -22,44 +22,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
-
-/// The shell that runs a repository script.
-///
-/// On Windows that is Git for Windows' own: its `bin/bash.exe` launcher (which
-/// puts Git's userland first on PATH), else its raw `usr/bin/sh.exe`, found
-/// three levels above `git --exec-path`. Never a bare `bash`: Windows looks a
-/// program up in System32 before PATH, where `bash.exe` is WSL's, which cannot
-/// run a script by its Windows path. A standard Git install puts no shell on
-/// PATH at all, so a bare `sh` can be missing too. Elsewhere, and with no Git
-/// install to be found, it is `sh` (the scripts run themselves under bash).
-fn posix_shell() -> PathBuf {
-    static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    SHELL
-        .get_or_init(|| git_shell().unwrap_or_else(|| PathBuf::from("sh")))
-        .clone()
-}
-
-#[cfg(windows)]
-fn git_shell() -> Option<PathBuf> {
-    let out = Command::new("git").arg("--exec-path").output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    // <git>/<mingw64|ucrt64>/libexec/git-core
-    let root = Path::new(&exec_path).ancestors().nth(3)?.to_path_buf();
-    [
-        root.join("bin").join("bash.exe"),
-        root.join("usr").join("bin").join("sh.exe"),
-    ]
-    .into_iter()
-    .find(|shell| shell.is_file())
-}
-
-#[cfg(not(windows))]
-fn git_shell() -> Option<PathBuf> {
-    None
-}
 
 /// `text` (a path git wrote in a `.git` or `gitdir` file) as a path: relative
 /// ones are relative to `base`.
@@ -101,38 +63,6 @@ fn common_dir(repo: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Whether `path` is a worktree of the clone whose common git directory is
-/// `common`: one the clone lists (an entry of `<common>/worktrees` whose
-/// `gitdir` file names `<path>/.git`, which may itself be gone: a prunable
-/// one), or a checkout whose `.git` file points into `<common>/worktrees`
-/// (whose entry may be pruned already). A directory with no such tie to the
-/// clone (no `.git`, a clone of its own, another clone's worktree) is not.
-fn is_worktree_of(common: &Path, path: &Path) -> bool {
-    let worktrees = common.join("worktrees");
-    if let Some(admin) = gitdir_named_in(&path.join(".git")) {
-        let listed_in = admin.parent();
-        if listed_in.is_some_and(|dir| same_dir(dir, &worktrees))
-            || listed_in.is_some_and(|dir| {
-                dir.file_name().is_some_and(|name| name == "worktrees")
-                    && dir.parent().is_some_and(|clone| same_dir(clone, common))
-            })
-        {
-            return true;
-        }
-    }
-    let Ok(entries) = std::fs::read_dir(&worktrees) else {
-        return false;
-    };
-    entries.filter_map(Result::ok).any(|entry| {
-        let admin = entry.path();
-        std::fs::read_to_string(admin.join("gitdir")).is_ok_and(|named| {
-            let dot_git = git_path(&admin, &named);
-            dot_git.file_name().is_some_and(|name| name == ".git")
-                && dot_git.parent().is_some_and(|dir| same_dir(dir, path))
-        })
-    })
-}
-
 /// Whether the worktree's `target/` is a link (a junction on Windows): the
 /// clone's old shared target, which an older `workflow start` linked.
 fn target_is_link(worktree: &Path) -> bool {
@@ -140,6 +70,157 @@ fn target_is_link(worktree: &Path) -> bool {
         .join("target")
         .symlink_metadata()
         .is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// One finished command.
+struct LocalClaim {
+    name: String,
+    base: String,
+    scopes: Vec<String>,
+}
+
+impl LocalClaim {
+    fn require_scope(&self, path: &str) -> EaiResult<()> {
+        let path = path.to_ascii_lowercase();
+        if self.scopes.iter().any(|scope| {
+            path == *scope
+                || path
+                    .strip_prefix(scope)
+                    .is_some_and(|tail| tail.starts_with('/'))
+        }) {
+            Ok(())
+        } else {
+            Err(EaiError::process(format!(
+                "native claim does not own {path}"
+            )))
+        }
+    }
+}
+
+fn local_task_id(name: &str) -> String {
+    format!("T-LOCAL-{}-1", name.to_ascii_uppercase())
+}
+
+fn task_scopes(id: &str) -> [String; 2] {
+    [
+        format!(".agents/tasks/{id}.json"),
+        format!(".agents/tasks/done/{id}.json"),
+    ]
+}
+
+fn validate_task_id(id: &str) -> EaiResult<()> {
+    if !id.starts_with("T-")
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err(EaiError::config(
+            "task id must be a namespaced identifier without path separators",
+        ));
+    }
+    Ok(())
+}
+
+fn check_task_path(worktree: &Path, path: &Path) -> EaiResult<()> {
+    let relative = path
+        .strip_prefix(worktree)
+        .map_err(|_| EaiError::process("task path escapes the owned worktree"))?;
+    let mut current = worktree.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        if current
+            .symlink_metadata()
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(EaiError::process(
+                "task records and their parents cannot be links",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn local_claim(worktree: &Path) -> EaiResult<LocalClaim> {
+    let common = common_dir(worktree)
+        .ok_or_else(|| EaiError::process("worktree has no Git common directory"))?;
+    let directory = common.join("susi-local-workflow/claims");
+    let entries = std::fs::read_dir(&directory).map_err(|e| {
+        EaiError::process(format!("read native claims {}: {e}", directory.display()))
+    })?;
+    for entry in entries {
+        let path = entry.map_err(|e| EaiError::io(e.to_string()))?.path();
+        if path.extension().is_none_or(|ext| ext != "claim") {
+            continue;
+        }
+        if std::fs::symlink_metadata(&path)
+            .map_err(|e| EaiError::io(e.to_string()))?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(EaiError::process("native claim cannot be a symlink"));
+        }
+        let data = std::fs::read_to_string(&path).map_err(|e| EaiError::io(e.to_string()))?;
+        let lines: Vec<_> = data.lines().collect();
+        if lines.len() < 5 || lines[0] != "susi-local-claim-v2" {
+            return Err(EaiError::process("invalid native claim record"));
+        }
+        if !same_dir(Path::new(lines[2]), worktree) {
+            continue;
+        }
+        if !matches!(lines[3].len(), 40 | 64) || !lines[3].bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(EaiError::process("native claim has invalid base commit"));
+        }
+        return Ok(LocalClaim {
+            name: lines[1].into(),
+            base: lines[3].into(),
+            scopes: lines[4..].iter().map(|s| s.to_string()).collect(),
+        });
+    }
+    Err(EaiError::process(
+        "no live native coordinator claim owns this worktree",
+    ))
+}
+
+fn parse_acceptance(text: &str) -> EaiResult<Vec<String>> {
+    let mut result = Vec::new();
+    let mut word = String::new();
+    let mut quote = None;
+    let mut started = false;
+    for ch in text.chars() {
+        if let Some(delimiter) = quote {
+            if ch == delimiter {
+                quote = None;
+            } else {
+                word.push(ch);
+            }
+            started = true;
+        } else if matches!(ch, '\'' | '"') {
+            quote = Some(ch);
+            started = true;
+        } else if ch.is_whitespace() {
+            if started {
+                result.push(std::mem::take(&mut word));
+                started = false;
+            }
+        } else if matches!(ch, ';' | '|' | '&' | '<' | '>' | '`') {
+            return Err(EaiError::config(
+                "acceptance must be a program and arguments, not a shell expression",
+            ));
+        } else {
+            word.push(ch);
+            started = true;
+        }
+    }
+    if quote.is_some() {
+        return Err(EaiError::config("unterminated acceptance argument quote"));
+    }
+    if started {
+        result.push(word);
+    }
+    if result.is_empty() || result[0].is_empty() {
+        return Err(EaiError::config("acceptance argv cannot be empty"));
+    }
+    Ok(result)
 }
 
 /// One finished command.
@@ -198,6 +279,20 @@ impl CommandRunner for ProcessRunner {
         // primary-checkout watcher running, and that child inherits the
         // handles. With a pipe, `Command::output()` never sees EOF and the
         // adapter hangs forever; with files, the exit status is enough.
+        let mut command = Command::new(program);
+        if program.file_stem().is_some_and(|name| name == "cargo") {
+            if target_is_link(cwd)
+                || args
+                    .iter()
+                    .any(|arg| arg == "--target-dir" || arg.starts_with("--target-dir="))
+            {
+                return Err(EaiError::process(
+                    "agent Cargo commands require the worktree's private target directory",
+                ));
+            }
+            command.env("CARGO_TARGET_DIR", cwd.join("target"));
+            command.env("CARGO_NET_OFFLINE", "true");
+        }
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|elapsed| elapsed.as_nanos())
@@ -211,7 +306,7 @@ impl CommandRunner for ProcessRunner {
         let stderr_file = std::fs::File::create(&stderr_path).map_err(|error| {
             EaiError::process(format!("create {}: {error}", stderr_path.display()))
         })?;
-        let status = Command::new(program)
+        let status = command
             .args(args)
             .current_dir(cwd)
             .stdin(Stdio::null())
@@ -268,164 +363,81 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// # Errors
     ///
-    /// Returns an error when `workflow start` fails or prints no `cd <path>`.
+    /// Returns an error when native start fails or prints no `Worktree:` path.
     pub fn start_worktree(&self, name: &str) -> EaiResult<PathBuf> {
-        static WORKTREE_START: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let guard = WORKTREE_START
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let start = |target: &Self| {
-            target.susi(
-                vec![
-                    "workflow".to_string(),
-                    "start".to_string(),
-                    name.to_string(),
-                ],
-                &target.repo,
-            )
-        };
-        let mut output = start(self)?;
-        if !output.success() && Self::looks_like_leftover(&output.tail()) {
-            // A killed mission can leave its directory or branch behind, and
-            // both make `workflow start` refuse the next attempt. Clear the
-            // leftover once, then retry.
-            self.clear_leftover(name);
-            output = start(self)?;
+        self.start_scoped_worktree(name, &[], None)
+    }
+
+    fn start_scoped_worktree(
+        &self,
+        name: &str,
+        scopes: &[String],
+        task: Option<&str>,
+    ) -> EaiResult<PathBuf> {
+        let id = task
+            .map(str::to_owned)
+            .unwrap_or_else(|| local_task_id(name));
+        validate_task_id(&id)?;
+        let mut args = vec![
+            "local".into(),
+            "workflow".into(),
+            "start".into(),
+            name.into(),
+        ];
+        for scope in scopes.iter().cloned().chain(task_scopes(&id)) {
+            args.extend(["--scope".into(), scope]);
         }
+        let output = self.susi(args, &self.repo)?;
         if !output.success() {
             return Err(EaiError::process(format!(
-                "workflow start failed: {}",
+                "native workflow start refused; existing work is preserved: {}",
                 output.tail()
             )));
         }
-        let worktree = parse_worktree_path(&output.stdout).ok_or_else(|| {
+        parse_worktree_path(&output.stdout).ok_or_else(|| {
             EaiError::process(format!(
-                "workflow start printed no `cd <path>`: {}",
+                "native workflow start printed no Worktree path: {}",
                 output.tail()
             ))
-        })?;
-        // The worktree exists and has its owner: the seeding below touches no
-        // shared ref or config, so the next mission's start need not wait for
-        // its copy.
-        drop(guard);
-        // The mission's worktree builds into a target of its own, copied from
-        // the clone's warm snapshot so only the workspace crates compile
-        // (`scripts/seed-target.sh`). A `workflow start` that seeds it already
-        // did; an older one (the installed susi) linked the primary's shared
-        // target instead, and the script replaces that link (the link only).
-        // It is idempotent, never fails a caller, and leaves alone a target
-        // that already holds a build; a copy already running (the
-        // post-checkout hook starts one) is waited for, not repeated.
-        let seeder = self.repo.join("scripts").join("seed-target.sh");
-        if seeder.is_file() {
-            let _ = self.runner.run(
-                &posix_shell(),
-                &[
-                    seeder.to_string_lossy().to_string(),
-                    worktree.to_string_lossy().to_string(),
-                ],
-                &self.repo,
-            );
-        }
-        Ok(worktree)
+        })
     }
 
-    /// True when `workflow start` refused because a killed mission left its
-    /// directory or branch behind.
-    fn looks_like_leftover(tail: &str) -> bool {
-        tail.contains("refusing to reuse") || tail.contains("already exists")
-    }
-
-    /// Remove what a killed mission left behind: its worktree directory, the
-    /// stale registration and the harness branch with the same name. Only called
-    /// after `workflow start` refused, so a healthy worktree is never touched.
-    ///
-    /// A directory is removed by hand only when it is a worktree of this
-    /// clone, registered or prunable ([`is_worktree_of`]), decided before git
-    /// removes anything: whatever else sits at a worktree's name (a user's
-    /// directory, or a cargo target snapshot or its build clone, which once
-    /// sat beside the primary checkout in the same `<primary>-<name>` names)
-    /// is left alone, and `workflow start` then refuses it as before.
-    fn clear_leftover(&self, name: &str) {
-        let Some(parent) = self.repo.parent() else {
-            return;
-        };
-        let Some(dir) = self.repo.file_name() else {
-            return;
-        };
-        let dir = dir.to_string_lossy();
-        let common = common_dir(&self.repo);
-        for candidate in [format!("{dir}-{name}"), format!("{dir}-harness-{name}")] {
-            let path = parent.join(candidate);
-            let ours = common
-                .as_deref()
-                .is_some_and(|common| is_worktree_of(common, &path));
-            let _ = self.git(
-                &self.repo,
-                &["worktree", "remove", "--force", &path.to_string_lossy()],
-            );
-            if ours && path.exists() {
-                let _ = std::fs::remove_dir_all(&path);
-            }
-        }
-        let _ = self.git(&self.repo, &["worktree", "prune"]);
-        let _ = self.git(&self.repo, &["branch", "-D", name]);
-        let _ = self.git(&self.repo, &["branch", "-D", &format!("harness-{name}")]);
-    }
-
-    /// Free the claim when a mission could not finish. A failed ladder must not
-    /// leave the task owned by a dead attempt: the next model, mission or worker
-    /// has to be able to claim it without a manual forced release.
+    /// Ask the native coordinator to release a completed claim.
+    /// Dirty or unintegrated candidates retain ownership for repair.
     ///
     /// # Errors
-    ///
-    /// Returns an error when the release itself fails.
-    pub fn release(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
-        self.susi(
+    /// Returns an error when the coordinator refuses release.
+    pub fn release(&self, worktree: &Path, _id: &str) -> EaiResult<RunOutput> {
+        let claim = local_claim(worktree)?;
+        let output = self.susi(
             vec![
-                "tasks".to_string(),
-                "release".to_string(),
-                id.to_string(),
-                "--force".to_string(),
+                "local".into(),
+                "workflow".into(),
+                "release".into(),
+                claim.name,
             ],
             worktree,
-        )
+        )?;
+        if !output.success() {
+            return Err(EaiError::process(format!(
+                "native workflow retained the claim and work for repair: {}",
+                output.tail()
+            )));
+        }
+        Ok(output)
     }
 
-    /// Sync a reused worktree with `origin/main`.
-    ///
-    /// A worktree that is reused across mission attempts can be many commits
-    /// behind; the claim refuses a stale branch, so sync before claiming.
-    ///
-    /// Ensure the worktree is current before a claim.
-    ///
-    /// A failed or killed attempt leaves the edits its worker made
-    /// uncommitted, and `workflow sync` refuses a dirty tree. The worktree is
-    /// the harness's own, and the next attempt starts from `origin/main`
-    /// anyway, so those leftovers are discarded and the sync retried once
-    /// rather than failing the whole task on them. Any other refusal is
-    /// reported as it is.
+    /// Verify that an owned worktree still extends its recorded local base.
+    /// No network fetch, branch reset, or cleanup is performed.
     ///
     /// # Errors
-    ///
-    /// Returns an error when the worktree still cannot be synced.
+    /// Returns an error when ownership or ancestry cannot be verified.
     pub fn sync(&self, worktree: &Path) -> EaiResult<()> {
-        let output = self.susi(vec!["workflow".to_string(), "sync".to_string()], worktree)?;
-        if output.success() {
-            return Ok(());
-        }
-        let tail = output.tail();
-        if !tail.to_ascii_lowercase().contains("commit or stash") {
-            return Err(EaiError::process(format!("workflow sync failed: {tail}")));
-        }
-        self.git(worktree, &["reset", "--hard", "HEAD"])?;
-        self.git(worktree, &["clean", "-fd"])?;
-        let retry = self.susi(vec!["workflow".to_string(), "sync".to_string()], worktree)?;
-        if !retry.success() {
-            return Err(EaiError::process(format!(
-                "workflow sync failed: {}",
-                retry.tail()
-            )));
+        let claim = local_claim(worktree)?;
+        if !self.base_is_ancestor(worktree, &claim.base)? {
+            return Err(EaiError::process(
+                "native claim base is no longer an ancestor; preserve and repair this worktree",
+            ));
         }
         Ok(())
     }
@@ -436,25 +448,32 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when the task cannot be added.
     pub fn add_task(&self, worktree: &Path, title: &str, accept: &str) -> EaiResult<String> {
-        let output = self.susi(
-            vec![
-                "tasks".to_string(),
-                "add".to_string(),
-                title.to_string(),
-                "--accept".to_string(),
-                accept.to_string(),
-            ],
-            worktree,
-        )?;
-        if !output.success() {
-            return Err(EaiError::process(format!(
-                "tasks add failed: {}",
-                output.tail()
-            )));
-        }
-        parse_added_task(&output.stdout).ok_or_else(|| {
-            EaiError::process(format!("tasks add printed no task id: {}", output.tail()))
-        })
+        let claim = local_claim(worktree)?;
+        let id = local_task_id(&claim.name);
+        let relative = format!(".agents/tasks/{id}.json");
+        claim.require_scope(&relative)?;
+        let argv = parse_acceptance(accept)?;
+        let record = serde_json::json!({"id":id,"title":title,"status":"claimed","owner":claim.name,"scopes":claim.scopes,"accept":{"cmd":argv},"workflow":"susi-local-v2","base":claim.base});
+        let path = worktree.join(relative);
+        check_task_path(worktree, &path)?;
+        std::fs::create_dir_all(
+            path.parent()
+                .ok_or_else(|| EaiError::io("task has no parent"))?,
+        )
+        .map_err(|e| EaiError::io(e.to_string()))?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| EaiError::io(format!("preserve existing task {}: {e}", path.display())))?;
+        file.write_all(
+            serde_json::to_vec_pretty(&record)
+                .map_err(|e| EaiError::io(e.to_string()))?
+                .as_slice(),
+        )
+        .map_err(|e| EaiError::io(e.to_string()))?;
+        Ok(id)
     }
 
     /// Claim a task with its reserved scopes.
@@ -464,18 +483,53 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// Returns an error when the claim is refused (another agent, a stale
     /// branch, overlapping scopes).
     pub fn claim(&self, worktree: &Path, id: &str, scopes: &[String]) -> EaiResult<()> {
-        let mut args = vec!["tasks".to_string(), "claim".to_string(), id.to_string()];
-        for scope in scopes {
-            args.push("--scope".to_string());
-            args.push(scope.clone());
+        validate_task_id(id)?;
+        let claim = local_claim(worktree)?;
+        let mut args = vec![
+            "local".into(),
+            "workflow".into(),
+            "extend".into(),
+            claim.name.clone(),
+        ];
+        for scope in scopes.iter().cloned().chain(task_scopes(id)) {
+            args.extend(["--scope".into(), scope]);
         }
         let output = self.susi(args, worktree)?;
         if !output.success() {
             return Err(EaiError::process(format!(
-                "tasks claim failed: {}",
+                "native scope reservation refused: {}",
                 output.tail()
             )));
         }
+        let path = task_file(worktree, id)?;
+        if path != worktree.join(format!(".agents/tasks/{id}.json")) {
+            return Err(EaiError::process(
+                "closed task records cannot be reclaimed or changed",
+            ));
+        }
+        let mut record: Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).map_err(|e| EaiError::io(e.to_string()))?,
+        )
+        .map_err(|e| EaiError::config(e.to_string()))?;
+        if record.get("status").and_then(Value::as_str) == Some("claimed")
+            && record
+                .get("owner")
+                .and_then(Value::as_str)
+                .is_some_and(|owner| owner != claim.name)
+        {
+            return Err(EaiError::process(
+                "task record is already claimed by another owner",
+            ));
+        }
+        record["owner"] = Value::String(claim.name);
+        record["status"] = Value::String("claimed".into());
+        record["workflow"] = Value::String("susi-local-v2".into());
+        record["base"] = Value::String(claim.base);
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?,
+        )
+        .map_err(|e| EaiError::io(e.to_string()))?;
         Ok(())
     }
 
@@ -496,18 +550,22 @@ impl<R: CommandRunner> SusiTarget<R> {
         // The queue stores the parsed argv (`{"cmd": [...]}`), but a
         // hand-written task may still carry the original string.
         let argv: Vec<String> = if let Some(text) = accept.as_str() {
-            text.split_whitespace().map(str::to_string).collect()
+            parse_acceptance(text)?
         } else if let Some(cmd) = accept.get("cmd").and_then(Value::as_array) {
             cmd.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .ok_or_else(|| EaiError::config("acceptance arguments must all be strings"))
+                })
+                .collect::<EaiResult<Vec<_>>>()?
         } else {
             return Err(EaiError::config(format!(
                 "task {id} has no acceptance argv"
             )));
         };
-        if argv.is_empty() {
+        if argv.is_empty() || argv[0].is_empty() {
             return Err(EaiError::config(format!(
                 "task {id} declares an empty acceptance"
             )));
@@ -573,28 +631,76 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when the close is refused (for example, no live claim).
     pub fn close(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
-        self.susi(
-            vec!["tasks".to_string(), "close".to_string(), id.to_string()],
-            worktree,
+        let claim = local_claim(worktree)?;
+        for scope in task_scopes(id) {
+            claim.require_scope(&scope)?;
+        }
+        let accepted = self.accept(worktree, id)?;
+        let path = task_file(worktree, id)?;
+        let done = worktree.join(format!(".agents/tasks/done/{id}.json"));
+        check_task_path(worktree, &done)?;
+        let mut record: Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).map_err(|e| EaiError::io(e.to_string()))?,
         )
+        .map_err(|e| EaiError::config(e.to_string()))?;
+        if path == done {
+            if record["status"] == "verified"
+                && record["owner"] == claim.name
+                && record["integration"] == "pending_native_receipt"
+            {
+                return Ok(accepted);
+            }
+            return Err(EaiError::process(
+                "existing closed task is not this candidate's verified record",
+            ));
+        }
+        record["status"] = Value::String("verified".into());
+        record["integration"] = Value::String("pending_native_receipt".into());
+        std::fs::create_dir_all(
+            done.parent()
+                .ok_or_else(|| EaiError::io("done task has no parent"))?,
+        )
+        .map_err(|e| EaiError::io(e.to_string()))?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&done)
+            .map_err(|e| EaiError::io(format!("preserve existing done record: {e}")))?;
+        file.write_all(
+            &serde_json::to_vec_pretty(&record).map_err(|e| EaiError::io(e.to_string()))?,
+        )
+        .map_err(|e| EaiError::io(e.to_string()))?;
+        drop(file);
+        std::fs::remove_file(path).map_err(|e| EaiError::io(e.to_string()))?;
+        Ok(accepted)
     }
 
-    /// Publish the work through `workflow finish` (gate, close, push, merge).
+    /// Verify, commit, and integrate work locally before releasing its claim.
     ///
     /// # Errors
     ///
     /// Returns an error when finish stops for repair.
     pub fn finish(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
+        let claim = local_claim(worktree)?;
+        self.close(worktree, id)?;
+        self.commit_work(worktree, id)?;
         let output = self.susi(
-            vec!["workflow".to_string(), "finish".to_string(), id.to_string()],
+            vec![
+                "local".into(),
+                "workflow".into(),
+                "integrate".into(),
+                claim.name.clone(),
+            ],
             worktree,
         )?;
         if !output.success() {
             return Err(EaiError::process(format!(
-                "workflow finish failed for {id}: {}",
+                "native integration failed for {id}; candidate retained: {}",
                 output.tail()
             )));
         }
+        self.release(worktree, id)?;
         Ok(output)
     }
 
@@ -635,51 +741,43 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when staging or committing fails.
     pub fn commit_work(&self, worktree: &Path, id: &str) -> EaiResult<bool> {
-        // The worker edits text without running rustfmt, and the repo's
-        // pre-commit hook rejects unformatted code. Format before staging so
-        // the commit carries the formatter's own output instead of discarding
-        // correct work on a hook.
+        let claim = local_claim(worktree)?;
         let fmt = self.runner.run(
             Path::new("cargo"),
-            &["fmt".to_string(), "--all".to_string()],
+            &["fmt".into(), "--all".into()],
             worktree,
         )?;
         if !fmt.success() {
-            return Err(EaiError::process(format!(
-                "cargo fmt --all failed before commit: {}",
-                fmt.tail()
-            )));
-        }
-        let add = self.git(worktree, &["add", "-A"])?;
-        if !add.success() {
-            return Err(EaiError::process(format!(
-                "git add -A failed: {}",
-                add.tail()
-            )));
+            return Err(EaiError::process(format!("format failed: {}", fmt.tail())));
         }
         let status = self.git(worktree, &["status", "--porcelain"])?;
         if !status.success() {
-            return Err(EaiError::process(format!(
-                "git status failed: {}",
-                status.tail()
-            )));
+            return Err(EaiError::process(status.tail()));
         }
         if status.stdout.trim().is_empty() {
             return Ok(false);
         }
-        let message = format!("Complete {id}\n\nTask: {id}");
-        let commit = self.git(worktree, &["commit", "-m", &message])?;
-        if !commit.success() {
+        let output = self.susi(
+            vec![
+                "local".into(),
+                "workflow".into(),
+                "commit".into(),
+                claim.name,
+                format!("Complete {id}\n\nTask: {id}"),
+            ],
+            worktree,
+        )?;
+        if !output.success() {
             return Err(EaiError::process(format!(
-                "git commit of the worker's changes failed: {}",
-                commit.tail()
+                "native scoped commit failed: {}",
+                output.tail()
             )));
         }
         Ok(true)
     }
 
     /// Run the repository's compile-and-lint gate for the packages the
-    /// task's scopes touch, so a change that would fail `workflow finish`
+    /// task's scopes touch, so a change that would fail `local workflow integrate`
     /// is rejected while the attempt can still be retried cheaply.
     ///
     /// # Errors
@@ -699,23 +797,12 @@ impl<R: CommandRunner> SusiTarget<R> {
                 packages.push(package);
             }
         }
-        // No `cargo clean -p` first: the worktree builds into a target of its
-        // own (`scripts/seed-target.sh`), so nothing another checkout built can
-        // stand in for this one's sources, and a clean would only recompile.
-        // For one release, a worktree whose `target/` is still a link to the
-        // clone's old shared one (an older `workflow start` linked it, and no
-        // seeder was there to replace it: a primary checkout or branch from
-        // before the seeding) builds where that can happen: as v0.21.23 did,
-        // the touched packages' builds there are dropped first, so the gate
-        // compiles what is actually here.
+        // Every worker owns its target. Refuse old shared links without cleaning
+        // or modifying output that may belong to another concurrent agent.
         if target_is_link(worktree) {
-            for package in &packages {
-                let _ = self.runner.run(
-                    Path::new("cargo"),
-                    &["clean".to_string(), "-p".to_string(), package.clone()],
-                    worktree,
-                );
-            }
+            return Err(EaiError::process(
+                "refusing a shared target link; create a native isolated worktree",
+            ));
         }
         let mut args: Vec<String> = vec!["clippy".to_string()];
         for package in &packages {
@@ -733,7 +820,7 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// True when HEAD carries a commit after `base` and the tree is clean.
     ///
     /// The adapter commits the task record before the agent runs, so a simple
-    /// "commits ahead of `origin/main`" check is true even when the agent wrote
+    /// "commits ahead of `the native claim base`" check is true even when the agent wrote
     /// nothing — and the declared acceptance (often an unrelated crate's test)
     /// would then pass on unchanged code. Work means a commit *after the
     /// record*, not the record itself.
@@ -772,7 +859,7 @@ impl<R: CommandRunner> SusiTarget<R> {
     }
 
     /// True when the worktree has no uncommitted changes and at least one
-    /// commit ahead of `origin/main`.
+    /// commit ahead of `the native claim base`.
     ///
     /// # Errors
     ///
@@ -796,7 +883,7 @@ impl<R: CommandRunner> SusiTarget<R> {
             Path::new("git"),
             &[
                 "log".to_string(),
-                "origin/main..HEAD".to_string(),
+                format!("{}..HEAD", local_claim(worktree)?.base),
                 "--oneline".to_string(),
             ],
             worktree,
@@ -834,30 +921,24 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when git cannot stage or commit the record.
     pub fn commit_task_record(&self, worktree: &Path, id: &str) -> EaiResult<String> {
-        let path = format!(".agents/tasks/{id}.json");
-        let add = self.git(worktree, &["add", "--", &path])?;
-        if !add.success() {
+        let claim = local_claim(worktree)?;
+        let output = self.susi(
+            vec![
+                "local".into(),
+                "workflow".into(),
+                "commit".into(),
+                claim.name,
+                format!("Record {id}\n\nTask: {id}"),
+            ],
+            worktree,
+        )?;
+        if !output.success() {
             return Err(EaiError::process(format!(
-                "git add {path} failed: {}",
-                add.tail()
+                "native task commit failed: {}",
+                output.tail()
             )));
         }
-        let message = format!("Record {id}\n\nTask: {id}");
-        let commit = self.git(worktree, &["commit", "-m", &message])?;
-        if !commit.success() {
-            return Err(EaiError::process(format!(
-                "git commit of {path} failed: {}",
-                commit.tail()
-            )));
-        }
-        let head = self.git(worktree, &["rev-parse", "HEAD"])?;
-        if !head.success() {
-            return Err(EaiError::process(format!(
-                "git rev-parse failed: {}",
-                head.tail()
-            )));
-        }
-        Ok(head.stdout.trim().to_string())
+        self.head(worktree)
     }
 
     /// Discard everything a rejected attempt wrote, keeping the task record.
@@ -866,6 +947,12 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when git cannot reset the worktree.
     pub fn reset_to(&self, worktree: &Path, commit: &str) -> EaiResult<()> {
+        local_claim(worktree)?;
+        if !matches!(commit.len(), 40 | 64) || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(EaiError::process(
+                "reset requires the exact recorded commit hash",
+            ));
+        }
         let reset = self.git(worktree, &["reset", "--hard", commit])?;
         if !reset.success() {
             return Err(EaiError::process(format!(
@@ -890,7 +977,7 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// back the one an earlier run left behind, branch and all. The branch
     /// may carry the earlier worker's refused commit (one replaced a
     /// 13,869-line acceptance file with 200 lines), and an acceptance run
-    /// there judges that commit, not `origin/main`. Only `.agents/tasks/`
+    /// there judges that commit, not `the native claim base`. Only `.agents/tasks/`
     /// may differ: the task record is the adapter's own.
     ///
     /// # Errors
@@ -924,32 +1011,16 @@ impl<R: CommandRunner> SusiTarget<R> {
             .collect())
     }
 
-    /// Put a reused worktree back on `origin/main` when its branch or tree is
-    /// ahead with code, so no attempt and no precheck judges what an earlier
-    /// run left there. Returns the paths that were discarded (empty when the
-    /// worktree already matched).
+    /// Refuse prior code changes before reusing an owned native worktree.
+    /// Existing edits are preserved for repair, never silently reset.
     ///
     /// # Errors
-    ///
-    /// Returns an error when git cannot diff or reset the worktree.
+    /// Returns an error when ownership or an unchanged base cannot be established.
     pub fn reset_reused_worktree(&self, worktree: &Path) -> EaiResult<Vec<String>> {
-        let ahead = self.code_ahead_of(worktree, "origin/main")?;
-        if ahead.is_empty() {
-            return Ok(ahead);
-        }
-        let reset = self.git(worktree, &["reset", "--hard", "origin/main"])?;
-        if !reset.success() {
-            return Err(EaiError::process(format!(
-                "git reset --hard origin/main failed: {}",
-                reset.tail()
-            )));
-        }
-        let clean = self.git(worktree, &["clean", "-fd"])?;
-        if !clean.success() {
-            return Err(EaiError::process(format!(
-                "git clean failed: {}",
-                clean.tail()
-            )));
+        let claim = local_claim(worktree)?;
+        let ahead = self.code_ahead_of(worktree, &claim.base)?;
+        if !ahead.is_empty() {
+            return Err(EaiError::process("native worktree contains prior changes; preserve them and repair its claim instead of resetting someone else's work"));
         }
         Ok(ahead)
     }
@@ -1264,7 +1335,7 @@ pub struct SusiRunReport {
     pub model: String,
     /// The last agent outcome.
     pub agent: RunOutcome,
-    /// Whether the accepted attempt left a clean commit ahead of `origin/main`.
+    /// Whether the accepted attempt left a clean commit ahead of `the native claim base`.
     pub committed: bool,
     /// Whether the declared acceptance passed.
     pub accepted: bool,
@@ -1296,11 +1367,10 @@ pub fn run_task<R: CommandRunner>(
     runner: &dyn Runner,
     policy: &SusiRunPolicy<'_>,
 ) -> EaiResult<SusiRunReport> {
-    let worktree = target.start_worktree(&spec.worktree_name)?;
-    // `workflow start` hands back the worktree an earlier run left behind,
-    // branch and all. Code it carries ahead of `origin/main` — a refused
-    // commit, an abandoned edit — would be what the precheck and the first
-    // attempt judge; it is reset away before anything runs here.
+    let worktree =
+        target.start_scoped_worktree(&spec.worktree_name, &spec.scopes, spec.task.as_deref())?;
+    // Verify that the reserved worktree has no prior code changes. Refused
+    // or abandoned candidates remain intact for their owning agent to repair.
     target.reset_reused_worktree(&worktree)?;
     target.sync(&worktree)?;
     // An existing task already has its record on the branch: claim it and keep
@@ -1309,7 +1379,10 @@ pub fn run_task<R: CommandRunner>(
     let (task, base) = match &spec.task {
         Some(existing) => {
             target.claim(&worktree, existing, &spec.scopes)?;
-            (existing.clone(), target.head(&worktree)?)
+            (
+                existing.clone(),
+                target.commit_task_record(&worktree, existing)?,
+            )
         }
         None => {
             let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
@@ -1321,11 +1394,13 @@ pub fn run_task<R: CommandRunner>(
     // The task's definition of done may already hold on the untouched base: a
     // worker ladder on it can only end in an empty commit. Check before spending
     // a model call, and publish the close when it does. "Untouched" is proven,
-    // not assumed: the tree must equal `origin/main` apart from the task
+    // not assumed: the tree must equal `the native claim base` apart from the task
     // record, or the acceptance would judge a reused branch's own commits.
     if spec.precheck
         && !spec.accept.trim().is_empty()
-        && target.code_ahead_of(&worktree, "origin/main")?.is_empty()
+        && target
+            .code_ahead_of(&worktree, &local_claim(&worktree)?.base)?
+            .is_empty()
         && target.accept(&worktree, &task).is_ok()
         && target.git_status(&worktree)?.trim().is_empty()
     {
@@ -1333,8 +1408,7 @@ pub fn run_task<R: CommandRunner>(
         let closed_committed = target.commit_work(&worktree, &task).unwrap_or(false);
         let finished = target.finish(&worktree, &task);
         if finished.is_err() {
-            // The precheck could not publish: the claim must not outlive this
-            // attempt, exactly as when a ladder exhausts its attempts.
+            // The native coordinator retains any unintegrated candidate.
             let _ = target.release(&worktree, &task);
         }
         return Ok(SusiRunReport {
@@ -1477,7 +1551,7 @@ nothing outside the task.",
         // The acceptance command proves the behaviour; the repository's
         // compile-and-lint gate proves the change is publishable. Run it
         // now, while another attempt is still cheap, and hand its output to
-        // the next attempt instead of letting `workflow finish` reject the
+        // the next attempt instead of letting `local workflow integrate` reject the
         // work after the ladder has already stopped.
         let mut gate_failure: Option<String> = None;
         let gate_ok = if attempt_committed && !history_rewritten {
@@ -1598,8 +1672,7 @@ Fix this in the worktree before you finish:\n{message}"
         last_outcome = Some(agent);
     }
     if !accepted {
-        // The worktree stays for diagnosis, but the claim must not outlive the
-        // attempt that could not publish it.
+        // The coordinator retains dirty or unintegrated claims for repair.
         let _ = target.release(&worktree, &task);
     }
     Ok(SusiRunReport {
@@ -1738,7 +1811,7 @@ fn describe_stop(reason: &StopReason) -> String {
     }
 }
 
-/// Publish an accepted run through `workflow finish`.
+/// Publish an accepted run through `local workflow integrate`.
 ///
 /// # Errors
 ///
@@ -1751,11 +1824,13 @@ pub fn land<R: CommandRunner>(
 }
 
 fn task_file(worktree: &Path, id: &str) -> EaiResult<PathBuf> {
+    validate_task_id(id)?;
     let open = worktree
         .join(".agents")
         .join("tasks")
         .join(format!("{id}.json"));
     if open.is_file() {
+        check_task_path(worktree, &open)?;
         return Ok(open);
     }
     let done = worktree
@@ -1764,6 +1839,7 @@ fn task_file(worktree: &Path, id: &str) -> EaiResult<PathBuf> {
         .join("done")
         .join(format!("{id}.json"));
     if done.is_file() {
+        check_task_path(worktree, &done)?;
         return Ok(done);
     }
     Err(EaiError::io(format!(
@@ -1772,25 +1848,12 @@ fn task_file(worktree: &Path, id: &str) -> EaiResult<PathBuf> {
     )))
 }
 
-/// The last `cd <path>` line `workflow start` prints.
+/// The native coordinator prints the absolute worktree path explicitly.
 fn parse_worktree_path(stdout: &str) -> Option<PathBuf> {
     stdout.lines().rev().find_map(|line| {
-        line.strip_prefix("cd ")
+        line.strip_prefix("Worktree: ")
             .map(|path| PathBuf::from(path.trim()))
     })
-}
-
-/// The id from `added T-… — commit …`.
-fn parse_added_task(stdout: &str) -> Option<String> {
-    let marker = "added ";
-    let start = stdout.find(marker)? + marker.len();
-    let id: String = stdout[start..]
-        .chars()
-        .take_while(|character| {
-            character.is_ascii_alphanumeric() || *character == '-' || *character == '_'
-        })
-        .collect();
-    id.starts_with("T-").then_some(id)
 }
 
 #[cfg(test)]
@@ -1798,6 +1861,176 @@ mod tests {
     use super::*;
     use std::collections::VecDeque;
     use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct NativeState {
+        calls: Vec<String>,
+        commits: usize,
+        changed: bool,
+        dirty: bool,
+        acceptance_failure: bool,
+        zero_tests: bool,
+        integration_failure: bool,
+        prior_changes: bool,
+        dropped_tests: bool,
+        rewritten: bool,
+        snapshot: Vec<u8>,
+    }
+    struct NativeRunner {
+        directory: PathBuf,
+        state: std::sync::Arc<Mutex<NativeState>>,
+    }
+    fn native_claim_fixture(directory: &Path, name: &str, scopes: &[String]) {
+        let claims = directory.join(".git/susi-local-workflow/claims");
+        std::fs::create_dir_all(&claims).unwrap();
+        std::fs::create_dir_all(directory.join("target")).unwrap();
+        std::fs::write(
+            claims.join(format!("{name}.claim")),
+            format!(
+                "susi-local-claim-v2\n{name}\n{}\n{}\n{}\n",
+                directory.display(),
+                "a".repeat(40),
+                scopes.join("\n")
+            ),
+        )
+        .unwrap();
+    }
+    fn native_target(directory: &Path) -> SusiTarget<NativeRunner> {
+        SusiTarget {
+            repo: directory.into(),
+            susi_program: "susi".into(),
+            runner: NativeRunner {
+                directory: directory.into(),
+                state: Default::default(),
+            },
+        }
+    }
+    fn task_snapshot(directory: &Path) -> Vec<u8> {
+        let mut paths: Vec<_> = std::fs::read_dir(directory.join(".agents/tasks"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        paths.sort();
+        paths
+            .into_iter()
+            .flat_map(|p| std::fs::read(p).unwrap_or_default())
+            .collect()
+    }
+    impl CommandRunner for NativeRunner {
+        fn run(&self, program: &Path, args: &[String], _cwd: &Path) -> EaiResult<RunOutput> {
+            let mut state = self.state.lock().unwrap();
+            let call = format!("{} {}", program.display(), args.join(" "));
+            state.calls.push(call.clone());
+            if args.first().map(String::as_str) == Some("local") {
+                match args.get(2).map(String::as_str) {
+                    Some("start") => {
+                        let scopes: Vec<_> = args[4..]
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|pair| pair[1].to_ascii_lowercase())
+                            .collect();
+                        native_claim_fixture(&self.directory, &args[3], &scopes);
+                        return Ok(ok(&format!(
+                            "Worktree: {}\nTarget: {}\n",
+                            self.directory.display(),
+                            self.directory.join("target").display()
+                        )));
+                    }
+                    Some("commit") => {
+                        state.commits += 1;
+                        state.dirty = false;
+                        state.snapshot = task_snapshot(&self.directory);
+                    }
+                    Some("integrate") if state.integration_failure => {
+                        return Ok(RunOutput {
+                            status: 1,
+                            stdout: String::new(),
+                            stderr: "candidate verification failed".into(),
+                        })
+                    }
+                    Some("extend" | "integrate" | "release") => {}
+                    _ => panic!("unexpected native operation {call}"),
+                }
+                return Ok(ok("native coordinator verified operation"));
+            }
+            if program == Path::new("git") {
+                if state.changed
+                    && state.dropped_tests
+                    && args.first().map(String::as_str) == Some("show")
+                {
+                    return Ok(ok("#[test]\nfn one() {}\n#[test]\nfn two() {}\n"));
+                }
+                if state.changed && state.rewritten && args.iter().any(|a| a == "--numstat") {
+                    return Ok(ok(
+                        "95\t13764\ttests/gmcp_requirements.rs\n3\t1\tdocs/harness.md\n",
+                    ));
+                }
+                if args.first().map(String::as_str) == Some("rev-parse") {
+                    return Ok(ok(&format!("{:040x}", state.commits + 1)));
+                }
+                if args.first().map(String::as_str) == Some("status") {
+                    return Ok(ok(
+                        if state.dirty || state.snapshot != task_snapshot(&self.directory) {
+                            " M docs/harness.md\n"
+                        } else {
+                            ""
+                        },
+                    ));
+                }
+                if args.first().map(String::as_str) == Some("log") {
+                    return Ok(ok(if state.changed && state.commits > 1 {
+                        "commit accepted edit\n"
+                    } else {
+                        ""
+                    }));
+                }
+                if args.iter().any(|a| a == "diff") && args.iter().any(|a| a == "--name-only") {
+                    return Ok(ok(if state.prior_changes {
+                        "docs/prior.md\n"
+                    } else if state.changed && state.dropped_tests {
+                        "tests/gmcp_requirements.rs\n"
+                    } else {
+                        ""
+                    }));
+                }
+                return Ok(ok(""));
+            }
+            if program == Path::new("cargo") {
+                if args.first().map(String::as_str) == Some("test") {
+                    if state.acceptance_failure {
+                        return Ok(RunOutput {
+                            status: 1,
+                            stdout: String::new(),
+                            stderr: "actual acceptance failure".into(),
+                        });
+                    }
+                    return Ok(ok(if state.zero_tests {
+                        "test result: ok. 0 passed; 0 failed"
+                    } else {
+                        "test result: ok. 1 passed; 0 failed"
+                    }));
+                }
+                return Ok(ok(""));
+            }
+            panic!("unexpected external dependency {call}");
+        }
+    }
+    struct NativeExec {
+        state: std::sync::Arc<Mutex<NativeState>>,
+        outcome: RunOutcome,
+        edits: bool,
+    }
+    impl Runner for NativeExec {
+        fn run(&self, _config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+            let mut state = self.state.lock().unwrap();
+            state.changed = self.edits;
+            state.dirty = self.edits;
+            Ok(self.outcome.clone())
+        }
+    }
 
     type Call = (PathBuf, Vec<String>, PathBuf);
 
@@ -1852,84 +2085,67 @@ mod tests {
     }
 
     #[test]
-    fn start_worktree_reads_the_last_cd_line() {
-        let target = target(vec![ok("fetching…\nworktree: x\ncd E:/src/wt\n")]);
-        let path = target.start_worktree("demo").unwrap();
-        assert_eq!(path, PathBuf::from("E:/src/wt"));
+    fn start_worktree_reads_the_native_worktree_field() {
+        let target = target(vec![ok("Worktree: E:/src/wt\nTarget: E:/src/wt/target\n")]);
+        assert_eq!(
+            target.start_worktree("demo").unwrap(),
+            PathBuf::from("E:/src/wt")
+        );
         let calls = target.runner.calls.lock().unwrap();
         assert_eq!(
             calls[0].1,
-            vec![
-                "workflow".to_string(),
-                "start".to_string(),
-                "demo".to_string()
+            [
+                "local",
+                "workflow",
+                "start",
+                "demo",
+                "--scope",
+                ".agents/tasks/T-LOCAL-DEMO-1.json",
+                "--scope",
+                ".agents/tasks/done/T-LOCAL-DEMO-1.json"
             ]
         );
     }
 
-    /// A mission's worktree gets a target of its own, seeded from the warm
-    /// snapshot; nothing links it to the primary's shared target any more.
+    /// Native creation supplies a private target without invoking a shell seeder.
     #[test]
-    fn start_worktree_seeds_the_new_worktrees_own_target() {
-        let repo = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(repo.path().join("scripts")).unwrap();
-        std::fs::write(repo.path().join("scripts").join("seed-target.sh"), "").unwrap();
-        let target = SusiTarget {
-            repo: repo.path().to_path_buf(),
-            susi_program: PathBuf::from("susi"),
-            runner: FakeRunner::with(vec![ok("cd E:/src/wt\n")]),
-        };
+    fn start_worktree_uses_native_private_target_without_shell_seeding() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
+        std::fs::write(
+            dir.path().join("scripts/seed-target.sh"),
+            "must not execute",
+        )
+        .unwrap();
+        let target = native_target(dir.path());
         target.start_worktree("demo").unwrap();
-        let calls = target.runner.calls.lock().unwrap();
-        assert_eq!(
-            calls.len(),
-            2,
-            "workflow start, then the seeding: {calls:?}"
-        );
-        let (program, args, _) = &calls[1];
-        assert_eq!(program, &posix_shell());
-        // Never a bare `bash`: on Windows that is WSL's, from System32.
-        assert_ne!(program, Path::new("bash"));
-        if cfg!(windows) && program != Path::new("sh") {
-            assert!(program.is_absolute() && program.is_file(), "{program:?}");
-            let lowered = program.to_string_lossy().to_ascii_lowercase();
-            assert!(!lowered.contains("system32"), "{program:?}");
-        }
-        assert!(args[0].ends_with("seed-target.sh"), "{args:?}");
-        assert_eq!(args[1], "E:/src/wt");
-        assert!(
-            !calls
-                .iter()
-                .any(|(_, args, _)| args.iter().any(|a| a.contains("link-shared-target"))),
-            "nothing links the shared target: {calls:?}"
-        );
+        assert!(dir.path().join("target").is_dir());
+        assert!(!target_is_link(dir.path()));
+        let calls = &target.runner.state.lock().unwrap().calls;
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].starts_with("susi local workflow start demo --scope"));
     }
 
     #[test]
     fn add_task_returns_the_id_and_claim_reserves_scopes() {
-        let target = target(vec![ok("added T-AGENT-7 — commit it\n")]);
-        let worktree = PathBuf::from("wt");
-        let id = target.add_task(&worktree, "docs", "cargo test").unwrap();
-        assert_eq!(id, "T-AGENT-7");
+        let dir = tempfile::tempdir().unwrap();
+        let target = native_target(dir.path());
         target
-            .claim(
-                &worktree,
-                &id,
-                &["src/cli".to_string(), "Cargo.toml".to_string()],
-            )
+            .start_scoped_worktree("demo", &["docs".into()], None)
             .unwrap();
-        let calls = target.runner.calls.lock().unwrap();
+        let id = target
+            .add_task(dir.path(), "proof", "cargo test -p susi-harness")
+            .unwrap();
+        assert_eq!(id, "T-LOCAL-DEMO-1");
+        target.claim(dir.path(), &id, &["docs".into()]).unwrap();
+        let record: Value =
+            serde_json::from_slice(&std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(record["owner"], "demo");
+        assert_eq!(record["status"], "claimed");
         assert_eq!(
-            calls[1].1,
-            vec![
-                "tasks".to_string(),
-                "claim".to_string(),
-                "T-AGENT-7".to_string(),
-                "--scope".to_string(),
-                "src/cli".to_string(),
-                "--scope".to_string(),
-                "Cargo.toml".to_string()
-            ]
+            target.acceptance_argv(dir.path(), &id).unwrap(),
+            ["cargo", "test", "-p", "susi-harness"]
         );
     }
 
@@ -1986,6 +2202,154 @@ mod tests {
         assert!(error.to_string().contains("no such task"));
     }
 
+    #[test]
+    fn failed_native_integration_retains_candidate_and_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = native_target(dir.path());
+        target.start_worktree("demo").unwrap();
+        let id = target.add_task(dir.path(), "proof", "cargo test").unwrap();
+        target.runner.state.lock().unwrap().integration_failure = true;
+        assert!(target
+            .finish(dir.path(), &id)
+            .unwrap_err()
+            .to_string()
+            .contains("candidate retained"));
+        let state = target.runner.state.lock().unwrap();
+        assert!(state
+            .calls
+            .iter()
+            .any(|call| call == "susi local workflow integrate demo"));
+        assert!(!state
+            .calls
+            .iter()
+            .any(|call| call.contains("workflow release")));
+        assert!(local_claim(dir.path()).is_ok());
+        let record: Value =
+            serde_json::from_slice(&std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(record["integration"], "pending_native_receipt");
+    }
+
+    #[test]
+    fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
+        let candidate = tempfile::tempdir().unwrap();
+        let primary = tempfile::tempdir().unwrap();
+        let target = native_target(candidate.path());
+        target
+            .start_scoped_worktree("demo", &["docs/first.md".into()], None)
+            .unwrap();
+        let id = target
+            .add_task(candidate.path(), "first", "cargo test")
+            .unwrap();
+        let open = task_file(candidate.path(), &id).unwrap();
+        let original = std::fs::read(&open).unwrap();
+        let dependent = serde_json::json!({"id":"T-DEPENDENT-1","title":"dependent","deps":[id],"scopes":["docs/second.md"],"accept":{"cmd":["cargo","test"]}});
+        for repo in [primary.path(), candidate.path()] {
+            std::fs::create_dir_all(repo.join(".agents/tasks/done")).unwrap();
+            std::fs::write(
+                repo.join(".agents/tasks/T-DEPENDENT-1.json"),
+                serde_json::to_vec(&dependent).unwrap(),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            primary.path().join(format!(".agents/tasks/{id}.json")),
+            &original,
+        )
+        .unwrap();
+        let plan = |repo: &Path| {
+            crate::queue::plan_batch(repo, "contract", 2, &["worker".into()], None, &[]).unwrap()
+        };
+        assert_eq!(
+            plan(primary.path()).tasks[0].task.as_deref(),
+            Some(id.as_str())
+        );
+        target.runner.state.lock().unwrap().integration_failure = true;
+        assert!(target.finish(candidate.path(), &id).is_err());
+        assert!(!open.exists());
+        assert!(candidate
+            .path()
+            .join(format!(".agents/tasks/done/{id}.json"))
+            .is_file());
+        // A second close validates the same artifact and does not overwrite it.
+        target.close(candidate.path(), &id).unwrap();
+        let candidate_plan = plan(candidate.path());
+        assert_eq!(candidate_plan.tasks.len(), 1);
+        assert_eq!(
+            candidate_plan.tasks[0].task.as_deref(),
+            Some("T-DEPENDENT-1")
+        );
+        // Failed native integration has never published that artifact to the
+        // primary queue, so its dependency remains blocked there.
+        let primary_plan = plan(primary.path());
+        assert_eq!(primary_plan.tasks.len(), 1);
+        assert_eq!(primary_plan.tasks[0].task.as_deref(), Some(id.as_str()));
+        assert_eq!(
+            std::fs::read(primary.path().join(format!(".agents/tasks/{id}.json"))).unwrap(),
+            original
+        );
+        assert!(!primary
+            .path()
+            .join(format!(".agents/tasks/done/{id}.json"))
+            .exists());
+    }
+
+    #[test]
+    fn task_admission_preserves_existing_records_and_requires_native_ownership() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = native_target(dir.path());
+        assert!(target
+            .add_task(dir.path(), "no owner", "cargo test")
+            .is_err());
+        target.start_worktree("demo").unwrap();
+        let id = target
+            .add_task(dir.path(), "original", "cargo test")
+            .unwrap();
+        let path = task_file(dir.path(), &id).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        assert!(target
+            .add_task(dir.path(), "overwrite", "cargo test")
+            .is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(task_file(dir.path(), "T-../../escape").is_err());
+    }
+
+    #[test]
+    fn acceptance_preserves_quoted_arguments_and_rejects_shell_expressions() {
+        assert_eq!(
+            parse_acceptance(r#"cargo test "a b" --manifest-path "C:\work tree\Cargo.toml""#)
+                .unwrap(),
+            [
+                "cargo",
+                "test",
+                "a b",
+                "--manifest-path",
+                r"C:\work tree\Cargo.toml"
+            ]
+        );
+        for value in [
+            "cargo test && cargo run",
+            "cargo test; next",
+            "cargo test | tee",
+            "cargo test `echo x`",
+            "cargo test \"open",
+        ] {
+            assert!(parse_acceptance(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn linked_task_directory_is_not_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let target = native_target(dir.path());
+        target.start_worktree("demo").unwrap();
+        std::fs::create_dir_all(dir.path().join(".agents")).unwrap();
+        link_dir(elsewhere.path(), &dir.path().join(".agents/tasks"));
+        assert!(target.add_task(dir.path(), "unsafe", "cargo test").is_err());
+        assert_eq!(std::fs::read_dir(elsewhere.path()).unwrap().count(), 0);
+    }
+
     struct FakeExec {
         outcome: RunOutcome,
         prompts: Mutex<Vec<String>>,
@@ -2001,232 +2365,130 @@ mod tests {
     #[test]
     fn a_prepared_run_claims_commits_accepts_and_reports() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-AGENT-1.json"),
-            r#"{"accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-1 — commit\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("M docs/harness.md\n"),
-            ok(""),
-            ok(""),
-            ok("abc123 docs\n"),
-            ok(""),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Succeeded {
                 final_text: "done".into(),
                 reported_cost_usd: None,
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: true,
         };
-        let spec = SusiTaskSpec {
-            worktree_name: "smoke".into(),
-            title: "docs".into(),
-            accept: "cargo test -p susi-harness".into(),
-            scopes: vec!["docs/harness.md".into()],
-            prompt: "write docs".into(),
-            gateway_url: "http://127.0.0.1:1".into(),
-            model: "deepseek-flash".into(),
-            alternates: Vec::new(),
-            timeout: Duration::from_secs(5),
-            state_dir: dir.path().join("state"),
-            task: None,
-            precheck: false,
-            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
-        };
-        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
-        assert_eq!(report.task, "T-AGENT-1");
-        assert!(report.committed);
-        assert!(report.accepted);
+        let report = run_task(
+            &target,
+            &spec_for(dir.path(), None, false),
+            &exec,
+            &SusiRunPolicy::unmetered(),
+        )
+        .unwrap();
+        assert!(report.accepted && report.committed);
+        assert_eq!(report.task, "T-LOCAL-REUSED-1");
         assert_eq!(report.attempts.len(), 1);
-        let prompts = exec.prompts.lock().unwrap();
-        assert!(prompts[0].contains("Task id: T-AGENT-1"));
-        assert!(prompts[0].contains("Do not run any git command"));
-        assert!(prompts[0].contains("before you have read more than ten files"));
-        assert!(prompts[0].contains("write docs"));
+        land(&target, &report).unwrap();
+        let calls = &target.runner.state.lock().unwrap().calls;
+        assert!(calls
+            .iter()
+            .any(|s| s == "susi local workflow integrate reused"));
+        assert!(calls
+            .iter()
+            .any(|s| s == "susi local workflow release reused"));
+        assert!(!calls.iter().any(|s| s.contains("origin")
+            || s.contains(".sh")
+            || s.contains("susi tasks")
+            || s.contains("susi workflow")));
     }
 
     #[test]
     fn an_existing_queue_task_is_claimed_not_minted() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::create_dir_all(dir.path().join(".agents/tasks")).unwrap();
         std::fs::write(
-            tasks.join("T-EXIST-1.json"),
-            r#"{"id":"T-EXIST-1","accept":"cargo test -p susi-harness"}"#,
+            dir.path().join(".agents/tasks/T-EXIST-1.json"),
+            r#"{"id":"T-EXIST-1","accept":{"cmd":["cargo","test"]}}"#,
         )
         .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("M docs/harness.md\n"),
-            ok(""),
-            ok(""),
-            ok("abc123 docs\n"),
-            ok(""),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Succeeded {
                 final_text: "done".into(),
                 reported_cost_usd: None,
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: true,
         };
-        let spec = SusiTaskSpec {
-            worktree_name: "queued".into(),
-            title: "existing".into(),
-            accept: "cargo test -p susi-harness".into(),
-            scopes: vec!["docs/harness.md".into()],
-            prompt: "do the queued task".into(),
-            gateway_url: "http://127.0.0.1:1".into(),
-            model: "deepseek-flash".into(),
-            alternates: Vec::new(),
-            timeout: Duration::from_secs(5),
-            state_dir: dir.path().join("state"),
-            task: Some("T-EXIST-1".into()),
-            precheck: false,
-            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
-        };
-        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
+        let report = run_task(
+            &target,
+            &spec_for(dir.path(), Some("T-EXIST-1"), false),
+            &exec,
+            &SusiRunPolicy::unmetered(),
+        )
+        .unwrap();
         assert_eq!(report.task, "T-EXIST-1");
-        assert!(report.committed);
         assert!(report.accepted);
-        let calls: Vec<String> = target
+        assert!(!dir
+            .path()
+            .join(".agents/tasks/T-LOCAL-REUSED-1.json")
+            .exists());
+        assert!(target
             .runner
-            .calls
+            .state
             .lock()
             .unwrap()
+            .calls
             .iter()
-            .map(|call| call.1.join(" "))
-            .collect();
-        assert!(calls
-            .iter()
-            .any(|call| call.starts_with("tasks claim T-EXIST-1")));
-        assert!(!calls.iter().any(|call| call.starts_with("tasks add")));
+            .any(|s| s.contains("Record T-EXIST-1")));
     }
 
     #[test]
     fn an_agent_failure_is_not_accepted() {
         let dir = tempfile::tempdir().unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-2 — commit\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            ok(""),
-            ok(""),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Failed {
-                message: "nope".into(),
+                message: "provider failed".into(),
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: false,
         };
-        let spec = SusiTaskSpec {
-            worktree_name: "smoke".into(),
-            title: "docs".into(),
-            accept: "cargo test -p susi-harness".into(),
-            scopes: vec!["docs/harness.md".into()],
-            prompt: "write docs".into(),
-            gateway_url: "http://127.0.0.1:1".into(),
-            model: "deepseek-flash".into(),
-            alternates: Vec::new(),
-            timeout: Duration::from_secs(5),
-            state_dir: dir.path().join("state"),
-            task: None,
-            precheck: false,
-            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
-        };
-        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
-        assert_eq!(report.task, "T-AGENT-2");
-        assert!(!report.committed);
+        let report = run_task(
+            &target,
+            &spec_for(dir.path(), None, false),
+            &exec,
+            &SusiRunPolicy::unmetered(),
+        )
+        .unwrap();
         assert!(!report.accepted);
-        assert_eq!(report.attempts.len(), 1);
+        assert!(!target
+            .runner
+            .state
+            .lock()
+            .unwrap()
+            .calls
+            .iter()
+            .any(|s| s.contains("workflow integrate")));
     }
 
     #[test]
     fn a_record_only_commit_is_not_work() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-AGENT-3.json"),
-            r#"{"accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-3 — commit\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Succeeded {
-                final_text: "done".into(),
+                final_text: "no edits".into(),
                 reported_cost_usd: None,
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: false,
         };
-        let spec = SusiTaskSpec {
-            worktree_name: "smoke".into(),
-            title: "docs".into(),
-            accept: "cargo test -p susi-harness".into(),
-            scopes: vec!["docs/harness.md".into()],
-            prompt: "write docs".into(),
-            gateway_url: "http://127.0.0.1:1".into(),
-            model: "deepseek-flash".into(),
-            alternates: Vec::new(),
-            timeout: Duration::from_secs(5),
-            state_dir: dir.path().join("state"),
-            task: None,
-            precheck: false,
-            net_deletion_allowance: DEFAULT_NET_DELETION_ALLOWANCE,
-        };
-        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
-        assert!(!report.committed);
+        let report = run_task(
+            &target,
+            &spec_for(dir.path(), None, false),
+            &exec,
+            &SusiRunPolicy::unmetered(),
+        )
+        .unwrap();
         assert!(!report.accepted);
-        let calls = target.runner.calls.lock().unwrap();
-        assert!(
-            calls
-                .iter()
-                .any(|(_, args, _)| args.iter().any(|a| a == "release")),
-            "a failed mission must release the claim: {calls:?}"
-        );
+        assert_eq!(target.runner.state.lock().unwrap().commits, 1);
     }
 
     #[test]
@@ -2236,26 +2498,21 @@ mod tests {
     }
     #[test]
     fn commit_formats_before_it_stages() {
-        // cargo fmt, git add, git status (non-empty), git commit
-        let target = target(vec![ok(""), ok(""), ok("M  src/lib.rs\n"), ok("")]);
-        assert!(target.commit_work(Path::new("wt"), "T-AGENT-9").unwrap());
-        let calls = target.runner.calls.lock().unwrap();
-        let fmt_at = calls
+        let dir = tempfile::tempdir().unwrap();
+        let target = native_target(dir.path());
+        target.start_worktree("demo").unwrap();
+        target.add_task(dir.path(), "record", "cargo test").unwrap();
+        assert!(target.commit_work(dir.path(), "T-LOCAL-DEMO-1").unwrap());
+        let calls = &target.runner.state.lock().unwrap().calls;
+        let fmt = calls.iter().position(|s| s == "cargo fmt --all").unwrap();
+        let commit = calls
             .iter()
-            .position(|(program, args, _)| {
-                program == Path::new("cargo")
-                    && args.len() == 2
-                    && args[0] == "fmt"
-                    && args[1] == "--all"
-            })
-            .expect("cargo fmt --all must run before committing");
-        let add_at = calls
+            .position(|s| s.starts_with("susi local workflow commit demo"))
+            .unwrap();
+        assert!(fmt < commit);
+        assert!(!calls
             .iter()
-            .position(|(program, args, _)| {
-                program == Path::new("git") && args.first().map(String::as_str) == Some("add")
-            })
-            .expect("git add must run");
-        assert!(fmt_at < add_at, "formatting must precede staging");
+            .any(|s| s.starts_with("git commit") || s.starts_with("git add")));
     }
     #[test]
     fn gate_lints_the_packages_the_scopes_touch() {
@@ -2312,139 +2569,40 @@ mod tests {
         std::os::unix::fs::symlink(to, link).unwrap();
     }
 
-    /// For one release a mission worktree may still build in the clone's old
-    /// shared target: an older `workflow start` linked `target/`, and no
-    /// seeder was there to replace the link. There, as v0.21.23 did, the gate
-    /// drops the touched packages' builds first, so a sibling's build of a
-    /// crate cannot stand in for this worktree's; in a target of its own it
-    /// cleans nothing (the existing gate test pins that).
+    /// A shared target is refused without deleting another agent's build output.
     #[test]
-    fn gate_cleans_the_touched_packages_first_only_in_a_linked_target() {
+    fn gate_refuses_shared_target_without_touching_other_agent_output() {
         let dir = tempfile::tempdir().unwrap();
-        let shared = dir.path().join("shared-target");
-        std::fs::create_dir_all(&shared).unwrap();
-        std::fs::write(shared.join("sentinel"), "another worktree's build").unwrap();
-        let worktree = dir.path().join("wt");
-        std::fs::create_dir_all(&worktree).unwrap();
-        link_dir(&shared, &worktree.join("target"));
-        let linked = target(vec![]);
-        linked
-            .gate(
-                &worktree,
-                &[
-                    "crates/susi-gmcp/src/lib.rs".to_string(),
-                    "src/main.rs".to_string(),
-                ],
-            )
-            .unwrap();
-        let calls = linked.runner.calls.lock().unwrap();
-        let cargo: Vec<String> = calls
-            .iter()
-            .filter(|(program, _, _)| program == Path::new("cargo"))
-            .map(|(_, args, _)| args.join(" "))
-            .collect();
-        assert_eq!(cargo.len(), 3, "{cargo:?}");
-        assert_eq!(cargo[0], "clean -p susi-gmcp");
-        assert_eq!(cargo[1], "clean -p susi");
-        assert!(
-            cargo[2].starts_with("clippy -p susi-gmcp -p susi "),
-            "{cargo:?}"
+        let shared = tempfile::tempdir().unwrap();
+        std::fs::write(shared.path().join("keep"), "other agent output").unwrap();
+        link_dir(shared.path(), &dir.path().join("target"));
+        let target = target(Vec::new());
+        assert!(target
+            .gate(dir.path(), &["crates/susi-core".into()])
+            .is_err());
+        assert!(target.runner.calls.lock().unwrap().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(shared.path().join("keep")).unwrap(),
+            "other agent output"
         );
-        assert!(calls.iter().all(|(_, _, cwd)| cwd == &worktree));
-        drop(calls);
-        // A target of the worktree's own: nothing is cleaned.
-        let own = dir.path().join("own");
-        std::fs::create_dir_all(own.join("target")).unwrap();
-        let separate = target(vec![]);
-        separate
-            .gate(&own, &["crates/susi-gmcp/src/lib.rs".to_string()])
-            .unwrap();
-        let calls = separate.runner.calls.lock().unwrap();
-        assert_eq!(calls.len(), 1, "{calls:?}");
-        assert_eq!(calls[0].1[0], "clippy");
     }
 
-    /// A worktree of this clone, `git worktree add`'s way: `<path>/.git`
-    /// names `<common>/worktrees/<id>`, whose `gitdir` names `<path>/.git`.
-    fn fake_worktree(common: &Path, path: &Path, id: &str) {
-        let admin = common.join("worktrees").join(id);
-        std::fs::create_dir_all(&admin).unwrap();
-        std::fs::create_dir_all(path).unwrap();
-        let slashes = |p: &Path| p.to_string_lossy().replace('\\', "/");
-        std::fs::write(path.join(".git"), format!("gitdir: {}\n", slashes(&admin))).unwrap();
-        std::fs::write(
-            admin.join("gitdir"),
-            format!("{}\n", slashes(&path.join(".git"))),
-        )
-        .unwrap();
-        std::fs::write(path.join("work"), "a killed mission's").unwrap();
-    }
-
-    /// After `workflow start` refuses a mission's name, the leftover at that
-    /// name is removed by hand only when it is a worktree of this clone:
-    /// registered, prunable (its `.git` gone, its entry still listed), or
-    /// one whose entry was pruned already. Anything else that sits there is
-    /// left exactly as it is: a cargo target snapshot or its build clone (a
-    /// clone of its own), another clone's worktree, a user's directory.
+    /// Native ownership refusal preserves existing directories and files.
     #[test]
-    fn a_leftover_is_removed_only_when_it_is_a_worktree_of_this_clone() {
+    fn native_start_refusal_preserves_existing_work() {
         let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path().join("susi");
-        let common = repo.join(".git");
-        std::fs::create_dir_all(&common).unwrap();
-        let target = SusiTarget {
-            repo: repo.clone(),
-            susi_program: PathBuf::from("susi"),
-            runner: FakeRunner::with(vec![]),
-        };
-        // Worktrees of this clone: registered; prunable (its `.git` file
-        // gone); registration pruned (only its `.git` file says whose it is).
-        let registered = dir.path().join("susi-demo");
-        fake_worktree(&common, &registered, "susi-demo");
-        let prunable = dir.path().join("susi-harness-demo");
-        fake_worktree(&common, &prunable, "susi-harness-demo");
-        std::fs::remove_file(prunable.join(".git")).unwrap();
-        target.clear_leftover("demo");
-        assert!(!registered.exists(), "a worktree of this clone is removed");
-        assert!(!prunable.exists(), "a prunable worktree is removed");
-        let pruned = dir.path().join("susi-gone");
-        fake_worktree(&common, &pruned, "susi-gone");
-        std::fs::remove_dir_all(common.join("worktrees").join("susi-gone")).unwrap();
-        target.clear_leftover("gone");
-        assert!(
-            !pruned.exists(),
-            "an unlisted worktree of this clone is removed"
+        std::fs::write(dir.path().join("keep.txt"), "preserve prior work").unwrap();
+        let target = target(vec![RunOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "destination already exists; refusing to reuse it".into(),
+        }]);
+        assert!(target.start_worktree("demo").is_err());
+        assert_eq!(target.runner.calls.lock().unwrap().len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+            "preserve prior work"
         );
-
-        // Not this clone's worktrees: a snapshot (no `.git`), a build clone
-        // (a `.git` directory of its own), another clone's worktree.
-        let snapshot = dir.path().join("susi-target-seed");
-        std::fs::create_dir_all(snapshot.join("debug").join(".fingerprint")).unwrap();
-        std::fs::write(snapshot.join(".susi-seed"), "feedface 1\n").unwrap();
-        let build_clone = dir.path().join("susi-harness-target-seed");
-        std::fs::create_dir_all(build_clone.join(".git")).unwrap();
-        std::fs::write(build_clone.join(".git").join("susi-seed-src"), "x").unwrap();
-        target.clear_leftover("target-seed");
-        assert!(snapshot.join(".susi-seed").is_file(), "the snapshot stays");
-        assert!(build_clone.join(".git").join("susi-seed-src").is_file());
-        let other_common = dir.path().join("other").join(".git");
-        std::fs::create_dir_all(&other_common).unwrap();
-        let theirs = dir.path().join("susi-theirs");
-        fake_worktree(&other_common, &theirs, "susi-theirs");
-        let users = dir.path().join("susi-harness-theirs");
-        std::fs::create_dir_all(&users).unwrap();
-        std::fs::write(users.join("notes"), "mine").unwrap();
-        target.clear_leftover("theirs");
-        assert!(
-            theirs.join("work").is_file(),
-            "another clone's worktree stays"
-        );
-        assert!(users.join("notes").is_file(), "a user's directory stays");
-        // Git was still asked to remove each name, and to prune, as before.
-        let calls = target.runner.calls.lock().unwrap();
-        assert!(calls
-            .iter()
-            .any(|(_, args, _)| args.join(" ").contains("worktree remove --force")));
     }
 
     #[test]
@@ -2454,32 +2612,18 @@ mod tests {
         assert_eq!(status, " M src/lib.rs\n");
     }
     #[test]
-    fn a_leftover_worktree_is_cleared_and_start_retried_once() {
-        let target = target(vec![
-            RunOutput {
-                status: 1,
-                stdout: String::new(),
-                stderr: "refusing to reuse an unrelated checkout".to_string(),
-            },
-            ok(""),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("cd E:/src/wt\n"),
-            ok(""),
-        ]);
-        let path = target.start_worktree("harness-demo").unwrap();
-        assert_eq!(path, PathBuf::from("E:/src/wt"));
-        let calls = target.runner.calls.lock().unwrap();
-        let args: Vec<String> = calls.iter().map(|(_, a, _)| a.join(" ")).collect();
-        assert!(
-            args.iter().any(|a| a.contains("worktree remove --force")),
-            "the stale worktree must be removed: {args:?}"
-        );
-        assert!(
-            args.iter().any(|a| a.contains("branch -D harness-demo")),
-            "the stale branch must be deleted: {args:?}"
+    fn native_start_refusal_is_not_retried_destructively() {
+        let target = target(vec![RunOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "agent demo already has a claim".into(),
+        }]);
+        let error = target.start_worktree("demo").unwrap_err().to_string();
+        assert!(error.contains("preserved"));
+        assert_eq!(
+            target.runner.calls.lock().unwrap().len(),
+            1,
+            "ownership refusal cannot trigger destructive retry"
         );
     }
     #[test]
@@ -2573,12 +2717,7 @@ mod tests {
             },
             prompts: Mutex::new(Vec::new()),
         };
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-5 — commit\n"),
-        ]);
+        let target = native_target(dir.path());
         let policy = SusiRunPolicy {
             ledger_path: &ledger,
             mission: "m",
@@ -2614,12 +2753,7 @@ mod tests {
             },
             prompts: Mutex::new(Vec::new()),
         };
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-6 — commit\n"),
-        ]);
+        let target = native_target(dir.path());
         let policy = SusiRunPolicy {
             ledger_path: &ledger,
             mission: "m",
@@ -2685,87 +2819,35 @@ mod tests {
         );
     }
 
-    /// A failed attempt leaves its worker's edits in the harness's own
-    /// worktree, and `workflow sync` refuses a dirty tree. The next attempt
-    /// starts from origin/main anyway, so those edits are discarded and the
-    /// sync retried, instead of the task failing before the worker runs.
+    /// An ancestry check performs no fetch, cleanup, or retry reset.
     #[test]
-    fn sync_discards_a_failed_attempts_edits_and_retries() {
-        let runner = FakeRunner::with(vec![
-            RunOutput {
-                status: 1,
-                stdout: String::new(),
-                stderr: "Commit or stash your work before syncing.".to_string(),
-            },
-            RunOutput {
-                status: 0,
-                stdout: String::new(),
-                stderr: String::new(),
-            },
-            RunOutput {
-                status: 0,
-                stdout: String::new(),
-                stderr: String::new(),
-            },
-            RunOutput {
-                status: 0,
-                stdout: String::new(),
-                stderr: String::new(),
-            },
-        ]);
-        let target = SusiTarget {
-            repo: PathBuf::from("/repo"),
-            susi_program: PathBuf::from("/bin/susi"),
-            runner,
-        };
-        target
-            .sync(Path::new("/worktree"))
-            .expect("sync retries after clearing the leftovers");
-        let calls = target.runner.calls.lock().unwrap();
-        let argv: Vec<Vec<String>> = calls.iter().map(|(_, args, _)| args.clone()).collect();
-        assert_eq!(
-            argv[1],
-            vec![
-                "reset".to_string(),
-                "--hard".to_string(),
-                "HEAD".to_string()
-            ],
-            "the leftovers are discarded first: {argv:?}"
-        );
-        assert_eq!(
-            argv[2],
-            vec!["clean".to_string(), "-fd".to_string()],
-            "and removed, untracked files included: {argv:?}"
-        );
-        assert_eq!(
-            argv[3],
-            vec!["workflow".to_string(), "sync".to_string()],
-            "then the sync is retried once: {argv:?}"
-        );
+    fn sync_checks_local_ancestry_without_discarding_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        native_claim_fixture(dir.path(), "demo", &["docs".into()]);
+        let target = target(vec![ok("")]);
+        target.sync(dir.path()).unwrap();
+        let calls = argv_of(&target);
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].starts_with("git merge-base --is-ancestor "));
+        assert!(!calls[0].contains("origin"));
     }
 
     /// Any other refusal is the caller's to see: retrying would hide it.
     #[test]
     fn sync_reports_a_refusal_that_is_not_leftovers() {
-        let runner = FakeRunner::with(vec![RunOutput {
+        let dir = tempfile::tempdir().unwrap();
+        native_claim_fixture(dir.path(), "demo", &["docs".into()]);
+        let target = target(vec![RunOutput {
             status: 1,
             stdout: String::new(),
-            stderr: "this worktree is behind origin/main and cannot merge".to_string(),
+            stderr: String::new(),
         }]);
-        let target = SusiTarget {
-            repo: PathBuf::from("/repo"),
-            susi_program: PathBuf::from("/bin/susi"),
-            runner,
-        };
-        let error = target
-            .sync(Path::new("/worktree"))
-            .expect_err("a real failure is not retried");
-        assert!(format!("{error}").contains("cannot merge"), "{error}");
-        assert_eq!(
-            target.runner.calls.lock().unwrap().len(),
-            1,
-            "no reset is attempted for a failure that is not leftovers"
-        );
+        assert!(target
+            .sync(dir.path())
+            .unwrap_err()
+            .to_string()
+            .contains("preserve"));
+        assert_eq!(target.runner.calls.lock().unwrap().len(), 1);
     }
     fn argv_of(target: &SusiTarget<FakeRunner>) -> Vec<String> {
         target
@@ -2817,183 +2899,104 @@ mod tests {
     /// run left behind, whose branch carried that worker's commit replacing
     /// the acceptance file. The precheck ran there, saw the lone test pass and
     /// closed the task with zero model calls. The branch is put back on
-    /// `origin/main` before the sync, the claim and anything that judges it.
+    /// `the native claim base` before the sync, the claim and anything that judges it.
     #[test]
-    fn a_reused_worktree_ahead_with_code_is_reset_before_the_claim() {
+    fn reused_worktree_ahead_with_code_is_preserved_and_refused() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-EXIST-2.json"),
-            r#"{"id":"T-EXIST-2","accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok("tests/gmcp_requirements.rs\n.agents/tasks/T-EXIST-2.json\n"),
-        ]);
-        let exec = FakeExec {
-            outcome: RunOutcome::Failed {
-                message: "nope".into(),
-            },
-            prompts: Mutex::new(Vec::new()),
-        };
-        let report = run_task(
-            &target,
-            &spec_for(dir.path(), Some("T-EXIST-2"), false),
-            &exec,
-            &SusiRunPolicy::unmetered(),
-        )
-        .unwrap();
-        assert!(!report.accepted);
-        let calls = argv_of(&target);
-        let reset = calls
-            .iter()
-            .position(|call| call == "git reset --hard origin/main")
-            .expect("the reused branch is reset to origin/main: {calls:?}");
-        assert_eq!(
-            calls[reset + 1],
-            "git clean -fd",
-            "and its untracked leftovers removed: {calls:?}"
-        );
-        let sync = calls
-            .iter()
-            .position(|call| call == "susi workflow sync")
+        let target = native_target(dir.path());
+        target.runner.state.lock().unwrap().prior_changes = true;
+        target
+            .start_scoped_worktree("demo", &["docs".into()], None)
             .unwrap();
-        let claim = calls
+        assert!(target.reset_reused_worktree(dir.path()).is_err());
+        assert!(!target
+            .runner
+            .state
+            .lock()
+            .unwrap()
+            .calls
             .iter()
-            .position(|call| call.starts_with("susi tasks claim T-EXIST-2"))
-            .unwrap();
-        assert!(reset < sync && sync < claim, "{calls:?}");
+            .any(|s| s.contains("reset") || s.contains("clean")));
     }
 
     /// A record-only branch is left alone: nothing to reset, the sync runs
     /// first as before.
     #[test]
-    fn a_worktree_that_matches_origin_main_is_not_reset() {
+    fn worktree_matching_native_base_is_not_reset() {
         let dir = tempfile::tempdir().unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(".agents/tasks/T-AGENT-8.json\n"),
-            ok(""),
-            ok("added T-AGENT-8 — commit\n"),
-        ]);
-        let exec = FakeExec {
-            outcome: RunOutcome::Failed {
-                message: "nope".into(),
-            },
-            prompts: Mutex::new(Vec::new()),
-        };
-        let _ = run_task(
-            &target,
-            &spec_for(dir.path(), None, false),
-            &exec,
-            &SusiRunPolicy::unmetered(),
-        )
-        .unwrap();
-        let calls = argv_of(&target);
-        assert!(
-            !calls.iter().any(|call| call.starts_with("git reset")),
-            "{calls:?}"
-        );
-        assert_eq!(calls[2], "susi workflow sync", "{calls:?}");
+        let target = native_target(dir.path());
+        target.start_worktree("demo").unwrap();
+        assert!(target.reset_reused_worktree(dir.path()).unwrap().is_empty());
+        let calls = &target.runner.state.lock().unwrap().calls;
+        assert!(calls.iter().any(|s| s.contains(&"a".repeat(40))));
+        assert!(!calls
+            .iter()
+            .any(|s| s.contains("the native claim base") || s.contains("reset")));
     }
 
     /// Even with the reset in place, the precheck itself proves the tree it
-    /// judges equals origin/main plus the record; a tree with code ahead is
+    /// judges equals the native claim base plus the record; a tree with code ahead is
     /// never closed as "already passes on the untouched base".
     #[test]
-    fn the_precheck_closes_nothing_on_a_tree_that_is_ahead_of_origin_main() {
+    fn precheck_refuses_code_ahead_of_native_base() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-EXIST-3.json"),
-            r#"{"id":"T-EXIST-3","accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            // The precheck's own look at the tree: code ahead of origin/main.
-            ok("crates/susi-harness/src/lib.rs\n"),
-        ]);
-        let exec = FakeExec {
-            outcome: RunOutcome::Failed {
-                message: "nope".into(),
+        let target = native_target(dir.path());
+        target.runner.state.lock().unwrap().prior_changes = true;
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
+            outcome: RunOutcome::Succeeded {
+                final_text: "unused".into(),
+                reported_cost_usd: None,
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: false,
         };
-        let report = run_task(
+        assert!(run_task(
             &target,
-            &spec_for(dir.path(), Some("T-EXIST-3"), true),
+            &spec_for(dir.path(), None, true),
             &exec,
-            &SusiRunPolicy::unmetered(),
+            &SusiRunPolicy::unmetered()
         )
-        .unwrap();
-        assert_ne!(report.model, "precheck");
-        assert!(!report.accepted);
-        let calls = argv_of(&target);
-        assert!(
-            !calls
-                .iter()
-                .any(|call| call.starts_with("susi tasks close")),
-            "{calls:?}"
-        );
-        assert_eq!(
-            exec.prompts.lock().unwrap().len(),
-            1,
-            "the ladder ran instead of the precheck closing the task"
-        );
+        .is_err());
+        assert!(!target
+            .runner
+            .state
+            .lock()
+            .unwrap()
+            .calls
+            .iter()
+            .any(|s| s.contains("integrate")));
     }
 
     /// The precheck still closes a task whose acceptance passes on a tree that
-    /// equals origin/main plus the record.
+    /// equals the native claim base plus the record.
     #[test]
     fn the_precheck_closes_a_task_that_passes_on_the_untouched_base() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-EXIST-4.json"),
-            r#"{"id":"T-EXIST-4","accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            ok(".agents/tasks/T-EXIST-4.json\n"),
-            ok("test result: ok. 3 passed; 0 failed\n"),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Failed {
                 message: "must not run".into(),
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: false,
         };
         let report = run_task(
             &target,
-            &spec_for(dir.path(), Some("T-EXIST-4"), true),
+            &spec_for(dir.path(), None, true),
             &exec,
             &SusiRunPolicy::unmetered(),
         )
         .unwrap();
-        assert_eq!(report.model, "precheck");
         assert!(report.accepted);
-        assert!(exec.prompts.lock().unwrap().is_empty());
-        let calls = argv_of(&target);
-        assert!(
-            calls
-                .iter()
-                .any(|call| call == "susi tasks close T-EXIST-4"),
-            "{calls:?}"
-        );
+        assert_eq!(report.model, "precheck");
+        assert!(target
+            .runner
+            .state
+            .lock()
+            .unwrap()
+            .calls
+            .iter()
+            .any(|s| s == "susi local workflow integrate reused"));
     }
 
     /// The worker replaced the acceptance file, keeping its one new test and
@@ -3004,40 +3007,21 @@ mod tests {
     #[test]
     fn an_attempt_that_deletes_tests_is_rejected_before_it_is_committed() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-AGENT-9.json"),
-            r#"{"accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
         std::fs::create_dir_all(dir.path().join("tests")).unwrap();
         std::fs::write(
-            dir.path().join("tests").join("gmcp_requirements.rs"),
-            "#[test]\nfn gmcp_req_new() {}\n",
+            dir.path().join("tests/gmcp_requirements.rs"),
+            "#[test]\nfn one() {}\n",
         )
         .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-9 — commit\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            // merge-base: the base is still an ancestor.
-            ok(""),
-            // The changed .rs files since the base, then the file at the base.
-            ok("tests/gmcp_requirements.rs\n"),
-            ok("#[test]\nfn gmcp_req_1() {}\n#[tokio::test]\nasync fn gmcp_req_2() {}\n"),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        target.runner.state.lock().unwrap().dropped_tests = true;
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Succeeded {
                 final_text: "done".into(),
                 reported_cost_usd: None,
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: true,
         };
         let report = run_task(
             &target,
@@ -3046,51 +3030,16 @@ mod tests {
             &SusiRunPolicy::unmetered(),
         )
         .unwrap();
-        assert!(!report.committed);
-        assert!(!report.accepted);
-        assert_eq!(report.attempts.len(), 1);
-        assert!(!report.attempts[0].committed);
-        assert!(!report.attempts[0].accepted);
-        assert!(
-            report.attempts[0].outcome.contains("deletes tests"),
-            "{}",
-            report.attempts[0].outcome
-        );
-        let RunOutcome::Failed { message } = &report.agent else {
-            panic!("a deletion is a failure, got {:?}", report.agent);
-        };
-        assert!(
-            message.contains("2 test(s) in the changed files at the base, 1 now"),
-            "{message}"
-        );
-        assert!(message.contains("tests/gmcp_requirements.rs"), "{message}");
-        let calls = argv_of(&target);
-        assert!(
-            !calls
-                .iter()
-                .any(|call| call.starts_with("git commit -m Complete")),
-            "the worker's tree is never committed: {calls:?}"
-        );
-        assert!(
-            !calls.iter().any(|call| call.starts_with("cargo fmt")),
-            "the rejection comes before commit_work: {calls:?}"
-        );
-        assert!(
-            calls.iter().any(|call| call == "git reset --hard base123"),
-            "the tree is reset to the record: {calls:?}"
-        );
-        assert!(
-            calls
-                .iter()
-                .any(|call| call.starts_with("susi tasks release")),
-            "a failed task releases its claim: {calls:?}"
-        );
+        assert!(!report.accepted && !report.committed);
+        assert!(report.attempts[0].outcome.contains("deletes tests"));
+        let calls = &target.runner.state.lock().unwrap().calls;
+        assert!(!calls
+            .iter()
+            .any(|s| s.starts_with("cargo fmt") || s.contains("workflow integrate")));
+        assert!(calls.iter().any(|s| s.starts_with("git reset --hard")));
         assert!(dir
             .path()
-            .join("state")
-            .join("T-AGENT-9")
-            .join("attempt-1")
-            .join("rejection.txt")
+            .join("state/T-LOCAL-REUSED-1/attempt-1/rejection.txt")
             .is_file());
     }
 
@@ -3166,34 +3115,15 @@ mod tests {
     #[test]
     fn an_attempt_that_rewrites_a_file_is_rejected_before_it_is_committed() {
         let dir = tempfile::tempdir().unwrap();
-        let tasks = dir.path().join(".agents").join("tasks");
-        std::fs::create_dir_all(&tasks).unwrap();
-        std::fs::write(
-            tasks.join("T-AGENT-10.json"),
-            r#"{"accept":"cargo test -p susi-harness"}"#,
-        )
-        .unwrap();
-        let target = target(vec![
-            ok(&format!("cd {}\n", dir.path().display())),
-            ok(""),
-            ok(""),
-            ok("added T-AGENT-10 — commit\n"),
-            ok(""),
-            ok(""),
-            ok(""),
-            ok("base123\n"),
-            // merge-base: the base is still an ancestor; no .rs file lost a
-            // test attribute (the test check passes); then the numstat.
-            ok(""),
-            ok(""),
-            ok("95\t13764\ttests/gmcp_requirements.rs\n3\t1\tdocs/harness.md\n-\t-\tassets/logo.png\n"),
-        ]);
-        let exec = FakeExec {
+        let target = native_target(dir.path());
+        target.runner.state.lock().unwrap().rewritten = true;
+        let exec = NativeExec {
+            state: target.runner.state.clone(),
             outcome: RunOutcome::Succeeded {
                 final_text: "done".into(),
                 reported_cost_usd: None,
             },
-            prompts: Mutex::new(Vec::new()),
+            edits: true,
         };
         let report = run_task(
             &target,
@@ -3202,45 +3132,19 @@ mod tests {
             &SusiRunPolicy::unmetered(),
         )
         .unwrap();
-        assert!(!report.committed);
-        assert!(!report.accepted);
-        assert_eq!(report.attempts.len(), 1);
-        assert!(!report.attempts[0].accepted);
-        let RunOutcome::Failed { message } = &report.agent else {
-            panic!("a rewrite is a failure, got {:?}", report.agent);
-        };
-        assert!(message.contains("rewrites files"), "{message}");
-        assert!(
-            message.contains("13765 line(s) deleted against 98 added"),
-            "{message}"
-        );
-        assert!(
-            message.contains("tests/gmcp_requirements.rs: 13764 line(s) deleted, 13669 net"),
-            "{message}"
-        );
-        assert!(
-            !message.contains("docs/harness.md"),
-            "only losses are named: {message}"
-        );
-        assert!(message.contains(NET_DELETION_ALLOWANCE_ENV), "{message}");
-        let calls = argv_of(&target);
-        assert!(
-            !calls.iter().any(|call| call.starts_with("cargo fmt")),
-            "the rejection comes before commit_work: {calls:?}"
-        );
-        assert!(
-            calls.iter().any(|call| call == "git reset --hard base123"),
-            "the tree is reset to the record: {calls:?}"
-        );
+        assert!(!report.accepted && !report.committed);
+        assert!(report.attempts[0].outcome.contains("rewrites files"));
+        let calls = &target.runner.state.lock().unwrap().calls;
+        assert!(!calls
+            .iter()
+            .any(|s| s.starts_with("cargo fmt") || s.contains("workflow integrate")));
+        assert!(calls.iter().any(|s| s.starts_with("git reset --hard")));
         let saved = std::fs::read_to_string(
             dir.path()
-                .join("state")
-                .join("T-AGENT-10")
-                .join("attempt-1")
-                .join("rejection.txt"),
+                .join("state/T-LOCAL-REUSED-1/attempt-1/rejection.txt"),
         )
         .unwrap();
-        assert!(saved.contains("tests/gmcp_requirements.rs"), "{saved}");
+        assert!(saved.contains("13764"));
     }
 
     /// An edit that removes somewhat more than it adds — dead code, a

@@ -1,3 +1,5 @@
+// Mixed native/static and optional POSIX compatibility checks.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
@@ -27,7 +29,11 @@ fn script_command(script: &Path) -> Command {
 }
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
-    let mut cmd = if program.ends_with(".sh") {
+    let mut cmd = if program.ends_with("prune-worktrees.sh") {
+        let mut native = Command::new(env!("CARGO_BIN_EXE_susi"));
+        native.args(["workflow", "prune"]);
+        native
+    } else if program.ends_with(".sh") {
         script_command(Path::new(program))
     } else {
         Command::new(program)
@@ -193,6 +199,8 @@ fn prune_refuses_to_guess_when_origin_is_unreachable() {
 /// Two workers in one directory share one token and one branch, so the reuse
 /// path must refuse a directory that belongs to a different agent.
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn worktree_reuse_refuses_another_agents_directory() {
     let w = World::new("reuse");
     // The script derives the destination from the primary's name and the
@@ -279,6 +287,8 @@ fn the_binary_prunes_as_the_script_did() {
 /// The stub refuses an argument it does not know, as the script did, before
 /// it looks for a susi.
 #[test]
+// Executes a legacy POSIX script/hook; native coverage remains enabled.
+#[cfg(unix)]
 fn the_prune_stub_refuses_an_unknown_argument() {
     let w = World::new("usage");
     let runner = w.worktree("runner", "TEST", "finished");

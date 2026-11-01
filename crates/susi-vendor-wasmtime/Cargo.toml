@@ -7,19 +7,9 @@ publish = false
 
 [dependencies]
 susi-error = { workspace = true }
-# The one crate that links wasmtime: the in-process cell runtime (`cell.rs`)
-# and the WASI reflex runner (`wasm.rs`). wasmtime is the all-platform
-# backend: at wasmer 7.4.2 every native compiler backend but V8 carries a
-# compile_error!() under cfg(windows), singlepass is BUSL-1.1, and the v8
-# backend exposes no middleware API for fuel metering. wasmtime is
-# Apache-2.0, first-class on windows-msvc, and meters fuel natively
-# (Config::consume_fuel + Store::set_fuel).
-# 49.0.5 carries the fixes for RUSTSEC-2026-0420/0422/0423/0424.
-wasmtime = "49.0.5"
-# `p0` adds the `wasi_unstable` (preview 0) import table: rustc's
-# wasm32-wasip1 emits `wasi_snapshot_preview1`, but hand-built probes still
-# speak the older spelling, and wasmer-wasix accepted both.
-wasmtime-wasi = { version = "49.0.5", features = ["p0"] }
+# Pure Rust interpreter: native JIT/compiler/WASI dependencies are not linked.
+wasmi = { version = "=1.0.9", default-features = false, features = ["std", "simd", "extra-checks"] }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 # In-process cell runtime (`cell.rs`): the declared-max memory-cap rewrite of
 # the module's memory section, and WAT text accepted alongside binary
 # (`wat::parse_bytes` passes already-binary modules through).

@@ -1,0 +1,21 @@
+{
+  "id": "T-CODEXPRODUCTIONPOLICY20261101-1",
+  "title": "Align promotion contract regression with evidence-qualified local production",
+  "goal": "Remove obsolete literal release-path assertion while retaining direct production install rejection",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "vc_201_018",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXPRODUCTIONPOLICY20261101",
+  "created_unix": 1793551436
+}

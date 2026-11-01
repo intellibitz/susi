@@ -97,6 +97,7 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
+    ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
@@ -110,32 +111,32 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
     ("susi-vendor-tantivy", 2),
-    ("susi-vendor-fastembed", 2),
+    ("susi-vendor-fastembed", 4),
     ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
     ("susi-vendor-cloud", 0),
     // No SUSI dependencies: the unsafe-exposure ratchet reads the tree only.
     ("susi-unsafe-ratchet", 0),
-    ("susi-vendor-agents", 4),
-    ("susi-vendor-models", 4),
-    ("susi-vendor-web", 4),
-    ("susi-sandbox", 4),
-    ("susi-leaf-services", 5),
-    ("susi-agents", 5),
-    ("susi-tools", 4),
-    ("susi-gemi-models", 5),
-    ("susi-gawd-agents", 5),
-    ("susi-gmcp", 4),
-    ("susi-server", 4),
-    ("susi-dsh-cell", 4),
-    ("susi-universal-cell", 4),
-    ("susi-gawd-swarm", 6),
-    ("susi-gemi", 6),
-    ("susi-gawd-a2a", 7),
-    ("susi-harness", 8),
-    ("susi-gawd", 8),
-    ("susi-daemon", 9),
-    ("susi", 10),
+    ("susi-vendor-agents", 5),
+    ("susi-vendor-models", 5),
+    ("susi-vendor-web", 5),
+    ("susi-sandbox", 5),
+    ("susi-leaf-services", 6),
+    ("susi-agents", 6),
+    ("susi-tools", 5),
+    ("susi-gemi-models", 6),
+    ("susi-gawd-agents", 6),
+    ("susi-gmcp", 5),
+    ("susi-server", 5),
+    ("susi-dsh-cell", 5),
+    ("susi-universal-cell", 5),
+    ("susi-gawd-swarm", 7),
+    ("susi-gemi", 7),
+    ("susi-gawd-a2a", 8),
+    ("susi-harness", 9),
+    ("susi-gawd", 9),
+    ("susi-daemon", 10),
+    ("susi", 11),
 ];
 
 /// Pure re-export facades (`susi-vendor-*` crates whose only dependency is
@@ -179,6 +180,7 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-shlex",
     "susi-vendor-signal-hook",
     "susi-vendor-sysinfo",
+    "susi-vendor-windows-registry",
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
@@ -1290,21 +1292,23 @@ fn dev_builds_never_install_the_release_binary() {
     let isolate = body
         .find("dev_instance::isolate_if_dev_build")
         .unwrap_or(usize::MAX);
-    let parse = body.find("Cli::parse()").unwrap();
+    let local = body.find("local_delivery_cli::execute").unwrap();
+    let install = body.find("install_cli::execute").unwrap();
+    let runtime = body.find("ShellSession::open").unwrap();
     assert!(
-        isolate < parse,
-        "dev instance isolation must run first in main, before any other work (Mandate 48)"
+        local < isolate && install < isolate && isolate < runtime,
+        "native delivery/install dispatch must precede development isolation, which must precede runtime startup"
     );
 
     assert!(
-        root.join("scripts/susi-release-sync.sh").is_file(),
-        "release promotion script missing (Mandate 48)"
+        root.join("xtask/src/bin/local-release.rs").is_file(),
+        "native release qualification and promotion implementation missing"
     );
 }
 
 /// Mandate 48 ("SUSI writes SUSI"): every code-writing path into a SUSI
-/// tree carries the self-build contract, and the CI builder is the released
-/// susi working on a branch. Targeted guard over the known paths, not a
+/// tree carries the self-build contract, and installed Susi exposes guarded
+/// local delivery. Targeted guard over the known paths, not a
 /// proof that no other path exists.
 #[test]
 fn self_build_contract_reaches_every_code_writing_path() {
@@ -1326,7 +1330,7 @@ fn self_build_contract_reaches_every_code_writing_path() {
         ),
         (
             "crates/susi-gawd/src/patch_cycle.rs",
-            "self_build::VERIFY_COMMAND",
+            "repo_gate::run_repository_gate",
         ),
     ] {
         assert!(
@@ -1335,19 +1339,13 @@ fn self_build_contract_reaches_every_code_writing_path() {
         );
     }
 
-    let builder = read(".github/workflows/susi-builder.yml");
-    assert!(
-        builder.contains("bash ./install.sh"),
-        "susi-builder must run the released susi, not a build of the branch it changes"
-    );
-    assert!(
-        !builder.contains("build-gpu.sh"),
-        "susi-builder must not bootstrap its builder from the dev tree"
-    );
-    assert!(
-        builder.contains("gh pr create"),
-        "susi-builder work must land as a PR"
-    );
+    let delivery = read("src/cli/local_delivery_cli.rs");
+    assert!(delivery.contains("xtask/bootstrap/susi-dev.rs"));
+    assert!(delivery.contains("bootstrap::run(args)"));
+    let bootstrap = read("xtask/bootstrap/susi-dev.rs");
+    assert!(bootstrap.contains("CARGO_BUILD_BUILD_DIR"));
+    assert!(bootstrap.contains("local-workflow"));
+    assert!(bootstrap.contains("local-release"));
 }
 
 /// Mandate 49 regression guard: the worktree-workflow guard exists, is
@@ -1450,7 +1448,7 @@ fn ci_has_no_bot_pr_triggered_noise_runs() {
 
 /// The development workflow is a constitutional mandate, not a convention:
 /// identity.json (compiled into susi and read by every agent) must carry
-/// Mandates 49–60, and each must name an enforcement artifact that exists.
+/// local-workflow mandates, with real enforcement artifacts and honest gaps.
 #[test]
 fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1469,38 +1467,29 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         );
         m["imperative"].as_str().unwrap_or("").to_string()
     };
-    // (mandate, phrase it must state, file that enforces it)
+    // Existing machinery must be named accurately; the constitution must not
+    // pretend an implementation gap is a working gate.
     for (id, phrase, artifact) in [
-        (49, "scripts/susi-worktree.sh", ".githooks/workflow-guard"),
-        (49, "no bypass actors", "scripts/github-enforce.sh"),
-        (
-            49,
-            "susi workflow check",
-            "crates/susi-gawd/src/admin/workflow.rs",
-        ),
-        (49, "park-primary.sh", "scripts/park-primary.sh"),
-        (49, "SessionStart hook", ".claude/settings.json"),
+        (49, "atomic per task", "xtask/src/bin/local-workflow.rs"),
         (49, "CLAUDE.md", "CLAUDE.md"),
-        (49, "atomic per task", ".githooks/workflow-guard"),
-        (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
+        (50, "Task: T-<AGENT>-<n>", "xtask/src/bin/local-workflow.rs"),
         (
             50,
-            "Task: T-<AGENT>-<n>",
-            "scripts/check-workflow-compliance.sh",
+            "One live claim at a time",
+            "xtask/src/bin/local-workflow.rs",
         ),
-        (50, "commit-msg", ".githooks/commit-msg"),
-        (50, "One live claim at a time", ".githooks/workflow-guard"),
-        (50, "sync-before-push", ".githooks/workflow-guard"),
         (
             51,
             "union the entries",
             ".agents/schemas/evidence.schema.json",
         ),
-        (52, "SUSI_HOME", "scripts/check-hermetic-tests.sh"),
+        (52, "SUSI_HOME", "src/dev_instance.rs"),
         (53, "E2E_CHECKS", "tests/release_e2e_checks.rs"),
-        (54, "pull_request", ".github/workflows/auto-merge.yml"),
-        (54, "scripts/reconcile-prs.sh", "scripts/reconcile-prs.sh"),
-        (54, "scripts/auto-merge-pr.sh", "scripts/auto-merge-pr.sh"),
+        (
+            54,
+            "actual candidate integration tree",
+            "xtask/src/bin/local-workflow.rs",
+        ),
         (55, "did-you-mean", "src/cli/intent_guard.rs"),
         (
             56,
@@ -1519,6 +1508,8 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
             ".github/workflows/unsafe-exposure-ratchet.sh",
         ),
         (60, "susi-vendor-", "tests/architecture_tests.rs"),
+        (61, "migration building blocks", "xtask/src/local_build.rs"),
+        (68, "AND obligations", "deny.toml"),
     ] {
         assert!(
             text_of(id).contains(phrase),
@@ -1530,7 +1521,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         );
     }
     // Every code-writing agent receives the workflow in its task itself.
-    for needle in ["susi tasks claim", "susi-worktree.sh", "hermetic"] {
+    for needle in ["cargo local-workflow", "GitHub is optional", "hermetic"] {
         assert!(
             susi_core::self_build::BRIEF.contains(needle),
             "the self-build brief must carry `{needle}`"
@@ -1664,7 +1655,7 @@ fn roadmap_vectors_and_tasks_stay_linked() {
 }
 
 /// Agents read the top of AGENTS.md: it must open with the START HERE block
-/// whose first act is `susi workflow check`, before any other rule.
+/// whose first act is the CEO contract and local isolation, before engineering rules.
 #[test]
 fn agents_md_opens_with_start_here_and_the_workflow_check() {
     let text =
@@ -1672,17 +1663,18 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
             .unwrap();
     let first = text.lines().next().unwrap();
     assert!(
-        first.starts_with("**START HERE") && first.contains("susi workflow check"),
+        first.starts_with("**START HERE") && first.contains("CEO mandates"),
         "AGENTS.md line 1 must be the START HERE instruction, got: {first}"
     );
     let start = text.find("START HERE").unwrap();
     let mandates = text.find("# Agent Engineering Mandates").unwrap();
     assert!(start < mandates, "START HERE must precede the mandates");
     for step in [
-        "susi-worktree.sh",
-        "susi tasks claim",
+        "cargo local-workflow",
+        "cargo local-build debug",
         "Task: T-<AGENT>-<n>",
-        "susi tasks close",
+        "actual combined tree",
+        "CEO never looks at code",
     ] {
         assert!(
             text[..mandates].contains(step),
@@ -1699,19 +1691,15 @@ fn readme_covers_the_workflow_ecosystem_and_brain() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let readme = std::fs::read_to_string(root.join("README.md")).unwrap();
     for needle in [
-        "susi workflow check",
-        "susi workflow start",
-        "scripts/susi-worktree.sh",
-        "susi tasks claim",
-        "susi tasks roadmap",
+        "cargo local-workflow",
+        "cargo local-build debug",
         "Task: T-<AGENT>-<n>",
-        "Workflow Compliance",
-        "scripts/github-enforce.sh",
+        "actual combined tree",
+        "CEO never inspects code",
         "susi ecosystem scan",
         "susi keys check",
         "susi brain",
         "SUSI_BUDGET",
-        "susi admin release",
         ".agents/tasks/",
         ".agents/lanes/",
     ] {
@@ -1791,65 +1779,41 @@ fn zc_quickstart_budget() {
     );
 }
 
-/// The `[patch.crates-io]` crates are git sources pinned by revision, never
-/// path crates. A path crate's build embeds the worktree's path, so it and
-/// every crate above it (ra2a, rmcp, tokenizers, fastembed, the candle crates:
-/// the heaviest compiles in the tree) recompiled in every new worktree and
-/// could sit in neither the seeded target snapshot nor the machine's compiler
-/// cache. The two patches live on this repository's `nopr/vendor-patches`
-/// branch (vendor/README.md); deny.toml must allow that source, and the
-/// lockfile must carry it for both.
+/// Patched sources ship with the checkout: development must not fetch GitHub.
 #[test]
-fn vendor_patches_are_pinned_git_revisions_not_path_crates() {
+fn vendor_patches_are_local_and_preserve_upstream_licenses() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
     let patch = manifest
         .split("[patch.crates-io]")
         .nth(1)
-        .and_then(|rest| rest.split("\n[").next())
-        .expect("Cargo.toml has a [patch.crates-io] table");
-    let mut pinned = Vec::new();
-    for line in patch.lines().map(str::trim) {
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        assert!(
-            !line.contains("path ="),
-            "a path patch recompiles in every worktree and defeats the snapshot and the cache: {line}"
-        );
-        assert!(
-            line.contains("git =") && line.contains("rev = \""),
-            "every patch must be a git source pinned by revision: {line}"
-        );
-        pinned.push(line.split('=').next().unwrap().trim().to_string());
+        .unwrap()
+        .split("\n[")
+        .next()
+        .unwrap();
+    for line in patch
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        assert!(line.contains("path = \"vendor/"), "nonlocal patch: {line}");
+        assert!(!line.contains("git ="), "GitHub-dependent patch: {line}");
     }
-    for krate in ["reqwest", "esaxx-rs"] {
-        assert!(
-            pinned.iter().any(|p| p == krate),
-            "{krate} is no longer patched?"
-        );
-        let entry = format!("name = \"{krate}\"\n");
-        let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
-        let after = lock
-            .split(&entry)
-            .nth(1)
-            .unwrap_or_else(|| panic!("Cargo.lock has no entry for {krate}"));
-        assert!(
-            after.contains("source = \"git+https://github.com/intellibitz/susi?rev="),
-            "Cargo.lock must resolve {krate} to the pinned git revision"
-        );
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
+    assert!(
+        !lock.contains("source = \"git+"),
+        "development sources must resolve without a Git host"
+    );
+    for (name, license) in [
+        ("reqwest", "LICENSE-APACHE"),
+        ("esaxx-rs", "LICENSE"),
+        ("native-tls", "LICENSE-APACHE"),
+        ("native-tls", "LICENSE-MIT"),
+    ] {
+        assert!(root.join("vendor").join(name).join("Cargo.toml").is_file());
+        assert!(root.join("vendor").join(name).join(license).is_file());
     }
-    let deny = std::fs::read_to_string(root.join("deny.toml")).unwrap();
-    assert!(
-        deny.contains("\"https://github.com/intellibitz/susi\""),
-        "deny.toml must allow this repository as a git source, or cargo deny refuses the patches"
-    );
-    assert!(
-        !root.join("vendor/reqwest").exists() && !root.join("vendor/esaxx-rs").exists(),
-        "the patched sources live on the nopr/vendor-patches branch, not in the tree"
-    );
 }
-
 /// The lockfile carries no `zip` with GitHub's five Dependabot advisories
 /// (GHSA-m665-v7pm-7grj and four more, all fixed in 9.0.5), and the candle
 /// crates that pull it in come from crates.io, not a git revision: candle
@@ -1857,7 +1821,7 @@ fn vendor_patches_are_pinned_git_revisions_not_path_crates() {
 /// that kept the workspace on one tokenizers could go. A registry crate is
 /// also a compiler-cache hit where a git one never is.
 #[test]
-fn the_lockfile_carries_the_dependabot_fixed_zip_and_registry_candle() {
+fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
     let lock = std::fs::read_to_string(workspace_root().join("Cargo.lock")).unwrap();
     let packages: Vec<&str> = lock.split("[[package]]").collect();
     let field = |package: &str, name: &str| -> Option<String> {
@@ -1897,10 +1861,27 @@ fn the_lockfile_carries_the_dependabot_fixed_zip_and_registry_candle() {
         let found = named(crate_name);
         assert_eq!(found.len(), 1, "one {crate_name} in the lockfile");
         let source = field(found[0], "source").unwrap_or_default();
-        assert!(
-            source.starts_with("registry+"),
-            "{crate_name} comes from crates.io, not {source}"
-        );
+        if crate_name == "candle-core" {
+            assert!(
+                source.is_empty(),
+                "candle-core uses the audited local patch"
+            );
+            let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
+            assert!(manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
+            let patched =
+                std::fs::read_to_string(workspace_root().join("vendor/candle-core/Cargo.toml"))
+                    .unwrap();
+            let version = field(found[0], "version").unwrap();
+            assert!(patched.contains(&format!("version = \"{version}\"")));
+            assert!(workspace_root()
+                .join("vendor/candle-core/LICENSE")
+                .is_file());
+        } else {
+            assert!(
+                source.starts_with("registry+"),
+                "{crate_name} comes from crates.io, not {source}"
+            );
+        }
     }
     let tokenizers = named("tokenizers");
     assert_eq!(
@@ -1925,7 +1906,7 @@ fn release_sync_downloads_the_published_binary_and_falls_back_to_a_build() {
         "download_release_asset()",
         "gh release download \"$tag\"",
         "--pattern \"${asset}.sha256\"",
-        "sha256sum \"$dir/$asset\"",
+        "sha256sum < \"$dir/$asset\"",
         "SUSI_RELEASE_BUILD",
         "susi-windows-x86_64.exe",
         "susi-linux-x86_64",
@@ -2177,6 +2158,90 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         assert!(
             !name.ends_with(".py"),
             "scripts/ must contain zero Python scripts in 100% Rust Susi: found scripts/{name}"
+        );
+    }
+}
+
+/// New policy must preserve citable historical identities, cover all CEO goals,
+/// and keep the requirement/implementation distinction explicit.
+#[test]
+fn ceo_mandates_are_complete_and_keep_evidence_honest() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/identity.json")).unwrap())
+            .unwrap();
+    let mandates = identity["pillars"]["dna"]["mandates"].as_array().unwrap();
+    let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
+    assert_eq!(
+        ids,
+        (1..=71).collect::<Vec<_>>(),
+        "mandate IDs must not be lost, duplicated or renumbered"
+    );
+    for (id, phrase) in [
+        (62, "CEO never looks at code"),
+        (63, "full shipped dependency closure"),
+        (64, "native MSVC"),
+        (65, "Measure cold/warm build time"),
+        (66, "without GitHub"),
+        (67, "roll back on failure"),
+        (68, "never relabel third-party code"),
+        (69, "measured justification"),
+        (70, "without user-written config"),
+        (71, "earns its next upgrade"),
+    ] {
+        assert!(
+            mandates[(id - 1) as usize]["imperative"]
+                .as_str()
+                .unwrap()
+                .contains(phrase),
+            "Mandate {id} lost its requirement: {phrase}"
+        );
+    }
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(agents.contains("not claims of completed implementation"));
+    for forbidden in [
+        "Do not push to `main`, tag, or cut a release",
+        "scripts/susi-release-sync.sh` is the only path in",
+        "No offline freshness or unavailable claim snapshot",
+    ] {
+        assert!(
+            !agents.contains(forbidden),
+            "legacy remote-only prerequisite returned: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn ceo_git_authority_preserves_evidence_and_scope() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".github/copilot-instructions.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("commit, push and merge"),
+            "{path}: Git authority missing"
+        );
+        assert!(
+            text.contains("routine CEO approval"),
+            "{path}: CEO approval burden returned"
+        );
+        assert!(
+            text.contains("serialized integration") || text.contains("serializes merges"),
+            "{path}: parallel merge safety missing"
+        );
+        assert!(
+            text.contains("production") && text.contains("gates"),
+            "{path}: evidence gates missing"
+        );
+        assert!(
+            text.contains("destructive") && text.contains("external publication"),
+            "{path}: authorization boundary missing"
         );
     }
 }

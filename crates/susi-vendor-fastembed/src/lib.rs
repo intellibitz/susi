@@ -1,39 +1,38 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::unreachable,
-        clippy::wildcard_enum_match_arm
-    )
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-//! # susi-vendor-fastembed
+//! Rust-native semantic embeddings, retaining the historical facade name.
 //!
-//! The one crate that links fastembed. [`embed`] runs texts through one
-//! process-wide `TextEmbedding` (`Xenova/bge-small-en-v1.5`): the ONNX session
-//! load is the expensive part, so it happens once per process and every caller —
-//! the `susi-fastembed` capability provider and the semantic index — shares
-//! the warm model. A failed load is cached, so a host that cannot load the
-//! embedder refuses fast instead of retrying per call.
-//!
-//! Model artifacts are cached on disk and fetched via `susi-http-transport`
-//! so `fastembed` runs without its `hf-hub` feature (eliminating the transitive
-//! `option-ext` MPL-2.0 dependency).
+//! BAAI/bge-small-en-v1.5 runs through Candle's BERT implementation: the
+//! pretrained CLS token is L2 normalized, producing 384-dimensional vectors.
+//! No ONNX Runtime, Python, native model runtime or synthetic hash fallback is
+//! involved. The MIT-licensed model revision is pinned; artifacts are loaded
+//! lazily through the existing bounded HTTP transport. CPU is the portable
+//! default. Existing public `embed`, `embed_one`, and `load_failed` APIs remain.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use susi_error::{EaiError, EaiResult};
+use susi_vendor_candle::candle_core::{DType, Device, IndexOp, Tensor};
+use susi_vendor_candle::candle_nn::VarBuilder;
+use susi_vendor_candle::candle_transformers::models::bert::{BertModel, Config};
+use susi_vendor_candle::tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
-const DEFAULT_MODEL_SUBDIR: &str = "Xenova--bge-small-en-v1.5";
-const DEFAULT_MODEL_BASE_URL: &str = "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main";
+const DEFAULT_MODEL_SUBDIR: &str = "BAAI--bge-small-en-v1.5--5c38ec7c";
+const DEFAULT_MODEL_BASE_URL: &str = "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/5c38ec7c405ec4b44b94cc5a9bb96e735b38267a";
 const MAX_MODEL_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_SECS: u64 = 120;
 const MAX_REDIRECTS: u32 = 5;
+const BATCH_SIZE: usize = 32;
+const EMBEDDING_DIM: usize = 384;
 
-type ModelCell = OnceLock<Result<Mutex<fastembed::TextEmbedding>, String>>;
+struct Embedder {
+    model: BertModel,
+    tokenizer: Tokenizer,
+}
+
+type ModelCell = OnceLock<Result<Mutex<Embedder>, String>>;
 
 fn model_cell() -> &'static ModelCell {
     static MODEL: ModelCell = OnceLock::new();
@@ -41,117 +40,230 @@ fn model_cell() -> &'static ModelCell {
 }
 
 fn cache_dir_from(env_override: Option<&str>) -> PathBuf {
-    let root = env_override
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(".fastembed_cache");
-    PathBuf::from(root).join(DEFAULT_MODEL_SUBDIR)
+    PathBuf::from(
+        env_override
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(".fastembed_cache"),
+    )
+    .join(DEFAULT_MODEL_SUBDIR)
 }
 
 fn base_url_from(env_override: Option<&str>) -> String {
     env_override
         .map(str::trim)
-        .filter(|s| !s.is_empty())
+        .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_MODEL_BASE_URL)
         .trim_end_matches('/')
-        .to_string()
+        .to_owned()
 }
 
-fn ensure_cached_file(cache_dir: &Path, base_url: &str, rel_path: &str) -> Result<Vec<u8>, String> {
-    let dest = cache_dir.join(rel_path);
-    if let Ok(bytes) = std::fs::read(&dest) {
-        if !bytes.is_empty() {
-            return Ok(bytes);
+fn verify_pinned_artifact(name: &str, bytes: &[u8]) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let expected = match name {
+        "model.safetensors" => "3c9f31665447c8911517620762200d2245a2518d6e7208acc78cd9db317e21ad",
+        "config.json" => "094f8e891b932f2000c92cfc663bac4c62069f5d8af5b5278c4306aef3084750",
+        "tokenizer.json" => "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        _ => return Err("Unrecognized BGE artifact".into()),
+    };
+    if Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+        != expected
+    {
+        return Err(format!("[MODEL LICENSE] {name} does not match the audited MIT-licensed BGE revision; cache contents are preserved for inspection"));
+    }
+    Ok(())
+}
+
+fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, String> {
+    ensure_cached_file_with_policy(cache, base, name, &susi_core::mac_policy::egress_permitted)
+}
+fn ensure_cached_file_with_policy(
+    cache: &Path,
+    base: &str,
+    name: &str,
+    egress_allowed: &dyn Fn(&str) -> bool,
+) -> Result<Vec<u8>, String> {
+    if base.trim_end_matches('/') != DEFAULT_MODEL_BASE_URL {
+        return Err("[MODEL LICENSE] Unverified embedding model override refused; use the pinned MIT-licensed BGE model. Custom cache locations remain supported.".into());
+    }
+    let path = cache.join(name);
+    match std::fs::File::open(&path) {
+        Ok(file) => {
+            let mut bytes = Vec::new();
+            file.take(MAX_MODEL_FILE_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|e| format!("reading {}: {e}", path.display()))?;
+            if bytes.len() as u64 > MAX_MODEL_FILE_BYTES {
+                return Err(format!(
+                    "cached artifact exceeds size limit: {}",
+                    path.display()
+                ));
+            }
+            if !bytes.is_empty() {
+                verify_pinned_artifact(name, &bytes)?;
+                return Ok(bytes);
+            }
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("opening {}: {error}", path.display())),
     }
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create cache dir {}: {e}", parent.display()))?;
+    let url = format!("{base}/{name}");
+    if !egress_allowed(&url) {
+        return Err("[PRIVACY] Embedding download denied by network-egress policy; verified cached artifacts remain available".into());
     }
-    let url = format!("{}/{rel_path}", base_url.trim_end_matches('/'));
-    let resp =
+    let response =
         susi_http_transport::http_call("GET", &url, &[], DOWNLOAD_TIMEOUT_SECS, MAX_REDIRECTS)
             .map_err(|e| format!("failed to fetch {url}: {e}"))?;
-    if !(200..300).contains(&resp.status) {
-        return Err(format!("fetching {url} returned HTTP {}", resp.status));
+    if !(200..300).contains(&response.status) {
+        return Err(format!("fetching {url} returned HTTP {}", response.status));
     }
-    let bytes = resp
+    let bytes = response
         .into_bytes(MAX_MODEL_FILE_BYTES)
-        .map_err(|e| format!("reading {url} failed: {e}"))?;
+        .map_err(|e| format!("reading {url}: {e}"))?;
     if bytes.is_empty() {
-        return Err(format!("fetched empty artifact from {url}"));
+        return Err(format!("empty model artifact: {url}"));
     }
-    let _ = std::fs::write(&dest, &bytes);
+    verify_pinned_artifact(name, &bytes)?;
+    std::fs::create_dir_all(cache).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let pending = cache.join(format!(".{name}.{}.{stamp}.partial", std::process::id()));
+    std::fs::write(&pending, &bytes).map_err(|e| e.to_string())?;
+    if let Err(error) = std::fs::rename(&pending, &path) {
+        let _ = std::fs::remove_file(&pending);
+        if !path.is_file() {
+            return Err(format!("publishing model cache: {error}"));
+        }
+    }
     Ok(bytes)
 }
 
-fn load_user_defined_model(
-    cache_dir: &Path,
-    base_url: &str,
-) -> Result<fastembed::UserDefinedEmbeddingModel, String> {
-    let onnx_file = ensure_cached_file(cache_dir, base_url, "onnx/model.onnx")?;
-    let tokenizer_files = fastembed::TokenizerFiles {
-        tokenizer_file: ensure_cached_file(cache_dir, base_url, "tokenizer.json")?,
-        config_file: ensure_cached_file(cache_dir, base_url, "config.json")?,
-        special_tokens_map_file: ensure_cached_file(
-            cache_dir,
-            base_url,
-            "special_tokens_map.json",
-        )?,
-        tokenizer_config_file: ensure_cached_file(cache_dir, base_url, "tokenizer_config.json")?,
-    };
-    Ok(
-        fastembed::UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files)
-            .with_pooling(fastembed::Pooling::Cls),
-    )
+impl Embedder {
+    fn load(cache: &Path, base: &str) -> Result<Self, String> {
+        let config: Config =
+            serde_json::from_slice(&ensure_cached_file(cache, base, "config.json")?)
+                .map_err(|e| format!("invalid BERT config: {e}"))?;
+        if config.hidden_size != EMBEDDING_DIM || config.max_position_embeddings < 2 {
+            return Err("expected the 384-dimensional BGE small model".into());
+        }
+        let mut tokenizer =
+            Tokenizer::from_bytes(ensure_cached_file(cache, base, "tokenizer.json")?)
+                .map_err(|e| format!("invalid tokenizer: {e}"))?;
+        tokenizer.with_padding(Some(PaddingParams {
+            strategy: PaddingStrategy::BatchLongest,
+            pad_id: u32::try_from(config.pad_token_id).map_err(|e| e.to_string())?,
+            ..Default::default()
+        }));
+        tokenizer
+            .with_truncation(Some(TruncationParams {
+                max_length: config.max_position_embeddings.min(512),
+                ..Default::default()
+            }))
+            .map_err(|e| e.to_string())?;
+        let weights = ensure_cached_file(cache, base, "model.safetensors")?;
+        let variables = VarBuilder::from_buffered_safetensors(weights, DType::F32, &Device::Cpu)
+            .map_err(|e| format!("invalid model weights: {e}"))?;
+        let model = BertModel::load(variables, &config).map_err(|e| e.to_string())?;
+        Ok(Self { model, tokenizer })
+    }
+
+    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        let mut results = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(BATCH_SIZE) {
+            let encoded = self
+                .tokenizer
+                .encode_batch(batch.to_vec(), true)
+                .map_err(|e| e.to_string())?;
+            let ids: Vec<_> = encoded
+                .iter()
+                .map(|item| Tensor::new(item.get_ids(), &Device::Cpu))
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?;
+            let types: Vec<_> = encoded
+                .iter()
+                .map(|item| Tensor::new(item.get_type_ids(), &Device::Cpu))
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?;
+            let masks: Vec<_> = encoded
+                .iter()
+                .map(|item| Tensor::new(item.get_attention_mask(), &Device::Cpu))
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?;
+            let output = (|| {
+                self.model
+                    .forward(
+                        &Tensor::stack(&ids, 0)?,
+                        &Tensor::stack(&types, 0)?,
+                        Some(&Tensor::stack(&masks, 0)?),
+                    )?
+                    .i((.., 0, ..))?
+                    .to_vec2::<f32>()
+            })()
+            .map_err(|e: susi_vendor_candle::candle_core::Error| e.to_string())?;
+            for vector in output {
+                results.push(normalize(vector)?);
+            }
+        }
+        Ok(results)
+    }
 }
 
-fn init_default_embedder() -> Result<fastembed::TextEmbedding, String> {
-    let cache_env = std::env::var("FASTEMBED_CACHE_DIR").ok();
-    let url_env = std::env::var("SUSI_FASTEMBED_MODEL_URL").ok();
-    let cache_dir = cache_dir_from(cache_env.as_deref());
-    let base_url = base_url_from(url_env.as_deref());
-    let model = load_user_defined_model(&cache_dir, &base_url)?;
-    fastembed::TextEmbedding::try_new_from_user_defined(model, Default::default())
-        .map_err(|e| e.to_string())
+fn normalize(mut vector: Vec<f32>) -> Result<Vec<f32>, String> {
+    if vector.len() != EMBEDDING_DIM || vector.iter().any(|value| !value.is_finite()) {
+        return Err("invalid BGE embedding shape or nonfinite values".into());
+    }
+    let norm = vector
+        .iter()
+        .map(|value| f64::from(*value).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    if norm <= f64::EPSILON {
+        return Err("BGE returned a zero embedding".into());
+    }
+    for value in &mut vector {
+        *value = (f64::from(*value) / norm) as f32;
+    }
+    Ok(vector)
 }
 
-fn model() -> EaiResult<&'static Mutex<fastembed::TextEmbedding>> {
+fn model() -> EaiResult<&'static Mutex<Embedder>> {
     model_cell()
         .get_or_init(|| {
-            init_default_embedder()
-                .map(Mutex::new)
-                .map_err(|e| format!("embedder unavailable: {e}"))
+            let cache = cache_dir_from(std::env::var("FASTEMBED_CACHE_DIR").ok().as_deref());
+            let base = base_url_from(std::env::var("SUSI_FASTEMBED_MODEL_URL").ok().as_deref());
+            Embedder::load(&cache, &base).map(Mutex::new)
         })
         .as_ref()
-        .map_err(|e| EaiError::inference(e.clone()))
+        .map_err(|error| EaiError::inference(format!("embedder unavailable: {error}")))
 }
 
-/// True once a model load was attempted and failed (the failure is
-/// cached for the process). `false` before the first attempt: loading is
-/// lazy, so "not yet loaded" is not "unhealthy".
+/// Whether initialization has already failed. Loading remains lazy.
 #[must_use]
 pub fn load_failed() -> bool {
     model_cell().get().is_some_and(Result::is_err)
 }
 
-/// Embed each text; one vector per input, in order.
-///
-/// # Errors
-/// The model cannot load (cached), or inference fails.
+/// Compute one normalized semantic vector per input, preserving input order.
+/// Empty batches return immediately without downloading a model.
 pub fn embed(texts: Vec<String>) -> EaiResult<Vec<Vec<f32>>> {
-    let mut guard = model()?.lock().unwrap_or_else(|e| e.into_inner());
-    guard
-        .embed(texts, None)
-        .map_err(|e| EaiError::inference(format!("embed failed: {e}")))
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+    model()?
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .embed(&texts)
+        .map_err(|error| EaiError::inference(format!("embed failed: {error}")))
 }
 
-/// Embed one text.
-///
-/// # Errors
-/// See [`embed`]; also when the model returns no vector.
+/// Compute one normalized semantic embedding.
 pub fn embed_one(text: &str) -> EaiResult<Vec<f32>> {
-    embed(vec![text.to_string()])?
+    embed(vec![text.to_owned()])?
         .pop()
         .ok_or_else(|| EaiError::inference("embedder returned no vector"))
 }
@@ -159,57 +271,93 @@ pub fn embed_one(text: &str) -> EaiResult<Vec<f32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn load_failed_is_false_before_any_load_attempt() {
-        assert!(!super::load_failed());
+    fn empty_batch_does_not_initialize_or_download() {
+        assert!(embed(Vec::new()).unwrap().is_empty());
+        assert!(!load_failed());
     }
 
     #[test]
-    fn cache_helpers_and_user_defined_model_bundle_work_offline() {
-        assert_eq!(
-            cache_dir_from(None),
-            PathBuf::from(".fastembed_cache").join(DEFAULT_MODEL_SUBDIR)
-        );
-        assert_eq!(
-            cache_dir_from(Some(" /tmp/custom-fastembed ")),
-            PathBuf::from("/tmp/custom-fastembed").join(DEFAULT_MODEL_SUBDIR)
-        );
-        assert_eq!(base_url_from(None), DEFAULT_MODEL_BASE_URL);
-        assert_eq!(
-            base_url_from(Some("https://example.invalid/model/")),
-            "https://example.invalid/model"
-        );
+    fn normalization_rejects_bad_results_and_preserves_direction() {
+        assert!(normalize(vec![0.; EMBEDDING_DIM]).is_err());
+        assert!(normalize(vec![1.; 3]).is_err());
+        assert!(normalize(vec![f32::NAN; EMBEDDING_DIM]).is_err());
+        let mut vector = vec![0.; EMBEDDING_DIM];
+        vector[0] = 3.;
+        vector[1] = 4.;
+        let normalized = normalize(vector).unwrap();
+        assert!((normalized[0] - 0.6).abs() < 1e-6);
+        assert!((normalized[1] - 0.8).abs() < 1e-6);
+    }
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let temp_dir = std::env::temp_dir().join(format!(
-            "susi-fastembed-test-{}-{stamp}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(temp_dir.join("onnx")).expect("create temp onnx dir");
-        for (rel, content) in [
-            ("onnx/model.onnx", &b"fake-onnx"[..]),
-            ("tokenizer.json", &b"{}"[..]),
-            ("config.json", &b"{}"[..]),
-            ("special_tokens_map.json", &b"{}"[..]),
-            ("tokenizer_config.json", &b"{}"[..]),
-        ] {
-            std::fs::write(temp_dir.join(rel), content).expect("seed cached model file");
+    #[test]
+    fn altered_cache_and_unverified_origins_are_rejected() {
+        let dir = std::env::temp_dir().join(format!("susi-bert-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(ensure_cached_file_with_policy(
+            &dir,
+            DEFAULT_MODEL_BASE_URL,
+            "config.json",
+            &|_| false
+        )
+        .unwrap_err()
+        .contains("PRIVACY"));
+        std::fs::write(dir.join("config.json"), b"cached config").unwrap();
+        assert!(ensure_cached_file(&dir, "http://127.0.0.1:1", "config.json").is_err());
+        assert!(
+            ensure_cached_file(&dir, DEFAULT_MODEL_BASE_URL, "config.json")
+                .unwrap_err()
+                .contains("does not match")
+        );
+        std::fs::remove_file(dir.join("config.json")).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+        assert!(base_url_from(None).contains("5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"));
+    }
+
+    /// Explicit qualification downloads public MIT-licensed weights into a
+    /// caller-supplied isolated cache; ordinary unit tests never use the network.
+    #[test]
+    #[ignore = "requires explicit SUSI_EMBEDDING_TEST_CACHE and model provisioning"]
+    fn real_bge_model_preserves_semantic_order_batching_and_norm() {
+        let cache = std::env::var("SUSI_EMBEDDING_TEST_CACHE").expect("isolated cache required");
+        ensure_cached_file_with_policy(
+            &PathBuf::from(&cache),
+            DEFAULT_MODEL_BASE_URL,
+            "config.json",
+            &|_| false,
+        )
+        .unwrap();
+        let model = Embedder::load(&PathBuf::from(cache), DEFAULT_MODEL_BASE_URL).unwrap();
+        let texts = vec![
+            "A dog is playing in the park.".into(),
+            "A puppy plays outdoors.".into(),
+            "A database transaction was committed.".into(),
+        ];
+        let vectors = model.embed(&texts).unwrap();
+        assert_eq!(vectors.len(), 3);
+        // Captured from the previous ONNX backend using the same pretrained
+        // BGE model and first input. Keep a compact numerical regression anchor.
+        let onnx_prefix = [
+            0.055796586,
+            -0.075012155,
+            0.041990824,
+            0.026629992,
+            0.008970343,
+            0.046833955,
+            0.05523868,
+            -0.01734583,
+        ];
+        for (actual, expected) in vectors[0].iter().zip(onnx_prefix) {
+            assert!((actual - expected).abs() < 1e-4);
         }
-
-        let loaded = load_user_defined_model(&temp_dir, "http://127.0.0.1:1")
-            .expect("cached files should load without network");
-        assert_eq!(loaded.onnx_file, b"fake-onnx");
-        assert_eq!(loaded.pooling, Some(fastembed::Pooling::Cls));
-
-        let miss_err = ensure_cached_file(&temp_dir, "http://127.0.0.1:1", "missing/artifact.bin")
-            .expect_err("cache miss against closed loopback port must fail");
-        assert!(miss_err.contains("failed to fetch"));
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        for vector in &vectors {
+            assert_eq!(vector.len(), EMBEDDING_DIM);
+            assert!((vector.iter().map(|value| value * value).sum::<f32>() - 1.).abs() < 1e-4);
+        }
+        let similarity = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
+        assert!(similarity(&vectors[0], &vectors[1]) > similarity(&vectors[0], &vectors[2]) + 0.1);
+        let single = model.embed(&texts[..1]).unwrap();
+        assert!(similarity(&vectors[0], &single[0]) > 0.9999);
     }
 }

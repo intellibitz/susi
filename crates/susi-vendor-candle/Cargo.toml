@@ -8,17 +8,15 @@ description = "Candle/CUDA/Metal vendor substrate: device probe, Qwen2 GGUF spli
 
 [dependencies]
 tracing = { workspace = true }
-tokenizers = "0.23.2"
+# Pretrained inference does not use the optional C++ suffix-array trainer.
+# Rust regex and suffix-array implementations avoid native Oniguruma/C++ builds.
+tokenizers = { version = "0.23.2", default-features = false, features = ["fancy-regex", "progressbar"] }
 
-[target.'cfg(not(target_os = "macos"))'.dependencies]
+# The default uses Rust CPU inference on every host. Optional accelerator
+# features are outside that qualification and must pass their own native/license audit.
 candle-core = { version = "0.11.1" }
 candle-nn = { version = "0.11.1" }
 candle-transformers = { version = "0.11.1" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-candle-core = { version = "0.11.1", features = ["metal", "accelerate"] }
-candle-nn = { version = "0.11.1", features = ["metal", "accelerate"] }
-candle-transformers = { version = "0.11.1", features = ["metal", "accelerate"] }
 
 [features]
 default = []

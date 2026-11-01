@@ -59,7 +59,7 @@ use susi_vendor_candle::candle_core::quantized::gguf_file;
 #[cfg(test)]
 use susi_vendor_candle::tokenizers::Tokenizer;
 
-/// Prefer an installed runner only for ordinary automatic text work. Output
+/// Prefer admitted native Candle weights for ordinary automatic text work. Output
 /// formatting is not a second reasoning step; the substantive request still
 /// passes both existing classifiers and explicit capability/policy gates.
 #[allow(clippy::too_many_arguments)] // Independent request/policy facts; keep the pure gate explicit without a one-use configuration type.
@@ -119,42 +119,6 @@ impl GemiEngine {
 
     pub fn shutdown_owned_runner() {
         crate::models::llamacpp_launcher::shutdown_owned();
-    }
-
-    pub(crate) fn prepare_owned_local_model(path: &Path) -> EaiResult<bool> {
-        if cfg!(test) || std::env::var("SUSI_TEST_MOCK_INFERENCE").as_deref() == Ok("true") {
-            return Ok(false);
-        }
-        ModelManager::verify_model_integrity(path)?;
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        match crate::models::llamacpp_launcher::ensure_owned(
-            path,
-            cfg.kv_cache_capacity_tokens() as u64,
-        ) {
-            Ok(endpoint) => Ok(endpoint.is_some()),
-            Err(error) => {
-                tracing::warn!(%error, "Installed local runner unavailable; using native inference");
-                Ok(false)
-            }
-        }
-    }
-
-    pub(crate) fn try_owned_local_model(prompt: &str, model: &str) -> Option<String> {
-        let path = ModelManager::get_model_path(model)?;
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let max_tokens = u32::try_from(cfg.max_generation_tokens()).unwrap_or(u32::MAX);
-        match crate::models::llamacpp_launcher::generate_owned(&path, prompt, max_tokens) {
-            Ok(answer) => {
-                if answer.is_some() {
-                    tracing::debug!(model, "Installed llama.cpp completed local inference");
-                }
-                answer
-            }
-            Err(error) => {
-                tracing::warn!(%error, "Installed local runner inference failed; using native inference");
-                None
-            }
-        }
     }
 
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
@@ -376,11 +340,8 @@ impl GemiEngine {
             .flatten()
         } else {
             None
-        }
-        .filter(|model| {
-            ModelManager::get_model_path(model)
-                .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
-        });
+        };
+
         let prefer_fast_local = fast_local_model.is_some();
 
         // Remote model discovery can involve network probes. A ready local
@@ -468,7 +429,7 @@ impl GemiEngine {
         {
             active_engine_identifier.as_str()
         } else {
-            "llamacpp"
+            "candle"
         };
 
         // Fully Dynamic Native Engine Instantiation using susi_core ServiceRegistry
@@ -477,7 +438,7 @@ impl GemiEngine {
             .instantiate::<std::sync::Arc<dyn NativeInferenceEngine>>(engine_key)
             .map(|arc_of_arc| (*arc_of_arc).clone())
             .unwrap_or_else(|| {
-                std::sync::Arc::new(LlamaCppEngine) as std::sync::Arc<dyn NativeInferenceEngine>
+                std::sync::Arc::new(SusiGgufEngine) as std::sync::Arc<dyn NativeInferenceEngine>
             });
 
         let selected_model = fast_local_model
@@ -625,7 +586,7 @@ impl GemiEngine {
                 }
                 ladder.persist();
                 // Feed the latency gate so the next request can escalate if slow.
-                if engine_key == "llamacpp" {
+                if matches!(engine_key, "candle" | "llamacpp") {
                     crate::engines::routing::InferenceRouter::record_local_sample(
                         selected_model.as_deref().unwrap_or(""),
                         local_started.elapsed(),

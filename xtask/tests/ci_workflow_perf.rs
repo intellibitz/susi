@@ -18,15 +18,14 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
 fn script_command(script: &Path) -> std::process::Command {
-    #[cfg(windows)]
-    let mut command = std::process::Command::new("sh");
-    #[cfg(not(windows))]
     let mut command = std::process::Command::new("bash");
     command.arg(script);
     command
 }
 
+#[cfg(unix)]
 fn set_script_executable(path: &Path) {
     #[cfg(unix)]
     {
@@ -47,6 +46,7 @@ fn set_script_executable(path: &Path) {
     }
 }
 
+#[cfg(unix)]
 fn path_with_prefix(prefix: &Path, include_host: bool) -> std::ffi::OsString {
     #[cfg(windows)]
     {
@@ -1632,10 +1632,12 @@ fn ci_bootstrap_runs_through_scripts_not_per_job_boilerplate() {
 /// A scratch directory of fake executables ahead of the real PATH, plus a log
 /// every fake appends its argv to. The scripts under test run for real; only the
 /// things that would touch the machine (`apt-get`, `curl`, `sudo`) are faked.
+#[cfg(unix)]
 struct Fakes {
     dir: PathBuf,
 }
 
+#[cfg(unix)]
 impl Fakes {
     fn new(tag: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("susi-ci-fakes-{tag}-{}", std::process::id()));
@@ -1687,6 +1689,7 @@ impl Fakes {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Fakes {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dir);
@@ -1694,6 +1697,7 @@ impl Drop for Fakes {
 }
 
 #[test]
+#[cfg(unix)]
 fn system_deps_are_installed_only_when_the_runner_image_lacks_them() {
     let f = Fakes::new("deps");
     // dpkg -s <pkg> succeeds unless the package is listed in $FAKE_MISSING.
@@ -1955,6 +1959,7 @@ fn zc_scope_script_runs_the_matrix_only_for_what_it_proves() {
 }
 
 #[test]
+#[cfg(unix)]
 fn xtask_package_changes_are_scoped_to_xtask() {
     let dir = std::env::temp_dir().join(format!("susi-changed-crates-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -2038,6 +2043,7 @@ fn xtask_package_changes_are_scoped_to_xtask() {
 }
 
 #[test]
+#[cfg(unix)]
 fn local_workspace_lockfile_scope_preserves_full_gate_for_external_changes() {
     let dir = std::env::temp_dir().join(format!("susi-lockfile-scope-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -2150,6 +2156,7 @@ fn local_workspace_lockfile_scope_preserves_full_gate_for_external_changes() {
 }
 
 #[test]
+#[cfg(unix)]
 fn roadmap_verdict_batch_searches_evidence_once() {
     let source = read("scripts/check-roadmap-verdict.sh");
     let check_all = source
@@ -2659,6 +2666,7 @@ fn code_proven_stamp_gates_the_expensive_main_jobs() {
 /// .agents/tasks/ is proven; one that changed the roadmap or code is not; an
 /// unresolvable sha is not evidence.
 #[test]
+#[cfg(unix)]
 fn code_proven_script_judges_the_code_diff_not_the_commit() {
     let dir = std::env::temp_dir().join(format!("susi-code-proven-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -2879,15 +2887,7 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
         "codetree must build the matrix with `ci-test-shards.sh --matrix` from the \
          shards it did not scope out, and publish `run_shards` for the empty matrix"
     );
-    let script = script_command(&root().join("scripts/ci-test-shards.sh"))
-        .output()
-        .unwrap();
-    assert!(
-        script.status.success(),
-        "ci-test-shards.sh: {}",
-        String::from_utf8_lossy(&script.stderr)
-    );
-    let script_text = String::from_utf8_lossy(&script.stdout);
+    let script_text = shard_table();
     let names: Vec<&str> = script_text
         .lines()
         .map(|line| line.split('\t').next().expect("name<TAB>pkgs"))
@@ -2979,11 +2979,7 @@ fn every_workspace_member_runs_in_a_shard() {
         names.len() > 50 && names.iter().any(|n| n == "susi"),
         "expected the real member list, got {names:?}"
     );
-    let shards = script_command(&root().join("scripts/ci-test-shards.sh"))
-        .output()
-        .unwrap();
-    assert!(shards.status.success());
-    let map = String::from_utf8_lossy(&shards.stdout).into_owned();
+    let map = shard_table();
     let sharded: std::collections::BTreeSet<&str> = map
         .lines()
         .filter_map(|line| line.split('\t').nth(1))
@@ -3007,6 +3003,31 @@ fn every_workspace_member_runs_in_a_shard() {
     );
 }
 
+fn shard_table() -> String {
+    // The literal tracked table is the source of truth; inspecting membership
+    // needs no shell, jq, or platform-specific process launch.
+    let script = read("scripts/ci-test-shards.sh").replace("\r\n", "\n");
+    let map = script
+        .split_once("shards=$(cat <<'SHARDS'\n")
+        .and_then(|(_, body)| body.split_once("\nSHARDS\n"))
+        .map(|(table, _)| table)
+        .expect("the shard script contains its literal SHARDS table");
+    assert!(!map.is_empty(), "the tracked shard table is empty");
+    for line in map.lines() {
+        let fields: Vec<_> = line.split('\t').collect();
+        assert!(
+            (2..=3).contains(&fields.len())
+                && !fields[0].is_empty()
+                && fields[1].starts_with("-p ")
+                && fields
+                    .get(2)
+                    .is_none_or(|count| { count.parse::<usize>().is_ok_and(|value| value > 0) }),
+            "malformed tracked shard row: {line:?}"
+        );
+    }
+    map.to_owned()
+}
+
 /// The `shard` legs `ci-test-shards.sh --matrix <skip>` emits.
 ///
 /// The skip array goes in on stdin (`--matrix -`). Git for Windows' sh.exe,
@@ -3015,7 +3036,8 @@ fn every_workspace_member_runs_in_a_shard() {
 /// (0xC0000005, a failed status and no stderr) — every test that read the
 /// matrix failed on Windows. Where the argument form is safe, it must say
 /// the same: it is the form test.yml uses.
-fn shard_matrix(skip: &str) -> Vec<String> {
+#[cfg(unix)]
+fn hosted_shard_matrix(skip: &str) -> Vec<String> {
     use std::io::Write as _;
     let mut child = script_command(&root().join("scripts/ci-test-shards.sh"))
         .args(["--matrix", "-"])
@@ -3067,6 +3089,59 @@ fn shard_matrix(skip: &str) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// Expand the literal table natively. Unix independently checks the hosted
+/// implementation too, retaining behavioral coverage of the jq matrix builder.
+fn shard_matrix(skip: &str) -> Vec<String> {
+    let skip = skip
+        .trim()
+        .strip_prefix('[')
+        .and_then(|v| v.strip_suffix(']'))
+        .expect("skip list is a JSON array");
+    let skipped: Vec<&str> = if skip.trim().is_empty() {
+        Vec::new()
+    } else {
+        skip.split(',')
+            .map(|v| {
+                v.trim()
+                    .strip_prefix('"')
+                    .and_then(|v| v.strip_suffix('"'))
+                    .expect("skip entry is a quoted shard name")
+            })
+            .collect()
+    };
+    let mut result = Vec::new();
+    for row in shard_table().lines() {
+        let columns: Vec<_> = row.split('\t').collect();
+        let (name, packages) = (columns[0], columns[1]);
+        assert!(name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+        assert!(
+            !packages.contains(['"', '\\']),
+            "package table uses literal words"
+        );
+        if skipped.contains(&name) {
+            continue;
+        }
+        let count: usize = columns.get(2).map_or(1, |v| v.parse().unwrap());
+        for index in 1..=count {
+            let partition = if count > 1 {
+                format!(",\"partition\":\"hash:{index}/{count}\"")
+            } else {
+                String::new()
+            };
+            result.push(format!(
+                "{{\"name\":\"{name}\",\"pkgs\":\"{packages}\"{partition}}}"
+            ));
+        }
+    }
+    #[cfg(unix)]
+    assert_eq!(
+        result,
+        hosted_shard_matrix(&format!("[{skip}]")),
+        "hosted matrix differs from native expansion"
+    );
+    result
 }
 
 /// Read an unescaped string field from the flat shard objects emitted by jq.
@@ -3482,6 +3557,7 @@ fn the_branch_gate_prefetches_onnx_only_when_the_closure_can_reach_it() {
 }
 
 #[test]
+#[cfg(unix)]
 fn finish_push_recovers_only_from_an_advanced_main() {
     let f = Fakes::new("finish-push-recovery");
     let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
@@ -3543,6 +3619,7 @@ push_closed_branch work
 }
 
 #[test]
+#[cfg(unix)]
 fn finish_atomic_publication_falls_back_only_when_explicitly_requested() {
     let f = Fakes::new("finish-atomic-publication");
     let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
@@ -3602,6 +3679,7 @@ printf 'released=%s\n' "$released_with_push" >> log
     }
 }
 
+#[cfg(unix)]
 struct ProofRepo {
     _fakes: Fakes,
     repo: PathBuf,
@@ -3611,6 +3689,7 @@ struct ProofRepo {
     tool: PathBuf,
 }
 
+#[cfg(unix)]
 impl ProofRepo {
     fn new(tag: &str) -> Self {
         let fakes = Fakes::new(tag);
@@ -3711,6 +3790,7 @@ impl ProofRepo {
     }
 }
 
+#[cfg(unix)]
 struct PublicationRepo {
     world: ProofRepo,
     server: PathBuf,
@@ -3720,6 +3800,7 @@ struct PublicationRepo {
     head: String,
 }
 
+#[cfg(unix)]
 impl PublicationRepo {
     fn new(tag: &str) -> Self {
         let world = ProofRepo::new(tag);
@@ -3882,6 +3963,7 @@ impl PublicationRepo {
 }
 
 #[test]
+#[cfg(unix)]
 fn publication_updates_packed_refs_and_republication_always_rewrites_the_receipt() {
     let f = PublicationRepo::new("atomic-publish-packed");
     f.world.git(&["pack-refs", "--all"]);
@@ -3917,6 +3999,7 @@ fn publication_updates_packed_refs_and_republication_always_rewrites_the_receipt
 }
 
 #[test]
+#[cfg(unix)]
 fn publication_claim_reassignment_rejects_the_whole_transaction() {
     let f = PublicationRepo::new("atomic-publish-owner-race");
     let new = f.blob(
@@ -3933,6 +4016,7 @@ fn publication_claim_reassignment_rejects_the_whole_transaction() {
 }
 
 #[test]
+#[cfg(unix)]
 fn publication_agent_index_change_cannot_release_another_task() {
     let f = PublicationRepo::new("atomic-publish-index-race");
     let new = f.blob(
@@ -3949,6 +4033,7 @@ fn publication_agent_index_change_cannot_release_another_task() {
 }
 
 #[test]
+#[cfg(unix)]
 fn publication_changed_receipt_keeps_the_claim_and_branch_untouched() {
     let f = PublicationRepo::new("atomic-publish-receipt-race");
     let new = f.blob(
@@ -3968,6 +4053,7 @@ fn publication_changed_receipt_keeps_the_claim_and_branch_untouched() {
 }
 
 #[test]
+#[cfg(unix)]
 fn publication_leases_never_force_the_code_branch_backwards() {
     let f = PublicationRepo::new("atomic-publish-history");
     let newer = f
@@ -3997,6 +4083,7 @@ fn publication_leases_never_force_the_code_branch_backwards() {
 }
 
 #[test]
+#[cfg(unix)]
 fn publication_cloud_transport_selects_the_existing_path_without_writes() {
     let f = PublicationRepo::new("atomic-publish-cloud");
     let out = f.run("1");
@@ -4007,6 +4094,7 @@ fn publication_cloud_transport_selects_the_existing_path_without_writes() {
 }
 
 #[test]
+#[cfg(unix)]
 fn source_proof_changes_when_upstream_code_changes_but_the_branch_diff_does_not() {
     let f = ProofRepo::new("proof-upstream");
     f.git(&["checkout", "--quiet", "-b", "work"]);
@@ -4051,6 +4139,7 @@ fn source_proof_changes_when_upstream_code_changes_but_the_branch_diff_does_not(
 }
 
 #[test]
+#[cfg(unix)]
 fn format_proof_tracks_formatter_and_external_cargo_config() {
     let f = ProofRepo::new("proof-tools");
     let before = f.stamp(true);
@@ -4062,6 +4151,7 @@ fn format_proof_tracks_formatter_and_external_cargo_config() {
 }
 
 #[test]
+#[cfg(unix)]
 fn source_proof_tracks_untracked_names_contents_and_compiled_agent_data() {
     let f = ProofRepo::new("proof-untracked");
     let before = f.stamp(false);
@@ -4079,6 +4169,7 @@ fn source_proof_tracks_untracked_names_contents_and_compiled_agent_data() {
 }
 
 #[test]
+#[cfg(unix)]
 fn format_proof_reuse_never_turns_a_failed_formatter_into_a_success() {
     let f = Fakes::new("format-proof");
     std::fs::create_dir_all(f.dir.join("scripts")).unwrap();
@@ -4126,6 +4217,7 @@ gate_format
 }
 
 #[test]
+#[cfg(unix)]
 fn compliance_counts_live_claims_from_one_byte_counted_snapshot() {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -4222,6 +4314,7 @@ check_one_live_claim OWN abc T-TEST-0
 }
 
 #[test]
+#[cfg(unix)]
 fn scratch_cleanup_preserves_failure_and_stops_services_before_background_deletion() {
     let f = Fakes::new("async-scratch-cleanup");
     f.fake(
@@ -4263,6 +4356,7 @@ wait
 }
 
 #[test]
+#[cfg(unix)]
 fn finish_hooks_leave_primary_maintenance_to_the_finish_cleanup() {
     let f = Fakes::new("finish-hook-cleanup");
     f.fake("git", "echo unexpected-git >&2; exit 91");
@@ -4280,6 +4374,7 @@ fn finish_hooks_leave_primary_maintenance_to_the_finish_cleanup() {
 }
 
 #[test]
+#[cfg(unix)]
 fn finish_rechecks_the_remote_before_skipping_lease_renewal() {
     let f = Fakes::new("finish-remote-lease");
     let workflow = read("scripts/parallel-workflow.sh").replace("\r\n", "\n");
@@ -4355,6 +4450,7 @@ renew_or_readopt
 }
 
 #[test]
+#[cfg(unix)]
 fn normal_sync_finds_its_owned_claim_without_remote_renewal_lookup() {
     assert_eq!(
         read("scripts/parallel-workflow.sh")
@@ -4546,6 +4642,7 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
 }
 
 #[test]
+#[cfg(unix)]
 fn release_source_selects_root_workflow_test() {
     let dir = std::env::temp_dir().join(format!("susi-release-scope-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

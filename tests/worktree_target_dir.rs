@@ -1,3 +1,5 @@
+// Mixed native seeding coverage and optional legacy POSIX-hook compatibility.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -98,6 +100,7 @@ fn command(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> C
         Command::new(program)
     };
     scrub(&mut cmd);
+    isolate_fixture_home(&mut cmd, dir);
     cmd.args(args).current_dir(dir);
     for (k, v) in envs {
         cmd.env(k, v);
@@ -105,6 +108,19 @@ fn command(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> C
     cmd
 }
 
+/// Keep automatic development-instance allocation inside the owning fixture.
+/// No SUSI_HOME override: the executable must select its own private instance.
+fn isolate_fixture_home(cmd: &mut Command, dir: &Path) {
+    let resolved = dir.canonicalize().expect("fixture command directory");
+    if let Some(root) = resolved
+        .ancestors()
+        .find(|p| p.join(".seed-fixture-owner").is_file())
+    {
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        susi_paths::test_env::isolate_home(cmd, &home);
+    }
+}
 fn scrub(cmd: &mut Command) {
     cmd.env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
@@ -127,6 +143,8 @@ fn scrub(cmd: &mut Command) {
         .env_remove("SUSI_SEED_CARGO")
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET_DIR")
+        .env_remove("CARGO_BUILD_BUILD_DIR")
+        .env_remove("CARGO_BUILD_TARGET")
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE");
@@ -498,6 +516,7 @@ impl World {
         let bare = root.join("server.git");
         let primary = root.join("susi");
         std::fs::create_dir_all(&bare).unwrap();
+        std::fs::write(root.join(".seed-fixture-owner"), "native seed test\n").unwrap();
         std::fs::create_dir_all(primary.join("scripts")).unwrap();
         git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         git(&primary, &["init", "--quiet", "-b", "main"]);
@@ -653,15 +672,24 @@ impl World {
     /// `scripts/seed-target.sh <args>` from the primary's scripts: the stub,
     /// which execs the binary under test.
     fn seed_target(&self, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
-        run(&self.primary, self.script().to_str().unwrap(), args, envs)
+        let mut native_args = vec!["workflow", "seed-target"];
+        native_args.extend_from_slice(args);
+        susi(&self.primary, &native_args, envs)
     }
 
     fn spawn_seed_target(&self, args: &[&str], envs: &[(&str, &str)]) -> Child {
-        command(&self.primary, self.script().to_str().unwrap(), args, envs)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap()
+        let mut native_args = vec!["workflow", "seed-target"];
+        native_args.extend_from_slice(args);
+        command(
+            &self.primary,
+            env!("CARGO_BIN_EXE_susi"),
+            &native_args,
+            envs,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
     }
 
     /// A new origin/main, pushed and fetched.
@@ -884,6 +912,8 @@ fn assert_seed_untouched(w: &World) {
 }
 
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_new_worktree_gets_its_own_target_seeded_from_the_snapshot() {
     let w = World::new("new");
     w.make_seed();
@@ -980,6 +1010,8 @@ fn an_empty_target_is_seeded() {
 }
 
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn susi_no_seed_skips_the_copy_but_still_replaces_a_link() {
     let w = World::new("noseed");
     w.make_seed();
@@ -1154,6 +1186,8 @@ fn a_link_rm_cannot_remove_falls_back_and_never_reaches_through() {
 /// is shown to return while the copy has not finished. A worktree the
 /// desktop app made gets its target this way.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_session_start_hook_replaces_a_link_now_and_seeds_in_the_background() {
     let w = World::new("hook");
     w.make_seed();
@@ -1292,6 +1326,8 @@ fn a_native_directory_symlink_target_is_converted_too() {
 /// own age, read by susi, not by `find`), and the linked target converted
 /// and seeded.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_raw_shell_with_system32_first_runs_neither_wsls_bash_nor_windows_find() {
     let w = World::new("rawsh");
     w.make_seed();
@@ -1355,6 +1391,7 @@ fn a_raw_shell_with_system32_first_runs_neither_wsls_bash_nor_windows_find() {
 
     let mut cmd = Command::new(&shell);
     scrub(&mut cmd);
+    isolate_fixture_home(&mut cmd, &w.primary);
     cmd.args(shell_args)
         .arg(w.script())
         .arg(&dest)
@@ -1389,6 +1426,8 @@ fn a_raw_shell_with_system32_first_runs_neither_wsls_bash_nor_windows_find() {
 /// pointed at stays), and the snapshot is copied in the background, which
 /// the merge does not wait for.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_merge_into_a_linked_worktree_converts_its_target_at_once() {
     let w = World::new("postmerge");
     w.make_seed();
@@ -1447,6 +1486,8 @@ fn a_merge_into_a_linked_worktree_converts_its_target_at_once() {
 /// only post-commit. That hook converts the link the same way, at once, with
 /// the copy in the background, and what the link pointed at stays as it was.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_conflicted_merge_converts_a_linked_target_when_its_commit_concludes_it() {
     let w = World::new("conflict");
     w.make_seed();
@@ -1522,6 +1563,8 @@ fn a_conflicted_merge_converts_a_linked_target_when_its_commit_concludes_it() {
 /// at once (so there is nothing left to link) and seeds it in the
 /// background, without making the add wait.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_new_worktree_has_a_real_target_before_an_old_workflow_start_can_link_one() {
     let w = World::new("postcheckout");
     w.make_seed();
@@ -1694,6 +1737,7 @@ fn v0_21_23_close(ws: &Path, argv: &[&str]) -> Option<Command> {
         return None;
     }
     scrub(&mut command);
+    isolate_fixture_home(&mut command, ws);
     command
         .arg(joined_script(ws, "target-guard.sh"))
         .arg("--run")
@@ -1710,6 +1754,8 @@ fn v0_21_23_close(ws: &Path, argv: &[&str]) -> Option<Command> {
 /// find seed-target.sh beside it whatever slashes that path has, and turn the
 /// link into a real, seeded target, leaving what it pointed at alone.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_retired_link_script_seeds_instead_of_linking() {
     let w = World::new("oldlink");
     w.make_seed();
@@ -1722,6 +1768,7 @@ fn the_retired_link_script_seeds_instead_of_linking() {
         link_dir(&shared, &dest.join("target"));
         let mut harness = Command::new("sh");
         scrub(&mut harness);
+        isolate_fixture_home(&mut harness, &w.primary);
         let out = harness
             .arg(&linker)
             .arg(&dest)
@@ -1749,6 +1796,8 @@ fn the_retired_link_script_seeds_instead_of_linking() {
 /// `<dir>\scripts\seed-target.sh`: the copy once ran `<scripts dir>/<that
 /// whole path>`, which does not exist, and the target was left empty.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_background_seeding_named_by_a_joined_path_still_copies() {
     let w = World::new("bgpath");
     w.make_seed();
@@ -1760,6 +1809,7 @@ fn a_background_seeding_named_by_a_joined_path_still_copies() {
         let script = joined_script(&repo, "seed-target.sh");
         let mut cmd = Command::new("sh");
         scrub(&mut cmd);
+        isolate_fixture_home(&mut cmd, &w.primary);
         let out = cmd
             .arg(&script)
             .arg("--background")
@@ -1799,6 +1849,8 @@ fn a_background_seeding_named_by_a_joined_path_still_copies() {
 /// whatever its slashes), and an older branch's gate or pre-push
 /// (`"$root/scripts/target-guard.sh" --hold $$`, a path its shell made).
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_retired_guard_runs_the_command_and_converts_a_linked_target_first() {
     let w = World::new("guard");
     w.make_seed();
@@ -1954,7 +2006,16 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
     git(&w.primary, &["push", "--quiet", "origin", "HEAD:main"]);
     git(&w.primary, &["fetch", "--quiet", "origin"]);
     let primary_before = git(&w.primary, &["status", "--porcelain"]);
-    let (code, out, err) = w.seed_target(&["--refresh"], &[]);
+    // Caller output settings must not redirect fingerprints out of the owned
+    // seed checkout. This directory is part of this fixture, not user state.
+    let outer = w.root.join("hostile-outer-cargo-output");
+    write(&outer.join("sentinel"), "keep outer output unchanged\n");
+    let hostile_outputs = [
+        ("CARGO_TARGET_DIR", outer.to_str().unwrap()),
+        ("CARGO_BUILD_TARGET_DIR", outer.to_str().unwrap()),
+        ("CARGO_BUILD_BUILD_DIR", outer.to_str().unwrap()),
+    ];
+    let (code, out, err) = w.seed_target(&["--refresh"], &hostile_outputs);
     assert_eq!(code, 0, "{out}{err}");
     let main = git(&w.primary, &["rev-parse", "origin/main"]);
     let marker = std::fs::read_to_string(w.seed().join(".susi-seed")).unwrap_or_default();
@@ -1993,27 +2054,41 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
         "nothing copied up for the workspace: {top:?}"
     );
     assert!(!w.primary.join("target").exists(), "never in the primary");
+    assert_eq!(
+        std::fs::read_to_string(outer.join("sentinel")).unwrap(),
+        "keep outer output unchanged\n"
+    );
+    assert_eq!(
+        std::fs::read_dir(&outer).unwrap().count(),
+        1,
+        "no Cargo metadata or fingerprints may escape into caller output"
+    );
     assert_eq!(git(&w.primary, &["status", "--porcelain"]), primary_before);
     assert_eq!(staging_dirs(&w), Vec::<String>::new());
     assert!(!w.seed_lock().exists(), "the lock is let go");
     // Current: nothing to do.
-    let (code, out, _) = w.seed_target(&["--refresh"], &[]);
+    let (code, out, _) = w.seed_target(&["--refresh"], &hostile_outputs);
     assert_eq!(code, 0);
     assert!(out.contains("already origin/main"), "{out}");
     // A newer origin/main, but a young snapshot: it waits, unless forced.
     let next = w.advance_main("crates/cell/src/lib.rs", "pub fn g() {}\n");
-    let (_, out, _) = w.seed_target(&["--refresh"], &[]);
+    let (_, out, _) = w.seed_target(&["--refresh"], &hostile_outputs);
     assert!(out.contains("refreshed after"), "{out}");
-    let (code, out, err) = w.seed_target(&["--refresh", "--force"], &[]);
+    let (code, out, err) = w.seed_target(&["--refresh", "--force"], &hostile_outputs);
     assert_eq!(code, 0, "{out}{err}");
     let marker = std::fs::read_to_string(w.seed().join(".susi-seed")).unwrap();
     assert!(marker.starts_with(&next), "{marker:?}\n{out}{err}");
     // A snapshot directory no refresh made is never replaced.
     std::fs::remove_dir_all(w.seed()).unwrap();
     write(&w.seed().join("debug/someone-elses"), "x");
-    let (_, out, _) = w.seed_target(&["--refresh", "--force"], &[]);
+    let (_, out, _) = w.seed_target(&["--refresh", "--force"], &hostile_outputs);
     assert!(out.contains("not a snapshot a refresh made"), "{out}");
     assert!(w.seed().join("debug/someone-elses").is_file());
+    assert_eq!(
+        std::fs::read_dir(&outer).unwrap().count(),
+        1,
+        "forced refresh also stays inside its owned checkout"
+    );
 }
 
 /// `--refresh` checks out, cleans and builds only in a clone it made itself.
@@ -2021,6 +2096,8 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
 /// or any directory it did not make, it refuses, says so, and changes
 /// nothing there: no detached HEAD, no untracked file cleaned away, no build.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn refresh_never_builds_in_the_primary_or_a_checkout_it_did_not_make() {
     let w = World::new("refusesrc");
     let Some(fake) = w.fake_cargo() else {
@@ -2082,6 +2159,8 @@ fn refresh_never_builds_in_the_primary_or_a_checkout_it_did_not_make() {
 /// published, stripped to registry and git crates, and no staging directory
 /// or lock is left behind.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn two_refreshes_at_once_build_once_and_publish_one_stripped_snapshot() {
     let w = World::new("together");
     let Some(fake) = w.fake_cargo() else {
@@ -2135,6 +2214,8 @@ fn two_refreshes_at_once_build_once_and_publish_one_stripped_snapshot() {
 /// stale, then taken over; staging directories are swept only when the run
 /// that owns them is gone, never a live one's.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_refresh_lock_and_staging_hold_across_git_installs() {
     let w = World::new("runtimes");
     let main = git(&w.primary, &["rev-parse", "origin/main"]);
@@ -2207,6 +2288,8 @@ fn the_refresh_lock_and_staging_hold_across_git_installs() {
 /// on changes (Cargo.lock here), or once it is twice its size after its last
 /// fresh build; otherwise it is kept, and the next build is incremental.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_build_checkouts_target_starts_over_when_its_inputs_change_or_it_doubles() {
     let w = World::new("bounded");
     let Some(fake) = w.fake_cargo() else {
@@ -2290,6 +2373,8 @@ fn executable(path: &Path) {
 /// `workflow start` or scripts/susi-worktree.sh of that name then refused it
 /// as "an unrelated checkout". Nothing shared is touched either.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_worktree_removed_while_its_copy_runs_is_never_brought_back() {
     let w = World::new("removed");
     w.make_seed();
@@ -2494,6 +2579,8 @@ fn the_copys_cleanup_never_reaches_through_a_link() {
 /// target, and a refresh refused to replace it; one named `target-seed-src`
 /// sat where the refresh builds, and kept any snapshot from being built.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn only_a_published_snapshot_is_copied_never_a_checkout() {
     let w = World::new("onlyseed");
     let (code, out, err) = w.worktree("target-seed", &[]);
@@ -2579,6 +2666,8 @@ fn only_a_published_snapshot_is_copied_never_a_checkout() {
 /// alone. A text check (the seeding before `cargo fmt` in the function) would
 /// pass with the call in a branch the gate does not take.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_finish_gate_seeds_a_linked_target_before_its_first_cargo() {
     let w = World::new("gate");
     w.make_seed();
@@ -2659,6 +2748,8 @@ gate_format() {{ cargo fmt --all --check; }}
 /// instead of building cold beside the copy, which would then be thrown
 /// away. One copy, not two.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_retired_guard_waits_for_the_copy_a_hook_started() {
     let w = World::new("guardwaits");
     w.make_seed();
@@ -2716,6 +2807,8 @@ fn the_retired_guard_waits_for_the_copy_a_hook_started() {
 /// and lets go after. A branch with the seeder seeds instead, and never runs
 /// its guard (there a pass-through).
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn the_pre_push_hook_holds_an_old_branchs_own_guard_only_without_a_seeder() {
     let root = std::env::temp_dir().join(format!("susi-seed-prepush-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -3037,6 +3130,8 @@ fn a_worktree_removed_as_its_copy_is_renamed_into_place_is_left_removed() {
 /// close` and the retired guard run the script with the environment their
 /// cargo runs with.
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn a_cargo_target_dir_elsewhere_gets_no_copy() {
     let w = World::new("targetdir");
     w.make_seed();
@@ -3223,6 +3318,8 @@ fn the_copy_watcher_counts_an_unreaped_process_as_ended() {
 /// Nothing is copied, the primary checkout is never touched, and `--refresh`
 /// has nothing to fall back on.
 #[test]
+// Executes a shell-only compatibility fallback using a shebang fixture.
+#[cfg(unix)]
 fn the_stub_still_unlinks_and_makes_an_empty_target_without_a_capable_susi() {
     let w = World::new("stubfallback");
     w.make_seed();
@@ -3362,6 +3459,7 @@ fn the_seeding_needs_no_git_userland_on_windows() {
         "the narrowed PATH must not carry Git's userland: {path}"
     );
     let w = World::new("nouserland");
+    let auto_home = w.root.join("home/.susi-dev");
     w.make_seed();
     let shared = w.root.join("shared-target");
     write(&shared.join("sentinel"), "another worktree's build");
@@ -3380,6 +3478,18 @@ fn the_seeding_needs_no_git_userland_on_windows() {
     assert_eq!(
         std::fs::read_to_string(shared.join("sentinel")).unwrap(),
         "another worktree's build"
+    );
+    assert!(
+        auto_home.join("instances").is_dir(),
+        "automatic instance must use fixture home"
+    );
+    assert!(
+        auto_home.join("port-owners").is_dir(),
+        "automatic port allocation must use fixture home"
+    );
+    assert!(
+        !w.root.join("home/.susi").exists(),
+        "the development executable must not use production state"
     );
     // The background form too: the detached copy is this same binary.
     let other = w.app_worktree("other");
@@ -3409,6 +3519,8 @@ fn the_seeding_needs_no_git_userland_on_windows() {
 /// it out again on `--off`, and never adds a second `[build]` or `[env]` table
 /// to a config that has one (a TOML error that would break every cargo).
 #[test]
+// POSIX script/hook fixture; native seeding checks remain enabled.
+#[cfg(unix)]
 fn setup_sccache_writes_one_removable_block_and_never_doubles_a_table() {
     let root = std::env::temp_dir().join(format!("susi-sccache-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

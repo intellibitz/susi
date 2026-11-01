@@ -1,105 +1,73 @@
-//! First-run local model chosen and fetched for this hardware.
-//!
-//! On first run susi picks the best starter model that fits RAM/VRAM/disk,
-//! fetches it resumably with progress (see
-//! `susi_vendor_models::resumable_downloads`), and falls back cleanly when
-//! the host is offline or too small — zero required config anywhere.
-
+//! First-run planning: reuse admitted cached weights, otherwise fetch the
+//! audited small CPU starter. Larger automatic downloads require later evidence.
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use susi_vendor_models::resumable_downloads::{DownloadPlan, RangeRequest, RangeResponse};
 use susi_vendor_models::susi_error::{EaiError, EaiResult};
 
-/// One candidate starter model (a GGUF file on Hugging Face).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StarterModel {
     pub id: String,
     pub hf_repo: String,
     pub hf_file: String,
-    /// Weight file size in bytes (drives the disk check).
     pub size_bytes: u64,
-    /// Approx. bytes of RAM/VRAM the model needs resident to serve.
     pub resident_bytes: u64,
-    /// Quality rank — higher is better; the picker maximises this subject
-    /// to fit.
+    /// Used to rank already cached, verified models; never justifies a larger first download.
     pub quality: u32,
 }
-
-/// The hardware the first run has to work with.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FirstRunHost {
-    /// Free system RAM (bytes).
+    /// Available inference RAM after reserving memory for the OS.
     pub ram: u64,
-    /// Free VRAM across usable GPUs (bytes); counts toward residency too.
     pub vram: u64,
-    /// Free disk for the weight file (bytes).
     pub disk: u64,
-    /// No outbound network — only already-cached models may be used.
     pub offline: bool,
 }
-
-/// Default starter ladder, smallest first. Sizes are the weight file.
+pub(crate) const STARTER_REVISION: &str = "9217f5db79a29953eb74d5343926648285ec7e67";
+pub(crate) const STARTER_SHA256: &str =
+    "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed";
+pub(crate) fn audited_starter() -> StarterModel {
+    StarterModel {
+        id: "qwen2.5-0.5b-instruct-q4".into(),
+        hf_repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF".into(),
+        hf_file: "qwen2.5-0.5b-instruct-q4_0.gguf".into(),
+        size_bytes: 428_730_208,
+        resident_bytes: 1_000_000_000,
+        quality: 10,
+    }
+}
+/// Only Apache-licensed candidates. The larger entry is useful when already
+/// admitted and cached; an empty cache always starts with the smaller artifact.
 #[must_use]
 pub fn default_starters() -> Vec<StarterModel> {
     vec![
+        audited_starter(),
         StarterModel {
-            id: "qwen2.5-0.5b-instruct-q4".to_string(),
-            hf_repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF".to_string(),
-            hf_file: "qwen2.5-0.5b-instruct-q4_k_m.gguf".to_string(),
-            size_bytes: 400_000_000,
-            resident_bytes: 700_000_000,
-            quality: 10,
-        },
-        StarterModel {
-            id: "llama-3.2-1b-instruct-q4".to_string(),
-            hf_repo: "bartowski/Llama-3.2-1B-Instruct-GGUF".to_string(),
-            hf_file: "Llama-3.2-1B-Instruct-Q4_K_M.gguf".to_string(),
-            size_bytes: 800_000_000,
-            resident_bytes: 1_400_000_000,
-            quality: 20,
-        },
-        StarterModel {
-            id: "qwen2.5-3b-instruct-q4".to_string(),
-            hf_repo: "Qwen/Qwen2.5-3B-Instruct-GGUF".to_string(),
-            hf_file: "qwen2.5-3b-instruct-q4_k_m.gguf".to_string(),
-            size_bytes: 1_900_000_000,
-            resident_bytes: 3_200_000_000,
-            quality: 40,
-        },
-        StarterModel {
-            id: "qwen2.5-7b-instruct-q4".to_string(),
-            hf_repo: "Qwen/Qwen2.5-7B-Instruct-GGUF".to_string(),
-            hf_file: "qwen2.5-7b-instruct-q4_k_m.gguf".to_string(),
+            id: "qwen2.5-7b-instruct-q4".into(),
+            hf_repo: "Qwen/Qwen2.5-7B-Instruct-GGUF".into(),
+            hf_file: "qwen2.5-7b-instruct-q4_k_m.gguf".into(),
             size_bytes: 4_700_000_000,
             resident_bytes: 6_500_000_000,
             quality: 70,
         },
     ]
 }
-
-/// What the first run decided.
 #[derive(Debug, Clone)]
 pub enum FirstRunPlan {
-    /// Fetch `model` resumably to `dest` — plan is ready for
-    /// `resumable_downloads::download`.
     Fetch {
         model: StarterModel,
         plan: DownloadPlan,
     },
-    /// A fitting model is already on disk — nothing to download.
-    UseCached { model: StarterModel, path: PathBuf },
-    /// Offline with nothing cached that fits — degrade to cloud-free stub.
+    UseCached {
+        model: StarterModel,
+        path: PathBuf,
+    },
+    /// No suitable model; report unavailable local inference, never pretend to infer.
     OfflineNoModel,
-    /// Even the smallest starter cannot run on this hardware.
     TooSmall,
 }
-
-/// Choose the best model for `host` and produce the first-run plan.
-///
-/// `cached` lists `(model id, path)` pairs already on disk. Offline hosts
-/// may only use cached models; online hosts fetch the best fitting one.
-/// Models are tried best-first: the resident footprint must fit in
-/// RAM+VRAM and the weight file in free disk.
+/// Verify cached artifacts before considering them; download the smallest
+/// fitting candidate only when no admitted cached model fits.
 #[must_use]
 pub fn plan_first_run(
     host: &FirstRunHost,
@@ -107,17 +75,36 @@ pub fn plan_first_run(
     cached: &[(String, PathBuf)],
     models_dir: &Path,
 ) -> FirstRunPlan {
-    let resident_cap = host.ram.saturating_add(host.vram);
-    let fits = |m: &StarterModel| -> bool {
-        m.resident_bytes <= resident_cap && m.size_bytes <= host.disk
-    };
-    let mut candidates: Vec<&StarterModel> = starters.iter().filter(|m| fits(m)).collect();
-    candidates.sort_by_key(|a| std::cmp::Reverse(a.quality));
-
-    for m in &candidates {
-        if let Some((_, path)) = cached.iter().find(|(id, _)| *id == m.id) {
+    plan_with_verifier(host, starters, cached, models_dir, &|path| {
+        let admitted = if host.offline {
+            susi_vendor_models::model_license::verify_local_offline(path)
+        } else {
+            susi_vendor_models::model_license::verify_local(path)
+        };
+        admitted.is_ok() && crate::ModelManager::valid_gguf_payload(path)
+    })
+}
+fn plan_with_verifier(
+    host: &FirstRunHost,
+    starters: &[StarterModel],
+    cached: &[(String, PathBuf)],
+    models_dir: &Path,
+    verified: &dyn Fn(&Path) -> bool,
+) -> FirstRunPlan {
+    // CPU loading needs real RAM; do not pretend separate RAM and VRAM form
+    // one contiguous memory pool. GPU execution is optional after first goal.
+    let mut candidates: Vec<_> = starters
+        .iter()
+        .filter(|m| m.resident_bytes <= host.ram)
+        .collect();
+    candidates.sort_by_key(|m| std::cmp::Reverse(m.quality));
+    for model in &candidates {
+        if let Some((_, path)) = cached
+            .iter()
+            .find(|(id, path)| *id == model.id && verified(path))
+        {
             return FirstRunPlan::UseCached {
-                model: (*m).clone(),
+                model: (*model).clone(),
                 path: path.clone(),
             };
         }
@@ -125,172 +112,243 @@ pub fn plan_first_run(
     if host.offline {
         return FirstRunPlan::OfflineNoModel;
     }
-    match candidates.first() {
-        Some(m) => {
-            let url = format!(
-                "https://huggingface.co/{}/resolve/main/{}",
-                m.hf_repo, m.hf_file
-            );
-            FirstRunPlan::Fetch {
-                model: (*m).clone(),
-                plan: DownloadPlan {
-                    url,
-                    dest: models_dir.join(&m.hf_file),
-                    sha256: None,
-                    size: Some(m.size_bytes),
-                    max_retries: 8,
-                },
-            }
-        }
-        None => FirstRunPlan::TooSmall,
+    candidates.retain(|m| m.size_bytes <= host.disk);
+    candidates.sort_by_key(|m| (m.size_bytes, m.resident_bytes));
+    let Some(model) = candidates.first() else {
+        return FirstRunPlan::TooSmall;
+    };
+    let starter = audited_starter();
+    let audited = model.hf_repo == starter.hf_repo && model.hf_file == starter.hf_file;
+    FirstRunPlan::Fetch {
+        model: (*model).clone(),
+        plan: DownloadPlan {
+            url: format!(
+                "https://huggingface.co/{}/resolve/{}/{}",
+                model.hf_repo,
+                if audited { STARTER_REVISION } else { "main" },
+                model.hf_file
+            ),
+            dest: models_dir.join(&model.hf_file),
+            sha256: audited.then(|| STARTER_SHA256.into()),
+            size: Some(model.size_bytes),
+            max_retries: 8,
+        },
     }
 }
-
-/// Execute a `Fetch` plan via the resumable downloader, reporting
-/// byte-level progress through `on_progress`.
-///
-/// # Errors
-/// Propagates download/verification failures.
+/// The injected transport cannot bypass publisher admission. Download only
+/// to staging; publish and record provenance after complete hash verification.
 pub fn fetch(
     plan: &DownloadPlan,
     transport: &dyn Fn(&RangeRequest) -> EaiResult<RangeResponse>,
     on_progress: &dyn Fn(u64),
 ) -> EaiResult<u64> {
-    let report = susi_vendor_models::resumable_downloads::download(plan, &|req: &RangeRequest| {
-        let resp = transport(req)?;
-        on_progress(req.from + resp.body.len() as u64);
-        Ok(resp)
-    })
-    .map_err(|e| EaiError::network(e.to_string()))?;
+    let receipt = susi_vendor_models::model_license::admit_download(&plan.url)
+        .map_err(EaiError::governance)?;
+    if plan
+        .sha256
+        .as_ref()
+        .is_some_and(|hash| !hash.eq_ignore_ascii_case(&receipt.sha256))
+    {
+        return Err(EaiError::governance(
+            "First-run plan hash disagrees with publisher evidence",
+        ));
+    }
+    if plan.dest.exists() {
+        receipt.record(&plan.dest).map_err(EaiError::governance)?;
+        return Ok(std::fs::metadata(&plan.dest)?.len());
+    }
+    let mut staged = plan.clone();
+    staged.url = receipt.artifact_url.clone();
+    staged.sha256 = Some(receipt.sha256.clone());
+    staged.dest = PathBuf::from(format!("{}.first-run.part", plan.dest.display()));
+    let report = susi_vendor_models::resumable_downloads::download(&staged, &|request| {
+        let response = transport(request)?;
+        on_progress(request.from.saturating_add(response.body.len() as u64));
+        Ok(response)
+    })?;
+    if !report.verified {
+        return Err(EaiError::governance(
+            "First-run download failed publisher hash verification",
+        ));
+    }
+    // hard_link refuses an existing destination, so a concurrent/user file
+    // is never overwritten. Staging and destination share their filesystem.
+    std::fs::hard_link(&staged.dest, &plan.dest)?;
+    receipt.record(&plan.dest).map_err(EaiError::governance)?;
+    std::fs::remove_file(staged.dest)?;
     Ok(report.bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn host(ram: u64, vram: u64, disk: u64, offline: bool) -> FirstRunHost {
+    const GB: u64 = 1_000_000_000;
+    fn host(ram: u64, disk: u64, offline: bool) -> FirstRunHost {
         FirstRunHost {
             ram,
-            vram,
+            vram: 24 * GB,
             disk,
             offline,
         }
     }
-
-    const GB: u64 = 1_000_000_000;
-
     #[test]
-    fn zc_first_model_picks_best_that_fits() {
-        // 8 GB RAM, no VRAM, plenty of disk → 7B's 6.5GB fits
-        let h = host(8 * GB, 0, 100 * GB, false);
-        match plan_first_run(&h, &default_starters(), &[], &PathBuf::from("/m")) {
-            FirstRunPlan::Fetch { model, plan } => {
-                assert_eq!(model.id, "qwen2.5-7b-instruct-q4");
-                assert!(plan.url.contains("resolve/main"));
-            }
-            other => panic!("expected Fetch, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn zc_first_model_scales_down_on_small_hosts() {
-        let cases: &[(u64, u64, u64, &str)] = &[
-            (1_200_000_000, 0, 50 * GB, "qwen2.5-0.5b-instruct-q4"),
-            (2 * GB, 0, 50 * GB, "llama-3.2-1b-instruct-q4"),
-            (4 * GB, 0, 50 * GB, "qwen2.5-3b-instruct-q4"),
-            (GB, GB, 50 * GB, "llama-3.2-1b-instruct-q4"), // ram+vram 2GB
-            (500_000_000, 0, 50 * GB, "TOO_SMALL"),
-        ];
-        for (ram, vram, disk, want) in cases {
-            let h = host(*ram, *vram, *disk, false);
-            match plan_first_run(&h, &default_starters(), &[], &PathBuf::from("/m")) {
-                FirstRunPlan::Fetch { model, .. } => assert_eq!(&model.id, want),
-                FirstRunPlan::TooSmall => assert_eq!(want, &"TOO_SMALL"),
-                other => panic!("ram={ram}: expected Fetch/TooSmall, got {other:?}"),
+    fn empty_cache_uses_small_audited_starter_even_on_large_gpu_host() {
+        for ram in [GB, 2 * GB, 8 * GB, 128 * GB] {
+            match plan_first_run(
+                &host(ram, 100 * GB, false),
+                &default_starters(),
+                &[],
+                Path::new("models"),
+            ) {
+                FirstRunPlan::Fetch { model, plan } => {
+                    assert_eq!(model, audited_starter());
+                    assert!(plan.url.contains(STARTER_REVISION));
+                    assert_eq!(plan.sha256.as_deref(), Some(STARTER_SHA256));
+                    assert_eq!(plan.size, Some(428_730_208));
+                }
+                other => panic!("Expected small starter, got {other:?}"),
             }
         }
     }
-
     #[test]
-    fn zc_first_model_disk_limit_skips_big_models() {
-        // RAM fits 7B but disk only fits the 0.5B file
-        let h = host(8 * GB, 0, 500_000_000, false);
-        match plan_first_run(&h, &default_starters(), &[], &PathBuf::from("/m")) {
-            FirstRunPlan::Fetch { model, .. } => {
-                assert_eq!(model.id, "qwen2.5-0.5b-instruct-q4")
-            }
-            other => panic!("expected Fetch, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn zc_first_model_prefers_cached_over_download() {
-        let h = host(8 * GB, 0, 100 * GB, false);
-        let cached = vec![(
-            "qwen2.5-3b-instruct-q4".to_string(),
-            PathBuf::from("/m/qwen3b.gguf"),
-        )];
-        match plan_first_run(&h, &default_starters(), &cached, &PathBuf::from("/m")) {
-            FirstRunPlan::UseCached { model, path } => {
-                assert_eq!(model.id, "qwen2.5-3b-instruct-q4");
-                assert_eq!(path, PathBuf::from("/m/qwen3b.gguf"));
-            }
-            other => panic!("expected UseCached, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn zc_first_model_offline_uses_cache_or_nothing() {
-        let cached = vec![(
-            "qwen2.5-0.5b-instruct-q4".to_string(),
-            PathBuf::from("/m/q.gguf"),
-        )];
-        let h = host(8 * GB, 0, 100 * GB, true);
-        // cached model isn't the best that fits, but offline it wins anyway
+    fn incompatible_defaults_are_not_candidates() {
+        assert_eq!(default_starters().len(), 2);
+        assert!(!default_starters()
+            .iter()
+            .any(|m| m.id.contains("llama") || m.id.contains("-3b-")));
         assert!(matches!(
-            plan_first_run(&h, &default_starters(), &cached, &PathBuf::from("/m")),
-            FirstRunPlan::UseCached { .. }
+            plan_first_run(
+                &host(GB - 1, 100 * GB, false),
+                &default_starters(),
+                &[],
+                Path::new("models")
+            ),
+            FirstRunPlan::TooSmall
         ));
         assert!(matches!(
-            plan_first_run(&h, &default_starters(), &[], &PathBuf::from("/m")),
+            plan_first_run(
+                &host(8 * GB, 428_730_207, false),
+                &default_starters(),
+                &[],
+                Path::new("models")
+            ),
+            FirstRunPlan::TooSmall
+        ));
+    }
+    #[test]
+    fn cached_priority_does_not_require_free_disk_for_existing_bytes() {
+        // Pure policy test: production supplies cryptographic verification,
+        // independently exercised against actual pinned weights below.
+        let cached = vec![(
+            default_starters()[1].id.clone(),
+            PathBuf::from("admitted-cache.gguf"),
+        )];
+        assert!(
+            matches!(plan_with_verifier(&host(8*GB,0,true), &default_starters(), &cached, Path::new("models"), &|_| true), FirstRunPlan::UseCached {model,..} if model.quality == 70)
+        );
+        assert!(matches!(
+            plan_with_verifier(
+                &host(8 * GB, 0, true),
+                &default_starters(),
+                &cached,
+                Path::new("models"),
+                &|_| false
+            ),
             FirstRunPlan::OfflineNoModel
         ));
     }
-
     #[test]
-    fn zc_first_model_fetch_resumes_and_reports() {
-        // one-shot transport serving a 10-byte file in chunks
-        let data = b"0123456789";
-        let transport = move |req: &RangeRequest| -> EaiResult<RangeResponse> {
-            let from = req.from as usize;
-            if from >= data.len() {
-                return Ok(RangeResponse {
-                    status: 416,
-                    body: Vec::new(),
-                    accept_ranges: true,
-                });
-            }
-            let end = (from + 4).min(data.len());
-            Ok(RangeResponse {
-                status: if from == 0 { 200 } else { 206 },
-                body: data[from..end].to_vec(),
-                accept_ranges: true,
-            })
-        };
-        let dest = std::env::temp_dir().join(format!("zc-first-{}.gguf", std::process::id()));
-        let progress = std::cell::RefCell::new(Vec::new());
+    fn synthetic_identifier_does_not_match_real_model_paths() {
+        assert!(crate::ModelManager::is_synthetic_model_id(
+            "susi-native-synthesis"
+        ));
+        for path in [
+            "F:/src/susi-native-review/models/qwen.gguf",
+            "C:/models/native-model.gguf",
+            "C:/susi-native-synthesis/model.gguf",
+            "native.gguf",
+        ] {
+            assert!(!crate::ModelManager::is_synthetic_model_id(path));
+        }
+    }
+    #[test]
+    fn arbitrary_cache_paths_are_not_trusted() {
+        let cached = vec![(
+            audited_starter().id,
+            PathBuf::from("not-an-admitted-model.gguf"),
+        )];
+        assert!(matches!(
+            plan_first_run(
+                &host(8 * GB, 100 * GB, true),
+                &default_starters(),
+                &cached,
+                Path::new("models")
+            ),
+            FirstRunPlan::OfflineNoModel
+        ));
+    }
+    #[test]
+    fn direct_fetch_cannot_bypass_license_admission_or_touch_destination() {
+        let called = std::cell::Cell::new(false);
+        let destination =
+            std::env::temp_dir().join(format!("susi-untrusted-first-{}.gguf", std::process::id()));
         let plan = DownloadPlan {
-            url: "test://model".to_string(),
-            dest: dest.clone(),
+            url: "test://unverified".into(),
+            dest: destination.clone(),
             sha256: None,
             size: Some(10),
-            max_retries: 2,
+            max_retries: 1,
         };
-        let bytes = fetch(&plan, &transport, &|n| progress.borrow_mut().push(n)).unwrap();
-        assert_eq!(bytes, 10);
-        assert_eq!(std::fs::read(&dest).unwrap(), data);
-        assert!(!progress.borrow().is_empty());
-        std::fs::remove_file(&dest).ok();
+        assert!(fetch(
+            &plan,
+            &|_| {
+                called.set(true);
+                Err(EaiError::network("unexpected transfer"))
+            },
+            &|_| {}
+        )
+        .is_err());
+        assert!(!called.get());
+        assert!(!destination.exists());
+    }
+    #[test]
+    #[ignore = "requires explicit publisher-verified Qwen qualification cache"]
+    fn real_pinned_starter_cache_is_admitted_offline_without_free_disk() {
+        let path = PathBuf::from(
+            std::env::var("SUSI_QWEN_TEST_MODEL").expect("isolated Qwen model required"),
+        );
+        let receipt = susi_vendor_models::model_license::admit_download(&format!(
+            "https://huggingface.co/{}/resolve/{}/{}",
+            audited_starter().hf_repo,
+            STARTER_REVISION,
+            audited_starter().hf_file
+        ))
+        .unwrap();
+        receipt.record(&path).unwrap();
+        let tokenizer_path = path.with_extension("tokenizer.json");
+        let tokenizer_receipt = susi_vendor_models::model_license::admit_download("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/7ae557604adf67be50417f59c2c2f167def9a775/tokenizer.json").unwrap();
+        tokenizer_receipt.record(&tokenizer_path).unwrap();
+        susi_vendor_models::model_license::verify_local_offline(&tokenizer_path).unwrap();
+        assert!(
+            path.to_string_lossy().contains("native"),
+            "regression qualification must include native in an ancestor directory"
+        );
+        let candidate = crate::susi_sandbox::manager::DynamicModelInfo::new(
+            "Qwen audited fixture".into(),
+            "SUSI".into(),
+            path.to_string_lossy().into_owned(),
+            "Real publisher-verified GGUF".into(),
+            true,
+            "LocalGGUF".into(),
+            Some(0),
+            "LocalGGUF".into(),
+            None,
+            None,
+        );
+        assert!(crate::ModelManager::admitted_local_candidate(&candidate), "real cached model under native-named ancestor must survive production candidate selection");
+        let cached = vec![(audited_starter().id, path.clone())];
+        assert!(
+            matches!(plan_first_run(&host(2*GB,0,true),&default_starters(),&cached,Path::new("unused")),FirstRunPlan::UseCached {path:found,..} if found == path)
+        );
     }
 }

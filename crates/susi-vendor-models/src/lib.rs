@@ -58,6 +58,7 @@ pub mod key_rotation;
 pub mod llamacpp_launcher;
 pub mod local_ecosystem;
 pub mod model_deprecation;
+pub mod model_license;
 pub mod more_openai_compat;
 pub mod multi_gpu_plan;
 pub mod npu_detection;

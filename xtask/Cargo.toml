@@ -4,6 +4,28 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
+default-run = "xtask"
+
+[dependencies]
+sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
+sha1 = { package = "susi-vendor-sha1", path = "../crates/susi-vendor-sha1", optional = true }
+serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json" }
+sysinfo = { package = "susi-vendor-sysinfo", path = "../crates/susi-vendor-sysinfo", optional = true }
+
+[features]
+release-tooling = ["dep:sha1", "dep:sysinfo"]
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "local-release"
+path = "src/bin/local-release.rs"
+required-features = ["release-tooling"]
+
+[target.'cfg(windows)'.dependencies]
+susi-windows-runtime = { path = "../crates/susi-windows-runtime" }
+
+[[bin]]
+name = "susi-dev"
+path = "src/bin/susi-dev.rs"

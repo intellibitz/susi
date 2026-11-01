@@ -4,7 +4,7 @@
 
 **The RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS or a chatbot wrapper; Mandate 45). Verify the crown with `susi crown`.
 
-susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
+susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
 
 > Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers (Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools, …) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
 
@@ -29,8 +29,9 @@ susi runs a persistent host daemon, stable network ports external clients can ha
 ### What RSI means here
 
 Scoped claim (Mandate 1, Mandate 45). Recursive self-improvement is two
-loops; only one runs unattended. This is not an unattended rewrite of
-SUSI's own source.
+loops in the audited baseline; only one runs unattended. Full agent-owned
+self-development is the required direction, not a claim that the baseline
+already schedules unattended source rewrites.
 
 - **Automatic: learning from receipts.** Successful execution receipts are
   staged as training samples; after each swarm mission SUSI checks the
@@ -47,7 +48,9 @@ SUSI's own source.
   that builds the next susi.
 
 The drift audit (`evolution.rs`) suggests reflex candidates; it does not
-write code. SUSI does not recursively rewrite itself without an operator.
+write code. That describes current implementation, not a required human step.
+Mandates 62–71 require agents to complete authorized self-development and prove
+each upgrade locally; missing orchestration is engineering work, not completed RSI.
 
 ---
 
@@ -278,135 +281,85 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | live swarm-host components are wired from `composition`. The daemon loop constructs host OS planes and drives them: per-peer HMAC gossip UDP 9095 (HMAC-sealed `gossip_caps.json`; sealing/ingress fail closed when no MAC key exists), egress-gated STUN with honest DNS/timeout errors (skipped while `mac_policy` blocks external egress unless `SUSI_TURN_*` is configured), TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (`SUSI_TURN_USER`/`SUSI_TURN_PASS`, or `SUSI_TURN_RELAY`), cloud CLI **version-probe** refreshed every 20th tick, and `os_planes.json` for `susi os`. `susi os provision probe\|list\|apply` is the explicit list/apply surface. Deleted cell-OS sketches are not resurrected; `live_planes` maps those needs onto policy/task/sandbox/checkpoint. Unwired daemon-module ratchet is 0. |
 | Shared foundation | shared code is reached through Cargo edges that point down the leaf order (`paths → error → config → core/sandbox → services → daemon`, enforced by an architecture test). `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`, `susi-core`, `susi-abi`, `susi-http-transport` (the one crate that declares `ureq`, caps response bodies, and exposes HTTP status; callers use `http_call` and never name `ureq::Agent`), `susi-vendor-candle` (Candle + tokenizers) and `susi-adapters-llm` (wire shapes + `post_json` over transport) are single crates — no crate except `susi-http-transport` and the `susi-vendor-*`/`susi-adapters-*` crates declares `reqwest` or `ureq` (an allow-list test, so new crates are covered automatically); `susi-gemi-models` declares neither `reqwest` nor `tokenizers`. Remaining cross-crate `#[path]` mounts are counted by a ratchet that only decreases (159 → 0) |
-| Vendor crates | every third-party SDK lives in its own `susi-vendor-*` crate that exposes SUSI-shaped calls and no vendor types: `susi-vendor-candle` (Candle/tokenizers), `susi-vendor-wasmtime` (Wasmtime/WASI + metered cells), `susi-vendor-mcp` (rmcp MCP client + its reqwest transport), `susi-vendor-mcp-server` (rmcp MCP server + `#[tool]`; GMCP never declares `rmcp`), `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs — no cloud SDKs), `susi-vendor-tantivy` (full-text `DocIndex`), `susi-vendor-fastembed` (one process-wide embedding model; cached load failures feed provider health), `susi-vendor-chrome` (headless Chrome page capture), `susi-vendor-syn` (Rust AST: validity, bloat metrics, outline); the A2A SDK (`ra2a`) is confined to its own plane crate, `susi-gawd-a2a`. Beyond SDKs, every remaining third-party crate is owned by a pure re-export facade (`susi-vendor-serde`, `susi-vendor-tokio`, `susi-vendor-hyper`, … — 48 crates), so susi-* crates declare **zero** third-party dependencies in any dep section while `use serde::…`-style paths compile unchanged (`susi_crates_declare_zero_external_dependencies` ratchet) |
+| Vendor crates | every third-party SDK lives in its own `susi-vendor-*` crate that exposes SUSI-shaped calls and no vendor types: `susi-vendor-candle` (Candle/tokenizers), `susi-vendor-wasmtime` (Wasmi/bounded WASI + metered cells), `susi-vendor-mcp` (rmcp MCP client + its reqwest transport), `susi-vendor-mcp-server` (rmcp MCP server + `#[tool]`; GMCP never declares `rmcp`), `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs — no cloud SDKs), `susi-vendor-tantivy` (full-text `DocIndex`), `susi-vendor-fastembed` (one process-wide embedding model; cached load failures feed provider health), `susi-vendor-chrome` (headless Chrome page capture), `susi-vendor-syn` (Rust AST: validity, bloat metrics, outline); the A2A SDK (`ra2a`) is confined to its own plane crate, `susi-gawd-a2a`. Beyond SDKs, every remaining third-party crate is owned by a pure re-export facade (`susi-vendor-serde`, `susi-vendor-tokio`, `susi-vendor-hyper`, … — 48 crates), so susi-* crates declare **zero** third-party dependencies in any dep section while `use serde::…`-style paths compile unchanged (`susi_crates_declare_zero_external_dependencies` ratchet) |
 | One loopback client | the paths, config, sandbox, native and error-event clients share `susi_paths::loopback` (std-only bounded request / status / body / bearer / instance-offset port; response cap 16 MiB) instead of five hand-rolled HTTP/1.0 clients; every leaf-service client now honours the instance port offset, so a dev instance never reaches the release instance's services |
 | One error model | every library crate returns `susi_error::EaiResult`; `anyhow` remains only in the root CLI application. `ResultExt::context` keeps the underlying error's kind (I/O stays Io, JSON stays Config) and rewrites the message in place, so a contextualized failure is one metrics event, not two |
 | Dependency hygiene | every declared dependency is used by its crate (63 dead declarations removed in one pass: `crossbeam` alone was declared by 11 crates and used by 1); every external crate is declared by exactly one `susi-vendor-*` crate — susi-* manifests contain only workspace members; `susi-paths` resolves per-OS user dirs std-only (no `directories`); std `LazyLock` replaces `once_cell`; the pulse queue runs on the workspace's one channel crate (`flume`) |
-| Leaf service shells | the five leaf services (paths, error, config, sandbox, native) are served by one crate, `susi-leaf-services` — the only place they meet axum; the foundation libraries carry no HTTP framework or async runtime; standalone bins enable only their service feature so unrelated Wasmtime/Bollard backends stay out, while the root enables `all-services` for `service-run`; all take their port from the one `LEAF_SERVICES` table |
-| Native service boundary | Wasmtime is linked only by `susi-vendor-wasmtime` (WASI reflexes for the `susi-native` service + the metered in-process cell runtime the daemon uses; the daemon no longer carries its own wasmtime/wasm-encoder dependencies); feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
+| Leaf service shells | the five leaf services (paths, error, config, sandbox, native) are served by one crate, `susi-leaf-services` — the only place they meet axum; the foundation libraries carry no HTTP framework or async runtime; standalone bins enable only their service feature so unrelated Wasmi/Bollard backends stay out, while the root enables `all-services` for `service-run`; all take their port from the one `LEAF_SERVICES` table |
+| Native service boundary | Wasmi is linked only by the compatibility-named `susi-vendor-wasmtime` (WASI reflexes for the `susi-native` service + the metered in-process cell runtime the daemon uses; the daemon no longer carries its own wasmtime/wasm-encoder dependencies); feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
 | Repository hygiene | the root carries no scratch artifacts (a stray 4.5 MB `test_verify` binary and five unreferenced experiment files were removed); duplicate root `serde_json` and GMCP `tokio` dev-dependency declarations were removed; leftover mount-era crypto and HTTP deps were dropped from twelve crates after the contract remounts; GPU features exist only where Candle reads them (`susi-vendor-candle`, forwarded by `susi-gemi` / `susi-gemi-models`) |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
 | Harness orchestration | `susi harness` — durable self-build orchestration: supervisor, scheduler, pricing catalogue accounting, budget admission, direct provider routing, and operator cockpit ([`docs/harness.md`](docs/harness.md), [`docs/harness-os.md`](docs/harness-os.md)) |
 
 ## Install
 
-Primary surface (Mandate 47): one pipeable command on Unix-like hosts; Windows uses `install.ps1`.
+Agents obtain an identified native artifact and invoke its Rust installer with
+`susi install`. It discovers the user profile, verifies the staged executable,
+and installs without replacing a different existing executable. No shell script,
+GitHub connection or user-written configuration is required for placement.
+The default first-goal journey provisions the licensed starter model when needed.
+Native installation does not by itself qualify a candidate for production;
+qualification, promotion and rollback have separate evidence gates.
 
-### Linux / macOS / WSL
-```bash
-curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash
+Legacy `install.sh` and `install.ps1` remain compatibility artifacts. They are
+not the mandated development or installation path and their historical download,
+autostart and build behavior must not be treated as current acceptance evidence.
+
+### Developing susi: agent-owned native delivery (Mandate 48)
+
+The CEO never inspects code. Agents own development, verification, integration
+and production qualification. The installed production Susi stays stable while
+agents build candidates in private worktrees, build directories and runtime
+homes. Do not test against production or share `.susi-dev` between workers.
+
+Installed Susi exposes `susi local build debug`; an optimized candidate uses
+`susi local build production`. For the initial build before Susi is installed,
+agents use the Rust [native bootstrap](docs/native-bootstrap.md).
+A candidate is not an approved
+release. Production qualification must bind the exact source/dependency/toolchain
+identity to passing tests and policy audits, executable smoke tests and artifact
+digests, followed by atomic promotion, health verification and tested rollback.
+The strict dependency license gate passes with the replacement implementations;
+future dependency changes must pass the same unchanged policy.
+
+### Building susi: the workflow (Mandates 49–71)
+
+Read [`AGENTS.md`](AGENTS.md), the canonical instructions for every agent.
+The native local workflow has no GitHub account, Actions, pull-request or remote
+claim prerequisite. Use separate branches/worktrees and disjoint task scopes:
+
+```text
+susi local workflow start worker-a --scope crates/susi-paths
+susi local workflow list
 ```
 
-Pipe into `bash`, not `sh` (Debian/Ubuntu/Alpine `sh` is not bash). The installer checksum-verifies binaries; model downloads (`susi models`) are verified against the publisher's SHA-256 when the host publishes one (Hugging Face `X-Linked-ETag`) and recorded as provenance, otherwise validated structurally only. If no platform binary exists, the installer builds from source ([rustup.rs](https://rustup.rs)). Prefers a prebuilt release even inside a source checkout (set `SUSI_FORCE_SOURCE=1` to build that tree). Source builds reuse `~/.susi/build-cache` unless `SUSI_USE_REPO_TARGET=1` or `CARGO_TARGET_DIR` is set. On Linux, a missing mold linker is bootstrapped into `~/.susi/mold` (skip with `SUSI_SKIP_MOLD_BOOTSTRAP=1`). GPU without CUDA toolkit → explicit CPU-only warning (not silent success theater).
+Inside that worker's worktree, implement and verify its task, then use
+`susi local workflow commit worker-a "message"` for a scope-checked local commit.
+The command checks staged, unstaged and untracked files and does not change
+shared hook settings. It records ownership, not test success. Task records under
+`.agents/tasks/` use namespaced IDs and meaningful acceptance; task-based commits
+carry `Task: T-<AGENT>-<n>` and the native launcher records `Task: LOCAL-<name>`.
+`.agents/lanes/` documents history and never substitutes for a reservation.
 
-By default a login-persistent daemon is registered (systemd user unit / launchd). Skip with:
-```bash
-curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | SUSI_NO_DAEMON=1 bash
-```
+Integration must serialize changes and verify the actual combined tree against
+the current local head. Close a task only after its complete acceptance passes
+there. A clean merge, a compile, zero selected tests or a remote CI result is
+not enough. `susi local workflow integrate worker-a` performs those local gates;
+`susi local release qualify` independently qualifies the integrated source.
 
-### Developing susi: the local susi tracks releases only (Mandate 48)
+`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical
+pointers to the canonical contract. Automatic shell-based SessionStart hooks
+have been removed. Optional remote publishing adapters remain historical
+compatibility tooling and cannot govern local engineering. See
+[`docs/native-rust-direction.md`](docs/native-rust-direction.md) for verified
+implementation status, and [`docs/cloud-sessions.md`](docs/cloud-sessions.md)
+for isolated cloud workers.
 
-The installed susi (`~/.susi/bin/susi` and the daemon it runs) is the
-toolchain that builds the next susi, so dev builds never replace it:
-`cargo xb` / `./build-gpu.sh` build into `target/` and stop there, and a
-`target/` binary no longer copies itself over the install. Releases are the
-only way in:
+### Native Windows
 
-```bash
-./scripts/susi-release-sync.sh --install-timer
-```
-
-The hourly systemd user timer (and `susi release`, right after it pushes a
-new `vX.Y.Z` tag) builds the newest tag natively for this host's GPU in a
-private checkout (`~/.susi/release-src`, target `~/.susi/build-cache/release-sync`),
-checks the binary reports the tag's version, waits until no susi client is
-mid-mission, swaps it in atomically, and restarts the daemon — rolling back
-to `susi.prev` if `/health` does not answer. `--check` reports installed vs
-latest; `--tag vX.Y.Z` pins; `--rollback` restores the previous binary. It
-builds locally instead of downloading the CI CUDA asset because that asset
-targets compute capability 7.5 and lacks candle's sm_80+ (bf16) kernels.
-
-Dev binaries run as their own instance. Any `susi` other than the installed
-one (e.g. `target/release/susi`) defaults to `SUSI_HOME=~/.susi-dev` and
-`SUSI_PORT_OFFSET=100`, so `target/release/susi start` brings up a dev daemon
-running the dev binary on 9190–9194 beside the release daemon on 9090–9094.
-The release instance's `models/` and `cloud.env` are symlinked in (shared,
-not copied); config, audit chain, locks, and ports are separate. An explicit
-`SUSI_HOME` overrides this.
-
-### Building susi: the workflow (Mandates 49–61)
-
-Humans and agents (Claude, Codex, Cursor, Devin, Gemini, susi itself) follow one
-workflow, and it is enforced by git and CI, not by goodwill. The short version
-is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
-
-1. **Run `susi workflow check` first.** It says whether you are in your own
-   worktree, current with `origin/main`, have the hooks, and hold a claim, and
-   prints the command that fixes each failure. It also fast-forwards the primary
-   checkout's `main` when that is safe (clean, on `main`, no local commits), so it
-   never goes stale. No installed susi: `scripts/seed-target.sh; cargo run -q -- workflow check`
-   (in the primary checkout, only once that script no longer says worktrees still share its
-   `target/`, where a crate one of them built can run in place of main's; until then go
-   straight to step 2, which runs no cargo).
-2. **Work in your own worktree, never the primary checkout or `main`:**
-   `scripts/susi-worktree.sh` (no name needed; or `susi workflow start`). It
-   branches off the latest `origin/main`, installs the hooks, parks the primary
-   checkout at `origin/main`, and prints `cd <path>`.
-3. **Atomic per-task loop.** Sync with `origin/main`, `susi tasks claim <id>`
-   (one live claim; an atomic git ref with a lease), do the work, end every
-   commit with `Task: T-<AGENT>-<n>`, sync again, push, then sync before the
-   next claim — so parallel agents always build on latest main.
-4. **Done means the acceptance check passes:** `susi tasks close <id>` runs it,
-   and a `cargo test` filter that ran zero tests does not count. Closing
-   publishes a receipt (`refs/closed/<id>`) that blocks the next claim until the
-   close is *observed* on `origin/main` — so a crash, a Ctrl-C or a report of
-   success nobody published cannot start a second task, and CI refuses it
-   server-side too. Giving the task up is deliberate and recorded:
-   `susi tasks release <id> --abandon <reason>`. After the merge, the merge is
-   attested (`refs/merged/<id>`) and a main-only job re-runs the task's own
-   acceptance on the merged tree, recording `refs/verified/<id>`. Tasks may link
-   to a roadmap vector (`--roadmap VC-201-0NN`); `susi tasks roadmap` reports
-   coverage, and `susi tasks audit` reports who still owes a merge.
-5. **Push the branch; the rest is automatic.** The branch-push `Test` run is
-   the gate, a PR opens itself and merges itself when green, and a 15-minute
-   reconciler merges green PRs that events missed, comments once on red or
-   conflicting ones and closes ones idle for 7 days. Tests are hermetic: they
-   never touch `~/.susi`, `~/.susi-dev` or an inherited `SUSI_HOME`.
-6. **Cloud sessions need no laptop.** A session that clones the repository
-   into a disposable container (Claude Code on the web) works in that clone,
-   on the branch the harness checked out: `scripts/cloud-session.sh` marks it
-   as the worker's own worktree, `susi workflow check`, the hooks and the loop
-   scripts read the mark, and the identity is `<TOOL><BRANCH>`. The
-   session-start hook fetches the ONNX Runtime the build needs from GitHub
-   (`scripts/cloud-onnxruntime.sh`; the CDN `ort-sys` uses is refused by the
-   container's network policy) and starts the build in the background. Such a
-   session never asks for the operator's machine — no Remote Control, no
-   computer folder, no button to press. See [`docs/cloud-sessions.md`](docs/cloud-sessions.md).
-
-What makes it binding: the `commit-msg` and pre-push hooks and the CI job
-**Workflow Compliance** reject commits without a valid `Task:` trailer (the CI
-job cannot be skipped with `--no-verify`), and `scripts/github-enforce.sh`
-installs a ruleset on `main` — pull requests only, no force-push, no deletion,
-no bypass actor — in phases (`--apply`, then `--apply --phase 2` for required
-checks), with `--relax` as an audited emergency switch. Releases are cut only by
-`susi admin release --cut <patch|minor|major>`; the gate also runs the freshly
-built binary on its own newest behaviour (`E2E_CHECKS`) before it tags.
-
-Each agent tool loads the first step on its own: `CLAUDE.md`, `GEMINI.md`,
-and `.github/copilot-instructions.md`, and SessionStart hooks
-(`.claude/settings.json`, `.codex/hooks.json`) that run
-the check.
-
-### Windows PowerShell (native, not WSL)
-```powershell
-irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
-```
-The installer fetches `susi-windows-x86_64.exe` and its published `.sha256`
-from the latest release — the same `<product>-<platform>-<arch>` naming the Unix
-installer resolves — verifies the checksum, and only falls back to a source
-build when the download or the checksum fails. A Windows release is gated on the
-built `susi.exe` answering the release gate's offline checks on the runner, and
-every push that can change the binary re-runs those checks on Windows.
+The agent-owned Windows path uses native Rust executables, MSVC and OS APIs.
+There is no Bash, WSL, MSYS, Python or Node prerequisite. Release receipts retain
+the exact source, lockfile, compiler, target, artifact and measured gate results.
 
 Interactive installation opens Susi directly: enter a goal without restarting
 the terminal or editing configuration. Opening shows existing cloud connections
@@ -464,14 +417,10 @@ susi ecosystem start ollama   # only engines that need no model choice
 susi brain
 susi brain classify "fix this bug in my parser"
 
-# Building susi (agents and humans): start here
-susi workflow check           # own worktree? current with origin/main? hooks? a claim?
-susi workflow start           # your own worktree, ready to work in
-susi tasks list               # the shared queue
-susi tasks claim T-CLAUDE-42  # atomic; nobody else can take it
-susi tasks roadmap --uncovered
-susi tasks audit              # who accepted work that never reached origin/main
-susi tasks release T-CLAUDE-42 --abandon "superseded"  # give an accepted task up, on the record
+# Building susi: agents follow AGENTS.md in isolated worktrees
+cargo local-workflow list
+cargo local-build debug
+# Production candidates require passing policy gates; never overwrite production
 
 # Automation (evidence-gated swarm mission)
 susi automate "refactor the auth module and verify with tests"
@@ -634,11 +583,11 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Grounded outputs** — claims checked against tools and workspace state.
 - **Traceable reasoning** — Mandate 26; thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`); not “100% transparency” of secrets or vendor internals.
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware (Mandates 5, 28–30; lock-preferring, not “zero blocking forever”).
-- **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
-- **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
+- **Rust-only implementation** — runtime, tooling and shipped dependency closure must be Rust (Mandates 43 and 63); incompatible existing components remain migration defects.
+- **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); agents own technical setup; credentials and paid-service consent remain explicit gates.
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
-- **One-line install** — Unix `curl …/install.sh | bash` (Mandate 47); not “always frictionless.”
-- **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only tagged releases replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
+- **Native installation** — verified artifacts and native provisioning without a Windows shell/emulation prerequisite (Mandates 47 and 64); legacy installer scripts are migration work.
+- **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only locally qualified, health-checked promotion may replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
 
 Crate boundaries, composition roots, ports, and the plugin triad are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
 ---

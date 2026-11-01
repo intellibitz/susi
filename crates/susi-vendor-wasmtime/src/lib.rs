@@ -10,46 +10,30 @@
     )
 )]
 
-//! # susi-vendor-wasmtime
+//! Rust-only WebAssembly cell and WASI reflex host.
 //!
-//! The one crate that links wasmtime: WASI reflex execution (`wasm`) for the
-//! `susi-native` leaf service, and the metered in-process cell runtime
-//! (`cell`) the daemon's auto-discovery and plugin hot-reload use. The
-//! service's HTTP shell lives in `susi-leaf-services` (default bind
-//! `127.0.0.1:18084`, `SUSI_NATIVE_PORT`). Feature planes never link this
-//! crate: they reach the service through `susi-native-client`.
-//!
-//! wasmtime replaced wasmer as the vendored engine because wasmer 7.4.2 has
-//! no compliant native backend on Windows — singlepass and cranelift both
-//! `compile_error!()` under `cfg(windows)`, singlepass is BUSL-1.1 for
-//! production use, and the v8 backend exposes no middleware API for fuel
-//! metering. wasmtime meters fuel natively, so `CELL_FUEL` semantics carry
-//! over unchanged.
+//! The historical facade name remains stable for consumers. Execution uses
+//! Wasmi, with bounded fuel/memory/output and an explicit capability-limited
+//! WASI implementation; no Wasmtime, native JIT, WASI-common or wiggle runtime
+//! is linked. Each store permits one instance, one 256 MiB linear memory and
+//! one table of at most 1,000,000 entries. Module input is capped at 64 MiB;
+//! WASI output and queued cell payloads are capped at 16 MiB. These are resource
+//! bounds, not a claim that total interpreter RSS equals the linear-memory cap.
+//! The native service's HTTP shell remains in susi-leaf-services.
 
 pub use susi_error;
-
 pub mod cell;
+mod resources;
+mod wasi;
 pub mod wasm;
 
 #[cfg(test)]
 mod tests {
-    /// cargo deny fails every branch while the lock carries a wasmtime with an
-    /// open advisory (RUSTSEC-2026-0420/0422/0423/0424 are fixed in 49.0.5).
     #[test]
-    fn locked_wasmtime_carries_the_advisory_fixes() {
+    fn locked_runtime_is_the_rust_interpreter_not_the_native_jit() {
         let lock = include_str!("../../../Cargo.lock");
-        for name in ["wasmtime", "wasmtime-wasi"] {
-            let entry = format!("name = \"{name}\"\nversion = \"");
-            let at = lock
-                .find(&entry)
-                .unwrap_or_else(|| panic!("{name} not in Cargo.lock"));
-            let rest = &lock[at + entry.len()..];
-            let version = &rest[..rest.find('"').unwrap()];
-            let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap()).collect();
-            assert!(
-                parts >= vec![49, 0, 5],
-                "{name} {version} predates the 49.0.5 advisory fixes"
-            );
-        }
+        assert!(lock.contains("name = \"wasmi\"\n"));
+        assert!(!lock.contains("name = \"wasmtime\"\n"));
+        assert!(!lock.contains("name = \"wasmtime-wasi\"\n"));
     }
 }

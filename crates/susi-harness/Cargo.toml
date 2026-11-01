@@ -20,11 +20,13 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
-susi-vendor-tantivy = { path = "../susi-vendor-tantivy" }
 susi-vendor-fastembed = { path = "../susi-vendor-fastembed" }
 
 [lints]
 workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-vendor-windows-registry" }
 
 [dev-dependencies]
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

@@ -1,3 +1,10 @@
+> **Current governing contract:** follow `AGENTS.md` and identity Mandates 62–71.
+> This document includes existing harness behavior and legacy remote/script
+> adapters. They are migration status, not mandatory prerequisites for agent
+> development. The required harness owns native local integration and release
+> qualification, without GitHub or human code review. Do not report a missing
+> native capability as implemented merely because its legacy adapter exists.
+
 # SUSI harness
 
 The harness is SUSI's orchestration layer: it turns a mission into agent turns,
@@ -430,10 +437,12 @@ only, P0 before P1, smaller first, and **scope-disjoint** within a batch: two
 workers editing the same tree would only conflict at merge. `--roadmap VC-…`
 narrows a batch to one vector.
 
-Every susi workflow runs this way. Mandate 61 (in `.agents/identity.json`,
-compiled into the genome, and mirrored in `AGENTS.md`) requires agents to start
-work with `susi harness plan` and `run`, not by hand-running `workflow finish`,
-`tasks claim` or `tasks close`.
+Mandate 61 requires the harness to own the complete native local loop. The
+legacy `workflow finish` publication path described above is implementation
+history; it cannot remain a GitHub prerequisite. The available native
+`cargo local-workflow` and `cargo local-build` commands are migration building
+blocks. Agents complete missing coordination and verification without handing
+engineering work to the CEO or weakening acceptance.
 
 ## Self-build scorecard
 
@@ -455,8 +464,8 @@ susi harness scorecard --events .agents/rsi-loop.jsonl [--task T-…] [--json]
   what the scorecard's first-missing-phase display is for.
 
 `susi harness scorecard` is the production caller for
-`scripts/check-rsi-scorecard.py`, so measuring a loop no longer depends on a
-human remembering a script.
+`scripts/check-rsi-scorecard.py`, in this baseline. That Python-backed path is a Rust-only migration defect,
+not a permanent exception to the native tooling mandate.
 
 ## Where the money goes
 

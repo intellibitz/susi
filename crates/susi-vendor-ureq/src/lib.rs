@@ -1,7 +1,6 @@
-//! Vendor facade for `ureq`. Consumers depend on this crate under the
-//! dep key `ureq` (via `package = "susi-vendor-ureq"`), so `use ureq::...`
-//! paths resolve unchanged while the third-party crate is linked exactly
-//! once, here. See AGENTS.md "Multi-agent parallel work" / zero-external-deps.
+//! Synchronous HTTP client facade using native OS TLS.
+//! Clients select NativeTls and PlatformVerifier explicitly; see the shared
+//! susi-http-transport client builder. This facade has real upstream dependencies.
 #![forbid(unsafe_code)]
 
 pub use ureq::*;

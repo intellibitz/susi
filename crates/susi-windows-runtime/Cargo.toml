@@ -1,0 +1,10 @@
+[package]
+name = "susi-windows-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Original Rust process-entry and TLS boundary for qualified native x64 Windows builds"
+
+[lints]
+workspace = true

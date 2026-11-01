@@ -1442,7 +1442,8 @@ impl SusiDaemon {
         // plain HTTP (internal loopback callers) keeps working on the same
         // port. `https_only` drops non-TLS bytes from remote peers.
         let tls_acceptor = crate::tls::endpoint_acceptor(bind_address, global_dir);
-        let require_tls_remote = crate::tls::https_only();
+        let require_tls_remote = crate::tls::https_only()
+            || (!crate::tls::is_loopback(bind_address) && tls_acceptor.is_none());
         let (gemi_port, gmcp_port, gmcp_http_port, a2a_port, udp_port) = (
             cfg.gemi_port(),
             cfg.gmcp_port(),

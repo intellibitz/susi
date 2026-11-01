@@ -393,7 +393,13 @@ pub fn start(id: &str, p: &dyn Probe) -> Result<String, String> {
             def.name, def.port
         ));
     }
-    let mut child = std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW; this is an unattended service.
+    }
+    let mut child = command
         .args(&argv[1..])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

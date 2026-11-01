@@ -96,7 +96,8 @@ fn capability_floor_table_classifies_known_names() {
     assert_eq!(capability::of("gemini-1.5-pro"), Reasoning);
     assert_eq!(capability::of("qwen2.5-coder-7b"), Coding);
     assert_eq!(capability::of("deepseek-chat"), Coding);
-    assert_eq!(capability::of("unknown-cloud-llm"), Coding);
+    // An arbitrary hyphenated name supplies no evidence of capability.
+    assert_eq!(capability::of("unknown-cloud-llm"), Basic);
     assert_eq!(capability::of("anthropic-haiku"), Basic);
     assert_eq!(capability::of("gemini-1.5-flash"), Basic);
     assert_eq!(capability::of("qwen2.5-7b"), Basic);

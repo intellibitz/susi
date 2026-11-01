@@ -83,6 +83,20 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// Run a host tool without creating an interactive console. In particular, a
+/// Git wrapper spawned by a detached worker must not allocate a transient
+/// console whose shutdown can terminate it with STATUS_CONTROL_C_EXIT.
+fn host_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let command = Command::new(program);
+    #[cfg(windows)]
+    let command = {
+        use std::os::windows::process::CommandExt;
+        let mut command = command;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        command
+    };
+    command
+}
 /// The snapshot's marker: `<origin/main commit> <epoch>`; only `--refresh`
 /// writes it.
 const SEED_MARK: &str = ".susi-seed";
@@ -536,7 +550,7 @@ fn pid_alive(pid: u64) -> bool {
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {
-        let out = Command::new("ps")
+        let out = host_command("ps")
             .args(["-o", "stat=", "-p", &pid.to_string()])
             .stdin(Stdio::null())
             .output();
@@ -559,7 +573,7 @@ fn pid_alive(pid: u64) -> bool {
 #[cfg(windows)]
 fn win_image(pid: u64) -> Result<Option<String>, ()> {
     use std::os::windows::process::CommandExt;
-    let out = Command::new("tasklist")
+    let out = host_command("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
         .stdin(Stdio::null())
         .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
@@ -797,12 +811,12 @@ fn cargo_command() -> Command {
     if let Some(list) = std::env::var_os("SUSI_SEED_CARGO").filter(|v| !v.is_empty()) {
         let mut parts = std::env::split_paths(&list);
         if let Some(program) = parts.next() {
-            let mut cmd = Command::new(program);
+            let mut cmd = host_command(program);
             cmd.args(parts);
             return cmd;
         }
     }
-    Command::new("cargo")
+    host_command("cargo")
 }
 
 // --- copying and stripping a build tree -----------------------------------------
@@ -822,7 +836,7 @@ fn copy_tree(from: &Path, to: &Path) -> bool {
         // Native spellings, as `cygpath -aw` gave the script: git names a
         // checkout with forward slashes.
         let native = |p: &Path| p.to_string_lossy().replace('/', "\\");
-        let status = Command::new("robocopy")
+        let status = host_command("robocopy")
             .arg(native(from))
             .arg(native(to))
             .args([
@@ -860,14 +874,14 @@ fn copy_tree(from: &Path, to: &Path) -> bool {
         src.push("/.");
         let mut dst = to.as_os_str().to_owned();
         dst.push("/");
-        let gnu = Command::new("cp")
+        let gnu = host_command("cp")
             .arg("--version")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .is_ok_and(|s| s.success());
-        let mut cp = Command::new("cp");
+        let mut cp = host_command("cp");
         if gnu {
             cp.args(["-a", "--reflink=auto", "--"]);
         } else {
@@ -1146,14 +1160,28 @@ pub fn strip_units(target: &Path, checkout: &Path) -> Result<usize, Unstripped> 
 
 /// `git` in `dir`: trimmed stdout on success.
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let result = host_command("git")
         .arg("-C")
         .arg(dir)
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .output();
+    let out = match result {
+        Ok(out) => out,
+        Err(error) => {
+            if REPORT.get().is_some() {
+                say(&format!(
+                    "could not start Git in {}: {error}",
+                    dir.display()
+                ));
+            }
+            return None;
+        }
+    };
+    if !out.status.success() && REPORT.get().is_some() {
+        say(&format!("Git failed in {}: {}", dir.display(), out.status));
+    }
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -1271,110 +1299,66 @@ fn spawn_background(top: &Path, log_path: &Path) -> bool {
     let Some(program) = self_program() else {
         return false;
     };
-    let Ok(log) = fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(log_path)
-    else {
-        return false;
-    };
-    let Ok(err) = log.try_clone() else {
-        return false;
-    };
-    let mut cmd = Command::new(&program);
-    cmd.args(["workflow", "seed-target"])
-        .arg(top)
-        .current_dir(std::env::temp_dir())
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("CARGO_BUILD_TARGET_DIR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(err));
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        if spawn_through_start_process(&program, top, log_path) {
-            return true;
-        }
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        cmd.creation_flags(0x0000_0008 | 0x0000_0200);
+        let environment: Vec<_> = std::env::vars_os()
+            .filter(|(key, _)| {
+                ![
+                    "CARGO_TARGET_DIR",
+                    "CARGO_BUILD_TARGET_DIR",
+                    "CARGO_BUILD_BUILD_DIR",
+                ]
+                .iter()
+                .any(|removed| key.eq_ignore_ascii_case(removed))
+            })
+            .collect();
+        let args = [
+            "workflow".into(),
+            "seed-target".into(),
+            "--log".into(),
+            log_path.as_os_str().to_owned(),
+            top.as_os_str().to_owned(),
+        ];
+        winapi::detached::spawn(&program, &args, &std::env::temp_dir(), &environment).is_ok()
     }
-    cmd.spawn().is_ok()
-}
-
-/// Windows: start the copy through PowerShell's `Start-Process`, which hands
-/// the new process none of this one's handles. A process spawned directly
-/// inherits every inheritable handle of this one, whatever its own stdio is
-/// set to (Rust's `Command` always lets handles inherit), and among them are
-/// the pipes the hook's caller (git, a session's hook runner, a test) reads
-/// this process's output from, passed on as inheritable by Git's sh; the
-/// caller then sees end-of-file only when the copy ends, so the hook
-/// "returned" only once the copy was done. Measured from a parent holding
-/// such a pipe, with a 7 s child behind each launcher: a direct spawn and
-/// `cmd /c start /b` kept the pipe open the whole 7 s, `Start-Process` with
-/// its own output redirection too (that path is a plain CreateProcess), and
-/// `Start-Process` without one (ShellExecute) let it go at once. So the copy
-/// is told its log with `--log` and writes it itself. PowerShell's start adds
-/// about a second to the hook, once. A path PowerShell would read as syntax
-/// is left to the direct spawn.
-#[cfg(windows)]
-fn spawn_through_start_process(program: &Path, top: &Path, log_path: &Path) -> bool {
-    use std::os::windows::process::CommandExt;
-    // One PowerShell string literal: single-quoted, a quote doubled; an
-    // argument with a space is also double-quoted inside, for the command line
-    // Start-Process builds from the list.
-    let literal = |p: &Path| {
-        let s = p.to_str()?;
-        if s.is_empty() || s.contains(['"', '\n', '\r']) {
-            return None;
-        }
-        let quoted = if s.contains(char::is_whitespace) {
-            format!("\"{s}\"")
-        } else {
-            s.to_string()
+    #[cfg(not(windows))]
+    {
+        let Ok(log) = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(log_path)
+        else {
+            return false;
         };
-        Some(format!("'{}'", quoted.replace('\'', "''")))
-    };
-    let (Some(program), Some(top), Some(log), Some(cwd)) = (
-        literal(program),
-        literal(top),
-        literal(log_path),
-        literal(&std::env::temp_dir()),
-    ) else {
-        return false;
-    };
-    let script = format!(
-        "Start-Process -WindowStyle Hidden -WorkingDirectory {cwd} -FilePath {program} -ArgumentList @('workflow','seed-target','--log',{log},{top})"
-    );
-    let mut cmd = Command::new("powershell.exe");
-    cmd.args([
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        &script,
-    ])
-    .current_dir(std::env::temp_dir())
-    .env_remove("CARGO_TARGET_DIR")
-    .env_remove("CARGO_BUILD_TARGET_DIR")
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    cmd.status().is_ok_and(|s| s.success())
+        let Ok(err) = log.try_clone() else {
+            return false;
+        };
+        let mut cmd = host_command(&program);
+        cmd.args(["workflow", "seed-target"])
+            .arg(top)
+            .current_dir(std::env::temp_dir())
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_TARGET_DIR")
+            .env_remove("CARGO_BUILD_BUILD_DIR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(err));
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        cmd.spawn().is_ok()
+    }
 }
-
 /// Seed the worktree at `dir` (any directory inside it; `None` for the
 /// current directory): see the module docs. `background` replaces a link now
 /// and leaves the copy to a process of its own. Never fails: every outcome is
 /// reported on stderr and the caller's cargo goes ahead as it is.
 pub fn seed_worktree(dir: Option<&Path>, background: bool) {
+    if REPORT.get().is_some() {
+        say("native seed worker started");
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let dir = dir.map_or(cwd, Path::to_path_buf);
     if !dir.is_dir() {
@@ -1753,7 +1737,7 @@ fn src_inputs(src: &Path) -> String {
             hasher.update(&bytes);
         }
     }
-    if let Ok(out) = Command::new("rustc")
+    if let Ok(out) = host_command("rustc")
         .arg("-vV")
         .current_dir(src)
         .stdin(Stdio::null())
@@ -1797,7 +1781,7 @@ fn low_priority_cargo(src: &Path, args: &[&str], out: &Out) -> bool {
             .is_some_and(|path| std::env::split_paths(&path).any(|d| d.join("nice").is_file()));
         if nice {
             let inner = cmd;
-            let mut wrapped = Command::new("nice");
+            let mut wrapped = host_command("nice");
             wrapped.args(["-n", "19"]).arg(inner.get_program());
             wrapped.args(inner.get_args());
             cmd = wrapped;
@@ -1806,13 +1790,17 @@ fn low_priority_cargo(src: &Path, args: &[&str], out: &Out) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0000_4000); // BELOW_NORMAL_PRIORITY_CLASS
+        cmd.creation_flags(0x0800_0000 | 0x0000_4000); // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
     }
     let (stdout, stderr) = out.stdio();
     cmd.args(args)
         .current_dir(src)
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("CARGO_BUILD_TARGET_DIR")
+        // A refresh owns both final artifacts and Cargo's intermediate files.
+        // Inherited gate settings (or user Cargo configuration) must not redirect
+        // fingerprints into another worktree while we publish this target tree.
+        .env("CARGO_TARGET_DIR", src.join("target"))
+        .env("CARGO_BUILD_TARGET_DIR", src.join("target"))
+        .env("CARGO_BUILD_BUILD_DIR", src.join("target"))
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr)
@@ -1874,7 +1862,7 @@ pub fn refresh(force: bool, log: Option<&Path>) {
         }
     };
 
-    let Some(want) = Command::new("git")
+    let Some(want) = host_command("git")
         .arg(format!("--git-dir={}", common.display()))
         .args([
             "rev-parse",
@@ -1953,7 +1941,7 @@ pub fn refresh(force: bool, log: Option<&Path>) {
     // A clean checkout of origin/main of its own, marked as susi's.
     if !is_there(&src) {
         let tmp = PathBuf::from(format!("{src_s}.clone-{}-{}.tmp", me.pid, me.since));
-        let cloned = Command::new("git")
+        let cloned = host_command("git")
             .args(["clone", "-q", "--no-checkout"])
             .arg(&common)
             .arg(&tmp)
@@ -2195,6 +2183,72 @@ pub fn export(checkout: &Path, dest: &Path) -> Result<(usize, String), String> {
 #[cfg(test)]
 mod seed_tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn detached_worker_runs_git_without_transient_consoles() {
+        const MARKER: &str = "SUSI_SEED_CONSOLE_TEST";
+        if let Some(marker) = std::env::var_os(MARKER) {
+            let marker = PathBuf::from(marker);
+            let temporary = marker.with_extension("tmp");
+            for _ in 0..20 {
+                let output = host_command("git").arg("--version").output().unwrap();
+                if !output.status.success() {
+                    fs::write(&temporary, format!("Git failed: {}", output.status)).unwrap();
+                    fs::rename(&temporary, &marker).unwrap();
+                    return;
+                }
+            }
+            fs::write(&temporary, b"twenty consoleless Git children passed").unwrap();
+            fs::rename(temporary, marker).unwrap();
+            return;
+        }
+        let marker = std::env::temp_dir().join(format!(
+            "susi-seed-console-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let module = module_path!().split_once("::").unwrap().1;
+        let name = format!("{module}::detached_worker_runs_git_without_transient_consoles");
+        let mut environment: Vec<_> = std::env::vars_os().collect();
+        environment.push((MARKER.into(), marker.as_os_str().to_owned()));
+        let git = host_command("git").arg("--exec-path").output().unwrap();
+        assert!(git.status.success());
+        let exec_path = PathBuf::from(String::from_utf8(git.stdout).unwrap().trim());
+        if let Some(root) = exec_path.ancestors().nth(3) {
+            if root.join("cmd/git.exe").is_file() {
+                let windows = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
+                let path =
+                    std::env::join_paths([root.join("cmd"), windows.join("System32"), windows])
+                        .unwrap();
+                environment.retain(|(key, _)| !key.eq_ignore_ascii_case("PATH"));
+                environment.push(("PATH".into(), path));
+            }
+        }
+        winapi::detached::spawn(
+            &std::env::current_exe().unwrap(),
+            &["--exact".into(), name.into(), "--nocapture".into()],
+            &std::env::temp_dir(),
+            &environment,
+        )
+        .unwrap();
+        let started = Instant::now();
+        while !marker.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(15),
+                "detached Git worker did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap(),
+            "twenty consoleless Git children passed"
+        );
+        fs::remove_file(marker).unwrap();
+    }
 
     /// The export is the refresh's snapshot made from this checkout's own
     /// target: the workspace's units are gone, the registry's stay, and the

@@ -1,7 +1,6 @@
 //! RSI promotion bound to release-only self-build (VC-201-018).
 
 use crate::cloud_rsi::Verification;
-use crate::susi_core::self_build;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path};
 
@@ -96,8 +95,3 @@ pub fn rejects_target_install(src: &Path, dest_bin: &Path) -> bool {
 
 /// Allowed promotion command names (contract text).
 pub const ALLOWED_PROMOTERS: &[&str] = &["susi release", "scripts/susi-release-sync.sh"];
-
-#[must_use]
-pub fn self_build_brief_mentions_release_only() -> bool {
-    self_build::BRIEF.contains("~/.susi/bin") && self_build::BRIEF.contains("release")
-}

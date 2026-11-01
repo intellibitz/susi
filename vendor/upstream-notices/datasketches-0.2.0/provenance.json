@@ -1,0 +1,26 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "datasketches",
+  "version": "0.2.0",
+  "repository": "https://github.com/apache/datasketches-rust",
+  "revision": "fdb38b85d22e6549ab283bf3b9b133659267d19f",
+  "path_in_vcs": "datasketches",
+  "crate_checksum": "c286de4e81ea2590afc24d754e0f83810c566f50a1388fa75ebd57928c0d9745",
+  "crate_checksum_origin": "SHA256 of cached published .crate archive, matched to Cargo.lock",
+  "files": [
+    {
+      "path": "LICENSE",
+      "source_path": "LICENSE",
+      "sha256": "2a93522cc3e0d15510a70e0e7aaf33dc6a1588c39ca4a5c60c4b0121ed25eaf4",
+      "git_blob_sha1": "af4da026ba4769eeb3ecdf5dfe9b6ed937bdfd11",
+      "url": "https://github.com/apache/datasketches-rust/blob/fdb38b85d22e6549ab283bf3b9b133659267d19f/LICENSE"
+    },
+    {
+      "path": "NOTICE",
+      "source_path": "NOTICE",
+      "sha256": "624b424b930d7ce49f8856323c6aa5ffbcaa71a474d60bf8f60852f8aa20bcfa",
+      "git_blob_sha1": "b1688e75b958ce9675d69a1f2dcf833aa6b6cdd9",
+      "url": "https://github.com/apache/datasketches-rust/blob/fdb38b85d22e6549ab283bf3b9b133659267d19f/NOTICE"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "T-STEP1ACCEPTANCE-6",
+  "title": "Verify the final combined native Windows Step 1 source",
+  "status": "failed",
+  "owner": "step1-acceptance-v6",
+  "scopes": [
+    ".agents/tasks/T-STEP1ACCEPTANCE-6.json"
+  ],
+  "dependencies": [
+    "T-STEP1ACCEPTANCE-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked",
+      "--features",
+      "xtask/release-tooling"
+    ]
+  },
+  "required_evidence": [
+    "Immutable native coordinator receipt for the exact combined source",
+    "Fresh authenticated standard-library construction and guarded archives",
+    "Formatting, strict licenses, all-target Clippy, workspace tests and all platform adapters"
+  ],
+  "prior_diagnostic": "Complete prior workspace diagnostic had only the architecture annotation failure; its repair passed all 35 architecture tests. Diagnostics do not replace this integration.",
+  "production_status": "Production qualification, final artifact clean-machine acceptance and genuine A/B promotion/rollback remain separate required gates",
+  "integration": "All 14 mandatory commands passed; final immutable-tree guard refused promotion because adapter lock generation added unused idna_adapter 1.1.0 patch metadata to tracked vendor/regex-syntax/Cargo.lock. No accepted reference published. Attempt step1-acceptance-v6-1793564732671614900-21952 preserves gate logs and candidate diff."
+}

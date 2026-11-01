@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXNATIVETLS20261101-1",
+  "title": "Move Windows TLS to native Schannel with isolated owned key lifetime",
+  "goal": "Remove native-source TLS cryptography and forbidden TLS dependency licenses without weakening validation",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-tokio-rustls",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXNATIVETLS20261101",
+  "created_unix": 1793550191
+}

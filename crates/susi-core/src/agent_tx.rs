@@ -290,14 +290,13 @@ mod tests {
     use super::*;
 
     fn temp_ws() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "susi-tx-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
+        // A clock value is not a reservation: concurrent Windows tests can
+        // observe the same tick and remove one another's snapshot workspace.
+        tempfile::Builder::new()
+            .prefix("susi-tx-")
+            .tempdir()
+            .unwrap()
+            .keep()
     }
 
     #[test]

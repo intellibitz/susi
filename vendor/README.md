@@ -1,52 +1,24 @@
-# Vendored crates
+# Vendored patches
 
-Unmodified crates.io sources plus a minimal, documented patch, wired in via
-`[patch.crates-io]` in the root `Cargo.toml`. They used to live here as path
-crates; they now live on the `nopr/vendor-patches` branch of this repository
-(https://github.com/intellibitz/susi/tree/nopr/vendor-patches), and the root
-`Cargo.toml` pins one of its commits with `rev = "..."`.
+These exact sources were copied from revision `c69a90d60e8e7d96ce62d83c3e3d0d631b970480` of the existing vendor-patches branch. They now ship in the checkout, including upstream license notices, so source resolution requires no GitHub connection.
 
-**Why a git source and not a path:** a path crate's build embeds the worktree's
-path, so it and every crate above it (ra2a, rmcp, tokenizers, fastembed, the
-candle crates — the heaviest compiles in the tree) recompiled in every new
-worktree, and could sit in neither the seeded target snapshot
-(`scripts/seed-target.sh`) nor the machine's compiler cache
-(`scripts/setup-sccache.sh`). A git revision is the same key in every worktree
-and on every machine: the chain is built once and copied or served after.
-
-**Changing a patch:** check out the branch, commit the change there, push it
-(`git push origin <sha>:refs/heads/nopr/vendor-patches` — a `nopr/` branch
-opens no pull request and never merges), then bump the two `rev`s in the root
-`Cargo.toml` on a task branch like any other change. Never delete or rewrite
-the branch: every revision `main` ever pinned must stay fetchable. `deny.toml`
-allows this repository as a git source for exactly these two crates' sake.
-
-The branch's README.md carries the per-crate notes below as well.
+Root Cargo patches use local paths. This deliberately replaces the previous git-source caching optimization with source availability. Per-worktree build isolation remains mandatory; cross-worktree cache performance must be measured again. Update the sources and their patch notes together, preserving original licenses. Vendoring does not make non-Rust dependencies Rust or change their licenses.
 
 ## reqwest 0.13.5
 
-**Why:** the whole tree uses ring as its rustls crypto provider. Upstream
-reqwest's `rustls` feature (and therefore `default-tls`/`default`) hard-wires
-aws-lc-rs, whose `aws-lc-sys` C build was the cold-build critical path
-(~285s of a ~8.5min `cargo build --timings` on 28 cores). Our own crates could
-opt out, but `ra2a` (reqwest default features) cannot. Switching to
-`rustls-no-provider` instead would make every `Client::new()` panic unless a
-provider was installed first — including clients third-party crates build
-internally — so the provider choice is patched here, once.
+The current default selects `native-tls` and platform trust. Windows uses
+Schannel; Susi does not bundle a C TLS implementation or a root-certificate
+snapshot. The MCP facade explicitly selects upstream `reqwest-native-tls`,
+so its transport cannot re-enable rustls through feature unification.
 
-**Patch** (diff against the crates.io tarball):
+The historical optional `__rustls-ring` patch remains available in this exact
+upstream source, but is not selected by the default product graph. Selecting it
+requires another strict audit; optional features are not implicitly approved.
 
-- `Cargo.toml`: new feature `__rustls-ring` (`hyper-rustls?/ring`,
-  `tokio-rustls?/ring`, `rustls?/ring`, `quinn?/rustls-ring`);
-  `rustls` enables `__rustls-ring` instead of `__rustls-aws-lc-rs`.
-- `src/async_impl/client.rs`: `default_rustls_crypto_provider()` returns
-  `rustls::crypto::ring::default_provider()` under `__rustls-ring`.
-
-**Invariant:** `cargo tree -i aws-lc-rs` must report no match. Two providers
-compiled into rustls make its automatic provider selection ambiguous.
-
-**Upgrading:** copy the new release from `~/.cargo/registry/src/*/reqwest-X.Y.Z`
-onto the branch, re-apply the two edits above, and update this section.
+`native-tls` 0.2.18 is patched separately for Windows private-key ownership and
+certificate-chain handling. See `native-tls/SUSI-PATCHES.md` for qualification,
+limitations and upstream source provenance. Non-Windows platform TLS boundaries
+must be evaluated separately; Windows evidence does not certify Linux builds.
 
 ## esaxx-rs 0.1.10
 
@@ -64,3 +36,33 @@ Windows-only change.
 
 **Upgrading:** copy the new release from `~/.cargo/registry/src/*/esaxx-rs-X.Y.Z`
 onto the branch, re-apply the edit above, and update this section.
+
+## Rust dependency replacements (2026-11-01)
+
+The following sources were copied from the crates.io registry cache at their
+exact published versions. Original copyright and license files are retained.
+These patches apply to the resolved CPU build; optional GPU features are not a
+claim of Rust-only qualification.
+
+- **hashbrown 0.16.1 and 0.17.1**: replace the default foldhash hasher with
+  ahash 0.8.12 (`runtime-rng`, no defaults). This removes the Zlib-only default
+  implementation without changing the map API. Hash values/order are not a
+  persistent storage format or a compatibility promise.
+- **zip 9.2.0**: default deflate selects flate2's Rust backend instead of
+  zlib-rs. Other explicitly selected backends still require their own audit.
+- **candle-core 0.11.1**: replace yoke ownership of safetensors buffers with
+  self_cell 1.3.0. Memory maps and owned byte buffers remain self-referential,
+  zero-copy owners; parsing and tensor access use the original SafeTensors API.
+- **tantivy-sstable 0.7.0**: replace zstd's C implementation with ruzstd 0.9.1.
+  Writes remain standard Zstandard frames, using Fastest compression; decoding
+  is bounded to 64 MiB per dictionary block. Compression ratio and throughput
+  are not assumed identical. The facade test writes and reopens 2,500 terms.
+  The published crate omitted the repository-level attribution files. `LICENSE`
+  and `AUTHORS` are restored from its recorded upstream commit
+  `9e63fc508153ef770f9ff980c8fa2f11e8e2e6db` in `quickwit-oss/tantivy`
+  (upstream Git blobs `7b1fc849b042df2e7607138009e81bd078d9db4a` and
+  `59562653b4c2e88837c3293e1dd0e16e840d1ff8`).
+
+When upgrading any patch, compare the complete upstream source, retain notices,
+reapply only the documented changes, and rerun the strict graph audit and real
+format/inference round trips. A path patch never changes upstream licensing.

@@ -510,35 +510,34 @@ fn gmcp_http_home_guard(tag: &str) -> (std::sync::MutexGuard<'static, ()>, EnvGu
 #[test]
 fn gmcp_req_203_001_01_contract() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    #[cfg(windows)]
-    let bash = {
-        let out = Command::new("git").arg("--exec-path").output().unwrap();
-        assert!(out.status.success());
-        let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
-        exec_path.ancestors().nth(3).unwrap().join("bin/bash.exe")
-    };
-    #[cfg(not(windows))]
-    let bash = PathBuf::from("bash");
-    let output = Command::new(bash)
-        .arg("scripts/check-gmcp-ledger.sh")
-        .current_dir(root)
-        .output()
-        .expect("bash must run the GMCP ledger checker");
+    let native = susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
+        .expect("native production verifier must accept the pinned ledger");
+    assert!(native.rows > 0);
+    // POSIX authoring-tool parity is optional; native verification above is mandatory.
+    #[cfg(unix)]
+    {
+        let bash = PathBuf::from("bash");
+        let output = Command::new(bash)
+            .arg("scripts/check-gmcp-ledger.sh")
+            .current_dir(root)
+            .output()
+            .expect("bash must run the GMCP ledger checker");
 
-    assert!(
-        output.status.success(),
-        "GMCP ledger checker failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let checker_rows: usize = String::from_utf8_lossy(&output.stdout)
-        .split_whitespace()
-        .nth(3)
-        .and_then(|value| value.parse().ok())
-        .expect("checker must report the classified row count");
-    let report = susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
-        .expect("production verifier must accept the same ledger");
-    assert_eq!(checker_rows, report.rows, "checker and verifier must agree");
+        assert!(
+            output.status.success(),
+            "GMCP ledger checker failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let checker_rows: usize = String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .nth(3)
+            .and_then(|value| value.parse().ok())
+            .expect("checker must report the classified row count");
+        let report = susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
+            .expect("production verifier must accept the same ledger");
+        assert_eq!(checker_rows, report.rows, "checker and verifier must agree");
+    }
 }
 
 /// GMCP-203-001-02: the shipped binary verifies the pinned ledger through
@@ -577,6 +576,8 @@ fn susi_command(root: &Path, home: &Path, args: &[&str]) -> Command {
     isolate_home(&mut command, home)
         .args(args)
         .current_dir(root)
+        // This fixture owns its config location; bypass automatic dev-instance relocation.
+        .env("SUSI_HOME", home.join(".susi"))
         .env("XDG_CONFIG_HOME", home.join("xdg"));
     command
 }
@@ -3338,9 +3339,9 @@ fn gmcp_vc_203_002_mastery() {
     //    answered once, bounded before the SDK buffers it, and cannot
     //    corrupt the request that shares its read chunk or any request
     //    after it ────────────────────────────────────────────────────
-    // Dev binaries run as their own instance — the bound lands in the
-    // `.susi-dev` root a `target/` build resolves (Mandate 48).
-    let susi_home = home.join(".susi-dev");
+    // susi_command explicitly selects this fixture-owned runtime via SUSI_HOME.
+    // Write the limit to that same root; automatic dev discovery is bypassed.
+    let susi_home = home.join(".susi");
     std::fs::create_dir_all(&susi_home).unwrap();
     std::fs::write(
         susi_home.join("config.json"),

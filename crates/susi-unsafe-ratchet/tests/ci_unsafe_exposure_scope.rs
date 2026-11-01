@@ -1,3 +1,6 @@
+// This exercises the optional hosted Unix CI Bash scope selector, not the
+// Rust unsafe ratchet. Native Windows runs the complete ratchet directly.
+#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 

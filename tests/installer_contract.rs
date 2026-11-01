@@ -1,3 +1,8 @@
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![allow(missing_docs)]
+#![cfg(unix)]
 //! Execute the Unix installer with a checksum-verified fixture download.
 //! No provider, network, installed Susi, or user profile is touched.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

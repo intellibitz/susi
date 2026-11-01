@@ -10,7 +10,7 @@ description = "The MCP client SDK (rmcp) and its reqwest streamable-HTTP transpo
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "elicitation"] }
+rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-native-tls", "elicitation"] }
 reqwest = { workspace = true }
 
 [lints]

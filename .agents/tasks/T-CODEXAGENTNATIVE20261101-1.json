@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXAGENTNATIVE20261101-1",
+  "title": "Use native disk evidence and portable process fixtures on Windows",
+  "goal": "Keep real observation and governance gates passing without GNU command prerequisites",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXAGENTNATIVE20261101",
+  "created_unix": 1793551869
+}

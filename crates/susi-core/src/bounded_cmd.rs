@@ -10,7 +10,14 @@ use std::time::{Duration, Instant};
 /// closed (a prompting program sees EOF), stdout/stderr are drained
 /// concurrently, and on expiry the child is killed and reaped and
 /// `ErrorKind::TimedOut` is returned.
+/// Windows probes run without a console window. This helper owns their creation
+/// flags; callers must not request an interactive console or different flags.
 pub fn output_within(cmd: &mut Command, timeout: Duration) -> std::io::Result<Output> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW; redirected probes are unattended.
+    }
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

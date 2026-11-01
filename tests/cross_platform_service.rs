@@ -1,6 +1,6 @@
 //! Cross-platform service and lifecycle orchestration tests.
 //!
-//! Validates that service manager detection, release promotion dispatch,
+//! Validates that service manager detection,
 //! platform-native service definitions, and OS diagnostics adhere to the cross-platform contract.
 
 #![cfg_attr(
@@ -16,8 +16,8 @@
 
 use std::path::PathBuf;
 use susi_gawd::cross_platform_service::{
-    promote_release_cross_platform, render_launchd_plist, render_systemd_unit,
-    render_windows_schtasks_cmd, PlatformDiagnostics, PlatformKind, ServiceManagerKind,
+    render_launchd_plist, render_systemd_unit, render_windows_schtasks_cmd, PlatformDiagnostics,
+    PlatformKind, ServiceManagerKind,
 };
 
 #[test]
@@ -27,12 +27,6 @@ fn cross_platform_service_detects_current_os() {
     let manager = ServiceManagerKind::detect(platform);
     assert!(!manager.daemon_unit_name().is_empty());
     assert!(!manager.release_sync_unit_name().is_empty());
-}
-
-#[test]
-fn cross_platform_promotion_executes_safely() {
-    let outcome = promote_release_cross_platform();
-    assert!(!outcome.message.is_empty());
 }
 
 #[test]

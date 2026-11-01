@@ -1795,7 +1795,12 @@ fn claim_settled_on_main(ws: &Path, claim: &Claim, all_receipts: &[(String, Clos
 /// task is accepted, and nothing may claim it — or let its agent claim anything
 /// else — until this head is on `origin/main`. Pushing first means a failed push
 /// leaves the task open and `close` is simply retried.
-fn push_close_receipt(ws: &Path, id: &str, owner_sha: &str, claim: &Claim) -> EaiResult<String> {
+fn push_close_receipt(
+    ws: &Path,
+    id: &str,
+    owner_sha: &str,
+    claim: &Claim,
+) -> EaiResult<CloseRecord> {
     let head = git(ws, &["rev-parse", "HEAD"])?;
     let record = CloseRecord {
         branch: claim.branch.clone(),
@@ -1848,7 +1853,7 @@ fn push_close_receipt(ws: &Path, id: &str, owner_sha: &str, claim: &Claim) -> Ea
         // newer one. Refresh instead of overwriting its refs individually.
         sync_queue_refs(ws)?;
     }
-    Ok(head)
+    Ok(record)
 }
 
 /// Record that an accepted task was given up, on the shared remote.
@@ -3588,17 +3593,20 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // finish that dies here leaves the task closed under a live claim, which
     // the next finish publishes. Bound to `<id>@<worktree>` like the coverage
     // flag, so a stale export cannot defer a receipt elsewhere.
-    let head = if defer_receipt {
+    let (head, closed_unix) = if defer_receipt {
         eprintln!(
             "close: {id}'s receipt is deferred to the publication — the release pushes it \
              with the claim's release in one transaction"
         );
-        git(ws, &["rev-parse", "HEAD"])?
+        (git(ws, &["rev-parse", "HEAD"])?, now_unix())
     } else {
-        push_close_receipt(ws, id, &owner_sha, &owner_claim)?
+        let receipt = push_close_receipt(ws, id, &owner_sha, &owner_claim)?;
+        // Publication may cross a clock tick. The durable task and receipt
+        // describe the same acceptance event, not two sampled timestamps.
+        (receipt.head, receipt.closed_unix)
     };
     task.closed = Some(Closed {
-        at_unix: now_unix(),
+        at_unix: closed_unix,
         commit: head,
         by,
     });
@@ -5557,12 +5565,17 @@ mod tests {
         let (_, mut competing) = read_claim_ref(&a, &claim_ref(&first.id)).unwrap();
         git(&a, &["add", "-A"]).unwrap();
         git(&a, &["commit", "-m", "accepted work"]).unwrap();
-        close(&a, &first.id, "claude").unwrap();
+        let done = close(&a, &first.id, "claude").unwrap();
         release(&a, &first.id, "claude", true).unwrap();
         git(&a, &["add", "-A"]).unwrap();
         git(&a, &["commit", "-m", "accepted closure"]).unwrap();
         git(&a, &["push", "origin", "HEAD:owned-followup"]).unwrap();
         let receipt = read_closed(&a, &first.id).unwrap().unwrap();
+        assert_eq!(
+            receipt.closed_unix,
+            done.closed.unwrap().at_unix,
+            "the published receipt and durable closure must retain one timestamp"
+        );
         let permits = |receipt: &CloseRecord, owner: &str, branch: Option<&str>| {
             closed_scope_followup(&a, &first.id, receipt, owner, branch)
         };

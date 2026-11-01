@@ -170,46 +170,11 @@ impl<'a> OllamaClient<'a> {
                 )));
             }
         }
-        #[derive(Serialize)]
-        struct PullReq<'a> {
-            name: &'a str,
-            stream: bool,
-        }
-        let body = serde_json::to_vec(&PullReq { name, stream: true })
-            .map_err(|e| EaiError::config(e.to_string()))?;
-        let raw = self.call("POST", "/api/pull", Some(body))?;
-        let mut saw_error = None;
-        for line in raw.split(|b| *b == b'\n') {
-            if line.is_empty() {
-                continue;
-            }
-            let p: PullProgress =
-                serde_json::from_slice(line).map_err(|e| EaiError::network(e.to_string()))?;
-            if let Some(err) = p.status.strip_prefix("error:") {
-                saw_error = Some(err.trim().to_string());
-            }
-            // status may be "error" with detail in an `error` field.
-            #[derive(Deserialize)]
-            struct ErrLine {
-                #[serde(default)]
-                error: String,
-            }
-            if let Ok(el) = serde_json::from_slice::<ErrLine>(line) {
-                if !el.error.is_empty() {
-                    saw_error = Some(el.error);
-                }
-            }
-            if p.status == "error" {
-                saw_error.get_or_insert_with(|| "pull failed".to_string());
-            }
-            on_progress(&p);
-        }
-        if let Some(e) = saw_error {
-            return Err(EaiError::network(format!("ollama pull {name}: {e}")));
-        }
-        Ok(())
+        let _ = on_progress;
+        Err(EaiError::governance(format!(
+            "[MODEL LICENSE] Refusing unverified Ollama registry tag {name}. Agents must use Susi's native publisher-verified model installer until registry manifests and license layers can be admitted by immutable digest. Existing external-service inference is available."
+        )))
     }
-
     /// `DELETE /api/delete`.
     pub fn remove(&self, name: &str) -> EaiResult<()> {
         #[derive(Serialize)]
@@ -347,21 +312,19 @@ mod tests {
     }
 
     #[test]
-    fn ollama_models_pull_streams_progress() {
-        let (base, _rx) = serve(&[(
-            "POST /api/pull",
-            200,
-            "{\"status\":\"pulling manifest\"}\n{\"status\":\"downloading\",\"completed\":50,\"total\":100}\n{\"status\":\"success\"}\n",
-        )]);
-        let c = OllamaClient::new(&base, &json_transport);
-        let seen = std::cell::RefCell::new(Vec::new());
-        c.pull("qwen2.5:7b", Some(100), None, &|p| {
-            seen.borrow_mut().push(p.status.clone())
-        })
-        .unwrap();
-        assert!(seen.borrow().iter().any(|s| s == "success"));
+    fn ollama_models_unverified_pull_makes_no_request() {
+        let called = std::cell::Cell::new(false);
+        let transport = |_: &HttpRequest| {
+            called.set(true);
+            Err(EaiError::network("unexpected request"))
+        };
+        let client = OllamaClient::new(DEFAULT_BASE, &transport);
+        let err = client
+            .pull("qwen2.5:7b", Some(100), None, &|_| {})
+            .unwrap_err();
+        assert!(err.to_string().contains("MODEL LICENSE"));
+        assert!(!called.get());
     }
-
     #[test]
     fn ollama_models_pull_refuses_over_budget() {
         let (base, _rx) = serve(&[("POST /api/pull", 200, "{\"status\":\"success\"}\n")]);
@@ -374,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn ollama_models_pull_surfaces_server_error() {
+    fn ollama_models_unknown_pull_is_refused_before_server() {
         let (base, _rx) = serve(&[(
             "POST /api/pull",
             200,
@@ -382,7 +345,7 @@ mod tests {
         )]);
         let c = OllamaClient::new(&base, &json_transport);
         let err = c.pull("missing:latest", None, None, &|_| {}).unwrap_err();
-        assert!(err.to_string().contains("does not exist"));
+        assert!(err.to_string().contains("MODEL LICENSE"));
     }
 
     #[test]

@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXNATIVEPOLICY20261101-1",
+  "title": "Assert actual native runtime dependency graph rather than historical facade names",
+  "goal": "Verify Wasmi native TLS and retired foreign runtime exclusions in both target graphs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_matrix",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXNATIVEPOLICY20261101",
+  "created_unix": 1793550585
+}

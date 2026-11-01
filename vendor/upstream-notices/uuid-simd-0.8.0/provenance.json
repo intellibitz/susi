@@ -1,0 +1,19 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "uuid-simd",
+  "version": "0.8.0",
+  "repository": "https://github.com/Nugine/simd",
+  "revision": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+  "path_in_vcs": "crates/uuid-simd",
+  "crate_checksum": "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8",
+  "crate_checksum_origin": "SHA256 of cached published .crate archive, matched to Cargo.lock",
+  "files": [
+    {
+      "path": "LICENSE",
+      "source_path": "LICENSE",
+      "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d",
+      "git_blob_sha1": "2c7eabb59093ea117d73b20effdd0414f87b2af2",
+      "url": "https://github.com/Nugine/simd/blob/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE"
+    }
+  ]
+}

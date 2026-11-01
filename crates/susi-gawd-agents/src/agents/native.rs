@@ -203,6 +203,22 @@ impl GawdAgent for SearchAgent {
 /// found) and links essential MCP servers.
 pub struct SusiRuntimeAgent;
 
+fn has_valid_local_weights(report: &serde_json::Value) -> bool {
+    report.as_array().is_some_and(|rows| {
+        rows.iter().any(|row| {
+            row.get("is_valid_gguf")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+                && row
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| {
+                        Path::new(id).extension().and_then(|ext| ext.to_str()) == Some("gguf")
+                    })
+        })
+    })
+}
+
 impl GawdAgent for SusiRuntimeAgent {
     fn name(&self) -> String {
         "SusiRuntimeAgent".into()
@@ -233,34 +249,16 @@ impl GawdAgent for SusiRuntimeAgent {
         // 2. Check whether a valid local model is already present
         let verifications =
             crate::susi_core::plane_bus::gemi::ModelManager::verify_local_models(workspace);
-        let valid_local_found = verifications
-            .as_array()
-            .map(|arr| {
-                arr.iter().any(|v| {
-                    v.get("is_valid_gguf")
-                        .and_then(|x| x.as_bool())
-                        .unwrap_or(false)
-                        || v.get("model_id")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .contains("native")
-                })
-            })
-            .unwrap_or(false);
+        let valid_local_found = has_valid_local_weights(&verifications);
 
-        // 3. If neither is available, install the default model
+        // Use the same admitted small-starter policy as daemon provisioning.
+        // A synthetic engine identifier is not evidence of model weights,
+        // and runtime boot must not queue a second, unaudited alpha artifact.
         if !cloud_available && !valid_local_found {
-            let cfg =
-                crate::susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
-                    .unwrap_or_default();
-            crate::susi_core::plane_bus::gemi::ModelManager::install_model(
-                &cfg.alpha_weights_url(),
-            );
             let _ = crate::susi_core::plane_bus::gemi::ModelManager::ensure_hardware_optimal_models(
                 workspace,
             );
         }
-
         // 4. Link essential MCP servers
         crate::susi_core::plane_bus::tools::auto_link_essential_mcp_servers();
 
@@ -1354,5 +1352,44 @@ impl AdminAgent {
                     .unwrap_or(false)
             })
             .map(|s| s.to_string())
+    }
+}
+
+#[cfg(test)]
+mod runtime_model_evidence_tests {
+    use super::has_valid_local_weights;
+    use serde_json::json;
+
+    #[test]
+    fn native_names_do_not_establish_model_validity() {
+        for id in [
+            "susi-native-synthesis",
+            "F:/susi-native-review/models/broken.gguf",
+            "C:/models/native.gguf",
+        ] {
+            assert!(!has_valid_local_weights(
+                &json!([{"model_id":"Native-looking display name","path":id,"is_valid_gguf":false}])
+            ));
+            assert!(!has_valid_local_weights(
+                &json!([{"model_id":id,"path":id}])
+            ));
+        }
+        assert!(!has_valid_local_weights(
+            &json!([{"model_id":"susi-native-synthesis","is_valid_gguf":true}])
+        ));
+    }
+
+    #[test]
+    fn valid_gguf_reports_work_regardless_of_parent_directory_name() {
+        for id in [
+            "F:/susi-native-review/models/qwen.gguf",
+            "C:/models/qwen.gguf",
+        ] {
+            assert!(has_valid_local_weights(
+                &json!([{"model_id":"Qwen model","path":id,"is_valid_gguf":true}])
+            ));
+        }
+        assert!(!has_valid_local_weights(&json!(null)));
+        assert!(!has_valid_local_weights(&json!([])));
     }
 }

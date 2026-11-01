@@ -603,9 +603,9 @@ mod tests {
         let provenance: super::super::lifecycle::ModelProvenance =
             serde_json::from_slice(&fs::read(dir.join("model.provenance.json")).unwrap()).unwrap();
         assert_eq!(provenance.original_checksum.as_deref(), Some(good.as_str()));
-        assert!(super::super::lifecycle::ModelManager::verify_model_integrity(&path).is_ok());
+        assert!(super::super::lifecycle::ModelManager::verify_model_checksum(&path).is_ok());
         fs::write(&path, b"tampered!!").unwrap();
-        assert!(super::super::lifecycle::ModelManager::verify_model_integrity(&path).is_err());
+        assert!(super::super::lifecycle::ModelManager::verify_model_checksum(&path).is_err());
         srv.join().unwrap();
         fs::remove_dir_all(dir).unwrap();
 

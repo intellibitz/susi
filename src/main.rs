@@ -21,6 +21,10 @@
 
 #![allow(missing_docs)] // binary crate: internal CLI modules are not public API
 
+// Retain the original Rust process entry and TLS boundary in Windows binaries.
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 mod cli;
 mod cli_json;
 mod dev_instance;
@@ -216,15 +220,26 @@ fn run() -> std::process::ExitCode {
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
+    let mut cli = Cli::parse();
+    if let Some(cli::defs::Commands::Local { args }) = &cli.command {
+        return cli::local_delivery_cli::execute(args);
+    }
+    // Installation acts on the native user home before development isolation
+    // or service composition can create another instance or start a daemon.
+    if matches!(cli.command, Some(cli::defs::Commands::Install)) {
+        return cli::install_cli::execute();
+    }
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
-    dev_instance::isolate_if_dev_build(&get_home_dir());
+    if let Err(error) = dev_instance::isolate_if_dev_build(&get_home_dir()) {
+        eprintln!("Unable to isolate development instance: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
     // Still single-threaded: candle's barrier pool sizes itself from this
     // once, at first use — an explicit setting always wins.
     if env::var_os("CANDLE_NUM_THREADS").is_none() {
         env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
     }
-    let mut cli = Cli::parse();
     // Opening the goal prompt must not wait for every optional framework,
     // model or daemon to boot. Initialize in this process only after a goal
     // arrives, then retain its model cache for the rest of the conversation.

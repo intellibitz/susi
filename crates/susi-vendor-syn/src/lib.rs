@@ -13,7 +13,56 @@ use syn::visit::{self, Visit};
 /// True when `src` parses as a Rust source file.
 #[must_use]
 pub fn is_valid_rust(src: &str) -> bool {
-    syn::parse_file(src).is_ok()
+    is_valid_rust_checked(src).unwrap_or(false)
+}
+
+/// Separate unavailable identifier-classification infrastructure from invalid
+/// syntax. Generated-code admission must report the former as a capability gap.
+pub fn is_valid_rust_checked(src: &str) -> Result<bool, String> {
+    parse_file(src).map(|file| file.is_some())
+}
+
+fn parse_file(src: &str) -> Result<Option<syn::File>, String> {
+    let mut session = ClassificationSession::begin();
+    unicode_ident::clear_classification_error();
+    let parsed = syn::parse_file(src);
+    let classification_error = unicode_ident::take_classification_error();
+    session.finish()?;
+    if let Some(error) = classification_error {
+        return Err(format!(
+            "Rust identifier classification unavailable: {error}"
+        ));
+    }
+    Ok(parsed.ok())
+}
+
+// Parallel file audits share one bounded compiler helper. The last completed
+// parse reaps it explicitly, including short-lived CLI invocations that exit
+// before the helper's idle deadline. Ordinary OS-supported text never starts it.
+static ANALYSES: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+struct ClassificationSession(bool);
+impl ClassificationSession {
+    fn begin() -> Self {
+        let mut count = ANALYSES.lock().unwrap_or_else(|error| error.into_inner());
+        *count = count.saturating_add(1);
+        Self(true)
+    }
+    fn finish(&mut self) -> Result<(), String> {
+        if self.0 {
+            self.0 = false;
+            let mut count = ANALYSES.lock().unwrap_or_else(|error| error.into_inner());
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                return unicode_ident::shutdown_compiler();
+            }
+        }
+        Ok(())
+    }
+}
+impl Drop for ClassificationSession {
+    fn drop(&mut self) {
+        let _ = self.finish();
+    }
 }
 
 /// Production-code metrics of one Rust file. Test-only code (`#[test]`,
@@ -34,13 +83,20 @@ pub struct RustMetrics {
 /// does not parse.
 #[must_use]
 pub fn analyze(src: &str, max_statements: usize) -> Option<RustMetrics> {
-    let ast = syn::parse_file(src).ok()?;
+    analyze_checked(src, max_statements).ok().flatten()
+}
+
+/// Checked analysis retains platform/compiler capability failures for agents.
+pub fn analyze_checked(src: &str, max_statements: usize) -> Result<Option<RustMetrics>, String> {
+    let Some(ast) = parse_file(src)? else {
+        return Ok(None);
+    };
     let mut v = MetricsVisitor {
         max_statements,
         m: RustMetrics::default(),
     };
     v.visit_file(&ast);
-    Some(v.m)
+    Ok(Some(v.m))
 }
 
 /// Kind of a top-level item in [`outline`].
@@ -52,12 +108,21 @@ pub enum ItemKind {
     Other,
 }
 
+pub type RustOutline = Vec<(ItemKind, String)>;
+
 /// Top-level items of `src` in order, with names for functions / structs /
 /// enums (empty for [`ItemKind::Other`]). `None` when `src` does not parse.
 #[must_use]
-pub fn outline(src: &str) -> Option<Vec<(ItemKind, String)>> {
-    let file = syn::parse_file(src).ok()?;
-    Some(
+pub fn outline(src: &str) -> Option<RustOutline> {
+    outline_checked(src).ok().flatten()
+}
+
+/// Checked outline retains platform/compiler capability failures for agents.
+pub fn outline_checked(src: &str) -> Result<Option<RustOutline>, String> {
+    let Some(file) = parse_file(src)? else {
+        return Ok(None);
+    };
+    Ok(Some(
         file.items
             .iter()
             .map(|item| {
@@ -72,7 +137,7 @@ pub fn outline(src: &str) -> Option<Vec<(ItemKind, String)>> {
                 }
             })
             .collect(),
-    )
+    ))
 }
 
 /// Whether a cfg expression can only be enabled in a test build.
@@ -192,5 +257,15 @@ mod tests {
         assert_eq!(o[0], (ItemKind::Function, "a".into()));
         assert_eq!(o[3].0, ItemKind::Other);
         assert!(!is_valid_rust("fn ("));
+    }
+
+    #[test]
+    fn unicode_analysis_uses_os_and_compiler_without_bundled_tables() {
+        let outline = outline_checked("fn café() {} fn \u{105c0}() {}")
+            .unwrap()
+            .unwrap();
+        assert_eq!(outline[0], (ItemKind::Function, "café".into()));
+        assert_eq!(outline[1], (ItemKind::Function, "\u{105c0}".into()));
+        assert_eq!(is_valid_rust_checked("fn 😀() {}"), Ok(false));
     }
 }

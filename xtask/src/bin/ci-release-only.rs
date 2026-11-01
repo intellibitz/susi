@@ -1,4 +1,7 @@
 //! Fail-closed recognition of an exact SUSI release-version-only Git diff.
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::process::{Command, Stdio};

@@ -6,13 +6,13 @@
 //! runs discover → load → ready → infer through the one contract.
 //! `InferenceHost` is the adapter's substrate surface: `load` stages
 //! weights through `InferenceHost::preload`, `health` probes
-//! `InferenceHost::loaded_models` (weight residency, never file
+//! `InferenceHost::model_is_reusable` (current identity/device/KV, never file
 //! presence), and `unload` evicts through `InferenceHost::unload`.
+//! `InferenceHost::loaded_models` remains a diagnostic snapshot, not readiness.
 //! Verbs a native engine genuinely lacks — external cancel of an
 //! unscoped inference task, unload of a federated endpoint — are
 //! capability-gated to typed errors, not silent no-ops.
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::models::runtime_lifecycle::{Capabilities, InferOutcome, Runtime, RuntimeBackend};
@@ -70,33 +70,17 @@ impl EngineHost for SusiHost {
         let Some(path) = crate::models::ModelManager::get_model_path(model) else {
             return Err(format!("model '{model}' has no resolvable weights"));
         };
-        if crate::models::llamacpp_launcher::owned_resident(&path) {
-            return Ok(true);
-        }
-        for entry in crate::engines::runtime::InferenceHost::loaded_models() {
-            let matches = entry
-                .get("path")
-                .and_then(|p| p.as_str())
-                .map(PathBuf::from)
-                .is_some_and(|p| p == path || p.file_name() == path.file_name());
-            let resident = entry
-                .get("state")
-                .and_then(|s| s.as_str())
-                .is_some_and(|s| s == "loaded" || s == "busy");
-            if matches && resident {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+
+        Ok(crate::engines::runtime::InferenceHost::model_is_reusable(
+            &path,
+        ))
     }
 
     fn preload(&self, model: &str) -> EaiResult<()> {
         let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
             EaiError::inference(format!("model '{model}' has no resolvable weights"))
         })?;
-        if crate::engines::runtime::GemiEngine::prepare_owned_local_model(&path)? {
-            return Ok(());
-        }
+
         crate::engines::runtime::InferenceHost::preload_resolved(&path).map(|_| ())
     }
 
@@ -104,10 +88,7 @@ impl EngineHost for SusiHost {
         let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
             EaiError::inference(format!("model '{model}' has no resolvable weights"))
         })?;
-        if crate::models::llamacpp_launcher::owned_resident(&path) {
-            crate::models::llamacpp_launcher::shutdown_owned();
-            return Ok(());
-        }
+
         crate::engines::runtime::InferenceHost::unload_resolved(&path).map(|_| ())
     }
 
@@ -260,14 +241,7 @@ impl RuntimeBackend for NativeEngineBackend<'_> {
 
     fn infer(&self, prompt: &str) -> EaiResult<InferOutcome> {
         let model = self.resolved_model();
-        if self.kind == EngineKind::Native {
-            if let Some(answer) = model.as_deref().and_then(|model| {
-                crate::engines::runtime::GemiEngine::try_owned_local_model(prompt, model)
-            }) {
-                (self.call.callback)(answer.clone());
-                return Ok(InferOutcome::Done { output: answer });
-            }
-        }
+
         match self
             .engine
             .run_inference_stream(prompt, self.call.callback, model.as_deref())
