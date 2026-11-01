@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "SUSICACHEREPAIR20261101",
-  "created_unix": 1793503944
+  "created_unix": 1793503944,
+  "closed": {
+    "at_unix": 1793504102,
+    "commit": "f20234d9d4a7e82e9061d85101cea08b3f45556b",
+    "by": "SUSICACHEREPAIR20261101"
+  }
 }
