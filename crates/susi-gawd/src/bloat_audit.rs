@@ -269,7 +269,7 @@ impl BloatAuditor {
         let analysis = match susi_vendor_syn::analyze_checked(&content, MAX_STATEMENTS_PER_FN) {
             Ok(metrics) => metrics,
             Err(error) => {
-                tracing::warn!(path = %rel, %error, "Rust audit capability unavailable");
+                eprintln!("Rust audit capability unavailable for {rel}: {error}");
                 None
             }
         };
