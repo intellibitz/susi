@@ -1,0 +1,18 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-15",
+  "title": "Restrict fast release handoff to merged source trees",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "release_handoff"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793511020
+}
