@@ -21,6 +21,48 @@ common=$(git rev-parse --path-format=absolute --git-common-dir)
 action=${1:-sync}
 lock="$common/susi-workflow.lock"
 susi_bin=${SUSI_WORKFLOW_BIN:-susi}
+if [ -f "$common/config" ] && ! grep -q "auto = 0" "$common/config" 2>/dev/null; then
+    git config gc.auto 0 2>/dev/null || true
+    git config maintenance.auto false 2>/dev/null || true
+fi
+
+sync_fetch_origin() {
+    local remote=${SUSI_TASK_REMOTE:-origin}
+    [[ "$remote" =~ [^[:space:]] ]] || remote=origin
+    if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ] && [ "$remote" = origin ]; then
+        git fetch --quiet --prune origin \
+            "+refs/heads/*:refs/remotes/origin/*" \
+            "+refs/claims/*:refs/claims/*" \
+            "+refs/claim-agents/*:refs/claim-agents/*" \
+            "+refs/closed/*:refs/closed/*"
+    else
+        git fetch --quiet origin
+    fi
+}
+
+prefetch_finish_refs() {
+    local remote=${SUSI_TASK_REMOTE:-origin}
+    [[ "$remote" =~ [^[:space:]] ]] || remote=origin
+    [ "$remote" = origin ] || return 0
+    SUSI_PREFETCH_LOCAL_CLAIM_OID=$(git rev-parse --verify --quiet "refs/claims/$task" 2>/dev/null || true)
+    SUSI_PREFETCH_LOCAL_CLAIM_BODY=$(git cat-file -p "refs/claims/$task" 2>/dev/null || true)
+    local fetch_seq="$common/susi-fetch.seq"
+    exec 9>"$lock"
+    flock 9
+    if git fetch --quiet --prune origin \
+        "+refs/heads/*:refs/remotes/origin/*" \
+        "+refs/claims/*:refs/claims/*" \
+        "+refs/claim-agents/*:refs/claim-agents/*" \
+        "+refs/closed/*:refs/closed/*"; then
+        printf '%s\n' "$(( $(cat "$fetch_seq" 2>/dev/null || echo 0) + 1 ))" >"$fetch_seq" 2>/dev/null || true
+        SUSI_FINISH_ORIGIN_FETCHED=1
+        export SUSI_CLOSE_QUEUE_SYNCED="$task@$root"
+    else
+        unset SUSI_PREFETCH_LOCAL_CLAIM_OID SUSI_PREFETCH_LOCAL_CLAIM_BODY
+    fi
+    flock -u 9
+    exec 9>&-
+}
 
 sync() {
     # A cloud session's clone is the worker's own checkout: the mark says so
@@ -36,22 +78,26 @@ sync() {
     # holder's fetch updates `refs/remotes/origin/*` for the whole clone:
     # waiters that observe `susi-fetch.seq` advance while queued reuse that
     # completed fetch instead of running N back-to-back remote round-trips.
-    local fetch_seq="$common/susi-fetch.seq"
-    exec 9>"$lock"
-    if flock -n 9; then
-        git fetch --quiet origin
-        printf '%s\n' "$(( $(cat "$fetch_seq" 2>/dev/null || echo 0) + 1 ))" >"$fetch_seq" 2>/dev/null || true
+    if [ "${SUSI_FINISH_ORIGIN_FETCHED:-0}" = 1 ]; then
+        SUSI_FINISH_ORIGIN_FETCHED=0
     else
-        local before_seq
-        before_seq=$(cat "$fetch_seq" 2>/dev/null || echo 0)
-        flock 9
-        if [ "$(cat "$fetch_seq" 2>/dev/null || echo 0)" = "$before_seq" ]; then
-            git fetch --quiet origin
-            printf '%s\n' "$(( before_seq + 1 ))" >"$fetch_seq" 2>/dev/null || true
+        local fetch_seq="$common/susi-fetch.seq"
+        exec 9>"$lock"
+        if flock -n 9; then
+            sync_fetch_origin
+            printf '%s\n' "$(( $(cat "$fetch_seq" 2>/dev/null || echo 0) + 1 ))" >"$fetch_seq" 2>/dev/null || true
+        else
+            local before_seq
+            before_seq=$(cat "$fetch_seq" 2>/dev/null || echo 0)
+            flock 9
+            if [ "$(cat "$fetch_seq" 2>/dev/null || echo 0)" = "$before_seq" ]; then
+                sync_fetch_origin
+                printf '%s\n' "$(( before_seq + 1 ))" >"$fetch_seq" 2>/dev/null || true
+            fi
         fi
+        flock -u 9
+        exec 9>&-
     fi
-    flock -u 9
-    exec 9>&-
     git merge --no-edit origin/main
     # The watcher is a background process that dies with its session, and the
     # primary then stops converging until someone notices. Every agent crosses
@@ -64,9 +110,9 @@ sync() {
     if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ]; then
         maintain_primary &
         local pid_primary=$!
-        renew_owned_claims &
+        SUSI_REMOTE_CLAIM_FETCHED=1 renew_owned_claims &
         local pid_renew=$!
-        "$root/scripts/check-owed-runs.sh" &
+        SUSI_OWED_REFS_FETCHED=1 "$root/scripts/check-owed-runs.sh" &
         local pid_owed=$!
         wait "$pid_primary" 2>/dev/null || true
         wait "$pid_renew" 2>/dev/null || true
@@ -99,6 +145,9 @@ maintain_primary() {
 # and copies the snapshot in, in the foreground, before the first cargo. On a
 # target that already holds a build it does nothing.
 seed_own_target() {
+    if [ -d "$root/target" ] && [ ! -L "$root/target" ] && { [ -f "$root/target/.susi-seeded" ] || [ -f "$root/target/CACHEDIR.TAG" ]; }; then
+        return 0
+    fi
     # "$BASH": this very bash. A bare `bash` can be WSL's on a Windows PATH.
     [ ! -f "$root/scripts/seed-target.sh" ] || "${BASH:-bash}" "$root/scripts/seed-target.sh" "$root" 9>&- || true
 }
@@ -111,8 +160,15 @@ renew_or_readopt() {
     # A fresh claim normally has hours left. Extending it again on every finish
     # costs a ref fetch, ownership lookup and push. Close and pre-push still
     # validate remote ownership; this only avoids an unnecessary lease write.
-    local claim agent branch local_oid remote remote_oid remote_ref
-    claim=$(git cat-file -p "refs/claims/$task" 2>/dev/null || true)
+    local claim agent branch local_oid remote remote_oid remote_ref prefetched=0
+    if [ -n "${SUSI_PREFETCH_LOCAL_CLAIM_BODY+x}" ]; then
+        claim=$SUSI_PREFETCH_LOCAL_CLAIM_BODY
+        local_oid=${SUSI_PREFETCH_LOCAL_CLAIM_OID:-}
+        prefetched=1
+        unset SUSI_PREFETCH_LOCAL_CLAIM_BODY SUSI_PREFETCH_LOCAL_CLAIM_OID
+    else
+        claim=$(git cat-file -p "refs/claims/$task" 2>/dev/null || true)
+    fi
     agent=${SUSI_AGENT:-$(git config --get susi.agent || true)}
     branch=$(git symbolic-ref -q --short HEAD || true)
     if [ -n "$agent" ] && jq -e --arg agent "$agent" --arg branch "$branch" \
@@ -122,10 +178,15 @@ renew_or_readopt() {
         # A local ref may be stale even when its embedded lease is healthy:
         # another checkout can have expired or reassigned it on the remote.
         # Avoid a renewal only when the remote still advertises this exact blob.
-        local_oid=$(git rev-parse --verify --quiet "refs/claims/$task" 2>/dev/null || true)
+        [ "$prefetched" = 1 ] || local_oid=$(git rev-parse --verify --quiet "refs/claims/$task" 2>/dev/null || true)
         remote=${SUSI_TASK_REMOTE:-origin}
         [[ "$remote" =~ [^[:space:]] ]] || remote=origin
-        remote_ref=$(git ls-remote --refs "$remote" "refs/claims/$task" 2>/dev/null || true)
+        if { [ "${SUSI_REMOTE_CLAIM_FETCHED:-0}" = 1 ] || [ "$prefetched" = 1 ]; } && [ "$remote" = origin ]; then
+            remote_oid=$(git rev-parse --verify --quiet "refs/claims/$task" 2>/dev/null || true)
+            remote_ref=${remote_oid:+"$remote_oid"$'\t'"refs/claims/$task"}
+        else
+            remote_ref=$(git ls-remote --refs "$remote" "refs/claims/$task" 2>/dev/null || true)
+        fi
         remote_ref=${remote_ref%$'\r'}
         remote_oid=${remote_ref%%$'\t'*}
         if [ -n "$local_oid" ] && [ "$remote_oid" = "$local_oid" ] \
@@ -140,7 +201,7 @@ renew_or_readopt() {
     while IFS= read -r s; do
         s=${s%$'\r'} # Native Windows jq may write CRLF.
         [ -n "$s" ] && scopes+=(--scope "$s")
-    done < <(git cat-file -p "refs/claims/$task" 2>/dev/null | jq -r '.scopes[]?' 2>/dev/null || true)
+    done < <({ [ -n "$claim" ] && printf '%s\n' "$claim" || git cat-file -p "refs/claims/$task" 2>/dev/null; } | jq -r '.scopes[]?' 2>/dev/null || true)
     # A legacy claim may have reserved nothing; re-claiming it deliberately is
     # what --unscoped is for, since a scopeless claim cannot be enforced.
     [ "${#scopes[@]}" -gt 0 ] || scopes=(--unscoped)
@@ -631,6 +692,7 @@ finish)
         export SUSI_CLOSE_DEFER_RECEIPT="$task@$root"
         export SUSI_RELEASE_PUBLISH_RECEIPT="$task@$root"
     fi
+    prefetch_finish_refs
     timed_step lease renew_or_readopt
     timed_step initial-sync sync
     timed_step gate gate

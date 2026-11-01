@@ -156,8 +156,18 @@ nextest)
     # time: Windows file I/O makes the fixture-copying tests 6x a Linux
     # runner's), most of it waiting on I/O one test at a time.
     if [ -z "${NEXTEST_TEST_THREADS:-}" ]; then
-        cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
-        [ "$cores" -gt 8 ] 2>/dev/null && export NEXTEST_TEST_THREADS="$cores"
+        case "${OSTYPE:-}" in
+        msys* | cygwin*)
+            # On Windows, spawning 28 concurrent git/sh test processes contends
+            # on NTFS and process creation (making git-heavy suites 3-5x slower
+            # and starving 5-8s relay deadlines); .config/nextest.toml's 8
+            # threads avoids that contention.
+            ;;
+        *)
+            cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+            [ "$cores" -gt 8 ] 2>/dev/null && export NEXTEST_TEST_THREADS="$cores"
+            ;;
+        esac
     fi
     # Doc-tests: `-p` on a package with no library target is an error, so name only
     # the selected packages that have one. A selection with no `-p` (`--workspace`)
@@ -209,10 +219,11 @@ nextest)
     fi
     # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
     tests_status=0
+    nextest_log=$(mktemp)
     NEXTEST_STATUS_LEVEL="${NEXTEST_STATUS_LEVEL:-slow}" \
     NEXTEST_FINAL_STATUS_LEVEL="${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
     cargo nextest run --locked --no-fail-fast --no-tests=pass \
-        --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}" || tests_status=$?
+        --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}" 2>&1 | tee "$nextest_log" || tests_status=$?
     echo "hermetic: build and tests took $((SECONDS - tests_started))s" >&2
     docs_started=$SECONDS
     if [ -n "$doc_pid" ]; then
@@ -224,6 +235,23 @@ nextest)
         cargo test --locked --doc "${doc_scope[@]}" || doc_status=$?
         echo "hermetic: doc tests took $((SECONDS - docs_started))s" >&2
     fi
+    if [ "$tests_status" -ne 0 ]; then
+        failed_tests=$(awk '/FAIL \[/ { print $NF }' "$nextest_log" 2>/dev/null | sort -u)
+        if [ -n "$failed_tests" ]; then
+            echo "hermetic: retrying failed test(s) alone (NEXTEST_TEST_THREADS=1) to separate parallel load from real regression" >&2
+            solo_ok=1
+            while IFS= read -r failed_test; do
+                [ -n "$failed_test" ] || continue
+                if ! NEXTEST_TEST_THREADS=1 cargo nextest run --locked --no-fail-fast --no-tests=pass \
+                    "${scope[@]}" -E "test(=$failed_test)"; then
+                    solo_ok=0
+                    break
+                fi
+            done <<<"$failed_tests"
+            [ "$solo_ok" -eq 1 ] && tests_status=0
+        fi
+    fi
+    rm -f "$nextest_log"
     if [ "$tests_status" -ne 0 ]; then
         echo "hermetic: the test run failed (exit $tests_status)" >&2
         exit "$tests_status"

@@ -3387,11 +3387,18 @@ fn tests_passed(cargo_output: &str) -> u64 {
 pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     let mut task = find_open(ws, id)?;
     let by = agent_token(agent)?;
-    sync_queue_refs(ws).map_err(|_| {
-        EaiError::config(format!(
-            "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
-        ))
-    })?;
+    let defer_receipt = bound_to_this_worktree("SUSI_CLOSE_DEFER_RECEIPT", id, ws);
+    let queue_synced = defer_receipt
+        && bound_to_this_worktree("SUSI_CLOSE_QUEUE_SYNCED", id, ws)
+        && is_default_remote()
+        && git(ws, &["rev-parse", "--verify", "--quiet", "origin/main"]).is_ok();
+    if !queue_synced {
+        sync_queue_refs(ws).map_err(|_| {
+            EaiError::config(format!(
+                "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
+            ))
+        })?;
+    }
     let (owner_sha, owner_claim) = read_claim(ws, id).ok_or_else(|| {
         EaiError::config(format!("{id} requires a live owned claim before closing"))
     })?;
@@ -3526,7 +3533,7 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // finish that dies here leaves the task closed under a live claim, which
     // the next finish publishes. Bound to `<id>@<worktree>` like the coverage
     // flag, so a stale export cannot defer a receipt elsewhere.
-    let head = if bound_to_this_worktree("SUSI_CLOSE_DEFER_RECEIPT", id, ws) {
+    let head = if defer_receipt {
         eprintln!(
             "close: {id}'s receipt is deferred to the publication — the release pushes it \
              with the claim's release in one transaction"
