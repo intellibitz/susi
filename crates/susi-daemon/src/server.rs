@@ -1223,7 +1223,6 @@ impl SusiDaemon {
                 },
             );
         }
-        crate::ambient::start_ambient_indexer(&workspace);
 
         // Pillar 8: zero-config discovery of local inference engines + MCP
         // tools, then periodic rediscovery — after the contract providers

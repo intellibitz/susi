@@ -18,6 +18,9 @@ const MAX_FILE_BYTES: u64 = 256 * 1024;
 
 /// Start ambient indexing for `workspace` (idempotent process-wide).
 pub fn start_ambient_indexer(workspace: &Path) {
+    if internal_path(workspace, &internal_roots()) {
+        return;
+    }
     let flag = STARTED.get_or_init(|| AtomicBool::new(false));
     if flag.swap(true, Ordering::SeqCst) {
         return;
@@ -122,7 +125,34 @@ fn ambient_loop(workspace: PathBuf) {
     }
 }
 
+fn internal_roots() -> Vec<PathBuf> {
+    [
+        susi_paths::SusiDirs::substrate_home(),
+        susi_paths::SusiDirs::config_dir(),
+        susi_paths::SusiDirs::data_dir(),
+    ]
+    .into_iter()
+    .filter_map(|path| path.canonicalize().ok())
+    .collect()
+}
+
+fn internal_path(path: &Path, roots: &[PathBuf]) -> bool {
+    path.canonicalize()
+        .is_ok_and(|path| roots.iter().any(|root| &path == root))
+}
+
 fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize {
+    scan_workspace(workspace, state, &internal_roots())
+}
+
+fn scan_workspace(
+    workspace: &Path,
+    state: &mut HashMap<String, u64>,
+    internal: &[PathBuf],
+) -> usize {
+    if internal_path(workspace, internal) {
+        return 0;
+    }
     let mut changed = 0usize;
     let mut stack = vec![workspace.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -141,6 +171,9 @@ fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize 
                 continue;
             }
             if file_type.is_dir() {
+                if internal_path(&path, internal) {
+                    continue;
+                }
                 // `build-cache` is install.sh's persistent CARGO_TARGET_DIR —
                 // its fingerprint churn used to dominate the graph (~98% of
                 // external_context nodes were build artifacts).
@@ -210,6 +243,30 @@ fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn substrate_updates_do_not_retrigger_workspace_indexing() {
+        let ws = std::env::temp_dir().join(format!("susi-ambient-churn-{}", std::process::id()));
+        let home = ws.join("control-state");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(ws.join("notes.md"), "user's project notes").unwrap();
+        let internal = vec![home.canonicalize().unwrap()];
+        let mut state = HashMap::new();
+        assert_eq!(scan_workspace(&ws, &mut state, &internal), 1);
+        for name in [
+            "ambient_scan_state.json",
+            "download_progress.json",
+            "supervision.json",
+        ] {
+            std::fs::write(home.join(name), "internal update").unwrap();
+            assert_eq!(scan_workspace(&ws, &mut state, &internal), 0);
+        }
+        assert_eq!(scan_workspace(&home, &mut HashMap::new(), &internal), 0);
+        std::fs::write(ws.join("next.md"), "new user content").unwrap();
+        assert_eq!(scan_workspace(&ws, &mut state, &internal), 1);
+        assert_eq!(state.len(), 2);
+        std::fs::remove_dir_all(ws).unwrap();
+    }
 
     #[test]
     fn changed_file_previews_are_redacted_in_the_graph() {
