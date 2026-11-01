@@ -181,3 +181,15 @@ replace a clean-machine execution test. `release check-pe <executable>` exposes
 the same read-only diagnostic. Debug artifact `3AC99979...103AF0B` was observed
 to import VCRUNTIME140; optimized production must be inspected separately rather
 than assuming its panic/runtime imports match debug.
+
+
+Stale GMCP source-bound evidence is renewed natively with
+`release record-gmcp` on a clean final source commit. The recorder runs the
+actual named requirement tests offline, verifies that every selected test ran
+and passed, then appends superseding records without deleting historical
+records. Commit those records before `release record-gmcp --mastery`; commit
+the mastery records afterward. Failed checks or source changes produce no
+new records. Both phases reuse this checkout's private `target/local-native`
+output and require native MSVC on Windows. Recording is not a skip mode for
+integration or production qualification; those gates still execute the full
+required suites against the final committed evidence.

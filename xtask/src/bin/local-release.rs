@@ -15,6 +15,8 @@ const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../gmcp_evidence.rs"]
+mod gmcp_evidence;
 #[path = "../pe_imports.rs"]
 mod pe_imports;
 #[path = "../prepare_release.rs"]
@@ -1541,6 +1543,7 @@ fn production_command(ctx: &Context, binary: &Path, args: &[String]) -> Result<C
 fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
+        Some("record-gmcp") => gmcp_evidence::run(&ctx.root, &args[1..])?,
         Some("check-pe") if args.len()==2 => {
             let binary = Path::new(&args[1]);
             if fs::metadata(binary)?.len() > 256 * 1024 * 1024 { return Err("PE artifact exceeds inspection budget".into()); }
