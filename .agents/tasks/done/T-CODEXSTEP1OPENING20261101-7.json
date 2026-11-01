@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-7",
+  "title": "Promote Windows releases through the canonical executable with exact-owned process handling",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "release_workflow",
+      "windows_release_promotion"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793531703,
+  "closed": {
+    "at_unix": 1793532391,
+    "commit": "9aae4cce6433f6505aa4742cb8df68e5c5a418cb",
+    "by": "CODEXSTEP1OPENING20261101"
+  }
+}
