@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1JSONWIRE20261101-1",
+  "title": "Send one JSON content type on shared inference requests and retries",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-adapters-llm",
+      "inference_json_content_type",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1JSONWIRE20261101",
+  "created_unix": 1793530248,
+  "closed": {
+    "at_unix": 1793530414,
+    "commit": "01adceae3889b3e1c91aa01a1f9cd7628e8a4ac6",
+    "by": "CODEXSTEP1JSONWIRE20261101"
+  }
+}
