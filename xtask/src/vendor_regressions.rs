@@ -47,7 +47,6 @@ pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec
         ]);
         commands.push(vec![
             "test".into(),
-            "--lib".into(),
             "--offline".into(),
             "--locked".into(),
             "--manifest-path".into(),
@@ -102,7 +101,11 @@ mod tests {
         }
         for command in [&commands[1], &commands[3], &commands[5]] {
             assert_eq!(command[0], "test");
-            for arg in ["--locked", "--lib", "--target", "x86_64-pc-windows-msvc"] {
+            assert!(
+                !command.contains(&"--lib".into()),
+                "integration contracts must run"
+            );
+            for arg in ["--locked", "--target", "x86_64-pc-windows-msvc"] {
                 assert!(command.contains(&arg.into()));
             }
         }

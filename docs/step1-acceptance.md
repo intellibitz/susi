@@ -92,7 +92,7 @@ claim every mandate fulfilled, or promote a fixture as the product.
 
 The standalone IDNA and compiler-backed identifier crates have their own
 workspaces, so the root workspace test command does not execute their tests.
-Integration and qualification now run both library suites explicitly, offline
+Integration and qualification now run their library and integration suites explicitly, offline
 and locked after generating their private standalone lockfiles. An explicit
 local adapter patch prevents accidentally testing the registry implementation.
 Missing product adapter manifests fail the gate. Only minimal release-machinery
