@@ -185,6 +185,7 @@ pub fn spawn(
 }
 
 #[cfg(test)]
+// Test assertions and fixture setup must fail loudly; production retains denied panic-path lints.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
