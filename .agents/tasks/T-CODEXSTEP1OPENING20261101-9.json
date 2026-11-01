@@ -1,0 +1,14 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-9",
+  "title": "Verify release asset checksums independently of Windows filename escaping",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/test-release-sync-windows.sh"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793536453
+}
