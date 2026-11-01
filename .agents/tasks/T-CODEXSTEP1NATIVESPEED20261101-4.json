@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1NATIVESPEED20261101-4",
+  "title": "Reduce measured cold local inference startup overhead without weakening verification",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "checksum"
+    ]
+  },
+  "created_by": "CODEXSTEP1NATIVESPEED20261101",
+  "created_unix": 1793541941
+}

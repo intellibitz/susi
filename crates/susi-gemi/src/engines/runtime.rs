@@ -125,13 +125,26 @@ impl GemiEngine {
         if cfg!(test) || std::env::var("SUSI_TEST_MOCK_INFERENCE").as_deref() == Ok("true") {
             return Ok(false);
         }
+        let integrity_started = std::time::Instant::now();
         ModelManager::verify_model_integrity(path)?;
+        tracing::debug!(
+            elapsed_ms = integrity_started.elapsed().as_millis(),
+            "Local model integrity checked"
+        );
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let runner_started = std::time::Instant::now();
         match crate::models::llamacpp_launcher::ensure_owned(
             path,
             cfg.kv_cache_capacity_tokens() as u64,
         ) {
-            Ok(endpoint) => Ok(endpoint.is_some()),
+            Ok(endpoint) => {
+                tracing::debug!(
+                    elapsed_ms = runner_started.elapsed().as_millis(),
+                    ready = endpoint.is_some(),
+                    "Installed runner preparation completed"
+                );
+                Ok(endpoint.is_some())
+            }
             Err(error) => {
                 tracing::warn!(%error, "Installed local runner unavailable; using native inference");
                 Ok(false)
@@ -337,6 +350,7 @@ impl GemiEngine {
         };
         let meta = &tagged_meta;
 
+        let local_preparation_started = std::time::Instant::now();
         let global_config =
             crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier =
@@ -382,6 +396,11 @@ impl GemiEngine {
                 .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
         });
         let prefer_fast_local = fast_local_model.is_some();
+        tracing::debug!(
+            elapsed_ms = local_preparation_started.elapsed().as_millis(),
+            ready = prefer_fast_local,
+            "Local selection and preparation completed"
+        );
 
         // Remote model discovery can involve network probes. A ready local
         // answer does not need them; retain registration before every cloud
