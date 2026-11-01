@@ -25,7 +25,15 @@ fi
 set -e
 set -o pipefail
 
-GLOBAL_SUSI_DIR="$HOME/.susi"
+ISOLATED_INSTALL=0
+if [ -n "${SUSI_HOME:-}" ]; then
+    case "$SUSI_HOME" in
+        /*) ;;
+        *) echo "Error: SUSI_HOME must be an absolute installation path." >&2; exit 1 ;;
+    esac
+    ISOLATED_INSTALL=1
+fi
+GLOBAL_SUSI_DIR="${SUSI_HOME:-$HOME/.susi}"
 GLOBAL_BIN_DIR="$GLOBAL_SUSI_DIR/bin"
 mkdir -p "$GLOBAL_BIN_DIR"
 mkdir -p "$GLOBAL_SUSI_DIR/models"
@@ -502,18 +510,13 @@ if [ "$INSTALLED" = "0" ]; then
     exit 1
 fi
 
-# 4. Engine Initialization & Sovereign Handshake
-if [ -x "$GLOBAL_BIN_DIR/susi" ]; then
-    echo "Registering substrate identity and performing hardware audit..."
-    "$GLOBAL_BIN_DIR/susi" install
-fi
+# 4. Opening performs discovery without blocking the first goal prompt.
 
 # 5. Daemon Persistence
 # susi self-daemonizes on demand: every CLI invocation checks for a running
 # daemon and spawns one detached (scoped to the invoking directory) if absent.
 # No service registration is needed for that path - the daemon starts the
-# first time `susi` runs, which includes this installer's `susi install`
-# handshake below. On Linux, when a systemd user manager is reachable, the
+# first time a goal needs it. On Linux, when a systemd user manager is reachable, the
 # spawn lands in a real cgroup (MemoryMax=2G, CPUQuota=50%) via systemd-run.
 #
 # SUSI_ALWAYS_ON=1 additionally registers a boot-persistent service
@@ -522,7 +525,9 @@ fi
 # resource/UX commitment the user should choose, not a silent default.
 # SUSI_NO_DAEMON=1 skips this section entirely (self-daemonization still
 # applies at runtime regardless).
-if [ -n "$SUSI_NO_DAEMON" ]; then
+if [ "$ISOLATED_INSTALL" = "1" ]; then
+    echo "Skipping service registration for isolated installation."
+elif [ -n "$SUSI_NO_DAEMON" ]; then
     echo "Skipping service registration (SUSI_NO_DAEMON is set)."
 elif [ -n "$SUSI_ALWAYS_ON" ] && [[ "$PLATFORM" == "linux" ]]; then
     if command -v systemctl >/dev/null 2>&1 && [ "$EUID" -ne 0 ]; then
@@ -599,7 +604,7 @@ else
 fi
 
 # 6. PATH Management
-if [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
+if [ "$ISOLATED_INSTALL" = "0" ] && [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
     ADDED_PATH=0
     CONFIG_FILES=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
     for config in "${CONFIG_FILES[@]}"; do
@@ -632,11 +637,15 @@ if [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
     fi
 fi
 
-# 7. Finalize
-if [ -t 0 ] && [ -t 1 ] && [ -z "$NONINTERACTIVE" ] && [ -x "$GLOBAL_BIN_DIR/susi" ]; then
-    echo "Installation complete. Starting interactive susi session..."
-    echo ""
-    exec "$GLOBAL_BIN_DIR/susi"
-else
-    echo "Installation complete. Run 'susi' to start."
+# 7. Finalize. A piped installer consumes stdin; the goal session needs the
+# controlling terminal instead. Never open a session in headless automation.
+export PATH="$GLOBAL_BIN_DIR:$PATH"
+echo "Susi is installed. No terminal restart is needed."
+if [ -t 1 ] && [ -z "${NONINTERACTIVE:-}" ] && [ -z "${SUSI_NO_DAEMON:-}" ] && [ -x "$GLOBAL_BIN_DIR/susi" ]; then
+    if [ -t 0 ]; then
+        exec "$GLOBAL_BIN_DIR/susi" shell
+    elif { true </dev/tty; } 2>/dev/null; then
+        exec "$GLOBAL_BIN_DIR/susi" shell </dev/tty
+    fi
 fi
+printf 'Open Susi and give it a goal: %q shell\n' "$GLOBAL_BIN_DIR/susi"
