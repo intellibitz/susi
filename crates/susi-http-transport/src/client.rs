@@ -112,6 +112,12 @@ fn agent_for(timeout_secs: u64, max_redirects: u32, direct: bool) -> ureq::Agent
     }
     let timeout = Duration::from_secs(timeout_secs);
     let mut config = ureq::Agent::config_builder()
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .provider(ureq::tls::TlsProvider::NativeTls)
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
         // One caller-selected budget covers DNS, headers, redirects and body
         // reads. Phase-only limits leave response headers unbounded.
         .timeout_global(Some(timeout))

@@ -7,7 +7,15 @@ publish = false
 description = "SUSI vendor facade: sole workspace owner of `tokio-rustls`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
 
 [dependencies]
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+native-tls = { version = "0.2.18", features = ["alpn", "alpn-accept"] }
+tokio-native-tls = "0.3"
+rustls-pki-types = { version = "1", features = ["std"] }
+x509-cert = { version = "0.2", features = ["pem"] }
+rsa = "0.9"
+
+[dev-dependencies]
+susi-vendor-rcgen = { path = "../susi-vendor-rcgen" }
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "time"] }
 
 [lints]
 workspace = true
