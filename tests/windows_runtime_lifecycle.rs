@@ -11,9 +11,92 @@ use std::{
 };
 
 fn digest(path: &Path) -> String {
-    format!("{:x}", Sha256::digest(fs::read(path).unwrap()))
+    Sha256::digest(fs::read(path).unwrap())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
+// This is propagation from the operation's still-live VerifiedSysroot guard,
+// never a way for an environment variable to authorize a production release.
+fn handoff(
+    compiled: Option<&str>,
+    runtime: Option<std::ffi::OsString>,
+) -> Result<Option<PathBuf>, String> {
+    match (compiled, runtime) {
+        (Some(_), None) => Err("product lifecycle qualification is missing its verified sysroot handoff".into()),
+        (Some(expected), Some(actual)) => {
+            let actual=PathBuf::from(actual);
+            if !actual.is_absolute() {return Err("sysroot handoff must be absolute".into());}
+            let expected=Path::new(expected).canonicalize().map_err(|e|e.to_string())?;
+            let actual=actual.canonicalize().map_err(|e|e.to_string())?;
+            if actual!=expected {return Err("runtime sysroot differs from the one used to compile the qualification test".into());}
+            Ok(Some(actual))
+        }
+        (None, None) => Ok(None), // Explicit standalone stock-runtime diagnostic.
+        (None, Some(_)) => Err("sysroot environment cannot upgrade a stock-built diagnostic into product qualification".into()),
+    }
+}
+fn archive_identity(sysroot: &Path) -> serde_json::Value {
+    let directory = sysroot.join("lib/rustlib/x86_64-pc-windows-msvc/lib");
+    let mut archives = Vec::new();
+    for entry in fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        assert!(
+            entry.file_type().unwrap().is_file(),
+            "sysroot must contain regular archives"
+        );
+        assert_eq!(
+            entry.path().extension().and_then(|v| v.to_str()),
+            Some("rlib")
+        );
+        archives.push(serde_json::json!({"filename":entry.file_name().to_str().unwrap(),"sha256":digest(&entry.path())}));
+    }
+    archives.sort_by_key(|v| v["filename"].as_str().unwrap().to_owned());
+    assert_eq!(
+        archives.len(),
+        20,
+        "verified Windows product sysroot archive set"
+    );
+    serde_json::Value::Array(archives)
+}
+fn cargo_sysroot(command: &mut Command, sysroot: Option<&Path>) {
+    for name in [
+        "RUSTFLAGS",
+        "RUSTDOCFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_ENCODED_RUSTDOCFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+    ] {
+        command.env(name, "");
+    }
+    if let Some(path) = sysroot {
+        let path = path.to_str().unwrap();
+        assert!(!path.contains('\x1f'));
+        command.env("CARGO_ENCODED_RUSTFLAGS", format!("--sysroot\x1f{path}"));
+        command.env("CARGO_ENCODED_RUSTDOCFLAGS", format!("--sysroot\x1f{path}"));
+    }
+}
+#[test]
+fn sysroot_handoff_cannot_be_missing_or_self_authorized() {
+    assert!(handoff(Some("compiled sysroot"), None).is_err());
+    assert!(handoff(None, Some("caller assertion".into())).is_err());
+    assert_eq!(handoff(None, None).unwrap(), None);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert_eq!(
+        handoff(root.to_str(), Some(root.as_os_str().to_owned())).unwrap(),
+        Some(root.canonicalize().unwrap())
+    );
+    let mut command = Command::new("cargo");
+    cargo_sysroot(&mut command, Some(root));
+    for key in ["CARGO_ENCODED_RUSTFLAGS", "CARGO_ENCODED_RUSTDOCFLAGS"] {
+        assert!(command.get_envs().any(|(name, value)| name == key
+            && value
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("--sysroot\x1f")));
+    }
+}
 fn isolated(program: &Path, home: &Path) -> Command {
     let original = PathBuf::from(std::env::var_os("USERPROFILE").expect("native toolchain home"));
     let mut command = Command::new(program);
@@ -112,6 +195,18 @@ fn run(mut command: Command, output: &Path, label: &str, seconds: u64) -> Output
 
 #[test]
 fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
+    let sysroot = handoff(
+        option_env!("SUSI_VERIFIED_SYSROOT"),
+        std::env::var_os("SUSI_VERIFIED_SYSROOT"),
+    )
+    .unwrap();
+    let before = sysroot.as_deref().map(archive_identity);
+    let mode = if sysroot.is_some() {
+        "propagated-product-sysroot"
+    } else {
+        "standalone-stock-sysroot-diagnostic"
+    };
+    println!("Runtime lifecycle mode: {mode}");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let runtime = root.join("crates/susi-windows-runtime");
     let fixture = runtime.join("tests/fixtures/lifecycle.rs");
@@ -152,6 +247,7 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
             "cargo-debug"
         };
         let mut command = isolated(Path::new(env!("CARGO")), &home);
+        cargo_sysroot(&mut command, sysroot.as_deref());
         command
             .current_dir(root)
             .args([
@@ -203,6 +299,10 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
     }
     let driver = output.join("driver.exe");
     let mut compile = isolated(Path::new("rustc"), &home);
+    cargo_sysroot(&mut compile, sysroot.as_deref());
+    if let Some(path) = &sysroot {
+        compile.arg("--sysroot").arg(path);
+    }
     compile
         .args([
             "--edition=2021",
@@ -221,7 +321,15 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
         .arg(&fixture)
         .arg(output.join("cases"))
         .arg(&libraries[1]);
+    if let Some(path) = &sysroot {
+        execute.arg(path);
+    }
     let result = run(execute, &output, "lifecycle", 600);
+    assert_eq!(
+        before,
+        sysroot.as_deref().map(archive_identity),
+        "sysroot archives changed during lifecycle qualification"
+    );
     let stdout = String::from_utf8(result.stdout).unwrap();
     assert_eq!(
         stdout
@@ -231,7 +339,8 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
         12,
         "every lifecycle case must execute: {stdout}"
     );
-    let evidence = serde_json::json!({"schema":"susi-cargo-runtime-lifecycle/v1", "passed":true,
+    let evidence = serde_json::json!({"schema":"susi-cargo-runtime-lifecycle/v2", "passed":true,
+        "mode":mode,"sysroot":sysroot,"sysroot_archives":before,
         "driver_sha256":digest(&driver_source), "fixture_sha256":digest(&fixture),
         "debug_rlib_sha256":digest(&libraries[0]), "release_rlib_sha256":digest(&libraries[1]),
         "ucrt_import_sha256":digest(&ucrt), "stack_import_sha256":digest(&stack), "cases":stdout});
