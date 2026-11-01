@@ -1063,7 +1063,7 @@ impl GemiEngine {
                     min_complexity,
                 );
                 let result = crate::engines::native_lifecycle::infer_via_contract(
-                    &engine,
+                    std::sync::Arc::new(engine),
                     crate::engines::native_lifecycle::EngineKind::Native,
                     &crate::engines::native_lifecycle::ContractCall::new(
                         prompt,
