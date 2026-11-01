@@ -25,59 +25,65 @@ pub(crate) fn glass_box_callback(piece: String) {
     let _ = io::stdout().flush();
 }
 
-pub(crate) fn run_shell(workspace: &Path) {
-    println!("Susi {SUSI_VERSION}");
-    println!("What would you like to achieve?");
-    if let Err(error) = crate::cli::setup_cli::execute(None) {
-        eprintln!("Could not check saved availability: {error}");
-    }
-    println!("Checking local AI in the background. You can enter a goal now.");
-    println!("Type 'exit' to quit.");
-    let _discovery = DiscoveryRefresh::start(workspace);
+pub(crate) struct ShellSession {
+    _discovery: DiscoveryRefresh,
+}
 
-    loop {
-        print!("susi> ");
-        let _ = io::stdout().flush();
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(0) => break,
-            Ok(_) => (),
-            Err(error) => {
-                eprintln!("Could not read your goal: {error}");
-                break;
+impl ShellSession {
+    pub(crate) fn open(workspace: &Path) -> Self {
+        println!("Susi {SUSI_VERSION}");
+        println!("What would you like to achieve?");
+        if let Err(error) = crate::cli::setup_cli::execute(None) {
+            eprintln!("Could not check saved availability: {error}");
+        }
+        println!("Checking local AI in the background. You can enter a goal now.");
+        println!("Type 'exit' to quit.");
+        Self {
+            _discovery: DiscoveryRefresh::start(workspace),
+        }
+    }
+
+    pub(crate) fn next_goal(&self) -> Option<String> {
+        loop {
+            print!("susi> ");
+            let _ = io::stdout().flush();
+            let mut input = String::new();
+            match io::stdin().read_line(&mut input) {
+                Ok(0) => return None,
+                Ok(_) => (),
+                Err(error) => {
+                    eprintln!("Could not read your goal: {error}");
+                    return None;
+                }
             }
+            let goal = input.trim();
+            if goal.is_empty() {
+                continue;
+            }
+            if goal == "exit" || goal == "quit" {
+                return None;
+            }
+            println!("Goal received. Starting work...");
+            let _ = io::stdout().flush();
+            return Some(goal.to_owned());
         }
-        let goal = input.trim();
-        if goal.is_empty() {
-            continue;
-        }
-        if goal == "exit" || goal == "quit" {
-            break;
-        }
-        println!("Goal received. Starting work...");
-        let _ = io::stdout().flush();
-        // Reuse the actual mission entry point, including governance, evidence
-        // and exit status. Opening the shell creates no detached consumer and
-        // exiting cannot silently discard a queued goal. `--` keeps a goal
-        // such as "status" as intent rather than a CLI control command.
-        let outcome = std::env::current_exe().and_then(|exe| {
-            let mut command = std::process::Command::new(exe);
-            command
-                .arg("--")
-                .arg(goal)
-                .current_dir(workspace)
-                .stdin(std::process::Stdio::null());
-            susi_daemon::SusiDaemon::spawn_without_inheriting_stdio(&mut command)?.wait()
-        });
+    }
+
+    pub(crate) fn finish_goal(&self, status: std::process::ExitCode) {
         // Answers need not include a final newline; keep the next prompt separate.
         println!();
-        match outcome {
-            Ok(status) if status.success() => (),
-            Ok(_) => eprintln!(
+        if status != std::process::ExitCode::SUCCESS {
+            eprintln!(
                 "This goal did not complete. See the reason above; you can try another goal."
-            ),
-            Err(error) => eprintln!("Could not start this goal: {error}"),
+            );
         }
+    }
+}
+
+pub(crate) fn run_shell(workspace: &Path, mut solve: impl FnMut(&str) -> std::process::ExitCode) {
+    let session = ShellSession::open(workspace);
+    while let Some(goal) = session.next_goal() {
+        session.finish_goal(solve(&goal));
     }
 }
 

@@ -28,7 +28,7 @@ mod dev_instance;
 use cli::control_plane_cli::{dispatch, dispatch_mcp};
 use cli::defs::{command_requires_daemon, Cli};
 use cli::mission_cli::dispatch as dispatch_mission;
-use cli::shell_cli::{glass_box_callback, run_shell, MissionHost};
+use cli::shell_cli::{glass_box_callback, MissionHost, ShellSession};
 
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
@@ -212,17 +212,24 @@ fn run() -> std::process::ExitCode {
     if env::var_os("CANDLE_NUM_THREADS").is_none() {
         env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
     }
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     // Opening the goal prompt must not wait for every optional framework,
-    // model or daemon to boot. Each submitted goal runs the normal mission
-    // entry point in a child; merely opening (or closing) SUSI needs none of it.
-    if matches!(cli.command, Some(cli::defs::Commands::Shell))
+    // model or daemon to boot. Initialize in this process only after a goal
+    // arrives, then retain its model cache for the rest of the conversation.
+    let shell = if matches!(cli.command, Some(cli::defs::Commands::Shell))
         || (cli.command.is_none() && cli.intent.is_empty() && io::stdin().is_terminal())
     {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        run_shell(&cwd);
-        return std::process::ExitCode::SUCCESS;
-    }
+        let session = ShellSession::open(&cwd);
+        let Some(goal) = session.next_goal() else {
+            return std::process::ExitCode::SUCCESS;
+        };
+        cli.command = None;
+        cli.intent = vec![goal];
+        Some(session)
+    } else {
+        None
+    };
     // An empty pipe is not a mission. Read it before starting services or
     // probing catalogs; non-empty piped goals take the same real mission path.
     let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
@@ -239,7 +246,7 @@ fn run() -> std::process::ExitCode {
     };
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
-    if cli.command.is_none() {
+    if cli.command.is_none() && shell.is_none() {
         if let Some(hints) = cli::intent_guard::refuse(&Cli::command(), &cli.intent) {
             eprintln!(
                 "`{}` looks like a command, not a goal — refusing to run it as a mission.",
@@ -389,16 +396,12 @@ fn run() -> std::process::ExitCode {
     // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
     let _ = susi_gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
 
-    // Mandate 12: Hardware Authority - Force initialize Rayon thread pool to saturate all cores
-    let num_cpus = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    let _ = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_cpus)
-        .build_global();
+    // Let Rayon honor its host settings instead of overriding an explicit
+    // thread budget with every logical core.
+    let _ = rayon::ThreadPoolBuilder::new().build_global();
     info!(
         "[Hardware Authority] Rayon thread pool initialized with {} threads.",
-        num_cpus
+        rayon::current_num_threads()
     );
 
     let mut exit_code = std::process::ExitCode::SUCCESS;
@@ -413,7 +416,12 @@ fn run() -> std::process::ExitCode {
 
     let needs_daemon = match &command {
         Some(cmd) => command_requires_daemon(cmd),
-        None => true, // bare intent, stdin pipe, or interactive shell
+        None => {
+            susi_core::manifold::IntentManifold::analyze(
+                piped_intent.as_deref().unwrap_or(&cli.intent.join(" ")),
+            )
+            .requires_swarm
+        }
     };
     if needs_daemon {
         SusiDaemon::ensure_daemon_running(&cwd, &global_dir);
@@ -439,24 +447,44 @@ fn run() -> std::process::ExitCode {
         };
         exit_code = dispatch_mission(command, &host);
     } else if !cli.intent.is_empty() {
-        let goal = cli.intent.join(" ");
-
         let ama = SusiMasterAgent::new();
-        match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
-            Ok(msg) => {
-                info!("Natural intent ingested successfully: {}", msg);
+        let mut goal = cli.intent.join(" ");
+        loop {
+            match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
+                Ok(msg) => {
+                    info!("Natural intent ingested successfully: {}", msg);
+                }
+                Err(e) => {
+                    warn!(
+                        "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
+                        e
+                    );
+                }
             }
-            Err(e) => {
-                warn!(
-                    "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
-                    e
-                );
+            exit_code = ama
+                .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
+                .exit_code();
+            let _ = io::stdout().flush();
+            let Some(session) = &shell else {
+                break;
+            };
+            session.finish_goal(exit_code);
+            let Some(next) = session.next_goal() else {
+                return std::process::ExitCode::SUCCESS;
+            };
+            goal = next;
+            // A later goal can need tools the first one did not. Admit them on
+            // demand through the same composition contract, preserving the model
+            // and tokenizer caches already owned by this process.
+            let catalogs = bare_goal_catalogs(&goal);
+            if !catalogs.is_empty() {
+                susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs);
+            }
+            if susi_core::manifold::IntentManifold::analyze(&goal).requires_swarm {
+                SusiDaemon::ensure_daemon_running(&cwd, &global_dir);
+                susi_daemon::ambient::start_ambient_indexer(&cwd);
             }
         }
-        exit_code = ama
-            .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
-            .exit_code();
-        let _ = io::stdout().flush();
     } else if let Some(input) = piped_intent {
         let ama = SusiMasterAgent::new();
         exit_code = ama
