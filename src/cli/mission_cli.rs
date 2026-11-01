@@ -91,7 +91,10 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             SusiDaemon::ensure_daemon_running(cwd, global_dir);
             control_plane_start(cwd, global_dir);
         }
-        Commands::Shell => run_shell(cwd),
+        Commands::Shell => run_shell(cwd, |goal| {
+            ama.solve_stream_report(goal, cwd, SUSI_VERSION, &glass_box_callback)
+                .exit_code()
+        }),
         Commands::Install => {
             println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
             // The initializer itself (the swarm used to be asked to do it
