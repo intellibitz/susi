@@ -925,10 +925,9 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     for dir in [&workspace, &runtime.join("models"), &home.join("temp")] {
         fs::create_dir_all(dir)?;
     }
-    let ports = release_offset(
-        &native_home,
-        &format!("qualification:{}", scratch.display()),
-    )?;
+    let mut reservation =
+        EphemeralPorts::new(&native_home, format!("qualification:{}", scratch.display()))?;
+    let ports = reservation.offset;
     let mut models = Vec::new();
     if cached {
         for name in STARTER_FILES {
@@ -987,6 +986,7 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
         }
     }
     let mut provisioning = Vec::new();
+    reservation.stopped = false;
     if !cached {
         // Network use is an explicit provisioning phase, performed by the
         // exact candidate's license/digest-enforcing native installer/runtime.
@@ -1002,7 +1002,9 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
             match measured_health(setup, &scratch, phase, HEALTH_BUDGET, b"") {
                 Ok(report) => provisioning.push(report),
                 Err(error) => {
-                    let _ = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
+                    if measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"").is_ok() {
+                        reservation.confirm_stopped(&runtime)?;
+                    }
                     return Err(error);
                 }
             }
@@ -1018,9 +1020,9 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     // Even rejected candidates may have started their own services. Use only
     // their isolated runtime and reserved ports; never the installed profile.
     let stopped = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
-    let resources = resources?;
     let cleanup_resources = stopped?;
-    verify_runtime_stopped(&runtime)?;
+    reservation.confirm_stopped(&runtime)?;
+    let resources = resources?;
     let traces = bounded_evidence(&workspace.join(".susi/mission_traces.jsonl"))?;
     let last = bounded_evidence(&workspace.join(".susi/last_mission_trace.json"))?;
     let stdout = bounded_evidence(&scratch.join("inference.stdout"))?;
@@ -1182,6 +1184,11 @@ fn qualify_with(
     let (host, compiler) = compiler(&candidate)?;
     let (sbom, notices, native_audit) = inventory(&candidate, &attempt, &host)?;
     let mut proof = run_gates(&candidate, &attempt, &host)?;
+    // Preserve the exact compiler report inside manifest-hashed gate evidence.
+    proof.push_str(&format!(
+        "compiler-report={}\n",
+        serde_json::to_string(&compiler)?
+    ));
     let binary = candidate
         .join("target")
         .join(&host)
@@ -1366,6 +1373,67 @@ fn rollback(ctx: &Context) -> Result<()> {
 // Shares the application's global allocation protocol so repositories and dev
 // executables cannot accidentally claim the same port range. Ownership persists
 // across promotion/rollback, with a native OS lock released on process exit.
+struct EphemeralPorts {
+    home: PathBuf,
+    identity: String,
+    offset: u16,
+    stopped: bool,
+}
+impl EphemeralPorts {
+    fn new(home: &Path, identity: String) -> Result<Self> {
+        let offset = release_offset(home, &identity)?;
+        Ok(Self {
+            home: home.to_owned(),
+            identity,
+            offset,
+            stopped: true,
+        })
+    }
+    fn confirm_stopped(&mut self, runtime: &Path) -> Result<()> {
+        verify_runtime_stopped(runtime)?;
+        self.stopped = true;
+        self.release()
+    }
+    fn release(&self) -> Result<()> {
+        if !self.stopped {
+            return Err("cannot release ports before scoped processes stop".into());
+        }
+        let base = self.home.join(".susi-dev");
+        let lock_path = base.join("allocation.lock");
+        if fs::symlink_metadata(&lock_path)?.file_type().is_symlink() {
+            return Err("unsafe port allocation lock".into());
+        }
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(lock_path)?;
+        lock.lock()?;
+        let path = base.join("port-owners").join(self.offset.to_string());
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("unsafe port owner".into())
+            }
+            Ok(_) => {}
+        }
+        if fs::read_to_string(&path)? != self.identity {
+            return Err("port reservation ownership changed; preserving foreign owner".into());
+        }
+        fs::remove_file(path)?;
+        Ok(())
+    }
+}
+impl Drop for EphemeralPorts {
+    fn drop(&mut self) {
+        if self.stopped {
+            if let Err(error) = self.release() {
+                eprintln!("qualification port cleanup: {error}");
+            }
+        }
+    }
+}
+
 fn release_offset(home: &Path, identity: &str) -> Result<u16> {
     let base = home.join(".susi-dev");
     real_directory(&base)?;
@@ -1735,6 +1803,27 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("native dependency ring"));
+    }
+
+    #[test]
+    fn ephemeral_ports_require_stop_and_preserve_foreign_owners() {
+        let fixture = Fixture::new();
+        let mut reservation = EphemeralPorts::new(&fixture.0, "qualification:test".into()).unwrap();
+        let offset = reservation.offset;
+        reservation.stopped = false;
+        assert!(reservation.release().is_err());
+        assert_eq!(release_offset(&fixture.0, "other").unwrap(), offset + 100);
+        reservation.stopped = true;
+        reservation.release().unwrap();
+        assert_eq!(release_offset(&fixture.0, "replacement").unwrap(), offset);
+        assert!(reservation.release().is_err());
+        drop(reservation);
+        assert_eq!(release_offset(&fixture.0, "replacement").unwrap(), offset);
+        for index in 0..410 {
+            let transient =
+                EphemeralPorts::new(&fixture.0, format!("qualification:{index}")).unwrap();
+            assert_eq!(transient.offset, offset + 200);
+        }
     }
 
     #[test]
