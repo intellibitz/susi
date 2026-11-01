@@ -12,15 +12,11 @@ tracing = { workspace = true }
 # Rust regex and suffix-array implementations avoid native Oniguruma/C++ builds.
 tokenizers = { version = "0.23.2", default-features = false, features = ["fancy-regex", "progressbar"] }
 
-[target.'cfg(not(target_os = "macos"))'.dependencies]
+# The default uses Rust CPU inference on every host. Optional accelerator
+# features are outside that qualification and must pass their own native/license audit.
 candle-core = { version = "0.11.1" }
 candle-nn = { version = "0.11.1" }
 candle-transformers = { version = "0.11.1" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-candle-core = { version = "0.11.1", features = ["metal", "accelerate"] }
-candle-nn = { version = "0.11.1", features = ["metal", "accelerate"] }
-candle-transformers = { version = "0.11.1", features = ["metal", "accelerate"] }
 
 [features]
 default = []

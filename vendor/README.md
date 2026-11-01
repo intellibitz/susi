@@ -45,3 +45,28 @@ Windows-only change.
 
 **Upgrading:** copy the new release from `~/.cargo/registry/src/*/esaxx-rs-X.Y.Z`
 onto the branch, re-apply the edit above, and update this section.
+
+## Rust dependency replacements (2026-11-01)
+
+The following sources were copied from the crates.io registry cache at their
+exact published versions. Original copyright and license files are retained.
+These patches apply to the resolved CPU build; optional GPU features are not a
+claim of Rust-only qualification.
+
+- **hashbrown 0.16.1 and 0.17.1**: replace the default foldhash hasher with
+  ahash 0.8.12 (`runtime-rng`, no defaults). This removes the Zlib-only default
+  implementation without changing the map API. Hash values/order are not a
+  persistent storage format or a compatibility promise.
+- **zip 9.2.0**: default deflate selects flate2's Rust backend instead of
+  zlib-rs. Other explicitly selected backends still require their own audit.
+- **candle-core 0.11.1**: replace yoke ownership of safetensors buffers with
+  self_cell 1.3.0. Memory maps and owned byte buffers remain self-referential,
+  zero-copy owners; parsing and tensor access use the original SafeTensors API.
+- **tantivy-sstable 0.7.0**: replace zstd's C implementation with ruzstd 0.9.1.
+  Writes remain standard Zstandard frames, using Fastest compression; decoding
+  is bounded to 64 MiB per dictionary block. Compression ratio and throughput
+  are not assumed identical. The facade test writes and reopens 2,500 terms.
+
+When upgrading any patch, compare the complete upstream source, retain notices,
+reapply only the documented changes, and rerun the strict graph audit and real
+format/inference round trips. A path patch never changes upstream licensing.

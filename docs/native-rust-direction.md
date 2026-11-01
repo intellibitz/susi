@@ -49,3 +49,34 @@ Do not claim all ten owner requirements complete until these acceptance checks p
 - The strict license audit still fails with 63 rejected entries. The production command was exercised and correctly refused to proceed.
 - Full workspace regression tests, complete inference qualification, production artifacts, rollback and clean-machine provisioning remain unverified. No production installation was replaced.
 - Local logs, executable digest and feature-graph evidence are under `.artifacts/native-audit/` (intentionally untracked build evidence).
+
+## Integrated migration progress (supersedes the earlier implementation snapshot)
+
+The older verification section records the initial baseline, not qualification
+of subsequent edits. As of the second implementation pass:
+
+- CEO mandates 62–71 and the canonical agent contract govern all workers.
+  CLAUDE.md, GEMINI.md and Copilot instructions point to that contract; obsolete
+  automatic shell startup hooks were removed from .claude and .codex.
+- The local workflow now merges into an isolated candidate, runs local gates on
+  the combined tree, and publishes the integration ref atomically. Tests cover
+  conflicting scopes, failed gates, source changes and competing publication.
+- Embeddings use Rust Candle BERT with pinned MIT BGE weights. A real-model
+  comparison against the former ONNX engine found cosine similarity at least
+  0.999999999999784 and maximum absolute component difference below 1.3e-7 for
+  the three recorded inputs. This is numerical evidence for those inputs, not
+  an exhaustive model-equivalence claim. Tokenizers uses fancy-regex, removing
+  the default Oniguruma native path.
+- The sandbox uses Wasmi, with tested fuel/memory limits and a bounded WASI host.
+  A compiled Rust WASI program exercises arguments, empty environment, denied
+  host files, clocks, polling, output and successful exit. Unsupported host
+  operations return errors. See its crate README for limits and compatibility.
+- Local patches replace default foldhash, zlib-rs, Candle yoke ownership and
+  Tantivy's C Zstandard codec; vendor/README.md records exact changes.
+- Development instances now allocate private runtime directories and distinct
+  cooperative port ranges per executable directory, without copying production
+  credentials. Explicit SUSI_HOME remains an intentional caller override.
+
+Strict license qualification, the final integrated executable, production
+promotion and full installed first-goal behavior remain acceptance gates. Do not
+reuse the earlier debug artifact or its digest as evidence for this source tree.

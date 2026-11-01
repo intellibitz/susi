@@ -32,6 +32,31 @@ mod tests {
     use tokenizers::Tokenizer;
 
     #[test]
+    fn owned_safetensors_survive_source_drop_and_owner_move() {
+        use candle_core::{safetensors::BufferedSafetensors, Device, Tensor};
+        let path = std::env::temp_dir().join(format!(
+            "susi-tensor-owner-{}.safetensors",
+            std::process::id()
+        ));
+        let tensor = Tensor::new(&[1.0_f32, -2.5, 3.25], &Device::Cpu).unwrap();
+        tensor.save_safetensors("weights", &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let owner = BufferedSafetensors::new(bytes).unwrap();
+        let moved = Box::new(owner);
+        assert_eq!(
+            moved
+                .load("weights", &Device::Cpu)
+                .unwrap()
+                .to_vec1::<f32>()
+                .unwrap(),
+            [1.0, -2.5, 3.25]
+        );
+        assert!(moved.get("missing").is_err());
+        assert!(BufferedSafetensors::new(vec![0, 1, 2]).is_err());
+    }
+
+    #[test]
     fn pretrained_wordlevel_tokenization_round_trips_without_cpp_training() {
         // A complete, fixed pretrained vocabulary exercises the same JSON load,
         // encode and decode API used for downloaded model tokenizers, without I/O.

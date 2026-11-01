@@ -182,9 +182,6 @@ serde_json = "1.0"
 anyhow = "1.0"
 dashmap = "6.2"
 reqwest = { version = "0.13.5", features = ["json", "blocking", "query"] }
-# ring, not aws-lc-rs: tokio-rustls defaults to aws-lc (a ~285s C build on a
-# cold `cargo build`). Must match the provider vendor/reqwest selects.
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "ring"] }
 hex = "0.4"
 tracing = "0.1"
 sha2 = "0.11.0"
@@ -249,10 +246,17 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 # the registry build is one graph with a fixed zip, and a registry crate is a
 # compiler-cache hit where a git one is not (susi-vendor-candle asks for it).
 [patch.crates-io]
+native-tls = { path = "vendor/native-tls" }
+fluent-uri = { path = "vendor/fluent-uri" }
 # Ship the exact patched sources with Susi: a fresh checkout must not need
 # GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
 reqwest = { path = "vendor/reqwest" }
 esaxx-rs = { path = "vendor/esaxx-rs" }
+hashbrown = { path = "vendor/hashbrown" }
+hashbrown-016 = { package = "hashbrown", path = "vendor/hashbrown-016" }
+zip = { path = "vendor/zip" }
+candle-core = { path = "vendor/candle-core" }
+tantivy-sstable = { path = "vendor/tantivy-sstable" }
 # GPU backends live in susi-vendor-candle. Root forwards features through
 # susi-gemi so `cargo build -p susi --features cuda|mkl|metal` enables the
 # inference stack without the CLI package owning Candle dependencies.
@@ -303,13 +307,8 @@ debug = "line-tables-only"
 # (codegen 78s → 4s); it drives a browser over a websocket, so its own code
 # speed is not what a dev run waits on.
 #
-# zstd-sys's C build gates zstd, a cold-build tail: it starts at t=27s but,
-# starved of jobserver tokens by ~28 rustc jobs, ends at t=244s (21s in
-# isolation). -O1 cuts its C compile 20.6s → 7.9s; only dev compression
-# speed (tantivy store) pays for it.
 [profile.dev.package]
 "*" = { opt-level = 3 }
-zstd-sys = { opt-level = 1 }
 async-trait = { opt-level = 0 }
 bon-macros = { opt-level = 0 }
 bytemuck_derive = { opt-level = 0 }
@@ -328,8 +327,5 @@ thiserror-impl = { opt-level = 0 }
 tokio-macros = { opt-level = 0 }
 tracing-attributes = { opt-level = 0 }
 typetag-impl = { opt-level = 0 }
-yoke-derive = { opt-level = 0 }
 zerocopy-derive = { opt-level = 0 }
-zerofrom-derive = { opt-level = 0 }
 zeroize_derive = { opt-level = 0 }
-zerovec-derive = { opt-level = 0 }

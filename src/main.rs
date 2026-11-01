@@ -218,7 +218,10 @@ fn run() -> std::process::ExitCode {
     susi_paths::stdio::install_broken_pipe_guard();
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
-    dev_instance::isolate_if_dev_build(&get_home_dir());
+    if let Err(error) = dev_instance::isolate_if_dev_build(&get_home_dir()) {
+        eprintln!("Unable to isolate development instance: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
     // Still single-threaded: candle's barrier pool sizes itself from this
     // once, at first use — an explicit setting always wins.
     if env::var_os("CANDLE_NUM_THREADS").is_none() {

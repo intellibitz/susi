@@ -191,6 +191,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn compressed_dictionary_survives_reopen_with_rust_codec() {
+        let dir = std::env::temp_dir().join(format!("susi_rust_codec_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let index = DocIndex::open_or_create(&dir).unwrap();
+            let mut writer = index.writer(15_000_000).unwrap();
+            for number in 0..2500 {
+                let key = format!("document{number:05}");
+                let content = format!("shared vocabulary searchabletoken{number:05}");
+                writer.add(&key, "codec-test", &content).unwrap();
+            }
+            writer.commit().unwrap();
+        }
+        let index = DocIndex::open_or_create(&dir).unwrap();
+        let matches = index.search("searchabletoken02499", 5).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].1.doc_id, "document02499");
+        assert_eq!(index.all_docs(3000).unwrap().len(), 2500);
+        drop(index);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn add_replace_search_get_roundtrip() {
         let dir = std::env::temp_dir().join(format!("susi_vendor_tantivy_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

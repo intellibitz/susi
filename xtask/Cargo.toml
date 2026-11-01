@@ -6,5 +6,17 @@ edition = "2021"
 publish = false
 default-run = "xtask"
 
+[dependencies]
+sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2", optional = true }
+serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json", optional = true }
+
+[features]
+release-tooling = ["dep:sha2", "dep:serde_json"]
+
 [lints]
 workspace = true
+
+[[bin]]
+name = "local-release"
+path = "src/bin/local-release.rs"
+required-features = ["release-tooling"]
