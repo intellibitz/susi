@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-9",
+  "title": "Cloud target seed: the toolchain action sets CARGO_INCREMENTAL=0 for the job; unset it for the build",
+  "goal": "The republished snapshot was still built with CARGO_INCREMENTAL=0: dtolnay/rust-toolchain exports it for every later step, so removing it from the step env changed nothing. Unset it in the build step, republish, re-measure, and record the seeded numbers",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session",
+      "cloud_target_seed"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793511158,
+  "closed": {
+    "at_unix": 1793511232,
+    "commit": "e3314bfbf9234fdd09de055611c5e90da2ea654e",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}
