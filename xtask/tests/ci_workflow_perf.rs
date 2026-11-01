@@ -2440,7 +2440,10 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     let warmer = job(&warm_jobs, "warm");
     assert!(warm.contains("workflow_dispatch:"));
     assert!(warmer.body.contains("github.ref == 'refs/heads/main'"));
-    assert!(warm.contains("cancel-in-progress: false"));
+    assert!(warmer
+        .body
+        .contains("group: release-warm-${{ matrix.name }}-${{ github.ref }}"));
+    assert!(warmer.body.contains("cancel-in-progress: false"));
     let test = read(".github/workflows/test.yml");
     let test_jobs = jobs(&test);
     let dispatch = job(&test_jobs, "warm-release");
