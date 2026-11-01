@@ -2,6 +2,13 @@
 
 ## Step 1 continuation: current gate status
 
+The artifact-level audit found additional issues beyond Cargo package metadata:
+the stock Rust standard library's `core/src/unicode` implementation is covered
+by Unicode-3.0, and the selected regex-syntax package has a nested Unicode data
+license. Production qualification now fails closed without verified standard-
+library provenance. Agents are implementing original OS-backed replacements;
+these findings do not authorize license exceptions or relabeling copied tables.
+
 The strict Apache-2.0/MIT/BSD-only license check now passes with the local
 IDNA and identifier implementations. No allowlist exception was added. They
 query installed OS/compiler APIs instead of distributing Unicode tables;

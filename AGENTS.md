@@ -41,6 +41,14 @@ certify its compliance. Credentials, privacy consent, paid-service authorization
 spend caps and destructive-action authorization remain explicit. Never weaken
 safety, truth or license checks to manufacture a passing result.
 
+License qualification must include code copied from the Rust standard library
+and source-specific license exceptions inside selected dependencies. A passing
+Cargo SPDX check does not override nested notices or generated-table provenance.
+Treat installed compiler tools as platform boundaries, but audit standard-library
+implementation statically linked into Susi. Preserve original attribution and
+bind any custom standard-library replacement to its source, builder, compiler,
+selected dependency graph and actual linked artifacts before production approval.
+
 ## Native local agent loop
 
 1. Inspect the actual repository, local integration head and existing changes.
