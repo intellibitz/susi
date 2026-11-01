@@ -5,7 +5,7 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use susi_gawd::admin::tasks;
 
 #[derive(Debug, Subcommand)]
@@ -340,6 +340,246 @@ pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
         .unwrap_or_else(|| "USER".to_string())
 }
 
+/// Files a detached release leaves in the git dir. The worker (a second `susi
+/// tasks release`) writes the pid before it talks to GitHub and the status
+/// when that conversation ends. The next queue command waits on the status,
+/// so finish can return while the Actions run is still queued.
+const RELEASE_PID: &str = "susi-queue-release.pid";
+const RELEASE_STATUS: &str = "susi-queue-release.status";
+const RELEASE_LOG: &str = "susi-queue-release.log";
+
+fn queue_defer_enabled() -> bool {
+    matches!(
+        std::env::var("SUSI_QUEUE_DEFER")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+fn queue_defer_child() -> bool {
+    std::env::var("SUSI_QUEUE_DEFER_CHILD")
+        .ok()
+        .is_some_and(|value| value == "1")
+}
+
+fn git_file(root: &Path, name: &str) -> Result<PathBuf> {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--git-path", name])
+        .current_dir(root)
+        .output()?;
+    if !out.status.success() {
+        bail!(
+            "git rev-parse --git-path {name}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let rel = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let path = PathBuf::from(rel);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(root.join(path))
+    }
+}
+
+fn write_text_atomic(path: &Path, body: &str) -> Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, body)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+fn write_pid(root: &Path, pid: u32) -> Result<()> {
+    write_text_atomic(&git_file(root, RELEASE_PID)?, &format!("{pid}\n"))
+}
+
+fn write_status(root: &Path, code: i32) -> Result<()> {
+    write_text_atomic(&git_file(root, RELEASE_STATUS)?, &format!("{code}\n"))
+}
+
+fn read_number(root: &Path, name: &str) -> Result<Option<u32>> {
+    let path = git_file(root, name)?;
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(text.trim().parse().ok()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => bail!("{}: {err}", path.display()),
+    }
+}
+
+fn read_log(root: &Path) -> String {
+    git_file(root, RELEASE_LOG)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default()
+}
+
+fn clear_release_files(root: &Path) -> Result<()> {
+    for name in [RELEASE_PID, RELEASE_STATUS, RELEASE_LOG] {
+        let path = git_file(root, name)?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => bail!("{}: {err}", path.display()),
+        }
+    }
+    Ok(())
+}
+
+/// Linux `/proc` knows. Anywhere else the status file is the signal and the
+/// budget is the bound — guessing "dead" would drop a release that is still
+/// talking to GitHub.
+fn pid_alive(pid: u32) -> bool {
+    if std::path::Path::new("/proc").is_dir() {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    } else {
+        true
+    }
+}
+
+fn release_budget() -> Duration {
+    let wait = std::env::var("SUSI_QUEUE_WAIT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(300_u64);
+    Duration::from_secs(wait.saturating_add(60))
+}
+
+fn release_poll() -> Duration {
+    let millis = std::env::var("SUSI_QUEUE_POLL_MS")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(250_u64)
+        .clamp(50, 60_000);
+    Duration::from_millis(millis)
+}
+
+/// What `susi workflow check` shows while the detached release is still
+/// GitHub's. `None` once the worker has written a successful status (the next
+/// claim collects it) or when nothing was handed off.
+pub(crate) fn release_still_with_github(root: &Path) -> Option<String> {
+    let pending = read_number(root, RELEASE_PID).ok().flatten().is_some();
+    let status = read_number(root, RELEASE_STATUS).ok().flatten();
+    match (pending, status) {
+        (_, Some(0)) | (false, None) => None,
+        (_, Some(_)) => Some(
+            "the release GitHub was applying failed — the next `susi tasks claim` reports it"
+                .to_string(),
+        ),
+        (true, None) => Some(
+            "GitHub is still applying the release — keep working on the next task; `susi tasks claim` waits only for what that run has left"
+                .to_string(),
+        ),
+    }
+}
+
+/// Wait for a release finish handed to a detached worker. Nothing pending is
+/// immediate, so a claim with no release in flight pays one stat.
+fn settle_queue(root: &Path) -> Result<()> {
+    if read_number(root, RELEASE_PID)?.is_none() && read_number(root, RELEASE_STATUS)?.is_none() {
+        return Ok(());
+    }
+    let deadline = Instant::now() + release_budget();
+    let mut noted = false;
+    loop {
+        if let Some(code) = read_number(root, RELEASE_STATUS)? {
+            let log = read_log(root);
+            clear_release_files(root)?;
+            if code == 0 {
+                return Ok(());
+            }
+            bail!("the release GitHub was applying failed (exit {code}):\n{log}");
+        }
+        if let Some(pid) = read_number(root, RELEASE_PID)? {
+            if !pid_alive(pid) {
+                let log = read_log(root);
+                clear_release_files(root)?;
+                bail!("the release worker exited before it finished:\n{log}");
+            }
+        }
+        if Instant::now() >= deadline {
+            bail!(
+                "the release is still with GitHub after {}s",
+                release_budget().as_secs()
+            );
+        }
+        if !noted {
+            eprintln!(
+                "queue: the release is still with GitHub; waiting for it to land, then continuing"
+            );
+            noted = true;
+        }
+        std::thread::sleep(release_poll());
+    }
+}
+
+fn spawn_release_worker(root: &Path) -> Result<()> {
+    let log_path = git_file(root, RELEASE_LOG)?;
+    let log = std::fs::File::create(&log_path)?;
+    let forwarded = log.try_clone()?;
+    let exe = std::env::current_exe()?;
+    let mut cmd = std::process::Command::new("setsid");
+    cmd.arg("-f").arg(&exe);
+    cmd.args(std::env::args_os().skip(1))
+        .current_dir(root)
+        .env("SUSI_QUEUE_DEFER_CHILD", "1")
+        .env_remove("SUSI_QUEUE_DEFER")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log))
+        .stderr(std::process::Stdio::from(forwarded));
+    match cmd.spawn() {
+        Ok(mut setsid) => {
+            // `setsid -f` forks the worker into its own session and exits.
+            // Waiting here reaps that parent; it does not wait for GitHub.
+            let _ = setsid.wait();
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let log = std::fs::File::create(&log_path)?;
+            let forwarded = log.try_clone()?;
+            std::process::Command::new(&exe)
+                .args(std::env::args_os().skip(1))
+                .current_dir(root)
+                .env("SUSI_QUEUE_DEFER_CHILD", "1")
+                .env_remove("SUSI_QUEUE_DEFER")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::from(log))
+                .stderr(std::process::Stdio::from(forwarded))
+                .spawn()?;
+        }
+        Err(err) => bail!("could not detach the release: {err}"),
+    }
+    let started = Instant::now();
+    loop {
+        if read_number(root, RELEASE_PID)?.is_some() {
+            return Ok(());
+        }
+        if started.elapsed() >= Duration::from_secs(5) {
+            bail!("the release worker did not start:\n{}", read_log(root));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn perform_release(
+    root: &Path,
+    id: &str,
+    agent: Option<String>,
+    force: bool,
+    abandon: Option<String>,
+) -> Result<()> {
+    if let Some(reason) = abandon {
+        tasks::abandon(root, id, &who(agent, root), &reason)?;
+        println!("abandoned {id} — the reason is recorded on refs/abandoned/{id}");
+    } else {
+        tasks::release(root, id, &who(agent, root), force)?;
+        println!("released {id}");
+    }
+    Ok(())
+}
+
 pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
     let root = repo_root(cwd);
     // Task work needs the repo hooks; install them if this clone lacks them.
@@ -537,6 +777,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             scopes,
             unscoped,
         } => {
+            settle_queue(&root)?;
             // Re-adopting the task being claimed is the one case where its own
             // close is legitimately in this branch and not yet on main.
             tasks::ensure_synced_for(&root, Some(&id))?;
@@ -572,6 +813,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             );
         }
         TaskCommands::Renew { id, agent, hours } => {
+            settle_queue(&root)?;
             // The same lease the claim took. Renewing with a flat 4h cut a
             // size-l task's 12h lease to 4h at its first sync, and an expired
             // lease can be taken over mid-flight.
@@ -585,23 +827,47 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             force,
             abandon,
         } => {
-            if let Some(reason) = abandon {
-                tasks::abandon(&root, &id, &who(agent, &root), &reason)?;
-                println!("abandoned {id} — the reason is recorded on refs/abandoned/{id}");
+            // The detached worker is the process that actually pushes. It must
+            // not settle first: the pid file it is about to write is its own,
+            // and waiting on it would deadlock.
+            if queue_defer_child() {
+                write_pid(&root, std::process::id())?;
+                let code = match perform_release(&root, &id, agent, force, abandon) {
+                    Ok(()) => 0,
+                    Err(err) => {
+                        eprintln!("{err}");
+                        1
+                    }
+                };
+                write_status(&root, code)?;
+                if code != 0 {
+                    bail!("release failed");
+                }
             } else {
-                tasks::release(&root, &id, &who(agent, &root), force)?;
-                println!("released {id}");
+                settle_queue(&root)?;
+                if queue_defer_enabled() {
+                    spawn_release_worker(&root)?;
+                    eprintln!(
+                        "queue: release of {id} is GitHub's from here — keep working. The next \
+                         `susi tasks claim` waits only for what that run still has left"
+                    );
+                } else {
+                    perform_release(&root, &id, agent, force, abandon)?;
+                }
             }
         }
-        TaskCommands::Close { id, agent } => match tasks::close(&root, &id, &who(agent, &root)) {
-            Ok(t) => println!(
+        TaskCommands::Close { id, agent } => {
+            settle_queue(&root)?;
+            match tasks::close(&root, &id, &who(agent, &root)) {
+                Ok(t) => println!(
                 "closed {} — publish it (`susi workflow finish {}`): the close receipt is on the \
                  remote, so the merge may land while you claim the next task — one merge in \
                  flight, no more",
                 t.id, t.id
             ),
-            Err(e) => bail!("{e}"),
-        },
+                Err(e) => bail!("{e}"),
+            }
+        }
         TaskCommands::Audit { json, strict } => {
             let report = tasks::audit(&root)?;
             if json {
@@ -806,5 +1072,106 @@ mod tests {
         ] {
             assert_eq!(agent_from_branch_name(b), None, "{b}");
         }
+    }
+}
+
+#[cfg(test)]
+mod queue_handoff {
+    use super::{
+        clear_release_files, git_file, release_still_with_github, settle_queue, write_pid,
+        write_status, RELEASE_LOG,
+    };
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    struct Repo {
+        root: std::path::PathBuf,
+        worker: Option<std::process::Child>,
+    }
+
+    impl Drop for Repo {
+        fn drop(&mut self) {
+            if let Some(worker) = self.worker.as_mut() {
+                let _ = worker.kill();
+                let _ = worker.wait();
+            }
+            let _ = clear_release_files(&self.root);
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn repo(tag: &str) -> Repo {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!(
+            "susi-queue-handoff-{tag}-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let status = Command::new("git")
+            .args(["init", "--quiet", "-b", "main"])
+            .current_dir(&root)
+            .stdin(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "git init");
+        Repo { root, worker: None }
+    }
+
+    /// Finish returns while the release worker is still alive. The next claim
+    /// waits only until that worker writes its status, not for a fresh budget.
+    #[test]
+    fn a_deferred_release_returns_before_the_worker_finishes() {
+        let mut repo = repo("return");
+        let worker = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        write_pid(&repo.root, worker.id()).unwrap();
+        repo.worker = Some(worker);
+        assert!(
+            release_still_with_github(&repo.root)
+                .is_some_and(|detail| detail.contains("keep working")),
+            "a live worker is still GitHub's"
+        );
+        let root = repo.root.clone();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            write_status(&root, 0).unwrap();
+        });
+        let started = Instant::now();
+        settle_queue(&repo.root).unwrap();
+        let elapsed = started.elapsed();
+        writer.join().unwrap();
+        assert!(
+            elapsed >= Duration::from_millis(300),
+            "settled in {elapsed:?}; it must wait for the worker"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "settled in {elapsed:?}; a finished worker must not sit out the relay budget"
+        );
+        assert!(release_still_with_github(&repo.root).is_none());
+    }
+
+    #[test]
+    fn a_deferred_release_that_failed_is_reported_when_settled() {
+        let repo = repo("fail");
+        write_pid(&repo.root, std::process::id()).unwrap();
+        write_status(&repo.root, 1).unwrap();
+        std::fs::write(
+            git_file(&repo.root, RELEASE_LOG).unwrap(),
+            "the relay expired before GitHub applied the release\n",
+        )
+        .unwrap();
+        let err = settle_queue(&repo.root).unwrap_err().to_string();
+        assert!(err.contains("exit 1"), "{err}");
+        assert!(err.contains("relay expired"), "{err}");
+        assert!(release_still_with_github(&repo.root).is_none());
     }
 }
