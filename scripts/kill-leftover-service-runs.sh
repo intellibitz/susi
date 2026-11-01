@@ -9,10 +9,11 @@
 # keeps `target\debug\susi.exe` locked and the harness's stdout pipe open, and
 # the next `cargo build`/`cargo test` fails with "Access is denied".
 #
-# Scope: only `service-run` / `daemon-start` processes launched from THIS
-# checkout's `target/`. A sibling agent's daemon (a different worktree path), a
-# user's installed `~/.susi/bin/susi`, and the running gate itself are never
-# touched. On Linux, where a worktree's target/ may still be a symlink to one
+# Scope: only test-owned processes launched from THIS checkout's `target/`.
+# A checkout-built executable can also serve the user's real instance, so on
+# Windows its path alone is insufficient: require a daemon workspace inside
+# this invocation's throwaway homes, and only reap its own service children.
+# On Linux, where a worktree's target/ may still be a symlink to one
 # shared target (worktrees made before each got its own; see
 # scripts/seed-target.sh), the process must additionally carry a throwaway
 # `SUSI_HOME` (a temp dir), which is what the hermetic wrapper exports.
@@ -27,23 +28,36 @@ target="$root/target"
 
 case "${OSTYPE:-}" in
 msys* | cygwin*)
+    # Only the hermetic wrapper establishes these homes. Fail closed when the
+    # ownership marker is missing or inconsistent; a normal SUSI_HOME can be
+    # an active developer instance.
+    [ -n "${SUSI_HOME:-}" ] && [ "${SUSI_HOME:-}" = "${SUSI_HERMETIC_FORBIDDEN:-}" ] && [ -n "${USERPROFILE:-}" ] || exit 0
     if command -v tasklist.exe >/dev/null 2>&1; then
         MSYS2_ARG_CONV_EXCL='*' tasklist.exe /FI "IMAGENAME eq susi.exe" /NH 2>/dev/null | grep -qi "susi.exe" || exit 0
     fi
     command -v powershell.exe >/dev/null 2>&1 || exit 0
     target_win=$(cygpath -aw "$target" 2>/dev/null) || target_win="$target"
-    SUSI_SWEEP_TARGET="$target_win" powershell.exe -NoProfile -NonInteractive -Command '
+    home_win=$(cygpath -aw "$SUSI_HOME" 2>/dev/null) || exit 0
+    user_win=$(cygpath -aw "$USERPROFILE" 2>/dev/null) || exit 0
+    SUSI_SWEEP_TARGET="$target_win" SUSI_SWEEP_HOME="$home_win" SUSI_SWEEP_USER="$user_win" powershell.exe -NoProfile -NonInteractive -Command '
         $t = [IO.Path]::GetFullPath($env:SUSI_SWEEP_TARGET).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-        Get-CimInstance Win32_Process -Filter "Name = '\''susi.exe'\''" |
-            Where-Object {
-                $_.Name -eq "susi.exe" -and $_.ExecutablePath -and
-                ($_.ExecutablePath -like ($t + "*")) -and
-                ($_.CommandLine -match "(^|\s)(service-run|daemon-start)(\s|$)")
-            } |
-            ForEach-Object {
-                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-                Write-Output $_.ProcessId
+        $roots = @($env:SUSI_SWEEP_HOME, $env:SUSI_SWEEP_USER) | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd("\") }
+        $processes = @(Get-CimInstance Win32_Process -Filter "Name = '\''susi.exe'\''" | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($t, [StringComparison]::OrdinalIgnoreCase) })
+        $daemons = @($processes | Where-Object {
+            if ($_.CommandLine -notmatch '\''(?:^|\s)daemon-start\s+--workspace\s+(?:"([^"]+)"|(\S+))'\'') { return $false }
+            $workspace = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+            try { $workspace = [IO.Path]::GetFullPath($workspace).TrimEnd("\") } catch { return $false }
+            foreach ($r in $roots) {
+                if ($workspace.Equals($r, [StringComparison]::OrdinalIgnoreCase) -or $workspace.StartsWith($r + "\", [StringComparison]::OrdinalIgnoreCase)) { return $true }
             }
+            return $false
+        })
+        $ids = @($daemons | ForEach-Object { $_.ProcessId })
+        $children = @($processes | Where-Object { $ids -contains $_.ParentProcessId -and $_.CommandLine -match "(^|\s)service-run(\s|$)" })
+        @($children) + @($daemons) | ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            Write-Output $_.ProcessId
+        }
     ' 2>/dev/null | tr -d '\r' | while IFS= read -r pid; do
         [ -n "$pid" ] && echo "sweep: killed leftover susi process $pid" >&2
     done
