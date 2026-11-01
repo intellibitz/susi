@@ -200,6 +200,16 @@ fn run() -> std::process::ExitCode {
         env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
     }
     let cli = Cli::parse();
+    // Opening the goal prompt must not wait for every optional framework,
+    // model or daemon to boot. Each submitted goal runs the normal mission
+    // entry point in a child; merely opening (or closing) SUSI needs none of it.
+    if matches!(cli.command, Some(cli::defs::Commands::Shell))
+        || (cli.command.is_none() && cli.intent.is_empty() && io::stdin().is_terminal())
+    {
+        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        run_shell(&cwd);
+        return std::process::ExitCode::SUCCESS;
+    }
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
     if cli.command.is_none() {
