@@ -288,6 +288,34 @@ fn required<'a>(value: &'a serde_json::Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| format!("missing metadata {key}").into())
 }
 
+// Cargo metadata may unify features across unrelated workspace members. A
+// native-code exemption must instead be corroborated by the selected product.
+fn selected_features(tree: &str, name: &str, version: &str) -> Result<Vec<String>> {
+    let wanted = format!("{name} v{version}");
+    let mut found = None;
+    for line in tree.lines() {
+        let Some((package, features)) = line.split_once('|') else {
+            continue;
+        };
+        if package == wanted || package.starts_with(&format!("{wanted} (")) {
+            let features: BTreeSet<String> = features
+                .trim_end_matches(" (*)")
+                .split(',')
+                .filter(|feature| !feature.is_empty())
+                .map(str::to_owned)
+                .collect();
+            if found.as_ref().is_some_and(|prior| prior != &features) {
+                return Err("ambiguous selected product feature resolution".into());
+            }
+            found = Some(features);
+        }
+    }
+    Ok(found
+        .ok_or("selected product feature proof missing")?
+        .into_iter()
+        .collect())
+}
+
 fn native_source_check(package: &serde_json::Value, features: &[String]) -> Result<()> {
     let name = required(package, "name")?;
     let known = [
@@ -467,13 +495,52 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
             .iter()
             .find(|n| n.get("id").and_then(serde_json::Value::as_str) == Some(&id))
             .ok_or("missing reached node")?;
-        let features = node
+        let mut features = node
             .get("features")
             .and_then(serde_json::Value::as_array)
             .ok_or("missing feature resolution")?
             .iter()
             .map(|f| f.as_str().map(str::to_owned).ok_or("invalid feature"))
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        if required(package, "name")? == "blake3" {
+            let version = required(package, "version")?;
+            if packages
+                .iter()
+                .filter(|p| {
+                    p.get("name").and_then(serde_json::Value::as_str) == Some("blake3")
+                        && p.get("version").and_then(serde_json::Value::as_str) == Some(version)
+                })
+                .count()
+                != 1
+            {
+                return Err("ambiguous blake3 source identity; cannot prove pure feature".into());
+            }
+            let output = isolated_command(Path::new("cargo"), &attempt.join("metadata-home"))?
+                .current_dir(candidate)
+                .args([
+                    "tree",
+                    "--offline",
+                    "--locked",
+                    "-p",
+                    "susi",
+                    "--no-default-features",
+                    "--target",
+                    host,
+                    "--edges",
+                    "normal,build",
+                    "--prefix",
+                    "none",
+                    "--format",
+                    "{p}|{f}",
+                ])
+                .output()?;
+            if !output.status.success() {
+                return Err("selected product feature proof failed".into());
+            }
+            let tree = String::from_utf8(output.stdout)?;
+            features = selected_features(&tree, "blake3", version)?;
+            audit.push_str("blake3 native-code exemption corroborated by product-selected cargo tree features.\n");
+        }
         native_source_check(package, &features)?;
         let directory = Path::new(required(package, "manifest_path")?)
             .parent()
@@ -1088,6 +1155,24 @@ mod tests {
             // test releases contain readonly immutable artifacts; leave their
             // bounded temp tree to the host's normal temporary-file cleanup.
         }
+    }
+
+    #[test]
+    fn selected_product_feature_proof_rejects_missing_or_ambiguous_features() {
+        assert!(selected_features("other v1.0|pure", "blake3", "1.8").is_err());
+        assert!(selected_features("blake3 v1.8|pure\nblake3 v1.8|std", "blake3", "1.8").is_err());
+        assert_eq!(
+            selected_features(
+                "blake3 v1.8|pure,std\nblake3 v1.8|pure,std (*)",
+                "blake3",
+                "1.8"
+            )
+            .unwrap(),
+            vec!["pure", "std"]
+        );
+        assert!(!selected_features("blake3 v1.8|std", "blake3", "1.8")
+            .unwrap()
+            .contains(&"pure".into()));
     }
 
     #[test]
