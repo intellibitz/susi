@@ -14,8 +14,8 @@ use susi_gawd_agents::AxiomSubstrate;
 macro_rules! mission_trace {
     () => { mission_trace!(""); };
     ($($arg:tt)*) => {
-        if std::env::var_os("SUSI_VERBOSE").is_some()
-            || std::env::var_os("RUST_LOG").is_some()
+        if std::env::var("SUSI_VERBOSE")
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         {
             eprintln!("{}", wrap_tool_output("mission-diagnostic", &format!($($arg)*)).redacted_for_sink());
         }
@@ -2052,7 +2052,7 @@ mod compiled_read_truth_tests {
                 .args(["--exact", "ama::master::compiled_read_truth_tests::first_goal_infers_once_under_existing_governance", "--nocapture"])
                 .env(CHILD, "1")
                 .env_remove("SUSI_VERBOSE")
-                .env_remove("RUST_LOG")
+                .env("RUST_LOG", "warn")
                 .output().unwrap();
             let diagnostics = String::from_utf8_lossy(&output.stderr);
             assert!(output.status.success(), "{diagnostics}");
