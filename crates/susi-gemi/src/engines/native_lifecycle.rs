@@ -70,6 +70,9 @@ impl EngineHost for SusiHost {
         let Some(path) = crate::models::ModelManager::get_model_path(model) else {
             return Err(format!("model '{model}' has no resolvable weights"));
         };
+        if crate::models::llamacpp_launcher::owned_resident(&path) {
+            return Ok(true);
+        }
         for entry in crate::engines::runtime::InferenceHost::loaded_models() {
             let matches = entry
                 .get("path")
@@ -91,6 +94,9 @@ impl EngineHost for SusiHost {
         let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
             EaiError::inference(format!("model '{model}' has no resolvable weights"))
         })?;
+        if crate::engines::runtime::GemiEngine::prepare_owned_local_model(&path)? {
+            return Ok(());
+        }
         crate::engines::runtime::InferenceHost::preload_resolved(&path).map(|_| ())
     }
 
@@ -98,6 +104,10 @@ impl EngineHost for SusiHost {
         let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
             EaiError::inference(format!("model '{model}' has no resolvable weights"))
         })?;
+        if crate::models::llamacpp_launcher::owned_resident(&path) {
+            crate::models::llamacpp_launcher::shutdown_owned();
+            return Ok(());
+        }
         crate::engines::runtime::InferenceHost::unload_resolved(&path).map(|_| ())
     }
 
@@ -250,6 +260,14 @@ impl RuntimeBackend for NativeEngineBackend<'_> {
 
     fn infer(&self, prompt: &str) -> EaiResult<InferOutcome> {
         let model = self.resolved_model();
+        if self.kind == EngineKind::Native {
+            if let Some(answer) = model.as_deref().and_then(|model| {
+                crate::engines::runtime::GemiEngine::try_owned_local_model(prompt, model)
+            }) {
+                (self.call.callback)(answer.clone());
+                return Ok(InferOutcome::Done { output: answer });
+            }
+        }
         match self
             .engine
             .run_inference_stream(prompt, self.call.callback, model.as_deref())
