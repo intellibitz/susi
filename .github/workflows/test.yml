@@ -629,7 +629,7 @@ jobs:
             # A release cut changes only known version fields. Its full suite
             # runs on the merged tag before publication; do not repeat it here.
             # Any unexpected byte or path keeps the normal workspace gate.
-            if python3 scripts/ci-release-only.py; then
+            if cargo run --locked --quiet -p xtask --bin ci-release-only; then
               has_tests=false
               echo 'Release version-only diff: full tests remain required on the release tag.'
             fi

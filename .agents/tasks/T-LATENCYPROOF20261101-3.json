@@ -1,0 +1,19 @@
+{
+  "id": "T-LATENCYPROOF20261101-3",
+  "title": "Replace release classifier with Rust and restore architecture invariant",
+  "goal": "Fix the tagged release regression, retain fail-closed release-only checks, and verify the architecture test.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "release_only_branch"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793516099
+}
