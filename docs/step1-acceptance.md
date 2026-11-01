@@ -394,3 +394,27 @@ Candle audit, per-phase resource measurements and cleanup results. This closes
 the clean-machine installed-journey diagnostic gap for the exact candidate.
 Final immutable production qualification, actual A/B promotion/rollback, and
 all acceptance checks against the final integrated source still remain required.
+
+## Audited native detached-process boundary
+
+The Windows worktree seeder uses the safe `susi-vendor-winapi::detached::spawn`
+wrapper. Its only unsafe implementation is the narrowly annotated function
+that calls documented Windows process, string-comparison and handle APIs;
+`susi-vendor-winapi` retains `#![deny(unsafe_code)]`. This is an operating-system
+ABI boundary, not permission to add unsafe application logic or redistribute
+foreign runtime implementations.
+
+The wrapper validates absolute executable and working-directory paths, rejects
+embedded NULs, quotes UTF-16 arguments explicitly, and constructs a complete
+case-insensitively sorted Unicode environment with duplicate keys rejected.
+`CreateProcessW` receives FALSE for handle inheritance and hidden detached
+creation flags. It closes both returned handles; the child opens its own log.
+The caller removes all three Cargo output-directory variables without mutating
+the parent environment. No shell is involved in this Windows launch.
+
+Acceptance must retain actual Unicode/quote argument round trips, pipe EOF
+while a detached child remains alive, and invalid-input/missing-executable
+regressions. Changes to this boundary require independent review and measured
+unsafe-exposure evidence; the existing baseline must not be reset merely to
+make a gate pass. Launch success proves process creation only, not completion
+of background seeding or production qualification.
