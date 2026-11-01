@@ -82,7 +82,28 @@ impl ShellSession {
             .strip_prefix("run ")
             .or_else(|| lower.strip_prefix("automate "))
             .unwrap_or(&lower);
-        if focused.starts_with("read ") || focused.starts_with("cat ") {
+        if focused.starts_with("read ")
+            || focused.starts_with("cat ")
+            || focused.starts_with("ls ")
+            || matches!(
+                focused,
+                "identity"
+                    | "status"
+                    | "susi status"
+                    | "models"
+                    | "list models"
+                    | "version"
+                    | "susi version"
+                    | "dashboard"
+                    | "bloat audit"
+                    | "ls"
+                    | "dir"
+                    | "list directory"
+                    | "list files"
+                    | "who am i"
+                    | "whoami"
+            )
+        {
             return;
         }
         let mut worker = self
