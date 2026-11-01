@@ -276,9 +276,19 @@ mod tests {
 
     #[test]
     fn run_returns_stdout_on_success_and_stderr_on_failure() {
-        assert_eq!(run("echo", &["hello"]).as_deref(), Ok("hello"));
-        // Non-zero exit: stderr wins when present, else stdout.
-        let err = run("sh", &["-c", "echo oops >&2; exit 3"]).unwrap_err();
+        #[cfg(windows)]
+        let (success, failure) = (
+            run("cmd.exe", &["/d", "/c", "echo hello"]),
+            run("cmd.exe", &["/d", "/c", "echo oops 1>&2 & exit /b 3"]),
+        );
+        #[cfg(not(windows))]
+        let (success, failure) = (
+            run("echo", &["hello"]),
+            run("sh", &["-c", "echo oops >&2; exit 3"]),
+        );
+        assert_eq!(success.as_deref(), Ok("hello"));
+        // Fixed fixture commands only; arbitrary production commands still use argv.
+        let err = failure.unwrap_err();
         assert!(err.contains("oops"));
         // Missing binary: the spawn error is typed, not a panic.
         assert!(run("/nonexistent-susi-cloud-tool", &[]).is_err());

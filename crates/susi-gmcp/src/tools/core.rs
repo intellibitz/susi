@@ -3508,8 +3508,8 @@ mod core_io_tests {
     fn exec_command_runs_confined_commands() {
         let _permit = wire_permissive_audit();
         let ws = ws();
-        let out = CoreTools::exec_command(&json!("echo hi-from-susi"), &ws).unwrap();
-        assert!(out.contains("hi-from-susi"), "got: {out}");
+        let out = CoreTools::exec_command(&json!("rustc --version"), &ws).unwrap();
+        assert!(out.contains("rustc "), "got: {out}");
         let _ = std::fs::remove_dir_all(&ws);
     }
 
@@ -3528,8 +3528,12 @@ mod core_io_tests {
     fn exec_command_surfaces_nonzero_exit() {
         let _permit = wire_permissive_audit();
         let ws = ws();
-        let res = CoreTools::exec_command(&json!("sh -c 'echo boom >&2; exit 3'"), &ws);
-        assert!(res.is_err());
+        let res = CoreTools::exec_command(&json!("rustc --susi-invalid-fixture-option"), &ws);
+        let error = res.expect_err("an actual native compiler failure must propagate");
+        assert!(
+            error.to_string().contains("susi-invalid-fixture-option"),
+            "{error}"
+        );
         let _ = std::fs::remove_dir_all(&ws);
     }
 

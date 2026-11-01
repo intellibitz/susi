@@ -511,14 +511,18 @@ mod tests {
 
     #[test]
     fn echo_driver_captures_output() {
-        let echo = which_bin("echo").expect("echo must exist on PATH for this test");
+        #[cfg(windows)]
+        let (program, args) = ("cmd.exe", vec!["/d", "/c", "echo", "peer-ok:{goal}"]);
+        #[cfg(not(windows))]
+        let (program, args) = ("echo", vec!["peer-ok:{goal}"]);
+        let echo = which_bin(program).expect("native echo driver must exist for this test");
         let agent = ExternalPeerAgent {
             spec: ExternalPeerAgentSpec {
                 name: "EchoPeerAgent".into(),
                 description: "test".into(),
-                detect_bins: vec!["echo".into()],
+                detect_bins: vec![program.into()],
                 command: echo.display().to_string(),
-                args: vec!["peer-ok:{goal}".into()],
+                args: args.into_iter().map(str::to_owned).collect(),
                 timeout_secs: 5,
                 api_key_env: None,
                 ..Default::default()
@@ -556,7 +560,15 @@ mod tests {
         std::fs::write(root.join(".agents/identity.json"), "{}").unwrap();
         let goal = peer_goal(&root, "fix the parser");
         assert!(goal.contains("SELF-BUILD CONTRACT"), "{goal}");
-        assert!(goal.contains("~/.susi/bin"), "{goal}");
+        assert!(
+            goal.contains("Never copy an unqualified candidate over production"),
+            "{goal}"
+        );
+        assert!(
+            goal.contains("source/lock/toolchain/target evidence"),
+            "{goal}"
+        );
+        assert!(goal.contains("commit, push and merge"), "{goal}");
         assert!(goal.contains("fix the parser"), "{goal}");
         // Outside a SUSI checkout the peer gets exactly the operator's goal.
         let plain = std::env::temp_dir().join(format!("susi_peer_plain_{}", std::process::id()));
