@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CODEXSTEP1GOAL20261101",
-  "created_unix": 1793530316
+  "created_unix": 1793530316,
+  "closed": {
+    "at_unix": 1793531781,
+    "commit": "66b771950ee4aec78e1f3fe19bfe3a34ef37d799",
+    "by": "CODEXSTEP1GOAL20261101"
+  }
 }
