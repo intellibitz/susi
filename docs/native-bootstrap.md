@@ -1,6 +1,11 @@
 # Native development bootstrap
 
-Agents use the standalone Rust launcher when starting local development. It sets
+Installed Susi exposes the same launcher through `susi local build`,
+`susi local workflow` and `susi local release`. This dispatch runs before model,
+daemon or runtime initialization, so development does not require inference or
+cloud credentials. Agents use the standalone Rust launcher for the initial build
+before an installed Susi exists. Both entry points share the same Rust source.
+It sets
 private Cargo output before Cargo compiles xtask, so an inherited shared target
 directory cannot contaminate even the launcher build. No Bash, PowerShell script,
 Python, Node, GitHub service, or user-written configuration is involved.
