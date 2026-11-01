@@ -131,7 +131,7 @@ export SUSI_HERMETIC_FORBIDDEN="$home"
 unset SUSI_PORT_OFFSET || true
 # These control the outer finish's own hooks and sync. Tests create separate
 # repositories and must exercise their hooks and workflow without that state.
-unset SUSI_SYNC_IN_FINISH SUSI_SYNC_SKIP_BOARD || true
+unset SUSI_SYNC_IN_FINISH SUSI_SYNC_SKIP_BOARD SUSI_CLOSE_DEFER_RECEIPT SUSI_RELEASE_PUBLISH_RECEIPT SUSI_GATE_NOCACHE || true
 # Scope it when arguments are given (`-p susi-gawd`), so the rule can be enforced
 # per affected crate instead of only as a whole-workspace sweep nobody runs.
 runner="${SUSI_HERMETIC_RUNNER:-cargo-test}"
@@ -159,13 +159,6 @@ nextest)
         cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
         [ "$cores" -gt 8 ] 2>/dev/null && export NEXTEST_TEST_THREADS="$cores"
     fi
-    # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
-    NEXTEST_STATUS_LEVEL="${NEXTEST_STATUS_LEVEL:-slow}" \
-    NEXTEST_FINAL_STATUS_LEVEL="${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
-    cargo nextest run --locked --no-fail-fast --no-tests=pass \
-        --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}"
-    echo "hermetic: build and tests took $((SECONDS - tests_started))s" >&2
-    docs_started=$SECONDS
     # Doc-tests: `-p` on a package with no library target is an error, so name only
     # the selected packages that have one. A selection with no `-p` (`--workspace`)
     # is passed through: cargo skips the bin-only members itself. When `--test`
@@ -179,9 +172,12 @@ nextest)
         if [ "$prev" = -p ]; then wanted+=("$arg"); fi
         prev="$arg"
     done
+    doc_scope=()
+    run_doc_tests=0
     if [ "$has_test_filter" -eq 0 ]; then
         if [ "${#wanted[@]}" -eq 0 ]; then
-            cargo test --locked --doc "${scope[@]}"
+            doc_scope=("${scope[@]}")
+            run_doc_tests=1
         else
             libs=$(cargo metadata --no-deps --format-version 1 | jq -r --argjson want \
                 "$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s .)" '
@@ -189,14 +185,53 @@ nextest)
                 | select(.name as $n | $want | index($n))
                 | select(any(.targets[]; any(.kind[]; . == "lib" or . == "rlib" or . == "proc-macro")))
                 | .name')
-            doc_scope=()
             for lib in $libs; do doc_scope+=(-p "$lib"); done
-            if [ "${#doc_scope[@]}" -gt 0 ]; then
-                cargo test --locked --doc "${doc_scope[@]}"
-            fi
+            [ "${#doc_scope[@]}" -eq 0 ] || run_doc_tests=1
         fi
     fi
-    echo "hermetic: doc tests took $((SECONDS - docs_started))s" >&2
+    # The doc-tests run alongside the nextest run, not after it. nextest builds
+    # under cargo's lock on the build directory and then runs the binaries
+    # itself, holding no lock; `cargo test --doc`, started a moment later, waits
+    # for that build and then compiles and runs the examples while the tests
+    # execute. Its output is held and printed once it ends, so a failing
+    # example reads whole; both verdicts are waited for. SUSI_GATE_SERIAL=1
+    # runs them one after the other, as before.
+    doc_log=
+    doc_pid=
+    doc_status=0
+    if [ "$run_doc_tests" -eq 1 ] && [ "${SUSI_GATE_SERIAL:-0}" != 1 ]; then
+        doc_log=$(mktemp)
+        (
+            sleep "${SUSI_GATE_LINT_DELAY:-2}"
+            cargo test --locked --doc "${doc_scope[@]}"
+        ) >"$doc_log" 2>&1 &
+        doc_pid=$!
+    fi
+    # A crate with no tests (most vendor shims) is a pass, as it is under cargo test.
+    tests_status=0
+    NEXTEST_STATUS_LEVEL="${NEXTEST_STATUS_LEVEL:-slow}" \
+    NEXTEST_FINAL_STATUS_LEVEL="${NEXTEST_FINAL_STATUS_LEVEL:-slow}" \
+    cargo nextest run --locked --no-fail-fast --no-tests=pass \
+        --retries "${SUSI_HERMETIC_RETRIES:-2}" "${scope[@]}" || tests_status=$?
+    echo "hermetic: build and tests took $((SECONDS - tests_started))s" >&2
+    docs_started=$SECONDS
+    if [ -n "$doc_pid" ]; then
+        wait "$doc_pid" || doc_status=$?
+        cat "$doc_log" >&2
+        rm -f "$doc_log"
+        echo "hermetic: doc tests (overlapping the test run) took another $((SECONDS - docs_started))s" >&2
+    elif [ "$run_doc_tests" -eq 1 ]; then
+        cargo test --locked --doc "${doc_scope[@]}" || doc_status=$?
+        echo "hermetic: doc tests took $((SECONDS - docs_started))s" >&2
+    fi
+    if [ "$tests_status" -ne 0 ]; then
+        echo "hermetic: the test run failed (exit $tests_status)" >&2
+        exit "$tests_status"
+    fi
+    if [ "$doc_status" -ne 0 ]; then
+        echo "hermetic: the doc-tests failed (exit $doc_status)" >&2
+        exit "$doc_status"
+    fi
     ;;
 *)
     echo "SUSI_HERMETIC_RUNNER must be cargo-test or nextest, not '$runner'" >&2

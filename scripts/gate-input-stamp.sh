@@ -1,73 +1,86 @@
 #!/usr/bin/env bash
-# Hash complete source and tool inputs in one native process. Git owns all
-# index/ref interpretation; Python frames the data without shell subprocesses.
-exec python3 -B - "${BASH_SOURCE[0]}" "$@" <<'PY'
-import hashlib
-import os
-from pathlib import Path
-import shutil
-import subprocess
-import sys
+# Hash complete source and tool inputs in one pass. Git owns all index/ref
+# interpretation; sha256sum frames the data without Python.
+set -euo pipefail
 
-sys.path.insert(0, str(Path(sys.argv.pop(1)).resolve().parent))
-from workflow_git import git_executable
+kind=${1:-gate}
+case "$kind" in
+gate | --format) ;;
+*) exit 2 ;;
+esac
 
-kind = sys.argv[1] if len(sys.argv) > 1 else "gate"
-if kind not in ("gate", "--format"):
-    sys.exit(2)
-git_bin, shell = git_executable()
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
 
-repo = Path(os.fsdecode(subprocess.check_output([git_bin, "rev-parse", "--show-toplevel"]).rstrip(b"\r\n")))
-digest = hashlib.sha256()
+run_tool_version() {
+    local tool=$1
+    if [ -f "$tool" ]; then
+        case "$tool" in
+        *.cmd | *.bat)
+            cmd.exe //c "$tool" --version 2>/dev/null || "$tool" --version
+            return
+            ;;
+        *.exe)
+            "$tool" --version
+            return
+            ;;
+        *)
+            sh "$tool" --version
+            return
+            ;;
+        esac
+    fi
+    "$tool" --version
+}
 
-def add(label, data):
-    digest.update(label.encode() + b"\0")
-    digest.update(len(data).to_bytes(8, "big"))
-    digest.update(data)
-
-def git(*args):
-    return subprocess.check_output([git_bin, *args], cwd=repo)
-
-def file_input(path):
-    add("path", os.fsencode(path))
-    content = hashlib.sha256()
-    with open(path, "rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            content.update(chunk)
-    add("content", content.digest())
-
-def version(name, default):
-    tool = os.environ.get(name) or default
-    program = shutil.which(tool) or tool
-    command = [program, "--version"]
-    if shell and Path(program).suffix.lower() not in (".exe", ".cmd", ".bat"):
-        command = [str(shell), "-c", 'exec "$1" --version', "proof-tool", tool]
-    return subprocess.check_output(command, cwd=repo)
-
-paths = [".", ":(exclude).agents/tasks"]
-add("version", b"susi-proof-v3")
-add("kind", kind.encode())
-# A diff alone misses upstream changes outside this branch's edited paths.
-# Only task bookkeeping is inert: other .agents data is compiled/tested.
-add("index", git("ls-files", "--stage", "-z", "--", *paths))
-add("edits", git("diff", "--binary", "--no-ext-diff", "--no-textconv", "--", *paths))
-for raw in git("ls-files", "--others", "--exclude-standard", "-z", "--", *paths).split(b"\0"):
-    if raw:
-        file_input(repo / os.fsdecode(raw))
-for name in sorted(os.environ):
-    if name.startswith(("CARGO_", "RUST")):
-        add(name, os.fsencode(os.environ[name]))
-# Cargo reads configuration above the checkout as well as in CARGO_HOME.
-configs = [p / ".cargo" / name for p in (repo, *repo.parents) for name in ("config", "config.toml")]
-cargo_home = Path(os.environ.get("CARGO_HOME", str(Path.home() / ".cargo")))
-configs.extend(cargo_home / name for name in ("config", "config.toml"))
-for path in configs:
-    if path.is_file():
-        file_input(path)
-add("formatter", version("RUSTFMT", "rustfmt"))
-if kind != "--format":
-    add("compiler", version("RUSTC", "rustc"))
-    add("gate-policy", os.environ.get("SUSI_LOCAL_GATE", "").encode())
-    add("scope", git("diff", "--binary", "--no-ext-diff", "--no-textconv", "origin/main", "--", *paths))
-print(digest.hexdigest())
-PY
+{
+    printf 'version\0susi-proof-v3\0'
+    printf 'kind\0%s\0' "$kind"
+    printf 'index\0'
+    git ls-files --stage -z -- . ':(exclude).agents/tasks'
+    printf '\0edits\0'
+    git diff --binary --no-ext-diff --no-textconv -- . ':(exclude).agents/tasks'
+    printf '\0untracked\0'
+    while IFS= read -r -d '' rel; do
+        [ -n "$rel" ] || continue
+        printf 'path\0%s\0content\0' "$rel"
+        sha256sum "$rel" | awk '{print $1}'
+    done < <(git ls-files --others --exclude-standard -z -- . ':(exclude).agents/tasks')
+    printf '\0env\0'
+    LC_ALL=C env | LC_ALL=C sort | awk '
+        /^(CARGO_|RUST)/ {
+            printf "%s\0", $0
+        }
+    '
+    printf '\0configs\0'
+    cur=$repo
+    while :; do
+        for name in config config.toml; do
+            cfg="$cur/.cargo/$name"
+            if [ -f "$cfg" ]; then
+                printf 'cfg\0%s\0' "$cfg"
+                sha256sum "$cfg" | awk '{print $1}'
+            fi
+        done
+        parent=$(dirname "$cur")
+        [ "$parent" != "$cur" ] || break
+        cur=$parent
+    done
+    cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
+    for name in config config.toml; do
+        cfg="$cargo_home/$name"
+        if [ -f "$cfg" ]; then
+            printf 'cfg\0%s\0' "$cfg"
+            sha256sum "$cfg" | awk '{print $1}'
+        fi
+    done
+    printf '\0formatter\0'
+    run_tool_version "${RUSTFMT:-rustfmt}"
+    if [ "$kind" != "--format" ]; then
+        printf '\0compiler\0'
+        run_tool_version "${RUSTC:-rustc}"
+        printf '\0gate-policy\0%s\0' "${SUSI_LOCAL_GATE:-}"
+        printf 'scope\0'
+        git diff --binary --no-ext-diff --no-textconv origin/main -- . ':(exclude).agents/tasks'
+    fi
+} | sha256sum | awk '{print $1}'

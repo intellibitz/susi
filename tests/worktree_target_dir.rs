@@ -2611,12 +2611,14 @@ gate_stamp() {{ echo stamp; }}
 gate_tests() {{ cargo test "$@"; }}
 gate_tests_kept() {{ return 0; }}
 gate_format() {{ cargo fmt --all --check; }}
-{}{}{}{}gate
+{}{}{}{}{}{}gate
 "#,
             shell_function(&gate, "timed_step"),
             shell_function(&gate, "seed_own_target"),
             shell_function(&gate, "resolve_gate_plan"),
             shell_function(&gate, "gate"),
+            shell_function(&gate, "gate_test_steps"),
+            shell_function(&gate, "gate_lint_and_test"),
         ),
     );
     let (code, out, err) = run(
@@ -2631,9 +2633,13 @@ gate_format() {{ cargo fmt --all --check; }}
     );
     assert_eq!(code, 0, "{out}{err}");
     let cargo = std::fs::read_to_string(&log).unwrap_or_default();
+    // Clippy and the tests overlap in the gate, so their order in the log is
+    // not fixed; what matters is that each cargo found the seeded target.
+    let mut cargos: Vec<&str> = cargo.lines().collect();
+    cargos.sort_unstable();
     assert_eq!(
-        cargo.lines().collect::<Vec<_>>(),
-        ["cargo fmt own", "cargo clippy own", "cargo test own"],
+        cargos,
+        ["cargo clippy own", "cargo fmt own", "cargo test own"],
         "every cargo of the gate must find the worktree's own, seeded target: {err}"
     );
     assert!(err.contains("replaced the link"), "{err}");

@@ -6,6 +6,6 @@
   "tracked_by": ["T-DEEPSEEK-228"],
   "recorded_by": "DEEPSEEK",
   "recorded_unix": 1791137600,
-  "check": ["scripts/check-reachability.py", "--delivered", "check_mission_egress"],
+  "check": ["scripts/check-reachability.sh", "--delivered", "check_mission_egress"],
   "note": "ToolRegistry::execute_tool — the single choke every tool dispatch passes — resolves the acting mission's evidence session, mints its posture-bounded token set (a mission can only narrow the process posture, never widen it), checks the mission's own tokens at dispatch, and consults the mission's EgressGate on every egress-class call. Missions declare allow-lists in {workspace}/.susi/mission-egress.json or via ToolRegistry::declare_mission_egress; absent = documented permissive default, malformed = fail closed. Egress denials record EgressRefusal{mission,host,reason}; token denials record AuthorityRefusal{mission,tool,reason}; both surface on the mission report via the tools.mission.refusals plane-bus topic (REFUSALS_RECORDED interaction in attach_evidence_ledger). Redaction leg unchanged: redact_credentials runs at the logging/capture/context-graph/untrusted-content/fleet/admin choke points."
 }

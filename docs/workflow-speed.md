@@ -441,6 +441,106 @@ previously unpublished merge reaching main, legacy abbreviated IDs and a head
 that is on main but lies after the attested merge. Live before/after audit and
 complete gate measurements must still establish this change's total savings.
 
+## The gate's lint and doc-tests overlap the test run; one queue push per finish (2026-10-31)
+
+Measured in a cloud session's clone (Linux, 4 vCPU, the dev binary, no
+compiler cache, no primary watcher), before the changes below:
+
+| step | measured | note |
+| --- | --- | --- |
+| `git fetch origin` (156 local refs, 2 700 remote) | 0.4–0.6 s | the remote round trip itself is cheap here: the 5–11 s syncs in the sections above were the Windows host's |
+| `git ls-remote origin <one ref>` | 0.4 s | the lease check |
+| `scripts/fetch-workflow-refs.sh` (the push guard's fetch) | 0.4–0.7 s | |
+| `susi workflow check` | 1.1 s | |
+| `susi tasks list` | 0.5 s | |
+| `cargo fmt --all --check`, uncached | 4.7 s | under a cold build's load; the format proof (above) skips it |
+| `cargo metadata --no-deps` | 0.13 s | the gate's scope resolution |
+| one relayed queue write (`.github/workflows/queue.yml` run) | 9–21 s run, plus ~3 s until it starts and up to 3 s of client polling | from the Actions API: 15 runs of the previous session, created → updated |
+
+So in a cloud session the finish's fixed cost is not the network but the
+**relay**: every write to the queue's refs is one Actions run, and a finish
+made two of them in a row — the close receipt, then the claim's release
+(21:52:35 and 21:53:01 in the previous session's run list: 26 s apart, the
+second waiting on the first). The lease, sync and push legs together are
+under 3 s here.
+
+Two changes:
+
+- **The gate's clippy and doc-tests run alongside the tests, not after them**
+  (`scripts/parallel-workflow.sh` `gate_lint_and_test`,
+  `scripts/check-hermetic-tests.sh`). Every cargo of the gate builds into
+  the worktree's one target, and cargo's lock on the build directory
+  serializes the *builds* — but the test run holds no lock. The test steps
+  start first, clippy two seconds later: the test build takes the lock,
+  clippy waits for it, and then compiles while the tests execute. The
+  doc-tests do the same inside the hermetic runner (`cargo test --doc`
+  started after nextest, waiting on the same lock). Clippy's and the
+  doc-tests' output is held and printed whole when they end, so a lint
+  failure does not interleave with the test lines; both verdicts are waited
+  for. When clippy wins the lock instead, the order is the old one and
+  nothing is lost. `SUSI_GATE_SERIAL=1` restores the one-after-the-other
+  gate for a machine whose timing-sensitive tests cannot spare the cores;
+  `SUSI_GATE_LINT_DELAY` (2) is the head start the test build gets.
+  `tests/worktree_target_dir.rs` and `xtask/tests/ci_workflow_perf.rs` pin
+  the shape; the seeded-target fixture no longer assumes clippy logs before
+  the tests.
+  Measured on this diff (susi-gawd, xtask and one root test binary to test;
+  susi, susi-daemon, susi-gawd, susi-gawd-a2a and xtask to lint; `tasks.rs`
+  touched before each run so susi-gawd and its dependents recompile both
+  times; `SUSI_GATE_NOCACHE=1`; 4 vCPU, no compiler cache):
+
+  | gate | clippy | tests | wall |
+  | --- | --- | --- | --- |
+  | serial (`SUSI_GATE_SERIAL=1`) | 7 s | 12 s (build and run 10 s, doc-tests 2 s) | 24 s |
+  | overlapped | 13 s, ending with the tests | 15 s (doc-tests inside) | 19 s |
+
+  The lint's 7 s and the doc-tests' 2 s left the critical path; the tests
+  took 3 s longer sharing four cores with clippy. The first, cold run of the
+  same gate spent 210 s in clippy check-building the dependents' targets
+  (the root package's hundred test binaries among them) — the part a seeded
+  target or a compiler cache carries, and where a 28-core host gains most
+  from the overlap.
+
+- **The close receipt rides the release's push.** Without `--wait`, `finish`
+  publishes the branch and releases the claim seconds after the close, so the
+  receipt no longer takes a push of its own: `finish` sets
+  `SUSI_CLOSE_DEFER_RECEIPT=<id>@<worktree>` and `tasks close` leaves the
+  receipt to the publication, and `SUSI_RELEASE_PUBLISH_RECEIPT` has `tasks
+  release` build it from the committed completion (`.agents/tasks/done/
+  <id>.json`, the claim's scopes) and create it in the same compare-and-swap
+  push that deletes the claim and the agent index — an empty lease on the
+  receipt, so one that appeared meanwhile refuses the whole push. On a laptop
+  `scripts/publish-task-branch.sh` does the same in its atomic branch push.
+  The claim is held until that transaction lands, so nothing can take the
+  task in between, and ownership is never gone without the debt on the
+  remote; a finish that dies after the close leaves the task closed under
+  its claim, which the next finish publishes, and a plain `tasks release`
+  of such a task is refused as an unpublished close is. In a cloud session
+  this is **one relayed Actions run per finish instead of two**; on a laptop
+  one push instead of two. `--wait` keeps the close publishing first (its
+  wait reads the debt from the remote). Pinned in `admin::tasks::tests`
+  (`a_deferred_receipt_is_published_with_the_release_in_one_push`) and
+  exercised end to end by `tests/parallel_workflow.rs`, whose finish runs
+  the real binary against a bare remote.
+
+**Measured end to end** (this cloud session, 4 vCPU, the dev binary, the
+gate forced with `SUSI_GATE_NOCACHE=1` so it is inside the number): `susi
+workflow finish` for the change above took **62.2 s** — lease 1 s, sync 0 s,
+gate 39 s (581 susi-gawd and xtask tests in 9 s, then 67 process-spawning
+root tests in 25 s, clippy's 2 s and the doc-tests inside those), close 1 s
+(the receipt deferred: no relay), push 4 s (the hook's fetch and compliance
+check; clippy skipped on the gate's proof), release 17 s: the one relayed
+Actions run, carrying the receipt, the claim and the agent index (the run
+itself took 10 s, created → updated). The fixed cost outside the gate is 23 s,
+17 s of it that single relay; the previous session's finish paid two. The
+earlier attempt the same hour failed its gate on a fixture that inherited the
+outer `SUSI_GATE_NOCACHE=1` (`tests/parallel_workflow.rs` now drops it, and
+the hermetic runner unsets it) and on one flaky xtask case
+(`normal_sync_finds_its_owned_claim_without_remote_renewal_lookup`, green on
+nextest's retry). The merge itself remains the machinery's: PR #1187 opened on the
+push at 23:17 and was merged by 23:19, about two minutes after the push
+(Compile Check and Workflow Compliance on the branch run, then the merge job).
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

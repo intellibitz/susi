@@ -2149,4 +2149,34 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
             "{manifest_rel} must not depend on susi-vendor-models after pruning unreferenced eco_* test stubs"
         );
     }
+
+    for py_bridge in [
+        "crates/susi-vendor-agents/src/external/python_bridge.rs",
+        "crates/susi-vendor-agents/src/external/python_engine.rs",
+        "crates/susi-vendor-agents/src/external/autogen.rs",
+        "crates/susi-vendor-agents/src/external/crewai.rs",
+        "crates/susi-vendor-agents/src/external/e2b.rs",
+        "crates/susi-vendor-agents/src/external/haystack.rs",
+        "crates/susi-vendor-agents/src/external/langgraph.rs",
+        "crates/susi-vendor-agents/src/external/llamaindex.rs",
+        "crates/susi-vendor-agents/src/external/openai_agents.rs",
+        "crates/susi-vendor-agents/src/external/smolagents.rs",
+        "crates/susi-vendor-agents/src/external/temporal.rs",
+    ] {
+        let path = root.join(py_bridge);
+        assert!(
+            !path.exists(),
+            "Python bridge/engine module must not return in 100% Rust Susi: {}",
+            path.display()
+        );
+    }
+
+    for entry in std::fs::read_dir(root.join("scripts")).expect("read scripts/") {
+        let entry = entry.expect("scripts entry");
+        let name = entry.file_name().to_string_lossy().to_string();
+        assert!(
+            !name.ends_with(".py"),
+            "scripts/ must contain zero Python scripts in 100% Rust Susi: found scripts/{name}"
+        );
+    }
 }

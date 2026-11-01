@@ -44,7 +44,6 @@ pub mod mcp_profile;
 pub mod mcp_registry_trust;
 pub mod mcp_wrapper;
 pub mod protocol;
-pub mod reflexes;
 pub mod requirements_ledger;
 pub mod server;
 pub mod stdio;
@@ -66,6 +65,8 @@ impl GmcpHost {
     }
 }
 
+#[cfg(test)]
+mod eco_mcp_features;
 #[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]

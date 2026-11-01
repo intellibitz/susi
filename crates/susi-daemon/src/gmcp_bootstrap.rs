@@ -638,9 +638,6 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         adapt(CoreTools::tx_abort),
     );
 
-    // DYNAMIC DISCOVERY: Synthesized Native Reflexes
-    susi_gmcp::reflexes::register_synthesized_reflexes();
-
     // Zero-Config Auto-Link: Ensure essential MCP tools are mapped (Non-Blocking Mandate)
     // Supervised one-shot: a panic retries once, a clean return retires it.
     crate::service_supervision::Supervisor::global().spawn_oneshot("mcp-auto-link", 1, || {

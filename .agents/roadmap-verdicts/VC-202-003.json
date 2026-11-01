@@ -10,7 +10,7 @@
   ],
   "recorded_unix": 1791302000,
   "check": [
-    "scripts/check-reachability.py",
+    "scripts/check-reachability.sh",
     "--delivered",
     "run_scheduled"
   ],

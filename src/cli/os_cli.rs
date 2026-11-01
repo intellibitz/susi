@@ -212,7 +212,6 @@ pub enum OsModelAction {
     Reset {
         name: String,
     },
-    Local,
 }
 
 #[derive(Debug, Subcommand)]
@@ -569,7 +568,6 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                     model_cli::ModelCommands::Configure { model: name, file }
                 }
                 OsModelAction::Reset { name } => model_cli::ModelCommands::Reset { model: name },
-                OsModelAction::Local => model_cli::ModelCommands::Local,
             };
             model_cli::execute(Some(action), workspace)
         }

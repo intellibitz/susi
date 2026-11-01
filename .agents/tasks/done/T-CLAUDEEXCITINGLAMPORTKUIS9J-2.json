@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-2",
+  "title": "Record the measured end-to-end finish in docs/workflow-speed.md",
+  "goal": "The 62.2 s finish measured in the cloud session, its stage breakdown and the fixture fixes, recorded under the overlap/one-push section",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "workflow_finish_and_merge_gate"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793488795,
+  "closed": {
+    "at_unix": 1793488855,
+    "commit": "0afe2c1d24cd80eb8c2cc5651e73abc0634c15b6",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}

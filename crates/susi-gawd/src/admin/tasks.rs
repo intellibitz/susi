@@ -3249,7 +3249,40 @@ fn release_claim(
     // same on the board. Checked after ownership, so an agent from the wrong
     // checkout sees the branch diagnostic; `--force` stays the explicit override
     // for moving a claim (re-scoping, a recreated worktree).
-    if receipt.is_none() && abandon_reason.is_none() && !force && has_unpublished_work(ws, id) {
+    // A close deferred its receipt to this release (SUSI_CLOSE_DEFER_RECEIPT,
+    // what `finish` does): the receipt is built from the committed completion
+    // and pushed with the claim's deletion in one compare-and-swap push, so the
+    // task is never released without its debt on the remote. A receipt the
+    // remote already holds (a close that published it itself) is left as it is.
+    let pending_receipt = if receipt.is_none()
+        && abandon_reason.is_none()
+        && bound_to_this_worktree("SUSI_RELEASE_PUBLISH_RECEIPT", id, ws)
+    {
+        Some(deferred_receipt(ws, id, &by)?)
+    } else {
+        None
+    };
+    // A close that deferred its receipt and was never published is the same
+    // debt with no receipt anywhere yet: a plain release would drop it.
+    if receipt.is_none()
+        && pending_receipt.is_none()
+        && abandon_reason.is_none()
+        && !force
+        && deferred_receipt(ws, id, &by).is_ok()
+        && !done_on_main(ws, id)
+    {
+        return Err(EaiError::config(format!(
+            "{id} was closed here and its receipt is not published yet, so the accepted work is \
+             not done anywhere but this branch. Publish it: `susi workflow finish {id}` — or give \
+             it up deliberately: `susi tasks release {id} --abandon <reason>`"
+        )));
+    }
+    if receipt.is_none()
+        && pending_receipt.is_none()
+        && abandon_reason.is_none()
+        && !force
+        && has_unpublished_work(ws, id)
+    {
         return Err(EaiError::config(format!(
             "{id} has committed work on this branch that no merge has published — releasing the \
              claim would drop it silently. Give it up deliberately: `susi tasks release {id} \
@@ -3274,6 +3307,14 @@ fn release_claim(
         leases.push((agent_ref.clone(), sha.clone()));
         updates.push((agent_ref, None));
     }
+    if let Some(record) = &pending_receipt {
+        let mut record = record.clone();
+        record.scopes = c.scopes.clone();
+        // The receipt must not exist yet: an empty lease is "create", and a
+        // receipt another checkout published meanwhile refuses the push whole.
+        leases.push((closed_ref(id), String::new()));
+        updates.push((closed_ref(id), Some(blob_of(ws, &record)?)));
+    }
     queue_relay::push(
         ws,
         &remote(),
@@ -3283,8 +3324,45 @@ fn release_claim(
             "{id}'s claim changed on the remote since it was read; refresh the queue and retry"
         ),
     )?;
-    let _ = git(ws, &["update-ref", "-d", &claim_ref(id)]);
+    if pending_receipt.is_some() {
+        eprintln!("release: {id}'s close receipt was published with the release, in one push");
+        if mirror_updates(ws, &leases, &updates).is_err() {
+            sync_queue_refs(ws)?;
+        }
+    } else {
+        let _ = git(ws, &["update-ref", "-d", &claim_ref(id)]);
+    }
     Ok(())
+}
+
+/// The receipt a deferring close left for this release to publish: built from
+/// the committed completion record (`.agents/tasks/done/<id>.json`), which the
+/// branch being published carries, so the receipt says exactly what the close
+/// said. Refused when nothing was closed, or by someone else.
+fn deferred_receipt(ws: &Path, id: &str, by: &str) -> EaiResult<CloseRecord> {
+    let path = done_dir(ws).join(format!("{id}.json"));
+    let task: Task = serde_json::from_slice(&std::fs::read(&path).map_err(|e| {
+        EaiError::config(format!(
+            "{id} has no committed completion to publish a receipt for ({}: {e})",
+            path.display()
+        ))
+    })?)?;
+    let closed = task
+        .closed
+        .ok_or_else(|| EaiError::config(format!("{id}'s completion record carries no closure")))?;
+    if closed.by != by {
+        return Err(EaiError::config(format!(
+            "{id} was closed by {}, not {by}; its receipt is theirs to publish",
+            closed.by
+        )));
+    }
+    Ok(CloseRecord {
+        task: id.to_string(),
+        agent: by.to_string(),
+        head: closed.commit,
+        closed_unix: closed.at_unix,
+        scopes: Vec::new(),
+    })
 }
 
 /// Total passed tests across every `test result: ok. N passed` line.
@@ -3438,7 +3516,25 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // accepted and its agent may not claim anything else until this head is on
     // origin/main; a failed push leaves the task open, so close is retried
     // rather than leaving an acceptance nobody can see.
-    let head = push_close_receipt(ws, id, &owner_sha, &owner_claim)?;
+    //
+    // `finish` publishes the branch and releases the claim seconds after this
+    // close, and names the task in SUSI_CLOSE_DEFER_RECEIPT so the receipt
+    // travels in that same transaction (`release`, SUSI_RELEASE_PUBLISH_RECEIPT)
+    // instead of in a round trip of its own: one push on a laptop, one relayed
+    // Actions run instead of two in a cloud session. The claim is held until
+    // that transaction lands, so nothing can take the task in between, and a
+    // finish that dies here leaves the task closed under a live claim, which
+    // the next finish publishes. Bound to `<id>@<worktree>` like the coverage
+    // flag, so a stale export cannot defer a receipt elsewhere.
+    let head = if bound_to_this_worktree("SUSI_CLOSE_DEFER_RECEIPT", id, ws) {
+        eprintln!(
+            "close: {id}'s receipt is deferred to the publication — the release pushes it \
+             with the claim's release in one transaction"
+        );
+        git(ws, &["rev-parse", "HEAD"])?
+    } else {
+        push_close_receipt(ws, id, &owner_sha, &owner_claim)?
+    };
     task.closed = Some(Closed {
         at_unix: now_unix(),
         commit: head,
@@ -3456,6 +3552,19 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     Ok(task)
 }
 
+/// Whether `var` names this task in this worktree: `<id>@<worktree>`, the
+/// shape SUSI_ACCEPTANCE_COVERED, SUSI_CLOSE_DEFER_RECEIPT and
+/// SUSI_RELEASE_PUBLISH_RECEIPT share, so an export left in a profile or
+/// inherited by a test fixture never applies to another task or checkout.
+fn bound_to_this_worktree(var: &str, id: &str, ws: &Path) -> bool {
+    std::env::var(var).ok().is_some_and(|v| {
+        let (bound_id, dir) = v.split_once('@').unwrap_or((v.as_str(), ""));
+        bound_id == id
+            && std::fs::canonicalize(dir).ok().as_deref()
+                == std::fs::canonicalize(ws).ok().as_deref()
+    })
+}
+
 fn acceptance_command(argv: &[String]) -> Command {
     let program = argv.first().map(String::as_str).unwrap_or_default();
     #[cfg(windows)]
@@ -3467,20 +3576,6 @@ fn acceptance_command(argv: &[String]) -> Command {
         if let Some(executable) = interpreter {
             let mut command = Command::new(executable);
             command.arg(program).args(&argv[1..]);
-            return command;
-        }
-        if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("py") {
-            // Use Git Bash as the parent so Python inherits its POSIX utility
-            // path too; checkers may invoke grep/sed as part of acceptance.
-            let mut command = Command::new("sh");
-            command
-                .args([
-                    "-c",
-                    "export PYTHONIOENCODING=utf-8; exec python3 \"$@\"",
-                    "susi-acceptance",
-                ])
-                .arg(program)
-                .args(&argv[1..]);
             return command;
         }
     }
@@ -4360,9 +4455,9 @@ mod tests {
         std::fs::write(a.join("src/cli/test.rs"), "allowed").unwrap();
         git(&a, &["add", "src/cli/test.rs"]).unwrap();
         let checker =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/check-task-scope.py");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/check-task-scope.sh");
         let checked = || {
-            Command::new("python3")
+            Command::new(if cfg!(windows) { "sh" } else { "bash" })
                 .arg(&checker)
                 .arg(&first.id)
                 .current_dir(&a)
@@ -5099,6 +5194,119 @@ mod tests {
         std::env::remove_var("SUSI_ACCEPTANCE_COVERED");
         assert!(err.unwrap_err().to_string().contains("not done"));
         assert_eq!(list_open(&a).len(), 1);
+        drop(r);
+    }
+
+    /// `finish` closes, publishes the branch and releases within seconds, so
+    /// the receipt rides the release's push (SUSI_CLOSE_DEFER_RECEIPT, then
+    /// SUSI_RELEASE_PUBLISH_RECEIPT): one compare-and-swap push creates the
+    /// receipt and deletes the claim and the agent index together, and the
+    /// debt is on the remote the moment ownership is gone — never released
+    /// without it. A receipt the close already published is left alone.
+    #[test]
+    fn a_deferred_receipt_is_published_with_the_release_in_one_push() {
+        let (r, a, b) = Repos::new("deferred-receipt");
+        let t = addt!(&a, "claude", "deferred", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        let bound = format!("{}@{}", t.id, a.display());
+        std::env::set_var("SUSI_CLOSE_DEFER_RECEIPT", &bound);
+        let done = close(&a, &t.id, "claude");
+        std::env::remove_var("SUSI_CLOSE_DEFER_RECEIPT");
+        let done = done.unwrap();
+        assert!(
+            git(&b, &["ls-remote", "origin", &closed_ref(&t.id)])
+                .unwrap()
+                .is_empty(),
+            "a deferring close pushes no receipt of its own"
+        );
+        assert!(
+            claims(&a).unwrap().iter().any(|c| c.task == t.id),
+            "the claim covers the task until the publication"
+        );
+        // Without the publication flag a plain release still refuses: the
+        // committed work would be dropped with no receipt anywhere.
+        let err = release(&a, &t.id, "claude", false).unwrap_err().to_string();
+        assert!(err.contains("--abandon") || err.contains("finish"), "{err}");
+
+        std::env::set_var("SUSI_RELEASE_PUBLISH_RECEIPT", &bound);
+        let released = release(&a, &t.id, "claude", true);
+        std::env::remove_var("SUSI_RELEASE_PUBLISH_RECEIPT");
+        released.unwrap();
+        assert!(claims(&a).unwrap().is_empty(), "the claim is released");
+        assert!(
+            git(&b, &["ls-remote", "origin", "refs/claim-agents/CLAUDE"])
+                .unwrap()
+                .is_empty(),
+            "and so is the agent index"
+        );
+        sync_queue(&b).unwrap();
+        let receipt = read_closed(&b, &t.id).unwrap().expect("the receipt landed");
+        assert_eq!(receipt.agent, "CLAUDE");
+        assert_eq!(receipt.head, done.closed.as_ref().unwrap().commit);
+        assert_eq!(receipt.closed_unix, done.closed.as_ref().unwrap().at_unix);
+        assert_eq!(
+            read_closed(&a, &t.id).unwrap().map(|rec| rec.head),
+            Some(receipt.head.clone()),
+            "the local mirror holds the published receipt too"
+        );
+        // The flag names another task: nothing is published for it, and the
+        // release of a task whose receipt the close already pushed is unchanged.
+        let t2 = addt!(&a, "claude", "published", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &t2.id, "claude").unwrap();
+        let before = git(&b, &["ls-remote", "origin", &closed_ref(&t2.id)]).unwrap();
+        assert!(
+            !before.is_empty(),
+            "an undeferred close publishes its receipt"
+        );
+        std::env::set_var(
+            "SUSI_RELEASE_PUBLISH_RECEIPT",
+            format!("{}@{}", t2.id, a.display()),
+        );
+        let released = release(&a, &t2.id, "claude", true);
+        std::env::remove_var("SUSI_RELEASE_PUBLISH_RECEIPT");
+        released.unwrap();
+        assert_eq!(
+            git(&b, &["ls-remote", "origin", &closed_ref(&t2.id)]).unwrap(),
+            before,
+            "an existing receipt is left as it was"
+        );
+
+        // The deferral and the publication are bound to one task in one
+        // worktree, as the coverage flag is: a flag naming another task, or no
+        // committed completion to build the receipt from, publishes nothing.
+        // (One test, not two: the flags are process environment, and libtest
+        // runs tests of one binary in parallel threads.)
+        let t = addt!(&a, "claude", "other", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        std::env::set_var(
+            "SUSI_CLOSE_DEFER_RECEIPT",
+            format!("T-CLAUDE-99@{}", a.display()),
+        );
+        let done = close(&a, &t.id, "claude");
+        std::env::remove_var("SUSI_CLOSE_DEFER_RECEIPT");
+        done.unwrap();
+        assert!(
+            !git(&b, &["ls-remote", "origin", &closed_ref(&t.id)])
+                .unwrap()
+                .is_empty(),
+            "a flag naming another task defers nothing"
+        );
+        release(&a, &t.id, "claude", true).unwrap();
+
+        // Nothing closed: a publication flag for a merely claimed task is an error,
+        // and the claim stays.
+        let t2 = addt!(&a, "claude", "unclosed", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
+        std::env::set_var(
+            "SUSI_RELEASE_PUBLISH_RECEIPT",
+            format!("{}@{}", t2.id, a.display()),
+        );
+        let err = release(&a, &t2.id, "claude", true);
+        std::env::remove_var("SUSI_RELEASE_PUBLISH_RECEIPT");
+        let err = err.unwrap_err().to_string();
+        assert!(err.contains("no committed completion"), "{err}");
+        assert!(claims(&a).unwrap().iter().any(|c| c.task == t2.id));
         drop(r);
     }
 

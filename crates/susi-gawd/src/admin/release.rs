@@ -1861,10 +1861,10 @@ mod tests {
     #[test]
     fn the_relay_applies_the_reservation_namespace() {
         assert!(super::super::queue_relay::RELAYED_NAMESPACES.contains(&RESERVATION_PREFIX));
-        let relay = include_str!("../../../../scripts/queue-relay.py");
+        let relay = include_str!("../../../../scripts/queue-relay.sh");
         assert!(
             relay.contains(&format!("\"{RESERVATION_PREFIX}\"")),
-            "scripts/queue-relay.py must apply {RESERVATION_PREFIX}"
+            "scripts/queue-relay.sh must apply {RESERVATION_PREFIX}"
         );
     }
 }

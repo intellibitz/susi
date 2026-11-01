@@ -6,6 +6,6 @@
     "delivered_by": ["T-DEEPSEEK-212", "T-DEEPSEEK-231"],
     "recorded_by": "DEEPSEEK",
     "recorded_unix": 1791187000,
-    "check": ["scripts/check-reachability.py", "--delivered", "infer_via_host"],
+    "check": ["scripts/check-reachability.sh", "--delivered", "infer_via_host"],
     "notes": "Native side now delivered (T-DEEPSEEK-231): crates/susi-gemi/src/engines/native_lifecycle.rs adapts every NativeInferenceEngine onto runtime_lifecycle::RuntimeBackend through NativeEngineBackend (EngineKind::Native|Federated), with InferenceHost as the substrate surface — load stages via InferenceHost::preload, health probes InferenceHost::loaded_models residency (never file presence), unload evicts via InferenceHost::unload. The production local-inference call in engines/runtime.rs dispatches through native_lifecycle::infer_via_contract: discover → load → ready (health probe) → infer; a failed probe is a typed error before dispatch. Federated engines map load→delegation-target validation and health→non-cooled-endpoint probe; unsupported cancel (unscoped inference tasks) and federated unload are capability-gated typed errors. HTTP side unchanged from T-DEEPSEEK-212: local_ecosystem::scan drives HTTP-managed runtimes through the contract via DaemonBackend. EngineHost is the injected substrate/routing seam (SusiHost in production), so the mastery tests are hermetic — no real weights or endpoints."
 }

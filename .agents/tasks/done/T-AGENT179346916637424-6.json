@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT179346916637424-6",
+  "title": "Make Susi 100% Rust and remove Python",
+  "goal": "Eliminate all Python files, embedded Python scripts, and Python interpreter invocations across the Susi workspace, replacing them with native Rust implementations",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "--locked"
+    ]
+  },
+  "created_by": "AGENT179346916637424",
+  "created_unix": 1793484548,
+  "closed": {
+    "at_unix": 1793487897,
+    "commit": "489d38630436cfda9a94bfc8e9460014e2adb430",
+    "by": "AGENT179346916637424"
+  }
+}

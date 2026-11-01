@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-1",
+  "title": "Workflow finish under 60s: overlap clippy and doc-tests with the test run; one queue transaction for receipt and release in the cloud",
+  "goal": "susi workflow finish (tests, merge, release) measured end to end, with the gate lint and doc-tests overlapping the test run and a cloud finish paying one relay round trip instead of two",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "workflow_finish_and_merge_gate"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793484903,
+  "closed": {
+    "at_unix": 1793488615,
+    "commit": "60751d9058dfa1e406d6dfe48186f039d089aacc",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}

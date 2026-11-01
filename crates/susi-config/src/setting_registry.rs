@@ -37,10 +37,6 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
         derivation: SettingDerivation::Constant,
     },
     SettingEntry {
-        key: "admin_pulses",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
         key: "agent_rank_threshold",
         derivation: SettingDerivation::Constant,
     },
