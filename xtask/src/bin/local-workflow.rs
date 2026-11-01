@@ -350,13 +350,18 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .collect();
     vendor_regressions::include_release_tooling(candidate, &mut gates);
     gates.extend(vendor_regressions::commands(candidate, host, &target)?);
-    let sysroot = if candidate.join("crates/susi-core/Cargo.toml").is_file() {
-        Some(trusted_sysroot::prepare(candidate)?)
-    } else {
-        None
-    };
+    let mut sysroot = None;
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
+        if sysroot.is_none()
+            && matches!(
+                args.first().map(String::as_str),
+                Some("clippy" | "test" | "build")
+            )
+            && candidate.join("crates/susi-core/Cargo.toml").is_file()
+        {
+            sysroot = Some(trusted_sysroot::prepare(candidate)?);
+        }
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
         let mut command = Command::new("cargo");
