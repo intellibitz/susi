@@ -1,0 +1,32 @@
+{
+  "id": "T-STEP1ACCEPTANCE-3",
+  "title": "Verify the final combined Step 1 tree through immutable native integration",
+  "status": "pending",
+  "owner": "step1-acceptance-v3",
+  "scopes": [
+    ".agents/tasks/T-STEP1ACCEPTANCE-3.json"
+  ],
+  "dependencies": [
+    "T-STEP1RUSTENTRY-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked",
+      "--features",
+      "xtask/release-tooling"
+    ]
+  },
+  "required_evidence": [
+    "Native coordinator acceptance receipt for this exact combined tree",
+    "Fresh authenticated standard-library build with guarded archive identity",
+    "Formatting, strict licenses, workspace Clippy and tests, all five platform adapters",
+    "Native lifecycle fixtures using the admitted product standard library"
+  ],
+  "prior_attempt": "Prior attempts preserved Clippy and formatting failures; baseline 7f99ebc7e18363d7c14d5f47aed3aae83ee47d8b includes both repairs and passing clean Windows diagnostic evidence.",
+  "production_status": "Separate production qualification and clean-machine A/B rollback acceptance remain required",
+  "integration": "Pending actual mandatory native gates; this task record is not evidence of acceptance."
+}
