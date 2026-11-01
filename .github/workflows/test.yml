@@ -227,6 +227,7 @@ jobs:
       skip_shards: ${{ steps.scope.outputs.skip_shards }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
       run_windows: ${{ steps.scope.outputs.run_windows }}
+      windows_proven: ${{ steps.windows-proof.outputs.proven }}
       run_kani: ${{ steps.scope.outputs.run_kani }}
       matrix: ${{ steps.matrix.outputs.matrix }}
       run_shards: ${{ steps.matrix.outputs.run_shards }}
@@ -259,6 +260,19 @@ jobs:
               --limit 20 --json headSha --jq '.[].headSha' || true)
             scripts/ci-code-proven.sh "$GITHUB_SHA" $shas && proven=true
           fi
+          echo "proven=$proven" >> "$GITHUB_OUTPUT"
+
+      # A green workflow can have skipped Windows. Only reuse a recent run
+      # whose Windows job actually passed for these exact source bytes.
+      # Tags and prove=true always execute Windows verification themselves.
+      - name: Find a matching Windows verification
+        id: windows-proof
+        if: github.ref == 'refs/heads/main' && steps.stamp.outputs.proven == 'true' && inputs.prove != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          proven=false
+          scripts/ci-windows-proven.sh "$GITHUB_SHA" && proven=true
           echo "proven=$proven" >> "$GITHUB_OUTPUT"
 
       # Which shards this merge can still break. A shard's tests only run the
@@ -1114,7 +1128,7 @@ jobs:
   windows:
     name: Windows binary (release e2e checks)
     needs: codetree
-    if: needs.codetree.outputs.run_windows == 'true'
+    if: needs.codetree.outputs.run_windows == 'true' && needs.codetree.outputs.windows_proven != 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
