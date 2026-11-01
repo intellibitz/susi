@@ -4507,6 +4507,7 @@ dependencies = [
  "susi-vendor-syn",
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
+ "susi-vendor-winapi",
 ]
 
 [[package]]
