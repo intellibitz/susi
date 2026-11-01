@@ -442,7 +442,20 @@ fn apply_plan(brief: &ImplBrief, json: &str) -> Result<String, String> {
         &brief.worktree,
         &PatchRequest {
             files: plan.files,
-            test_command: Some(brief.verify_cmd.join(" ")),
+            test_command: Some(
+                brief
+                    .verify_cmd
+                    .iter()
+                    .map(|arg| {
+                        if arg.contains('"') {
+                            format!("'{arg}'")
+                        } else {
+                            format!("\"{arg}\"")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
             auto_apply: true,
             description: brief.title.clone(),
             // The model-authored patch always runs inside a fenced
@@ -787,6 +800,10 @@ pub fn verify_candidate(
     v.verified = v.reasons.is_empty() && v.review.as_ref().is_some_and(|r| r.verdict == "approve");
     v
 }
+
+#[cfg(test)]
+#[path = "tests/native_verifier.rs"]
+mod native_verifier;
 
 #[cfg(test)]
 mod tests {
@@ -1307,7 +1324,10 @@ mod tests {
             model: &model,
             candidates: &cs,
         };
-        let task = impl_task("T-IMPL", &["test", "-f", "artifact.txt"]);
+        let task = impl_task(
+            "T-IMPL",
+            &super::native_verifier::argv(&["exists", "artifact.txt"]),
+        );
         let mut runner = ImplRunner {
             exec: &exec,
             candidates: &cs,
@@ -1346,7 +1366,10 @@ mod tests {
             model: &model,
             candidates: &cs,
         };
-        let task = impl_task("T-FO", &["test", "-f", "right.txt"]);
+        let task = impl_task(
+            "T-FO",
+            &super::native_verifier::argv(&["exists", "right.txt"]),
+        );
         let mut runner = ImplRunner {
             exec: &exec,
             candidates: &cs,
@@ -1384,7 +1407,7 @@ mod tests {
             model: &model,
             candidates: &cs,
         };
-        let task = impl_task("T-ESC", &["true"]);
+        let task = impl_task("T-ESC", &["rustc", "--version"]);
         let mut runner = ImplRunner {
             exec: &exec,
             candidates: &cs,
@@ -1475,7 +1498,7 @@ mod tests {
         };
         let specs = |id: &str| {
             if id == "T-GAP" {
-                Some(impl_task(id, &["true"]))
+                Some(impl_task(id, &["rustc", "--version"]))
             } else {
                 None
             }
@@ -1531,8 +1554,14 @@ mod tests {
         let root = std::env::temp_dir().join(format!("implpar-{}", std::process::id()));
         let queue = Q {
             tasks: Mutex::new(vec![
-                (impl_task("T-P1", &["test", "-f", "p1.txt"]), None),
-                (impl_task("T-P2", &["test", "-f", "p2.txt"]), None),
+                (
+                    impl_task("T-P1", &super::native_verifier::argv(&["exists", "p1.txt"])),
+                    None,
+                ),
+                (
+                    impl_task("T-P2", &super::native_verifier::argv(&["exists", "p2.txt"])),
+                    None,
+                ),
             ]),
         };
         // m1's plan writes p1.txt for T-P1, m2 writes p2.txt for T-P2 — the
