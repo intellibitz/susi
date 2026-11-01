@@ -14,10 +14,19 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # scans all production Rust files once in awk when checking multiple symbols.
 # def call_sites_many(
 # indexed = call_sites_many(
+# One pass over the production sources for every symbol at once. Two things
+# keep it to seconds on hundreds of thousands of lines: a line is cleaned
+# character by character only when it holds a comment or string delimiter
+# (most do not), and the per-symbol regexes run only on lines one combined
+# alternation says mention some symbol at all (nearly none do). gawk is several
+# times slower than mawk on this kind of loop — the verdict check's 19 symbols
+# took 89 s under gawk on a CI runner, under 4 s under mawk — so mawk is
+# preferred where it is installed.
 scan_symbols_awk() {
-    local symbols_tsv=$1
+    local symbols_tsv=$1 awk_bin=awk
     shift
-    SYMBOLS_TSV="$symbols_tsv" awk '
+    command -v mawk >/dev/null 2>&1 && awk_bin=mawk
+    SYMBOLS_TSV="$symbols_tsv" "$awk_bin" '
         BEGIN {
             n_sym = split(ENVIRON["SYMBOLS_TSV"], rows, "\n")
             for (i = 1; i <= n_sym; i++) {
@@ -29,7 +38,9 @@ scan_symbols_awk() {
                 if (kind == "function") want_fn[sym] = 1
                 else if (kind == "method") want_method[sym] = 1
                 else want_sym[sym] = 1
+                any_alt = (any_alt == "") ? sym : any_alt "|" sym
             }
+            any_pat = "(^|[^A-Za-z0-9_])(" any_alt ")([^A-Za-z0-9_]|$)"
         }
         FNR == 1 {
             in_block_comment = 0
@@ -39,6 +50,10 @@ scan_symbols_awk() {
         }
         {
             raw = $0
+            # Nothing to strip and no comment open: the line is its own clean form.
+            if (!in_block_comment && index(raw, "/") == 0 && index(raw, "\"") == 0) {
+                clean = raw
+            } else {
             clean = ""
             i = 1
             len = length(raw)
@@ -82,6 +97,7 @@ scan_symbols_awk() {
                 clean = clean ch
                 i++
             }
+            }
 
             if (skip_depth > 0) {
                 for (k = 1; k <= length(clean); k++) {
@@ -124,6 +140,8 @@ scan_symbols_awk() {
             sub(/^[[:space:]]+/, "", trimmed)
             sub(/[[:space:]]+$/, "", trimmed)
             if (trimmed == "") next
+
+            if (clean !~ any_pat) next
 
             is_decl = (trimmed ~ /^(pub[[:space:]]+)?(use|mod)([^A-Za-z0-9_]|$)/)
             for (sym in syms) {
