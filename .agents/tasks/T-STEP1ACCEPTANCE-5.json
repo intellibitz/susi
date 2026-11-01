@@ -1,0 +1,31 @@
+{
+  "id": "T-STEP1ACCEPTANCE-5",
+  "title": "Verify final native Windows combined source through immutable local integration",
+  "status": "pending",
+  "owner": "step1-acceptance-v5",
+  "scopes": [
+    ".agents/tasks/T-STEP1ACCEPTANCE-5.json"
+  ],
+  "dependencies": [
+    "T-STEP1RUSTENTRY-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked",
+      "--features",
+      "xtask/release-tooling"
+    ]
+  },
+  "required_evidence": [
+    "Native coordinator acceptance receipt for this exact combined tree",
+    "Fresh authenticated standard library and guarded archive identity",
+    "Formatting, strict licenses, Clippy, workspace tests and all five platform adapters",
+    "Windows native lifecycle and source-owned integration checks"
+  ],
+  "prior_attempt": "v4 canceled before workspace build to remove legacy Unix shell prerequisites from Windows gates",
+  "production_status": "Separate optimized qualification and real clean-machine A/B promotion and rollback remain required"
+}
