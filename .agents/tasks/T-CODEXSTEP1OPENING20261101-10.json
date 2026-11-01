@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-10",
+  "title": "Reduce model transfer write overhead while preserving verified resumable publication",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "download::tests"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793537535
+}
