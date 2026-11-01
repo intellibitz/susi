@@ -1,0 +1,11 @@
+{
+  "id": "T-STEP1B-1",
+  "title": "Admit the audited starter using exact memory and stop impossible preparation promptly",
+  "goal": "Release B keeps the 4 GiB system reserve and existing model overhead, preserves fractional available RAM in admission, and returns terminal preparation outcomes without a 120-second polling delay.",
+  "size": "m",
+  "deps": [],
+  "scopes": ["crates/susi-gemi-models/src/hardware.rs", "crates/susi-gemi-models/src/lifecycle/selection.rs", "crates/susi-gemi-models/src/lifecycle/provision.rs", "crates/susi-gemi-models/src/lifecycle/types.rs", "crates/susi-gemi/src/engines/runtime.rs", "version surfaces prepared by local release prepare-next patch"],
+  "accept": { "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi-models", "-p", "susi-gemi", "--lib"] },
+  "acceptance": ["Exact 4.95 GiB availability admits the audited starter after the unchanged 4 GiB reserve", "One-byte-insufficient cold allocation and zero headroom are rejected", "TooSmall and OfflineNoModel terminate the actual retry loop promptly", "Native combined-tree acceptance and qualified fresh 8 GiB Windows VM journey remain required before production promotion"],
+  "created_by": "step1-memory-b"
+}
