@@ -1,0 +1,10 @@
+{
+  "id": "T-STEP1INSTALL-1",
+  "title": "Native fresh-install placement and uncached first-goal acceptance",
+  "goal": "Install the current native executable into a fresh home without overwriting production, then prove licensed uncached starter download, native Candle first-goal answers and instance-scoped shutdown with credentials absent.",
+  "size": "m",
+  "deps": [],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--bin", "susi", "install_cli::tests"]},
+  "created_by": "step1-install",
+  "created_unix": 1793553500
+}
