@@ -2184,6 +2184,72 @@ pub fn export(checkout: &Path, dest: &Path) -> Result<(usize, String), String> {
 mod seed_tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn detached_worker_runs_git_without_transient_consoles() {
+        const MARKER: &str = "SUSI_SEED_CONSOLE_TEST";
+        if let Some(marker) = std::env::var_os(MARKER) {
+            let marker = PathBuf::from(marker);
+            let temporary = marker.with_extension("tmp");
+            for _ in 0..20 {
+                let output = host_command("git").arg("--version").output().unwrap();
+                if !output.status.success() {
+                    fs::write(&temporary, format!("Git failed: {}", output.status)).unwrap();
+                    fs::rename(&temporary, &marker).unwrap();
+                    return;
+                }
+            }
+            fs::write(&temporary, b"twenty consoleless Git children passed").unwrap();
+            fs::rename(temporary, marker).unwrap();
+            return;
+        }
+        let marker = std::env::temp_dir().join(format!(
+            "susi-seed-console-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let module = module_path!().split_once("::").unwrap().1;
+        let name = format!("{module}::detached_worker_runs_git_without_transient_consoles");
+        let mut environment: Vec<_> = std::env::vars_os().collect();
+        environment.push((MARKER.into(), marker.as_os_str().to_owned()));
+        let git = host_command("git").arg("--exec-path").output().unwrap();
+        assert!(git.status.success());
+        let exec_path = PathBuf::from(String::from_utf8(git.stdout).unwrap().trim());
+        if let Some(root) = exec_path.ancestors().nth(3) {
+            if root.join("cmd/git.exe").is_file() {
+                let windows = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
+                let path =
+                    std::env::join_paths([root.join("cmd"), windows.join("System32"), windows])
+                        .unwrap();
+                environment.retain(|(key, _)| !key.eq_ignore_ascii_case("PATH"));
+                environment.push(("PATH".into(), path));
+            }
+        }
+        winapi::detached::spawn(
+            &std::env::current_exe().unwrap(),
+            &["--exact".into(), name.into(), "--nocapture".into()],
+            &std::env::temp_dir(),
+            &environment,
+        )
+        .unwrap();
+        let started = Instant::now();
+        while !marker.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(15),
+                "detached Git worker did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap(),
+            "twenty consoleless Git children passed"
+        );
+        fs::remove_file(marker).unwrap();
+    }
+
     /// The export is the refresh's snapshot made from this checkout's own
     /// target: the workspace's units are gone, the registry's stay, and the
     /// marker names the head.
