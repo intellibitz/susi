@@ -393,9 +393,43 @@ impl ModelManager {
                 .ok_or("transactional staging path has no parent directory")?,
         )
         .map_err(|e| e.to_string())?;
-        Self::migrate_legacy_download_state(models_dir, &store, &file_name)?;
         let staging_target = store.staging_target(&file_name);
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let policy = cfg.model_lifecycle();
+        // Transfer's lock ends before publication. Hold a separate lock over
+        // both phases so concurrent daemon/mission provisioners cannot move
+        // each other's validated staging file or download it twice.
+        let transaction = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(staging_target.with_extension("transaction.lock"))
+            .map_err(|error| error.to_string())?;
+        let waiting = std::time::Instant::now();
+        loop {
+            task_handle.check_pause();
+            if task_handle.is_cancelled() {
+                return Err("Download cancelled".into());
+            }
+            match transaction.try_lock() {
+                Ok(()) => break,
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    if waiting.elapsed().as_secs() >= policy.download_timeout_secs.max(1) {
+                        return Err("Timed out waiting for another model download worker".into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(error) => return Err(format!("Model transaction lock: {error}")),
+            }
+        }
+        if Self::managed_download_is_ready(models_dir, &file_name, target) {
+            let size = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+            Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
+            MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
+            task_handle.mark_completed("Verified model is already ready");
+            return Ok(());
+        }
+        Self::migrate_legacy_download_state(models_dir, &store, &file_name)?;
         let trusted_origin = url::Url::parse(target)
             .ok()
             .zip(url::Url::parse(&cfg.hf_base_url()).ok())
@@ -403,7 +437,6 @@ impl ModelManager {
         let token = trusted_origin
             .then(|| crate::susi_config::env_or_cloud_env("HF_TOKEN").ok())
             .flatten();
-        let policy = cfg.model_lifecycle();
         // Asked once: the publisher's digest does not change between retries.
         let expected_sha256 = crate::download::published_sha256(target, token.as_deref());
         let mut last_error = String::new();
@@ -501,6 +534,27 @@ impl ModelManager {
 
     fn transactional_store(models_dir: &Path) -> Store {
         Store::new(models_dir.parent().unwrap_or(models_dir))
+    }
+
+    fn managed_download_is_ready(models_dir: &Path, name: &str, target: &str) -> bool {
+        let path = models_dir.join(name);
+        let Some(manifest) = fs::read(models_dir.join(format!("{name}.manifest.json")))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        else {
+            return false;
+        };
+        manifest.get("source_url").and_then(|value| value.as_str()) == Some(target)
+            && path.metadata().is_ok_and(|metadata| {
+                manifest.get("size").and_then(|value| value.as_u64()) == Some(metadata.len())
+            })
+            && Self::valid_download_artifact(name, &path)
+            && manifest
+                .get("sha256")
+                .and_then(|value| value.as_str())
+                .is_none_or(|expected| {
+                    Self::calculate_simple_checksum(&path).is_ok_and(|actual| actual == expected)
+                })
     }
 
     fn migrate_legacy_download_state(
@@ -636,6 +690,71 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
+        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let root = std::env::temp_dir().join(format!(
+            "susi-managed-download-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut environment = susi_paths::test_env::EnvGuard::isolated();
+        environment.set("HOME", &root).set("SUSI_HOME", &root);
+        let models = root.join("models");
+        let store = ModelManager::transactional_store(&models);
+        let name = "shared.bin";
+        let url = "https://models.invalid/shared.bin";
+        let staged = store.staging_target(name);
+        fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(staged.with_extension("transaction.lock"))
+            .unwrap();
+        lock.lock().unwrap();
+        let worker_models = models.clone();
+        let (done, result) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+                .register_task("managed_download_test", url);
+            done.send(ModelManager::execute_download_stream_in(
+                url,
+                &task,
+                &worker_models,
+            ))
+            .unwrap();
+        });
+        assert!(result
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_err());
+        let payload = b"verified shared payload";
+        fs::write(&staged, payload).unwrap();
+        let checksum = susi_vendor_models::resumable_downloads::sha256_hex(payload);
+        ModelManager::publish_download(&models, name, url, Some(&checksum), &|p| p.is_file())
+            .unwrap();
+        drop(lock);
+        result
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        worker.join().unwrap();
+        assert_eq!(fs::read(models.join(name)).unwrap(), payload);
+        assert!(!staged.exists());
+        assert!(!ModelManager::managed_download_is_ready(
+            &models,
+            name,
+            "https://other.invalid/shared.bin"
+        ));
+        fs::write(models.join(name), b"tampered shared payload").unwrap();
+        assert!(!ModelManager::managed_download_is_ready(&models, name, url));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn vc_201_044_download_publish_called_by_production() {
@@ -1049,7 +1168,9 @@ mod tests {
 
     #[test]
     fn test_downloads_expert_audit() {
-        std::env::set_var("SUSI_USE_DOWNLOADS_DIR", "1");
+        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let mut environment = susi_paths::test_env::EnvGuard::isolated();
+        environment.set("SUSI_USE_DOWNLOADS_DIR", "1");
         let tmp_dir =
             std::env::temp_dir().join(format!("susi_downloads_audit_test-{}", std::process::id()));
         let _ = fs::create_dir_all(&tmp_dir);
