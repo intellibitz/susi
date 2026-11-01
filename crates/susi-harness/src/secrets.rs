@@ -508,14 +508,9 @@ fn process_value(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// The value in one Windows scope (`User` or `Machine`).
-///
-/// Both scopes are read once per process, with one PowerShell call through
-/// the same API the OS uses for its own environment, so the values are what
-/// a new process would see. Reading a scope per variable cost a process
-/// spawn per lookup, seconds for a command that checks every provider. The
-/// values stay in memory; nothing prints or stores them. Windows variable
-/// names are case-insensitive, so they are matched upper-cased.
+/// The value in a native Windows environment scope, cached without spawning
+/// an interpreter. Registry strings are read literally, as persistent User and
+/// Machine environment values; secrets remain in memory and are never logged.
 #[cfg(windows)]
 fn registry_value(name: &str, scope: &str) -> Option<String> {
     windows_scopes()
@@ -524,55 +519,50 @@ fn registry_value(name: &str, scope: &str) -> Option<String> {
         .cloned()
 }
 
-#[cfg(windows)]
-fn windows_scopes() -> &'static BTreeMap<String, BTreeMap<String, String>> {
-    use std::process::{Command, Stdio};
-    static SCOPES: OnceLock<BTreeMap<String, BTreeMap<String, String>>> = OnceLock::new();
-    SCOPES.get_or_init(|| {
-        const SCRIPT: &str = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $all = @{}; foreach ($scope in 'User', 'Machine') { $vars = @{}; $found = [Environment]::GetEnvironmentVariables($scope); foreach ($name in $found.Keys) { $vars[[string]$name] = [string]$found[$name] }; $all[$scope] = $vars }; $all | ConvertTo-Json -Compress -Depth 3";
-        let Ok(output) = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-        else {
-            return BTreeMap::new();
-        };
-        if !output.status.success() {
-            return BTreeMap::new();
-        }
-        parse_scopes(&String::from_utf8_lossy(&output.stdout))
-    })
-}
-
-/// The `{"User": {...}, "Machine": {...}}` document, names upper-cased, with
-/// blank values and names that are not variable names left out.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn parse_scopes(text: &str) -> BTreeMap<String, BTreeMap<String, String>> {
-    let Ok(serde_json::Value::Object(document)) = serde_json::from_str(text.trim()) else {
-        return BTreeMap::new();
-    };
-    document
+#[cfg(any(windows, test))]
+fn normalize_scope(values: impl IntoIterator<Item = (String, String)>) -> BTreeMap<String, String> {
+    values
         .into_iter()
-        .map(|(scope, variables)| {
-            let variables = variables
-                .as_object()
-                .map(|map| {
-                    map.iter()
-                        .filter_map(|(name, value)| {
-                            let name = name.to_ascii_uppercase();
-                            let value = value.as_str()?.trim();
-                            (valid_name(&name) && !value.is_empty())
-                                .then(|| (name, value.to_string()))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            (scope, variables)
+        .filter_map(|(name, value)| {
+            let name = name.to_ascii_uppercase();
+            let value = value.trim();
+            (valid_name(&name) && !value.is_empty()).then(|| (name, value.to_string()))
         })
         .collect()
 }
 
+#[cfg(windows)]
+fn read_registry_scope(root: &windows_registry::Key, path: &str) -> BTreeMap<String, String> {
+    let Ok(key) = root.open(path) else {
+        return BTreeMap::new();
+    };
+    let Ok(values) = key.values() else {
+        return BTreeMap::new();
+    };
+    normalize_scope(
+        values.filter_map(|(name, value)| String::try_from(value).ok().map(|value| (name, value))),
+    )
+}
+
+#[cfg(windows)]
+fn windows_scopes() -> &'static BTreeMap<String, BTreeMap<String, String>> {
+    static SCOPES: OnceLock<BTreeMap<String, BTreeMap<String, String>>> = OnceLock::new();
+    SCOPES.get_or_init(|| {
+        BTreeMap::from([
+            (
+                "User".into(),
+                read_registry_scope(windows_registry::CURRENT_USER, "Environment"),
+            ),
+            (
+                "Machine".into(),
+                read_registry_scope(
+                    windows_registry::LOCAL_MACHINE,
+                    r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+                ),
+            ),
+        ])
+    })
+}
 #[cfg(not(windows))]
 fn registry_value(_name: &str, _scope: &str) -> Option<String> {
     None
@@ -688,21 +678,64 @@ mod tests {
     }
 
     #[test]
-    fn scope_documents_are_read_upper_cased_without_blanks() {
-        let scopes = parse_scopes(
-            r#"{"User":{"Deepseek_Api_Key":" sk-1 ","EMPTY":"","bad name":"x"},"Machine":{"PATH":"C:/x"}}"#,
-        );
+    fn scope_names_are_normalized_without_blank_or_invalid_values() {
+        let scope = normalize_scope([
+            ("Deepseek_Api_Key".into(), " sk-1 ".into()),
+            ("EMPTY".into(), "".into()),
+            ("bad name".into(), "x".into()),
+            ("PATH".into(), "C:/x".into()),
+            ("EXPANDED".into(), "%USERPROFILE%/data".into()),
+        ]);
         assert_eq!(
-            scopes["User"].get("DEEPSEEK_API_KEY").map(String::as_str),
+            scope.get("DEEPSEEK_API_KEY").map(String::as_str),
             Some("sk-1")
         );
-        assert!(!scopes["User"].contains_key("EMPTY"));
-        assert!(!scopes["User"].contains_key("BAD NAME"));
+        assert!(!scope.contains_key("EMPTY"));
+        assert!(!scope.contains_key("BAD NAME"));
+        assert_eq!(scope.get("PATH").map(String::as_str), Some("C:/x"));
         assert_eq!(
-            scopes["Machine"].get("PATH").map(String::as_str),
-            Some("C:/x")
+            scope.get("EXPANDED").map(String::as_str),
+            Some("%USERPROFILE%/data")
         );
-        assert!(parse_scopes("not json").is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn persistent_environment_values_are_read_using_native_registry_api() {
+        use windows_registry::CURRENT_USER;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!(
+            "Software\\Susi-Registry-Test-{}-{stamp}",
+            std::process::id()
+        );
+        assert!(CURRENT_USER.open(&path).is_err());
+        struct OwnedKey(String);
+        impl Drop for OwnedKey {
+            fn drop(&mut self) {
+                assert!(
+                    self.0.starts_with("Software\\Susi-Registry-Test-")
+                        && self.0.matches('\\').count() == 1
+                );
+                let _ = windows_registry::CURRENT_USER.remove_tree(&self.0);
+            }
+        }
+        let cleanup = OwnedKey(path.clone());
+        let key = CURRENT_USER.create(&path).unwrap();
+        key.set_string("Susi_Test_Value", " native-test ").unwrap();
+        key.set_string("EMPTY", " ").unwrap();
+        key.set_string("bad name", "ignored").unwrap();
+        let values = read_registry_scope(CURRENT_USER, &path);
+        assert_eq!(
+            values.get("SUSI_TEST_VALUE").map(String::as_str),
+            Some("native-test")
+        );
+        assert!(!values.contains_key("EMPTY") && !values.contains_key("BAD NAME"));
+        drop(key);
+        drop(cleanup);
+        assert!(CURRENT_USER.open(&path).is_err());
     }
 
     #[test]

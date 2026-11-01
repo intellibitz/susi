@@ -623,9 +623,9 @@ fn exec_leaf(
         }
         "exec_command" => {
             let command = inputs.get("command").map(String::as_str).unwrap_or("");
-            let output = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(command)
+            let argv = command_argv(command).map_err(EaiError::process)?;
+            let output = std::process::Command::new(&argv[0])
+                .args(&argv[1..])
                 .current_dir(workspace)
                 .output()
                 .map_err(|e| EaiError::process(format!("spawn command: {e}")))?;
@@ -642,6 +642,61 @@ fn exec_leaf(
             "no executor for leaf operation {other}"
         ))),
     }
+}
+
+/// Parse one executable and literal arguments without invoking an implicit shell.
+/// Quoted spaces and Windows backslashes are preserved. Shell syntax must be
+/// requested through an explicit interpreter, whose executable remains visible
+/// to the caller's authorization policy.
+///
+/// # Errors
+/// Refuses missing executables, unmatched quotes, control characters, unquoted
+/// shell expressions and batch files that Windows would implicitly shell-launch.
+pub fn command_argv(text: &str) -> Result<Vec<String>, &'static str> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut started = false;
+    for ch in text.chars() {
+        if matches!(ch, '\0' | '\n' | '\r') {
+            return Err("command contains an unsupported control character");
+        }
+        if let Some(delimiter) = quote {
+            if ch == delimiter {
+                quote = None;
+            } else {
+                current.push(ch);
+            }
+        } else if matches!(ch, '\'' | '"') {
+            quote = Some(ch);
+            started = true;
+        } else if ch.is_whitespace() {
+            if started {
+                args.push(std::mem::take(&mut current));
+                started = false;
+            }
+        } else if matches!(ch, ';' | '&' | '|' | '<' | '>' | '`' | '$') {
+            return Err("command requires an explicit interpreter for shell expressions");
+        } else {
+            current.push(ch);
+            started = true;
+        }
+    }
+    if quote.is_some() {
+        return Err("command has an unterminated quote");
+    }
+    if started {
+        args.push(current);
+    }
+    let Some(program) = args.first().filter(|value| !value.is_empty()) else {
+        return Err("command executable is missing");
+    };
+    if program.to_ascii_lowercase().ends_with(".bat")
+        || program.to_ascii_lowercase().ends_with(".cmd")
+    {
+        return Err("batch files require an explicitly authorized command interpreter");
+    }
+    Ok(args)
 }
 
 /// Lines under `path` (or the file itself) that contain `pattern`.
@@ -693,6 +748,67 @@ fn find_files(dir: &Path, pattern: &str, out: &mut Vec<String>) -> EaiResult<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_command_arguments_preserve_paths_and_literals() {
+        assert_eq!(
+            command_argv(r#""C:\Program Files\tool.exe" --path "C:\some folder\data" "" "a&b""#)
+                .unwrap(),
+            [
+                r"C:\Program Files\tool.exe",
+                "--path",
+                r"C:\some folder\data",
+                "",
+                "a&b"
+            ]
+        );
+        assert_eq!(
+            command_argv("cmd.exe /c echo hello").unwrap(),
+            ["cmd.exe", "/c", "echo", "hello"]
+        );
+        for expression in [
+            "",
+            "\"\" arg",
+            "tool | next",
+            "tool && next",
+            "tool $(next)",
+            "tool `next`",
+            "tool > out",
+            "tool; next",
+            "tool\nnext",
+            "tool \"open",
+            "C:\\work\\test.cmd",
+        ] {
+            assert!(command_argv(expression).is_err(), "{expression}");
+        }
+    }
+
+    #[test]
+    fn intent_exec_runs_native_executable_without_implicit_shell() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let inputs = BTreeMap::from([(
+            "command".into(),
+            format!("\"{}\" --list", executable.display()),
+        )]);
+        let output = exec_leaf(
+            leaf_operation("exec_command").unwrap(),
+            &inputs,
+            directory.path(),
+        )
+        .unwrap();
+        assert!(output.contains("intent_exec_runs_native_executable_without_implicit_shell"));
+        let inputs = BTreeMap::from([("command".into(), "missing.exe; touch forbidden".into())]);
+        assert!(exec_leaf(
+            leaf_operation("exec_command").unwrap(),
+            &inputs,
+            directory.path()
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("explicit interpreter"));
+        assert!(!directory.path().join("forbidden").exists());
+    }
 
     fn scratch(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
