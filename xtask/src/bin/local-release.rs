@@ -672,8 +672,8 @@ fn run_gates(
     candidate: &Path,
     attempt: &Path,
     host: &str,
-    sysroot: Option<&trusted_sysroot::VerifiedSysroot>,
-) -> Result<String> {
+    compiler: &str,
+) -> Result<(String, Option<trusted_sysroot::VerifiedSysroot>)> {
     let target = candidate.join("target");
     let gates: &[&[&str]] = &[
         &["fmt", "--all", "--check"],
@@ -747,8 +747,20 @@ fn run_gates(
     }
     let adapters = vendor_regressions::commands(candidate, host, &target)?;
     gates.splice(4..4, adapters);
+    let mut sysroot = None;
     let mut proof = String::from(QUALIFICATION_POLICY);
     for (index, args) in gates.iter().enumerate() {
+        if sysroot.is_none()
+            && matches!(
+                args.first().map(String::as_str),
+                Some("clippy" | "test" | "build")
+            )
+            && candidate.join("crates/susi-core/Cargo.toml").is_file()
+        {
+            sysroot = Some(sysroot_license::qualify(
+                candidate, attempt, host, compiler,
+            )?);
+        }
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
         let mut command = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?;
@@ -786,7 +798,7 @@ fn run_gates(
             serde_json::to_string(&sysroot.evidence)?
         ));
     }
-    Ok(proof)
+    Ok((proof, sysroot))
 }
 
 const ARTIFACT_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
@@ -1259,14 +1271,8 @@ fn qualify_with(
         ],
     )?;
     let (host, compiler) = compiler(&candidate)?;
-    let sysroot = if candidate.join("crates/susi-core/Cargo.toml").is_file() {
-        Some(sysroot_license::qualify(
-            &candidate, &attempt, &host, &compiler,
-        )?)
-    } else {
-        None
-    };
     let (sbom, mut notices, native_audit) = inventory(&candidate, &attempt, &host)?;
+    let (mut proof, sysroot) = run_gates(&candidate, &attempt, &host, &compiler)?;
     if let Some(sysroot) = &sysroot {
         notices.push_str("\n===== Original Rust standard-library upstream notices (including omitted upstream components) =====\n");
         notices.push_str(
@@ -1276,7 +1282,6 @@ fn qualify_with(
         );
         notices.push_str("\nSelected target dependency graph and exact source delta are retained in manifest-bound gates.txt; upstream notices are preserved without relabeling.\n");
     }
-    let mut proof = run_gates(&candidate, &attempt, &host, sysroot.as_ref())?;
     // Preserve the exact compiler report inside manifest-hashed gate evidence.
     proof.push_str(&format!(
         "compiler-report={}\n",
@@ -1905,6 +1910,40 @@ mod tests {
         }
     }
 
+    #[test]
+    fn formatting_failure_precedes_any_private_toolchain_build() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        fs::create_dir_all(root.join("crates/susi-core")).unwrap();
+        fs::write(root.join("crates/susi-core/Cargo.toml"), "[package]\n").unwrap();
+        for adapter in [
+            "idna-adapter",
+            "unicode-ident",
+            "htmlescape",
+            "regex-syntax",
+            "regex-syntax/os-unicode",
+        ] {
+            let path = root.join("vendor").join(adapter);
+            fs::create_dir_all(&path).unwrap();
+            fs::write(path.join("Cargo.toml"), "[package]\n").unwrap();
+        }
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main(){println!(\"format me\");}",
+        )
+        .unwrap();
+        let attempt = fixture.0.join("format-first");
+        fs::create_dir(&attempt).unwrap();
+        let (host, compiler) = compiler(&root).unwrap();
+        let error = match run_gates(&root, &attempt, &host, &compiler) {
+            Ok(_) => panic!("malformed formatting must fail"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("cargo fmt --all --check"), "{error}");
+        assert!(attempt.join("gate-0.log").is_file());
+        assert!(!attempt.join("gate-1.log").exists());
+        assert!(!root.join(".git/susi-product-sysroots").exists());
+    }
     #[test]
     fn selected_product_feature_proof_rejects_missing_or_ambiguous_features() {
         assert!(selected_features("other v1.0|pure", "blake3", "1.8").is_err());
