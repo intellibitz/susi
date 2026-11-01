@@ -8,6 +8,11 @@ tests, debugging, dependency replacement, conflict resolution, integration and
 production qualification. Communicate outcomes and evidence; never ask the CEO
 to inspect code, perform technical steps, or provide routine engineering review.
 
+This delivery is **Step 1 of the CEO's 100-step vision**. A CEO must be able to
+build, test, improve and use Susi through agents and Susi itself. Finish and
+measure the native local delivery loop in `docs/step1-acceptance.md` before
+declaring Step 1 complete or moving its unfinished obligations into later steps.
+
 The constitution is `.agents/identity.json`, compiled into the runtime. Mandates
 62–71 express the CEO's ten requirements; revised Mandates 43–54 and 61 remove
 conflicting historical shell/GitHub/human-engineering prerequisites. Existing
