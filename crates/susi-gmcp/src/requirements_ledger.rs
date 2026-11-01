@@ -199,13 +199,52 @@ pub fn report_json(report: &LedgerReport) -> serde_json::Value {
         "dispositions": report.dispositions,
         "categories": report.categories,
         "vectors": report.vectors,
-        "verified": true
+        "verified": true,
+        "verified_scope": "pinned corpus and requirement classification",
+        "implementation_verified": false
     })
 }
 
 /// Verify the pinned ledger under `root` and render the canonical report.
 pub fn verify_report_json(root: &Path) -> Result<serde_json::Value, EaiError> {
-    verify_pinned_ledger(root).map(|report| report_json(&report))
+    let (report, trace) = verify_pinned_ledger_inner(root, true)?;
+    let trace = trace.ok_or_else(|| EaiError::config("trace audit was not produced"))?;
+    let mut json = report_json(&report);
+    json["trace_references"] = serde_json::json!({
+        "rows_with_missing_production_path": trace.missing_production,
+        "rows_with_missing_evidence": trace.missing_evidence,
+        "tests_and_implementation": "not verified"
+    });
+    Ok(json)
+}
+
+// Existence is diagnostic, not proof of implementation. Each unique path is
+// checked once, since many rows share references and Windows metadata is slow.
+#[derive(Default)]
+struct TraceAudit {
+    paths: BTreeMap<String, bool>,
+    missing_production: usize,
+    missing_evidence: usize,
+}
+
+impl TraceAudit {
+    fn observe(&mut self, root: &Path, trace: &Trace) {
+        for (path, count) in [
+            (&trace.production_path, &mut self.missing_production),
+            (&trace.evidence, &mut self.missing_evidence),
+        ] {
+            let exists = if let Some(exists) = self.paths.get(path) {
+                *exists
+            } else {
+                let exists = confined_document(path).is_ok() && root.join(path).exists();
+                self.paths.insert(path.clone(), exists);
+                exists
+            };
+            if !exists {
+                *count += 1;
+            }
+        }
+    }
 }
 
 /// Bounded read for the verifier's own JSON artifacts — stat first so a
@@ -403,6 +442,13 @@ fn load_json<T: for<'de> Deserialize<'de>>(root: &Path, rel: &str) -> Result<T, 
 /// source verbatim, a duplicate row id, a missing trace field, or a required
 /// revision/category with zero rows.
 pub fn verify_pinned_ledger(root: &Path) -> Result<LedgerReport, EaiError> {
+    verify_pinned_ledger_inner(root, false).map(|(report, _)| report)
+}
+
+fn verify_pinned_ledger_inner(
+    root: &Path,
+    audit_traces: bool,
+) -> Result<(LedgerReport, Option<TraceAudit>), EaiError> {
     let ledger: RequirementsLedger = load_json(root, ".agents/gmcp/requirements-ledger.json")?;
     if ledger.schema != LEDGER_SCHEMA {
         return Err(EaiError::config(format!(
@@ -538,6 +584,7 @@ pub fn verify_pinned_ledger(root: &Path) -> Result<LedgerReport, EaiError> {
     let mut dispositions: BTreeMap<String, usize> = BTreeMap::new();
     let mut categories: BTreeMap<String, usize> = BTreeMap::new();
     let mut vectors: BTreeSet<String> = BTreeSet::new();
+    let mut trace_audit = audit_traces.then(TraceAudit::default);
 
     for row in &ledger.requirements {
         if row.id.is_empty() || !ids.insert(row.id.as_str()) {
@@ -559,6 +606,9 @@ pub fn verify_pinned_ledger(root: &Path) -> Result<LedgerReport, EaiError> {
             )));
         }
         let trace = &row.trace;
+        if let Some(audit) = &mut trace_audit {
+            audit.observe(root, trace);
+        }
         for (name, value) in [
             ("vector", &trace.vector),
             ("owner", &trace.owner),
@@ -665,12 +715,15 @@ pub fn verify_pinned_ledger(root: &Path) -> Result<LedgerReport, EaiError> {
         }
     }
 
-    Ok(LedgerReport {
-        rows: ledger.requirements.len(),
-        documents: manifest.files.len(),
-        revisions,
-        dispositions,
-        categories,
-        vectors: vectors.len(),
-    })
+    Ok((
+        LedgerReport {
+            rows: ledger.requirements.len(),
+            documents: manifest.files.len(),
+            revisions,
+            dispositions,
+            categories,
+            vectors: vectors.len(),
+        },
+        trace_audit,
+    ))
 }
