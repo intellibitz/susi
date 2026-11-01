@@ -55,4 +55,4 @@ blocks within the one safe wrapper. The count includes expressions inside those
 blocks, not just the seven Windows/POD operations. No ratchet baseline changed.
 
 Reviewed `src/detached.rs` SHA-256 (UTF-8, LF):
-`e4e1f7f58ad82fb332db65619a772d7e960cce43ed8b8a9e87f72353e315109c`.
+`3aa44740bf998a5b7191a3b4169881407e38df6e0c4b7a6987705a7f0c7a4f6e`.
