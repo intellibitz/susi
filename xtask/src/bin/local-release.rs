@@ -686,18 +686,89 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
     Ok(proof)
 }
 
-fn smoke(binary: &Path, scratch: &Path) -> Result<()> {
-    for (index, arg) in ["--version", "--help"].iter().enumerate() {
-        let out = isolated_command(binary, &scratch.join("home"))?
-            .arg(arg)
-            .output()?;
-        fs::write(scratch.join(format!("smoke-{index}.stdout")), &out.stdout)?;
-        fs::write(scratch.join(format!("smoke-{index}.stderr")), &out.stderr)?;
-        if !out.status.success() || out.stdout.is_empty() {
-            return Err(format!("artifact smoke failed: {arg} ({})", out.status).into());
+const ARTIFACT_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
+const HEALTH_RSS_BUDGET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const HEALTH_OUTPUT_BUDGET_BYTES: u64 = 2 * 1024 * 1024;
+const HEALTH_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// These limits are versioned acceptance policy, not user configuration or a
+/// claim that the program consumes zero resources. RSS is sampled foreground
+/// process memory: it does not measure descendants or an OS peak working set.
+fn measured_health(
+    mut command: Command,
+    scratch: &Path,
+    label: &str,
+    timeout: std::time::Duration,
+) -> Result<String> {
+    let stdout = fs::File::create(scratch.join(format!("{label}.stdout")))?;
+    let stderr = fs::File::create(scratch.join(format!("{label}.stderr")))?;
+    command
+        .stdin(Stdio::null())
+        .stdout(stdout.try_clone()?)
+        .stderr(stderr.try_clone()?);
+    let started = std::time::Instant::now();
+    let mut child = command.spawn()?;
+    let pid = sysinfo::Pid::from_u32(child.id());
+    let mut system = sysinfo::System::new();
+    let mut sampled_rss = 0;
+    let outcome = (|| -> Result<_> {
+        loop {
+            system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+            if let Some(process) = system.process(pid) {
+                sampled_rss = sampled_rss.max(process.memory());
+            }
+            let output_bytes = stdout.metadata()?.len() + stderr.metadata()?.len();
+            if sampled_rss > HEALTH_RSS_BUDGET_BYTES
+                || output_bytes > HEALTH_OUTPUT_BUDGET_BYTES
+                || started.elapsed() > timeout
+            {
+                return Err(format!("health resource budget exceeded: {label}").into());
+            }
+            if let Some(status) = child.try_wait()? {
+                if !status.success() || stdout.metadata()?.len() == 0 {
+                    return Err(format!("artifact health failed: {label} ({status})").into());
+                }
+                return Ok(output_bytes);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
+    })();
+    if outcome.is_err() {
+        // Reap the exact owned child, never kill an unrelated system process.
+        let _ = child.kill();
+        let _ = child.wait();
     }
-    Ok(())
+    let report = serde_json::json!({
+        "command": label,
+        "elapsed_ms": started.elapsed().as_millis(),
+        "sampled_foreground_rss_bytes": sampled_rss,
+        "rss_budget_bytes": HEALTH_RSS_BUDGET_BYTES,
+        "deadline_ms": timeout.as_millis(),
+        "output_budget_bytes": HEALTH_OUTPUT_BUDGET_BYTES,
+        "output_bytes": stdout.metadata()?.len() + stderr.metadata()?.len(),
+        "passed": outcome.is_ok(),
+    })
+    .to_string();
+    fs::write(scratch.join(format!("{label}.resources.json")), &report)?;
+    outcome?;
+    Ok(report)
+}
+
+fn smoke(binary: &Path, scratch: &Path) -> Result<String> {
+    let bytes = fs::metadata(binary)?.len();
+    if bytes == 0 || bytes > ARTIFACT_BUDGET_BYTES {
+        return Err("artifact exceeds the 256 MiB release budget or is empty".into());
+    }
+    let mut proof = format!("artifact-bytes={bytes};budget={ARTIFACT_BUDGET_BYTES}\n");
+    // Status exercises real startup and substrate reporting beyond Clap's
+    // version/help early exits. This does not certify inference or a daemon.
+    for (index, arg) in ["--version", "--help", "status"].iter().enumerate() {
+        let mut command = isolated_command(binary, &scratch.join("home"))?;
+        command.current_dir(scratch).arg(arg);
+        let report = measured_health(command, scratch, &format!("smoke-{index}"), HEALTH_BUDGET)?;
+        proof.push_str(&format!("health {arg}: {report}\n"));
+    }
+    Ok(proof)
 }
 
 #[derive(Debug)]
@@ -804,14 +875,14 @@ fn qualify(ctx: &Context) -> Result<String> {
     )?;
     let (host, compiler) = compiler(&candidate)?;
     let (sbom, notices, native_audit) = inventory(&candidate, &attempt, &host)?;
-    let proof = run_gates(&candidate, &attempt, &host)?;
+    let mut proof = run_gates(&candidate, &attempt, &host)?;
     let binary = candidate
         .join("target")
         .join(&host)
         .join("release")
         .join(binary_name());
     let before = file_digest(&binary)?;
-    smoke(&binary, &attempt)?;
+    proof.push_str(&smoke(&binary, &attempt)?);
     if file_digest(&binary)? != before {
         return Err("artifact changed during smoke check".into());
     }
@@ -1102,6 +1173,55 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked only by the health budget regression"]
+    fn health_budget_child_fixture() {
+        match env::var("SUSI_HEALTH_TEST_MODE").as_deref() {
+            Ok("hang") => std::thread::sleep(std::time::Duration::from_secs(60)),
+            Ok("output") => {
+                let block = vec![b'x'; HEALTH_OUTPUT_BUDGET_BYTES as usize + 1024];
+                std::io::stdout().write_all(&block).unwrap();
+            }
+            Ok("pass") => println!("healthy fixture"),
+            _ => panic!("fixture must be explicitly configured by its parent test"),
+        }
+    }
+
+    #[test]
+    fn health_budgets_measure_success_and_reap_timeout_and_output_failures() {
+        let scratch = env::temp_dir().join(format!("susi-health-budget-{}", stamp().unwrap()));
+        fs::create_dir(&scratch).unwrap();
+        for mode in ["pass", "hang", "output"] {
+            let mut command = Command::new(env::current_exe().unwrap());
+            command
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "tests::health_budget_child_fixture",
+                    "--nocapture",
+                ])
+                .env("SUSI_HEALTH_TEST_MODE", mode);
+            let timeout = if mode == "hang" {
+                std::time::Duration::from_millis(200)
+            } else {
+                std::time::Duration::from_secs(10)
+            };
+            let started = std::time::Instant::now();
+            let result = measured_health(command, &scratch, mode, timeout);
+            assert_eq!(result.is_ok(), mode == "pass", "{mode}: {result:?}");
+            assert!(started.elapsed() < std::time::Duration::from_secs(15));
+            let evidence: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(scratch.join(format!("{mode}.resources.json"))).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(evidence["passed"], mode == "pass");
+            assert!(evidence["elapsed_ms"].as_u64().is_some());
+            if mode == "output" {
+                assert!(evidence["output_bytes"].as_u64().unwrap() > HEALTH_OUTPUT_BUDGET_BYTES);
+            }
+        }
+    }
 
     struct Fixture(PathBuf);
     impl Fixture {
