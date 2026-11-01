@@ -11,7 +11,10 @@ use std::{
 };
 
 fn digest(path: &Path) -> String {
-    format!("{:x}", Sha256::digest(fs::read(path).unwrap()))
+    Sha256::digest(fs::read(path).unwrap())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn isolated(program: &Path, home: &Path) -> Command {
