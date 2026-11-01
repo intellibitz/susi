@@ -336,6 +336,15 @@ fn git_out(ws: &Path, args: &[&str]) -> EaiResult<String> {
 fn remote_reservation(ws: &Path, name: &str) -> EaiResult<(String, Option<CutReservation>)> {
     let listed = git_out(ws, &["ls-remote", "origin", name])?;
     let sha = listed.split_whitespace().next().unwrap_or("").to_string();
+    read_remote_reservation(ws, name, sha)
+}
+
+/// Fetch and decode a reservation whose advertised object ID is already known.
+fn read_remote_reservation(
+    ws: &Path,
+    name: &str,
+    sha: String,
+) -> EaiResult<(String, Option<CutReservation>)> {
     if sha.is_empty() {
         return Ok((sha, None));
     }
@@ -347,6 +356,33 @@ fn remote_reservation(ws: &Path, name: &str) -> EaiResult<(String, Option<CutRes
         .ok()
         .and_then(|body| serde_json::from_str(&body).ok());
     Ok((sha, record))
+}
+
+/// Read the release tag and reservation in one remote advertisement. The
+/// reservation is still re-read and claimed with compare-and-swap at cut time.
+fn release_preflight_refs(ws: &Path, version: &str) -> EaiResult<(bool, String)> {
+    let tag = format!("refs/tags/v{version}");
+    let reservation = reservation_ref(version);
+    let listing = git_out(ws, &["ls-remote", "--refs", "origin", &tag, &reservation])?;
+    let mut tagged = false;
+    let mut reservation_sha = String::new();
+    for line in listing.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(sha), Some(name), None) = (fields.next(), fields.next(), fields.next()) else {
+            return Err(EaiError::process("invalid release ref advertisement"));
+        };
+        if !matches!(sha.len(), 40 | 64) || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(EaiError::process("invalid release ref object ID"));
+        }
+        if name == tag && !tagged {
+            tagged = true;
+        } else if name == reservation && reservation_sha.is_empty() {
+            reservation_sha = sha.to_string();
+        } else {
+            return Err(EaiError::process("unexpected or duplicate release ref"));
+        }
+    }
+    Ok((tagged, reservation_sha))
 }
 
 /// Reserve `version` for this branch before the gate runs: the
@@ -448,11 +484,24 @@ impl SusiAdmin {
             Ok(next) => next,
             Err(e) => return Some(format!("cannot work out the version to cut: {e}")),
         };
-        if let Some(why) = Self::release_already_cut(workspace, &next) {
+        let (tagged, reservation_sha) = match release_preflight_refs(workspace, &next) {
+            Ok(refs) => refs,
+            Err(e) => {
+                return Some(format!(
+                    "could not check the tag and reservation of v{next}: {e}"
+                ))
+            }
+        };
+        if tagged {
+            return Some(format!(
+                "v{next} is already tagged on origin: it is released"
+            ));
+        }
+        if let Some(why) = Self::release_open_pr(workspace, &next) {
             return Some(why);
         }
         let branch = git_out(workspace, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
-        match remote_reservation(workspace, &reservation_ref(&next)) {
+        match read_remote_reservation(workspace, &reservation_ref(&next), reservation_sha) {
             Ok((_, Some(held))) if held.branch != branch && held.expires_unix > unix_now() => {
                 Some(format!(
                     "v{next} is being cut by {} on {} (reserved until unix {}): let that cut \
@@ -1816,6 +1865,53 @@ mod tests {
             .map(|w| w[1])
             .expect("a nextest filter");
         assert_eq!(filter, "not binary(capability_gap_e2e)");
+    }
+
+    #[test]
+    fn release_preflight_batches_tag_and_reservation_without_losing_guards() {
+        let work = repo("preflight-batched");
+        std::fs::write(
+            work.join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"1.2.2\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            release_preflight_refs(&work, "1.2.3").unwrap(),
+            (false, String::new())
+        );
+        assert!(git_in(&work, &["checkout", "-q", "-b", "holder"])
+            .status
+            .success());
+        reserve_version_at(&work, "1.2.3", 600, unix_now()).unwrap();
+        let (tagged, sha) = release_preflight_refs(&work, "1.2.3").unwrap();
+        assert!(!tagged && !sha.is_empty());
+        assert!(git_in(&work, &["checkout", "-q", "-b", "other"])
+            .status
+            .success());
+        let why = SusiAdmin::release_preflight(&work, VersionBump::Patch)
+            .expect("live reservation is refused");
+        assert!(why.contains("holder"), "{why}");
+        assert!(git_in(&work, &["tag", "-a", "v1.2.3", "-m", "tag"])
+            .status
+            .success());
+        assert!(git_in(&work, &["push", "-q", "origin", "refs/tags/v1.2.3"])
+            .status
+            .success());
+        let (tagged, listed_sha) = release_preflight_refs(&work, "1.2.3").unwrap();
+        assert!(tagged);
+        assert_eq!(
+            listed_sha, sha,
+            "annotated tag peeling must not replace the reservation"
+        );
+        let why = SusiAdmin::release_preflight(&work, VersionBump::Patch)
+            .expect("tagged version is refused");
+        assert!(why.contains("already tagged"), "{why}");
+        assert!(git_in(&work, &["remote", "remove", "origin"])
+            .status
+            .success());
+        let why = SusiAdmin::release_preflight(&work, VersionBump::Patch)
+            .expect("unreachable origin fails closed");
+        assert!(why.contains("could not check"), "{why}");
     }
 
     fn reservation_on_origin(work: &Path, version: &str) -> Option<CutReservation> {

@@ -187,3 +187,9 @@ fn changed_file_mode_is_rejected() {
     f.git(&["commit", "-qm", "change mode"]);
     assert!(!f.accepted());
 }
+
+#[test]
+fn classifier_runs_before_sccache_with_wrappers_disabled() {
+    let workflow = include_str!("../../.github/workflows/test.yml");
+    assert!(workflow.contains("RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= cargo run --locked --quiet -p xtask --bin ci-release-only"));
+}
