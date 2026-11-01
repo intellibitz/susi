@@ -84,6 +84,159 @@ fn newest_records(evidence: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// A ledger path the repository can hold: relative, with no `..` (or `.`)
+/// component, so an absolute path or a traversal to a host file never
+/// counts as present. The production verifier confines its documents the
+/// same way.
+fn confined_repo_path(path: &str) -> bool {
+    let path = Path::new(path);
+    !path.as_os_str().is_empty()
+        && !path.is_absolute()
+        && path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+}
+
+/// Whether `name` is a test item in `src`: a top-level `fn name()` whose
+/// own attribute lines, the ones directly above it, include `#[test]`. Doc
+/// and line comments between the attributes are skipped, never read: a
+/// comment that mentions `#[test]` above a helper does not make it a test.
+fn is_test_fn(src: &str, name: &str) -> bool {
+    let lines: Vec<&str> = src.lines().collect();
+    let Some(at) = lines
+        .iter()
+        .position(|line| *line == format!("fn {name}() {{"))
+    else {
+        return false;
+    };
+    for line in lines[..at].iter().rev().map(|line| line.trim()) {
+        if line == "#[test]" {
+            return true;
+        }
+        if line.starts_with("#[") || line.starts_with("//") {
+            continue;
+        }
+        return false;
+    }
+    false
+}
+
+/// The files a vector's GMCP evidence was proven against: every confined
+/// production path the vector's rows name that exists, plus the inputs all
+/// the checks share (below). `scripts/gmcp-record-evidence.sh` builds the
+/// same set.
+fn evidence_artifacts(root: &Path, vector: &str) -> Vec<String> {
+    let ledger: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("the canonical ledger must exist"),
+    )
+    .expect("the ledger must parse");
+    let mut paths: std::collections::BTreeSet<String> = ledger["requirements"]
+        .as_array()
+        .expect("requirements")
+        .iter()
+        .filter(|row| row["trace"]["vector"] == vector)
+        .filter_map(|row| row["trace"]["production_path"].as_str())
+        .filter(|path| confined_repo_path(path) && root.join(path).exists())
+        .map(str::to_string)
+        .collect();
+    // What every recorded check reads besides the vector's production
+    // code: the tests, the ledger and its pinned corpus, the contracts and
+    // fixtures, the ledger checker, and the GMCP crate the binary is built
+    // from. Never `.agents/gmcp/evidence`: a record cannot digest itself.
+    for shared in [
+        "tests/gmcp_requirements.rs",
+        ".agents/gmcp/requirements-ledger.json",
+        ".agents/gmcp/sources.json",
+        ".agents/gmcp/spec",
+        ".agents/gmcp/fixtures",
+        "docs/gmcp",
+        "docs/gmcp-roadmap.md",
+        "scripts/check-gmcp-ledger.sh",
+        "crates/susi-gmcp",
+    ] {
+        if root.join(shared).exists() {
+            paths.insert(shared.to_string());
+        }
+    }
+    paths.into_iter().collect()
+}
+
+/// The sha256 of `git ls-tree -r --full-tree <rev> -- <artifacts>`: every
+/// artifact's object id at `rev`. Git objects, not the working tree, so a
+/// shallow CI clone digests HEAD as well as a full one; `None` when `rev` is
+/// not in this clone.
+fn artifacts_digest(root: &Path, rev: &str, artifacts: &[String]) -> Option<String> {
+    use sha2::Digest as _;
+    let out = Command::new("git")
+        .args(["ls-tree", "-r", "--full-tree", rev, "--"])
+        .args(artifacts)
+        .current_dir(root)
+        .output()
+        .ok()?;
+    (out.status.success() && !out.stdout.is_empty())
+        .then(|| hex::encode(sha2::Sha256::digest(&out.stdout)))
+}
+
+/// A vector's evidence binds to the code it ran on: each record names
+/// `tested_commit`, the commit its check passed on, and `tested_artifacts`,
+/// the [`artifacts_digest`] of [`evidence_artifacts`] there. A record counts
+/// only while that digest is still HEAD's: a change to any file its checks
+/// read makes it stale until the checks run again and are re-recorded
+/// (`scripts/gmcp-record-evidence.sh`).
+/// In a full clone the commit must exist, be in HEAD's history and digest to
+/// the recorded value; a shallow clone (the CI test shards) cannot look it up
+/// and rests on the digest alone.
+fn assert_bound_to_tested_commit(
+    root: &Path,
+    record: &serde_json::Value,
+    artifacts: &[String],
+    head_digest: &str,
+) {
+    let requirement = record["requirement"].as_str().unwrap_or("?");
+    let commit = record["tested_commit"].as_str().unwrap_or_default();
+    assert!(
+        commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()),
+        "{requirement}: evidence must name the commit its check ran on (tested_commit)"
+    );
+    assert_eq!(
+        record["tested_artifacts"].as_str(),
+        Some(head_digest),
+        "{requirement}: stale evidence: a file its checks read (the tests, the ledger and \
+         its corpus, a contract or fixture, the GMCP crate or the vector's production \
+         code) changed since {commit}; run the checks again and re-record them \
+         (scripts/gmcp-record-evidence.sh)"
+    );
+    let shallow = Command::new("git")
+        .args(["rev-parse", "--is-shallow-repository"])
+        .current_dir(root)
+        .output()
+        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == "true");
+    let at_commit = artifacts_digest(root, commit, artifacts);
+    // A full clone holds every commit HEAD descends from: a tested_commit it
+    // cannot find was never one of them (an invented id fails here). Only a
+    // shallow clone, which cannot tell, rests on the digest above.
+    assert!(
+        at_commit.is_some() || shallow,
+        "{requirement}: tested_commit {commit} is not in this repository"
+    );
+    if let Some(at_commit) = at_commit {
+        assert_eq!(
+            at_commit, head_digest,
+            "{requirement}: tested_artifacts does not describe {commit}"
+        );
+        let ancestor = Command::new("git")
+            .args(["merge-base", "--is-ancestor", commit, "HEAD"])
+            .current_dir(root)
+            .status()
+            .is_ok_and(|status| status.success());
+        assert!(
+            ancestor,
+            "{requirement}: tested_commit {commit} is not in HEAD's history"
+        );
+    }
+}
+
 /// A record line for the `newest_records` tests.
 fn evidence_line(requirement: &str, at: u64, who: &str, supersedes: Option<(u64, &str)>) -> String {
     let mut record = serde_json::json!({
@@ -100,6 +253,17 @@ fn evidence_line(requirement: &str, at: u64, who: &str, supersedes: Option<(u64,
         });
     }
     record.to_string()
+}
+
+#[test]
+fn is_test_fn_reads_the_attribute_not_a_comment() {
+    let src = "#[test]\n/// docs\nfn real_one() {\n}\n\n\
+               /// Not a test despite mentioning #[test].\nfn fabricated() {\n}\n\n\
+               #[test]\n#[should_panic]\nfn attributed() {\n}\n";
+    assert!(is_test_fn(src, "real_one"));
+    assert!(is_test_fn(src, "attributed"));
+    assert!(!is_test_fn(src, "fabricated"));
+    assert!(!is_test_fn(src, "absent"));
 }
 
 #[test]
@@ -1606,6 +1770,11 @@ fn gmcp_vc_203_001_mastery() {
         tool, cli,
         "the shipped tool must emit the identical canonical report"
     );
+    let binary = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(
+        binary, cli,
+        "`susi mcp ledger` on the built binary must emit the identical canonical report"
+    );
 
     // ── Row-level traceability on the shipped artifact: every row
     //    names an owner, an existing production path, both tests, an
@@ -1632,6 +1801,10 @@ fn gmcp_vc_203_001_mastery() {
         }
         let production = row["trace"]["production_path"].as_str().unwrap();
         let reason = row["disposition"]["reason"].as_str().unwrap_or_default();
+        assert!(
+            confined_repo_path(production),
+            "{id}: production path {production} must be a path inside the repository"
+        );
         assert!(
             root.join(production).exists() || reason.contains("NOT IMPLEMENTED"),
             "{id}: production path {production} must exist, or the row must disclose \
@@ -1661,7 +1834,18 @@ fn gmcp_vc_203_001_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-001.jsonl"))
         .expect("VC-203-001 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-001");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -1702,31 +1886,20 @@ fn gmcp_vc_203_001_mastery() {
             recorded > 1_792_256_000 && recorded <= now + 60,
             "recorded_unix {recorded} must be a plausible recent timestamp"
         );
-        // Zero-test evidence: the check must be a real command on a
-        // committed artifact — at least one argument must resolve to an
-        // existing repo path, and a `cargo test` command must name a
-        // test that exists in the named file. Prose, task IDs, and
-        // invented commands are not proof.
+        // Zero-test evidence: every VC-203-001 check is a test in this
+        // file, named exactly and carrying `#[test]`. Prose, task IDs, and
+        // invented commands (or any other command that merely mentions a
+        // repository path) are not proof.
         let check = record["check"].as_str().unwrap();
-        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
-        {
-            // The committed artifact behind a cargo-test check is the
-            // named test target's file plus the test function itself.
-            assert!(
-                test_name.starts_with("gmcp_")
-                    && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
-                "evidence names a test that does not exist: {test_name}"
-            );
-        } else {
-            assert!(
-                check
-                    .split_whitespace()
-                    .filter(|token| !token.starts_with('-'))
-                    .any(|token| root.join(token).exists()),
-                "evidence check must reference a committed artifact: {check}"
-            );
-        }
+        let test_name = check
+            .strip_prefix("cargo test --locked --test gmcp_requirements ")
+            .unwrap_or_else(|| panic!("evidence check must be a gmcp_requirements test: {check}"));
+        assert!(
+            test_name.starts_with("gmcp_")
+                && !test_name.contains(char::is_whitespace)
+                && is_test_fn(&test_src, test_name),
+            "evidence names a test that does not exist: {test_name}"
+        );
         covered.insert(record["requirement"].as_str().unwrap().to_string());
     }
     for req in [
@@ -1736,13 +1909,19 @@ fn gmcp_vc_203_001_mastery() {
         "GMCP-203-001-04",
         "GMCP-203-001-05",
         "GMCP-203-001-06",
-        "GMCP-203-001-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
 
     // ── Committed proof: locally modified artifacts are not
     //    evidence — the pinned tree must be clean against git ────────
+    // The implementation the ledger traces is part of the proof too: a
+    // locally modified production file is not committed evidence.
+    let production_paths: std::collections::BTreeSet<&str> = rows
+        .iter()
+        .filter_map(|row| row["trace"]["production_path"].as_str())
+        .filter(|path| confined_repo_path(path) && root.join(path).exists())
+        .collect();
     let status = Command::new("git")
         .args([
             "status",
@@ -1752,6 +1931,7 @@ fn gmcp_vc_203_001_mastery() {
             "docs/gmcp",
             "tests/gmcp_requirements.rs",
         ])
+        .args(&production_paths)
         .current_dir(root)
         .output()
         .expect("git status must run — committed proof is required");
@@ -3183,7 +3363,18 @@ fn gmcp_vc_203_002_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
         .expect("VC-203-002 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-002");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -3232,7 +3423,7 @@ fn gmcp_vc_203_002_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -3253,7 +3444,6 @@ fn gmcp_vc_203_002_mastery() {
         "GMCP-203-002-04",
         "GMCP-203-002-05",
         "GMCP-203-002-06",
-        "GMCP-203-002-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -4530,7 +4720,18 @@ fn gmcp_vc_203_003_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
         .expect("VC-203-003 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-003");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -4574,7 +4775,7 @@ fn gmcp_vc_203_003_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -4595,7 +4796,6 @@ fn gmcp_vc_203_003_mastery() {
         "GMCP-203-003-04",
         "GMCP-203-003-05",
         "GMCP-203-003-06",
-        "GMCP-203-003-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -6168,7 +6368,18 @@ fn gmcp_vc_203_008_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
         .expect("VC-203-008 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-008");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -6212,7 +6423,7 @@ fn gmcp_vc_203_008_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -6233,7 +6444,6 @@ fn gmcp_vc_203_008_mastery() {
         "GMCP-203-008-04",
         "GMCP-203-008-05",
         "GMCP-203-008-06",
-        "GMCP-203-008-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -11091,7 +11301,18 @@ fn gmcp_vc_203_004_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
         .expect("VC-203-004 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-004");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -11135,7 +11356,7 @@ fn gmcp_vc_203_004_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -11156,7 +11377,6 @@ fn gmcp_vc_203_004_mastery() {
         "GMCP-203-004-04",
         "GMCP-203-004-05",
         "GMCP-203-004-06",
-        "GMCP-203-004-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -11398,7 +11618,18 @@ fn gmcp_vc_203_005_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-005.jsonl"))
         .expect("VC-203-005 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-005");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -11442,7 +11673,7 @@ fn gmcp_vc_203_005_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -11463,7 +11694,6 @@ fn gmcp_vc_203_005_mastery() {
         "GMCP-203-005-04",
         "GMCP-203-005-05",
         "GMCP-203-005-06",
-        "GMCP-203-005-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -11758,7 +11988,18 @@ fn gmcp_vc_203_006_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-006.jsonl"))
         .expect("VC-203-006 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-006");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -11802,7 +12043,7 @@ fn gmcp_vc_203_006_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -11823,7 +12064,6 @@ fn gmcp_vc_203_006_mastery() {
         "GMCP-203-006-04",
         "GMCP-203-006-05",
         "GMCP-203-006-06",
-        "GMCP-203-006-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -13278,7 +13518,18 @@ fn gmcp_vc_203_009_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-009");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -13322,7 +13573,7 @@ fn gmcp_vc_203_009_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -13343,7 +13594,6 @@ fn gmcp_vc_203_009_mastery() {
         "GMCP-203-009-04",
         "GMCP-203-009-05",
         "GMCP-203-009-06",
-        "GMCP-203-009-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }
@@ -13542,7 +13792,18 @@ fn gmcp_vc_203_013_mastery() {
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-013.jsonl"))
         .expect("VC-203-013 must retain an evidence artifact");
     let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-013");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
     for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
         for field in [
             "requirement",
             "check",
@@ -13586,7 +13847,7 @@ fn gmcp_vc_203_013_mastery() {
             assert!(
                 test_name.starts_with("gmcp_")
                     && !test_name.contains(char::is_whitespace)
-                    && test_src.contains(&format!("fn {test_name}")),
+                    && is_test_fn(&test_src, test_name),
                 "evidence names a test that does not exist: {test_name}"
             );
         } else {
@@ -13607,7 +13868,6 @@ fn gmcp_vc_203_013_mastery() {
         "GMCP-203-013-04",
         "GMCP-203-013-05",
         "GMCP-203-013-06",
-        "GMCP-203-013-M",
     ] {
         assert!(covered.contains(req), "missing evidence record for {req}");
     }

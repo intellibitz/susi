@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-18",
+  "title": "gmcp evidence binds to the tested commit (two-phase recording: mastery records only after their tests pass); fail closed on unavailable commits; wider artifact set; parsed #[test]",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793521292,
+  "closed": {
+    "at_unix": 1793522203,
+    "commit": "633da6f342c9aee738647d9ddef2abf53fdd6731",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}
