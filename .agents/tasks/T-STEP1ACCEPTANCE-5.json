@@ -1,7 +1,7 @@
 {
   "id": "T-STEP1ACCEPTANCE-5",
   "title": "Verify final native Windows combined source through immutable local integration",
-  "status": "pending",
+  "status": "failed",
   "owner": "step1-acceptance-v5",
   "scopes": [
     ".agents/tasks/T-STEP1ACCEPTANCE-5.json"
@@ -27,5 +27,7 @@
     "Windows native lifecycle and source-owned integration checks"
   ],
   "prior_attempt": "v4 canceled before workspace build to remove legacy Unix shell prerequisites from Windows gates",
-  "production_status": "Separate optimized qualification and real clean-machine A/B promotion and rollback remain required"
+  "production_status": "Separate optimized qualification and real clean-machine A/B promotion and rollback remain required",
+  "integration": "No acceptance ref published. Architecture test rejects unannotated panic-path allow at crates/susi-vendor-winapi/src/detached.rs:188. Attempt step1-acceptance-v5-1793563576943329100-38680 retained. Formatting, strict licenses, fresh authenticated sysroot/consumer and all-target Clippy passed.",
+  "recovery": "Before integration, verified canceled prior PID24420 absent and no local-workflow process; manually preserved its stale integration lock by rename to integration/canceled-lock-24420-acceptance-v4. This was agent recovery, not automatic crash recovery."
 }
