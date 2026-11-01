@@ -128,8 +128,8 @@ dispatch_suite() {
     echo "dispatched the Test workflow on $ref ($sha); waiting for it"
 }
 
-# A run for this commit that has not finished is watched before anything is
-# dispatched: when a version bump merges, the merge bot dispatches the
+# A run already running or queued for a runner is watched before dispatching:
+# when a version bump merges, the merge bot dispatches the
 # post-merge suite on main and then this workflow on the tag, so that suite is
 # nearly always still running when this starts. Dispatching a second one ran
 # the whole suite twice (v0.21.26: both runs started within 30 s, each took
@@ -139,7 +139,11 @@ dispatch_suite() {
 # one is below: a green one that turns out to be a branch gate is passed over
 # and the suite is dispatched then.
 started=$(date +%s)
-run=$(full_suite_runs | jq -r 'select(.status != "completed") | .databaseId' | head -n 1)
+# GitHub reports a run held behind the main concurrency group as `pending`.
+# It may sit there for an entire unrelated suite, so dispatch on the tag (a
+# separate concurrency group) instead. A queued or running run is already past
+# that group: reuse it to avoid competing with a second copy of the suite.
+run=$(full_suite_runs | jq -r 'select(.status == "in_progress" or .status == "queued") | .databaseId' | head -n 1)
 if [ -n "$run" ]; then
     echo "a run for $sha is still in flight (run $run) — watching it rather than dispatching the suite again"
 else
