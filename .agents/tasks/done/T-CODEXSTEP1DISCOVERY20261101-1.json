@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1DISCOVERY20261101-1",
+  "title": "Fast truthful local ecosystem discovery on Windows",
+  "goal": "CEO step 1: discover usable runtimes without serial probe delays or directory-only readiness claims",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "local_ecosystem",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1DISCOVERY20261101",
+  "created_unix": 1793524003,
+  "closed": {
+    "at_unix": 1793524627,
+    "commit": "6247ff87eaabf142234403e1efaa7dd318d92399",
+    "by": "CODEXSTEP1DISCOVERY20261101"
+  }
+}

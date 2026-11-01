@@ -5,6 +5,7 @@
 //!
 //! Third-party names, ports and health paths live here (vendor code); the
 //! scan is generic over [`Probe`] so it is tested without touching the host.
+use rayon::prelude::*;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use crate::runtime_lifecycle::{
 use crate::susi_error::{EaiError, EaiResult};
 
 /// Everything the scan needs from the host.
-pub trait Probe {
+pub trait Probe: Sync {
     fn which(&self, program: &str) -> Option<PathBuf>;
     fn home(&self) -> Option<PathBuf>;
     fn exists(&self, path: &Path) -> bool;
@@ -30,7 +31,7 @@ struct Def {
     id: &'static str,
     name: &'static str,
     binaries: &'static [&'static str],
-    /// Home-relative directories whose presence proves an install or model store.
+    /// Home-relative directories containing runtime data or a model store.
     dirs: &'static [&'static str],
     port: u16,
     health: &'static str,
@@ -263,7 +264,7 @@ fn scan_engine(
 ) -> bool {
     let backend = DaemonBackend {
         def: d,
-        installed_evidence: binary.is_some() || !dirs.is_empty(),
+        installed_evidence: binary.is_some() || (d.port == 0 && !dirs.is_empty()),
         port,
         probe: p,
         probed: RefCell::new(None),
@@ -289,7 +290,7 @@ pub fn scan(p: &dyn Probe) -> Ecosystem {
 fn scan_with(p: &dyn Probe, overrides: &[(String, u16)]) -> Ecosystem {
     let home = p.home();
     let engines = DEFS
-        .iter()
+        .par_iter()
         .map(|d| {
             let binary = d.binaries.iter().find_map(|b| p.which(b));
             let dirs: Vec<PathBuf> = home
@@ -304,7 +305,9 @@ fn scan_with(p: &dyn Probe, overrides: &[(String, u16)]) -> Ecosystem {
                 .unwrap_or_default();
             let port = port_of(d, overrides);
             let running = scan_engine(p, d, port, &binary, &dirs);
-            let installed = binary.is_some() || !dirs.is_empty() || running;
+            // A leftover model directory is not an executable runtime. Stores
+            // have no serving endpoint and are identified by their directory.
+            let installed = binary.is_some() || running || (d.port == 0 && !dirs.is_empty());
             Detected {
                 id: d.id.into(),
                 name: d.name.into(),
@@ -409,22 +412,7 @@ pub struct HostProbe;
 impl Probe for HostProbe {
     fn which(&self, program: &str) -> Option<PathBuf> {
         let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path)
-            // A relative PATH entry could be a repo-supplied binary.
-            .filter(|d| d.is_absolute())
-            .map(|d| d.join(program))
-            .find(|c| {
-                c.is_file() && {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        c.metadata()
-                            .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
-                    }
-                    #[cfg(not(unix))]
-                    true
-                }
-            })
+        find_executable(program, std::env::split_paths(&path), cfg!(windows))
     }
     fn home(&self) -> Option<PathBuf> {
         std::env::var_os("HOME")
@@ -456,6 +444,36 @@ impl Probe for HostProbe {
     fn is_macos_arm(&self) -> bool {
         cfg!(all(target_os = "macos", target_arch = "aarch64"))
     }
+}
+
+/// Resolve launchable binaries without spawning a shell or accepting a
+/// workspace-relative PATH entry. Windows process launch needs the .exe suffix;
+/// scripts are deliberately not treated as directly executable runtimes.
+fn find_executable(
+    program: &str,
+    directories: impl Iterator<Item = PathBuf>,
+    windows: bool,
+) -> Option<PathBuf> {
+    directories
+        .filter(|d| d.is_absolute())
+        .flat_map(|d| {
+            let executable = d.join(program);
+            let suffixed = (windows && executable.extension().is_none())
+                .then(|| executable.with_extension("exe"));
+            std::iter::once(executable).chain(suffixed)
+        })
+        .find(|c| {
+            c.is_file() && {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    c.metadata()
+                        .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+                }
+                #[cfg(not(unix))]
+                true
+            }
+        })
 }
 
 #[cfg(test)]
@@ -546,6 +564,84 @@ mod tests {
         let e = scan(&f);
         let h = engine(&e, "huggingface-cache");
         assert!(h.installed && !h.running && h.dirs.len() == 1 && h.endpoint.is_none());
+    }
+
+    #[test]
+    fn leftover_runtime_data_is_not_a_usable_installation() {
+        let mut f = Fake::default();
+        f.paths.insert("/home/u/.ollama".into());
+        let e = scan(&f);
+        let o = engine(&e, "ollama");
+        assert!(!o.installed && !o.running && !o.startable);
+        assert_eq!(o.dirs.len(), 1, "preserve evidence of existing model data");
+    }
+
+    #[test]
+    fn windows_executable_suffix_is_discovered_without_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("ollama.exe");
+        std::fs::write(&executable, "fixture").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert_eq!(
+            find_executable("ollama", std::iter::once(dir.path().to_path_buf()), true),
+            Some(executable)
+        );
+        assert!(find_executable("ollama", std::iter::once(PathBuf::from(".")), true).is_none());
+    }
+
+    #[test]
+    fn slow_engine_probes_overlap_and_keep_catalog_order() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct SlowProbe {
+            active: AtomicUsize,
+            peak: AtomicUsize,
+        }
+        impl Probe for SlowProbe {
+            fn which(&self, _: &str) -> Option<PathBuf> {
+                None
+            }
+            fn home(&self) -> Option<PathBuf> {
+                None
+            }
+            fn exists(&self, _: &Path) -> bool {
+                false
+            }
+            fn http_ok(&self, _: u16, _: &str) -> bool {
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                self.peak.fetch_max(active, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                false
+            }
+            fn version(&self, _: &Path) -> Option<String> {
+                None
+            }
+            fn is_macos_arm(&self) -> bool {
+                false
+            }
+        }
+        let probe = SlowProbe {
+            active: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+        };
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let e = pool.install(|| scan_with(&probe, &[]));
+        assert!(
+            probe.peak.load(Ordering::SeqCst) > 1,
+            "slow probes must not serialize discovery"
+        );
+        assert!(probe.peak.load(Ordering::SeqCst) <= 4);
+        assert_eq!(
+            e.engines.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            DEFS.iter().map(|d| d.id).collect::<Vec<_>>()
+        );
     }
 
     #[test]
