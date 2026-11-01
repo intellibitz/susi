@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-8",
+  "title": "Make native local development and production channels independent of release CI",
+  "goal": "Measure Windows build costs and provide isolated locally verified development and production channels with rollback without requiring GitHub, preserving the canonical installed release. Follow-up: eliminate the thin-LTO local production bottleneck and validate both channels through a real Cargo integration test; the initial acceptance script cannot self-certify under the repository guard.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "local_channels",
+      "windows_local_channel_completes_governed_file_goal"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793537450
+}

@@ -893,9 +893,13 @@ watch)
     # never waits on a build. It is asked every SUSI_SEED_CHECK_SECS (300) and
     # runs one at a time (it locks); it does nothing unless origin/main has
     # moved past the snapshot and the snapshot is older than
-    # SUSI_SEED_REFRESH_SECS. SUSI_NO_SEED=1 turns it off.
+    # SUSI_SEED_REFRESH_SECS. Background compilation is opt-in: even at low
+    # priority a full workspace build competes for memory, disk and linkers.
+    # Existing snapshots still seed worktrees; agents can explicitly refresh
+    # them during maintenance without delaying foreground iteration.
     seed_next=0
     seed_tick() {
+        [ "${SUSI_SEED_AUTO_REFRESH:-}" = 1 ] || return 0
         [ "${SUSI_NO_SEED:-}" != 1 ] || return 0
         [ -f "$root/scripts/seed-target.sh" ] || return 0
         [ "$SECONDS" -ge "$seed_next" ] || return 0
