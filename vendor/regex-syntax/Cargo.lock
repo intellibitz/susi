@@ -12,3 +12,7 @@ dependencies = [
 [[package]]
 name = "susi-os-unicode"
 version = "0.1.0"
+
+[[patch.unused]]
+name = "idna_adapter"
+version = "1.1.0"
