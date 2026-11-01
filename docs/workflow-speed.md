@@ -731,3 +731,67 @@ serial latency outside compilation:
   `ProofRepo` and `PublicationRepo`, the 82-test `xtask::ci_workflow_perf`
   acceptance suite dropped from 62.8 s to 57.5 s on this Windows host.
 
+## Push to merge: the merge job moves into the Test run (2026-11-01)
+
+The loop after the work is done — `finish`, the branch run, the merge, the next
+claim — reviewed for waits and bloat, with the time of each piece measured from
+the Actions API on the pushes of this session:
+
+| piece | before | after | what it was |
+| --- | --- | --- | --- |
+| required checks green (docs-only push) | 25 s | 25 s | Format Check, Workflow Compliance, cargo deny, Compile Check |
+| required checks green (Rust push) | 77–79 s | 79 s | Compile Check: checkout 10 s, resolve 11 s, cache restore 16 s, clippy 30 s |
+| Repository Invariants | 93–110 s | 31 s | `check-roadmap-verdict.sh --all`: 89 s → 3 s |
+| last needed job → merge landed | 14–22 s after the *whole run* | 22 s after the *needed jobs* | a second runner through the workflow_run hook → the run's own `merge` job |
+| push → merged, scripts and a test file (PR #1202) | 110–170 s | 88 s | Compile Check 68 s lints the root test target; merge job started 2 s after it, landed 18 s later |
+| push → merged, Rust (PR #1200) | 110–170 s | 106 s | Compile Check is the pole |
+| `finish`, docs-only | 22–27 s | 22 s | gate 4 s, close 1 s, push 3 s, one relayed release 12–17 s |
+| `finish`, Rust change | 57–62 s | 57–121 s | the gate (29–70 s: clippy of the dependents cold after main moved); a push refused as behind main costs a merge and a second push (24 s) |
+| next claim (cloud) | 17–34 s | 17–26 s | one relayed Actions run (9–21 s) plus one `ls-remote` for all leases instead of one per lease |
+
+Three things were waits for nothing:
+
+- **The merge waited for the slowest job of the run, not the required checks.**
+  auto-merge.yml merged on `workflow_run: Test completed`, which fires when
+  every job has finished — Repository Invariants at 110 s, which the ruleset
+  does not require — and then started another runner (its own checkout, probe,
+  merge: 22 s). Test's `merge` job, which already merged dispatched retests,
+  now merges pushed branches too, the moment the jobs it needs are green, in
+  the same serialized queue (`auto-merge-integration`); the hook remains the
+  backstop for a run the job could not merge. A pushed run keeps
+  `SUSI_NO_RESYNC`: a stale head is handed to a reconcile pass, which gates it
+  in place, instead of an update-branch and a second run.
+- **The invariants' 89 s was one awk.** `check-reachability.sh --batch`
+  character-cleaned every line of every production file and ran every
+  symbol's regexes on each, under gawk. Lines are cleaned only when they hold
+  a delimiter, the per-symbol regexes run only on lines a combined alternation
+  matches, and mawk is preferred where installed: 3.8 s → 1.8 s for the same
+  19 checks under mawk here, 89 s → 3 s in the job. The verdict checker's
+  function index uses grep instead of gawk's three-argument `match`, so the
+  whole check runs under any awk (2.2 s for 131 verdicts here; it used to fail
+  under mawk before it began).
+- **The relay client paid a round trip per lease** before relaying (to tell a
+  lost lease from a refused push); one `ls-remote` now answers for all of them,
+  as the read-back after the relay already did.
+
+What stands between a Rust push and 60 s, and is a decision rather than a tweak:
+
+- **Compile Check on a hosted runner is ~79 s**: 10 s of checkout (full history
+  for the merge base), 11 s resolving the affected crates (the pinned toolchain
+  downloads for the first `cargo metadata`), 16 s restoring the target cache,
+  30 s of clippy on an sccache hit. A self-hosted or larger runner
+  (`vars.CI_RUNNER` exists for it) would take most of it; dropping the check
+  from the required set would take all of it and trust the local gate plus
+  main's post-merge suite, which already runs everything and keeps main red
+  until fixed forward — the local gate can be bypassed with `--no-verify`, which
+  is what the server-side check guards.
+- **The local gate itself**: clippy of a changed crate's dependents is the
+  gate's pole (30–70 s on 4 vCPU when main moved under the branch); the seeded
+  target removes the cold part, not the incremental one.
+- **Two relayed Actions runs per cycle in a cloud session** (the release in
+  finish, then the next claim: ~15 s each, GitHub's own scheduling). Folding
+  the release into the next claim's transaction, or giving the queue's refs a
+  branch-shaped home the proxy would push directly, would remove them; both
+  change the queue's contract and are the operator's call.
+- **A push refused as behind main** after a long gate costs a merge and a
+  second push (24 s in #1200). The retry is right; the cost is the gate's length.
