@@ -35,7 +35,11 @@ pub const BRIEF: &str = "\
 [SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-71; canonical rules in AGENTS.md]
 The CEO never looks at code. Agents own authorized architecture, implementation, \
 testing, debugging, dependency replacement, integration and production qualification \
-end-to-end. Do not ask the CEO to inspect code or perform technical steps.
+end-to-end. Do not ask the CEO to inspect code or perform technical steps. \
+The CEO grants standing authority to commit, push and merge without routine CEO approval; \
+automated agent review, required tests and serialized integration remain mandatory. \
+This Git authority does not waive production evidence gates or authorize unrelated spending, \
+destructive operations or external publication.
 1. Read AGENTS.md and live task/evidence state. Work in your own worktree and branch, \
 with unique identity and disjoint scopes. Use cargo local-workflow for available \
 local reservations and guarded commits. Never edit the primary checkout, share \

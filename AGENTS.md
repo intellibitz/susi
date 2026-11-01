@@ -89,9 +89,16 @@ source/toolchain/target/feature evidence. Then atomically promote, retain the
 previous verified artifact, check health, and roll back on failure. Test the
 promotion/rollback path, including Windows file locks and interruption.
 
-Agents carry out authorized engineering and release qualification. Publication
-to an external service remains subject to the user's scope; optional GitHub
-publication is not the local gate. Never replace production with an unqualified
+The CEO grants standing authority to **commit, push and merge** Susi work at
+agents' discretion. Agents perform automated review and required testing; the
+integrator serializes merges and verifies the actual combined tree. Do not ask
+for routine CEO approval of those Git actions. Preserve other agents' work and
+never force-push or bypass evidence gates. GitHub publication remains optional
+and is not a local-development prerequisite.
+
+This Git authority does not authorize paid services, destructive operations or
+unrelated external publication. Production promotion still requires all local
+evidence, health and rollback gates above. Never replace production with an unqualified
 debug or optimized binary. Generating an embedding is not durable memory;
 self-improvement claims require persisted and retrievable outcome evidence.
 

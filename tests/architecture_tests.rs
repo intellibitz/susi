@@ -2190,3 +2190,38 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         );
     }
 }
+
+#[test]
+fn ceo_git_authority_preserves_evidence_and_scope() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".github/copilot-instructions.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("commit, push and merge"),
+            "{path}: Git authority missing"
+        );
+        assert!(
+            text.contains("routine CEO approval"),
+            "{path}: CEO approval burden returned"
+        );
+        assert!(
+            text.contains("serialized integration") || text.contains("serializes merges"),
+            "{path}: parallel merge safety missing"
+        );
+        assert!(
+            text.contains("production") && text.contains("gates"),
+            "{path}: evidence gates missing"
+        );
+        assert!(
+            text.contains("destructive") && text.contains("external publication"),
+            "{path}: authorization boundary missing"
+        );
+    }
+}
