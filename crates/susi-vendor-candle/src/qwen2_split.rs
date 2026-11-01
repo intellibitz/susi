@@ -563,6 +563,13 @@ impl ModelWeights {
     /// not just the last).
     fn forward_hidden(&mut self, x: &Tensor, index_pos: usize) -> Result<Tensor> {
         let (_b_sz, seq_len) = x.dims2()?;
+        if index_pos == 0 {
+            // A resident model serves many independent requests. Keep only the
+            // reusable initial mask; old prompt sizes and speculative offsets
+            // must not accumulate for the lifetime of a shell or daemon.
+            self.masks.retain(|key, _| *key == (seq_len, 0));
+            self.masks_gpu.retain(|key, _| *key == (seq_len, 0));
+        }
 
         let cpu_dev = self.cpu_device.clone();
         let gpu_dev = self.gpu_device.clone();
@@ -693,6 +700,46 @@ impl ModelWeights {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn independent_requests_release_old_causal_masks() {
+        use candle_core::quantized::{GgmlDType, QTensor};
+        let cpu = Device::Cpu;
+        let mut model = ModelWeights {
+            tok_embeddings: Embedding::new(Tensor::ones((4, 2), DType::F32, &cpu).unwrap(), 2),
+            layers: Vec::new(),
+            norm: RmsNorm::from_qtensor(
+                QTensor::quantize(&Tensor::ones(2, DType::F32, &cpu).unwrap(), GgmlDType::F32)
+                    .unwrap(),
+                1e-6,
+            )
+            .unwrap(),
+            output: QMatMul::Tensor(Tensor::ones((4, 2), DType::F32, &cpu).unwrap()),
+            masks: HashMap::new(),
+            masks_gpu: HashMap::new(),
+            cpu_device: cpu.clone(),
+            gpu_device: cpu.clone(),
+            span: tracing::Span::none(),
+            span_output: tracing::Span::none(),
+        };
+        for len in [2, 3, 4] {
+            let input = Tensor::new(vec![1u32; len], &cpu)
+                .unwrap()
+                .unsqueeze(0)
+                .unwrap();
+            model.forward(&input, 0).unwrap();
+            assert_eq!(model.masks.len(), 1);
+            assert!(model.masks.contains_key(&(len, 0)));
+        }
+        let continuation = Tensor::new(&[1u32, 2], &cpu).unwrap().unsqueeze(0).unwrap();
+        model.forward(&continuation, 4).unwrap();
+        assert!(model.masks.contains_key(&(2, 4)));
+        model.masks_gpu = model.masks.clone();
+        let fresh = Tensor::new(&[1u32], &cpu).unwrap().unsqueeze(0).unwrap();
+        model.forward(&fresh, 0).unwrap();
+        assert!(model.masks.is_empty());
+        assert!(model.masks_gpu.is_empty());
+    }
 
     #[test]
     fn invalid_attention_dimensions_fail_before_reading_tensors() {

@@ -125,7 +125,7 @@ impl SusiGgufEngine {
             tokenizer_path.display()
         );
         let tokenizer_path_for_speculative = tokenizer_path.clone();
-        let tokenizer = substrate.tokenizer.load(&tokenizer_path)?;
+        let tokenizer = ModelManager::load_tokenizer(&tokenizer_path)?;
 
         let wrapped_prompt = substrate.prompt_format.wrap(prompt);
         tracing::debug!(

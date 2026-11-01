@@ -9,8 +9,9 @@
       "cargo",
       "test",
       "-p",
-      "susi-gemi",
-      "runtime",
+      "susi-gemi-models",
+      "-p",
+      "susi-vendor-candle",
       "--lib"
     ]
   },
