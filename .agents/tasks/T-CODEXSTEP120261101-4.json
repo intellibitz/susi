@@ -1,7 +1,7 @@
 {
   "id": "T-CODEXSTEP120261101-4",
-  "title": "Show reused local models in the immediate installed opening",
-  "goal": "Report models already available through configured local scan paths without heavyweight model initialization or recursive discovery.",
+  "title": "Keep the first goal light and show reused local models immediately",
+  "goal": "Report models already available through configured local scan paths without heavyweight model initialization or recursive discovery, and defer cloud provider registration until a goal needs cloud inference while preserving explicit commands and tool readiness.",
   "size": "s",
   "deps": [],
   "accept": {
