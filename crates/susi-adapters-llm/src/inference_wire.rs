@@ -118,12 +118,20 @@ pub fn post_json_timeout(
     body: &Value,
     timeout_secs: u64,
 ) -> Result<Value, String> {
+    // This API serializes JSON regardless of caller headers. Normalize the
+    // media type once for both the initial request and any token-limit retry.
+    let mut json_headers: Vec<_> = headers
+        .iter()
+        .copied()
+        .filter(|(name, _)| !name.eq_ignore_ascii_case("content-type"))
+        .collect();
+    json_headers.push(("Content-Type", "application/json"));
     let send = |body: &Value| -> Result<(u16, Vec<u8>), String> {
         let bytes = serde_json::to_vec(body).map_err(|e| format!("request json: {e}"))?;
         let call = susi_http_transport::http_call_with_body(
             "POST",
             url,
-            headers,
+            &json_headers,
             Some(&bytes),
             timeout_secs,
             0,
@@ -863,48 +871,91 @@ mod tests {
     /// A reasoning-model endpoint that rejects `max_tokens` is served on the
     /// retry; the retry is sent exactly once.
     #[test]
-    fn post_json_retries_rejected_token_param_once() {
+    fn inference_json_content_type_and_token_retry_reach_http_server() {
         use std::io::{BufRead, BufReader, Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let mut bodies = Vec::new();
-            for _ in 0..2 {
-                let (stream, _) = listener.accept().unwrap();
-                let mut reader = BufReader::new(stream);
-                let mut len = 0;
-                loop {
-                    let mut line = String::new();
-                    reader.read_line(&mut line).unwrap();
-                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                        len = v.trim().parse().unwrap();
+        for headers in [
+            vec![],
+            vec![("Content-Type", "application/json")],
+            vec![("content-TYPE", "text/plain")],
+            vec![
+                ("Content-Type", "text/plain"),
+                ("CONTENT-TYPE", "application/json; charset=utf-8"),
+            ],
+        ] {
+            let mut headers = headers;
+            headers.push(("X-Inference-Test", "preserved"));
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let mut bodies = Vec::new();
+                for _ in 0..2 {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    let stream = loop {
+                        match listener.accept() {
+                            Ok((stream, _)) => break stream,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(
+                                    std::time::Instant::now() < deadline,
+                                    "request did not arrive"
+                                );
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                            }
+                            Err(error) => panic!("loopback accept failed: {error}"),
+                        }
+                    };
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                        .unwrap();
+                    let mut reader = BufReader::new(stream);
+                    let mut len = 0;
+                    let mut content_types = Vec::new();
+                    let mut test_headers = Vec::new();
+                    loop {
+                        let mut line = String::new();
+                        assert!(reader.read_line(&mut line).unwrap() > 0);
+                        if let Some((name, value)) = line.split_once(':') {
+                            if name.eq_ignore_ascii_case("content-type") {
+                                content_types.push(value.trim().to_string());
+                            }
+                            if name.eq_ignore_ascii_case("x-inference-test") {
+                                test_headers.push(value.trim().to_string());
+                            }
+                        }
+                        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                            len = v.trim().parse().unwrap();
+                        }
+                        if line == "\r\n" {
+                            break;
+                        }
                     }
-                    if line == "\r\n" {
-                        break;
-                    }
+                    assert_eq!(content_types, ["application/json"]);
+                    assert_eq!(test_headers, ["preserved"]);
+                    let mut body = vec![0; len];
+                    reader.read_exact(&mut body).unwrap();
+                    let body: Value = serde_json::from_slice(&body).unwrap();
+                    let (status, reply) = if body.get("max_tokens").is_some() {
+                        (
+                            "400 Bad Request",
+                            r#"{"error":{"param":"max_tokens","code":"unsupported_parameter","message":"Use 'max_completion_tokens' instead."}}"#,
+                        )
+                    } else {
+                        ("200 OK", r#"{"choices":[{"message":{"content":"ok"}}]}"#)
+                    };
+                    bodies.push(body);
+                    let mut stream = reader.into_inner();
+                    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).unwrap();
                 }
-                let mut body = vec![0; len];
-                reader.read_exact(&mut body).unwrap();
-                let body: Value = serde_json::from_slice(&body).unwrap();
-                let (status, reply) = if body.get("max_tokens").is_some() {
-                    (
-                        "400 Bad Request",
-                        r#"{"error":{"param":"max_tokens","code":"unsupported_parameter","message":"Use 'max_completion_tokens' instead."}}"#,
-                    )
-                } else {
-                    ("200 OK", r#"{"choices":[{"message":{"content":"ok"}}]}"#)
-                };
-                bodies.push(body);
-                let mut stream = reader.into_inner();
-                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).unwrap();
-            }
-            bodies
-        });
-        let url = format!("http://{addr}/v1/chat/completions");
-        let reply = post_json(&url, &[], &openai_chat_body("o3", "p", 32)).unwrap();
-        assert_eq!(openai_chat_text(&reply).unwrap(), "ok");
-        let bodies = server.join().unwrap();
-        assert_eq!(bodies[1]["max_completion_tokens"], 32);
+                bodies
+            });
+            let url = format!("http://{addr}/v1/chat/completions");
+            let reply =
+                post_json_timeout(&url, &headers, &openai_chat_body("o3", "p", 32), 5).unwrap();
+            assert_eq!(openai_chat_text(&reply).unwrap(), "ok");
+            let bodies = server.join().unwrap();
+            assert_eq!(bodies[1]["max_completion_tokens"], 32);
+            assert_eq!(bodies.len(), 2);
+        }
     }
 
     #[test]
