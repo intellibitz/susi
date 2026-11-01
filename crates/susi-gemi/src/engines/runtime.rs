@@ -117,6 +117,57 @@ impl GemiEngine {
         crate::models::llamacpp_launcher::set_child_adopter(adopter);
     }
 
+    /// Prepare only an already installed model for ordinary automatic text.
+    /// This never provisions weights or discovers remote providers.
+    pub fn prepare_existing_local_for_goal(prompt: &str) {
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let engine = ModelManager::get_selected_engine().unwrap_or_else(|| cfg.default_engine());
+        let _ = Self::prepare_fast_local(prompt, None, None, None, &cfg, &engine);
+    }
+
+    #[allow(clippy::too_many_arguments)] // Same request facts as the shared eligibility gate.
+    fn prepare_fast_local(
+        prompt: &str,
+        requested_model: Option<&str>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
+        requires: Option<&str>,
+        global_config: &crate::susi_sandbox::manager::SusiConfig,
+        active_engine_identifier: &str,
+    ) -> Option<String> {
+        if fast_local_eligible(
+            prompt,
+            requested_model,
+            min_complexity,
+            requires,
+            "auto",
+            active_engine_identifier,
+            false,
+        ) {
+            let preference = crate::engines::routing::InferenceRouter::load_preference();
+            let policy = crate::engines::routing::InferenceRouter::effective_policy(
+                &global_config.inference_routing(),
+                &preference,
+            );
+            fast_local_eligible(
+                prompt,
+                requested_model,
+                min_complexity,
+                requires,
+                &policy,
+                active_engine_identifier,
+                preference.preferred_cloud.is_some(),
+            )
+            .then(|| ModelManager::get_selected_model_for_installed_runner(prompt))
+            .flatten()
+        } else {
+            None
+        }
+        .filter(|model| {
+            ModelManager::get_model_path(model)
+                .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
+        })
+    }
+
     pub fn shutdown_owned_runner() {
         crate::models::llamacpp_launcher::shutdown_owned();
     }
@@ -125,6 +176,12 @@ impl GemiEngine {
         if cfg!(test) || std::env::var("SUSI_TEST_MOCK_INFERENCE").as_deref() == Ok("true") {
             return Ok(false);
         }
+        // Preparation may overlap composition; serialize the integrity check
+        // and launch so admission never races a second launch for this model.
+        static PREPARATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _preparation = PREPARATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let integrity_started = std::time::Instant::now();
         ModelManager::verify_model_integrity(path)?;
         tracing::debug!(
@@ -355,38 +412,14 @@ impl GemiEngine {
             crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier =
             ModelManager::get_selected_engine().unwrap_or_else(|| global_config.default_engine());
-        let fast_local_model = if fast_local_eligible(
+        let fast_local_model = Self::prepare_fast_local(
             prompt,
             requested_model,
             min_complexity,
             requires,
-            "auto",
+            &global_config,
             &active_engine_identifier,
-            false,
-        ) {
-            let preference = crate::engines::routing::InferenceRouter::load_preference();
-            let policy = crate::engines::routing::InferenceRouter::effective_policy(
-                &global_config.inference_routing(),
-                &preference,
-            );
-            fast_local_eligible(
-                prompt,
-                requested_model,
-                min_complexity,
-                requires,
-                &policy,
-                &active_engine_identifier,
-                preference.preferred_cloud.is_some(),
-            )
-            .then(|| ModelManager::get_selected_model_for_installed_runner(prompt))
-            .flatten()
-        } else {
-            None
-        }
-        .filter(|model| {
-            ModelManager::get_model_path(model)
-                .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
-        });
+        );
         let prefer_fast_local = fast_local_model.is_some();
         tracing::debug!(
             elapsed_ms = local_preparation_started.elapsed().as_millis(),
