@@ -281,3 +281,21 @@ DLL imports are retained in immutable manifest-hashed gate evidence. Production
 promotion refuses receipts predating this native-runtime qualification policy
 and requires fresh qualification; an older import-only receipt cannot bypass
 entry/object checks.
+
+### Linked software license boundary (2026-11-02)
+
+Cargo package license expressions do not prove the licenses of every linked
+source file. The selected Rust standard library also belongs to the shipped
+software inventory. Production qualification currently fails closed while its
+Unicode-3.0 source material is replaced and an audited custom-sysroot provenance
+verifier is developed. The diagnostic records the original compiler report,
+standard-library copyright text and selected-target archive hashes; an editable
+license assertion or absence of Unicode symbol names cannot authorize release.
+
+The private regex-syntax replacement retains upstream parser/HIR MIT/Apache
+notices and records removal of the separately licensed generated data in its
+SUSI-PATCH.md. Its independent Rust OS-Unicode boundary uses installed OS data;
+no license exception, relabeling, bundled ICU implementation or newer-Unicode
+compatibility claim is granted. Both the parser and backend standalone suites
+are mandatory in integration and production qualification alongside the other
+three platform adapters. Missing manifests fail the gate.
