@@ -285,7 +285,7 @@ impl ContextGraph {
         if oversized {
             // Lock released — compact()/persist() re-take it internally
             // (FileLock is not reentrant per process).
-            let _ = self.compact();
+            let _ = self.compact_if_large(16 * 1024 * 1024);
         }
         Ok(())
     }
@@ -1009,6 +1009,12 @@ impl ContextGraph {
         let meta = std::fs::metadata(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
         *self.replay_offset.lock() = meta.len();
         *self.replay_file_id.lock() = file_identity(&meta);
+        // A compacted live graph can itself exceed the nominal threshold.
+        // Remember its size across processes so every new CLI or append does
+        // not rewrite that same snapshot again. A missing or corrupt hint
+        // merely causes an extra compaction; it is never used to read data.
+        let marker = compacted_size_path(&path);
+        let _ = crate::susi_config::atomic_write_bytes(&marker, meta.len().to_string().as_bytes());
         Ok(())
     }
 
@@ -1042,11 +1048,28 @@ impl ContextGraph {
         } else {
             0
         };
-        if size > max_bytes {
+        let marker = compacted_size_path(&path);
+        let compacted_size = std::fs::metadata(&marker)
+            .ok()
+            .filter(|meta| meta.len() <= 32)
+            .and_then(|_| std::fs::read_to_string(&marker).ok())
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .filter(|previous| *previous <= size);
+        let threshold = match compacted_size {
+            Some(previous) if previous > max_bytes => previous.saturating_add(max_bytes),
+            _ => max_bytes,
+        };
+        if size > threshold {
             let _ = self.compact()?;
         }
         Ok(())
     }
+}
+
+fn compacted_size_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".compacted-size");
+    PathBuf::from(name)
 }
 
 /// `value` with every string leaf passed through the shared credential
@@ -1237,6 +1260,84 @@ mod tests {
         assert!(g2.node(&NodeId::stable("mission", "m-compact")).is_some());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn compact_if_large_defers_when_compaction_cannot_shrink_below_limit() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!(
+            "susi-cg-watermark-{}-{}",
+            std::process::id(),
+            ContextGraph::now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("context_graph.jsonl");
+        let graph = ContextGraph::with_storage(path.clone());
+        graph.record_node(Node {
+            id: NodeId("large-node".into()),
+            kind: NodeType::Workspace,
+            label: "x".repeat(2048),
+            created_at: 1,
+            properties: HashMap::new(),
+        });
+        graph.compact_if_large(1024).unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() > 1024);
+
+        // A newly started process uses the persisted watermark too.
+        let graph = ContextGraph::with_storage(path.clone());
+        graph.replay().unwrap();
+
+        // A tiny tail must not cause the still-large snapshot to be rewritten.
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"# unchanged tail\n").unwrap();
+        drop(file);
+        graph.compact_if_large(1024).unwrap();
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("# unchanged tail"));
+
+        // Once another threshold of data arrives, compact and fold a sibling's
+        // newly appended valid node before the atomic rewrite.
+        let sibling = ContextGraph::with_storage(path.clone());
+        sibling.record_node(Node {
+            id: NodeId("sibling-node".into()),
+            kind: NodeType::Workspace,
+            label: "sibling".into(),
+            created_at: 2,
+            properties: HashMap::new(),
+        });
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(format!("{}\n", " ".repeat(1024)).as_bytes())
+            .unwrap();
+        drop(file);
+        graph.compact_if_large(1024).unwrap();
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("# unchanged tail"));
+        let reopened = ContextGraph::with_storage(path.clone());
+        reopened.replay().unwrap();
+        assert!(reopened.node(&NodeId("large-node".into())).is_some());
+        assert!(reopened.node(&NodeId("sibling-node".into())).is_some());
+
+        // A damaged hint cannot suppress compaction.
+        std::fs::write(compacted_size_path(&path), "invalid").unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"# corrupt watermark\n").unwrap();
+        drop(file);
+        reopened.compact_if_large(1024).unwrap();
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("# corrupt watermark"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
