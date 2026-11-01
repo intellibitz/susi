@@ -1,0 +1,19 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-9",
+  "title": "Publish the first verified release artifact without waiting for Linux",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "release_first_artifact"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793506946
+}
