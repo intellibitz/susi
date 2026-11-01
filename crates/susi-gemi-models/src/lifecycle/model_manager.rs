@@ -698,7 +698,7 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use crate::susi_core::commit_log::ENV_LOCK;
 
     #[test]
     fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
@@ -761,6 +761,9 @@ mod tests {
         ));
         fs::write(models.join(name), b"tampered shared payload").unwrap();
         assert!(!ModelManager::managed_download_is_ready(&models, name, url));
+        // Background configuration readers must stop resolving this home before
+        // it is removed; otherwise they can recreate a directory mid-cleanup.
+        drop(environment);
         fs::remove_dir_all(root).unwrap();
     }
 
