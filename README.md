@@ -408,6 +408,21 @@ build when the download or the checksum fails. A Windows release is gated on the
 built `susi.exe` answering the release gate's offline checks on the runner, and
 every push that can change the binary re-runs those checks on Windows.
 
+Interactive installation opens Susi directly: enter a goal without restarting
+the terminal or editing configuration. Opening shows existing cloud connections
+and native models, then refreshes local-engine discovery in the background.
+Discovered credentials and cached observations are checked when used; they are
+not a claim that a provider is responding. Optional agent and framework checks
+do not delay the goal prompt.
+
+For unattended installation, use `-NoLaunch` when running the downloaded script
+or set `NONINTERACTIVE=1`. An absolute `SUSI_HOME` installs an isolated instance
+without changing persistent User PATH or registering a service. The installer
+keeps one executable and removes an old duplicate only after replacement succeeds.
+`susi setup` shows readiness without changing settings; `susi setup plan --json`
+retains machine-readable discovery and `susi setup apply --json` applies defaults
+without replacing existing configuration.
+
 ---
 
 ## Quickstart

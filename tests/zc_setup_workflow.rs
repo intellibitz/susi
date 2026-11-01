@@ -43,7 +43,7 @@ fn zc_setup_workflow_registered_cloud_and_platform_binary_are_detected() {
     let dir = scratch_home();
     std::fs::create_dir(dir.join("bin")).expect("bin");
     std::fs::write(
-        &dir.join("bin")
+        dir.join("bin")
             .join(format!("susi{}", std::env::consts::EXE_SUFFIX)),
         b"fixture",
     )
