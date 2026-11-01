@@ -5142,6 +5142,7 @@ name = "susi-vendor-syn"
 version = "0.1.0"
 dependencies = [
  "syn 3.0.9",
+ "unicode-ident",
 ]
 
 [[package]]

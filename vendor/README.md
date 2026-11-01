@@ -57,6 +57,11 @@ claim of Rust-only qualification.
   Writes remain standard Zstandard frames, using Fastest compression; decoding
   is bounded to 64 MiB per dictionary block. Compression ratio and throughput
   are not assumed identical. The facade test writes and reopens 2,500 terms.
+  The published crate omitted the repository-level attribution files. `LICENSE`
+  and `AUTHORS` are restored from its recorded upstream commit
+  `9e63fc508153ef770f9ff980c8fa2f11e8e2e6db` in `quickwit-oss/tantivy`
+  (upstream Git blobs `7b1fc849b042df2e7607138009e81bd078d9db4a` and
+  `59562653b4c2e88837c3293e1dd0e16e840d1ff8`).
 
 When upgrading any patch, compare the complete upstream source, retain notices,
 reapply only the documented changes, and rerun the strict graph audit and real
