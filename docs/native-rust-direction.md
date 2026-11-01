@@ -73,6 +73,15 @@ write/reopen test. The sandbox also executed a compiled Rust WASI fixture.
 Windows HTTPS tests reject untrusted, expired, mismatched and wrong-host identities.
 These results refer to their tested source snapshots, not every later edit.
 
+The broad Windows workspace library run exercised 85 packages: 3,452 tests
+passed, eight failed and 15 were ignored. Agents repaired the eight failures
+(native command fixtures, obsolete mandate assertions, inherited cloud endpoint
+settings and a task/receipt timestamp race). The five affected packages then
+passed 1,136 tests with five explicitly ignored. Nested deliberately failing
+test fixtures are not product failures. The updated integration/release tooling
+also passed its 22 tests. This is a broad run plus focused repair verification,
+not a claim that every acceptance gate passed on one final source snapshot.
+
 A real three-input embedding comparison against the previous ONNX engine found
 minimum cosine similarity 0.999999999999784 and maximum component difference
 below 1.3e-7. This is sample evidence, not an exhaustive equivalence claim.
