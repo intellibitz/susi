@@ -177,6 +177,35 @@ mod tests {
         }
     }
 
+    fn native_plugin(mode: &str) -> PluginManifest {
+        static FIXTURE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        let binary = FIXTURE.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("susi-cell-plugin-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).expect("fixture directory");
+            let source = dir.join("plugin.rs");
+            std::fs::write(
+                &source,
+                r#"fn main() {
+                let args: Vec<String> = std::env::args().collect();
+                println!("out {}", args.last().unwrap());
+                if args[1] == "fail" { eprintln!("err"); std::process::exit(3); }
+            }"#,
+            )
+            .expect("fixture source");
+            let binary = dir.join(format!("plugin{}", std::env::consts::EXE_SUFFIX));
+            let mut compiler = std::process::Command::new("rustc");
+            compiler.arg(&source).arg("-o").arg(&binary);
+            if let Some(sysroot) = std::env::var_os("SUSI_VERIFIED_SYSROOT") {
+                compiler.arg("--sysroot").arg(sysroot);
+            }
+            assert!(compiler
+                .status()
+                .expect("native fixture compiler")
+                .success());
+            binary
+        });
+        manifest(binary.to_str().expect("fixture path"), &[mode])
+    }
     fn request(payload: serde_json::Value) -> SyscallRequest {
         SyscallRequest {
             id: "req-1".to_string(),
@@ -191,18 +220,18 @@ mod tests {
 
     #[tokio::test]
     async fn handle_external_returns_stdout_on_success() {
-        let m = manifest("echo", &[]);
+        let m = native_plugin("success");
         let res = handle_external(request(serde_json::json!({"k": 1})), &m).await;
         assert_eq!(res.status, SyscallStatus::Success);
         assert_eq!(res.id, "req-1");
-        // The JSON payload is appended as the final argument — echo prints it.
+        // The native fixture prints the actual appended JSON argument.
         assert!(res.data["stdout"].as_str().unwrap().contains("\"k\":1"));
         assert!(res.message.is_none());
     }
 
     #[tokio::test]
     async fn handle_external_marks_nonzero_exit_as_error() {
-        let m = manifest("false", &[]);
+        let m = native_plugin("fail");
         let res = handle_external(request(serde_json::json!({})), &m).await;
         assert_eq!(res.status, SyscallStatus::Error);
         assert_eq!(res.message.as_deref(), Some("Ecosystem execution failed"));
@@ -222,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_external_propagates_stderr() {
-        let m = manifest("sh", &["-c", "echo out; echo err >&2; exit 3"]);
+        let m = native_plugin("fail");
         let res = handle_external(request(serde_json::json!({})), &m).await;
         assert_eq!(res.status, SyscallStatus::Error);
         assert!(res.data["stdout"].as_str().unwrap().contains("out"));
