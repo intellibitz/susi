@@ -22,6 +22,8 @@ use wasmparser::{Parser, Payload};
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 /// Most undrained messages a cell may queue before sends are rejected.
 pub const MAX_OUTBOX_MESSAGES: usize = 1024;
+/// Maximum aggregate payload bytes retained in the undrained host outbox.
+pub const MAX_OUTBOX_BYTES: usize = crate::resources::MAX_OUTPUT_BYTES;
 
 /// `host_send` return codes.
 const SEND_OK: i32 = 0;
@@ -31,11 +33,23 @@ const SEND_OUT_OF_BOUNDS: i32 = -3;
 const SEND_OUTBOX_FULL: i32 = -4;
 
 /// Per-cell host state reachable from `host_send`.
-#[derive(Default)]
 struct HostState {
+    limits: wasmi::StoreLimits,
     outbox: Vec<Vec<u8>>,
+    outbox_bytes: usize,
     /// The cell's exported `memory`, bound right after instantiation.
     memory: Option<Memory>,
+}
+
+impl Default for HostState {
+    fn default() -> Self {
+        Self {
+            outbox: Vec::new(),
+            outbox_bytes: 0,
+            memory: None,
+            limits: crate::resources::store_limits(),
+        }
+    }
 }
 
 /// Linear-memory cap per cell: a runaway cell traps instead of growing the
@@ -58,14 +72,15 @@ pub(crate) fn metered_engine() -> EaiResult<Engine> {
 
 /// Clamp every defined memory's maximum to [`MAX_CELL_MEMORY_BYTES`].
 ///
-/// Wasmtime enforces a memory's declared maximum on `memory.grow`, so capping
-/// the declaration caps the cell — without a custom `Tunables`, whose
-/// required `unsafe fn`s this crate's `unsafe_code` policy reserves for FFI.
+/// Wasmi enforces declared maxima on `memory.grow`. StoreLimits additionally
+/// permits only one memory and bounds tables and instance count, so adding
+/// memories cannot multiply the per-cell budget.
 /// Sections other than the memory section are copied through byte-for-byte.
 /// Imported memories need no clamp: the host provides none, so such a cell
 /// fails to instantiate. Shared with the WASI reflex runner (`wasm.rs`),
 /// whose model-written modules get the same cap.
 pub(crate) fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
+    crate::resources::check_module_size(wasm)?;
     let mut out = wasm_encoder::Module::new();
     for payload in Parser::new(0).parse_all(wasm) {
         let payload =
@@ -153,7 +168,9 @@ fn host_send(mut caller: Caller<'_, HostState>, ptr: i32, len: i32) -> i32 {
     if len > MAX_MESSAGE_BYTES {
         return SEND_BAD_ARGS;
     }
-    if caller.data().outbox.len() >= MAX_OUTBOX_MESSAGES {
+    if caller.data().outbox.len() >= MAX_OUTBOX_MESSAGES
+        || len > MAX_OUTBOX_BYTES.saturating_sub(caller.data().outbox_bytes)
+    {
         return SEND_OUTBOX_FULL;
     }
     let Some(memory) = caller.data().memory else {
@@ -166,7 +183,9 @@ fn host_send(mut caller: Caller<'_, HostState>, ptr: i32, len: i32) -> i32 {
         return SEND_OUT_OF_BOUNDS;
     }
     tracing::info!("[WasmCell] host_send received {} byte(s)", bytes.len());
-    caller.data_mut().outbox.push(bytes);
+    let state = caller.data_mut();
+    state.outbox_bytes += len;
+    state.outbox.push(bytes);
     SEND_OK
 }
 
@@ -177,12 +196,7 @@ impl WasmCell {
     /// Fails when the file cannot be read or compiled, or instantiation fails.
     pub fn load(module_path: impl Into<PathBuf>) -> EaiResult<Self> {
         let module_path = module_path.into();
-        let bytes = std::fs::read(&module_path).map_err(|e| {
-            EaiError::sandbox(format!(
-                "Failed to load WASM module {}: {e}",
-                module_path.display()
-            ))
-        })?;
+        let bytes = crate::resources::read_module(&module_path)?;
         Self::instantiate(&bytes, module_path)
     }
 
@@ -195,6 +209,7 @@ impl WasmCell {
     }
 
     fn instantiate(bytes: &[u8], module_path: PathBuf) -> EaiResult<Self> {
+        crate::resources::check_module_size(bytes)?;
         // `wat::parse_bytes` passes already-binary modules through, so cells
         // built by rustc stay cheap and hand-written WAT still loads.
         let wasm = wat::parse_bytes(bytes)
@@ -202,6 +217,7 @@ impl WasmCell {
         let wasm = cap_memory(&wasm)?;
         let engine = metered_engine()?;
         let mut store = Store::new(&engine, HostState::default());
+        store.limiter(|state| &mut state.limits);
         store
             .set_fuel(CELL_FUEL)
             .map_err(|e| EaiError::sandbox(format!("Failed to set cell fuel: {e}")))?;
@@ -238,7 +254,9 @@ impl WasmCell {
 
     /// Drain the messages the cell has sent via `host_send`, oldest first.
     pub fn take_messages(&mut self) -> Vec<Vec<u8>> {
-        std::mem::take(&mut self.store.data_mut().outbox)
+        let state = self.store.data_mut();
+        state.outbox_bytes = 0;
+        std::mem::take(&mut state.outbox)
     }
 
     /// Execute the `_start` function (or any exported function name).
@@ -278,16 +296,17 @@ pub fn spawn_wasm_cell(wasm_path: PathBuf) -> EaiResult<WasmCell> {
     WasmCell::load(wasm_path)
 }
 
-/// One default (Cranelift) engine for module validation: plugin hot-reload
+/// One default Wasmi engine for module validation: plugin hot-reload
 /// compiles candidates to prove they load, and needs no metering.
 static VALIDATION_ENGINE: LazyLock<Engine> = LazyLock::new(Engine::default);
 
-/// Compile `wasm_bytes` (binary format) to prove it is a loadable module,
-/// without instantiating it.
+/// Validate `wasm_bytes` structure and input size without instantiating it.
+/// Store resource limits and import capabilities are checked at instantiation.
 ///
 /// # Errors
 /// The compile error text when the bytes are not a valid module.
 pub fn validate_module(wasm_bytes: &[u8]) -> Result<(), String> {
+    crate::resources::check_module_size(wasm_bytes).map_err(|error| error.to_string())?;
     Module::validate(&VALIDATION_ENGINE, wasm_bytes)
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -296,6 +315,36 @@ pub fn validate_module(wasm_bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_payload_budget_refuses_growth_and_drain_restores_capacity() {
+        let wat = r#"(module
+            (import "env" "host_send" (func $send (param i32 i32) (result i32)))
+            (memory (export "memory") 16)
+            (func (export "_start") (result i32) (call $send (i32.const 0) (i32.const 1048576))))"#;
+        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        for _ in 0..MAX_OUTBOX_BYTES / MAX_MESSAGE_BYTES {
+            assert_eq!(
+                cell.execute("_start").unwrap(),
+                "WASM function '_start' returned 0"
+            );
+        }
+        assert_eq!(
+            cell.execute("_start").unwrap(),
+            "WASM function '_start' returned -4"
+        );
+        let messages = cell.take_messages();
+        assert_eq!(
+            messages.iter().map(Vec::len).sum::<usize>(),
+            MAX_OUTBOX_BYTES
+        );
+        drop(messages);
+        assert_eq!(
+            cell.execute("_start").unwrap(),
+            "WASM function '_start' returned 0"
+        );
+        assert_eq!(cell.take_messages().len(), 1);
+    }
 
     const SENDER: &str = r#"(module
         (import "env" "host_send" (func $send (param i32 i32) (result i32)))

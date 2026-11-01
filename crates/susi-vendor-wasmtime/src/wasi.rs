@@ -15,10 +15,11 @@ const NOSYS: i32 = 52;
 const NOTSUP: i32 = 58;
 const SPIPE: i32 = 70;
 const NOTCAPABLE: i32 = 76;
-pub(crate) const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
+pub(crate) const OUTPUT_LIMIT: usize = crate::resources::MAX_OUTPUT_BYTES;
 const WALL_TIME_LIMIT: Duration = Duration::from_secs(5);
 
 pub(crate) struct Context {
+    pub(crate) limits: wasmi::StoreLimits,
     pub(crate) stdout: Vec<u8>,
     pub(crate) memory: Option<Memory>,
     args: Vec<Vec<u8>>,
@@ -33,6 +34,7 @@ impl Context {
             return Err("reflex argument contains NUL or exceeds 16 MiB".into());
         }
         Ok(Self {
+            limits: crate::resources::store_limits(),
             stdout: Vec::new(),
             memory: None,
             args: vec![b"reflex\0".to_vec(), [argument.as_bytes(), &[0]].concat()],

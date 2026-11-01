@@ -15,8 +15,7 @@ impl WasmHost {
     /// at 16 MiB and no directories, sockets, environment or stdin are inherited.
     pub fn execute_reflex(wasm_path: &Path, arg: &str) -> EaiResult<String> {
         let engine = crate::cell::metered_engine()?;
-        let bytes = std::fs::read(wasm_path)
-            .map_err(|error| EaiError::process(format!("reading Wasm: {error}")))?;
+        let bytes = crate::resources::read_module(wasm_path)?;
         let wasm = wat::parse_bytes(&bytes)
             .map_err(|error| EaiError::process(format!("parsing Wasm: {error}")))?;
         let wasm = crate::cell::cap_memory(&wasm)?;
@@ -24,6 +23,7 @@ impl WasmHost {
             .map_err(|error| EaiError::process(format!("validating Wasm: {error}")))?;
         let context = crate::wasi::Context::new(arg).map_err(EaiError::process)?;
         let mut store = Store::new(&engine, context);
+        store.limiter(|context| &mut context.limits);
         store
             .set_fuel(crate::cell::CELL_FUEL)
             .map_err(|error| EaiError::process(format!("setting fuel: {error}")))?;

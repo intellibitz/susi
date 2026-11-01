@@ -15,10 +15,15 @@
 //! The historical facade name remains stable for consumers. Execution uses
 //! Wasmi, with bounded fuel/memory/output and an explicit capability-limited
 //! WASI implementation; no Wasmtime, native JIT, WASI-common or wiggle runtime
-//! is linked. The native service's HTTP shell remains in susi-leaf-services.
+//! is linked. Each store permits one instance, one 256 MiB linear memory and
+//! one table of at most 1,000,000 entries. Module input is capped at 64 MiB;
+//! WASI output and queued cell payloads are capped at 16 MiB. These are resource
+//! bounds, not a claim that total interpreter RSS equals the linear-memory cap.
+//! The native service's HTTP shell remains in susi-leaf-services.
 
 pub use susi_error;
 pub mod cell;
+mod resources;
 mod wasi;
 pub mod wasm;
 
