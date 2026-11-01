@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-11",
+  "title": "Enforce permitted licenses on actual automatic model downloads",
+  "goal": "Admit automatic HF model ladders only with Apache MIT or BSD publisher metadata, including configured and legacy cached steps; keep verified official starter fast and cloud services unchanged. Remove unused duplicate first-run starter implementation and self-tests.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "hf_discovery"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793542244
+}
