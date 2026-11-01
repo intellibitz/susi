@@ -96,7 +96,7 @@ pub fn qualify(scratch_home: &Path, baseline_path: &Path) -> EaiResult<Qualifica
     // every needed setting (derived/detected/defaulted).
     let cfg = SusiConfig::default();
     let plan = SetupPlan::detect(scratch_home);
-    let required_file = scratch_home.join("config").join("config.json");
+    let required_file = scratch_home.join("config.json");
     let journey_ok = !cfg.settings.is_empty() && !plan.steps.is_empty() && !required_file.is_file();
 
     // Part 2 — the debt score must not have risen.

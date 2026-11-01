@@ -1,6 +1,9 @@
 param(
-    [switch]$Service = $false
+    [switch]$Service = $false,
+    [switch]$NoLaunch = $false
 )
+
+$ErrorActionPreference = 'Stop'
 
 # SUSI Micro-Substrate Installer for Windows
 # Tier 0 Onboarding Protocol: Zero-Config Deployment
@@ -8,7 +11,11 @@ param(
 $SusiRepo = "https://github.com/intellibitz/susi"
 $ReleaseUrl = "$SusiRepo/releases/latest/download"
 $HomeDir = [Environment]::GetFolderPath("UserProfile")
-$GlobalDir = Join-Path $HomeDir ".susi"
+$IsolatedInstall = -not [string]::IsNullOrWhiteSpace($env:SUSI_HOME)
+if ($IsolatedInstall -and -not [IO.Path]::IsPathRooted($env:SUSI_HOME)) {
+    throw 'SUSI_HOME must be an absolute installation path.'
+}
+$GlobalDir = if ($IsolatedInstall) { [IO.Path]::GetFullPath($env:SUSI_HOME) } else { Join-Path $HomeDir ".susi" }
 $GlobalBinDir = Join-Path $GlobalDir "bin"
 
 # Ensure substrate structure exists
@@ -16,10 +23,19 @@ if (-not (Test-Path $GlobalBinDir)) {
     New-Item -ItemType Directory -Force -Path $GlobalBinDir | Out-Null
 }
 
-Write-Host "[susi] Initializing 100% Sandboxed Native AI Runtime (Repo: $SusiRepo)..." -ForegroundColor Cyan
+Write-Host "[susi] Installing your local and cloud AI operating layer..." -ForegroundColor Cyan
 
 $LauncherExePath = Join-Path $GlobalBinDir "susi.exe"
-$EngineExePath = Join-Path $GlobalBinDir "susi-engine.exe"
+$EngineExePath = $LauncherExePath
+
+# Stop only the installation being replaced, never another user's or test instance.
+function Stop-InstalledSusi {
+    Get-Process -Name susi,susi-engine -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Path -and [IO.Path]::GetDirectoryName($_.Path) -eq $GlobalBinDir) {
+            Stop-Process -Id $_.Id -ErrorAction Stop
+        }
+    }
+}
 
 $Installed = $false
 
@@ -33,12 +49,10 @@ if ($null -eq $env:LOCAL_SOURCE) {
     $EngineTmpPath = Join-Path $GlobalBinDir "susi-engine-new.exe"
     $ChecksumTmpPath = "$EngineTmpPath.sha256"
 
-    Stop-Process -Name "susi" -ErrorAction SilentlyContinue
-    Stop-Process -Name "susi-engine" -ErrorAction SilentlyContinue
 
     try {
-        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary" -OutFile $EngineTmpPath -UseBasicParsing
-        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary.sha256" -OutFile $ChecksumTmpPath -UseBasicParsing
+        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary" -OutFile $EngineTmpPath -UseBasicParsing -TimeoutSec 120
+        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary.sha256" -OutFile $ChecksumTmpPath -UseBasicParsing -TimeoutSec 30
 
         # Never run a downloaded binary without verifying it against the
         # published checksum first - a missing/mismatched checksum falls
@@ -48,12 +62,9 @@ if ($null -eq $env:LOCAL_SOURCE) {
         Remove-Item $ChecksumTmpPath -Force -ErrorAction SilentlyContinue
 
         if ($ExpectedSha -and ($ActualSha -eq $ExpectedSha)) {
+            Stop-InstalledSusi
             Move-Item $EngineTmpPath $EngineExePath -Force
-            # `susi.exe` is not a separate binary - susi-engine's own CLI already
-            # accepts "susi" as its command name and handles every subcommand
-            # directly. A real copy (not a symlink) since NTFS symlinks need
-            # elevated privileges/Developer Mode that a fresh install can't assume.
-            Copy-Item $EngineExePath $LauncherExePath -Force
+            # One canonical executable; no redundant full-size launcher copy.
             $Installed = $true
             Write-Host "  ✅ Downloaded & verified the engine binary from GitHub." -ForegroundColor Green
         } else {
@@ -71,8 +82,6 @@ if ($null -eq $env:LOCAL_SOURCE) {
 if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
     Write-Host "[susi Native] Compiling standalone Rust AI engine..." -ForegroundColor Yellow
 
-    Stop-Process -Name "susi" -ErrorAction SilentlyContinue
-    Stop-Process -Name "susi-engine" -ErrorAction SilentlyContinue
 
     # Match install.sh: thin-LTO release profile + only the installable binary.
     # sccache when present; --locked when Cargo.lock ships with the tree.
@@ -97,8 +106,8 @@ if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
     }
 
     if (Test-Path $EngineSrc) {
+        Stop-InstalledSusi
         Copy-Item $EngineSrc $EngineExePath -Force
-        Copy-Item $EngineExePath $LauncherExePath -Force
         $Installed = $true
         Write-Host "  ✅ Compiled & installed the engine binary." -ForegroundColor Green
     }
@@ -115,36 +124,34 @@ if (-not $Installed) {
 
 # 3. PATH Automation (0-Effort Onboarding)
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($UserPath -notlike "*$GlobalBinDir*") {
+if (-not $IsolatedInstall -and $GlobalBinDir -notin ($UserPath -split ';')) {
     Write-Host "[susi] Automatically adding '$GlobalBinDir' to User PATH..." -ForegroundColor Cyan
     [Environment]::SetEnvironmentVariable("Path", "$GlobalBinDir;$UserPath", "User")
-    $env:Path = "$GlobalBinDir;$env:Path"
     Write-Host "  ✅ User PATH updated!" -ForegroundColor Green
 }
+if ($GlobalBinDir -notin ($env:Path -split ';')) { $env:Path = "$GlobalBinDir;$env:Path" }
 
 # 4. Optional Service Registration
-if ($Service) {
+if ($Service -and -not $IsolatedInstall) {
     Write-Host "[susi] Registering Windows Scheduled Task for background daemon service..." -ForegroundColor Cyan
     try {
         $TaskName = "susi-daemon"
-        $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "daemon"
+        $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "start"
         $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
+        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Limited
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
-        Write-Host "  ✅ Registered scheduled task '$TaskName' to run at logon with highest privileges." -ForegroundColor Green
+        Write-Host "  Registered Susi to start at logon." -ForegroundColor Green
     } catch {
         Write-Host "  ⚠️ Could not register scheduled task: $_" -ForegroundColor Yellow
     }
 }
 
-# 5. Non-Interactive Elevation Optimization
-if (Get-Command "gsudo" -ErrorAction SilentlyContinue) {
-    try {
-        gsudo config CacheMode Auto | Out-Null
-        gsudo config CacheDuration Infinite | Out-Null
-        Write-Host "  ✅ Configured gsudo credential caching for non-interactive elevation." -ForegroundColor Green
-    } catch {}
+# Opening accepts a goal immediately; discovery must not delay the prompt.
+# Headless installs can opt out, without making a false claim of model readiness.
+Write-Host "`nSusi is installed. No terminal restart is needed." -ForegroundColor Green
+if (-not $NoLaunch -and $env:NONINTERACTIVE -ne '1' -and $env:SUSI_NO_DAEMON -ne '1' -and [Environment]::UserInteractive) {
+    & $LauncherExePath shell
+    if ($LASTEXITCODE -ne 0) { throw "Susi opening failed (exit $LASTEXITCODE)." }
+} else {
+    Write-Host "Open Susi and give it a goal: $LauncherExePath" -ForegroundColor Gray
 }
-
-Write-Host "`n🎉 Global susi is ready! Type 'susi status' or 'susi mcp' to verify." -ForegroundColor Green
-Write-Host "Restart your terminal to use the 'susi' command." -ForegroundColor Gray

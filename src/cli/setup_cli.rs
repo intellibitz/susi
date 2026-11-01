@@ -8,39 +8,104 @@ use susi_paths::SusiDirs;
 #[derive(Debug, Subcommand)]
 pub enum SetupCommands {
     /// Detect hardware/engines/keys/agents and print the plan (default)
-    Plan,
+    Plan {
+        /// Machine-readable plan for automation
+        #[arg(long)]
+        json: bool,
+    },
     /// Apply the plan (optionally grant cloud consent)
     Apply {
         /// Grant cloud API key consent in this apply
         #[arg(long)]
         cloud: bool,
+        /// Machine-readable result for automation
+        #[arg(long)]
+        json: bool,
     },
 }
 
 pub fn execute(action: Option<SetupCommands>) -> Result<()> {
-    let home = SusiDirs::config_dir()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(SusiDirs::config_dir);
-    match action.unwrap_or(SetupCommands::Plan) {
-        SetupCommands::Plan => {
+    let home = SusiDirs::config_dir();
+    match action.unwrap_or(SetupCommands::Plan { json: false }) {
+        SetupCommands::Plan { json } => {
             let plan = SetupPlan::detect(&home);
-            print_json(&serde_json::to_value(&plan)?)?;
+            if json {
+                print_json(&serde_json::to_value(&plan)?)?;
+            } else {
+                print_plan(&plan, false);
+            }
         }
-        SetupCommands::Apply { cloud } => {
+        SetupCommands::Apply { cloud, json } => {
             let mut plan = SetupPlan::detect(&home);
             if cloud {
                 plan.grant_consent(ConsentKind::CloudApiKey);
             }
             let summary = plan.apply(&home).map_err(anyhow::Error::msg)?;
-            print_json(&serde_json::json!({
-                "hardware": plan.hardware,
-                "engines": plan.engines,
-                "keys_present": plan.keys_present,
-                "agents": plan.agents,
-                "summary": summary,
-            }))?;
+            if json {
+                print_json(&serde_json::json!({
+                    "hardware": plan.hardware,
+                    "engines": plan.engines,
+                    "keys_present": plan.keys_present,
+                    "agents": plan.agents,
+                    "summary": summary,
+                }))?;
+            } else {
+                println!("Susi's defaults are installed. Existing settings were preserved.");
+                print_plan(&plan, false);
+            }
         }
     }
     Ok(())
+}
+
+/// Opening is a local snapshot, never a catalogue prime or a network probe.
+pub(crate) fn print_readiness() {
+    print_plan(&SetupPlan::detect(&SusiDirs::config_dir()), true);
+}
+
+fn print_plan(plan: &SetupPlan, refreshing: bool) {
+    println!("Susi — give me a goal.");
+    if plan.keys_present.is_empty() {
+        println!("Cloud: no existing provider connection found.");
+    } else {
+        let names: Vec<_> = plan
+            .keys_present
+            .iter()
+            .map(|key| key.trim_end_matches("_API_KEY"))
+            .collect();
+        println!(
+            "Cloud connections found: {} (availability checked when used).",
+            names.join(", ")
+        );
+    }
+    let cached = std::fs::read_to_string(SusiDirs::config_dir().join("local_ecosystem.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    let engines: Vec<_> = cached
+        .as_ref()
+        .and_then(|value| value.get("engines"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|engine| engine.get("running").and_then(serde_json::Value::as_bool) == Some(true))
+        .filter_map(|engine| engine.get("name").and_then(serde_json::Value::as_str))
+        .collect();
+    if engines.is_empty() {
+        println!("Local AI: not yet verified.");
+    } else {
+        println!(
+            "Local AI previously available: {} (cached observation).",
+            engines.join(", ")
+        );
+    }
+    if refreshing {
+        println!("Discovering local capabilities in the background; you can enter a goal now.");
+    }
+    if !plan.agents.is_empty() {
+        println!(
+            "Previously discovered agents: {} (checked when used).",
+            plan.agents.join(", ")
+        );
+    }
+    println!("Optional tools and agents connect when needed. Type your goal to begin.");
 }
