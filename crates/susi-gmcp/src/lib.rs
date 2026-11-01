@@ -66,6 +66,8 @@ impl GmcpHost {
 }
 
 #[cfg(test)]
+mod eco_mcp_auth;
+#[cfg(test)]
 mod eco_mcp_features;
 #[cfg(test)]
 mod protocol_tests;
