@@ -129,6 +129,8 @@ fn scrub(cmd: &mut Command) {
         .env_remove("SUSI_SEED_CARGO")
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET_DIR")
+        .env_remove("CARGO_BUILD_BUILD_DIR")
+        .env_remove("CARGO_BUILD_TARGET")
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE");
@@ -1985,7 +1987,16 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
     git(&w.primary, &["push", "--quiet", "origin", "HEAD:main"]);
     git(&w.primary, &["fetch", "--quiet", "origin"]);
     let primary_before = git(&w.primary, &["status", "--porcelain"]);
-    let (code, out, err) = w.seed_target(&["--refresh"], &[]);
+    // Caller output settings must not redirect fingerprints out of the owned
+    // seed checkout. This directory is part of this fixture, not user state.
+    let outer = w.root.join("hostile-outer-cargo-output");
+    write(&outer.join("sentinel"), "keep outer output unchanged\n");
+    let hostile_outputs = [
+        ("CARGO_TARGET_DIR", outer.to_str().unwrap()),
+        ("CARGO_BUILD_TARGET_DIR", outer.to_str().unwrap()),
+        ("CARGO_BUILD_BUILD_DIR", outer.to_str().unwrap()),
+    ];
+    let (code, out, err) = w.seed_target(&["--refresh"], &hostile_outputs);
     assert_eq!(code, 0, "{out}{err}");
     let main = git(&w.primary, &["rev-parse", "origin/main"]);
     let marker = std::fs::read_to_string(w.seed().join(".susi-seed")).unwrap_or_default();
@@ -2024,27 +2035,41 @@ fn refresh_builds_origin_main_apart_and_publishes_a_stripped_snapshot() {
         "nothing copied up for the workspace: {top:?}"
     );
     assert!(!w.primary.join("target").exists(), "never in the primary");
+    assert_eq!(
+        std::fs::read_to_string(outer.join("sentinel")).unwrap(),
+        "keep outer output unchanged\n"
+    );
+    assert_eq!(
+        std::fs::read_dir(&outer).unwrap().count(),
+        1,
+        "no Cargo metadata or fingerprints may escape into caller output"
+    );
     assert_eq!(git(&w.primary, &["status", "--porcelain"]), primary_before);
     assert_eq!(staging_dirs(&w), Vec::<String>::new());
     assert!(!w.seed_lock().exists(), "the lock is let go");
     // Current: nothing to do.
-    let (code, out, _) = w.seed_target(&["--refresh"], &[]);
+    let (code, out, _) = w.seed_target(&["--refresh"], &hostile_outputs);
     assert_eq!(code, 0);
     assert!(out.contains("already origin/main"), "{out}");
     // A newer origin/main, but a young snapshot: it waits, unless forced.
     let next = w.advance_main("crates/cell/src/lib.rs", "pub fn g() {}\n");
-    let (_, out, _) = w.seed_target(&["--refresh"], &[]);
+    let (_, out, _) = w.seed_target(&["--refresh"], &hostile_outputs);
     assert!(out.contains("refreshed after"), "{out}");
-    let (code, out, err) = w.seed_target(&["--refresh", "--force"], &[]);
+    let (code, out, err) = w.seed_target(&["--refresh", "--force"], &hostile_outputs);
     assert_eq!(code, 0, "{out}{err}");
     let marker = std::fs::read_to_string(w.seed().join(".susi-seed")).unwrap();
     assert!(marker.starts_with(&next), "{marker:?}\n{out}{err}");
     // A snapshot directory no refresh made is never replaced.
     std::fs::remove_dir_all(w.seed()).unwrap();
     write(&w.seed().join("debug/someone-elses"), "x");
-    let (_, out, _) = w.seed_target(&["--refresh", "--force"], &[]);
+    let (_, out, _) = w.seed_target(&["--refresh", "--force"], &hostile_outputs);
     assert!(out.contains("not a snapshot a refresh made"), "{out}");
     assert!(w.seed().join("debug/someone-elses").is_file());
+    assert_eq!(
+        std::fs::read_dir(&outer).unwrap().count(),
+        1,
+        "forced refresh also stays inside its owned checkout"
+    );
 }
 
 /// `--refresh` checks out, cleans and builds only in a clone it made itself.
