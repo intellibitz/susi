@@ -33,11 +33,12 @@ const HOOKS: [&str; 5] = [
     "workflow-guard",
     "run-susi",
 ];
-const SCRIPTS: [&str; 14] = [
+const SCRIPTS: [&str; 15] = [
     "cloud-session.sh",
     "queue-relay.sh",
     "parallel-workflow.sh",
     "cloud-onnxruntime.sh",
+    "cloud-target-seed.sh",
     "check-worker-identity.sh",
     "check-task-scope.sh",
     "park-primary.sh",
@@ -684,6 +685,7 @@ fn cloud_session_start_hook_marks_only_the_project_it_was_started_for() {
     let quiet = [
         ("SUSI_CLOUD_PREBUILD", "0"),
         ("SUSI_CLOUD_ONNXRUNTIME", "0"),
+        ("SUSI_CLOUD_SEED", "0"),
     ];
     // The harness's variable without the hook's own project: a fixture a test
     // runs the script in, or a stray shell. Nothing is marked, and the laptop
@@ -712,6 +714,216 @@ fn cloud_session_start_hook_marks_only_the_project_it_was_started_for() {
     let (code, out, _) = w.script("scripts/workflow-session-start.sh", &[], &quiet);
     assert_eq!(code, 0);
     assert!(out.contains("Cloud session:"), "{out}");
+}
+
+/// The snapshot key names what the kept units' fingerprints depend on: the
+/// external packages of the lockfile, the toolchain pin, the compiler and the
+/// cloud's cargo configuration — and not the workspace's own packages, which the
+/// snapshot never carries. The workflow and the hook compute it with this one
+/// script, so a snapshot is found by the checkout it was built for.
+#[cfg(target_os = "linux")]
+#[test]
+fn cloud_target_seed_key_follows_the_external_lockfile_and_the_toolchain() {
+    let w = World::new("seedkey");
+    let lock = "version = 4\n\n[[package]]\nname = \"susi\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aa\"\n";
+    std::fs::write(w.clone.join("Cargo.lock"), lock).unwrap();
+    std::fs::write(
+        w.clone.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.99.0\"\n",
+    )
+    .unwrap();
+    let key = |w: &World| {
+        let (code, out, err) = w.script("scripts/cloud-target-seed.sh", &["--key"], &[]);
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(out.len(), 16, "a 16-hex key: {out}");
+        assert!(out.chars().all(|c| c.is_ascii_hexdigit()), "{out}");
+        out
+    };
+    let base = key(&w);
+    assert_eq!(key(&w), base, "stable across runs");
+    let (code, name, _) = w.script("scripts/cloud-target-seed.sh", &["--name"], &[]);
+    assert_eq!(code, 0);
+    assert_eq!(name, format!("linux-{}-{base}", std::env::consts::ARCH));
+    // The workspace's own package changes nothing: it is never in the snapshot.
+    std::fs::write(w.clone.join("Cargo.lock"), lock.replace("0.1.0", "0.2.0")).unwrap();
+    assert_eq!(key(&w), base, "a path package's version is not a key input");
+    // An external package does.
+    std::fs::write(w.clone.join("Cargo.lock"), lock.replace("1.0.0", "1.0.1")).unwrap();
+    let bumped = key(&w);
+    assert_ne!(bumped, base, "a registry package's version is a key input");
+    std::fs::write(w.clone.join("Cargo.lock"), lock).unwrap();
+    assert_eq!(key(&w), base);
+    // So does the toolchain pin.
+    std::fs::write(
+        w.clone.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.100.0\"\n",
+    )
+    .unwrap();
+    assert_ne!(key(&w), base, "the toolchain pin is a key input");
+}
+
+/// The hook's seeding: a published snapshot (parts of one gzip'd tar with a
+/// sha256sum manifest) is fetched, verified and unpacked into an empty target/,
+/// marked as seeded; a target that holds anything is left alone; a part that
+/// fails its checksum seeds nothing; and SUSI_CLOUD_SEED=0 skips it all. A
+/// `file://` URL stands in for the release here — curl reads it the same way.
+#[cfg(target_os = "linux")]
+#[test]
+fn cloud_target_seed_unpacks_a_verified_snapshot_into_an_empty_target_only() {
+    let w = World::new("seedtar");
+    std::fs::write(w.clone.join("Cargo.lock"), "version = 4\n").unwrap();
+    let (code, name, err) = w.script("scripts/cloud-target-seed.sh", &["--name"], &[]);
+    assert_eq!(code, 0, "{err}");
+    // A snapshot the way `seed-target --export` lays one out.
+    let snap = w.root.join("snap");
+    std::fs::create_dir_all(snap.join("debug/.fingerprint/serde-0123456789abcdef")).unwrap();
+    std::fs::create_dir_all(snap.join("debug/deps")).unwrap();
+    std::fs::write(snap.join("debug/deps/libserde-0123456789abcdef.rlib"), b"").unwrap();
+    std::fs::write(
+        snap.join(".susi-seed"),
+        "0123456789abcdef0123456789abcdef01234567 1700000000\n",
+    )
+    .unwrap();
+    let assets = w.root.join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    let sh = |script: &str| {
+        let out = Command::new("bash")
+            .args(["-euo", "pipefail", "-c", script])
+            .current_dir(&assets)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{script}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    // Two parts, so the concatenation is exercised; the manifest under this
+    // key's name and under the `latest` name both.
+    sh(&format!(
+        "head -c 70000 /dev/urandom > '{0}/debug/deps/libserde-0123456789abcdef.rlib' && tar -C '{0}' -cf - . | gzip -1 | split -b 40000 -d -a 2 - '{name}.tar.gz.part' && sha256sum {name}.tar.gz.part* > '{name}.manifest' && cp '{name}.manifest' linux-{arch}-latest.manifest && test -f '{name}.tar.gz.part01'",
+        snap.display(),
+        arch = std::env::consts::ARCH,
+    ));
+    let url = format!("file://{}", assets.display());
+    let envs = [("SUSI_TARGET_SEED_URL", url.as_str())];
+
+    // Skipped on request: nothing fetched, no target made.
+    let (code, _, err) = w.script(
+        "scripts/cloud-target-seed.sh",
+        &[],
+        &[
+            ("SUSI_TARGET_SEED_URL", url.as_str()),
+            ("SUSI_CLOUD_SEED", "0"),
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("skipped"), "{err}");
+    assert!(!w.clone.join("target").exists());
+
+    // Seeded: the snapshot's units are in target/, and the markers say so.
+    let (code, _, err) = w.script("scripts/cloud-target-seed.sh", &[], &envs);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("seeded target"), "{err}");
+    assert!(err.contains("snapshot for this key"), "{err}");
+    assert_eq!(
+        std::fs::read(
+            w.clone
+                .join("target/debug/deps/libserde-0123456789abcdef.rlib")
+        )
+        .unwrap()
+        .len(),
+        70_000
+    );
+    assert!(w
+        .clone
+        .join("target/debug/.fingerprint/serde-0123456789abcdef")
+        .is_dir());
+    assert!(w.clone.join("target/.susi-seed").is_file());
+    assert!(
+        std::fs::read_to_string(w.clone.join("target/.susi-seeded"))
+            .unwrap()
+            .contains("seeded from"),
+        "the seeded marker names the source"
+    );
+    assert!(
+        std::fs::read_dir(&w.clone).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("target.seed.")),
+        "the download directory is removed"
+    );
+
+    // A target that holds a build is never replaced.
+    std::fs::remove_dir_all(w.clone.join("target/debug")).unwrap();
+    std::fs::write(w.clone.join("target/mine"), b"a build in progress").unwrap();
+    let (code, _, err) = w.script("scripts/cloud-target-seed.sh", &[], &envs);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("already holds a build"), "{err}");
+    assert!(w.clone.join("target/mine").is_file());
+    assert!(!w.clone.join("target/debug").exists());
+    std::fs::remove_dir_all(w.clone.join("target")).unwrap();
+
+    // No snapshot for this key: the newest one is taken, and said so.
+    std::fs::remove_file(assets.join(format!("{name}.manifest"))).unwrap();
+    let (code, _, err) = w.script("scripts/cloud-target-seed.sh", &[], &envs);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("taking the newest"), "{err}");
+    assert!(w.clone.join("target/.susi-seed").is_file());
+    std::fs::remove_dir_all(w.clone.join("target")).unwrap();
+
+    // A part that fails its checksum seeds nothing.
+    let latest = assets.join(format!("linux-{}-latest.manifest", std::env::consts::ARCH));
+    let listed = std::fs::read_to_string(&latest).unwrap();
+    std::fs::write(&latest, format!("deadbeef{}", &listed[8..])).unwrap();
+    let (code, _, err) = w.script("scripts/cloud-target-seed.sh", &[], &envs);
+    assert_eq!(code, 0, "the seeding never fails its caller: {err}");
+    assert!(err.contains("does not match its checksum"), "{err}");
+    assert!(
+        !w.clone.join("target").exists()
+            || std::fs::read_dir(w.clone.join("target"))
+                .unwrap()
+                .next()
+                .is_none(),
+        "nothing seeded"
+    );
+
+    // Nothing published at all: a cold build, said plainly.
+    let (code, _, err) = w.script(
+        "scripts/cloud-target-seed.sh",
+        &[],
+        &[("SUSI_TARGET_SEED_URL", "file:///nonexistent/susi-seed")],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("no snapshot published"), "{err}");
+}
+
+/// The session-start hook seeds before it builds, inside the one background
+/// subshell that holds the clone's build lock, and tells the session how to
+/// wait for both.
+#[test]
+fn cloud_target_seed_runs_in_the_start_hook_before_the_background_build() {
+    let hook = std::fs::read_to_string("scripts/workflow-session-start.sh").unwrap();
+    let seed = hook
+        .find(
+            "scripts/cloud-target-seed.sh
+",
+        )
+        .expect("the hook seeds");
+    let build = hook.find("exec cargo build -q").expect("the hook builds");
+    assert!(
+        seed < build,
+        "the seeding comes before the build in the same subshell"
+    );
+    assert!(
+        hook.contains("SUSI_CLOUD_SEED"),
+        "SUSI_CLOUD_SEED=0 opts out of the seeding"
+    );
+    assert!(
+        hook.contains("wait for both with: scripts/cloud-target-seed.sh --wait"),
+        "the session is told how to wait for the seeding and the build"
+    );
 }
 
 #[cfg(target_os = "linux")]

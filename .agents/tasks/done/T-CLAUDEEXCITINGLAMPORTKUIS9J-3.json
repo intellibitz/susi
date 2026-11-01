@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-3",
+  "title": "Seed the cargo target in cloud sessions from a published snapshot",
+  "goal": "A cloud session starts with the registry and git crates of origin/main already built, from a snapshot a main workflow publishes as a release asset, so the first build and the gate clippy of dependents are not cold",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session",
+      "cloud_target_seed"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793502487,
+  "closed": {
+    "at_unix": 1793503599,
+    "commit": "eab63796f3efa315299dce2249b170240e210252",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}

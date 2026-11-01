@@ -1,0 +1,164 @@
+name: Cloud target seed
+
+# A cloud session's container starts with no target/: every registry and git
+# crate of the dependency tree compiled cold before its first `susi workflow
+# check` (about 15 minutes on 4 vCPU), and the finish gate's clippy of a changed
+# crate's dependents check-built them again (210 s measured). A laptop's
+# worktrees copy a warm snapshot from the primary checkout; a container has no
+# primary. This builds origin/main the way a cloud session does — the pinned
+# toolchain, and the cargo configuration scripts/cloud-onnxruntime.sh writes
+# (ONNX Runtime at the container's path, its rpath in every unit's rustflags),
+# at the container's checkout path — strips the workspace's own units (`susi
+# workflow seed-target --export`), and publishes the rest as assets of the
+# rolling `target-seed` pre-release, named by the key scripts/cloud-target-seed.sh
+# computes from everything those units' fingerprints depend on. The session-start
+# hook fetches the asset for its key, or the newest one. docs/cloud-sessions.md.
+#
+# It runs when a key input may have changed on main, weekly as a fallback (a
+# toolchain roll with no file change), and on demand; a key whose snapshot is
+# already published costs one checkout. The parts are kept under 1.9 GB each
+# (a release asset's limit is 2 GiB).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - scripts/cloud-onnxruntime.sh
+      - scripts/cloud-target-seed.sh
+      - .github/workflows/target-seed.yml
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild and republish even when this key's snapshot exists
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: target-seed-main
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: target-seed
+  # The cloud container's paths: the clone and the ONNX Runtime the hook installs.
+  CLOUD_CHECKOUT: /home/user/susi
+  CLOUD_ORT_DIR: /root/.cache/susi/onnxruntime
+
+jobs:
+  seed:
+    name: Build and publish the Linux x86_64 snapshot
+    if: github.repository == 'intellibitz/susi' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies
+        run: scripts/ci-system-deps.sh
+
+      # The container's layout, so every path a fingerprint or a build script
+      # output records is the one the container has.
+      - name: Lay the checkout out as the container does
+        run: |
+          sudo mkdir -p /home/user
+          sudo chown "$(id -u):$(id -g)" /home/user
+          cp -a "$GITHUB_WORKSPACE" "$CLOUD_CHECKOUT"
+          sudo chmod 755 /root
+          sudo install -d -o "$(id -u)" -g "$(id -g)" "$CLOUD_ORT_DIR"
+          cd "$CLOUD_CHECKOUT"
+          SUSI_ONNXRUNTIME_DIR="$CLOUD_ORT_DIR" scripts/cloud-onnxruntime.sh
+          scripts/cloud-onnxruntime.sh --check
+
+      - name: Resolve the snapshot key
+        id: key
+        working-directory: /home/user/susi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          # The pinned toolchain is what the container resolves too.
+          rustc -vV
+          name=$(scripts/cloud-target-seed.sh --name)
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "snapshot: $name"
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "Cloud target seed" \
+              --notes "Snapshots of origin/main's registry and git crates for cloud sessions (scripts/cloud-target-seed.sh). Rolling; not a release of susi."
+          fi
+          published=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          if [ "$FORCE" != true ] && printf '%s\n' "$published" | grep -qx "$name.manifest"; then
+            echo "already published; nothing to build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Make room for the build and the snapshot
+        if: steps.key.outputs.build == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /home
+
+      # What the gate compiles: the build (nextest's `cargo test --no-run` is the
+      # same units) and the check-mode units clippy's lint of dependents reads.
+      - name: Build origin/main as a cloud session does
+        if: steps.key.outputs.build == 'true'
+        working-directory: /home/user/susi
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          set -euo pipefail
+          cargo build --locked --workspace --all-targets
+          cargo clippy --locked --workspace --all-targets || echo "clippy did not pass on main; publishing the build anyway"
+
+      - name: Export, pack and publish the snapshot
+        if: steps.key.outputs.build == 'true'
+        working-directory: /home/user/susi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.key.outputs.name }}
+        run: |
+          set -euo pipefail
+          target/debug/susi workflow seed-target --export /home/user/seed
+          rm -rf target
+          du -sh /home/user/seed
+          mkdir -p /home/user/out && cd /home/user/out
+          gz=gzip; command -v pigz >/dev/null 2>&1 && gz=pigz
+          tar -C /home/user/seed -cf - . | "$gz" -1 | split -b 1900m -d -a 2 - "$NAME.tar.gz.part"
+          sha256sum "$NAME".tar.gz.part* > "$NAME.manifest"
+          arch=${NAME%-*}
+          cp "$NAME.manifest" "$arch-latest.manifest"
+          ls -la
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "$NAME".tar.gz.part* "$NAME.manifest" "$arch-latest.manifest"
+          echo "published $NAME"
+
+      # Older keys stay useful for a branch behind main; two of them is plenty.
+      - name: Prune snapshots older than the two newest
+        if: steps.key.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.key.outputs.name }}
+        run: |
+          set -euo pipefail
+          arch=${NAME%-*}
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets | sort_by(.createdAt) | reverse | .[] | .name' > assets.txt
+          grep -E "^$arch-[0-9a-f]{16}\.manifest$" assets.txt | tail -n +3 | sed -E 's/\.manifest$//' | while read -r old; do
+            grep -E "^$old(\.manifest|\.tar\.gz\.part[0-9]+)$" assets.txt | while read -r asset; do
+              echo "deleting $asset"
+              gh release delete-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+            done
+          done
