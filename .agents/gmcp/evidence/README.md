@@ -18,13 +18,20 @@ Immutable evidence artifacts for the VC-203 program. Convention (see
   the checks read: the vector's existing production paths,
   `tests/gmcp_requirements.rs`, the ledger, `sources.json`, `spec/`,
   `fixtures/`, `docs/gmcp`, `docs/gmcp-roadmap.md`,
-  `scripts/check-gmcp-ledger.sh` and `crates/susi-gmcp`. A record whose
-  digest is no longer HEAD's is stale; in a full clone `tested_commit` must
-  also exist and be in HEAD's history.
+  `scripts/check-gmcp-ledger.sh` and `crates/susi-gmcp/src` (not its
+  manifest or `Cargo.lock`: every release bumps their `version`, and the
+  recorded checks run in every CI run anyway). A record whose digest is no
+  longer HEAD's is stale; in a full clone `tested_commit` must also exist
+  and be in HEAD's history.
 - `scripts/gmcp-record-evidence.sh` re-records, in two phases on a clean
   HEAD: first the requirement checks (commit what it appends), then
   `--mastery`, which runs the mastery tests on that commit and records the
   `-M` records only if they pass. A mastery test never reads its own `-M`
-  record, so that record states exactly what the test proved.
+  record, so that record states exactly what the test proved;
+  `gmcp_mastery_records_are_retained_and_current` checks it instead: one
+  newest `-M` record per vector, naming the vector's mastery test, bound and
+  current, and (in a full clone) recorded at a commit whose evidence holds
+  exactly the requirement records HEAD judges by. Recording the requirement
+  checks without the `--mastery` phase fails it.
 - `susi tasks audit` and `gmcp_vc_203_<NNN>_mastery` read these files; a
   missing, malformed, stale or unbound record fails the mastery gate closed.

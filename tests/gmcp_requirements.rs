@@ -142,8 +142,12 @@ fn evidence_artifacts(root: &Path, vector: &str) -> Vec<String> {
         .collect();
     // What every recorded check reads besides the vector's production
     // code: the tests, the ledger and its pinned corpus, the contracts and
-    // fixtures, the ledger checker, and the GMCP crate the binary is built
-    // from. Never `.agents/gmcp/evidence`: a record cannot digest itself.
+    // fixtures, the ledger checker, and the GMCP crate's sources. Never
+    // `.agents/gmcp/evidence`: a record cannot digest itself. Never a
+    // manifest or Cargo.lock either: every release bumps the crate's
+    // `version` in them, which would stale all evidence on main several
+    // times a day; the recorded checks still run in every CI run, so a
+    // dependency change that breaks one fails there.
     for shared in [
         "tests/gmcp_requirements.rs",
         ".agents/gmcp/requirements-ledger.json",
@@ -153,7 +157,7 @@ fn evidence_artifacts(root: &Path, vector: &str) -> Vec<String> {
         "docs/gmcp",
         "docs/gmcp-roadmap.md",
         "scripts/check-gmcp-ledger.sh",
-        "crates/susi-gmcp",
+        "crates/susi-gmcp/src",
     ] {
         if root.join(shared).exists() {
             paths.insert(shared.to_string());
@@ -207,11 +211,7 @@ fn assert_bound_to_tested_commit(
          code) changed since {commit}; run the checks again and re-record them \
          (scripts/gmcp-record-evidence.sh)"
     );
-    let shallow = Command::new("git")
-        .args(["rev-parse", "--is-shallow-repository"])
-        .current_dir(root)
-        .output()
-        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == "true");
+    let shallow = is_shallow(root);
     let at_commit = artifacts_digest(root, commit, artifacts);
     // A full clone holds every commit HEAD descends from: a tested_commit it
     // cannot find was never one of them (an invented id fails here). Only a
@@ -234,6 +234,106 @@ fn assert_bound_to_tested_commit(
             ancestor,
             "{requirement}: tested_commit {commit} is not in HEAD's history"
         );
+    }
+}
+
+/// Whether this clone is shallow (the CI test shards): it cannot look up an
+/// older commit, so a check that needs one rests on what HEAD holds.
+fn is_shallow(root: &Path) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--is-shallow-repository"])
+        .current_dir(root)
+        .output()
+        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == "true")
+}
+
+/// The mastery record is the one record no mastery test reads (it is that
+/// test's output), so it is checked here: every evidence file keeps exactly
+/// one newest `GMCP-<NNN>-M` record, naming the vector's own mastery test
+/// (which must exist), exit 0, bound to a commit whose artifacts are still
+/// HEAD's, and recorded over the requirement evidence HEAD judges by. In a
+/// full clone that is exact: the evidence file at the record's
+/// `tested_commit` has the same newest requirement records as HEAD's, so the
+/// mastery test passed on precisely them. A shallow clone cannot read that
+/// commit and checks that no requirement record is newer than the mastery
+/// record. Re-recording the requirement checks without the `--mastery`
+/// phase (scripts/gmcp-record-evidence.sh) fails here.
+#[test]
+fn gmcp_mastery_records_are_retained_and_current() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs"))
+        .expect("the GMCP tests must be readable");
+    let mut vectors: Vec<String> = std::fs::read_dir(root.join(".agents/gmcp/evidence"))
+        .expect("the evidence directory must exist")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter_map(|name| name.strip_suffix(".jsonl").map(str::to_string))
+        .collect();
+    vectors.sort();
+    assert!(!vectors.is_empty(), "no GMCP evidence files");
+    let shallow = is_shallow(root);
+    for vector in vectors {
+        let number = vector
+            .strip_prefix("VC-")
+            .unwrap_or_else(|| panic!("{vector}: evidence files are named VC-<NNN>-<NNN>.jsonl"));
+        let file = format!(".agents/gmcp/evidence/{vector}.jsonl");
+        let evidence =
+            std::fs::read_to_string(root.join(&file)).expect("evidence must be readable");
+        let id = format!("GMCP-{number}-M");
+        let (mastery, requirements): (Vec<_>, Vec<_>) = newest_records(&evidence)
+            .into_iter()
+            .partition(|record| record["requirement"] == id.as_str());
+        assert!(
+            !requirements.is_empty(),
+            "{vector}: no requirement evidence for its mastery record to stand on"
+        );
+        let [record] = mastery.as_slice() else {
+            panic!(
+                "{vector}: no retained mastery record {id}; run scripts/gmcp-record-evidence.sh --mastery {vector}"
+            );
+        };
+        let test = format!("gmcp_vc_{}_mastery", number.replace('-', "_"));
+        assert!(
+            is_test_fn(&test_src, &test),
+            "{vector}: no mastery test {test}"
+        );
+        assert_eq!(
+            record["check"].as_str(),
+            Some(format!("cargo test --locked --test gmcp_requirements {test}").as_str()),
+            "{id}: the mastery record must name its vector's mastery test"
+        );
+        assert_eq!(record["exit"], 0, "{id}: a mastery record attests a pass");
+        let artifacts = evidence_artifacts(root, &vector);
+        let head_digest = artifacts_digest(root, "HEAD", &artifacts)
+            .expect("HEAD must list the evidence artifacts");
+        assert_bound_to_tested_commit(root, record, &artifacts, &head_digest);
+        let at = record["recorded_unix"].as_u64().unwrap_or(0);
+        for requirement in &requirements {
+            assert!(
+                requirement["recorded_unix"].as_u64().unwrap_or(u64::MAX) <= at,
+                "{id}: {} was re-recorded after the mastery record; run \
+                 scripts/gmcp-record-evidence.sh --mastery {vector} on the commit that holds it",
+                requirement["requirement"]
+            );
+        }
+        if !shallow {
+            let commit = record["tested_commit"].as_str().unwrap_or_default();
+            let then = Command::new("git")
+                .args(["show", &format!("{commit}:{file}")])
+                .current_dir(root)
+                .output()
+                .expect("git show must run");
+            assert!(then.status.success(), "{id}: {commit} holds no {file}");
+            let proved: Vec<serde_json::Value> =
+                newest_records(&String::from_utf8_lossy(&then.stdout))
+                    .into_iter()
+                    .filter(|earlier| earlier["requirement"] != id.as_str())
+                    .collect();
+            assert!(
+                proved == requirements,
+                "{id}: the mastery test ran at {commit} over other requirement evidence than \
+                 HEAD judges by; run scripts/gmcp-record-evidence.sh --mastery {vector}"
+            );
+        }
     }
 }
 

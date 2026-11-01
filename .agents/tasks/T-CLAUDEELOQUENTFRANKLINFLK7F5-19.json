@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-19",
+  "title": "gmcp evidence: digest skips the release-bumped manifest; mastery records validated against the requirement evidence they read",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793522638
+}

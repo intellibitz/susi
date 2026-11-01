@@ -74,7 +74,7 @@ artifacts() {
             done
         for shared in "$tests" "$ledger" .agents/gmcp/sources.json .agents/gmcp/spec \
             .agents/gmcp/fixtures docs/gmcp docs/gmcp-roadmap.md \
-            scripts/check-gmcp-ledger.sh crates/susi-gmcp; do
+            scripts/check-gmcp-ledger.sh crates/susi-gmcp/src; do
             [ -e "$shared" ] && printf '%s\n' "$shared"
         done
     } | LC_ALL=C sort -u
