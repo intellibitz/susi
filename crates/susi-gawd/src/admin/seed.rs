@@ -1146,14 +1146,28 @@ pub fn strip_units(target: &Path, checkout: &Path) -> Result<usize, Unstripped> 
 
 /// `git` in `dir`: trimmed stdout on success.
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let result = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .output();
+    let out = match result {
+        Ok(out) => out,
+        Err(error) => {
+            if REPORT.get().is_some() {
+                say(&format!(
+                    "could not start Git in {}: {error}",
+                    dir.display()
+                ));
+            }
+            return None;
+        }
+    };
+    if !out.status.success() && REPORT.get().is_some() {
+        say(&format!("Git failed in {}: {}", dir.display(), out.status));
+    }
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -1328,6 +1342,9 @@ fn spawn_background(top: &Path, log_path: &Path) -> bool {
 /// and leaves the copy to a process of its own. Never fails: every outcome is
 /// reported on stderr and the caller's cargo goes ahead as it is.
 pub fn seed_worktree(dir: Option<&Path>, background: bool) {
+    if REPORT.get().is_some() {
+        say("native seed worker started");
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let dir = dir.map_or(cwd, Path::to_path_buf);
     if !dir.is_dir() {
