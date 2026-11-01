@@ -445,6 +445,11 @@ mod tests {
         // Node ships an extensionless Unix shell launcher next to npx.cmd.
         // Native Windows must choose the .cmd, not try executing that script.
         fs::write(dir.path().join("npx"), "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.path().join("npx"), fs::Permissions::from_mode(0o700)).unwrap();
+        }
         for name in ["npx.cmd", "uvx.exe"] {
             let path = dir.path().join(name);
             // Deliberately invalid executables: discovery must not run them.
