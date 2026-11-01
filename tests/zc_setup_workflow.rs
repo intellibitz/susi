@@ -66,10 +66,9 @@ fn zc_setup_workflow_registered_cloud_and_platform_binary_are_detected() {
 fn zc_setup_workflow_cli_confines_defaults_to_instance_and_preserves_settings() {
     let dir = scratch_home();
     let instance = dir.join("instance");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_susi"))
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_susi"));
+    let output = susi_paths::test_env::isolate_home(&mut command, &dir)
         .args(["setup", "apply", "--json"])
-        .env("HOME", &dir)
-        .env("USERPROFILE", &dir)
         .env("SUSI_HOME", &instance)
         .env("SUSI_OFFLINE", "1")
         .output()
