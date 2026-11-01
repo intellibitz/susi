@@ -27,6 +27,7 @@ pub(crate) fn glass_box_callback(piece: String) {
 
 pub(crate) struct ShellSession {
     _discovery: DiscoveryRefresh,
+    preparation: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl ShellSession {
@@ -40,6 +41,7 @@ impl ShellSession {
         println!("Type 'exit' to quit.");
         Self {
             _discovery: DiscoveryRefresh::start(workspace),
+            preparation: std::sync::Mutex::new(None),
         }
     }
 
@@ -68,8 +70,59 @@ impl ShellSession {
             }
             println!("Goal received. Starting work...");
             let _ = io::stdout().flush();
+            self.prepare_existing_local(goal);
             return Some(goal.to_owned());
         }
+    }
+
+    fn prepare_existing_local(&self, goal: &str) {
+        // File reads need no language model. Preserve that direct path.
+        let lower = goal.to_ascii_lowercase();
+        let focused = lower
+            .strip_prefix("run ")
+            .or_else(|| lower.strip_prefix("automate "))
+            .unwrap_or(&lower);
+        if focused.starts_with("read ")
+            || focused.starts_with("cat ")
+            || focused.starts_with("ls ")
+            || matches!(
+                focused,
+                "identity"
+                    | "status"
+                    | "susi status"
+                    | "models"
+                    | "list models"
+                    | "version"
+                    | "susi version"
+                    | "dashboard"
+                    | "bloat audit"
+                    | "ls"
+                    | "dir"
+                    | "list directory"
+                    | "list files"
+                    | "who am i"
+                    | "whoami"
+            )
+        {
+            return;
+        }
+        let mut worker = self
+            .preparation
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(previous) = worker.take() {
+            let _ = previous.join();
+        }
+        susi_gemi::engines::runtime::GemiEngine::set_owned_runner_child_adopter(
+            susi_daemon::supervisor::adopt_ephemeral_child,
+        );
+        let goal = goal.to_owned();
+        *worker = std::thread::Builder::new()
+            .name("goal-local-preparation".into())
+            .spawn(move || {
+                susi_gemi::engines::runtime::GemiEngine::prepare_existing_local_for_goal(&goal)
+            })
+            .ok();
     }
 
     pub(crate) fn finish_goal(&self, status: std::process::ExitCode) {
@@ -79,6 +132,21 @@ impl ShellSession {
             eprintln!(
                 "This goal did not complete. See the reason above; you can try another goal."
             );
+        }
+    }
+}
+
+impl Drop for ShellSession {
+    fn drop(&mut self) {
+        // Join before the outer runner-session guard shuts down owned children:
+        // no preparer may launch a child after that shutdown has completed.
+        if let Some(worker) = self
+            .preparation
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            let _ = worker.join();
         }
     }
 }

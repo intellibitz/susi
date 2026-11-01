@@ -38,6 +38,15 @@ ignore = [
 ]
 
 [licenses]
+# Mandate 63 requires Apache/MIT/BSD for software and downloaded weights;
+# proprietary cloud services remain available through permitted integrations.
+# This legacy gate is NOT proof of compliance with that newer mandate.
+# Migration debt verified 2026-11-01: the four extra families below are still
+# required by 25 resolved crates (ICU/Unicode, ring/webpki trust dependencies,
+# foldhash and ort-sys's build dependency hmac-sha256). Replace/remove those
+# dependencies before deleting these entries; do not relabel their licenses.
+# Reproduce the strict audit with a temporary copy excluding those four
+# entries, then: cargo deny --config <copy> --locked check licenses
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",

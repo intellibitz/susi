@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-10",
+  "title": "Restrict starter models to permitted software and weight licenses",
+  "goal": "Remove Llama3.2 and Qwen2.5-3B custom-license default starters; attach explicit SPDX metadata and reject unknown or non-Apache/MIT/BSD starter licenses before selecting cached or downloadable weights. Preserve permitted cached models and offline behavior.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "zc_first_model"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793541952,
+  "closed": {
+    "at_unix": 1793542179,
+    "commit": "796ce671c2c5745613ac0f055f740cb6bf7b6b80",
+    "by": "CODEXSTEP1GOAL20261101"
+  }
+}

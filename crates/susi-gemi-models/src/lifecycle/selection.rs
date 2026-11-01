@@ -146,7 +146,26 @@ impl ModelManager {
         intent: Option<crate::intent::IntentCategory>,
         complexity: Option<crate::intent::TaskComplexity>,
     ) -> Option<DynamicModelInfo> {
-        let hw = HardwareProfiler::get_profile();
+        Self::identify_local_model_for_backend(workspace, intent, complexity, true)
+    }
+
+    fn identify_local_model_for_backend(
+        workspace: &Path,
+        intent: Option<crate::intent::IntentCategory>,
+        complexity: Option<crate::intent::TaskComplexity>,
+        requires_sidecar: bool,
+    ) -> Option<DynamicModelInfo> {
+        // The installed runner explicitly uses CPU (--device none). Asking
+        // nvidia-smi and constructing a diagnostic GPU/OS profile cannot
+        // improve that placement; retain the live RAM admission check.
+        let hw = requires_sidecar.then(HardwareProfiler::get_profile);
+        let available_ram_gb = hw.as_ref().map_or_else(
+            || HardwareProfiler::determine_available_ram_gb() as f32,
+            |profile| profile.available_ram_gb as f32,
+        );
+        let acceleration_active = hw
+            .as_ref()
+            .is_some_and(|profile| profile.acceleration_active);
         let models = Self::list_models(workspace);
         let local_models: Vec<DynamicModelInfo> = models
             .into_iter()
@@ -155,8 +174,7 @@ impl ModelManager {
                 let path = PathBuf::from(m.model_id());
                 path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
                     && !Self::cooling_down(m.model_id())
-                    && Self::valid_gguf_payload(&path)
-                    && Self::get_tokenizer_path(m.model_id()).is_some()
+                    && Self::model_artifacts_ready(m.model_id(), &path, requires_sidecar)
             })
             .collect();
 
@@ -177,7 +195,7 @@ impl ModelManager {
                 let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
                 Self::fits_memory(
                     size_gb,
-                    hw.available_ram_gb as f32,
+                    available_ram_gb,
                     heuristics.system_ram_buffer_gb,
                     cfg.model_lifecycle().memory_overhead_ratio,
                 )
@@ -188,13 +206,16 @@ impl ModelManager {
         // Free VRAM (minus CUDA-context reserve), not total capacity —
         // a model that fits the card on paper still OOMs at load when
         // another process or the previous inference holds memory.
-        let vram_budget_gb =
-            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
+        let vram_budget_gb = if requires_sidecar {
+            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0)
+        } else {
+            0.0
+        };
         // When any candidate fits VRAM, drop CPU-spill giants from the
         // default pick: a 19GB Q4 on an 8GB Ada card "fits" RAM but runs
         // at ~7 tok/s and trips cloud escalation. Keep oversize models
         // only when nothing GPU-resident is available.
-        let any_vram_fit = hw.acceleration_active
+        let any_vram_fit = acceleration_active
             && vram_budget_gb > 0.0
             && sized_models.iter().any(|(_, size)| *size <= vram_budget_gb);
         let sized_models: Vec<(DynamicModelInfo, f32)> = if any_vram_fit {
@@ -239,7 +260,7 @@ impl ModelManager {
             let mut score = 0.0f32;
             score +=
                 Self::size_preference_score(model_size_gb, min_size_gb, max_size_gb, complexity);
-            if hw.acceleration_active && vram_budget_gb > 0.0 && model_size_gb <= vram_budget_gb {
+            if acceleration_active && vram_budget_gb > 0.0 && model_size_gb <= vram_budget_gb {
                 score += 50.0;
             }
             if m.provider() == "NativeCandle" {
@@ -347,6 +368,32 @@ impl ModelManager {
         intent: Option<crate::intent::IntentCategory>,
         complexity: Option<crate::intent::TaskComplexity>,
     ) -> Option<String> {
+        Self::selected_model_for_backend(intent, complexity, true)
+    }
+
+    /// Installed GGUF runners use the tokenizer embedded in the model. Their
+    /// real load/health probe validates it before routing uses this candidate;
+    /// Candle still requires its external tokenizer on the normal path.
+    pub fn get_selected_model_for_installed_runner(prompt: &str) -> Option<String> {
+        Self::selected_model_for_backend(
+            Some(crate::intent::IntentClassifier::classify(prompt)),
+            Some(crate::intent::IntentClassifier::classify_complexity(
+                prompt, None,
+            )),
+            false,
+        )
+    }
+
+    fn model_artifacts_ready(model: &str, path: &Path, requires_sidecar: bool) -> bool {
+        Self::valid_gguf_payload(path)
+            && (!requires_sidecar || Self::get_tokenizer_path(model).is_some())
+    }
+
+    fn selected_model_for_backend(
+        intent: Option<crate::intent::IntentCategory>,
+        complexity: Option<crate::intent::TaskComplexity>,
+        requires_sidecar: bool,
+    ) -> Option<String> {
         let override_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
@@ -358,8 +405,7 @@ impl ModelManager {
                         .metadata()
                         .map(|m| m.len() as f32 / 1073741824.0)
                         .unwrap_or(0.0);
-                    if Self::valid_gguf_payload(&path)
-                        && Self::get_tokenizer_path(trimmed).is_some()
+                    if Self::model_artifacts_ready(trimmed, &path, requires_sidecar)
                         && Self::fits_memory(
                             size,
                             HardwareProfiler::determine_available_ram_gb() as f32,
@@ -373,7 +419,7 @@ impl ModelManager {
             }
         }
         let ws = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        Self::identify_best_suited_local_model_with_complexity(&ws, intent, complexity)
+        Self::identify_local_model_for_backend(&ws, intent, complexity, requires_sidecar)
             .map(|m| m.model_id().to_string())
     }
 
@@ -544,6 +590,54 @@ impl ModelManager {
 #[cfg(test)]
 mod selection_tests {
     use super::ModelManager;
+
+    #[test]
+    fn installed_runner_uses_embedded_tokenizer_but_rejects_incomplete_weights() {
+        let _lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root =
+            std::env::temp_dir().join(format!("susi-embedded-tokenizer-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut environment = susi_paths::test_env::EnvGuard::isolated();
+        environment.set("HOME", &root).set("SUSI_HOME", &root);
+        let path = root.join("model.gguf");
+        // One complete F32 tensor; no external tokenizer artifact.
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(1u64.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.extend(1u64.to_le_bytes());
+        bytes.push(b'x');
+        bytes.extend(1u32.to_le_bytes());
+        bytes.extend(1u64.to_le_bytes());
+        bytes.extend(0u32.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.resize(bytes.len().div_ceil(32) * 32, 0);
+        bytes.extend(1f32.to_le_bytes());
+        std::fs::write(&path, &bytes).unwrap();
+        let model = path.to_str().unwrap();
+        assert!(ModelManager::model_artifacts_ready(model, &path, false));
+        assert!(!ModelManager::model_artifacts_ready(model, &path, true));
+        // Sidecar omission changes only backend eligibility, never GGUF checks.
+        std::fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+        assert!(!ModelManager::model_artifacts_ready(model, &path, false));
+        assert!(!ModelManager::model_artifacts_ready(model, &path, true));
+        drop(environment);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checksum_reads_all_blocks_and_trailing_bytes() {
+        let path =
+            std::env::temp_dir().join(format!("susi-checksum-blocks-{}", std::process::id()));
+        std::fs::write(&path, vec![0xa5; 262147]).unwrap();
+        assert_eq!(
+            ModelManager::calculate_simple_checksum(&path).unwrap(),
+            "3906393794f65f3ce67995cc639367320caa7f1c8554e6f7f6603948e1fb3bbf"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {

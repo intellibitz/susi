@@ -117,6 +117,57 @@ impl GemiEngine {
         crate::models::llamacpp_launcher::set_child_adopter(adopter);
     }
 
+    /// Prepare only an already installed model for ordinary automatic text.
+    /// This never provisions weights or discovers remote providers.
+    pub fn prepare_existing_local_for_goal(prompt: &str) {
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let engine = ModelManager::get_selected_engine().unwrap_or_else(|| cfg.default_engine());
+        let _ = Self::prepare_fast_local(prompt, None, None, None, &cfg, &engine);
+    }
+
+    #[allow(clippy::too_many_arguments)] // Same request facts as the shared eligibility gate.
+    fn prepare_fast_local(
+        prompt: &str,
+        requested_model: Option<&str>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
+        requires: Option<&str>,
+        global_config: &crate::susi_sandbox::manager::SusiConfig,
+        active_engine_identifier: &str,
+    ) -> Option<String> {
+        if fast_local_eligible(
+            prompt,
+            requested_model,
+            min_complexity,
+            requires,
+            "auto",
+            active_engine_identifier,
+            false,
+        ) {
+            let preference = crate::engines::routing::InferenceRouter::load_preference();
+            let policy = crate::engines::routing::InferenceRouter::effective_policy(
+                &global_config.inference_routing(),
+                &preference,
+            );
+            fast_local_eligible(
+                prompt,
+                requested_model,
+                min_complexity,
+                requires,
+                &policy,
+                active_engine_identifier,
+                preference.preferred_cloud.is_some(),
+            )
+            .then(|| ModelManager::get_selected_model_for_installed_runner(prompt))
+            .flatten()
+        } else {
+            None
+        }
+        .filter(|model| {
+            ModelManager::get_model_path(model)
+                .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
+        })
+    }
+
     pub fn shutdown_owned_runner() {
         crate::models::llamacpp_launcher::shutdown_owned();
     }
@@ -125,13 +176,32 @@ impl GemiEngine {
         if cfg!(test) || std::env::var("SUSI_TEST_MOCK_INFERENCE").as_deref() == Ok("true") {
             return Ok(false);
         }
+        // Preparation may overlap composition; serialize the integrity check
+        // and launch so admission never races a second launch for this model.
+        static PREPARATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _preparation = PREPARATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let integrity_started = std::time::Instant::now();
         ModelManager::verify_model_integrity(path)?;
+        tracing::debug!(
+            elapsed_ms = integrity_started.elapsed().as_millis(),
+            "Local model integrity checked"
+        );
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let runner_started = std::time::Instant::now();
         match crate::models::llamacpp_launcher::ensure_owned(
             path,
             cfg.kv_cache_capacity_tokens() as u64,
         ) {
-            Ok(endpoint) => Ok(endpoint.is_some()),
+            Ok(endpoint) => {
+                tracing::debug!(
+                    elapsed_ms = runner_started.elapsed().as_millis(),
+                    ready = endpoint.is_some(),
+                    "Installed runner preparation completed"
+                );
+                Ok(endpoint.is_some())
+            }
             Err(error) => {
                 tracing::warn!(%error, "Installed local runner unavailable; using native inference");
                 Ok(false)
@@ -337,51 +407,25 @@ impl GemiEngine {
         };
         let meta = &tagged_meta;
 
+        let local_preparation_started = std::time::Instant::now();
         let global_config =
             crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier =
             ModelManager::get_selected_engine().unwrap_or_else(|| global_config.default_engine());
-        let fast_local_model = if fast_local_eligible(
+        let fast_local_model = Self::prepare_fast_local(
             prompt,
             requested_model,
             min_complexity,
             requires,
-            "auto",
+            &global_config,
             &active_engine_identifier,
-            false,
-        ) {
-            let preference = crate::engines::routing::InferenceRouter::load_preference();
-            let placement = crate::engines::routing::InferenceRouter::plan_placement_for(
-                &[],
-                requires,
-                None,
-                true,
-            );
-            fast_local_eligible(
-                prompt,
-                requested_model,
-                min_complexity,
-                requires,
-                &placement.policy,
-                &active_engine_identifier,
-                preference.preferred_cloud.is_some(),
-            )
-            .then(|| {
-                ModelManager::get_selected_model_for_request_with_min_complexity(
-                    prompt,
-                    None,
-                    min_complexity,
-                )
-            })
-            .flatten()
-        } else {
-            None
-        }
-        .filter(|model| {
-            ModelManager::get_model_path(model)
-                .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
-        });
+        );
         let prefer_fast_local = fast_local_model.is_some();
+        tracing::debug!(
+            elapsed_ms = local_preparation_started.elapsed().as_millis(),
+            ready = prefer_fast_local,
+            "Local selection and preparation completed"
+        );
 
         // Remote model discovery can involve network probes. A ready local
         // answer does not need them; retain registration before every cloud
@@ -448,16 +492,15 @@ impl GemiEngine {
             };
         }
 
-        // Only announce failover when the provider cascade was actually in
-        // play: no model named (normal route) or the name matched a
-        // registered provider. A caller-named local model id reaches here
-        // by honoring, not fallback.
+        // A fresh installation without providers is normal local setup, not
+        // failover. Announce only a cascade that actually stepped down.
         if !prefer_fast_local
+            && ladder.step_downs() > 0
             && (requested_model.is_none() || Self::model_names_a_provider(requested_model))
         {
             eprintln!("[INFERENCE FAILOVER] Falling back to local inference");
             callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
-        } else if !prefer_fast_local {
+        } else if !prefer_fast_local && explicit_local_request {
             eprintln!("[INFERENCE] Caller-requested local model — native inference");
         }
 
@@ -541,8 +584,9 @@ impl GemiEngine {
         // must fetch a hardware-fit model and retry before giving up. Only
         // engaged when no local GGUF actually exists yet (not on inference
         // errors against an existing model, which a re-download can't fix).
-        let provision_needed =
-            requested_model.is_none() && !Self::has_usable_local_model(workspace);
+        let provision_needed = !prefer_fast_local
+            && requested_model.is_none()
+            && !Self::has_usable_local_model(workspace);
         if provision_needed {
             if let Some(res) =
                 Self::provision_and_retry(prompt, workspace, callback, min_complexity)

@@ -10,6 +10,19 @@ susi runs a persistent host daemon, stable network ports external clients can ha
 
 ## One operating layer, two AI ecosystems
 
+Susi's CEO mandate is an immediate install-to-first-goal experience: discover
+available local and cloud AI, show what is ready, and accept a goal without
+code or manual configuration. Agents own implementation and verification.
+Startup work and dependencies must earn their cost; completion requires
+measuring the actual installed experience, including fresh model downloads.
+This is the acceptance standard, not a claim that every part is achieved today.
+
+Susi is Apache-2.0. Its supported software and downloaded model weights must
+use Apache, MIT or BSD licenses. Cloud AI services remain available through
+permitted integrations. Existing transitive dependencies outside these
+families remain migration debt; the current dependency graph is not yet fully
+compliant with this mandate (Mandates 62–63).
+
 - **Local AI OS layer** — discovers and manages local runtimes, GGUF/Ollama
   models, GPU/CPU placement, loaded-model lifecycle, MCP tools, sandboxed
   Wasm reflexes, workspace memory, and host-resident agents. `local_only`

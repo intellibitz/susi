@@ -22,6 +22,22 @@ in a fresh temporary workspace. Both the visible answer and the governed mission
 record must contain the fixture's random content. Failure leaves the current
 channel intact. Evidence stays in the printed temporary directory.
 
+Build automatically installs **Susi (local production)** or **Susi
+(development)** in the Windows Start Menu. The shortcut launches the installed
+native executable directly, without PowerShell startup, and keeps working if
+the source worktree is removed. The CEO
+opens the app and enters a goal; agents handle builds and verification.
+
+On launch, the channel adds the canonical model cache to its read-only discovery
+paths. It does not copy model weights or redirect writes into that cache. Stored
+provider API keys, base URLs and model preferences from canonical `cloud.env`
+are read into the child environment only when no existing process value wins;
+arbitrary command and home settings are excluded. The file is never copied or
+modified, and imported values exist only in the child process. An explicit
+`SUSI_HOME` retains the caller's choice and bypasses channel autodetection, as
+required for isolated candidate verification. New downloads
+and mutable runtime state remain separate for each channel.
+
 `-Action Run` launches the activated channel with its own Susi home and port
 offset (development 200, local production 300). `-SusiArgs` passes arguments to
 that executable. `-Action Rollback` selects the previous installed build without
@@ -31,6 +47,12 @@ this channel still has running processes, so agents finish goals and stop its
 daemon before switching. A rollback verifies the previous content-addressed
 executable before running it. Repository acceptance and publication gates
 still apply to publishing code, independently of this local verification loop.
+Builds predating native channel isolation are not eligible as rollback targets:
+the agent keeps the current channel active and can still use the separate public
+installation. For repository workflow operations, agents set the process-local
+`SUSI_WORKFLOW_BIN` to the current activated executable, so an older public
+installation does not supply outdated workflow rules. This is agent configuration,
+not a setup step for the CEO.
 
 The local smoke check proves the governed file journey, not every model or cloud
 provider. Agents must also run the acceptance checks relevant to their change.
