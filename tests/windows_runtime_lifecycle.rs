@@ -130,19 +130,8 @@ fn isolated(program: &Path, home: &Path) -> Command {
                 .unwrap_or_else(|| original.join(relative)),
         );
     }
-    for key in ["HOME", "USERPROFILE"] {
-        command.env(key, home);
-    }
-    for (key, relative) in [
-        ("SUSI_HOME", ".susi"),
-        ("APPDATA", "appdata"),
-        ("LOCALAPPDATA", "localappdata"),
-        ("XDG_CONFIG_HOME", "config"),
-        ("XDG_DATA_HOME", "data"),
-        ("XDG_CACHE_HOME", "cache"),
-        ("TEMP", "temp"),
-        ("TMP", "temp"),
-    ] {
+    susi_paths::test_env::isolate_home(&mut command, home);
+    for (key, relative) in [("SUSI_HOME", ".susi"), ("TEMP", "temp"), ("TMP", "temp")] {
         let directory = home.join(relative);
         fs::create_dir_all(&directory).unwrap();
         command.env(key, directory);
