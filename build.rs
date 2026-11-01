@@ -8,7 +8,11 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+#[path = "xtask/bootstrap/os_ucrt.rs"]
+mod os_ucrt;
+
 fn main() {
+    os_ucrt::configure().expect("Windows OS-UCRT boundary configuration failed");
     warn_if_gpu_available_but_unused();
 
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");
