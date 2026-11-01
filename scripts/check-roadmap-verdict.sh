@@ -48,12 +48,12 @@ check_all() {
     batch_res_file=$(mktemp "${TMPDIR:-/tmp}/susi-verdict-batch-res.XXXXXX")
     trap 'rm -f "${all_fns_file:-}" "${batch_req_file:-}" "${batch_res_file:-}"' EXIT
 
+    # Every `fn <name>` in the tree, once. grep and sed, not gawk's three-argument
+    # match(): the check then runs under any awk (mawk is Debian's default), and
+    # grep over a thousand files is a fraction of a second.
     if [ "${#rust_files[@]}" -gt 0 ]; then
-        (cd "$ROOT" && awk '
-            match($0, /(^|[^A-Za-z0-9_])fn[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)/, m) {
-                print m[2]
-            }
-        ' "${rust_files[@]}" | sort -u > "$all_fns_file")
+        (cd "$ROOT" && grep -ohE '(^|[^A-Za-z0-9_])fn[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "${rust_files[@]}" \
+            | sed -E 's/.*fn[[:space:]]+//' | sort -u > "$all_fns_file")
     fi
 
     # Collect reachability batch checks across all verdict records

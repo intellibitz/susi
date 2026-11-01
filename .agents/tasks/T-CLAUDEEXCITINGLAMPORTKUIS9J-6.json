@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-6",
+  "title": "Merge from the Test run itself the moment the required checks are green; cut the slow invariant and compile steps",
+  "goal": "push-to-merge under 60s: the merge no longer waits for the whole Test run (workflow_run fires after the slowest job, Repository Invariants at 110s, which the ruleset does not even require); the verdict check and the compile check lose their fixed overheads; the queue relay client stops paying a round trip per lease",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793506276
+}

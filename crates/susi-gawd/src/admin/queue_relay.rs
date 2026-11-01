@@ -239,18 +239,13 @@ fn direct(ws: &Path, remote: &str, leases: &[Lease], updates: &[Update]) -> EaiR
     git(ws, &argv).map(|_| ())
 }
 
-fn remote_sha(ws: &Path, remote: &str, name: &str) -> EaiResult<String> {
-    let listed = git(ws, &["ls-remote", remote, name])?;
-    Ok(listed.split_whitespace().next().unwrap_or("").to_string())
-}
-
 fn leases_hold(ws: &Path, remote: &str, leases: &[Lease]) -> EaiResult<bool> {
-    for (name, old) in leases {
-        if remote_sha(ws, remote, name)? != *old {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    // One round trip for every lease, as `not_landed` reads them back.
+    let names: Vec<String> = leases.iter().map(|(name, _)| name.clone()).collect();
+    let present = remote_map(ws, remote, &names)?;
+    Ok(leases
+        .iter()
+        .all(|(name, old)| present.get(name).map(String::as_str).unwrap_or("") == old.as_str()))
 }
 
 /// Whether the relayed transaction landed: `None` when it did, else the ref
