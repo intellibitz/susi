@@ -360,7 +360,7 @@ impl InferenceHost {
         Self::preload_resolved(&path)
     }
 
-    /// Internal lifecycle entry for weights already resolved by ModelManager.
+    /// Internal lifecycle entry for weights already resolved by `ModelManager`.
     /// Public model-management requests still pass through the id-only gate.
     pub(crate) fn preload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
         let file_size = std::fs::metadata(path)
@@ -387,7 +387,7 @@ impl InferenceHost {
         Self::unload_resolved(&path)
     }
 
-    /// Internal counterpart of preload_resolved, preserving the exact path.
+    /// Internal counterpart of [`Self::preload_resolved`], preserving the exact path.
     pub(crate) fn unload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
         let evicted = Self::cache().evict(path)?;
         let Some((weights, device)) = evicted else {
