@@ -88,11 +88,17 @@ impl EngineHost for SusiHost {
     }
 
     fn preload(&self, model: &str) -> EaiResult<()> {
-        crate::engines::runtime::InferenceHost::preload(model).map(|_| ())
+        let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
+            EaiError::inference(format!("model '{model}' has no resolvable weights"))
+        })?;
+        crate::engines::runtime::InferenceHost::preload_resolved(&path).map(|_| ())
     }
 
     fn unload(&self, model: &str) -> EaiResult<()> {
-        crate::engines::runtime::InferenceHost::unload(model).map(|_| ())
+        let path = crate::models::ModelManager::get_model_path(model).ok_or_else(|| {
+            EaiError::inference(format!("model '{model}' has no resolvable weights"))
+        })?;
+        crate::engines::runtime::InferenceHost::unload_resolved(&path).map(|_| ())
     }
 
     fn endpoints(&self) -> Vec<String> {
