@@ -99,10 +99,35 @@ are specific to it:
   and an rpath, so every binary runs without an `LD_LIBRARY_PATH` — never
   through the repository's `.cargo/config.toml`, which every laptop shares.
   The session-start hook runs it; it is idempotent.
+* **The target seed.** A laptop's worktrees copy a warm snapshot of
+  `origin/main` from the primary checkout (`scripts/seed-target.sh`); a
+  container has no primary, so every registry and git crate compiled cold
+  (about 15 minutes on 4 vCPU before the first `susi workflow check`, and the
+  finish gate's clippy of a changed crate's dependents check-built them again,
+  210 s measured). `.github/workflows/target-seed.yml` builds `origin/main`
+  the way a container does — the pinned toolchain, the cargo configuration
+  `scripts/cloud-onnxruntime.sh` writes (its rpath is in every unit's
+  rustflags), the clone at `/home/user/susi` — strips the workspace's own
+  units (`susi workflow seed-target --export`) and publishes the rest as
+  assets of the rolling `target-seed` pre-release, in parts under 1.9 GB with
+  a sha256 manifest, named by a key `scripts/cloud-target-seed.sh --key`
+  computes from everything those units' fingerprints depend on (the external
+  packages of `Cargo.lock`, the toolchain pin, `rustc -vV`, the dev profile,
+  the ONNX Runtime configuration). It runs when one of those inputs changes
+  on `main`, weekly, and on demand. The session-start hook runs
+  `scripts/cloud-target-seed.sh`, which fetches the asset for this checkout's
+  key — or the newest one, when none for this exact key is published yet:
+  cargo recompiles what differs and keeps the rest — verifies it and unpacks
+  it into an empty `target/`; one that already holds a build is left alone.
+  `SUSI_CLOUD_SEED=0` skips it, `SUSI_TARGET_SEED_URL` names another source
+  (`file://` works; the tests use it).
 * **The background build.** The check needs the binary, so the hook starts
-  `cargo build -q` in the background (log: `.git/susi-cloud-build.log`).
-  Cargo's own lock on the build directory makes a second build wait for it,
-  so `cargo build -q` by hand simply waits. `SUSI_CLOUD_PREBUILD=0` opts out;
+  the seeding and then `cargo build -q` in one background subshell (log:
+  `.git/susi-cloud-build.log`), holding the clone's build lock through both:
+  the download holds no cargo lock, so a cargo run by hand meanwhile would
+  build cold beside it. `scripts/cloud-target-seed.sh --wait` waits on that
+  lock, so it waits for both; a `cargo build -q` by hand after the seeding
+  simply waits on cargo's own lock. `SUSI_CLOUD_PREBUILD=0` opts out;
   `SUSI_CLOUD_ONNXRUNTIME=0` skips the runtime step.
 
 Then the loop is the ordinary one, with the dev binary:

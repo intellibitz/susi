@@ -541,6 +541,52 @@ nextest's retry). The merge itself remains the machinery's: PR #1187 opened on t
 push at 23:17 and was merged by 23:19, about two minutes after the push
 (Compile Check and Workflow Compliance on the branch run, then the merge job).
 
+## The cloud target seed (2026-11-01)
+
+The cold numbers of a cloud session, from the session above: the background
+build of susi took about 15 minutes (21:58 → 22:13 on 4 vCPU, ~700 registry
+crates and the ~80 workspace crates), and the first gate's clippy of a changed
+crate's dependents 210 s, check-building the dependency tree in check mode
+for the first time. A laptop never pays either: its worktrees copy the
+primary's snapshot (`scripts/seed-target.sh`). A container has no primary.
+
+So the snapshot is published. `.github/workflows/target-seed.yml` builds
+`origin/main` as a container does (the pinned toolchain; the cargo
+configuration `scripts/cloud-onnxruntime.sh` writes, whose rpath is in every
+unit's rustflags; the clone at `/home/user/susi`), `cargo build --workspace
+--all-targets` and `cargo clippy --workspace --all-targets` — the build and
+the check-mode units the gate reads — then `susi workflow seed-target
+--export` copies the target and strips it exactly as the refresh strips the
+primary's (registry and git units only, no `incremental/`, a `.susi-seed`
+mark), and the result goes up as assets of the rolling `target-seed`
+pre-release: gzip'd tar in parts under 1.9 GB (the asset limit is 2 GiB), a
+sha256sum manifest, named by the key `scripts/cloud-target-seed.sh --key`
+computes — the external packages of `Cargo.lock`, the toolchain pin, `rustc
+-vV`, the machine, the `[profile.dev]` tables and the ONNX Runtime
+configuration block — and a `linux-x86_64-latest.manifest` naming the newest.
+The workflow runs when a key input changes on `main`, weekly, or on demand,
+and costs one checkout when the key's snapshot already exists; two keys are
+kept, for branches behind `main`.
+
+The session-start hook fetches it (`scripts/cloud-target-seed.sh`, before
+`cargo build -q`, inside the one subshell that holds the clone's build lock),
+verifies every part, unpacks into an empty `target/` and leaves one that holds
+a build alone; no snapshot for the exact key takes the newest, and cargo
+recompiles the crates that differ. The registry-only part of this session's
+target measured 4.9 GB uncompressed, so expect about 1.5–2 GB to download.
+
+What this does not yet establish: the seeded cold build and the seeded gate
+have not been measured — the first snapshot is published by the workflow's
+first run on `main`, after this merges, and the next cloud session measures
+them (expected: the first build compiles the workspace crates only, as a
+laptop worktree's does, and the dependents' clippy pays for workspace check
+units only). Fingerprint parity across machines rests on what the laptop
+seeding already relies on — registry units are keyed by package, features,
+profile and compiler, not by the checkout's path or `CARGO_HOME`, and a build
+script's recorded output directory is rewritten by cargo — plus the identical
+rustflags and `ORT_LIB_LOCATION` the workflow reproduces; a unit whose
+fingerprint does not match is simply rebuilt.
+
 ## What is not fixed here
 
 - **`-p <crate>` builds unify features differently from `--workspace`**

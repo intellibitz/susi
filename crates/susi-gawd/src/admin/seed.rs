@@ -2149,9 +2149,118 @@ pub fn refresh(force: bool, log: Option<&Path>) {
     out.say(&format!("published {got} at {seed_s}"));
 }
 
+/// Export this checkout's `target/` as a snapshot: a copy at `dest`, stripped
+/// to the registry and git units exactly as the refresh strips the primary's
+/// (`strip_units`), without `incremental/`, and marked as a snapshot
+/// (`.susi-seed`: the checkout's head and the time). The cloud target seed
+/// workflow (`.github/workflows/target-seed.yml`) builds `origin/main` the way
+/// a cloud session does and publishes this; `scripts/cloud-target-seed.sh`
+/// unpacks it into a container's empty `target/`. `dest` must not exist yet.
+/// Returns the number of units stripped and the head recorded.
+pub fn export(checkout: &Path, dest: &Path) -> Result<(usize, String), String> {
+    let target = checkout.join("target");
+    if !is_real_dir(&target) || holds_nothing(&target) {
+        return Err(format!("{} holds no build to export", slashes(&target)));
+    }
+    if is_there(dest) {
+        return Err(format!("{} exists already", slashes(dest)));
+    }
+    if fs::create_dir_all(dest).is_err() {
+        return Err(format!("cannot make {}", slashes(dest)));
+    }
+    if !copy_tree(&target, dest) {
+        discard(dest);
+        return Err(format!("the copy to {} failed", slashes(dest)));
+    }
+    drop_extras(dest);
+    let stripped = match strip_units(dest, checkout) {
+        Ok(n) => n,
+        Err(Unstripped) => {
+            discard(dest);
+            return Err(format!(
+                "could not strip the workspace's own units from {}",
+                slashes(dest)
+            ));
+        }
+    };
+    let head = git(checkout, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
+    let stamp = format!("{head} {}", now_secs());
+    if fs::write(dest.join(SEED_MARK), format!("{stamp}\n")).is_err() {
+        discard(dest);
+        return Err(format!("cannot mark {} as a snapshot", slashes(dest)));
+    }
+    Ok((stripped, head))
+}
+
 #[cfg(test)]
 mod seed_tests {
     use super::*;
+
+    /// The export is the refresh's snapshot made from this checkout's own
+    /// target: the workspace's units are gone, the registry's stay, and the
+    /// marker names the head.
+    #[test]
+    fn an_export_keeps_registry_units_only_and_marks_the_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-seed-export-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let checkout = root.join("co");
+        fs::create_dir_all(checkout.join("target/debug/.fingerprint")).unwrap();
+        fs::create_dir_all(checkout.join("target/debug/deps")).unwrap();
+        fs::create_dir_all(checkout.join("target/debug/incremental/app-xyz")).unwrap();
+        fs::write(
+            checkout.join("Cargo.lock"),
+            "version = 4\n\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n",
+        )
+        .unwrap();
+        for unit in ["serde-0123456789abcdef", "app-fedcba9876543210"] {
+            fs::create_dir_all(checkout.join("target/debug/.fingerprint").join(unit)).unwrap();
+            fs::write(
+                checkout
+                    .join("target/debug/deps")
+                    .join(format!("lib{unit}.rlib")),
+                b"x",
+            )
+            .unwrap();
+        }
+        fs::write(checkout.join("target/debug/app"), b"bin").unwrap();
+        assert!(Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&checkout)
+            .status()
+            .is_ok_and(|s| s.success()));
+        let dest = root.join("snapshot");
+        let (stripped, _head) = export(&checkout, &dest).unwrap();
+        assert_eq!(stripped, 1, "the path unit `app` is stripped");
+        assert!(dest
+            .join("debug/.fingerprint/serde-0123456789abcdef")
+            .is_dir());
+        assert!(!dest
+            .join("debug/.fingerprint/app-fedcba9876543210")
+            .exists());
+        assert!(dest
+            .join("debug/deps/libserde-0123456789abcdef.rlib")
+            .is_file());
+        assert!(!dest
+            .join("debug/deps/libapp-fedcba9876543210.rlib")
+            .exists());
+        assert!(
+            !dest.join("debug/app").exists(),
+            "workspace binaries are not shipped"
+        );
+        assert!(!dest.join("debug/incremental").exists());
+        assert!(dest.join(SEED_MARK).is_file());
+        // The source target is untouched.
+        assert!(checkout.join("target/debug/app").is_file());
+        assert!(
+            export(&checkout, &dest).is_err(),
+            "an existing dest is refused"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn an_owner_line_is_split_like_read_r_with_the_runtime_keeping_its_spaces() {

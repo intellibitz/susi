@@ -89,6 +89,11 @@ pub enum WorkflowCommands {
         /// With --refresh: refresh a snapshot younger than SUSI_SEED_REFRESH_SECS too
         #[arg(long, requires = "refresh")]
         force: bool,
+        /// Export this checkout's target as a snapshot at DIR: copied, stripped
+        /// to registry and git crates, and marked (the cloud target seed
+        /// workflow publishes it; scripts/cloud-target-seed.sh unpacks it)
+        #[arg(long, value_name = "DIR", conflicts_with_all = ["refresh", "background", "dir"])]
+        export: Option<std::path::PathBuf>,
         /// With --refresh: write the refresh's report and build output here.
         /// Otherwise: append the seeding's report here instead of stderr (the
         /// background copy, which may hold no caller's output)
@@ -167,10 +172,28 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
             background,
             refresh,
             force,
+            export,
             log,
             dir,
         } => {
             use susi_gawd::admin::seed;
+            if let Some(dest) = export {
+                let dest = if dest.is_absolute() {
+                    dest
+                } else {
+                    cwd.join(dest)
+                };
+                match seed::export(cwd, &dest) {
+                    Ok((stripped, head)) => {
+                        eprintln!(
+                            "exported {} as a snapshot of {head}: {stripped} workspace unit(s) stripped, registry and git crates kept",
+                            dest.display()
+                        );
+                        return Ok(());
+                    }
+                    Err(why) => bail!("seed-target --export: {why}"),
+                }
+            }
             if refresh {
                 seed::refresh(force, log.as_deref());
             } else {
