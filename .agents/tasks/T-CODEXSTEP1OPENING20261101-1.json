@@ -1,0 +1,17 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-1",
+  "title": "Make first goal entry immediate and shell EOF terminate",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "first_goal_opening"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793524034
+}
