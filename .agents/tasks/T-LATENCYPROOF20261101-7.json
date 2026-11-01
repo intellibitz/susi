@@ -1,0 +1,20 @@
+{
+  "id": "T-LATENCYPROOF20261101-7",
+  "title": "Run release workflow integration tests for release source changes",
+  "goal": "Catch release source and root integration test incompatibilities in the required branch gate before a tag is cut.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "release_source_selects_root_workflow_test"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793518950
+}
