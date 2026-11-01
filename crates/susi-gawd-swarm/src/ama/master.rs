@@ -58,8 +58,14 @@ impl SusiMasterAgent {
         // with `enforce_action` at each action sink.
         let screened = wrap_tool_output("mission-input", trimmed).body;
 
-        let hardware = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
-        let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
+        // Every supported host accepts at least 4KB. Ordinary goals do not
+        // need a full hardware probe just to enforce the same input boundary.
+        let max_len = if screened.len() <= 4096 {
+            4096
+        } else {
+            let hardware = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+            (hardware.available_ram_gb * 1024 * 1024).max(4096)
+        };
 
         if screened.len() > max_len {
             return Err(crate::susi_error::EaiError::governance(format!(
@@ -264,28 +270,6 @@ impl SusiMasterAgent {
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
 
-        let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
-        let (_engine_type, active_model_id) = {
-            let intent = crate::susi_core::plane_bus::gemi::IntentClassifier::classify(&goal);
-            let resolved =
-                crate::susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(
-                    &intent,
-                ));
-            // A caller-requested model names the serving model; intent
-            // classification still picked the engine.
-            match model_hint {
-                Some(m) if !m.is_empty() => (resolved.0, m.to_string()),
-                _ => resolved,
-            }
-        };
-        let model_path_str =
-            crate::susi_core::plane_bus::gemi::ModelManager::get_model_path(&active_model_id)
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
-        let device = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_candle_device_label();
-        let local_models_count =
-            crate::susi_core::plane_bus::gemi::ModelManager::list_models_len(workspace);
-
         eprintln!("<thinking>");
 
         // Ensures </thinking> is always printed, even if synthesis panics or hangs.
@@ -298,35 +282,69 @@ impl SusiMasterAgent {
         }
         let _guard = ThinkingGuard;
 
-        eprintln!("[SUSI Substrate Swarm Active - Full Transparency Omni-Trace Mode]");
-        eprintln!("- [Engine Version] v{}", version);
-        eprintln!("- [Workspace Root] {}", workspace.display());
-
-        use susi_gawd_agents::self_core::AlphaSelf;
-        eprintln!("- [Core Paradigm] {}", AlphaSelf::CORE_PARADIGM);
-        eprintln!("- [Accountability] Omni-Trace active (Mandate 26: Glass Box Transparency)");
-
-        eprintln!("\n[DETAILED HARDWARE AUDIT LOGS]");
-        eprintln!("- [CPU Info] Brand: {} | Cores: {}", hw.cpu_brand, hw.cpus);
+        // 1. Continuous Intent Manifold Routing
+        let manifold = crate::susi_core::manifold::IntentManifold::analyze(&goal);
         eprintln!(
-            "- [Memory Info] Total RAM: {}GB | Available RAM: {}GB",
-            hw.ram_gb, hw.available_ram_gb
-        );
-        eprintln!("- [GPU Topologies] Info: {}", hw.gpu_info);
-        eprintln!("- [OS Architecture] OS: {} | Arch: {}", hw.os_info, hw.arch);
-        eprintln!(
-            "- [System Liveness] Hostname: {} | Uptime: {}s | Load Avg: {}",
-            hw.hostname, hw.uptime, hw.load_avg
-        );
-        eprintln!(
-            "- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {}",
-            hw.native_acceleration, device
+            "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
+            manifold.scope_of_impact, manifold.risk_profile
         );
 
-        eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
-        let global_dir = susi_paths::SusiDirs::config_dir();
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
-        eprintln!(
+        // Hardware/model inventories and the complete genome audit belong to
+        // swarm dispatch. A read-only question needs neither before inference.
+        if manifold.requires_swarm {
+            let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+            let (_engine_type, active_model_id) = {
+                let intent = crate::susi_core::plane_bus::gemi::IntentClassifier::classify(&goal);
+                let resolved =
+                    crate::susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(
+                        Some(&intent),
+                    );
+                // A caller-requested model names the serving model; intent
+                // classification still picked the engine.
+                match model_hint {
+                    Some(m) if !m.is_empty() => (resolved.0, m.to_string()),
+                    _ => resolved,
+                }
+            };
+            let model_path_str =
+                crate::susi_core::plane_bus::gemi::ModelManager::get_model_path(&active_model_id)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
+            let device =
+                crate::susi_core::plane_bus::gemi::HardwareProfiler::get_candle_device_label();
+            let local_models_count =
+                crate::susi_core::plane_bus::gemi::ModelManager::list_models_len(workspace);
+
+            eprintln!("[SUSI Substrate Swarm Active - Full Transparency Omni-Trace Mode]");
+            eprintln!("- [Engine Version] v{}", version);
+            eprintln!("- [Workspace Root] {}", workspace.display());
+
+            use susi_gawd_agents::self_core::AlphaSelf;
+            eprintln!("- [Core Paradigm] {}", AlphaSelf::CORE_PARADIGM);
+            eprintln!("- [Accountability] Omni-Trace active (Mandate 26: Glass Box Transparency)");
+
+            eprintln!("\n[DETAILED HARDWARE AUDIT LOGS]");
+            eprintln!("- [CPU Info] Brand: {} | Cores: {}", hw.cpu_brand, hw.cpus);
+            eprintln!(
+                "- [Memory Info] Total RAM: {}GB | Available RAM: {}GB",
+                hw.ram_gb, hw.available_ram_gb
+            );
+            eprintln!("- [GPU Topologies] Info: {}", hw.gpu_info);
+            eprintln!("- [OS Architecture] OS: {} | Arch: {}", hw.os_info, hw.arch);
+            eprintln!(
+                "- [System Liveness] Hostname: {} | Uptime: {}s | Load Avg: {}",
+                hw.hostname, hw.uptime, hw.load_avg
+            );
+            eprintln!(
+                "- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {}",
+                hw.native_acceleration, device
+            );
+
+            eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
+            let global_dir = susi_paths::SusiDirs::config_dir();
+            let cfg =
+                crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+            eprintln!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {} | GMCP HTTP Alias: {} | A2A HTTP Port: {}",
             cfg.gmcp_port(),
             cfg.gemi_port(),
@@ -334,42 +352,36 @@ impl SusiMasterAgent {
             cfg.gmcp_http_port(),
             cfg.a2a_http_port()
         );
-        eprintln!(
-            "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
-            cfg.default_engine(),
-            cfg.default_model()
-        );
-        eprintln!(
-            "- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s",
-            cfg.agent_rank_threshold(),
-            cfg.cloud_scout_timeout_secs()
-        );
-        eprintln!(
-            "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
-            susi_gawd_agents::agents::GawdAgentFleet::get_max_concurrent_agents()
-        );
-        eprintln!(
-            "- [Active Model Deep-Dive] Active Local ID: {} | Model Path: {}",
-            active_model_id, model_path_str
-        );
-        eprintln!(
-            "- [Discovered Model Substrates] Count: {}",
-            local_models_count
-        );
+            eprintln!(
+                "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
+                cfg.default_engine(),
+                cfg.default_model()
+            );
+            eprintln!(
+                "- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s",
+                cfg.agent_rank_threshold(),
+                cfg.cloud_scout_timeout_secs()
+            );
+            eprintln!(
+                "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
+                susi_gawd_agents::agents::GawdAgentFleet::get_max_concurrent_agents()
+            );
+            eprintln!(
+                "- [Active Model Deep-Dive] Active Local ID: {} | Model Path: {}",
+                active_model_id, model_path_str
+            );
+            eprintln!(
+                "- [Discovered Model Substrates] Count: {}",
+                local_models_count
+            );
 
-        // Only DNA mandates are mandates; ledger entries and roadmap vectors
-        // are compiled alongside them but never printed under this heading.
-        eprintln!("\n[GENOMIC MANDATES] {}", AlphaSelf::genome_summary());
-        for rule in AlphaSelf::rules_of(susi_gawd_agents::self_core::RuleKind::Mandate) {
-            eprintln!("- [{}] {}", rule.cite, rule.title);
+            // Only DNA mandates are mandates; ledger entries and roadmap vectors
+            // are compiled alongside them but never printed under this heading.
+            eprintln!("\n[GENOMIC MANDATES] {}", AlphaSelf::genome_summary());
+            for rule in AlphaSelf::rules_of(susi_gawd_agents::self_core::RuleKind::Mandate) {
+                eprintln!("- [{}] {}", rule.cite, rule.title);
+            }
         }
-
-        // 1. Continuous Intent Manifold Routing
-        let manifold = crate::susi_core::manifold::IntentManifold::analyze(&goal);
-        eprintln!(
-            "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
-            manifold.scope_of_impact, manifold.risk_profile
-        );
 
         if manifold.scope_of_impact == crate::susi_core::manifold::ScopeOfImpact::Read {
             // Glass Box Transparency (Mandate 26): the fast-path used to print
@@ -424,13 +436,14 @@ impl SusiMasterAgent {
                     .unwrap_or_else(|reason| reason),
                     Err(error) => format!("TRUTH_UNVERIFIED: {error}"),
                 }
-            } else if lower_goal.contains("identity") {
+            } else if lower_goal == "identity" {
                 susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions()
-            } else if lower_goal.contains("who am i") || lower_goal.contains("whoami") {
+            } else if lower_goal == "who am i" || lower_goal == "whoami" {
                 let user = std::env::var("USER")
                     .or_else(|_| std::env::var("USERNAME"))
                     .unwrap_or_else(|_| "unknown_user".into());
-                let host = hw.hostname;
+                let host =
+                    crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile().hostname;
                 format!(
                     "System User Identity: {}@{}\n\nSUSI Substrate Identity:\n{}",
                     user,
@@ -485,6 +498,7 @@ impl SusiMasterAgent {
                 || lower_goal == "susi status"
                 || lower_goal == "show status"
             {
+                let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
                 format!(
                     "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB",
                     hw.cpu_brand, hw.ram_gb
@@ -498,11 +512,20 @@ impl SusiMasterAgent {
                 let count = models.as_array().map(|a| a.len()).unwrap_or(0);
                 format!("Active Model Substrates (Count: {count})\n\n{models}")
             } else {
-                format!("Administrative query result for goal: {}", goal)
+                match model_hint.filter(|model| !model.is_empty()) {
+                    Some(model) => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+                        &goal, workspace, model,
+                    ),
+                    None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                        &goal, workspace,
+                    ),
+                }
             };
 
             eprintln!("\n[LIVE REASONING TOKENS]");
-            eprintln!("- [Fast-Path Execution] Fast-path Read bypassed heavy neural loop. Output direct response stream:");
+            eprintln!(
+                "- [Fast-Path Execution] Read-only response completed; verifying the answer:"
+            );
             // Deliver through the streaming seam, never straight to stdout.
             // The fast path used to print the answer here itself, so a caller
             // that renders the returned report (`susi status`) printed a
@@ -1982,6 +2005,69 @@ fn verify_compiled_read(goal: &str, answer: &str) -> Option<crate::susi_error::E
 #[cfg(test)]
 mod compiled_read_truth_tests {
     use super::*;
+
+    #[test]
+    fn first_goal_infers_once_under_existing_governance() {
+        // A separate process keeps global plane-bus stubs out of other tests.
+        const CHILD: &str = "SUSI_FIRST_GOAL_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "ama::master::compiled_read_truth_tests::first_goal_infers_once_under_existing_governance", "--nocapture"])
+                .env(CHILD, "1")
+                .status().unwrap();
+            assert!(status.success());
+            return;
+        }
+        let _env = susi_paths::test_env::EnvGuard::isolated();
+        use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        struct Inference(Arc<AtomicUsize>);
+        impl PlaneHandler for Inference {
+            fn handle(&self, _: &str, payload: Value) -> Result<Value, String> {
+                assert_eq!(
+                    payload["prompt"],
+                    "Compute 17 + 25. Answer with only the number."
+                );
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(serde_json::json!({"text":"42"}))
+            }
+        }
+        struct Verify;
+        impl PlaneHandler for Verify {
+            fn handle(&self, _: &str, payload: Value) -> Result<Value, String> {
+                Ok(serde_json::json!({"text":payload["text"]}))
+            }
+        }
+        let count = Arc::new(AtomicUsize::new(0));
+        PlaneBus::global().register(
+            topics::GEMI_INFER_GENERATE_DEEP,
+            Arc::new(Inference(count.clone())),
+        );
+        PlaneBus::global().register(topics::GEMI_INFER_VERIFY, Arc::new(Verify));
+        let workspace = susi_paths::SusiDirs::data_dir().join("first-goal-workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let report = SusiMasterAgent::new().solve_stream_report(
+            "Compute 17 + 25. Answer with only the number.",
+            &workspace,
+            "test",
+            &|_| {},
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert_eq!(report.status, "SUCCESS", "{}", report.final_answer);
+        assert!(report.final_answer.contains("42"));
+        assert_eq!(
+            report
+                .agents
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>(),
+            ["SafetyAgent", "SecurityAgent"]
+        );
+        assert!(report.plan.is_none());
+    }
 
     #[test]
     fn compiled_reads_require_exact_intent_and_exact_output() {

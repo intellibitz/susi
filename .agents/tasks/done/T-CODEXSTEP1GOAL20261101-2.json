@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-2",
+  "title": "Answer read-only goals once without recruiting a self-modification swarm",
+  "goal": "CEO Step1: classify ordinary questions/calculations as non-mutating and answer through existing governed mission verification with one inference, no irrelevant foreground audit",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "first_goal"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793525447,
+  "closed": {
+    "at_unix": 1793525876,
+    "commit": "654dfdf20e7dccc11074ec7b8306037a8b61430d",
+    "by": "CODEXSTEP1GOAL20261101"
+  }
+}

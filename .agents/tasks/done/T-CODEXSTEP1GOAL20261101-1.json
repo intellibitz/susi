@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-1",
+  "title": "Execute automatically discovered native models and fail honestly on inference errors",
+  "goal": "CEO Step 1 actual first goal: discovered absolute native weight paths must load; failed direct goals must exit nonzero",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "vc_201_042_native"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793524276,
+  "closed": {
+    "at_unix": 1793525441,
+    "commit": "2ae9263071724a53c25efd58d17bc4761e31fd88",
+    "by": "CODEXSTEP1GOAL20261101"
+  }
+}

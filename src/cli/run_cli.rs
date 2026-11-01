@@ -228,6 +228,10 @@ pub fn execute(args: RunArgs, workspace: &Path) -> anyhow::Result<()> {
         &meta_callback,
     );
 
+    // Engine adapters currently carry typed failures as marker text. A failed
+    // goal must not become a successful process or a fabricated throughput row.
+    validate_response(&response)?;
+
     let elapsed = start_time.elapsed();
     let elapsed_secs = elapsed.as_secs_f64().max(0.001);
     let final_model = serving_model
@@ -269,9 +273,27 @@ pub fn execute(args: RunArgs, workspace: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn validate_response(response: &str) -> anyhow::Result<()> {
+    if response.trim().is_empty() {
+        anyhow::bail!("No model returned an answer. Check available local or cloud connections.");
+    }
+    if GemiEngine::looks_like_error_text(response) {
+        anyhow::bail!("Inference failed: {response}");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_goal_inference_failure_is_not_success() {
+        assert!(validate_response("[FAIL] SUSI-Tier2-Inference: no usable model").is_err());
+        assert!(validate_response("[CAPABILITY_GAP] missing tool support").is_err());
+        assert!(validate_response("  ").is_err());
+        assert!(validate_response("READY").is_ok());
+    }
 
     #[test]
     fn test_looks_like_model() {

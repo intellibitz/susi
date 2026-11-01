@@ -8,7 +8,6 @@ use crate::susi_error::{EaiError, EaiResult};
 use indicatif::{ProgressBar, ProgressStyle};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -292,7 +291,7 @@ impl InferenceHost {
             let Ok(Some((weights, device))) = Self::cache().evict(&path) else {
                 continue;
             };
-            println!(
+            tracing::debug!(
                 "- [Inference Substrate] Idle for over {}s: unloading {}",
                 timeout.as_secs(),
                 path.display()
@@ -329,7 +328,7 @@ impl InferenceHost {
             let Ok(Some((weights, victim_device))) = Self::cache().evict(&victim) else {
                 continue;
             };
-            println!(
+            tracing::debug!(
                 "- [Inference Substrate] VRAM pressure: evicting least-recently-used {}",
                 victim.display()
             );
@@ -357,13 +356,19 @@ impl InferenceHost {
     /// it, so the next request for it is served warm.
     pub fn preload(model_id: &str) -> EaiResult<serde_json::Value> {
         let path = Self::resolve_model_id(model_id)?;
-        let file_size = std::fs::metadata(&path)
+        Self::preload_resolved(&path)
+    }
+
+    /// Internal lifecycle entry for weights already resolved by `ModelManager`.
+    /// Public model-management requests still pass through the id-only gate.
+    pub(crate) fn preload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
+        let file_size = std::fs::metadata(path)
             .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX))
             .unwrap_or(0);
         let device = crate::models::hardware::HardwareProfiler::get_dynamic_device(file_size);
         let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("model_preload", &path.to_string_lossy());
-        match Self::get_model(&path, &device, &task) {
+        match Self::get_model(path, &device, &task) {
             Ok(_) => {
                 task.mark_completed("model preloaded");
                 Ok(serde_json::json!({ "loaded": path }))
@@ -378,7 +383,12 @@ impl InferenceHost {
     /// Evict a model from the cache.
     pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
         let path = Self::resolve_model_id(model_id)?;
-        let evicted = Self::cache().evict(&path)?;
+        Self::unload_resolved(&path)
+    }
+
+    /// Internal counterpart of [`Self::preload_resolved`], preserving the exact path.
+    pub(crate) fn unload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
+        let evicted = Self::cache().evict(path)?;
         let Some((weights, device)) = evicted else {
             return Ok(serde_json::json!({
                 "path": path,
@@ -461,11 +471,10 @@ impl InferenceHost {
         kv_cache_capacity: usize,
     ) -> EaiResult<ModelSubstrate> {
         // 2. Load Weights (Outside global cache lock to prevent substrate-wide stalls)
-        println!(
+        tracing::debug!(
             "- [Substrate Operation] Loading neural weights: {}",
             model_path.display()
         );
-        let _ = std::io::stdout().flush();
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(
@@ -525,11 +534,11 @@ impl InferenceHost {
                 .map(|s| s.as_str()),
         );
 
-        println!(
+        tracing::debug!(
             "- [Substrate Operation] Initializing {:?} weights on {:?}...",
-            arch, device
+            arch,
+            device
         );
-        let _ = std::io::stdout().flush();
 
         let weights = if Self::needs_qwen2_backend(&arch) {
             let cpu_dev = candle_core::Device::Cpu;
@@ -544,7 +553,7 @@ impl InferenceHost {
                 vram_budget,
                 kv_cache_capacity,
             );
-            println!(
+            tracing::debug!(
                 "- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU",
                 split
             );
@@ -578,8 +587,7 @@ impl InferenceHost {
         }
         .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
 
-        println!("- [Substrate Operation] Model substrate ready.");
-        let _ = std::io::stdout().flush();
+        tracing::debug!("- [Substrate Operation] Model substrate ready.");
         pb.finish_and_clear();
 
         Ok(ModelSubstrate {

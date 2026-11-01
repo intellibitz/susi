@@ -16,6 +16,34 @@ use crate::susi_error::EaiResult;
 
 fn noop(_: String) {}
 
+#[test]
+fn vc_201_042_native_discovered_path_reaches_weight_loader() {
+    use crate::engines::native_lifecycle::SusiHost;
+    use crate::engines::runtime::InferenceHost;
+
+    let _env = susi_paths::test_env::EnvGuard::isolated();
+    let dir = tempfile::tempdir().unwrap();
+    let weights = dir.path().join("discovered.gguf");
+    std::fs::write(&weights, b"invalid weights").unwrap();
+    let model = weights.to_str().unwrap();
+    let host = SusiHost;
+    assert_eq!(
+        host.resolve_model(Some(model), "hello").as_deref(),
+        Some(model)
+    );
+    let error = host.preload(model).unwrap_err().to_string();
+    assert!(
+        !error.contains("model must be a model id or file name"),
+        "{error}"
+    );
+    // Failed loading cannot pretend to be resident, but exact-path eviction
+    // remains valid. The public remote-management boundary still rejects paths.
+    assert!(!host.model_resident(model).unwrap());
+    host.unload(model).unwrap();
+    assert!(InferenceHost::preload(model).is_err());
+    assert!(InferenceHost::unload(model).is_err());
+}
+
 #[derive(Default)]
 struct FakeEngine {
     calls: Mutex<Vec<(String, Option<String>)>>,
