@@ -138,6 +138,9 @@ pub mod zc_tasks_next;
 #[path = "tests/formal_invariants.rs"]
 mod formal_invariants_tests;
 #[cfg(test)]
+#[path = "tests/native_verifier.rs"]
+mod native_verifier;
+#[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
 #[cfg(test)]
@@ -194,9 +197,6 @@ mod vc_201_011_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_012.rs"]
 mod vc_201_012_tests;
-#[cfg(test)]
-#[path = "tests/native_verifier.rs"]
-mod native_verifier;
 #[cfg(test)]
 #[path = "tests/vc_201_013_mastery.rs"]
 mod vc_201_013_mastery_tests;
