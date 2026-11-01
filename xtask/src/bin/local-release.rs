@@ -15,6 +15,11 @@ const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../upstream_notices.rs"]
+mod upstream_notices;
+#[path = "../vendor_regressions.rs"]
+mod vendor_regressions;
+
 fn text(path: &Path) -> Result<&str> {
     path.to_str().ok_or_else(|| "path is not UTF-8".into())
 }
@@ -297,32 +302,41 @@ fn required<'a>(value: &'a serde_json::Value, key: &str) -> Result<&'a str> {
 
 // Cargo metadata may unify features across unrelated workspace members. A
 // native-code exemption must instead be corroborated by the selected product.
-fn selected_features(tree: &str, name: &str, version: &str) -> Result<Vec<String>> {
+fn selected_feature_contexts(tree: &str, name: &str, version: &str) -> Result<Vec<Vec<String>>> {
     let wanted = format!("{name} v{version}");
-    let mut found = None;
+    let mut contexts = BTreeSet::new();
     for line in tree.lines() {
         let Some((package, features)) = line.split_once('|') else {
             continue;
         };
         if package == wanted || package.starts_with(&format!("{wanted} (")) {
-            let features: BTreeSet<String> = features
-                .trim_end_matches(" (*)")
-                .split(',')
-                .filter(|feature| !feature.is_empty())
-                .map(str::to_owned)
-                .collect();
-            if found.as_ref().is_some_and(|prior| prior != &features) {
-                return Err("ambiguous selected product feature resolution".into());
-            }
-            found = Some(features);
+            contexts.insert(
+                features
+                    .trim_end_matches(" (*)")
+                    .split(',')
+                    .filter(|feature| !feature.is_empty())
+                    .map(str::to_owned)
+                    .collect::<BTreeSet<_>>(),
+            );
         }
     }
-    Ok(found
-        .ok_or("selected product feature proof missing")?
+    if contexts.is_empty() {
+        return Err("selected product feature proof missing".into());
+    }
+    Ok(contexts
         .into_iter()
+        .map(|context| context.into_iter().collect())
         .collect())
 }
 
+#[cfg(test)]
+fn selected_features(tree: &str, name: &str, version: &str) -> Result<Vec<String>> {
+    let mut contexts = selected_feature_contexts(tree, name, version)?;
+    if contexts.len() != 1 {
+        return Err("ambiguous selected product feature resolution".into());
+    }
+    Ok(contexts.remove(0))
+}
 fn native_source_check(package: &serde_json::Value, features: &[String]) -> Result<()> {
     let name = required(package, "name")?;
     let known = [
@@ -351,7 +365,12 @@ fn native_source_check(package: &serde_json::Value, features: &[String]) -> Resu
     }
     // These reviewed feature branches omit their foreign-language compiler calls.
     let dormant = (name == "esaxx-rs" && !features.iter().any(|f| f == "cpp"))
-        || (name == "blake3" && features.iter().any(|f| f == "pure"));
+        || (name == "blake3" && features.iter().any(|f| f == "pure"))
+        // signal-hook's build.rs compiles extract.c only under this feature;
+        // without it the selected build-script main is empty on every target.
+        || (name == "signal-hook"
+            && package.get("version").and_then(serde_json::Value::as_str) == Some("0.4.5")
+            && !features.iter().any(|f| f == "extended-siginfo-raw"));
     for target in package
         .get("targets")
         .and_then(serde_json::Value::as_array)
@@ -442,10 +461,6 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
         .get("packages")
         .and_then(serde_json::Value::as_array)
         .ok_or("missing package metadata")?;
-    let nodes = metadata
-        .pointer("/resolve/nodes")
-        .and_then(serde_json::Value::as_array)
-        .ok_or("missing resolved graph")?;
     let root_manifest = candidate.join("Cargo.toml").canonicalize()?;
     let root = packages
         .iter()
@@ -462,93 +477,80 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
     if required(root, "name")? != "susi" {
         return Err("release source must contain the Susi package".into());
     }
-    let mut reached = BTreeSet::new();
-    let mut pending = vec![required(root, "id")?.to_owned()];
-    while let Some(id) = pending.pop() {
-        if !reached.insert(id.clone()) {
-            continue;
-        }
-        let node = nodes
-            .iter()
-            .find(|node| node.get("id").and_then(serde_json::Value::as_str) == Some(&id))
-            .ok_or("incomplete dependency graph")?;
-        for dependency in node
-            .get("deps")
-            .and_then(serde_json::Value::as_array)
-            .ok_or("missing resolved dependencies")?
-        {
-            let kinds = dependency
-                .get("dep_kinds")
-                .and_then(serde_json::Value::as_array)
-                .ok_or("missing dependency kinds")?;
-            if kinds.iter().any(|kind| {
-                kind.get("kind")
-                    .is_some_and(|kind| kind.is_null() || kind.as_str() == Some("build"))
-            }) {
-                pending.push(required(dependency, "pkg")?.into());
-            }
-        }
+    // Metadata includes features unified by workspace and development consumers.
+    // The artifact inventory must instead use this exact product's selected
+    // normal/build graph, with the same target and features as its build.
+    let output = isolated_command(Path::new("cargo"), &attempt.join("metadata-home"))?
+        .current_dir(candidate)
+        .args([
+            "tree",
+            "--offline",
+            "--locked",
+            "-p",
+            "susi",
+            "--no-default-features",
+            "--target",
+            host,
+            "--edges",
+            "normal,build",
+            "--prefix",
+            "none",
+            "--format",
+            "{p}|{f}",
+        ])
+        .output()?;
+    if !output.status.success() {
+        return Err("selected product graph proof failed".into());
+    }
+    let tree = String::from_utf8(output.stdout)?;
+    let mut selected = BTreeSet::new();
+    for line in tree.lines() {
+        let (package, _) = line
+            .split_once('|')
+            .ok_or("invalid selected product graph row")?;
+        let mut words = package.split_whitespace();
+        let name = words.next().ok_or("selected package name missing")?;
+        let version = words
+            .next()
+            .and_then(|v| v.strip_prefix('v'))
+            .ok_or("selected package version missing")?;
+        selected.insert((name.to_owned(), version.to_owned()));
+    }
+    if !selected.contains(&("susi".into(), required(root, "version")?.into())) {
+        return Err("selected graph does not contain the product root".into());
     }
     let mut records = Vec::new();
+    let mut missing_notices = Vec::new();
     let mut unique_notices = BTreeMap::new();
     let mut audit=String::from("susi-native-source-screen-v1\nCoverage: resolved native target normal/build closure, known native crates and direct build-script compiler markers. This screening is not a proof that arbitrary generated or downloaded code is Rust.\n");
     let source_root = candidate.canonicalize()?;
-    for id in reached {
-        let package = packages
+    for (name, version) in selected {
+        let matches: Vec<_> = packages
             .iter()
-            .find(|p| p.get("id").and_then(serde_json::Value::as_str) == Some(&id))
-            .ok_or("missing reached package")?;
-        let node = nodes
-            .iter()
-            .find(|n| n.get("id").and_then(serde_json::Value::as_str) == Some(&id))
-            .ok_or("missing reached node")?;
-        let mut features = node
-            .get("features")
-            .and_then(serde_json::Value::as_array)
-            .ok_or("missing feature resolution")?
-            .iter()
-            .map(|f| f.as_str().map(str::to_owned).ok_or("invalid feature"))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        if required(package, "name")? == "blake3" {
-            let version = required(package, "version")?;
-            if packages
-                .iter()
-                .filter(|p| {
-                    p.get("name").and_then(serde_json::Value::as_str) == Some("blake3")
-                        && p.get("version").and_then(serde_json::Value::as_str) == Some(version)
-                })
-                .count()
-                != 1
-            {
-                return Err("ambiguous blake3 source identity; cannot prove pure feature".into());
-            }
-            let output = isolated_command(Path::new("cargo"), &attempt.join("metadata-home"))?
-                .current_dir(candidate)
-                .args([
-                    "tree",
-                    "--offline",
-                    "--locked",
-                    "-p",
-                    "susi",
-                    "--no-default-features",
-                    "--target",
-                    host,
-                    "--edges",
-                    "normal,build",
-                    "--prefix",
-                    "none",
-                    "--format",
-                    "{p}|{f}",
-                ])
-                .output()?;
-            if !output.status.success() {
-                return Err("selected product feature proof failed".into());
-            }
-            let tree = String::from_utf8(output.stdout)?;
-            features = selected_features(&tree, "blake3", version)?;
-            audit.push_str("blake3 native-code exemption corroborated by product-selected cargo tree features.\n");
+            .filter(|package| {
+                package.get("name").and_then(serde_json::Value::as_str) == Some(&name)
+                    && package.get("version").and_then(serde_json::Value::as_str) == Some(&version)
+            })
+            .collect();
+        if matches.len() != 1 {
+            return Err(format!("ambiguous selected source identity: {name} {version}").into());
         }
-        native_source_check(package, &features)?;
+        let package = matches[0];
+        let id = required(package, "id")?;
+        let feature_contexts = selected_feature_contexts(&tree, &name, &version)?;
+        // Host build dependencies and target dependencies can legitimately
+        // select different features. Screen each context separately: unioning
+        // `pure` from one context must never hide native code in another.
+        for context in &feature_contexts {
+            native_source_check(package, context)?;
+        }
+        let features: Vec<_> = feature_contexts
+            .iter()
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         let directory = Path::new(required(package, "manifest_path")?)
             .parent()
             .ok_or("missing package directory")?
@@ -559,7 +561,7 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
                 .and_then(serde_json::Value::as_array)
                 .ok_or("missing workspace membership")?
                 .iter()
-                .any(|member| member.as_str() == Some(&id));
+                .any(|member| member.as_str() == Some(id));
         let mut notices = notice_files(&directory)?;
         if let Some(file) = package
             .get("license_file")
@@ -586,8 +588,11 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
         }
         notices.sort();
         notices.dedup();
+        if notices.is_empty() && !workspace {
+            notices = upstream_notices::verify(candidate, package, &directory)?;
+        }
         if notices.is_empty() {
-            return Err(format!("upstream license/notice text missing for {}; cannot distribute without attribution",required(package,"name")?).into());
+            missing_notices.push(required(package, "name")?.to_owned());
         }
         let mut notice_ids = Vec::new();
         for notice in notices {
@@ -602,7 +607,15 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
             required(package, "version")?,
             features.join(",")
         ));
-        records.push(serde_json::json!({"name":required(package,"name")?,"version":required(package,"version")?,"license":package.get("license"),"source":package.get("source"),"authors":package.get("authors"),"features":features,"notices_sha256":notice_ids}));
+        records.push(serde_json::json!({"name":required(package,"name")?,"version":required(package,"version")?,"license":package.get("license"),"source":package.get("source"),"authors":package.get("authors"),"features":features,"feature_contexts":feature_contexts,"notices_sha256":notice_ids}));
+    }
+    fs::write(attempt.join("native-source-audit.txt"), &audit)?;
+    if !missing_notices.is_empty() {
+        return Err(format!(
+            "upstream license/notice text missing for {}; cannot distribute without attribution",
+            missing_notices.join(", ")
+        )
+        .into());
     }
     let sbom = serde_json::to_string_pretty(
         &serde_json::json!({"schema":"susi/sbom/v1","target":host,"scope":"normal-and-build dependency closure; development-only dependencies excluded","packages":records}),
@@ -660,13 +673,19 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
             text(&target)?,
         ],
     ];
+    let mut gates: Vec<Vec<String>> = gates
+        .iter()
+        .map(|args| args.iter().map(|arg| (*arg).into()).collect())
+        .collect();
+    let adapters = vendor_regressions::commands(candidate, host, &target)?;
+    gates.splice(4..4, adapters);
     let mut proof = String::new();
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
         let status = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?
             .current_dir(candidate)
-            .args(*args)
+            .args(args)
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_BUILD_TARGET_DIR", &target)
             .env("CARGO_BUILD_BUILD_DIR", &target)
@@ -1427,6 +1446,16 @@ fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
+        Some("check-inventory") if args.len()==1 => {
+            let attempt = ctx.state.join(format!("inventory-check-{}",stamp()?));
+            fs::create_dir(&attempt)?;
+            let (host, _) = compiler(&ctx.root)?;
+            let (sbom, notices, native) = inventory(&ctx.root,&attempt,&host)?;
+            fs::write(attempt.join("sbom.json"),sbom)?;
+            fs::write(attempt.join("THIRD-PARTY-NOTICES.txt"),notices)?;
+            fs::write(attempt.join("native-source-audit.txt"),native)?;
+            println!("Selected artifact inventory passed; evidence {}. Diagnostic only: no release qualified or promoted.",attempt.display());
+        },
         Some("check-inference") if args.len()==2 => {
             let binary = PathBuf::from(&args[1]).canonicalize()?;
             let attempt = ctx.state.join(format!("inference-check-{}",stamp()?));
@@ -1449,7 +1478,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
     }
     Ok(())
 }
@@ -1669,6 +1698,43 @@ mod tests {
     }
 
     #[test]
+    fn product_inventory_excludes_dev_activated_native_features_but_not_product_ones() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        for (name, extra) in [
+            ("ring", String::new()),
+            ("shared", "[features]\nnative = [\"dep:ring\"]\n[dependencies]\nring = {path = \"../ring\", optional = true}\n".into()),
+            ("dev-helper", "[dependencies]\nshared = {path = \"../shared\", features = [\"native\"]}\n".into()),
+        ] {
+            let dir = root.join(name);
+            fs::create_dir(&dir).unwrap();
+            fs::write(dir.join("Cargo.toml"),format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\nlicense = \"MIT\"\n[lib]\npath = \"lib.rs\"\n{extra}")).unwrap();
+            fs::write(dir.join("lib.rs"), "// source-only feature-resolution fixture\n").unwrap();
+            fs::copy(root.join("LICENSE"),dir.join("LICENSE")).unwrap();
+        }
+        let manifest = root.join("Cargo.toml");
+        let original = fs::read_to_string(&manifest).unwrap();
+        fs::write(&manifest,format!("{original}\n[dependencies]\nshared = {{path = \"shared\"}}\n[dev-dependencies]\ndev-helper = {{path = \"dev-helper\"}}\n")).unwrap();
+        assert!(Command::new("cargo")
+            .current_dir(&root)
+            .args(["generate-lockfile", "--offline"])
+            .status()
+            .unwrap()
+            .success());
+        let attempt = fixture.0.join("selected-inventory");
+        fs::create_dir(&attempt).unwrap();
+        let (host, _) = compiler(&root).unwrap();
+        let (sbom, _, _) = inventory(&root, &attempt, &host).unwrap();
+        let sbom: serde_json::Value = serde_json::from_str(&sbom).unwrap();
+        assert_eq!(sbom["packages"].as_array().unwrap().len(), 2);
+        fs::write(&manifest,format!("{original}\n[dependencies]\nshared = {{path = \"shared\", features = [\"native\"]}}\n[dev-dependencies]\ndev-helper = {{path = \"dev-helper\"}}\n")).unwrap();
+        assert!(inventory(&root, &attempt, &host)
+            .unwrap_err()
+            .to_string()
+            .contains("native dependency ring"));
+    }
+
+    #[test]
     fn releases_share_global_port_ownership_without_using_installed_ports() {
         let fixture = Fixture::new();
         let home = &fixture.0;
@@ -1723,6 +1789,9 @@ mod tests {
         let dormant = serde_json::json!({"name":"esaxx-rs","targets":[{"kind":["custom-build"],"src_path":build}]});
         assert!(native_source_check(&dormant, &[]).is_ok());
         assert!(native_source_check(&dormant, &["cpp".into()]).is_err());
+        let signal = serde_json::json!({"name":"signal-hook","version":"0.4.5","targets":[{"kind":["custom-build"],"src_path":build}]});
+        assert!(native_source_check(&signal, &["iterator".into()]).is_ok());
+        assert!(native_source_check(&signal, &["extended-siginfo-raw".into()]).is_err());
     }
 
     #[test]

@@ -176,6 +176,9 @@ fn state(root: &Path) -> Result<PathBuf> {
 
 const INTEGRATION_REF: &str = "refs/susi/integration/current";
 
+#[path = "../vendor_regressions.rs"]
+mod vendor_regressions;
+
 fn valid_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
@@ -331,6 +334,11 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             text(&target)?,
         ],
     ];
+    let mut gates: Vec<Vec<String>> = gates
+        .iter()
+        .map(|args| args.iter().map(|arg| (*arg).into()).collect())
+        .collect();
+    gates.extend(vendor_regressions::commands(candidate, host, &target)?);
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
@@ -362,7 +370,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         }
         let status = command
             .current_dir(candidate)
-            .args(*args)
+            .args(args)
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))

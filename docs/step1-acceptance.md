@@ -87,3 +87,48 @@ record elapsed milliseconds; no unmeasured "blazing fast" guarantee follows.
 Until integrated acceptance and all strict license gates pass, the
 production qualification remains incomplete. Do not label Step 1 complete,
 claim every mandate fulfilled, or promote a fixture as the product.
+
+## Platform-adapter and attribution gates
+
+The standalone IDNA and compiler-backed identifier crates have their own
+workspaces, so the root workspace test command does not execute their tests.
+Integration and qualification now run both library suites explicitly, offline
+and locked after generating their private standalone lockfiles. An explicit
+local adapter patch prevents accidentally testing the registry implementation.
+Missing product adapter manifests fail the gate. Only minimal release-machinery
+fixtures without Susi's core crate omit these product-specific checks.
+
+The artifact inventory uses the exact product's selected normal/build graph,
+not workspace/dev feature unions from Cargo metadata. Each host/target feature
+context is screened independently; a pure feature in one context cannot hide
+native compilation in another. Metadata still supplies source identities,
+license declarations and attribution files. Missing notice texts are reported
+together and block packaging. A permissive SPDX declaration alone does not
+supply the upstream attribution text. `local-release check-inventory` audits
+this without qualifying or promoting a release.
+
+## Actual promotion and rollback acceptance
+
+No production pointer or qualification reference existed during this review.
+After genuine qualification succeeds, agents must promote candidate A, launch
+it through `local-release run`, and record its manifest digest, runtime home,
+ports and health/inference result. A later independently qualified candidate B
+must be promoted and launched through the same command; rollback must restore
+A for new launches and repeat health checks. Existing A processes are not
+silently replaced. Distinct real artifacts are required to demonstrate a
+behavioral version rollback; two receipts for identical executable bytes prove
+only pointer movement. Failure/tampering fixture tests remain necessary but
+do not substitute for this actual-product evidence. Do not claim running
+service replacement or recovery until that lifecycle is separately exercised.
+
+When a published registry package omits its upstream license files, an agent
+may preserve the original texts under
+`vendor/upstream-notices/<name>-<version>/`. The checked-in provenance must
+match the exact Cargo.lock registry checksum, package repository and registry
+VCS commit/path. Each file is bound by SHA-256, Git blob SHA-1 and a URL pinned
+to that repository/commit/path. Available cached crate archives are also
+checksum-verified. Missing VCS/repository metadata requires an additional
+pinned source match against actual Rust files in the registry package. Every
+path is confined, and empty files or a supplement without a license file fail.
+This supplies missing original attribution; it does not override SPDX policy,
+relicense code, mutate registry caches or accept Susi's own license as a proxy.
