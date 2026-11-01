@@ -1,0 +1,16 @@
+{
+  "id": "T-STEP1UNICODE-1",
+  "title": "Replace bundled IDNA Unicode data with qualified OS services",
+  "owner": "step1-unicode",
+  "status": "ready_for_integration",
+  "scopes": ["vendor/idna-adapter", "docs/unicode-platform.md", ".agents/tasks/T-STEP1UNICODE-1.json"],
+  "dependencies": [],
+  "acceptance": [
+    "No distributed Unicode tables or foreign runtime implementation",
+    "Windows system library loading only; explicit typed unavailable-platform errors",
+    "Exhaustive scalar mapping comparison on OS repertoire and domain corpus differential",
+    "Native tests and clippy pass; cross-platform claims limited to actual evidence"
+  ],
+  "evidence": "docs/unicode-platform.md",
+  "remaining": "Integrator must apply root patch/lock changes and qualify combined tree; non-Windows runtime qualification remains separate"
+}

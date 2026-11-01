@@ -1,0 +1,14 @@
+[package]
+name = "idna_adapter"
+version = "1.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Susi Windows platform Unicode backend for idna"
+
+[dependencies]
+libloading = "0.9"
+
+[features]
+compiled_data = []
+
+[workspace]
