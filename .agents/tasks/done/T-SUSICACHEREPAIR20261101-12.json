@@ -1,0 +1,23 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-12",
+  "title": "Move release cut verification to the tagged GitHub workflow",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793509471,
+  "closed": {
+    "at_unix": 1793510212,
+    "commit": "df6845d9bc8fec86e84e3e30c7f873a8298bac58",
+    "by": "SUSICACHEREPAIR20261101"
+  }
+}
