@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CODEXSTEP1UNIXINSTALL20261101",
-  "created_unix": 1793528161
+  "created_unix": 1793528161,
+  "closed": {
+    "at_unix": 1793529939,
+    "commit": "52adae598225cfdd966895da511a96b707ba12a0",
+    "by": "CODEXSTEP1UNIXINSTALL20261101"
+  }
 }
