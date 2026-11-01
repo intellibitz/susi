@@ -2461,18 +2461,25 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
         .contains("steps.dist-cache.outputs.cache-hit == 'true'"));
     assert!(warmer.body.contains("lookup-only: \"true\""));
     for setting in [
-        "runs-on: windows-latest",
+        "runs-on: ${{ matrix.os }}",
+        "os: windows-latest",
+        "os: ubuntu-24.04-arm",
+        "name: windows-x86_64",
+        "name: linux-aarch64",
         "SCCACHE_GHA_ENABLED: \"false\"",
         "RUSTC_WRAPPER: sccache",
         "RUSTC_WORKSPACE_WRAPPER: sccache",
         "CARGO_PROFILE_DIST_LTO: \"false\"",
         "CARGO_PROFILE_DIST_CODEGEN_UNITS: \"16\"",
-        "shared-key: release-windows-x86_64",
+        "shared-key: release-${{ matrix.name }}",
         "cache-targets: \"true\"",
         "cargo build --locked --profile dist",
     ] {
         assert!(warmer.body.contains(setting), "warmer lacks {setting}");
     }
+    assert!(warmer.body.contains("scripts/ci-system-deps.sh"));
+    assert!(warmer.body.contains("scripts/ci-install-mold.sh"));
+    assert!(build.body.contains("matrix.name == 'linux-aarch64'"));
     for setting in [
         "SCCACHE_GHA_ENABLED: \"false\"",
         "RUSTC_WRAPPER: sccache",

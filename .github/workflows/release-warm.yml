@@ -1,4 +1,4 @@
-name: Warm Windows release dependencies
+name: Warm release dependencies
 
 # A tag cannot write a cache visible to a later tag. Test explicitly dispatches
 # this on main after its jobs pass; workflow_run does not reliably cascade from
@@ -16,7 +16,15 @@ concurrency:
 jobs:
   warm:
     if: github.ref == 'refs/heads/main'
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x86_64
+          - os: ubuntu-24.04-arm
+            name: linux-aarch64
     timeout-minutes: 75
     env:
       SCCACHE_GHA_ENABLED: "false"
@@ -33,12 +41,18 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Restore and save Windows dist dependencies
+      - name: Restore and save dist dependencies
         id: dist-cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-windows-x86_64
+          shared-key: release-${{ matrix.name }}
           cache-targets: "true"
+      - name: Install Linux release dependencies
+        if: runner.os == 'Linux'
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
+          scripts/ci-install-mold.sh
       # One invocation: a second cargo waits on the target lock, so the harness
       # dependency graph used to compile only after the engine had finished.
       - name: Build the release dependency graph
@@ -50,6 +64,6 @@ jobs:
         if: steps.dist-cache.outputs.cache-hit == 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-windows-x86_64
+          shared-key: release-${{ matrix.name }}
           cache-targets: "true"
           lookup-only: "true"

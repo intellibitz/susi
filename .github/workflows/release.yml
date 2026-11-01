@@ -32,7 +32,8 @@ name: Release Binaries
 # cross-crate inlining (operator's call, 2026-10-31). The Windows leg restores a
 # dependency-only dist target from release-warm.yml on main; tag runs never
 # save a target or thousands of sccache objects that later tags cannot read.
-# Other platforms remain cold until their cache cost and benefit are measured.
+# Linux ARM64 also restores a main-branch dist cache; its size and savings
+# should be monitored against the repository cache quota.
 on:
   push:
     tags:
@@ -156,9 +157,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.name }}
-          # Only Windows has a main-branch dist warmer. Never save from a tag:
-          # its cache is not readable by the next tag.
-          cache-targets: ${{ matrix.name == 'windows-x86_64' && 'true' || 'false' }}
+          # These platforms have main-branch dist warmers. Never save from a
+          # tag: its cache is not readable by the next tag.
+          cache-targets: ${{ (matrix.name == 'windows-x86_64' || matrix.name == 'linux-aarch64') && 'true' || 'false' }}
           save-if: "false"
 
       - name: Install Linux System Dependencies

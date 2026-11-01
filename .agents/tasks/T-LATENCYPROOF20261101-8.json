@@ -1,0 +1,20 @@
+{
+  "id": "T-LATENCYPROOF20261101-8",
+  "title": "Warm Linux ARM release dependencies for first artifact",
+  "goal": "Reduce cold Linux ARM release compile latency while retaining artifact verification and a main-scoped reusable cache.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "windows_release_cache_is_warmed_on_main_and_tags_only_restore"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793519318
+}
