@@ -60,6 +60,7 @@ pub(crate) fn os_dll(name: &str) -> bool {
                     | "icu.dll"
                     | "netapi32.dll"
                     | "propsys.dll"
+                    | "ktmw32.dll"
                     | "ncrypt.dll"
                     | "wintrust.dll"
                     | "gdi32.dll"
