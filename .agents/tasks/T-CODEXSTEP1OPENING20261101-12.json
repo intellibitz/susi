@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-12",
+  "title": "Allow verified same-branch followups while a completed task awaits merge",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "closed_scope_followup"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793540007
+}
