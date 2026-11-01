@@ -3,6 +3,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
@@ -14,12 +17,15 @@ use std::process::{Command, ExitCode, Stdio};
 mod compiler_env;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v2\n";
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
+#[path = "../native_link.rs"]
+mod native_link;
 #[path = "../pe_imports.rs"]
 mod pe_imports;
 #[path = "../prepare_release.rs"]
@@ -638,6 +644,24 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
     Ok((sbom, notices, audit))
 }
 
+fn native_link_proof(binary: &Path, map: &Path) -> Result<String> {
+    if fs::metadata(binary)?.len() > 256 * 1024 * 1024
+        || fs::metadata(map)?.len() > 64 * 1024 * 1024
+    {
+        return Err("native artifact evidence exceeds budget".into());
+    }
+    let bytes = fs::read(binary)?;
+    let imports = pe_imports::inspect(&bytes)?;
+    let map_text = fs::read_to_string(map)?;
+    let entry = native_link::validate_map(native_link::entry_address(&bytes)?, &map_text)?;
+    Ok(format!(
+        "native-link={}\n",
+        serde_json::to_string(
+            &serde_json::json!({"binary":binary.file_name().and_then(|name|name.to_str()),"artifact_sha256":digest(&bytes),"entry":entry,"imports":imports,"map_sha256":digest(map_text.as_bytes()),"map":map_text})
+        )?
+    ))
+}
+
 fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
     let target = candidate.join("target");
     let gates: &[&[&str]] = &[
@@ -688,9 +712,31 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
     vendor_regressions::include_release_tooling(candidate, &mut gates);
+    if candidate.join("crates/susi-core/Cargo.toml").is_file() {
+        gates.push(
+            [
+                "build",
+                "-p",
+                "xtask",
+                "--features",
+                "release-tooling",
+                "--bins",
+                "--release",
+                "--offline",
+                "--locked",
+                "--target",
+                host,
+                "--target-dir",
+                text(&target)?,
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        );
+    }
     let adapters = vendor_regressions::commands(candidate, host, &target)?;
     gates.splice(4..4, adapters);
-    let mut proof = String::new();
+    let mut proof = String::from(QUALIFICATION_POLICY);
     for (index, args) in gates.iter().enumerate() {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
@@ -1209,11 +1255,19 @@ fn qualify_with(
         if fs::metadata(&binary)?.len() > 256 * 1024 * 1024 {
             return Err("PE artifact exceeds inspection budget".into());
         }
-        let imports = pe_imports::inspect(&fs::read(&binary)?)?;
-        proof.push_str(&format!(
-            "windows-os-imports={}\n",
-            serde_json::to_string(&imports)?
-        ));
+        let profile = candidate.join("target").join(&host).join("release");
+        for name in [
+            "susi",
+            "xtask",
+            "local-workflow",
+            "local-release",
+            "ci-release-only",
+            "susi-dev",
+        ] {
+            let executable = profile.join(format!("{name}.exe"));
+            let map = native_link::find_map(&profile, name)?;
+            proof.push_str(&native_link_proof(&executable, &map)?);
+        }
     }
     proof.push_str(&smoke(&binary, &attempt)?);
     proof.push_str(&prove_inference(&binary, &attempt)?);
@@ -1316,6 +1370,12 @@ fn checked_package(ctx: &Context, blob: &str) -> Result<(String, PathBuf)> {
         || file_digest(&package.join("native-source-audit.txt"))? != manifest.native_audit
     {
         return Err("release evidence was modified".into());
+    }
+    if !fs::read_to_string(package.join("gates.txt"))?.starts_with(QUALIFICATION_POLICY) {
+        return Err(
+            "release requires requalification under the current native-runtime evidence policy"
+                .into(),
+        );
     }
     let binary = package.join(binary_name());
     if fs::symlink_metadata(&binary)?.file_type().is_symlink()
@@ -1547,6 +1607,9 @@ fn production_command(ctx: &Context, binary: &Path, args: &[String]) -> Result<C
 fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
+        Some("check-native-link") if args.len()==3 => {
+            print!("{}", native_link_proof(Path::new(&args[1]), Path::new(&args[2]))?);
+        },
         Some("record-gmcp") => gmcp_evidence::run(&ctx.root, &args[1..])?,
         Some("check-pe") if args.len()==2 => {
             let binary = Path::new(&args[1]);

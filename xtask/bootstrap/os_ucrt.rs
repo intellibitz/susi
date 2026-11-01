@@ -47,14 +47,11 @@ fn librarian() -> io::Result<PathBuf> {
         )
     })
 }
-pub fn generate(output: &Path) -> io::Result<PathBuf> {
+fn import_library(output: &Path, name: &str, dll: &str, symbols: &str) -> io::Result<PathBuf> {
     fs::create_dir_all(output)?;
-    let definition = output.join("susi-os-ucrt.def");
-    let library = output.join("susi-os-ucrt.lib");
-    fs::write(
-        &definition,
-        format!("LIBRARY ucrtbase.dll\nEXPORTS\n{SYMBOLS}"),
-    )?;
+    let definition = output.join(format!("{name}.def"));
+    let library = output.join(format!("{name}.lib"));
+    fs::write(&definition, format!("LIBRARY {dll}\nEXPORTS\n{symbols}"))?;
     let result = Command::new(librarian()?)
         .arg("/NOLOGO")
         .arg("/MACHINE:X64")
@@ -63,14 +60,20 @@ pub fn generate(output: &Path) -> io::Result<PathBuf> {
         .output()?;
     if !result.status.success() {
         return Err(io::Error::other(format!(
-            "OS-UCRT import metadata generation failed: {}",
+            "OS import metadata generation failed: {}",
             String::from_utf8_lossy(&result.stderr)
         )));
     }
     Ok(library)
 }
+pub fn generate(output: &Path) -> io::Result<PathBuf> {
+    import_library(output, "susi-os-ucrt", "ucrtbase.dll", SYMBOLS)
+}
 pub fn configure() -> io::Result<()> {
-    println!("cargo:rerun-if-changed=xtask/bootstrap/os_ucrt.rs");
+    configure_for(&["susi"])
+}
+pub fn configure_for(binaries: &[&str]) -> io::Result<()> {
+    println!("cargo:rerun-if-changed={}", file!());
     for name in ["HOST", "TARGET", "VCToolsInstallDir", "ProgramFiles(x86)"] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -86,7 +89,28 @@ pub fn configure() -> io::Result<()> {
         env::var_os("OUT_DIR").ok_or_else(|| io::Error::other("missing Cargo OUT_DIR"))?,
     );
     let library = generate(&output)?;
-    println!("cargo:rustc-link-arg-bin=susi=/NODEFAULTLIB:vcruntime.lib");
-    println!("cargo:rustc-link-arg-bin=susi={}", library.display());
+    let stack = import_library(&output, "susi-os-stack", "kernelbase.dll", "__chkstk\n")?;
+    for binary in binaries {
+        if binary.is_empty()
+            || !binary
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return Err(io::Error::other("invalid native binary name"));
+        }
+        for argument in [
+            "/ENTRY:susi_pe_entry",
+            "/INCLUDE:_tls_used",
+            "/NODEFAULTLIB:msvcrt.lib",
+            "/NODEFAULTLIB:vcruntime.lib",
+            "/MERGE:.CRT=.rdata",
+            "ucrt.lib",
+        ] {
+            println!("cargo:rustc-link-arg-bin={binary}={argument}");
+        }
+        println!("cargo:rustc-link-arg-bin={binary}={}", library.display());
+        println!("cargo:rustc-link-arg-bin={binary}={}", stack.display());
+        println!("cargo:rustc-link-arg-bin={binary}=/MAP");
+    }
     Ok(())
 }

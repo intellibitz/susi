@@ -4,6 +4,9 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 use std::env;
 use std::fs;
 use std::io::{self, Write};

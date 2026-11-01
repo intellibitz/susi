@@ -22,3 +22,10 @@ workspace = true
 name = "local-release"
 path = "src/bin/local-release.rs"
 required-features = ["release-tooling"]
+
+[target.'cfg(windows)'.dependencies]
+susi-windows-runtime = { path = "../crates/susi-windows-runtime" }
+
+[[bin]]
+name = "susi-dev"
+path = "src/bin/susi-dev.rs"
