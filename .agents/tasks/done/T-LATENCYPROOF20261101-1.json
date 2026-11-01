@@ -1,0 +1,24 @@
+{
+  "id": "T-LATENCYPROOF20261101-1",
+  "title": "Avoid duplicate full branch tests for strictly version-only release cuts",
+  "goal": "Hand verified release-only changes to tagged release testing without rerunning the full workspace suite before merge; fall back on any other change.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "release_only_branch"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793514739,
+  "closed": {
+    "at_unix": 1793515321,
+    "commit": "d62fa044d7d317e3992c990e99e2eec94533220d",
+    "by": "LATENCYPROOF20261101"
+  }
+}
