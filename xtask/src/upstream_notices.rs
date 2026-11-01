@@ -48,9 +48,25 @@ fn bound_file(bytes: &[u8], record: &serde_json::Value, repo: &str, revision: &s
     {
         return Err("invalid upstream source path".into());
     }
-    let project = repository(repo)
+    let locator = repository(repo)
         .strip_prefix("https://github.com/")
         .ok_or("supplement requires an explicitly verified HTTPS GitHub repository")?;
+    // Cargo repository metadata can point at a crate within a monorepo.
+    // Preserve the full locator for metadata equality above, but pinned file
+    // URLs address the repository itself, not its /tree/<ref>/<path> view.
+    let segments: Vec<_> = locator.split('/').collect();
+    if segments.len() < 2
+        || segments[..2].iter().any(|part| part.is_empty())
+        || (segments.len() > 2
+            && (segments.len() < 5
+                || segments[2] != "tree"
+                || segments[3..]
+                    .iter()
+                    .any(|part| part.is_empty() || *part == "." || *part == "..")))
+    {
+        return Err("invalid GitHub repository locator".into());
+    }
+    let project = format!("{}/{}", segments[0], segments[1]);
     let raw = format!("https://raw.githubusercontent.com/{project}/{revision}/{source}");
     let web = format!("https://github.com/{project}/blob/{revision}/{source}");
     if ![raw.as_str(), web.as_str()].contains(&required(record, "url")?) {
@@ -294,6 +310,23 @@ mod tests {
         write(&root, &record);
         assert!(verify(&root, &package, &source).is_ok());
         fs::write(source.join("lib.rs"), "different source").unwrap();
+        assert!(verify(&root, &package, &source).is_err());
+    }
+
+    #[test]
+    fn monorepo_locator_keeps_metadata_identity_but_pins_files_at_repository_root() {
+        let (root, source, mut package, mut record) = fixture();
+        let locator = "https://github.com/example/project/tree/main/crates/example";
+        package["repository"] = locator.into();
+        record["repository"] = locator.into();
+        write(&root, &record);
+        assert!(verify(&root, &package, &source).is_ok());
+        record["repository"] = "https://github.com/example/project/tree/main/crates/other".into();
+        write(&root, &record);
+        assert!(verify(&root, &package, &source).is_err());
+        record["repository"] = locator.into();
+        record["path_in_vcs"] = "crates/other".into();
+        write(&root, &record);
         assert!(verify(&root, &package, &source).is_err());
     }
 }
