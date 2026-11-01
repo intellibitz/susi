@@ -21,6 +21,11 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::OnceLock;
 
+struct ModelProvisioningWait {
+    receiver: std::sync::mpsc::Receiver<EaiResult<crate::models::ModelProvisioningOutcome>>,
+    timeout: std::time::Duration,
+}
+
 /// Reflex tiers answer only when no specific model was requested. An
 /// OpenAI-style client names a model it picked from `/v1/models` (unknown
 /// names are a 400), and the streaming layer labels frames with the
@@ -1160,13 +1165,32 @@ impl GemiEngine {
         let (sender, provisioning) = std::sync::mpsc::channel();
         let provisioning_workspace = workspace.to_path_buf();
         std::thread::spawn(move || {
-            let result = ModelManager::ensure_hardware_optimal_models(&provisioning_workspace);
+            let result = ModelManager::prepare_hardware_optimal_models(&provisioning_workspace);
             let _ = sender.send(result);
         });
 
         let wait_secs = cfg.model_provisioning_wait_secs();
+        Self::retry_after_provisioning(
+            prompt,
+            workspace,
+            callback,
+            min_complexity,
+            ModelProvisioningWait {
+                receiver: provisioning,
+                timeout: std::time::Duration::from_secs(wait_secs),
+            },
+        )
+    }
+
+    fn retry_after_provisioning(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
+        provisioning: ModelProvisioningWait,
+    ) -> Option<String> {
         let started = std::time::Instant::now();
-        let Some(deadline) = started.checked_add(std::time::Duration::from_secs(wait_secs)) else {
+        let Some(deadline) = started.checked_add(provisioning.timeout) else {
             eprintln!("Susi could not start the model wait: the configured deadline is invalid.");
             return None;
         };
@@ -1174,9 +1198,19 @@ impl GemiEngine {
         let mut last_reported = started;
 
         while std::time::Instant::now() < deadline {
-            if let Ok(Err(error)) = provisioning.try_recv() {
-                eprintln!("Susi could not prepare a local model: {error}");
-                return None;
+            if let Ok(result) = provisioning.receiver.try_recv() {
+                match result {
+                    Ok(outcome) => {
+                        if let Some(reason) = outcome.terminal_reason() {
+                            eprintln!("Susi could not prepare a local model: {reason}");
+                            return None;
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("Susi could not prepare a local model: {error}");
+                        return None;
+                    }
+                }
             }
             if Self::has_usable_local_model(workspace) {
                 eprintln!("Local model downloaded. Continuing your goal...");
@@ -1228,7 +1262,10 @@ impl GemiEngine {
             std::thread::sleep(poll_interval);
         }
 
-        eprintln!("The local model was not ready within {wait_secs} seconds. This goal has not completed.");
+        eprintln!(
+            "The local model was not ready within {} seconds. This goal has not completed.",
+            provisioning.timeout.as_secs()
+        );
         None
     }
 
@@ -1315,6 +1352,34 @@ mod tests {
     use super::*;
 
     use std::thread;
+
+    #[test]
+    fn terminal_model_preparation_does_not_wait_for_the_download_deadline() {
+        use crate::models::ModelProvisioningOutcome;
+        for outcome in [
+            ModelProvisioningOutcome::TooSmall,
+            ModelProvisioningOutcome::OfflineNoModel,
+            ModelProvisioningOutcome::DownloadsDisabled,
+        ] {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            sender.send(Ok(outcome)).unwrap();
+            let started = std::time::Instant::now();
+            assert!(GemiEngine::retry_after_provisioning(
+                "Compute 17 + 25",
+                Path::new("unused-terminal-fixture"),
+                &|_| panic!("preparation cannot emit answer tokens"),
+                None,
+                ModelProvisioningWait {
+                    receiver,
+                    timeout: std::time::Duration::from_secs(120),
+                },
+            )
+            .is_none());
+            assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        }
+        assert!(ModelProvisioningOutcome::Queued.terminal_reason().is_none());
+        assert!(ModelProvisioningOutcome::Active.terminal_reason().is_none());
+    }
 
     #[test]
     fn first_model_disabled_download_does_not_start_or_emit_answer_tokens() {
