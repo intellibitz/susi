@@ -394,8 +394,6 @@ impl SusiAdmin {
     ///   a cut closed without merging leaves one behind for good.
     pub fn release_already_cut(workspace: &Path, version: &str) -> Option<String> {
         let tag = format!("v{version}");
-        let own_branch =
-            git_stdout(workspace, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
         match git_stdout(
             workspace,
             &["ls-remote", "--tags", "origin", &format!("refs/tags/{tag}")],
@@ -411,6 +409,14 @@ impl SusiAdmin {
             }
             Some(_) => {}
         }
+        Self::release_open_pr(workspace, version)
+    }
+
+    /// Check the open-PR half separately when a caller has already checked the tag.
+    pub(super) fn release_open_pr(workspace: &Path, version: &str) -> Option<String> {
+        let tag = format!("v{version}");
+        let own_branch =
+            git_stdout(workspace, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
         let listing = Command::new("gh")
             .args([
                 "api",
