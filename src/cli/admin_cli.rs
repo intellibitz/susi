@@ -416,8 +416,8 @@ fn hand_off_release(cwd: &Path) -> bool {
     }
 }
 
-/// Why `susi admin release --cut` must not start, asked before the daemon is
-/// started (`main`): a version that is released, has an open release pull
+/// Why `susi admin release --cut` must not start, asked by `main` before the
+/// release runs: a version that is released, has an open release pull
 /// request, or is reserved by another branch is refused at the cost of a
 /// `git ls-remote` (`SusiAdmin::release_preflight`). Any other command: `None`.
 pub(crate) fn release_preflight(subcommand: &AdminCommands, cwd: &Path) -> Option<String> {
