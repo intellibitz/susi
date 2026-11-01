@@ -419,6 +419,15 @@ fn run() -> std::process::ExitCode {
         SusiDaemon::ensure_daemon_running(&cwd, &global_dir);
     }
 
+    // Ambient indexing belongs to a user's work, never the host substrate.
+    // Read-only goals and explicit search do not need a background poller.
+    if command.is_none() {
+        let goal = piped_intent.clone().unwrap_or_else(|| cli.intent.join(" "));
+        if susi_core::manifold::IntentManifold::analyze(&goal).requires_swarm {
+            susi_daemon::ambient::start_ambient_indexer(&cwd);
+        }
+    }
+
     if let Some(command) = command {
         let ama = SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();

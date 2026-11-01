@@ -154,6 +154,16 @@ impl SemanticIndex {
             wm.jsonl_lines.insert(name.to_string(), count);
         }
 
+        // A project can contain its custom SUSI_HOME. Internal control-state
+        // is not project content and must not feed back into automatic refresh.
+        let internal_roots: Vec<_> = [
+            susi_paths::SusiDirs::substrate_home(),
+            susi_paths::SusiDirs::config_dir(),
+            susi_paths::SusiDirs::data_dir(),
+        ]
+        .into_iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .collect();
         // Workspace text files — re-index on mtime change.
         let mut stack = vec![workspace.to_path_buf()];
         while let Some(dir) = stack.pop() {
@@ -173,6 +183,12 @@ impl SemanticIndex {
                     continue;
                 }
                 if file_type.is_dir() {
+                    if path
+                        .canonicalize()
+                        .is_ok_and(|path| internal_roots.iter().any(|root| &path == root))
+                    {
+                        continue;
+                    }
                     if name != ".git" && name != "target" && name != ".susi" {
                         stack.push(path);
                     }

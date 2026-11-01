@@ -398,7 +398,6 @@ pub fn wire_cli_substrate_priming(substrate: &Path, catalogs: crate::discovery_p
     phase("cli: mcp-serve substrate", || {
         wire_mcp_serve_substrate(substrate)
     });
-    crate::ambient::start_ambient_indexer(substrate);
     // Catalog priming only: Swarm Cells are long-running servers owned by
     // the daemon, never spawned per CLI invocation.
     if !catalogs.is_empty() {
