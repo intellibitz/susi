@@ -52,13 +52,21 @@ concurrency:
 
 env:
   RELEASE_TAG: target-seed
-  # The cloud container's paths: the clone, and the ONNX Runtime the hook
-  # installs under its HOME (/root). The variable is what every call of
-  # scripts/cloud-onnxruntime.sh — the install, the check, the key's config
-  # block — reads, so the configuration here is byte for byte the container's.
+  # The cloud container's paths: the clone, the ONNX Runtime the hook installs
+  # under its HOME (/root), and its CARGO_HOME. The ONNX variable is what every
+  # call of scripts/cloud-onnxruntime.sh — the install, the check, the key's
+  # config block — reads, so the configuration here is byte for byte the
+  # container's. CARGO_HOME matters because cargo fingerprints a registry unit
+  # with the absolute path of its source file, which lives under CARGO_HOME:
+  # the first two snapshots were built under /home/runner/.cargo, every
+  # registry unit's `path` hash differed from the container's (the only field
+  # that did), and a seeded build recompiled all ~700 registry crates
+  # (626 s against 742 s cold). The registry is fetched into /root/.cargo here,
+  # as the container fetches its own.
   CLOUD_CHECKOUT: /home/user/susi
   CLOUD_ORT_DIR: /root/.cache/susi/onnxruntime
   SUSI_ONNXRUNTIME_DIR: /root/.cache/susi/onnxruntime
+  CLOUD_CARGO_HOME: /root/.cargo
 
 jobs:
   seed:
@@ -84,10 +92,11 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /home/user
           cp -a "$GITHUB_WORKSPACE" "$CLOUD_CHECKOUT"
           sudo chmod 755 /root
-          sudo install -d -o "$(id -u)" -g "$(id -g)" "$CLOUD_ORT_DIR"
+          sudo install -d -o "$(id -u)" -g "$(id -g)" "$CLOUD_ORT_DIR" "$CLOUD_CARGO_HOME"
           cd "$CLOUD_CHECKOUT"
-          scripts/cloud-onnxruntime.sh
-          scripts/cloud-onnxruntime.sh --check
+          # The cargo configuration goes where the container's cargo reads it.
+          CARGO_HOME="$CLOUD_CARGO_HOME" scripts/cloud-onnxruntime.sh
+          CARGO_HOME="$CLOUD_CARGO_HOME" scripts/cloud-onnxruntime.sh --check
           # The container's and this job's configuration blocks must agree, or
           # the key here names a snapshot no container ever looks for.
           scripts/cloud-onnxruntime.sh --print-config | grep -F "$CLOUD_ORT_DIR"
@@ -126,19 +135,17 @@ jobs:
 
       # What the gate compiles: the build (nextest's `cargo test --no-run` is the
       # same units) and the check-mode units clippy's lint of dependents reads.
-      # Cargo's defaults and nothing else: the first snapshot was built with
-      # CARGO_INCREMENTAL=0, which is part of every unit's fingerprint, so no
-      # unit matched the container's and the seeded build recompiled all 700
-      # registry crates (626 s against 742 s cold). Removing it from this step's
-      # env was not enough: dtolnay/rust-toolchain exports CARGO_INCREMENTAL=0
-      # (and CARGO_TERM_COLOR, RUST_BACKTRACE) for every later step of the job,
-      # so the variable is unset here, and the cargo-relevant environment is
-      # printed so a snapshot's build conditions can be read off its run. The
-      # `incremental/` dirs cargo then writes for the workspace crates are
-      # dropped by the export anyway.
+      # Under the container's CARGO_HOME (see the job env), and otherwise with
+      # cargo's defaults: dtolnay/rust-toolchain exports CARGO_INCREMENTAL=0 for
+      # every later step, which the container does not set, so it is unset
+      # (its `incremental/` dirs are dropped by the export anyway). The
+      # cargo-relevant environment is printed so a snapshot's build conditions
+      # can be read off its run.
       - name: Build origin/main as a cloud session does
         if: steps.key.outputs.build == 'true'
         working-directory: /home/user/susi
+        env:
+          CARGO_HOME: /root/.cargo
         run: |
           set -euo pipefail
           unset CARGO_INCREMENTAL
@@ -152,6 +159,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NAME: ${{ steps.key.outputs.name }}
+          CARGO_HOME: /root/.cargo
         run: |
           set -euo pipefail
           target/debug/susi workflow seed-target --export /home/user/seed
