@@ -20,8 +20,8 @@ fn phase_done(label: &str, started: Instant) {
 
 // A normal cut hands verification to the tagged GitHub workflow. Explicit
 // local verification, GPU checks and qualification still run the full gate.
-fn release_handoff(cut: bool, rerun: bool, gpu: bool, qualification: bool) -> bool {
-    cut && !rerun && !gpu && !qualification
+fn release_handoff(cut: bool, rerun: bool, gpu: bool, qualification: bool, merged: bool) -> bool {
+    cut && !rerun && !gpu && !qualification && merged
 }
 
 /// The branch `--cut` is allowed to push: the version commit travels to `main`
@@ -225,6 +225,15 @@ fn worktree_is_clean(workspace: &Path) -> bool {
         .current_dir(workspace)
         .output()
         .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
+}
+
+/// Defer verification only for code already present on main. Task-queue-only
+/// differences do not affect the built source, as in the existing proof reuse.
+/// A missing main ref or dirty checkout fails closed to the local gate.
+fn release_handoff_has_merged_source(workspace: &Path) -> bool {
+    worktree_is_clean(workspace)
+        && git_tree(workspace, "HEAD")
+            .is_some_and(|tree| proven_by_green_run(workspace, &tree, &["origin/main".to_string()]))
 }
 
 /// True when the gate may reuse remote evidence: the cutting tree is
@@ -472,6 +481,11 @@ impl SusiAdmin {
         let Some(level) = cut else {
             return Self::execute_release_gated(workspace, None);
         };
+        if !worktree_is_clean(workspace) {
+            return Err(EaiError::process(
+                "Release aborted: working tree is not clean. Commit or stash changes before running --cut.".to_string(),
+            ));
+        }
         let next = Self::bump_version_string(&Self::get_cargo_version(workspace)?, level)?;
         let lease = env::var("SUSI_RELEASE_RESERVE_SECS")
             .ok()
@@ -524,6 +538,7 @@ impl SusiAdmin {
             env::var("SUSI_RELEASE_RERUN_TESTS").ok().as_deref() == Some("1"),
             check_gpu,
             env::var_os("SUSI_RELEASE_CLOUD_EVIDENCE").is_some(),
+            cut.is_some() && release_handoff_has_merged_source(workspace),
         );
         if !handoff {
             let proven_started = Instant::now();
@@ -1363,11 +1378,12 @@ mod tests {
     #[test]
     fn release_handoff_only_defers_normal_cuts() {
         use super::release_handoff;
-        assert!(release_handoff(true, false, false, false));
-        assert!(!release_handoff(false, false, false, false));
-        assert!(!release_handoff(true, true, false, false));
-        assert!(!release_handoff(true, false, true, false));
-        assert!(!release_handoff(true, false, false, true));
+        assert!(release_handoff(true, false, false, false, true));
+        assert!(!release_handoff(false, false, false, false, true));
+        assert!(!release_handoff(true, true, false, false, true));
+        assert!(!release_handoff(true, false, true, false, true));
+        assert!(!release_handoff(true, false, false, true, true));
+        assert!(!release_handoff(true, false, false, false, false));
     }
     use super::*;
 
@@ -1409,6 +1425,45 @@ mod tests {
         run(&work, &["commit", "--allow-empty", "--quiet", "-m", "init"]);
         run(&work, &["push", "--quiet", "origin", "HEAD:main"]);
         work
+    }
+
+    #[test]
+    fn release_handoff_requires_merged_source_and_a_clean_checkout() {
+        let work = repo("handoff-source");
+        assert!(git_in(&work, &["fetch", "--quiet", "origin", "main"])
+            .status
+            .success());
+        assert!(release_handoff_has_merged_source(&work));
+        std::fs::create_dir_all(work.join(".agents/tasks")).unwrap();
+        std::fs::write(work.join(".agents/tasks/task.json"), "{}\n").unwrap();
+        assert!(
+            !release_handoff_has_merged_source(&work),
+            "dirty task files must not bypass the clean-tree check"
+        );
+        assert!(git_in(&work, &["add", ".agents/tasks/task.json"])
+            .status
+            .success());
+        assert!(git_in(&work, &["commit", "--quiet", "-m", "task metadata"])
+            .status
+            .success());
+        assert!(
+            release_handoff_has_merged_source(&work),
+            "task-only commits do not alter source"
+        );
+        std::fs::write(work.join("new.rs"), "fn unmerged() {}\n").unwrap();
+        assert!(git_in(&work, &["add", "new.rs"]).status.success());
+        assert!(
+            git_in(&work, &["commit", "--quiet", "-m", "unmerged source"])
+                .status
+                .success()
+        );
+        assert!(!release_handoff_has_merged_source(&work));
+        assert!(
+            git_in(&work, &["update-ref", "-d", "refs/remotes/origin/main"])
+                .status
+                .success()
+        );
+        assert!(!release_handoff_has_merged_source(&work));
     }
 
     /// A synced release cut tests a tree the `main` suite just proved: the
