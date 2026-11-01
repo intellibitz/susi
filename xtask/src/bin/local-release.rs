@@ -32,6 +32,8 @@ mod pe_imports;
 mod prepare_release;
 #[path = "../sysroot_license.rs"]
 mod sysroot_license;
+#[path = "../sysroot_sources.rs"]
+mod sysroot_sources;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
 #[path = "../vendor_regressions.rs"]
@@ -1619,6 +1621,13 @@ fn run(args: &[String]) -> Result<()> {
             let imports = pe_imports::inspect(&bytes)?;
             let (entry, map_sha256) = native_link::validate_reader(native_link::entry_address(&bytes)?, std::io::BufReader::new(fs::File::open(&args[2])?), 256 * 1024 * 1024)?;
             println!("{}", serde_json::json!({"diagnostic_only":true,"artifact_sha256":digest(&bytes),"entry":entry,"imports":imports,"map_sha256":map_sha256}));
+        },
+        Some("check-sysroot-sources") if args.len() == 3 => {
+            let installed = Command::new("rustc").args(["--print", "sysroot"]).output()?;
+            if !installed.status.success() { return Err("cannot locate pinned compiler sources".into()); }
+            let installed = String::from_utf8(installed.stdout)?;
+            sysroot_sources::replacement(Path::new(&args[1]), &Path::new(installed.trim()).join("lib/rustlib/src/rust/library"), Path::new(&args[2]))?;
+            println!("Authenticated source and reviewed replacement delta verified; artifacts remain unqualified.");
         },
         Some("record-gmcp") => gmcp_evidence::run(&ctx.root, &args[1..])?,
         Some("check-pe") if args.len()==2 => {
