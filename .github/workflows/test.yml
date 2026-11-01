@@ -2,8 +2,8 @@ name: Test
 
 # Runs independently of release.yml / dev-release.yml (no `needs` between
 # workflows) — tests and releases run in parallel on GitHub, so pushing
-# never blocks on either. The local pre-push hook only checks version
-# compliance; it does not run tests, by design.
+# never blocks on either. The local finish runs the task acceptance; broader
+# affected-crate verification can be handed to the required branch check.
 
 # No `pull_request` trigger: every PR here is opened by auto-merge.yml as
 # github-actions[bot], and GitHub holds a bot-opened PR's workflow runs for
@@ -20,7 +20,7 @@ on:
     inputs:
       # `full` (the default) is the whole suite: the release workflow and the
       # dispatch onto main after a merge want it. `branch` is exactly what a
-      # branch push runs (compile check and workflow compliance). The merge
+      # branch push runs (affected tests, compile check and workflow compliance). The merge
       # bot retests a head it resynced with `branch`: that head must pass the
       # same gate a push would have, and a full-suite retest took 20+ minutes
       # and failed the PR on suite-wide flakes no branch push would run.
@@ -536,17 +536,9 @@ jobs:
           RUSTUP_TOOLCHAIN: stable
         run: cargo deny --all-features check
 
-  # The merge gate for a branch push: it compiles and lints, it does not run
-  # tests. Executing the affected crates' tests here (nextest, then the hermetic
-  # re-run) was 62-75% of the job - 173-267 s plus 18-67 s of a 308-446 s run,
-  # against 96 s when no crate was touched - and re-ran what the agent's own
-  # `finish` gate had just run on the same tree. The gate is also the unit of the
-  # serialized merge queue: every merge turns the next green head stale, and each
-  # stale head costs one more run of this job, so its length is the queue's
-  # latency; and a flaky test here blocks every branch behind it (`Test (gemi)`
-  # failed three of four attempts on one). Tests run where they can be retried
-  # without holding anyone: the agent's local gate, the full sharded suite on main
-  # after every merge (auto-merge dispatches it), and the release.
+  # SUSI_BRANCH_TEST_HANDOFF_V1: the agent can hand the affected-crate suite
+  # to this required branch check after its task acceptance passes. The check
+  # completes before the merge job; the full suite still runs on main and tags.
   #
   # What it does gate is that the branch builds on a clean machine. Clippy over
   # `--all-targets` is a superset of `cargo check`, so it is the one compile step,
@@ -614,6 +606,8 @@ jobs:
             if [ "$inert" = true ]; then
               echo 'pkgs=' >> "$GITHUB_OUTPUT"
               echo 'lintcmd=' >> "$GITHUB_OUTPUT"
+              echo 'test_plan=' >> "$GITHUB_OUTPUT"
+              echo 'has_tests=false' >> "$GITHUB_OUTPUT"
               echo 'target_cache=false' >> "$GITHUB_OUTPUT"
               echo 'onnx=false' >> "$GITHUB_OUTPUT"
               exit 0
@@ -628,22 +622,32 @@ jobs:
           # The combined plan uses the same diff and metadata for both the
           # dependent lint closure and the focused root-test targets.
           plan=$(./scripts/ci-changed-crates.sh --plan)
-          pkgs= root_test_targets= rootpkg=
-          while IFS=: read -r kind value; do
-            case "$kind" in
-              lint) pkgs+="$value"$'\n' ;;
-              root-test) root_test_targets+="$value"$'\n' ;;
-              root-package) rootpkg=$value ;;
-              test|'') ;;
-              *) pkgs=ALL; root_test_targets=; break ;;
-            esac
-          done <<<"$plan"
+          pkgs= root_test_targets= rootpkg= has_tests=false
+          if [ "$plan" = ALL ]; then
+            pkgs=ALL
+            has_tests=true
+          else
+            while IFS=: read -r kind value; do
+              case "$kind" in
+                lint) pkgs+="$value"$'\n' ;;
+                root-test) root_test_targets+="$value"$'\n' ;;
+                root-package) rootpkg=$value ;;
+                test) has_tests=true ;;
+                '') ;;
+                *) echo "::error::Unrecognized affected-crate plan entry: $kind"; exit 1 ;;
+              esac
+            done <<<"$plan"
+          fi
           pkgs=${pkgs%$'\n'}
           root_test_targets=${root_test_targets%$'\n'}
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
             echo 'AFFECTED_EOF'
+            echo 'test_plan<<TEST_PLAN_EOF'
+            echo "$plan"
+            echo 'TEST_PLAN_EOF'
+            echo "has_tests=$has_tests"
           } >> "$GITHUB_OUTPUT"
           if [ "$pkgs" = "$rootpkg" ] && [ -n "$root_test_targets" ]; then
             lintcmd="cargo clippy -p $rootpkg$(printf ' --test %s' $root_test_targets) --locked -- -D warnings"
@@ -737,6 +741,18 @@ jobs:
         if: steps.affected.outputs.lintcmd != ''
         run: ${{ steps.affected.outputs.lintcmd }}
 
+      - name: Install cargo-nextest for branch tests
+        if: steps.affected.outputs.has_tests == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+
+      - name: Test affected crates before merge
+        if: steps.affected.outputs.has_tests == 'true'
+        env:
+          SUSI_BRANCH_TEST_PLAN: ${{ steps.affected.outputs.test_plan }}
+        run: bash scripts/ci-branch-tests.sh
+
   # The suite is sharded by area so each runner compiles only its dep
   # closure; the gate is the slowest shard rather than one serial workspace
   # build. Keep shards roughly balanced: gemi pulls the candle/ort vendors,
@@ -813,8 +829,8 @@ jobs:
         if: contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || contains(matrix.shard.pkgs, 'susi-daemon') || matrix.shard.name == 'root-cli'
         run: scripts/ci-prefetch-onnxruntime.sh
 
-      # `--retries 2`: with the branch gate no longer running tests, this is the
-      # first CI run that does, so a flaky test lands here and not on a branch.
+      # `--retries 2`: these main and tag shards cover more than the affected
+      # branch suite, so they can still encounter an unrelated flaky test.
       # `Test (gemi)` failed on main in a 0.6 s test on a commit that did not touch
       # gemi, and Main Failure Attribution blamed the pull request that merely
       # preceded it. A test is retried alone, and one that passes on retry is

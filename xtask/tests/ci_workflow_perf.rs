@@ -582,26 +582,25 @@ fn a_branch_push_starts_from_the_cache_main_writes() {
     );
 }
 
-/// The merge gate is also the unit of the serialized merge queue: every merge
-/// turns the next green head stale and each stale head costs one more run, so a
-/// gate that executes tests multiplies the suite by the length of the queue.
-/// Measured on a code-changing branch push: `cargo nextest` 173-267 s plus the
-/// hermetic re-run 18-67 s of a 308-446 s job, against 96 s when no crate was
-/// touched. It compiles and lints; the tests run in the agent's local gate, in
-/// the sharded suite on main after every merge, and at release.
+/// The agent can hand off the broader affected suite only because this
+/// required branch check runs it before the merge job can succeed.
 #[test]
-fn the_branch_gate_compiles_and_lints_but_never_executes_tests() {
+fn the_branch_gate_compiles_lints_and_runs_affected_tests() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
     let check = job(&jobs, "check");
-    for executes_tests in ["nextest", "cargo test", "check-hermetic-tests"] {
-        assert!(
-            !check.body.contains(executes_tests),
-            "the branch-push `check` job must not execute tests (`{executes_tests}`): the same \
-             tests just ran in the agent's finish gate on this tree, and the job's length is \
-             the latency of every stale-head retest in the merge queue"
-        );
-    }
+    assert!(check.body.contains("scripts/ci-branch-tests.sh"));
+    assert!(check
+        .body
+        .contains("steps.affected.outputs.has_tests == 'true'"));
+    assert!(check.body.contains("test) has_tests=true"));
+    assert!(check.body.contains("test_plan<<TEST_PLAN_EOF"));
+    assert!(check
+        .body
+        .contains("SUSI_BRANCH_TEST_PLAN: ${{ steps.affected.outputs.test_plan }}"));
+    assert!(check.body.contains("pkgs=ALL\n            has_tests=true"));
+    let merge = job(&jobs, "merge");
+    assert!(merge.body.contains("needs.check.result == 'success'"));
     assert!(
         check.body.contains("--all-targets") && check.body.contains("cargo clippy"),
         "clippy over `--all-targets` is the compile gate: it covers the test targets, so a \
@@ -609,7 +608,7 @@ fn the_branch_gate_compiles_and_lints_but_never_executes_tests() {
     );
 }
 
-/// With tests off the gate, what it must still catch is the compile break a
+/// The gate must catch the compile break a
 /// change causes in its callers: a signature change leaves the changed crate's
 /// own targets green and breaks whichever crate calls it.
 #[test]
@@ -1143,8 +1142,14 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     let gate = gate.replace("\r\n", "\n");
     let gate_fn = shell_function(&gate, "gate");
     assert!(
-        at(&gate_fn, "seed_own_target", "the gate") < at(&gate_fn, "gate_format", "the gate"),
-        "the finish gate must seed before formatting or proof reuse"
+        at(&gate_fn, "seed_own_target", "the gate")
+            < at(&gate_fn, "gate_lint_and_test", "the gate"),
+        "the local test and lint gate must seed before compiling"
+    );
+    assert!(
+        at(&gate_fn, "SUSI_BRANCH_CI_HANDOFF=1", "the gate")
+            < at(&gate_fn, "seed_own_target", "the gate"),
+        "the remote handoff should not wait for a target copy it does not use"
     );
     let sync_fn = shell_function(&gate, "sync");
     assert!(
