@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-17",
+  "title": "gmcp evidence binds to the tested commit: records carry tested_commit and a digest of the files the proof depends on; mastery tests reject evidence older than those files; scripts/gmcp-record-evidence.sh records it; VC-203-001 mastery hardening from #1237",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793520266
+}
