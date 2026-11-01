@@ -10,6 +10,22 @@
 use crate::secret_ref::{redact_for_export, SecretRef, SecretVault};
 use crate::SusiConfig;
 
+#[test]
+fn vc_201_066_mastery_redaction_preserves_nonsecret_observation_bytes() {
+    for observation in [
+        "Launch code: orchid-96eda1b5a34d.\nReadiness status: green.\n",
+        "Verified workspace read:\r\nreadiness: green.\r\n \t",
+        "\n\t ",
+        "",
+    ] {
+        assert_eq!(redact_for_export(observation), observation);
+    }
+    assert_eq!(
+        redact_for_export("api_key=live-private-value\r\nready: green\r\n \t"),
+        "api_key=[REDACTED]\r\nready: green\r\n \t"
+    );
+}
+
 /// Export redaction covers the shapes plan/tracing actually emit:
 /// credential-named JSON fields, quoted `resolved=` values, and bare
 /// `resolved=` bodies containing whitespace all lose their value — only

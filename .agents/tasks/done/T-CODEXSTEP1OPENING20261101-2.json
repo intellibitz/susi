@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-2",
+  "title": "Preserve verified read bytes through secret redaction",
+  "goal": "Keep harmless whitespace intact so exact native file receipts survive redaction without weakening secret masking or verification",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_066"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793525683,
+  "closed": {
+    "at_unix": 1793525776,
+    "commit": "4f2bacc5c0213016a5a9c6effcfef70ae1f83fcc",
+    "by": "CODEXSTEP1OPENING20261101"
+  }
+}

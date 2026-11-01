@@ -38,7 +38,7 @@ use clap::{CommandFactory, Parser};
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Bare args are mission intent by design — but a hyphenated first token
 /// is never natural language, so `susi daemon-status` / `peer-list` /
@@ -135,6 +135,14 @@ fn default_candle_threads() -> usize {
         .unwrap_or(4)
 }
 
+/// A normal goal needs admitted tools and model preference, not a fresh probe
+/// of every optional external agent/framework. The daemon discovers those in
+/// the background; explicitly invoking one still runs its own preflight.
+fn bare_goal_catalogs() -> susi_daemon::discovery_pipeline::Catalogs {
+    use susi_daemon::discovery_pipeline::Catalogs;
+    Catalogs::LEADING_MCP.union(Catalogs::CODING_MODELS)
+}
+
 /// The CLI's clap command tree is large, and a debug build spends enough stack
 /// constructing it to exhaust the default Windows main-thread reserve before
 /// the first line of output — the symptom is an immediate
@@ -200,6 +208,30 @@ fn run() -> std::process::ExitCode {
         env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
     }
     let cli = Cli::parse();
+    // Opening the goal prompt must not wait for every optional framework,
+    // model or daemon to boot. Each submitted goal runs the normal mission
+    // entry point in a child; merely opening (or closing) SUSI needs none of it.
+    if matches!(cli.command, Some(cli::defs::Commands::Shell))
+        || (cli.command.is_none() && cli.intent.is_empty() && io::stdin().is_terminal())
+    {
+        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        run_shell(&cwd);
+        return std::process::ExitCode::SUCCESS;
+    }
+    // An empty pipe is not a mission. Read it before starting services or
+    // probing catalogs; non-empty piped goals take the same real mission path.
+    let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
+        match read_stdin_bounded() {
+            Ok(Some(goal)) => Some(goal),
+            Ok(None) => return std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Could not read your goal: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
     if cli.command.is_none() {
@@ -275,12 +307,11 @@ fn run() -> std::process::ExitCode {
             susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
         });
     } else {
-        // Prime only the catalogs this command reads (all of them for a
-        // mission or any command not yet classified).
-        let catalogs = command.as_ref().map_or(
-            susi_daemon::discovery_pipeline::Catalogs::ALL,
-            cli::defs::command_catalogs,
-        );
+        // First goals must not wait for unrelated framework/agent probes.
+        // Explicit commands retain their own catalog admission contracts.
+        let catalogs = command
+            .as_ref()
+            .map_or(bare_goal_catalogs(), cli::defs::command_catalogs);
         susi_daemon::boot_trace::phase("composition: cli", || {
             susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
         });
@@ -314,15 +345,30 @@ fn run() -> std::process::ExitCode {
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
 
     // The console layer goes to stderr: stdout is the data plane
     // (`susi audit query --json`, `susi status`, every machine-readable
     // surface), and a boot-time INFO line there makes it unparseable.
+    // Routine engine diagnostics belong in the durable audit log, not in the
+    // first-goal conversation. Warnings/errors remain visible; explicit log
+    // settings or verbose mode restore diagnostic detail on the console.
+    let verbose_console =
+        env::var_os("RUST_LOG").is_some() || env::var_os("SUSI_VERBOSE").is_some();
+    let console_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            tracing_subscriber::EnvFilter::new(if verbose_console {
+                "info,susi=debug"
+            } else {
+                "warn"
+            })
+        });
     let console_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_line_number(true);
+        .with_target(verbose_console)
+        .with_thread_ids(verbose_console)
+        .with_line_number(verbose_console)
+        .with_filter(console_filter);
 
     let json_file_layer = tracing_subscriber::fmt::layer()
         .json()
@@ -396,24 +442,12 @@ fn run() -> std::process::ExitCode {
             .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
             .exit_code();
         let _ = io::stdout().flush();
-    } else if !io::stdin().is_terminal() {
-        match read_stdin_bounded() {
-            Ok(Some(input)) => {
-                let ama = SusiMasterAgent::new();
-                exit_code = ama
-                    .solve_stream_report(&input, &cwd, SUSI_VERSION, &glass_box_callback)
-                    .exit_code();
-                let _ = io::stdout().flush();
-            }
-            Ok(None) => (),
-            Err(e) => {
-                error!("stdin error: {}", e);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        // No command and no intent provided -> Launch persistent SUSI Pulse Shell
-        run_shell(&cwd);
+    } else if let Some(input) = piped_intent {
+        let ama = SusiMasterAgent::new();
+        exit_code = ama
+            .solve_stream_report(&input, &cwd, SUSI_VERSION, &glass_box_callback)
+            .exit_code();
+        let _ = io::stdout().flush();
     }
     exit_code
 }
@@ -421,6 +455,13 @@ fn run() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::default_candle_threads;
+
+    #[test]
+    fn first_goal_admits_tools_and_models_without_optional_framework_probes() {
+        let catalogs = super::bare_goal_catalogs();
+        assert!(catalogs.leading_mcp && catalogs.coding_models);
+        assert!(!catalogs.execution_agents && !catalogs.frameworks);
+    }
 
     #[test]
     fn candle_thread_default_is_clamped_and_positive() {
