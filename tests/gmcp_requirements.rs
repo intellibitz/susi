@@ -506,14 +506,21 @@ fn gmcp_http_home_guard(tag: &str) -> (std::sync::MutexGuard<'static, ()>, EnvGu
     (lock, env, home)
 }
 
-// The authoring checker uses POSIX utilities; the production verifier is
-// tested separately on every platform, including Windows.
-#[cfg(not(windows))]
+// Run the same POSIX authoring checker on Windows through Git Bash, not WSL.
 #[test]
 fn gmcp_req_203_001_01_contract() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = Command::new("bash")
-        .arg(root.join("scripts/check-gmcp-ledger.sh"))
+    #[cfg(windows)]
+    let bash = {
+        let out = Command::new("git").arg("--exec-path").output().unwrap();
+        assert!(out.status.success());
+        let exec_path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        exec_path.ancestors().nth(3).unwrap().join("bin/bash.exe")
+    };
+    #[cfg(not(windows))]
+    let bash = PathBuf::from("bash");
+    let output = Command::new(bash)
+        .arg("scripts/check-gmcp-ledger.sh")
         .current_dir(root)
         .output()
         .expect("bash must run the GMCP ledger checker");
