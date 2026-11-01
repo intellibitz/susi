@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-5",
+  "title": "Dispatch the cloud target seed from the main Test run",
+  "goal": "The merge job pushes main with GITHUB_TOKEN, which triggers no push workflow; Test on main dispatches target-seed.yml as it dispatches release-warm.yml, so a lockfile or toolchain merge gets its snapshot right after its own green run instead of at the next six-hourly tick",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "github_ruleset"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793505168,
+  "closed": {
+    "at_unix": 1793505238,
+    "commit": "ea1b523a728fbeab42298561949f9247c7821910",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}

@@ -14,10 +14,15 @@ name: Cloud target seed
 # computes from everything those units' fingerprints depend on. The session-start
 # hook fetches the asset for its key, or the newest one. docs/cloud-sessions.md.
 #
-# It runs when a key input may have changed on main, weekly as a fallback (a
-# toolchain roll with no file change), and on demand; a key whose snapshot is
-# already published costs one checkout. The parts are kept under 1.9 GB each
-# (a release asset's limit is 2 GiB).
+# It is dispatched by every green Test run on main (test.yml's `warm-release`
+# job, as release-warm.yml is), runs every six hours as a fallback and on
+# demand, and on a push to main that touches a key input — though main is
+# written by the merge job with GITHUB_TOKEN, whose pushes trigger no `push`
+# workflow (the first merge of this file ran nothing), which is why Test
+# dispatches it. A key whose snapshot is already published costs one checkout;
+# until a new key's snapshot exists, sessions take the newest one and recompile
+# the crates that differ. The parts are kept under 1.9 GB each (a release
+# asset's limit is 2 GiB).
 
 on:
   push:
@@ -30,7 +35,7 @@ on:
       - scripts/cloud-target-seed.sh
       - .github/workflows/target-seed.yml
   schedule:
-    - cron: '23 4 * * 1'
+    - cron: '23 */6 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -47,9 +52,13 @@ concurrency:
 
 env:
   RELEASE_TAG: target-seed
-  # The cloud container's paths: the clone and the ONNX Runtime the hook installs.
+  # The cloud container's paths: the clone, and the ONNX Runtime the hook
+  # installs under its HOME (/root). The variable is what every call of
+  # scripts/cloud-onnxruntime.sh — the install, the check, the key's config
+  # block — reads, so the configuration here is byte for byte the container's.
   CLOUD_CHECKOUT: /home/user/susi
   CLOUD_ORT_DIR: /root/.cache/susi/onnxruntime
+  SUSI_ONNXRUNTIME_DIR: /root/.cache/susi/onnxruntime
 
 jobs:
   seed:
@@ -77,8 +86,11 @@ jobs:
           sudo chmod 755 /root
           sudo install -d -o "$(id -u)" -g "$(id -g)" "$CLOUD_ORT_DIR"
           cd "$CLOUD_CHECKOUT"
-          SUSI_ONNXRUNTIME_DIR="$CLOUD_ORT_DIR" scripts/cloud-onnxruntime.sh
+          scripts/cloud-onnxruntime.sh
           scripts/cloud-onnxruntime.sh --check
+          # The container's and this job's configuration blocks must agree, or
+          # the key here names a snapshot no container ever looks for.
+          scripts/cloud-onnxruntime.sh --print-config | grep -F "$CLOUD_ORT_DIR"
 
       - name: Resolve the snapshot key
         id: key

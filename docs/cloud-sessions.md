@@ -113,8 +113,11 @@ are specific to it:
   a sha256 manifest, named by a key `scripts/cloud-target-seed.sh --key`
   computes from everything those units' fingerprints depend on (the external
   packages of `Cargo.lock`, the toolchain pin, `rustc -vV`, the dev profile,
-  the ONNX Runtime configuration). It runs when one of those inputs changes
-  on `main`, weekly, and on demand. The session-start hook runs
+  the ONNX Runtime configuration). Every green Test run on `main` dispatches
+  it (not the merge itself: `main` is written by the merge job with
+  `GITHUB_TOKEN`, whose pushes trigger no `push` workflow), with a six-hourly
+  schedule as the fallback; until a new key's snapshot exists, sessions take
+  the newest one. The session-start hook runs
   `scripts/cloud-target-seed.sh`, which fetches the asset for this checkout's
   key — or the newest one, when none for this exact key is published yet:
   cargo recompiles what differs and keeps the rest — verifies it and unpacks

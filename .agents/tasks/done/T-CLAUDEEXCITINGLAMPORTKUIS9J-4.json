@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEEXCITINGLAMPORTKUIS9J-4",
+  "title": "Dispatch the cloud target seed from the main Test run: a merge made with GITHUB_TOKEN triggers no push workflow",
+  "goal": "target-seed.yml never ran after its merge: the merge bot pushes with GITHUB_TOKEN, whose pushes trigger no on:push workflow. Dispatch it from Test on main as release-warm is, and record the seeded cold build measurement",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session",
+      "cloud_target_seed"
+    ]
+  },
+  "created_by": "CLAUDEEXCITINGLAMPORTKUIS9J",
+  "created_unix": 1793504740,
+  "closed": {
+    "at_unix": 1793504936,
+    "commit": "5205a4fc6ee5bb08e67c1e04dd32705207b57b0d",
+    "by": "CLAUDEEXCITINGLAMPORTKUIS9J"
+  }
+}
