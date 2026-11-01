@@ -681,6 +681,7 @@ fn run_gates(candidate: &Path, attempt: &Path, host: &str) -> Result<String> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
+    vendor_regressions::include_release_tooling(candidate, &mut gates);
     let adapters = vendor_regressions::commands(candidate, host, &target)?;
     gates.splice(4..4, adapters);
     let mut proof = String::new();

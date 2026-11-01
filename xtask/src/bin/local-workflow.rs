@@ -338,6 +338,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
+    vendor_regressions::include_release_tooling(candidate, &mut gates);
     gates.extend(vendor_regressions::commands(candidate, host, &target)?);
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
