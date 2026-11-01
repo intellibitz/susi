@@ -827,7 +827,15 @@ mod tests {
     #[test]
     fn first_model_catalog_does_not_invent_local_providers_but_live_models_register() {
         let _guard = crate::engines::env_test_lock();
-        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+        // The isolated registry uses TEMP as its rendezvous parent. Keep its
+        // sibling scan inside this fixture, not the operator's whole temp tree.
+        env.set("TEMP", temporary_home.path());
+        env.set("TMP", temporary_home.path());
+        env.set("TMPDIR", temporary_home.path());
         let registry = CapabilityRegistry::new();
         register_model_catalog(&registry);
         assert!(!registry

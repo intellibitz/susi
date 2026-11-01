@@ -364,7 +364,10 @@ mod intent_classify_tests {
             assert!(status.success());
             return;
         }
-        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
         use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
         use std::sync::{
             atomic::{AtomicUsize, Ordering},
@@ -417,7 +420,14 @@ mod intent_classify_tests {
 
     #[test]
     fn short_intents_are_ingested_redacted_and_exact_repeats_deduped() {
-        let ws = std::env::temp_dir().join(format!("susi-ingest-{}", std::process::id()));
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+        let ws = temporary_home.path().join("workspace");
         let _ = std::fs::remove_dir_all(&ws);
         std::fs::create_dir_all(ws.join(".susi")).unwrap();
         std::fs::write(
@@ -449,6 +459,13 @@ mod intent_classify_tests {
 
     #[test]
     fn config_lists_drive_classification() {
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
         let ws = std::env::temp_dir();
         assert_eq!(
             SusiAdmin::classify_natural_intent(&ws, "refactor the architecture").0,

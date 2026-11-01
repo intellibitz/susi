@@ -2064,7 +2064,18 @@ mod compiled_read_truth_tests {
             );
             return;
         }
-        let _env = susi_paths::test_env::EnvGuard::isolated();
+        let temporary_home = std::env::temp_dir().join(format!(
+            "susi-first-goal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir(&temporary_home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &temporary_home);
+        env.set("SUSI_HOME", &temporary_home);
         use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
         use std::sync::{
             atomic::{AtomicUsize, Ordering},
@@ -2144,6 +2155,8 @@ mod compiled_read_truth_tests {
         emit_final_report(&secret, &deliver);
         assert_eq!(outputs.borrow().len(), 1);
         assert!(!outputs.borrow()[0].contains("ghp_firstGoalPrivateToken123"));
+        drop(env);
+        std::fs::remove_dir_all(temporary_home).unwrap();
     }
 
     #[test]
