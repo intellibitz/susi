@@ -1,0 +1,17 @@
+{
+  "id": "T-LATENCYPROOF20261101-2",
+  "title": "Start tagged release verification when main suite is blocked in concurrency queue",
+  "goal": "Avoid waiting behind an unrelated main suite while preserving exact-commit release verification and reusing suites that are already running.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_await_tests"
+    ]
+  },
+  "created_by": "LATENCYPROOF20261101",
+  "created_unix": 1793515843
+}

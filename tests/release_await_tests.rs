@@ -681,6 +681,48 @@ fn an_in_flight_run_for_the_commit_is_watched_not_dispatched_again() {
     );
 }
 
+/// A main run held behind an unrelated run has not reached a runner. A tag
+/// dispatch has its own concurrency group and can prove this commit now.
+#[test]
+fn a_concurrency_pending_main_run_does_not_delay_a_tag_suite() {
+    let mut pending = in_flight(99, "main");
+    pending["status"] = serde_json::json!("pending");
+    let f = Fake::new(
+        "pending-main",
+        serde_json::json!([pending]),
+        serde_json::json!([dispatched(100, SHA)]),
+        &["completed/success"],
+    );
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("passed on abc1234 (run 100)"), "{out}");
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref v1.2.3 -f gate=full"),
+        "{}",
+        f.calls()
+    );
+    assert!(!f.calls().contains("run view 99"), "{}", f.calls());
+}
+
+/// A run that reached the runner queue already escaped main's concurrency
+/// group. Reusing it avoids launching a duplicate suite.
+#[test]
+fn a_runner_queued_suite_is_reused() {
+    let mut queued = in_flight(101, "main");
+    queued["status"] = serde_json::json!("queued");
+    let f = Fake::new(
+        "runner-queued",
+        serde_json::json!([queued]),
+        serde_json::json!([]),
+        &["queued/", "completed/success"],
+    );
+    let (code, out) = f.run(&[]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("passed on abc1234 (run 101)"), "{out}");
+    assert!(!f.calls().contains("workflow run"), "{}", f.calls());
+}
+
 /// The in-flight run can be the merge bot's branch-gate retest of the same
 /// commit. Green, it proves no suite, and only then is one dispatched.
 #[test]
