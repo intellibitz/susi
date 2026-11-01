@@ -2183,7 +2183,7 @@ impl CoreTools {
         // get the size line and an explicit "not parsed" note — no parser
         // for them is linked, so none is claimed.
         if ext == "rs" {
-            match susi_vendor_syn::outline(&code) {
+            match susi_vendor_syn::outline_checked(&code).map_err(EaiError::protocol)? {
                 Some(items) => {
                     report.push_str(&format!(
                         "Converged AST (syn): {} top-level items.\n",
