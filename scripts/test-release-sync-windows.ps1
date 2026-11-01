@@ -81,7 +81,46 @@ try {
         Check ($ShellProcess.ExitCode -eq 0) "Shell rollback integration failed: $ShellOutput"
         Check ((Get-FileHash (Join-Path $ShellBin 'susi.exe')).Hash -eq $OriginalHash) 'Shell selected the wrong canonical executable'
         Check ((Get-Content (Join-Path $ShellInstall 'fixture-runtime-home.txt') -Raw) -eq $ShellInstall) 'Native executable received a different installation home'
-    'PASS: owned client refusal, idle daemon replacement, unrelated process survival, canonical executable, legacy retirement, rollback'
+    # Run the real download verifier with a local gh fixture. Windows paths
+    # contain backslashes, which make filename-mode sha256sum escape its hash.
+    $Updater = Get-Content (Join-Path $PSScriptRoot 'susi-release-sync.sh') -Raw
+    $DownloadFunction = [regex]::Match($Updater, '(?s)download_release_asset\(\) \{.*?\r?\n\}').Value
+    Check ($DownloadFunction.Length -gt 0) 'Release download verifier missing'
+    $ChecksumScript = Join-Path $Scratch 'checksum.sh'
+    $Harness = @'
+set -euo pipefail
+log() { printf '%s\n' "$*" >&2; }
+release_repo_slug() { printf fixture; }
+gh() {
+    local dir="" asset=susi-windows-x86_64.exe
+    while [ $# -gt 0 ]; do
+        if [ "$1" = --dir ]; then dir="$2"; shift; fi
+        shift
+    done
+    cp "$SUSI_CHECKSUM_FIXTURE" "$dir/$asset"
+    printf '%s  %s\n' "$SUSI_TEST_CHECKSUM" "$asset" > "$dir/$asset.sha256"
+}
+'@
+    $Harness += "`n" + $DownloadFunction + "`n" + @'
+asset=susi-windows-x86_64.exe
+tag=v0.0.1
+result=$(download_release_asset "$tag" "$asset")
+[ "$result" = "$TARGET/download/v0.0.1/$asset" ] || { echo 'matching checksum rejected' >&2; exit 1; }
+SUSI_TEST_CHECKSUM=0000000000000000000000000000000000000000000000000000000000000000
+tag=v0.0.2
+result=$(download_release_asset "$tag" "$asset")
+[ -z "$result" ] || { echo 'mismatched checksum accepted' >&2; exit 1; }
+'@
+    [IO.File]::WriteAllText($ChecksumScript, $Harness.Replace("`r`n", "`n"))
+    $StartInfo.Arguments = '"' + $ChecksumScript + '"'
+    $StartInfo.EnvironmentVariables['TARGET'] = (Join-Path $Scratch 'native-backslash-target')
+    $StartInfo.EnvironmentVariables['SUSI_CHECKSUM_FIXTURE'] = $Candidate
+    $StartInfo.EnvironmentVariables['SUSI_TEST_CHECKSUM'] = $NewHash
+    $ChecksumProcess = [Diagnostics.Process]::Start($StartInfo)
+    Check ($ChecksumProcess.WaitForExit(30000)) 'Checksum integration timed out'
+    $ChecksumOutput = $ChecksumProcess.StandardOutput.ReadToEnd() + $ChecksumProcess.StandardError.ReadToEnd()
+    Check ($ChecksumProcess.ExitCode -eq 0) "Checksum integration failed: $ChecksumOutput"
+    'PASS: owned process safety, replacement, rollback, canonical home, matching and mismatched checksums on Windows paths'
 } finally {
     foreach ($Process in $Processes) { if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -ErrorAction SilentlyContinue } }
     if (Test-Path -LiteralPath $Scratch) { Remove-Item -LiteralPath $Scratch -Recurse -Force }
