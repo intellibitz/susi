@@ -139,6 +139,12 @@ self-improvement claims require persisted and retrievable outcome evidence.
     per-function or per-FFI-metadata-item allowances with `// SAFETY:` evidence.
     Never allow unsafe code for the whole module or copy foreign CRT startup
     implementations. Preserve lifecycle tests and artifact-bound link-map checks.
+  - `susi-vendor-winapi` retains `deny(unsafe_code)`. Its original detached
+    process wrapper permits only justified per-function FFI allowances for
+    explicit UTF-16 Windows process creation without handle inheritance,
+    ordinal environment comparison, and closing returned handles. No module-wide
+    allowances, shell fallback, or process-global handle mutation. Preserve the
+    measured unsafe-exposure ratchet and actual argument/pipe-EOF regressions.
 - **No panic-path macros in production code.** Workspace clippy denies:
   `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`,
   `unreachable`. Every crate has

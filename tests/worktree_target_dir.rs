@@ -100,6 +100,7 @@ fn command(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> C
         Command::new(program)
     };
     scrub(&mut cmd);
+    isolate_fixture_home(&mut cmd, dir);
     cmd.args(args).current_dir(dir);
     for (k, v) in envs {
         cmd.env(k, v);
@@ -107,6 +108,19 @@ fn command(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> C
     cmd
 }
 
+/// Keep automatic development-instance allocation inside the owning fixture.
+/// No SUSI_HOME override: the executable must select its own private instance.
+fn isolate_fixture_home(cmd: &mut Command, dir: &Path) {
+    let resolved = dir.canonicalize().expect("fixture command directory");
+    if let Some(root) = resolved
+        .ancestors()
+        .find(|p| p.join(".seed-fixture-owner").is_file())
+    {
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        susi_paths::test_env::isolate_home(cmd, &home);
+    }
+}
 fn scrub(cmd: &mut Command) {
     cmd.env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
@@ -502,6 +516,7 @@ impl World {
         let bare = root.join("server.git");
         let primary = root.join("susi");
         std::fs::create_dir_all(&bare).unwrap();
+        std::fs::write(root.join(".seed-fixture-owner"), "native seed test\n").unwrap();
         std::fs::create_dir_all(primary.join("scripts")).unwrap();
         git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         git(&primary, &["init", "--quiet", "-b", "main"]);
@@ -1376,6 +1391,7 @@ fn a_raw_shell_with_system32_first_runs_neither_wsls_bash_nor_windows_find() {
 
     let mut cmd = Command::new(&shell);
     scrub(&mut cmd);
+    isolate_fixture_home(&mut cmd, &w.primary);
     cmd.args(shell_args)
         .arg(w.script())
         .arg(&dest)
@@ -1721,6 +1737,7 @@ fn v0_21_23_close(ws: &Path, argv: &[&str]) -> Option<Command> {
         return None;
     }
     scrub(&mut command);
+    isolate_fixture_home(&mut command, ws);
     command
         .arg(joined_script(ws, "target-guard.sh"))
         .arg("--run")
@@ -1751,6 +1768,7 @@ fn the_retired_link_script_seeds_instead_of_linking() {
         link_dir(&shared, &dest.join("target"));
         let mut harness = Command::new("sh");
         scrub(&mut harness);
+        isolate_fixture_home(&mut harness, &w.primary);
         let out = harness
             .arg(&linker)
             .arg(&dest)
@@ -1791,6 +1809,7 @@ fn a_background_seeding_named_by_a_joined_path_still_copies() {
         let script = joined_script(&repo, "seed-target.sh");
         let mut cmd = Command::new("sh");
         scrub(&mut cmd);
+        isolate_fixture_home(&mut cmd, &w.primary);
         let out = cmd
             .arg(&script)
             .arg("--background")
@@ -3440,6 +3459,7 @@ fn the_seeding_needs_no_git_userland_on_windows() {
         "the narrowed PATH must not carry Git's userland: {path}"
     );
     let w = World::new("nouserland");
+    let auto_home = w.root.join("home/.susi-dev");
     w.make_seed();
     let shared = w.root.join("shared-target");
     write(&shared.join("sentinel"), "another worktree's build");
@@ -3458,6 +3478,18 @@ fn the_seeding_needs_no_git_userland_on_windows() {
     assert_eq!(
         std::fs::read_to_string(shared.join("sentinel")).unwrap(),
         "another worktree's build"
+    );
+    assert!(
+        auto_home.join("instances").is_dir(),
+        "automatic instance must use fixture home"
+    );
+    assert!(
+        auto_home.join("port-owners").is_dir(),
+        "automatic port allocation must use fixture home"
+    );
+    assert!(
+        !w.root.join("home/.susi").exists(),
+        "the development executable must not use production state"
     );
     // The background form too: the detached copy is this same binary.
     let other = w.app_worktree("other");
