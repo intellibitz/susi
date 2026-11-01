@@ -53,8 +53,16 @@ fn main() {
             .arg(&args[3])
             .arg("-o")
             .arg(&executable);
+        let rlib = args[0]
+            .extension()
+            .is_some_and(|extension| extension == "rlib");
+        if rlib {
+            compile
+                .arg("--extern")
+                .arg(format!("susi_windows_runtime={}", args[0].display()))
+                .args(["--cfg", "susi_runtime_rlib"]);
+        }
         for arg in [
-            args[0].display().to_string(),
             "/ENTRY:susi_pe_entry".into(),
             "/MERGE:.CRT=.rdata".into(),
             "/INCLUDE:_tls_used".into(),
@@ -66,6 +74,11 @@ fn main() {
             format!("/MAP:{}", map.display()),
         ] {
             compile.arg("-C").arg(format!("link-arg={arg}"));
+        }
+        if !rlib {
+            compile
+                .arg("-C")
+                .arg(format!("link-arg={}", args[0].display()));
         }
         if abort {
             compile.args(["-C", "panic=abort", "-C", "opt-level=3", "-C", "lto=fat"]);

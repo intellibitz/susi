@@ -62,9 +62,9 @@ qualification remains mandatory for exports used by the platform boundary.
 ## Repeatable native qualification
 
 `src/lib.rs` contains pure range-validation unit tests. `tests/fixtures/driver.rs`
-is a standalone Rust executable accepting, in order: the runtime object,
+is a standalone Rust executable accepting, in order: the runtime object or Rust `.rlib`,
 OS-UCRT import library, OS-stack import library, `lifecycle.rs`, and a fresh
-private output directory. It compiles and runs both unwind and optimized
+private output directory. The `.rlib` path uses `use susi_windows_runtime as _;` and preserves Cargo-style bitcode linkage. It compiles and runs both unwind and optimized
 fat-LTO abort fixtures, with process deadlines, retained logs and link maps.
 An opaque diagnostic runtime object must be compiled with `-C opt-level=3
 -C panic=abort`; otherwise final fat LTO can remove implicit core panic symbols

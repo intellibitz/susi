@@ -1,4 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(susi_runtime_rlib)]
+use susi_windows_runtime as _;
 static INITIALIZED: AtomicUsize = AtomicUsize::new(0);
 static ATTACHED: AtomicUsize = AtomicUsize::new(0);
 static THREAD_ATTACHED: AtomicUsize = AtomicUsize::new(0);

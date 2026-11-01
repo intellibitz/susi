@@ -5,6 +5,7 @@
 //! traversal without linking Microsoft CRT implementation objects. OS imports
 //! remain external platform services. See this crate's README for qualification.
 #![no_std]
+#![deny(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(all(windows, not(all(target_arch = "x86_64", target_env = "msvc"))))]
