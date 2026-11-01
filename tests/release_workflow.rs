@@ -20,6 +20,37 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+#[test]
+fn windows_release_promotion() {
+    // Run the real Windows process and file mechanics where they exist; the
+    // same entrypoint checks shell syntax on other release builders.
+    #[cfg(windows)]
+    let bash = {
+        let git = std::process::Command::new("git")
+            .arg("--exec-path")
+            .output()
+            .unwrap();
+        PathBuf::from(String::from_utf8_lossy(&git.stdout).trim())
+            .ancestors()
+            .nth(3)
+            .unwrap()
+            .join("bin/bash.exe")
+    };
+    #[cfg(not(windows))]
+    let bash = PathBuf::from("bash");
+    let output = std::process::Command::new(bash)
+        .arg("scripts/test-release-sync-windows.sh")
+        .current_dir(root())
+        .output()
+        .expect("run release promotion regression");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn read(rel: &str) -> String {
     std::fs::read_to_string(root().join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"))
 }

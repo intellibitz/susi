@@ -45,8 +45,23 @@ set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 SUSI_HOME="${HOME}/.susi"
+case "$SUSI_HOME" in /* | [A-Za-z]:[\\/]*) ;; *) echo 'SUSI_HOME must be absolute' >&2; exit 1 ;; esac
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) SUSI_HOME="$(cygpath -aw "$SUSI_HOME")" ;; esac
+export SUSI_HOME
 BIN_DIR="${SUSI_HOME}/bin"
 BIN="${BIN_DIR}/susi"
+WINDOWS=0
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WINDOWS=1; BIN="${BIN}.exe" ;; esac
+PREV="${BIN}.prev"
+[ "$WINDOWS" != 1 ] || PREV="${BIN_DIR}/susi.prev.exe"
+WINDOWS_DAEMON_WAS_RUNNING=""
+WINDOWS_HELPER="$(dirname "${BASH_SOURCE[0]}")/susi-release-sync-windows.ps1"
+windows_release() {
+    local action="$1"; shift
+    local args=(-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(cygpath -w "$WINDOWS_HELPER")" -Action "$action" -Bin "$(cygpath -w "$BIN")")
+    [ $# -eq 0 ] || args+=(-Built "$(cygpath -w "$1")")
+    powershell.exe "${args[@]}"
+}
 MARKER="${BIN_DIR}/susi.build.json"
 SELF_INSTALLED="${BIN_DIR}/susi-release-sync"
 REMOTE="${SUSI_RELEASE_REMOTE:-https://github.com/intellibitz/susi.git}"
@@ -199,6 +214,7 @@ download_release_asset() {
 # PIDs of susi *clients* (anything but the daemon and its leaf services)
 # running the installed binary — a mission, a shell, or `susi release`.
 busy_clients() {
+    if [ "$WINDOWS" = 1 ]; then windows_release busy; return; fi
     local p exe arg1
     for p in /proc/[0-9]*; do
         exe="$(readlink "$p/exe" 2>/dev/null)" || continue
@@ -210,7 +226,9 @@ busy_clients() {
 
 wait_for_idle() {
     local deadline=$((SECONDS + IDLE_WAIT)) busy
-    while busy="$(busy_clients)" && [ -n "$busy" ]; do
+    while true; do
+        busy="$(busy_clients)" || die "cannot determine whether installed Susi is idle"
+        [ -n "$busy" ] || break
         if [ "$SECONDS" -ge "$deadline" ]; then
             log "susi still busy (pids: ${busy}); deferring swap to the next run"
             exit "$EX_TEMPFAIL"
@@ -221,6 +239,7 @@ wait_for_idle() {
 }
 
 daemon_running() {
+    if [ "$WINDOWS" = 1 ]; then [ -n "$(windows_release running)" ]; return; fi
     local p
     for p in /proc/[0-9]*; do
         case "$(readlink "$p/exe" 2>/dev/null)" in "$BIN" | "$BIN (deleted)") ;; *) continue ;; esac
@@ -242,9 +261,9 @@ restart_service() {
     if systemctl --user is-active --quiet susi.service 2>/dev/null; then
         log "restarting always-on susi.service"
         systemctl --user restart susi.service
-    elif daemon_running; then
+    elif [ -n "$WINDOWS_DAEMON_WAS_RUNNING" ] || daemon_running; then
         log "restarting daemon"
-        "$BIN" restart >/dev/null
+        "$BIN" restart >/dev/null || return 1
     else
         log "daemon not running; it starts on the new binary at next use"
         return 0
@@ -273,24 +292,35 @@ write_marker() {
 swap_in() {
     local built="$1"
     mkdir -p "$BIN_DIR"
+    if [ "$WINDOWS" = 1 ]; then
+        WINDOWS_DAEMON_WAS_RUNNING="$(windows_release running)"
+        [ ! -f "$MARKER" ] || cp -p "$MARKER" "${MARKER}.prev"
+        if ! windows_release swap "$built"; then
+            # Restore service availability as well as bytes on a failed swap.
+            restart_service || true
+            return 1
+        fi
+        return
+    fi
     install -m 0755 "$built" "${BIN}.new"
     if [ -x "$BIN" ]; then
-        cp -p "$BIN" "${BIN}.prev"
+        cp -p "$BIN" "$PREV"
         [ -f "$MARKER" ] && cp -p "$MARKER" "${MARKER}.prev"
     fi
     # rename(2): a running daemon keeps its old inode; new execs get the new one.
     mv -f "${BIN}.new" "$BIN"
-    # Keep Windows engine mirror binary synchronized if present
-    if [ -f "${BIN_DIR}/susi-engine.exe" ]; then
-        cp -pf "$BIN" "${BIN_DIR}/susi-engine.exe" 2>/dev/null || true
-    fi
 }
 
 rollback() {
-    [ -x "${BIN}.prev" ] || die "no previous binary (${BIN}.prev) to roll back to"
-    log "rolling back to $("${BIN}.prev" --version 2>/dev/null || echo "${BIN}.prev")"
-    cp -p "${BIN}.prev" "${BIN}.new"
-    mv -f "${BIN}.new" "$BIN"
+    [ -x "$PREV" ] || die "no previous binary ($PREV) to roll back to"
+    log "rolling back to $("$PREV" --version 2>/dev/null || echo "$PREV")"
+    if [ "$WINDOWS" = 1 ]; then
+        WINDOWS_DAEMON_WAS_RUNNING="${WINDOWS_DAEMON_WAS_RUNNING:-$(windows_release running)}"
+        windows_release rollback || return 1
+    else
+        cp -p "$PREV" "${BIN}.new"
+        mv -f "${BIN}.new" "$BIN"
+    fi
     [ -f "${MARKER}.prev" ] && cp -p "${MARKER}.prev" "$MARKER"
     restart_service
 }
@@ -301,6 +331,9 @@ refresh_self() {
     if [ -f "$SELF_INSTALLED" ] && [ -f "$src" ]; then
         install -m 0755 "$src" "${SELF_INSTALLED}.new"
         mv -f "${SELF_INSTALLED}.new" "$SELF_INSTALLED"
+        if [ "$WINDOWS" = 1 ]; then
+            install -m 0644 "${SRC}/scripts/susi-release-sync-windows.ps1" "${BIN_DIR}/susi-release-sync-windows.ps1"
+        fi
     fi
 }
 
@@ -331,6 +364,7 @@ sync_release() {
     if [ -z "$built" ]; then
         build_tag "$tag" "$features"
         built="${TARGET}/release/susi"
+        [ "$WINDOWS" != 1 ] || built="${built}.exe"
     fi
 
     local got
