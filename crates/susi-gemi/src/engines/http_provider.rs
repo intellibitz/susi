@@ -786,7 +786,9 @@ fn custom_endpoint_model(endpoint: &Endpoint, key: &str) -> Option<String> {
         let family = match protocol {
             InferenceProtocol::Anthropic => "claude",
             InferenceProtocol::Gemini => "gemini",
-            _ => "",
+            InferenceProtocol::OpenAiChat
+            | InferenceProtocol::OpenAiCompletions
+            | InferenceProtocol::Triton => "",
         };
         return models
             .iter()
