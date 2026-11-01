@@ -1,4 +1,4 @@
-//! Standalone std-only bootstrap: establish private Cargo output before xtask builds.
+//! Shared native bootstrap: establish private Cargo output before xtask builds.
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 

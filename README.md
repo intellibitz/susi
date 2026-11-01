@@ -314,7 +314,7 @@ homes. Do not test against production or share `.susi-dev` between workers.
 
 Installed Susi exposes `susi local build debug`; an optimized candidate uses
 `susi local build production`. For the initial build before Susi is installed,
-agents use the std-only [native bootstrap](docs/native-bootstrap.md).
+agents use the Rust [native bootstrap](docs/native-bootstrap.md).
 A candidate is not an approved
 release. Production qualification must bind the exact source/dependency/toolchain
 identity to passing tests and policy audits, executable smoke tests and artifact

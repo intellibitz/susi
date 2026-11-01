@@ -61,7 +61,7 @@ marketed as durable memory.
 ## Current implementation
 
 - Native development starts through `xtask/bootstrap/susi-dev.rs`; see
-  `native-bootstrap.md`. The std-only launcher isolates both Cargo target and
+  `native-bootstrap.md`. The Rust launcher isolates both Cargo target and
   intermediate build directories before compiling any tooling. Windows selects
   MSVC. No Bash, WSL, Python, Node or GitHub service is required for this path.
 - `workflow start/commit/integrate/release` reserves private worktrees and scopes,
