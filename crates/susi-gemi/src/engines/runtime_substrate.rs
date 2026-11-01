@@ -357,13 +357,19 @@ impl InferenceHost {
     /// it, so the next request for it is served warm.
     pub fn preload(model_id: &str) -> EaiResult<serde_json::Value> {
         let path = Self::resolve_model_id(model_id)?;
-        let file_size = std::fs::metadata(&path)
+        Self::preload_resolved(&path)
+    }
+
+    /// Internal lifecycle entry for weights already resolved by ModelManager.
+    /// Public model-management requests still pass through the id-only gate.
+    pub(crate) fn preload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
+        let file_size = std::fs::metadata(path)
             .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX))
             .unwrap_or(0);
         let device = crate::models::hardware::HardwareProfiler::get_dynamic_device(file_size);
         let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("model_preload", &path.to_string_lossy());
-        match Self::get_model(&path, &device, &task) {
+        match Self::get_model(path, &device, &task) {
             Ok(_) => {
                 task.mark_completed("model preloaded");
                 Ok(serde_json::json!({ "loaded": path }))
@@ -378,7 +384,12 @@ impl InferenceHost {
     /// Evict a model from the cache.
     pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
         let path = Self::resolve_model_id(model_id)?;
-        let evicted = Self::cache().evict(&path)?;
+        Self::unload_resolved(&path)
+    }
+
+    /// Internal counterpart of preload_resolved, preserving the exact path.
+    pub(crate) fn unload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
+        let evicted = Self::cache().evict(path)?;
         let Some((weights, device)) = evicted else {
             return Ok(serde_json::json!({
                 "path": path,
