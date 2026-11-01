@@ -774,6 +774,13 @@ fn cached_endpoint_models(
 }
 
 fn custom_endpoint_model(endpoint: &Endpoint, key: &str) -> Option<String> {
+    // A saved nondefault model is intentional, unlike an automatically seeded
+    // bundled guess. Preserve it even when a paged model listing omits it.
+    let explicit = !endpoint.model.is_empty()
+        && bundled_endpoint(&endpoint.name).is_none_or(|default| endpoint.model != default.model);
+    if explicit {
+        return Some(endpoint.model.clone());
+    }
     let protocol = InferenceProtocol::from_config(&endpoint.protocol_type);
     if let Some(models) = cached_endpoint_models(&endpoint.api_base, key, protocol) {
         let family = match protocol {
@@ -791,13 +798,6 @@ fn custom_endpoint_model(endpoint: &Endpoint, key: &str) -> Option<String> {
             })
             .or_else(|| models.first())
             .cloned();
-    }
-    // A saved nondefault model is intentional, unlike an automatically seeded
-    // bundled guess. Preserve it when this service cannot list its models.
-    let explicit = !endpoint.model.is_empty()
-        && bundled_endpoint(&endpoint.name).is_none_or(|default| endpoint.model != default.model);
-    if explicit {
-        return Some(endpoint.model.clone());
     }
     tracing::debug!(endpoint = %endpoint.name, "Custom endpoint model listing unavailable; bundled model remains unverified");
     None
@@ -1058,17 +1058,21 @@ mod tests {
             Some("claude-actual")
         );
         server.join().unwrap();
-        // The listener is gone: this second selection must use the same live
-        // roster, not another probe, and must honor a listed preferred model.
+        assert_eq!(
+            custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
+            Some("claude-actual")
+        );
+        // Intentional pins remain unchanged whether listed or omitted by a
+        // paged roster; neither case should require another probe.
         endpoint.model = "claude-preferred".into();
         assert_eq!(
             custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
             Some("claude-preferred")
         );
-        endpoint.model = "invented-bundled-id".into();
+        endpoint.model = "explicit-unlisted-model".into();
         assert_eq!(
             custom_endpoint_model(&endpoint, "fixture-key").as_deref(),
-            Some("claude-actual")
+            Some("explicit-unlisted-model")
         );
     }
 
