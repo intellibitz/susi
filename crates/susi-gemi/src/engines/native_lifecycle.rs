@@ -6,13 +6,13 @@
 //! runs discover → load → ready → infer through the one contract.
 //! `InferenceHost` is the adapter's substrate surface: `load` stages
 //! weights through `InferenceHost::preload`, `health` probes
-//! `InferenceHost::loaded_models` (weight residency, never file
+//! `InferenceHost::model_is_reusable` (current identity/device/KV, never file
 //! presence), and `unload` evicts through `InferenceHost::unload`.
+//! `InferenceHost::loaded_models` remains a diagnostic snapshot, not readiness.
 //! Verbs a native engine genuinely lacks — external cancel of an
 //! unscoped inference task, unload of a federated endpoint — are
 //! capability-gated to typed errors, not silent no-ops.
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::models::runtime_lifecycle::{Capabilities, InferOutcome, Runtime, RuntimeBackend};
@@ -71,21 +71,9 @@ impl EngineHost for SusiHost {
             return Err(format!("model '{model}' has no resolvable weights"));
         };
 
-        for entry in crate::engines::runtime::InferenceHost::loaded_models() {
-            let matches = entry
-                .get("path")
-                .and_then(|p| p.as_str())
-                .map(PathBuf::from)
-                .is_some_and(|p| p == path || p.file_name() == path.file_name());
-            let resident = entry
-                .get("state")
-                .and_then(|s| s.as_str())
-                .is_some_and(|s| s == "loaded" || s == "busy");
-            if matches && resident {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        Ok(crate::engines::runtime::InferenceHost::model_is_reusable(
+            &path,
+        ))
     }
 
     fn preload(&self, model: &str) -> EaiResult<()> {
