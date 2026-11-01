@@ -4670,7 +4670,7 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
- "windows-registry",
+ "susi-vendor-windows-registry",
 ]
 
 [[package]]
@@ -5269,6 +5269,13 @@ name = "susi-vendor-winapi"
 version = "0.1.0"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "susi-vendor-windows-registry"
+version = "0.1.0"
+dependencies = [
+ "windows-registry",
 ]
 
 [[package]]

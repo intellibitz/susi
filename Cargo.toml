@@ -73,6 +73,7 @@ members = [
     "crates/susi-vendor-shlex",
     "crates/susi-vendor-signal-hook",
     "crates/susi-vendor-sysinfo",
+    "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
     "crates/susi-vendor-tokio-stream",
