@@ -95,6 +95,23 @@ retain these failures and verify the corrected executable with external runners
 absent; a successful exit code or an intermediate generated sentence is not
 first-goal acceptance.
 
+The corrected artifact at `c83174b5ba57844b561fe66dfeac0773d01eaa01` is
+95,548,416 bytes (SHA-256
+`C86FE59D997CAF9E4E473A2532A4FABD30E719F519823A4B018E63F60099E16E`).
+Its fresh-profile journey used the verified cached Qwen starter, no cloud
+credentials, and only Windows system directories on PATH. Both arithmetic and
+short prose completed through in-process Candle, without a swarm or external
+runner. Total session time was 9.939 seconds; recorded model generation took
+1.086 and 2.544 seconds. These are observed debug CPU results on this host,
+not a general latency guarantee or proof of an uncached installer journey.
+The final inference-package suite passed 419 tests with two ignored, and the
+combined workspace/all-target Clippy and formatting checks passed again.
+A second fresh-profile run completed both goals in 7.829 seconds. Its foreground
+process had an OS-reported peak working set of 1,065,631,744 bytes (1,016.27 MiB)
+during model use. Idle memory and reliable opening-prompt latency were not
+measured. These baselines are evidence for future budgets, not a zero-bloat
+certification. Both runs left no owned processes running after scoped cleanup.
+
 A real three-input embedding comparison against the previous ONNX engine found
 minimum cosine similarity 0.999999999999784 and maximum component difference
 below 1.3e-7. This is sample evidence, not an exhaustive equivalence claim.
@@ -105,13 +122,13 @@ The resolved graph has progressed from 63 rejected entries to three:
 include Unicode-3.0. Older versions with missing notices, license relabeling,
 audit exclusions and lossy ASCII substitutes are not acceptable remedies.
 Production qualification therefore remains blocked. No compliant production
-release, full ten-mandate completion, or clean-machine first-goal acceptance is
+release, full ten-mandate completion, or uncached clean-machine installation is
 claimed. Optional GPU features and Linux platform OpenSSL are not certified by
 Windows CPU evidence.
 
-Remaining acceptance includes the final combined regression suite, legitimate
-Unicode dependency resolution, native installation/first-goal verification,
-measured size/idle memory/latency budgets, real Susi release promotion/rollback,
+Remaining acceptance includes a fully green qualification on the final combined
+source, legitimate Unicode dependency resolution, uncached native installation,
+enforced size/idle memory/latency budgets, real Susi release promotion/rollback,
 and complete cross-platform Rust-only qualification. Local evidence is retained
 under `.artifacts/native-audit/`; task records stay open until their full gates
 pass. Agents own this work, including conflicts and repairs.
