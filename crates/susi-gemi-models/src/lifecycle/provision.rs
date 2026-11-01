@@ -221,7 +221,12 @@ impl ModelManager {
         {
             return Ok("Automatic downloads disabled".into());
         }
-        let ladder = HardwareProfiler::get_progressive_model_ladder();
+        let vram_budget_bytes = HardwareProfiler::gpu_vram_budget_bytes();
+        let ladder = if vram_budget_bytes > 0 {
+            HardwareProfiler::get_progressive_model_ladder()
+        } else {
+            HardwareProfiler::get_bootstrap_model_ladder()
+        };
         if ladder.is_empty() {
             return Err(crate::susi_error::EaiError::inference(
                 "No discovered model fits current available memory and disk",
@@ -234,7 +239,6 @@ impl ModelManager {
         //                then prefetch additional tiers from the ladder.
         // No GPU, ≥8GB RAM → download only the smallest model (CPU fallback).
         // No GPU, <8GB RAM  → skip all local downloads; cloud-only path.
-        let vram_budget_bytes = HardwareProfiler::gpu_vram_budget_bytes();
         let available_ram_gb = HardwareProfiler::determine_available_ram_gb();
 
         /// Minimum system RAM (GB) required to justify downloading the
