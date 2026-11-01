@@ -4534,3 +4534,105 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         "`finish` must prefetch branch and queue refs once across `lease`, `initial-sync`, and `close`, and `seed_own_target` must short-circuit when `target/.susi-seeded` is already present"
     );
 }
+
+#[test]
+fn release_source_selects_root_workflow_test() {
+    let dir = std::env::temp_dir().join(format!("susi-release-scope-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let write = |rel: &str, body: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    };
+    let commit = |message: &str| {
+        git(&["add", "-A", "."]);
+        git(&["commit", "-qm", message]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "-q", "-b", "main", "."]);
+    for script in ["ci-changed-crates.sh", "posix-compat.sh"] {
+        let path = dir.join("scripts").join(script);
+        write(
+            &format!("scripts/{script}"),
+            &read(&format!("scripts/{script}")),
+        );
+        set_script_executable(&path);
+    }
+    write("Cargo.toml", "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nsusi-gawd = { path = \"crates/susi-gawd\" }\n[workspace]\nmembers = [\"crates/susi-gawd\"]\nresolver = \"2\"\n");
+    write("src/lib.rs", "pub fn root() {}\n");
+    write(
+        "tests/release_workflow.rs",
+        "#[test] fn checks_release_source() {}\n",
+    );
+    write(
+        "crates/susi-gawd/Cargo.toml",
+        "[package]\nname = \"susi-gawd\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("crates/susi-gawd/src/lib.rs", "pub mod admin;\n");
+    write("crates/susi-gawd/src/admin.rs", "pub mod release;\n");
+    write(
+        "crates/susi-gawd/src/admin/release.rs",
+        "pub fn release() {}\n",
+    );
+    let base = commit("base");
+    git(&["branch", "origin/main", &base]);
+    write(
+        "crates/susi-gawd/src/admin/release.rs",
+        "pub fn release_changed() {}\n",
+    );
+    commit("release source");
+    let plan = || {
+        let out = script_command(&dir.join("scripts/ci-changed-crates.sh"))
+            .arg("--plan")
+            .current_dir(&dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let result = plan();
+    for entry in [
+        "test:susi-gawd",
+        "test:fixture",
+        "root-package:fixture",
+        "root-test:release_workflow",
+    ] {
+        assert!(
+            result.lines().any(|line| line == entry),
+            "missing {entry}: {result}"
+        );
+    }
+    write("src/lib.rs", "pub fn root_changed() {}\n");
+    commit("also change root production");
+    assert_eq!(
+        plan(),
+        "ALL",
+        "mixed production changes must not narrow root coverage"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

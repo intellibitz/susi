@@ -122,6 +122,20 @@ if [ "$root_test_targets" = 1 ]; then
     [ "$gate_plan" = 1 ] || exit 0
 fi
 
+# These root integration tests read the release implementation as source text.
+# A crate-only gate otherwise misses them even though a release change can make
+# the tagged suite fail. If root production inputs also changed, use ALL rather
+# than incorrectly narrowing the root package to one integration target.
+release_root_test=0
+if [ "$gate_plan" = 1 ] && grep -Eq '^crates/susi-gawd/src/admin/(release|version)\.rs$' <<<"$changed"; then
+    if [ "$target_uncertain" != 0 ] || [ ! -f "$repo_root/tests/release_workflow.rs" ]; then
+        echo ALL
+        exit 0
+    fi
+    target_tests+=(release_workflow)
+    release_root_test=1
+fi
+
 # A test-only diff cannot break the packages that consume this crate: the
 # branch gate runs clippy with --all-targets for the owning package, which
 # compiles its integration tests and dev-dependencies. Workflow, hook, task
@@ -317,6 +331,11 @@ while IFS= read -r f; do
     fi
     seen[$best]=1
 done <<<"$changed"
+
+if [ "$release_root_test" = 1 ]; then
+    [ -n "$rootpkg" ] || { echo ALL; exit 0; }
+    seen[$rootpkg]=1
+fi
 
 test_packages=("${!seen[@]}")
 if [ "$with_dependents" = 1 ] && [ "$test_only" = 0 ] && [ "${#seen[@]}" -gt 0 ]; then
