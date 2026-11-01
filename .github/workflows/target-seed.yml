@@ -14,13 +14,14 @@ name: Cloud target seed
 # computes from everything those units' fingerprints depend on. The session-start
 # hook fetches the asset for its key, or the newest one. docs/cloud-sessions.md.
 #
-# It runs every six hours and on demand, and on a push to main that touches a
-# key input — but main is written by the merge job with GITHUB_TOKEN, whose
-# pushes trigger no `push` workflow (the first merge of this file ran nothing),
-# so the schedule is the trigger that counts: a lockfile change on main gets its
-# snapshot within six hours, and until then sessions take the newest snapshot
-# and recompile the crates that differ. A key whose snapshot is already
-# published costs one checkout. The parts are kept under 1.9 GB each (a release
+# It is dispatched by every green Test run on main (test.yml's `warm-release`
+# job, as release-warm.yml is), runs every six hours as a fallback and on
+# demand, and on a push to main that touches a key input — though main is
+# written by the merge job with GITHUB_TOKEN, whose pushes trigger no `push`
+# workflow (the first merge of this file ran nothing), which is why Test
+# dispatches it. A key whose snapshot is already published costs one checkout;
+# until a new key's snapshot exists, sessions take the newest one and recompile
+# the crates that differ. The parts are kept under 1.9 GB each (a release
 # asset's limit is 2 GiB).
 
 on:
