@@ -1,5 +1,22 @@
 # Workflow speed: where the minutes go, and what moves them
 
+## Local Windows iteration, measured 2026-11-01
+
+The agent-operated [local channels](local-channels.md) do not wait for GitHub.
+On the existing warm worktree with Rust 1.99.0, `cargo build --locked --bin susi`
+took **1.53 seconds with no changes** and **10.96 seconds after touching only
+the root binary source**. These retain the existing development profile and all
+default capabilities. Updating twelve workspace crates took 86.24 seconds, but
+that measurement overlapped an unrelated release compiler and automatic seed
+refresh, so it is not a clean standalone benchmark. A cold build was not measured.
+
+The primary watcher no longer launches full workspace build/Clippy maintenance
+by default. Such hidden compilers competed with foreground work even at low
+priority. Existing seed copies remain available; explicit maintenance refresh
+and opt-in `SUSI_SEED_AUTO_REFRESH=1` remain supported. Required code acceptance
+and publication checks are unchanged. Optimized local production uses the
+local-production profile separately; its build cost is not represented by the dev times.
+
 Measured on 2026-10-30 (Windows 11, 28 logical cores, the shared cargo
 target warm; GitHub-hosted runners). The numbers are the reason for the
 settings this page names; re-measure before changing them.
