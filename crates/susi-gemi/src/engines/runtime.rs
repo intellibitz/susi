@@ -337,11 +337,6 @@ impl GemiEngine {
         };
         let meta = &tagged_meta;
 
-        // Ensure configured cloud endpoints are registered before routing.
-        crate::engines::http_provider::register_configured_cloud_endpoints(
-            crate::susi_core::registry::CapabilityRegistry::global(),
-        );
-
         let global_config =
             crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier =
@@ -356,9 +351,11 @@ impl GemiEngine {
             false,
         ) {
             let preference = crate::engines::routing::InferenceRouter::load_preference();
-            let names = crate::susi_core::registry::CapabilityRegistry::global().list_providers();
             let placement = crate::engines::routing::InferenceRouter::plan_placement_for(
-                &names, requires, None, true,
+                &[],
+                requires,
+                None,
+                true,
             );
             fast_local_eligible(
                 prompt,
@@ -385,6 +382,15 @@ impl GemiEngine {
                 .is_some_and(|path| Self::prepare_owned_local_model(&path).unwrap_or(false))
         });
         let prefer_fast_local = fast_local_model.is_some();
+
+        // Remote model discovery can involve network probes. A ready local
+        // answer does not need them; retain registration before every cloud
+        // route, including the deferred fallback below.
+        if !prefer_fast_local {
+            crate::engines::http_provider::register_configured_cloud_endpoints(
+                crate::susi_core::registry::CapabilityRegistry::global(),
+            );
+        }
 
         // Latency / CPU-only gate: escalate to cloud when local is known-slow
         // (or host has no GPU). Sticky preference + optional interactive pick.
@@ -659,6 +665,9 @@ impl GemiEngine {
         }
 
         if prefer_fast_local {
+            crate::engines::http_provider::register_configured_cloud_endpoints(
+                crate::susi_core::registry::CapabilityRegistry::global(),
+            );
             let (answer, provider_ladder) = Self::try_discovered_providers(
                 prompt,
                 Some(workspace),
