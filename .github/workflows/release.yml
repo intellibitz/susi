@@ -409,7 +409,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Pin the runtime ABI floor: ubuntu-latest can advance to a newer
+          # glibc and produce a binary that cannot start on Ubuntu 24.04.
+          - os: ubuntu-24.04
             name: linux-x86_64
             artifact: susi-linux-x86_64
             src: target/dist/susi
