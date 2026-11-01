@@ -93,6 +93,25 @@ fn print_plan(plan: &SetupPlan) {
             engines.join(", ")
         );
     }
+    let models: Vec<_> = std::fs::read_dir(SusiDirs::data_dir().join("models"))
+        .into_iter()
+        .flatten()
+        .take(128)
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "gguf")
+        })
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    if !models.is_empty() {
+        println!(
+            "Local models found: {} (loading checked when used).",
+            models.join(", ")
+        );
+    }
     if !plan.agents.is_empty() {
         println!(
             "Previously discovered agents: {} (checked when used).",
