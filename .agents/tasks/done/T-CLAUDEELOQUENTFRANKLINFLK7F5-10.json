@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-10",
+  "title": "main red: move the MCP-features tests back to crates/susi-gmcp/src/eco_mcp_features.rs, the production path 115 GMCP ledger rows name",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "eco_mcp_features"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793491137,
+  "closed": {
+    "at_unix": 1793491330,
+    "commit": "c2a7175ba09491559fd635cdd690ef6349af5e97",
+    "by": "CLAUDEELOQUENTFRANKLINFLK7F5"
+  }
+}
