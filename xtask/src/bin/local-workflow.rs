@@ -345,6 +345,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                     "CREDENTIAL",
                     "API_KEY",
                     "ACCESS_KEY",
+                    "API_BASE",
+                    "BASE_URL",
+                    "API_URL",
+                    "CUSTOM_HEADERS",
+                    "HTTP_PROXY",
+                    "HTTPS_PROXY",
+                    "ALL_PROXY",
                 ]
                 .iter()
                 .any(|part| name.contains(part))

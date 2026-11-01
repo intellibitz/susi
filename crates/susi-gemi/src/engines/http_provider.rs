@@ -1316,6 +1316,18 @@ mod tests {
             env.set("HOME", &dir);
             env.set("XDG_CONFIG_HOME", &xdg_config);
             env.set("XDG_DATA_HOME", &xdg_data);
+            // Provider URLs are independent of HOME. The test's fake keys must
+            // never be sent to an inherited developer proxy or custom endpoint.
+            for name in [
+                "OPENAI_API_BASE",
+                "OPENAI_BASE_URL",
+                "OPENAI_API_BASE_URL",
+                "DEEPSEEK_API_BASE",
+                "DEEPSEEK_BASE_URL",
+                "DEEPSEEK_API_BASE_URL",
+            ] {
+                env.remove(name);
+            }
             Self {
                 dir,
                 env: Some(env),

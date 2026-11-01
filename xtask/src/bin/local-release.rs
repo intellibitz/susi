@@ -216,6 +216,13 @@ fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
                 "CREDENTIAL",
                 "API_KEY",
                 "ACCESS_KEY",
+                "API_BASE",
+                "BASE_URL",
+                "API_URL",
+                "CUSTOM_HEADERS",
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
             ]
             .iter()
             .any(|part| name.contains(part))

@@ -4561,6 +4561,7 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-shlex",
+ "susi-vendor-sysinfo",
  "susi-vendor-web",
 ]
 
