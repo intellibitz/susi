@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXSTEP120261101-4",
+  "title": "Show reused local models in the immediate installed opening",
+  "goal": "Report models already available through configured local scan paths without heavyweight model initialization or recursive discovery.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "opening_model_inventory"
+    ]
+  },
+  "created_by": "CODEXSTEP120261101",
+  "created_unix": 1793539985
+}
