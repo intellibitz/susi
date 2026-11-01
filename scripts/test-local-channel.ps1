@@ -46,7 +46,15 @@ function Stop-IsolatedDaemon {
     } finally { $stop.Dispose() }
 }
 try {
-    if (!$process.Start()) { throw 'Candidate could not start.' }
+    # Windows PowerShell 5.1 lacks ProcessStartInfo.StandardInputEncoding.
+    # Its Process pipe writer inherits Console.InputEncoding and may emit a
+    # BOM before the first goal. Select UTF-8 without a preamble just while
+    # constructing that writer, then restore the caller's console setting.
+    $inputEncoding = [Console]::InputEncoding
+    try {
+        [Console]::InputEncoding = New-Object Text.UTF8Encoding($false)
+        if (!$process.Start()) { throw 'Candidate could not start.' }
+    } finally { [Console]::InputEncoding = $inputEncoding }
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
     $goal = 'Read proof.txt and return its exact contents.'
