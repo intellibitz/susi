@@ -350,3 +350,47 @@ The initial correctness baseline rebuilds the private standard library for each
 operation; nested bootstrap/build operations can repeat this work. Build elapsed
 time is recorded. Faster cache reuse is intentionally deferred until exact
 reviewed artifact pins or equivalent independent verification support it.
+
+### Clean Windows installed journey passed (2026-11-02)
+
+The same owned Windows11 Pro25H2 guest (build26200,4vCPU,8GiB RAM) ran a
+separate new local user, SusiCcd038cb7, with an independently recorded absence
+of Susi state and Hugging Face/model caches. The previous failed users and their
+evidence were preserved. No development tools or runtime redistributable were
+installed to make the candidate work.
+
+Exact tested executable SHA256:
+`C21753DC041CE2F6C378BBA415A59419B406F4E01C8F9BCEACB7D018B5F307BC`.
+Host, guest copy and installed executable hashes matched. This combined debug
+candidate included the private standard library, OS Unicode regex backend and
+model-residency/provider fixes. It remains a diagnostic candidate, not an
+immutable production-qualified release.
+
+| Phase | Measured elapsed |
+| --- | ---: |
+| Native install | 14.423s |
+| Start | 2.621s |
+| Uncached model preparation and both goals | 64.701s |
+| Stop | 0.761s |
+
+The automatic starter download reached100% at approximately40 seconds. Both
+mission traces were SUCCESS with no tools invoked. Arithmetic returned
+`2+2 equals 4.`; the requested red-kite sentence completed in9 seconds. Actual
+Candle audit recorded8 generated tokens in2,389ms and22 tokens in3,532ms,
+plus two warm-up generations. Sampled inference peak RSS was1,039,855,616 bytes.
+There were zero owned process survivors and no forced cleanup.
+
+The bounded helper separately recorded foreground exit and output-pipe drain.
+The prior B-user60-second observation was below Susi's native120-second start
+deadline and is preserved rather than reclassified as success. A separate warm
+B-user probe exited in2.187s and drained by2.335s. The fresh C-user run used a
+130-second startup observation bound and completed in2.621s; this passed result
+does not erase the earlier cold observation.
+
+Evidence remains in the release worker's ignored
+`target/clean-vm/guest-product-retry-acceptance.json` and
+`target/clean-vm/guest-journey-retry-evidence`, including raw output, traces,
+Candle audit, per-phase resource measurements and cleanup results. This closes
+the clean-machine installed-journey diagnostic gap for the exact candidate.
+Final immutable production qualification, actual A/B promotion/rollback, and
+all acceptance checks against the final integrated source still remain required.
