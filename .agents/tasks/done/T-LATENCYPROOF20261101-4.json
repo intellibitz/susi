@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "LATENCYPROOF20261101",
-  "created_unix": 1793516870
+  "created_unix": 1793516870,
+  "closed": {
+    "at_unix": 1793517494,
+    "commit": "c607e1bed2814d37edcf72cb9476699eb04ab3ef",
+    "by": "LATENCYPROOF20261101"
+  }
 }
