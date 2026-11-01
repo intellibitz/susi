@@ -228,6 +228,17 @@ where
     Ok(next)
 }
 
+fn scope_covers_version_path(path: &str, scope: &str) -> bool {
+    // The coordinator stores ASCII lowercase scopes with forward slashes on
+    // every platform. Normalize the planned path identically; retain the slash
+    // boundary so a directory claim never owns a similarly named sibling.
+    let path = path.replace('\\', "/").to_ascii_lowercase();
+    path == scope
+        || path
+            .strip_prefix(scope)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 pub(super) fn run(ctx: &Context) -> Result<()> {
     let _release = Lock::acquire(&ctx.state)?;
     clean(&ctx.root)?;
@@ -265,12 +276,9 @@ pub(super) fn run(ctx: &Context) -> Result<()> {
     let scopes: Vec<_> = lines.collect();
     let (_, _, files) = plan(&ctx.root)?;
     if files.iter().any(|(path, _, _)| {
-        !scopes.iter().any(|scope| {
-            path == scope
-                || path
-                    .strip_prefix(scope)
-                    .is_some_and(|rest| rest.starts_with('/'))
-        })
+        !scopes
+            .iter()
+            .any(|scope| scope_covers_version_path(path, scope))
     }) {
         return Err(
             "version claim must own all engine manifests, governance versions, README and lockfile"
@@ -435,6 +443,23 @@ mod tests {
     }
 
     #[test]
+    fn coordinator_normalized_scopes_preserve_version_path_boundaries() {
+        assert!(scope_covers_version_path("Cargo.toml", "cargo.toml"));
+        assert!(scope_covers_version_path("README.md", "readme.md"));
+        assert!(scope_covers_version_path(
+            "crates\\susi-gawd\\Cargo.toml",
+            "crates/susi-gawd"
+        ));
+        assert!(!scope_covers_version_path(
+            "crates/susi-gawd-extra/Cargo.toml",
+            "crates/susi-gawd"
+        ));
+        assert!(!scope_covers_version_path("Cargo.toml", "cargo"));
+        assert!(!scope_covers_version_path("Cargo.toml", "../cargo.toml"));
+        assert!(!scope_covers_version_path("Cargo.toml", ""));
+    }
+
+    #[test]
     fn unqualified_current_missing_scope_and_dirty_worktree_cannot_prepare_versions() {
         let root = fixture();
         git(&root, &["init", "-q", "-b", "local-agent/version-fixture"]).unwrap();
@@ -463,7 +488,7 @@ mod tests {
         let (_, _, files) = plan(&root).unwrap();
         let scopes = files
             .iter()
-            .map(|(path, _, _)| path.as_str())
+            .map(|(path, _, _)| path.replace('\\', "/").to_ascii_lowercase())
             .collect::<Vec<_>>()
             .join("\n");
         let claim = workflow.join("claims/version-fixture.claim");
