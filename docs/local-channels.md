@@ -22,6 +22,19 @@ in a fresh temporary workspace. Both the visible answer and the governed mission
 record must contain the fixture's random content. Failure leaves the current
 channel intact. Evidence stays in the printed temporary directory.
 
+Build automatically installs **Susi (local production)** or **Susi
+(development)** in the Windows Start Menu. Its launcher is copied into the
+installed channel and keeps working if the source worktree is removed. The CEO
+opens the app and enters a goal; agents handle builds and verification.
+
+On launch, the channel adds the canonical model cache to its read-only discovery
+paths. It does not copy model weights or redirect writes into that cache. Stored
+provider API keys, base URLs and model preferences from canonical `cloud.env`
+are read into the child environment only when no existing process value wins;
+arbitrary command and home settings are excluded. The file is never copied or
+modified, and imported environment values are restored after exit. New downloads
+and mutable runtime state remain separate for each channel.
+
 `-Action Run` launches the activated channel with its own Susi home and port
 offset (development 200, local production 300). `-SusiArgs` passes arguments to
 that executable. `-Action Rollback` selects the previous installed build without

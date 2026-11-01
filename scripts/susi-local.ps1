@@ -78,22 +78,16 @@ if ($Action -eq 'Build') {
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^susi ') { throw 'Local candidate version check failed; current channel unchanged.' }
     & (Join-Path $PSScriptRoot 'test-local-channel.ps1') -Binary $candidate
     Assert-ChannelIdle
+    & (Join-Path $PSScriptRoot 'susi-local-launch.ps1') -Action Install -Channel $Channel -Root $Root -Candidate $candidate
     Write-State ([ordered]@{ channel=$Channel; current=$candidate; previous=if($state -and $state.current -ne $candidate){$state.current}elseif($state){$state.previous}else{$null}; sha256=$digest; version="$version"; builtUtc=[DateTime]::UtcNow.ToString('o'); buildSeconds=[Math]::Round($watch.Elapsed.TotalSeconds,3) })
     Write-Output "Local $Channel channel ready: $version ($([Math]::Round($watch.Elapsed.TotalSeconds,1)) seconds)."
-    Write-Output "Run locally: & '$PSCommandPath' -Action Run -Channel $Channel"
+    Write-Output 'Ready to open from the Start Menu.'
     return
 }
 if (!$state -or !(Test-Path -LiteralPath $state.current)) { throw "Build the local $Channel channel first." }
 if ((Get-FileHash -LiteralPath $state.current -Algorithm SHA256).Hash.ToLowerInvariant() -ne $state.sha256) { throw 'Activated local executable checksum changed; rebuild or roll back before running.' }
-$savedHome = $env:SUSI_HOME
-$savedPort = $env:SUSI_PORT_OFFSET
-try {
-    $env:SUSI_HOME = Join-Path $channelRoot 'home'
-    $env:SUSI_PORT_OFFSET = if ($Channel -eq 'dev') { '200' } else { '300' }
-    & $state.current @SusiArgs
-    $result = $LASTEXITCODE
-} finally {
-    $env:SUSI_HOME = $savedHome
-    $env:SUSI_PORT_OFFSET = $savedPort
+$launcher = Join-Path $channelRoot 'launcher.ps1'
+if (!(Test-Path -LiteralPath $launcher)) {
+    & (Join-Path $PSScriptRoot 'susi-local-launch.ps1') -Action Install -Channel $Channel -Root $Root
 }
-if ($result -ne 0) { throw "Local $Channel Susi exited with code $result." }
+& $launcher -Channel $Channel -Root $Root -SusiArgs $SusiArgs

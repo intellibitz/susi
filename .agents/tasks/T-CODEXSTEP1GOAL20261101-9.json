@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-9",
+  "title": "Install clickable local channels with automatic ecosystem reuse",
+  "goal": "Install durable Start Menu launchers for locally verified channels and discover canonical model caches and cloud connections without copying weights or secrets or requiring manual configuration.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "local_launcher"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793539085
+}
