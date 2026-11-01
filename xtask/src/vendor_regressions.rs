@@ -2,6 +2,26 @@
 use std::io;
 use std::path::Path;
 
+pub(crate) fn include_release_tooling(root: &Path, gates: &mut [Vec<String>]) {
+    if !root.join("crates/susi-core/Cargo.toml").is_file() {
+        return;
+    }
+    for args in gates {
+        if matches!(args.first().map(String::as_str), Some("clippy" | "test"))
+            && args.iter().any(|arg| arg == "--workspace")
+        {
+            let at = args
+                .iter()
+                .position(|arg| arg == "--")
+                .unwrap_or(args.len());
+            args.splice(
+                at..at,
+                ["--features".into(), "xtask/release-tooling".into()],
+            );
+        }
+    }
+}
+
 pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec<Vec<String>>> {
     // Minimal release-machinery fixtures are deliberately not the Susi product.
     // This is source identification, never a caller-controlled skip flag. A
@@ -82,6 +102,35 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join("crates/susi-core")).unwrap();
         std::fs::write(root.join("crates/susi-core/Cargo.toml"), "[package]").unwrap();
+        let mut gates = vec![
+            vec![
+                "clippy".into(),
+                "--workspace".into(),
+                "--".into(),
+                "-D".into(),
+                "warnings".into(),
+            ],
+            vec!["test".into(), "--workspace".into()],
+            vec!["build".into(), "-p".into(), "susi".into()],
+        ];
+        include_release_tooling(&root, &mut gates);
+        assert_eq!(
+            gates[0],
+            [
+                "clippy",
+                "--workspace",
+                "--features",
+                "xtask/release-tooling",
+                "--",
+                "-D",
+                "warnings"
+            ]
+        );
+        assert_eq!(
+            gates[1],
+            ["test", "--workspace", "--features", "xtask/release-tooling"]
+        );
+        assert_eq!(gates[2], ["build", "-p", "susi"]);
         assert!(commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).is_err());
         for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
             std::fs::create_dir_all(root.join("vendor").join(name)).unwrap();
