@@ -97,6 +97,9 @@ fn agent_for(timeout_secs: u64, max_redirects: u32) -> ureq::Agent {
     }
     let timeout = Duration::from_secs(timeout_secs);
     let config = ureq::Agent::config_builder()
+        // One caller-selected budget covers DNS, headers, redirects and body
+        // reads. Phase-only limits leave response headers unbounded.
+        .timeout_global(Some(timeout))
         .timeout_connect(Some(Duration::from_secs(15).min(timeout)))
         .timeout_recv_body(Some(timeout))
         .timeout_send_body(Some(timeout))
@@ -107,7 +110,10 @@ fn agent_for(timeout_secs: u64, max_redirects: u32) -> ureq::Agent {
     agent
 }
 
-/// GET or HEAD with explicit timeouts and redirect cap. `max_redirects = 0`
+/// GET or HEAD with a total deadline and redirect cap. `timeout_secs` (at
+/// least one second) covers DNS through reading the body, across redirects.
+/// The deadline continues while the caller consumes `into_reader()`.
+/// `max_redirects = 0`
 /// is required to observe Hugging Face `X-Linked-ETag` on the 302.
 pub fn http_call(
     method: &str,
@@ -121,6 +127,7 @@ pub fn http_call(
 
 /// GET/HEAD/DELETE/POST/PUT/PATCH. `body` is sent for methods that carry
 /// one; GET/HEAD ignore it. HTTP error statuses are returned, not `Err`.
+/// `timeout_secs` is the total request-and-body budget described by [`http_call`].
 #[allow(clippy::too_many_arguments)] // six independent request facts every caller already has; a params struct would only move the count to all ten call sites
 pub fn http_call_with_body(
     method: &str,
@@ -260,5 +267,111 @@ mod tests {
         let url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world");
         let call = http_call("GET", &url, &[], 5, 0).unwrap();
         assert_eq!(call.into_bytes(64).unwrap(), b"hello world");
+    }
+
+    /// Keep the fixture bounded even when a missing client deadline regresses.
+    fn delayed_response(
+        header_delay: Duration,
+        chunk_delay: Duration,
+        length: usize,
+    ) -> (
+        String,
+        std::sync::mpsc::Sender<()>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let (stop, stopped) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline || stopped.try_recv().is_ok() {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("loopback accept: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0; 4096];
+            if stream.read(&mut request).is_err() || stopped.recv_timeout(header_delay).is_ok() {
+                return;
+            }
+            if write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+            )
+            .is_err()
+            {
+                return;
+            }
+            for _ in 0..length {
+                if stopped.recv_timeout(chunk_delay).is_ok() || stream.write_all(b"x").is_err() {
+                    return;
+                }
+            }
+        });
+        (url, stop, worker)
+    }
+
+    #[test]
+    fn http_deadline_bounds_stalled_response_headers() {
+        let (url, stop, worker) = delayed_response(Duration::from_secs(4), Duration::ZERO, 1);
+        let started = std::time::Instant::now();
+        let result = http_call("GET", &url, &[], 1, 0);
+        let elapsed = started.elapsed();
+        let _ = stop.send(());
+        worker.join().unwrap();
+        assert!(
+            result.is_err(),
+            "stalled headers must exhaust the caller budget"
+        );
+        assert!(
+            elapsed < Duration::from_millis(2500),
+            "elapsed: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn http_deadline_includes_headers_and_trickled_body() {
+        let (url, stop, worker) =
+            delayed_response(Duration::from_millis(1200), Duration::from_millis(100), 100);
+        let started = std::time::Instant::now();
+        let call = http_call("GET", &url, &[], 2, 0).unwrap();
+        let result = call.into_bytes(100);
+        let elapsed = started.elapsed();
+        let _ = stop.send(());
+        worker.join().unwrap();
+        assert!(
+            result.is_err(),
+            "trickling must not extend the total deadline"
+        );
+        assert!(
+            elapsed < Duration::from_millis(2800),
+            "elapsed: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn http_deadline_preserves_longer_caller_stream_budget() {
+        let (url, stop, worker) =
+            delayed_response(Duration::from_millis(200), Duration::from_millis(200), 6);
+        let call = http_call("GET", &url, &[], 4, 0).unwrap();
+        let mut bytes = Vec::new();
+        let result = call.into_reader().read_to_end(&mut bytes);
+        let _ = stop.send(());
+        worker.join().unwrap();
+        result.unwrap();
+        assert_eq!(bytes, b"xxxxxx");
     }
 }
