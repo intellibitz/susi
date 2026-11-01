@@ -1,0 +1,17 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-14",
+  "title": "Reduce the first local model download with the supported Apache starter quantization",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793541959
+}

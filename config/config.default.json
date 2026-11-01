@@ -446,7 +446,7 @@
   },
   "gemi_port": 9091,
   "default_fallback_model": {
-    "hf_file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "hf_file": "qwen2.5-0.5b-instruct-q4_0.gguf",
     "hf_repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
     "tokenizer_repo": "Qwen/Qwen2.5-0.5B-Instruct"
   },
