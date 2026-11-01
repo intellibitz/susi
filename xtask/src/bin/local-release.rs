@@ -2071,6 +2071,47 @@ mod tests {
         let fixture = Fixture::new();
         let ctx = Context::open(&fixture.root()).unwrap();
         let first = qualify(&ctx).unwrap();
+        // Model a correctly hashed historical receipt whose gates predate the
+        // mandatory native runtime policy. Integrity alone must not admit it.
+        let current_package = ctx.packages.join("objects").join(&first);
+        let mut historical =
+            Manifest::decode(&fs::read_to_string(current_package.join("manifest.txt")).unwrap())
+                .unwrap();
+        let gates = fs::read_to_string(current_package.join("gates.txt")).unwrap();
+        let legacy_gates = gates.strip_prefix(QUALIFICATION_POLICY).unwrap();
+        historical.gates = digest(legacy_gates.as_bytes());
+        let raw = historical.encode();
+        let historical_id = digest(raw.as_bytes());
+        let historical_package = ctx.packages.join("objects").join(&historical_id);
+        fs::create_dir(&historical_package).unwrap();
+        for name in [
+            binary_name(),
+            "sbom.json",
+            "THIRD-PARTY-NOTICES.txt",
+            "native-source-audit.txt",
+        ] {
+            fs::write(
+                historical_package.join(name),
+                fs::read(current_package.join(name)).unwrap(),
+            )
+            .unwrap();
+        }
+        fs::write(historical_package.join("gates.txt"), legacy_gates).unwrap();
+        fs::write(historical_package.join("manifest.txt"), &raw).unwrap();
+        let blob = git_input(&ctx.root, &["hash-object", "-w", "--stdin"], raw.as_bytes()).unwrap();
+        git(
+            &ctx.root,
+            &[
+                "update-ref",
+                &format!("refs/susi/releases/qualified/{historical_id}"),
+                &blob,
+            ],
+        )
+        .unwrap();
+        assert!(promote(&ctx, &historical_id)
+            .unwrap_err()
+            .to_string()
+            .contains("requalification"));
         assert_eq!(resolve(&ctx.root, CURRENT).unwrap(), None);
         promote(&ctx, &first).unwrap();
         let first_blob = resolve(&ctx.root, CURRENT).unwrap().unwrap();

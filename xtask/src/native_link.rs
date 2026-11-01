@@ -63,6 +63,43 @@ pub(crate) fn validate_map(entry: u64, map: &str) -> io::Result<String> {
             )));
         }
     }
+    let mut origin_rows = 0;
+    for line in map.lines() {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if fields.len() < 4
+            || fields[0].len() != 13
+            || !fields[0]
+                .as_bytes()
+                .get(4)
+                .is_some_and(|byte| *byte == b':')
+            || fields[2].len() != 16
+            || !fields[2].bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            continue;
+        }
+        origin_rows += 1;
+        let origin = fields
+            .last()
+            .ok_or_else(|| invalid("missing linker origin"))?;
+        let symbol = fields[1];
+        let known_metadata = (*origin == "<absolute>"
+            && fields[0] == "0000:00000000"
+            && fields[2] == "0000000000000000")
+            || (*origin == "<linker-defined>"
+                && matches!(symbol, "__ImageBase" | "__volatile_metadata"));
+        let rust_object = origin.ends_with(".rcgu.o");
+        let os_import = origin
+            .rsplit_once(':')
+            .is_some_and(|(_, member)| super::pe_imports::os_dll(&member.to_ascii_lowercase()));
+        if !known_metadata && !rust_object && !os_import {
+            return Err(invalid(format!(
+                "unadmitted linker implementation origin: {origin} ({symbol})"
+            )));
+        }
+    }
+    if origin_rows == 0 {
+        return Err(invalid("link map contains no symbol origins"));
+    }
     let symbols: Vec<_> = map
         .lines()
         .filter_map(|line| {
@@ -130,5 +167,23 @@ mod tests {
             assert!(validate_map(0x140001020, &format!("{MAP}{name}")).is_err());
         }
         assert!(validate_map(0x140001020, &format!("{MAP}{MAP}")).is_err());
+        for origin in [
+            "renamed.lib:innocent.obj",
+            "private_archive:foreign.o",
+            "unknown:plugin.dll",
+        ] {
+            assert!(validate_map(
+                0x140001020,
+                &format!("{MAP}0001:00000030 hidden_code 0000000140001030 f {origin}\n")
+            )
+            .is_err());
+        }
+        assert!(validate_map(
+            0x140001020,
+            &format!(
+                "{MAP}0002:00000020 __imp_memcpy 0000000140002020 susi-os-ucrt:ucrtbase.dll\n"
+            )
+        )
+        .is_ok());
     }
 }

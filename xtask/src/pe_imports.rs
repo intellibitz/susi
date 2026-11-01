@@ -19,7 +19,7 @@ fn u32_at(data: &[u8], at: usize) -> Result<u32> {
             .map_err(|_| "invalid PE dword")?,
     ))
 }
-fn os_dll(name: &str) -> bool {
+pub(crate) fn os_dll(name: &str) -> bool {
     name.ends_with(".dll")
         && (name.starts_with("api-ms-win-")
             || name.starts_with("ext-ms-win-")
@@ -58,6 +58,8 @@ fn os_dll(name: &str) -> bool {
                     | "wininet.dll"
                     | "normaliz.dll"
                     | "icu.dll"
+                    | "netapi32.dll"
+                    | "propsys.dll"
                     | "ncrypt.dll"
                     | "wintrust.dll"
                     | "gdi32.dll"
