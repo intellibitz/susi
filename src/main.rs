@@ -38,7 +38,7 @@ use clap::{CommandFactory, Parser};
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Bare args are mission intent by design — but a hyphenated first token
 /// is never natural language, so `susi daemon-status` / `peer-list` /
@@ -218,6 +218,20 @@ fn run() -> std::process::ExitCode {
         run_shell(&cwd);
         return std::process::ExitCode::SUCCESS;
     }
+    // An empty pipe is not a mission. Read it before starting services or
+    // probing catalogs; non-empty piped goals take the same real mission path.
+    let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
+        match read_stdin_bounded() {
+            Ok(Some(goal)) => Some(goal),
+            Ok(None) => return std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Could not read your goal: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
     if cli.command.is_none() {
@@ -413,24 +427,12 @@ fn run() -> std::process::ExitCode {
             .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
             .exit_code();
         let _ = io::stdout().flush();
-    } else if !io::stdin().is_terminal() {
-        match read_stdin_bounded() {
-            Ok(Some(input)) => {
-                let ama = SusiMasterAgent::new();
-                exit_code = ama
-                    .solve_stream_report(&input, &cwd, SUSI_VERSION, &glass_box_callback)
-                    .exit_code();
-                let _ = io::stdout().flush();
-            }
-            Ok(None) => (),
-            Err(e) => {
-                error!("stdin error: {}", e);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        // No command and no intent provided -> Launch persistent SUSI Pulse Shell
-        run_shell(&cwd);
+    } else if let Some(input) = piped_intent {
+        let ama = SusiMasterAgent::new();
+        exit_code = ama
+            .solve_stream_report(&input, &cwd, SUSI_VERSION, &glass_box_callback)
+            .exit_code();
+        let _ = io::stdout().flush();
     }
     exit_code
 }
