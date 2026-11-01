@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "CODEXSTEP120261101",
-  "created_unix": 1793523995
+  "created_unix": 1793523995,
+  "closed": {
+    "at_unix": 1793525794,
+    "commit": "359927b417f7eafb8bc6c99f22a5ed9b94940fe3",
+    "by": "CODEXSTEP120261101"
+  }
 }
