@@ -115,6 +115,33 @@ fn is_prose_answer_request(focused: &str) -> bool {
         .split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty())
         .collect();
+    // This shortcut accepts only one composition request. Do not infer the
+    // safety of a following clause from a finite list of mutation verbs:
+    // unfamiliar actions after a conjunction still need normal governance.
+    let body = focused.trim().trim_end_matches(['.', '!', '?']);
+    if body
+        .chars()
+        .any(|c| matches!(c, ';' | ',' | '.' | '!' | '?' | '&' | '\n' | '\r'))
+        || words.iter().any(|word| {
+            matches!(
+                *word,
+                "and"
+                    | "then"
+                    | "or"
+                    | "also"
+                    | "next"
+                    | "after"
+                    | "before"
+                    | "afterward"
+                    | "afterwards"
+                    | "subsequently"
+                    | "followed"
+                    | "while"
+            )
+        })
+    {
+        return false;
+    }
     let Some(first) = words.first() else {
         return false;
     };
@@ -285,6 +312,13 @@ mod tests {
             assert!(!intent.requires_swarm, "{goal}");
         }
         for goal in [
+            "Write a sentence and restart the server",
+            "Draft a summary then merge the branches",
+            "Compose a poem; restart the server",
+            "Write a sentence. Restart the server",
+            "Draft a summary, merge the branches",
+            "Write a sentence & restart the server",
+            "Write a sentence\nrestart the server",
             "Write one sentence and save it to notes.md",
             "Write one sentence to notes.md",
             "Write a paragraph into the report",
