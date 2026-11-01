@@ -325,19 +325,29 @@ mod tests {
                         stream
                             .set_read_timeout(Some(Duration::from_secs(2)))
                             .unwrap();
-                        let mut bytes = [0; 4096];
-                        let count = stream.read(&mut bytes).unwrap();
-                        let mut request = String::from_utf8_lossy(&bytes[..count]).into_owned();
+                        // Read whole header blocks: closing a Windows socket with
+                        // unread request bytes resets it before the client reads.
+                        let read_head = |stream: &mut std::net::TcpStream, into: &mut String| {
+                            let mut bytes = [0; 4096];
+                            let start = into.len();
+                            while !into[start..].contains("\r\n\r\n") {
+                                let count = stream.read(&mut bytes).unwrap();
+                                assert!(count > 0, "proxy request ended early");
+                                into.push_str(&String::from_utf8_lossy(&bytes[..count]));
+                            }
+                        };
+                        let mut request = String::new();
+                        read_head(&mut stream, &mut request);
                         if request.starts_with("CONNECT ") {
                             stream
                                 .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                                 .unwrap();
-                            let count = stream.read(&mut bytes).unwrap();
-                            request.push_str(&String::from_utf8_lossy(&bytes[..count]));
+                            read_head(&mut stream, &mut request);
                         }
                         stream
                             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nproxy")
                             .unwrap();
+                        stream.shutdown(std::net::Shutdown::Write).unwrap();
                         return request;
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
