@@ -193,3 +193,34 @@ new records. Both phases reuse this checkout's private `target/local-native`
 output and require native MSVC on Windows. Recording is not a skip mode for
 integration or production qualification; those gates still execute the full
 required suites against the final committed evidence.
+
+
+### Windows OS-UCRT capability boundary
+
+Native x64 Windows MSVC product linking now generates a COFF **import library**
+from an original list of required compiler-runtime symbol names. The generated
+metadata directs those calls to Windows' own `ucrtbase.dll`; it contains no
+copied CRT implementation, bundles no runtime DLL, and does not enable static
+CRT. Native MSVC `lib.exe` is a build tool only. Existing debug unwind and
+production abort policies remain unchanged.
+
+The minimum product platform for this boundary is x64 Windows with the OS UCRT
+and every compiler-required export present. Actual ABI behavior has currently
+been tested on Windows version `10.0.26300` (build 26300), not on every Windows
+10/11 release. This is an explicit tested capability boundary, **not a claim
+that these private compiler-runtime exports are a stable Microsoft application
+contract**. Additional Windows versions and architectures require their own
+acceptance evidence. Other Windows build targets fail configuration rather
+than silently substituting a different runtime.
+
+Checked-in native tests generate the same import metadata, then compile and
+execute Rust fixtures proving panic payload recovery, destructor execution
+while unwinding, nested catches, thread-panic joining, resume-unwind, memory
+operations, and optimized abort-profile functionality. A deliberate absent OS
+export fails at loader initialization (`STATUS_ENTRYPOINT_NOT_FOUND`) before
+application code runs; an intentional abort remains an abort. Both fixture
+profiles pass ordinary/delay PE import inspection without VCRUNTIME. These
+fixtures are necessary compatibility evidence; final Susi production inference,
+its artifact PE gate, and clean-machine acceptance remain separate mandatory
+checks. The earlier diagnostic production artifact predates this mapping and
+correctly failed the external-runtime gate.
