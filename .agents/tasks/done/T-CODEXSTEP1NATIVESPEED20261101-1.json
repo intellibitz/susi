@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "CODEXSTEP1NATIVESPEED20261101",
-  "created_unix": 1793537396
+  "created_unix": 1793537396,
+  "closed": {
+    "at_unix": 1793538821,
+    "commit": "efe8c95f9684bc9d8d4b060f061bfbdf610d3eaa",
+    "by": "CODEXSTEP1NATIVESPEED20261101"
+  }
 }
