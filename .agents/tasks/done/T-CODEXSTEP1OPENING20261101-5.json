@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-5",
+  "title": "Build Linux releases on the supported Ubuntu 24.04 baseline",
+  "goal": "Prevent public Linux CPU artifacts from requiring Ubuntu 26.04 glibc; pin the release build baseline and guard it in existing workflow tests",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793528442,
+  "closed": {
+    "at_unix": 1793529804,
+    "commit": "f859dcdb00d6b42c89f11ffc0531190cc888a425",
+    "by": "CODEXSTEP1OPENING20261101"
+  }
+}
