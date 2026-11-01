@@ -244,6 +244,7 @@ pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::Infe
         .into_values()
         .map(|mut endpoint| {
             remap_retired_endpoint_model(&mut endpoint);
+            endpoint.api_base = resolve_api_base(&endpoint.api_base, &endpoint.name);
             endpoint
         })
         .collect()
@@ -299,26 +300,34 @@ pub fn resolve_api_key(api_key_env: &str, endpoint_name: &str) -> String {
     String::new()
 }
 
-/// Resolve an API base URL for an endpoint, automatically checking environment variables
-/// like `{NAME}_API_BASE`, `GEMINI_API_BASE`, `GOOGLE_API_BASE`, `OPENAI_API_BASE`, and `LITELLM_API_BASE`.
+/// Resolve only this provider's endpoint overrides, including its declared
+/// vendor aliases. An OpenAI override must never redirect unrelated providers.
 #[must_use]
 pub fn resolve_api_base(api_base_default: &str, endpoint_name: &str) -> String {
-    let lower_name = endpoint_name.to_ascii_lowercase();
-    if lower_name.contains("gemini") || lower_name.contains("google") {
-        if let Some(v) = env_nonempty("GEMINI_API_BASE").or_else(|| env_nonempty("GOOGLE_API_BASE"))
-        {
-            return v;
+    let prefix = |name: &str| {
+        generic_vendor_api_key_env(name)
+            .trim_end_matches("_API_KEY")
+            .to_string()
+    };
+    let mut prefixes = vec![prefix(endpoint_name)];
+    if let Some(entry) = find_vendor_entry(endpoint_name) {
+        prefixes.push(prefix(&entry.id));
+        for key in std::iter::once(entry.api_key_env).chain(entry.api_key_env_alts) {
+            if let Some(name) = key.strip_suffix("_API_KEY") {
+                prefixes.push(name.to_string());
+            }
         }
     }
-    let generic = format!(
-        "{}_API_BASE",
-        endpoint_name.to_ascii_uppercase().replace('-', "_")
-    );
-    if let Some(v) = env_nonempty(&generic) {
-        return v;
-    }
-    if let Some(v) = env_nonempty("OPENAI_API_BASE").or_else(|| env_nonempty("OPENAI_BASE_URL")) {
-        return v;
+    let mut seen = HashSet::new();
+    for name in prefixes {
+        if name.is_empty() || !seen.insert(name.clone()) {
+            continue;
+        }
+        for suffix in ["API_BASE", "BASE_URL", "API_BASE_URL"] {
+            if let Some(value) = env_nonempty(&format!("{name}_{suffix}")) {
+                return value;
+            }
+        }
     }
     api_base_default.to_string()
 }
@@ -333,6 +342,57 @@ pub fn is_remote_cloud(api_base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_model_endpoint_overrides_stay_with_their_provider() {
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temporary_home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", temporary_home.path());
+        env.set("SUSI_HOME", temporary_home.path());
+        env.set("OPENAI_API_BASE", "https://openai-proxy.invalid/v1");
+        env.set("ANTHROPIC_BASE_URL", "https://anthropic-proxy.invalid");
+        env.remove("ANTHROPIC_API_BASE");
+        env.remove("CLAUDE_API_BASE");
+        env.remove("CLAUDE_BASE_URL");
+        env.remove("CLAUDE_API_BASE_URL");
+        env.remove("GEMINI_API_BASE");
+        env.remove("GEMINI_BASE_URL");
+        env.remove("GEMINI_API_BASE_URL");
+        env.set("GOOGLE_API_BASE", "https://google-proxy.invalid/v1beta");
+        env.remove("OLLAMA_API_BASE");
+        env.remove("OLLAMA_BASE_URL");
+        env.remove("OLLAMA_API_BASE_URL");
+        assert_eq!(
+            resolve_api_base("default", "OpenAI"),
+            "https://openai-proxy.invalid/v1"
+        );
+        assert_eq!(
+            resolve_api_base("default", "Claude"),
+            "https://anthropic-proxy.invalid"
+        );
+        assert_eq!(
+            resolve_api_base("default", "Gemini"),
+            "https://google-proxy.invalid/v1beta"
+        );
+        assert_eq!(
+            resolve_api_base("http://localhost:11434/v1", "Ollama"),
+            "http://localhost:11434/v1"
+        );
+        let endpoints = effective_inference_endpoints();
+        let base = |name: &str| {
+            endpoints
+                .iter()
+                .find(|e| e.name.eq_ignore_ascii_case(name))
+                .unwrap()
+                .api_base
+                .as_str()
+        };
+        assert_eq!(base("OpenAI"), "https://openai-proxy.invalid/v1");
+        assert_eq!(base("Anthropic"), "https://anthropic-proxy.invalid");
+    }
 
     #[test]
     fn raw_env_names_are_not_suffixed() {
