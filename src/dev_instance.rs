@@ -126,14 +126,39 @@ pub(crate) fn isolate_if_dev_build(home: &Path) -> io::Result<()> {
         .ok_or_else(|| io::Error::other("executable directory is not Unicode"))?;
     let (root, offset) = allocate_instance(home, identity)?;
     env::set_var("SUSI_HOME", root);
-    if env::var_os("SUSI_PORT_OFFSET").is_none() {
-        env::set_var("SUSI_PORT_OFFSET", offset.to_string());
-    }
+    // Auto-selected state and ports are one instance identity. An inherited
+    // offset belongs to the parent, and must never override this reservation.
+    env::set_var("SUSI_PORT_OFFSET", offset.to_string());
     Ok(())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_instance_overrides_inherited_parent_ports() {
+        const CHILD: &str = "SUSI_INSTANCE_TEST_CHILD";
+        if let Some(home) = env::var_os(CHILD) {
+            isolate_if_dev_build(Path::new(&home)).unwrap();
+            assert_ne!(env::var("SUSI_PORT_OFFSET").unwrap(), "0");
+            assert!(PathBuf::from(env::var_os("SUSI_HOME").unwrap()).starts_with(&home));
+            return;
+        }
+        let home = env::temp_dir().join(format!("susi-inherited-port-test-{}", std::process::id()));
+        let status = std::process::Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::auto_instance_overrides_inherited_parent_ports",
+                "--nocapture",
+            ])
+            .env(CHILD, &home)
+            .env_remove("SUSI_HOME")
+            .env("SUSI_PORT_OFFSET", "0")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::remove_dir_all(home).unwrap();
+    }
 
     #[test]
     fn concurrent_workers_receive_disjoint_ports() {

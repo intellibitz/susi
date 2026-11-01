@@ -73,13 +73,20 @@ impl BlockReader {
             if block_len <= 1 {
                 return Ok(false);
             }
-            let compress = self.reader.read_u8();
-            let block_len = block_len - 1;
-
+            // Validate the entire encoded block, including the codec byte,
+            // before OwnedBytes' infallible read_u8 can panic on truncated input.
             if self.reader.len() < block_len {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "failed to read block content",
+                ));
+            }
+            let compress = self.reader.read_u8();
+            let block_len = block_len - 1;
+            if compress > 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "unknown index block codec",
                 ));
             }
             if compress == 1 {
@@ -88,11 +95,19 @@ impl BlockReader {
                     // A block is one standard Zstd frame. Bound decoded data to
                     // prevent an untrusted index from allocating without limit.
                     const MAX_DECODED_BLOCK: u64 = 64 * 1024 * 1024;
-                    let decoder = StreamingDecoder::new(&self.reader[..block_len])
-                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                    decoder.take(MAX_DECODED_BLOCK + 1).read_to_end(&mut self.buffer)?;
+                    let decoder = StreamingDecoder::new_with_max_window_size(
+                        &self.reader[..block_len],
+                        MAX_DECODED_BLOCK,
+                    )
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                    decoder
+                        .take(MAX_DECODED_BLOCK + 1)
+                        .read_to_end(&mut self.buffer)?;
                     if self.buffer.len() as u64 > MAX_DECODED_BLOCK {
-                        return Err(io::Error::new(io::ErrorKind::InvalidData, "decoded index block exceeds 64 MiB"));
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "decoded index block exceeds 64 MiB",
+                        ));
                     }
                     self.reader.advance(block_len);
                 }
@@ -146,5 +161,39 @@ impl io::Read for BlockReader {
         self.buffer().read_exact(buf)?;
         self.advance(buf.len());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod bounds_tests {
+    use super::*;
+
+    #[test]
+    fn truncated_codec_and_payload_return_errors_without_panicking() {
+        for bytes in [vec![2, 0, 0, 0], vec![3, 0, 0, 0, 0, 42]] {
+            let mut reader = BlockReader::new(OwnedBytes::new(bytes));
+            assert_eq!(
+                reader.read_block().unwrap_err().kind(),
+                io::ErrorKind::UnexpectedEof
+            );
+        }
+        let mut reader = BlockReader::new(OwnedBytes::new(vec![2, 0, 0, 0, 2, 42]));
+        assert_eq!(
+            reader.read_block().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[cfg(feature = "zstd-compression")]
+    #[test]
+    fn oversized_frame_window_is_rejected_before_allocation() {
+        // Zstd magic, non-single-segment descriptor, 128 MiB window descriptor.
+        let frame = [0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x88];
+        let mut bytes = vec![7, 0, 0, 0, 1];
+        bytes.extend_from_slice(&frame);
+        let mut reader = BlockReader::new(OwnedBytes::new(bytes));
+        let error = reader.read_block().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("window"), "{error}");
     }
 }
