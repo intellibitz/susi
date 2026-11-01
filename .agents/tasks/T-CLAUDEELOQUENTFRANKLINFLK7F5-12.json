@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-12",
+  "title": "gmcp ledger: the 241 VC-203-025/027 MCP-authorization rows name crates/susi-gmcp/src/server.rs (where MCP authorization is enforced), not the pruned eco_mcp_auth.rs",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793513479
+}
