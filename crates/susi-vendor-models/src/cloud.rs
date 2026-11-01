@@ -245,6 +245,17 @@ pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::Infe
         .map(|mut endpoint| {
             remap_retired_endpoint_model(&mut endpoint);
             endpoint.api_base = resolve_api_base(&endpoint.api_base, &endpoint.name);
+            // Anthropic SDKs accept an origin; the Messages wire appends /messages.
+            // Preserve explicit versioned or reverse-proxy paths.
+            if endpoint.protocol_type.eq_ignore_ascii_case("anthropic") {
+                let base = endpoint.api_base.trim_end_matches('/');
+                if base
+                    .split_once("://")
+                    .is_some_and(|(_, rest)| !rest.contains('/'))
+                {
+                    endpoint.api_base = format!("{base}/v1");
+                }
+            }
             endpoint
         })
         .collect()
@@ -391,7 +402,7 @@ mod tests {
                 .as_str()
         };
         assert_eq!(base("OpenAI"), "https://openai-proxy.invalid/v1");
-        assert_eq!(base("Anthropic"), "https://anthropic-proxy.invalid");
+        assert_eq!(base("Anthropic"), "https://anthropic-proxy.invalid/v1");
     }
 
     #[test]
