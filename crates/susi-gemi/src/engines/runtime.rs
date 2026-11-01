@@ -62,6 +62,50 @@ use susi_vendor_candle::tokenizers::Tokenizer;
 pub struct GemiEngine;
 
 impl GemiEngine {
+    pub fn set_owned_runner_child_adopter(adopter: fn(&std::process::Child) -> bool) {
+        crate::models::llamacpp_launcher::set_child_adopter(adopter);
+    }
+
+    pub fn shutdown_owned_runner() {
+        crate::models::llamacpp_launcher::shutdown_owned();
+    }
+
+    pub(crate) fn prepare_owned_local_model(path: &Path) -> EaiResult<bool> {
+        if cfg!(test) || std::env::var("SUSI_TEST_MOCK_INFERENCE").as_deref() == Ok("true") {
+            return Ok(false);
+        }
+        ModelManager::verify_model_integrity(path)?;
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        match crate::models::llamacpp_launcher::ensure_owned(
+            path,
+            cfg.kv_cache_capacity_tokens() as u64,
+        ) {
+            Ok(endpoint) => Ok(endpoint.is_some()),
+            Err(error) => {
+                tracing::warn!(%error, "Installed local runner unavailable; using native inference");
+                Ok(false)
+            }
+        }
+    }
+
+    pub(crate) fn try_owned_local_model(prompt: &str, model: &str) -> Option<String> {
+        let path = ModelManager::get_model_path(model)?;
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let max_tokens = u32::try_from(cfg.max_generation_tokens()).unwrap_or(u32::MAX);
+        match crate::models::llamacpp_launcher::generate_owned(&path, prompt, max_tokens) {
+            Ok(answer) => {
+                if answer.is_some() {
+                    tracing::debug!(model, "Installed llama.cpp completed local inference");
+                }
+                answer
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Installed local runner inference failed; using native inference");
+                None
+            }
+        }
+    }
+
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
         Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, None, &|_| {})
     }
