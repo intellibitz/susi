@@ -77,20 +77,13 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf) {
     .unwrap();
     std::fs::create_dir_all(repo.join(".agents/tasks/done")).unwrap();
     std::fs::write(repo.join(".agents/identity.json"), "{\"mandates\":[]}\n").unwrap();
-    std::fs::create_dir_all(repo.join("scripts")).unwrap();
-    let accept = repo.join("scripts/accept.sh");
-    std::fs::write(&accept, "#!/bin/sh\nexit 0\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&accept, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    // Native toolchain success seam; marker/delegation assertions below prove the cycle.
     let task = serde_json::json!({
         "id": "T-VC202015-1",
         "title": "Build the marker",
         "goal": "Create built.marker proving the fake agent ran",
         "size": "s",
-        "accept": {"cmd": ["scripts/accept.sh"]},
+        "accept": {"cmd": ["rustc", "--version"]},
         "created_by": "TEST",
         "created_unix": 0
     });
