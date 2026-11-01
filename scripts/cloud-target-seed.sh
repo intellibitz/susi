@@ -21,6 +21,7 @@
 #   scripts/cloud-target-seed.sh          seed ./target (a no-op once it holds a build)
 #   scripts/cloud-target-seed.sh --key    print this checkout's snapshot key
 #   scripts/cloud-target-seed.sh --name   print the asset name: linux-<arch>-<key>
+#   scripts/cloud-target-seed.sh --url    print where the assets are fetched from
 #   scripts/cloud-target-seed.sh --wait   wait for a seeding or build the hook started
 #
 # Environment:
@@ -74,7 +75,10 @@ name() { echo "linux-$(arch_name)-$(key)"; }
 default_url() {
     local origin slug
     origin=$(git remote get-url origin 2>/dev/null || true)
-    slug=$(printf '%s' "$origin" | sed -nE 's#^(https://github\.com/|git@github\.com:)([^/]+/[^/]+?)(\.git)?/?$#\2#p')
+    slug=$(printf '%s' "$origin" | sed -nE 's#^(https://github\.com/|git@github\.com:)([^/]+/[^/]+)/?$#\2#p')
+    # A clone URL may end in .git (the harness's does not; a hand clone's may):
+    # the release URL never does. sed -E has no lazy quantifier to take it off.
+    slug=${slug%.git}
     [ -n "$slug" ] || slug=intellibitz/susi
     echo "https://github.com/$slug/releases/download/target-seed"
 }
@@ -85,6 +89,7 @@ mode=${1:-seed}
 case "$mode" in
 --key) key; exit 0 ;;
 --name) name; exit 0 ;;
+--url) echo "${SUSI_TARGET_SEED_URL:-$(default_url)}"; exit 0 ;;
 --wait)
     # The hook's background subshell holds this lock through the seeding and the
     # build it starts; waiting on it is how a session waits for both.
@@ -100,7 +105,7 @@ case "$mode" in
     ;;
 seed) ;;
 *)
-    echo "usage: $me [--key | --name | --wait]" >&2
+    echo "usage: $me [--key | --name | --url | --wait]" >&2
     exit 2
     ;;
 esac
