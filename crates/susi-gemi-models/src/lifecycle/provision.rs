@@ -219,7 +219,7 @@ impl ModelManager {
         )))
     }
 
-    pub fn ensure_hardware_optimal_models(_workspace: &Path) -> EaiResult<String> {
+    pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
         static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let Ok(_planning) = PLANNING.try_lock() else {
             return Ok("Automatic provisioning already active".into());
@@ -233,148 +233,69 @@ impl ModelManager {
         {
             return Ok("Automatic downloads disabled".into());
         }
-        let vram_budget_bytes = HardwareProfiler::gpu_vram_budget_bytes();
-        let ladder = if vram_budget_bytes > 0 {
-            HardwareProfiler::get_progressive_model_ladder()
-        } else {
-            HardwareProfiler::get_bootstrap_model_ladder()
-        };
-        if ladder.is_empty() {
-            return Err(crate::susi_error::EaiError::inference(
-                "No discovered model fits current available memory and disk",
+        // Selection admits both actual weights and tokenizer and uses current
+        // resource budgets. Retain a better verified cache instead of spending
+        // bandwidth/disk on another model merely because a GPU is present.
+        if let Some(cached) = Self::identify_best_suited_local_model(workspace, None) {
+            return Ok(format!(
+                "Using verified cached local model {}",
+                cached.model_id()
             ));
         }
         let models_dir = Self::get_models_dir();
-
-        // ── Tiered download policy ──────────────────────────────────────
-        // GPU present  → download the largest model that fits free VRAM,
-        //                then prefetch additional tiers from the ladder.
-        // No GPU, ≥8GB RAM → download only the smallest model (CPU fallback).
-        // No GPU, <8GB RAM  → skip all local downloads; cloud-only path.
-        let available_ram_gb = HardwareProfiler::determine_available_ram_gb();
-
-        /// Minimum system RAM (GB) required to justify downloading the
-        /// smallest model for CPU-only inference when no GPU is present.
-        const CPU_FALLBACK_MIN_RAM_GB: usize = 8;
-
-        let mut queued: usize = 0;
-        let mut errors: Vec<String> = Vec::new();
-
-        if vram_budget_bytes > 0 {
-            // ── GPU path: VRAM-optimal model + tiered prefetch ─────────
-            if let Some(step) = ladder
-                .iter()
-                .filter(|s| s.expected_bytes <= vram_budget_bytes)
-                .max_by_key(|s| s.expected_bytes)
-            {
-                let path = models_dir.join(&step.hf_file);
-                if !Self::is_complete_model_file(&path, step.min_bytes) {
-                    let url = format!(
-                        "{}/{}/resolve/main/{}",
-                        cfg.hf_base_url(),
-                        step.hf_repo,
-                        step.hf_file
-                    );
-                    ModelDownloadController::global()
-                        .start_download(&url)
-                        .map_err(crate::susi_error::EaiError::inference)?;
-                    queued += 1;
-                }
-                // Transfer weights while preparing the tokenizer. Selection
-                // requires both validated artifacts before using the model.
-                Self::ensure_ladder_tokenizer(step, &models_dir, &cfg)
-                    .map_err(|e| crate::susi_error::EaiError::inference(e.to_string()))?;
-            }
-
-            // Additional tiered prefetch (disk-budget gated).
-            let mut remaining =
-                HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
-            let targets =
-                Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
-            for index in targets {
-                let step = &ladder[index];
-                let path = models_dir.join(&step.hf_file);
-                let complete = Self::is_complete_model_file(&path, step.min_bytes);
-                let partial = PathBuf::from(format!("{}.part", path.display()))
-                    .metadata()
-                    .map(|m| m.len())
-                    .unwrap_or(0);
-                let needed = if complete {
-                    0
-                } else {
-                    step.expected_bytes.saturating_sub(partial)
+        let available =
+            (HardwareProfiler::determine_available_ram_gb() as u64).saturating_mul(1_073_741_824);
+        let reserve = (cfg.model_scoring_heuristics().system_ram_buffer_gb.max(0.0) as f64
+            * 1_073_741_824.0) as u64;
+        let host = crate::zc_first_model::FirstRunHost {
+            ram: available.saturating_sub(reserve),
+            vram: HardwareProfiler::gpu_vram_budget_bytes(),
+            disk: HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000),
+            offline: !crate::susi_core::mac_policy::egress_permitted("https://huggingface.co/"),
+        };
+        match Self::automatic_download_plan(&host, &models_dir) {
+            crate::zc_first_model::FirstRunPlan::Fetch { model, plan } => {
+                let step = crate::hardware::ModelLadderStep {
+                    step: 1,
+                    label: model.id,
+                    hf_repo: model.hf_repo,
+                    hf_file: model.hf_file,
+                    tokenizer_repo: "Qwen/Qwen2.5-0.5B-Instruct".into(),
+                    min_bytes: model.size_bytes,
+                    expected_bytes: model.size_bytes,
                 };
-                if needed > remaining {
-                    continue;
-                }
-                // Re-admit each tier: RAM can change while tokenizer requests run.
-                if !HardwareProfiler::get_progressive_model_ladder()
-                    .iter()
-                    .any(|s| s.hf_repo == step.hf_repo && s.hf_file == step.hf_file)
-                {
-                    continue;
-                }
-                if !complete {
-                    let url = format!(
-                        "{}/{}/resolve/main/{}",
-                        cfg.hf_base_url(),
-                        step.hf_repo,
-                        step.hf_file
-                    );
-                    ModelDownloadController::global()
-                        .start_download(&url)
-                        .map_err(crate::susi_error::EaiError::inference)?;
-                    remaining = remaining.saturating_sub(needed);
-                    queued += 1;
-                }
-                if let Err(error) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
-                    errors.push(error.to_string());
-                }
+                ModelDownloadController::global()
+                    .start_download(&plan.url)
+                    .map_err(crate::susi_error::EaiError::inference)?;
+                Self::ensure_ladder_tokenizer(&step, &models_dir, &cfg)?;
+                Ok("Audited 0.5B starter queued; larger downloads require task evidence and resource admission".into())
             }
-        } else if available_ram_gb >= CPU_FALLBACK_MIN_RAM_GB {
-            // ── No GPU, sufficient RAM: download only the smallest model ──
-            if let Some(step) = ladder.iter().min_by_key(|s| s.expected_bytes) {
-                let path = models_dir.join(&step.hf_file);
-                if !Self::is_complete_model_file(&path, step.min_bytes) {
-                    let url = format!(
-                        "{}/{}/resolve/main/{}",
-                        cfg.hf_base_url(),
-                        step.hf_repo,
-                        step.hf_file
-                    );
-                    ModelDownloadController::global()
-                        .start_download(&url)
-                        .map_err(crate::susi_error::EaiError::inference)?;
-                    queued += 1;
-                }
-                Self::ensure_ladder_tokenizer(step, &models_dir, &cfg)
-                    .map_err(|e| crate::susi_error::EaiError::inference(e.to_string()))?;
+            crate::zc_first_model::FirstRunPlan::OfflineNoModel => Ok(
+                "No admitted local model is cached; network policy prevents automatic provisioning"
+                    .into(),
+            ),
+            crate::zc_first_model::FirstRunPlan::TooSmall => {
+                Ok("Available RAM or disk cannot safely accommodate the small starter".into())
+            }
+            crate::zc_first_model::FirstRunPlan::UseCached { .. } => {
+                Ok("Using verified cached local model".into())
             }
         }
-        // else: No GPU + low RAM → skip local downloads entirely (cloud-only).
-
-        if queued == 0 && !errors.is_empty() {
-            return Err(crate::susi_error::EaiError::inference(errors.join("; ")));
-        }
-        Ok(format!("Automatic ladder ready: {queued} downloads queued"))
     }
 
-    pub(crate) fn provisioning_indices(count: usize, limit: usize) -> Vec<usize> {
-        if count == 0 {
-            return Vec::new();
-        }
-        let tiers = limit.clamp(1, count);
-        (0..tiers)
-            .map(|i| {
-                if tiers == 1 {
-                    0
-                } else {
-                    i * (count - 1) / (tiers - 1)
-                }
-            })
-            .collect()
+    pub(crate) fn automatic_download_plan(
+        host: &crate::zc_first_model::FirstRunHost,
+        models_dir: &Path,
+    ) -> crate::zc_first_model::FirstRunPlan {
+        // This is the production first-run policy, independent of GPU size,
+        // catalog popularity, configured prefetch tiers or upgrade candidates.
+        crate::zc_first_model::plan_first_run(
+            host,
+            &[crate::zc_first_model::audited_starter()],
+            &[],
+            models_dir,
+        )
     }
-
     /// Expert Diagnostic Audit: Checks hardware stats, file stats, network stats, and active background downloads in ~/Downloads
     pub fn run_downloads_expert_audit(workspace: &Path) -> String {
         let mut report = String::new();

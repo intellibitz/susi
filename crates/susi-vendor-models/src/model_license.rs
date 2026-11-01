@@ -350,8 +350,18 @@ impl ModelLicenseReceipt {
 }
 /// User-owned files are never deleted or changed when provenance is unknown.
 pub fn verify_local(path: &Path) -> Result<(), String> {
+    verify_local_with_lookup(path, true)
+}
+/// Verify admitted evidence without any metadata lookup or network request.
+pub fn verify_local_offline(path: &Path) -> Result<(), String> {
+    verify_local_with_lookup(path, false)
+}
+fn verify_local_with_lookup(path: &Path, allow_lookup: bool) -> Result<(), String> {
     let receipt_path = path.with_extension("license.json");
     if !receipt_path.exists() {
+        if !allow_lookup {
+            return Err("[MODEL LICENSE] Offline admission needs an authenticated receipt".into());
+        }
         // Migrate trusted older installs automatically. A filename or source
         // hint is not evidence: admission still verifies publisher metadata
         // and the full content digest before recording anything.
@@ -396,7 +406,7 @@ pub fn verify_local(path: &Path) -> Result<(), String> {
         return Err("[MODEL LICENSE] Oversized license receipt".into());
     }
     let receipt: ModelLicenseReceipt = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    receipt.authenticate(true)?;
+    receipt.authenticate(allow_lookup)?;
     receipt.verify_bytes(path)
 }
 

@@ -156,7 +156,10 @@ impl ModelManager {
                 path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
                     && !Self::cooling_down(m.model_id())
                     && Self::valid_gguf_payload(&path)
-                    && Self::get_tokenizer_path(m.model_id()).is_some()
+                    && Self::verify_model_integrity(&path).is_ok()
+                    && Self::get_tokenizer_path(m.model_id()).is_some_and(|tokenizer| {
+                        susi_vendor_models::model_license::verify_local(&tokenizer).is_ok()
+                    })
             })
             .collect();
 

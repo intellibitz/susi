@@ -817,16 +817,31 @@ mod tests {
     }
 
     #[test]
-    fn test_prefetch_plan_starts_small_and_spans_the_ladder() {
-        assert_eq!(ModelManager::provisioning_indices(5, 3), vec![0, 2, 4]);
-        assert_eq!(ModelManager::provisioning_indices(1, 3), vec![0]);
-        assert_eq!(
-            ModelManager::provisioning_indices(0, 3),
-            Vec::<usize>::new()
-        );
-        assert_eq!(ModelManager::provisioning_indices(5, 1), vec![0]);
+    fn automatic_first_download_is_small_even_with_large_gpu() {
+        let host = crate::zc_first_model::FirstRunHost {
+            ram: 128_000_000_000,
+            vram: 48_000_000_000,
+            disk: 100_000_000_000,
+            offline: false,
+        };
+        match ModelManager::automatic_download_plan(&host, Path::new("models")) {
+            crate::zc_first_model::FirstRunPlan::Fetch { model, plan } => {
+                assert_eq!(model.hf_file, "qwen2.5-0.5b-instruct-q4_0.gguf");
+                assert_eq!(model.size_bytes, 428_730_208);
+                assert!(plan.sha256.is_some());
+            }
+            other => panic!("unexpected first-run plan {other:?}"),
+        }
+        let low_memory = crate::zc_first_model::FirstRunHost {
+            ram: 2_000_000_000,
+            vram: 0,
+            ..host
+        };
+        assert!(matches!(
+            ModelManager::automatic_download_plan(&low_memory, Path::new("models")),
+            crate::zc_first_model::FirstRunPlan::Fetch { .. }
+        ));
     }
-
     #[test]
     fn test_failed_model_recovers_after_success() {
         let name = "test_failure_cooldown_model";
