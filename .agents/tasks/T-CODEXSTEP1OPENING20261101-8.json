@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXSTEP1OPENING20261101-8",
+  "title": "Make automatic cloud routing readable at CEO level while retaining diagnostic evidence",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "engines::routing::tests"
+    ]
+  },
+  "created_by": "CODEXSTEP1OPENING20261101",
+  "created_unix": 1793534091
+}
