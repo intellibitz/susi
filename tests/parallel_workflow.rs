@@ -246,6 +246,9 @@ impl World {
             // what the fixture's gate runs.
             .env_remove("SUSI_HERMETIC_RUNNER")
             .env_remove("SUSI_HERMETIC_RETRIES")
+            // The outer branch suite excludes provisioned live-service tests.
+            // This fixture checks its own exact nextest arguments instead.
+            .env_remove("SUSI_HERMETIC_EXCLUDE_LIVE")
             .env_remove("SUSI_LOCAL_GATE")
             // An outer `finish` forcing its own gate (`SUSI_GATE_NOCACHE=1`)
             // must not force the fixture's: these tests prove the proof reuse.
