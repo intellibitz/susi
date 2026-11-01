@@ -42,7 +42,7 @@ ignore = [
 # proprietary cloud services remain available through permitted integrations.
 # This legacy gate is NOT proof of compliance with that newer mandate.
 # Migration debt verified 2026-11-01: the four extra families below are still
-# required by 27 resolved crates (ICU/Unicode, ring/webpki trust dependencies,
+# required by 25 resolved crates (ICU/Unicode, ring/webpki trust dependencies,
 # foldhash and ort-sys's build dependency hmac-sha256). Replace/remove those
 # dependencies before deleting these entries; do not relabel their licenses.
 # Reproduce the strict audit with a temporary copy excluding those four
