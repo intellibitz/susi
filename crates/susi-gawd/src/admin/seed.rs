@@ -1271,105 +1271,58 @@ fn spawn_background(top: &Path, log_path: &Path) -> bool {
     let Some(program) = self_program() else {
         return false;
     };
-    let Ok(log) = fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(log_path)
-    else {
-        return false;
-    };
-    let Ok(err) = log.try_clone() else {
-        return false;
-    };
-    let mut cmd = Command::new(&program);
-    cmd.args(["workflow", "seed-target"])
-        .arg(top)
-        .current_dir(std::env::temp_dir())
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("CARGO_BUILD_TARGET_DIR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(err));
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        if spawn_through_start_process(&program, top, log_path) {
-            return true;
-        }
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        cmd.creation_flags(0x0000_0008 | 0x0000_0200);
+        let environment: Vec<_> = std::env::vars_os()
+            .filter(|(key, _)| {
+                ![
+                    "CARGO_TARGET_DIR",
+                    "CARGO_BUILD_TARGET_DIR",
+                    "CARGO_BUILD_BUILD_DIR",
+                ]
+                .iter()
+                .any(|removed| key.eq_ignore_ascii_case(removed))
+            })
+            .collect();
+        let args = [
+            "workflow".into(),
+            "seed-target".into(),
+            "--log".into(),
+            log_path.as_os_str().to_owned(),
+            top.as_os_str().to_owned(),
+        ];
+        winapi::detached::spawn(&program, &args, &std::env::temp_dir(), &environment).is_ok()
     }
-    cmd.spawn().is_ok()
-}
-
-/// Windows: start the copy through PowerShell's `Start-Process`, which hands
-/// the new process none of this one's handles. A process spawned directly
-/// inherits every inheritable handle of this one, whatever its own stdio is
-/// set to (Rust's `Command` always lets handles inherit), and among them are
-/// the pipes the hook's caller (git, a session's hook runner, a test) reads
-/// this process's output from, passed on as inheritable by Git's sh; the
-/// caller then sees end-of-file only when the copy ends, so the hook
-/// "returned" only once the copy was done. Measured from a parent holding
-/// such a pipe, with a 7 s child behind each launcher: a direct spawn and
-/// `cmd /c start /b` kept the pipe open the whole 7 s, `Start-Process` with
-/// its own output redirection too (that path is a plain CreateProcess), and
-/// `Start-Process` without one (ShellExecute) let it go at once. So the copy
-/// is told its log with `--log` and writes it itself. PowerShell's start adds
-/// about a second to the hook, once. A path PowerShell would read as syntax
-/// is left to the direct spawn.
-#[cfg(windows)]
-fn spawn_through_start_process(program: &Path, top: &Path, log_path: &Path) -> bool {
-    use std::os::windows::process::CommandExt;
-    // One PowerShell string literal: single-quoted, a quote doubled; an
-    // argument with a space is also double-quoted inside, for the command line
-    // Start-Process builds from the list.
-    let literal = |p: &Path| {
-        let s = p.to_str()?;
-        if s.is_empty() || s.contains(['"', '\n', '\r']) {
-            return None;
-        }
-        let quoted = if s.contains(char::is_whitespace) {
-            format!("\"{s}\"")
-        } else {
-            s.to_string()
+    #[cfg(not(windows))]
+    {
+        let Ok(log) = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(log_path)
+        else {
+            return false;
         };
-        Some(format!("'{}'", quoted.replace('\'', "''")))
-    };
-    let (Some(program), Some(top), Some(log), Some(cwd)) = (
-        literal(program),
-        literal(top),
-        literal(log_path),
-        literal(&std::env::temp_dir()),
-    ) else {
-        return false;
-    };
-    let script = format!(
-        "Start-Process -WindowStyle Hidden -WorkingDirectory {cwd} -FilePath {program} -ArgumentList @('workflow','seed-target','--log',{log},{top})"
-    );
-    let mut cmd = Command::new("powershell.exe");
-    cmd.args([
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        &script,
-    ])
-    .current_dir(std::env::temp_dir())
-    .env_remove("CARGO_TARGET_DIR")
-    .env_remove("CARGO_BUILD_TARGET_DIR")
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    cmd.status().is_ok_and(|s| s.success())
+        let Ok(err) = log.try_clone() else {
+            return false;
+        };
+        let mut cmd = Command::new(&program);
+        cmd.args(["workflow", "seed-target"])
+            .arg(top)
+            .current_dir(std::env::temp_dir())
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_TARGET_DIR")
+            .env_remove("CARGO_BUILD_BUILD_DIR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(err));
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        cmd.spawn().is_ok()
+    }
 }
-
 /// Seed the worktree at `dir` (any directory inside it; `None` for the
 /// current directory): see the module docs. `background` replaces a link now
 /// and leaves the copy to a process of its own. Never fails: every outcome is
