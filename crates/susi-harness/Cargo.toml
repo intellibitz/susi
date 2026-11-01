@@ -26,7 +26,7 @@ susi-vendor-fastembed = { path = "../susi-vendor-fastembed" }
 workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-registry = "0.6.1"
+windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-vendor-windows-registry" }
 
 [dev-dependencies]
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
