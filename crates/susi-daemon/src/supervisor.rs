@@ -281,6 +281,19 @@ pub fn reexec_path() -> Option<PathBuf> {
     stripped.filter(|p| p.exists()).or(Some(exe))
 }
 
+fn configure_background_service(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Redirected stdio alone does not prevent a detached daemon's console
+        // child from allocating a Windows Terminal window.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 /// Spawn a leaf service detached, with stdout/stderr appended to
 /// `substrate_home/logs/<name>.log` instead of the daemon's own stderr.
 ///
@@ -338,6 +351,7 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         (Ok(o), Ok(e)) => (Stdio::from(o), Stdio::from(e)),
         _ => (Stdio::null(), Stdio::null()),
     };
+    configure_background_service(&mut cmd);
     cmd.stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
@@ -1100,6 +1114,32 @@ pub fn shutdown_all() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn background_service_console_is_absent_and_redirected_output_survives() {
+        let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ServiceConsoleFixture { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'
+if ([ServiceConsoleFixture]::GetConsoleWindow() -ne [IntPtr]::Zero) { exit 21 }
+[Console]::Out.WriteLine('service-output-preserved')
+[Console]::Error.WriteLine('service-error-preserved')
+"#;
+        let mut command = Command::new(powershell);
+        command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        configure_background_service(&mut command);
+        let output = susi_core::bounded_cmd::output_within(&mut command, Duration::from_secs(15))
+            .expect("bounded background fixture");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("service-output-preserved"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("service-error-preserved"));
+    }
 
     /// A leaf child must not outlive the daemon that spawned it: the daemon
     /// assigns every child to a kill-on-close job, so the OS terminates them
