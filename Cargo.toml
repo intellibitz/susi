@@ -4,6 +4,7 @@ members = [
     "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
+    "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
     "crates/susi-vendor-criterion",
@@ -237,6 +238,9 @@ rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
+
+[target.'cfg(windows)'.dependencies]
+susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 
 [build-dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }

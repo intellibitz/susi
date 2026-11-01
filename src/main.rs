@@ -21,6 +21,10 @@
 
 #![allow(missing_docs)] // binary crate: internal CLI modules are not public API
 
+// Retain the original Rust process entry and TLS boundary in Windows binaries.
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 mod cli;
 mod cli_json;
 mod dev_instance;

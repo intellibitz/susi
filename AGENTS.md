@@ -126,6 +126,11 @@ self-improvement claims require persisted and retrievable outcome evidence.
     susi-gawd-a2a, susi-gawd-swarm, susi-gemi, susi-gemi-models, susi-tools.
     Justified sites are FFI only (libc syscalls, candle mmap, env mutation in
     tests).
+  - `susi-windows-runtime` also denies unsafe code by default. Its qualified
+    Windows process-entry, TLS and exception ABI boundary permits only narrow
+    per-function or per-FFI-metadata-item allowances with `// SAFETY:` evidence.
+    Never allow unsafe code for the whole module or copy foreign CRT startup
+    implementations. Preserve lifecycle tests and artifact-bound link-map checks.
 - **No panic-path macros in production code.** Workspace clippy denies:
   `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`,
   `unreachable`. Every crate has

@@ -4347,6 +4347,7 @@ dependencies = [
  "susi-vendor-tracing-appender",
  "susi-vendor-tracing-subscriber",
  "susi-vendor-wasmtime",
+ "susi-windows-runtime",
 ]
 
 [[package]]
@@ -5284,6 +5285,10 @@ version = "0.1.0"
 dependencies = [
  "x25519-dalek",
 ]
+
+[[package]]
+name = "susi-windows-runtime"
+version = "0.1.0"
 
 [[package]]
 name = "symlink"

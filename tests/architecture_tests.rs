@@ -97,6 +97,7 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
+    ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
