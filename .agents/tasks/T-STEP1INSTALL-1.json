@@ -4,7 +4,62 @@
   "goal": "Install the current native executable into a fresh home without overwriting production, then prove licensed uncached starter download, native Candle first-goal answers and instance-scoped shutdown with credentials absent.",
   "size": "m",
   "deps": [],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--bin", "susi", "install_cli::tests"]},
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--bin",
+      "susi",
+      "install_cli::tests"
+    ]
+  },
   "created_by": "step1-install",
-  "created_unix": 1793553500
+  "created_unix": 1793553500,
+  "candidate_evidence": {
+    "outcome": "native-uncached-install-and-first-goal-passed",
+    "integration_status": "awaiting-serialized-integration-gates",
+    "production_qualified": false,
+    "source": "2f298b1ab2f0a0a944b8a2ff5c709004cf433bc0",
+    "executable_sha256": "3ac99979c0a3dcac0192880f57c1d16752d76d9de316e0a9dd5463528103af0b",
+    "executable_bytes": 95574528,
+    "evidence_directory": "F:\\src\\github.com\\intellibitz\\susi-rust-native-local-20261101-agent-step1-install\\target\\installed-journey-39196-1793553451598",
+    "initial_models": "empty",
+    "initial_huggingface_cache": "empty",
+    "credential_environment": "cleared",
+    "path": "Windows OS directories only",
+    "privacy": "default balanced; public authenticated model downloads permitted",
+    "installation_ms": 402,
+    "startup_contract_ms": 804,
+    "two_goals_including_download_ms": 63760,
+    "scoped_stop_ms": 1204,
+    "model_bytes": 428730208,
+    "model_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+    "tokenizer_bytes": 7031645,
+    "tokenizer_sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+    "inference_backend": "in-process Rust Candle",
+    "arithmetic_answer": "2+2 equals 4.",
+    "creative_answer": "⚠️  No citations found; answer may be unverified.\nA red kite is a colorful and majestic bird with bright colors, making it an attractive sight to see.",
+    "final_trace_status": "SUCCESS",
+    "remaining_owned_processes": 0,
+    "logs": [
+      {
+        "file": "install.stdout",
+        "sha256": "80b35b5d91fb26bff6f62435a106c2e0c893c4564952a04a47512ec78964ffb5"
+      },
+      {
+        "file": "first-goal.stdout",
+        "sha256": "a0083554ebe1dc3cb2f19e089143e48abc8486190bf4edbac01bbf520ec8920a"
+      },
+      {
+        "file": "first-goal.stderr",
+        "sha256": "acc114cab72edfc6db8989254665eb4cc7f5d78947026984ed09a2e066859370"
+      },
+      {
+        "file": "stop.stdout",
+        "sha256": "80cd0235c560c5ab0912f697d1039222bd77e250825b3df9d32cc0c18b55c9c8"
+      }
+    ]
+  }
 }
