@@ -459,16 +459,15 @@ impl GemiEngine {
             };
         }
 
-        // Only announce failover when the provider cascade was actually in
-        // play: no model named (normal route) or the name matched a
-        // registered provider. A caller-named local model id reaches here
-        // by honoring, not fallback.
+        // A fresh installation without providers is normal local setup, not
+        // failover. Announce only a cascade that actually stepped down.
         if !prefer_fast_local
+            && ladder.step_downs() > 0
             && (requested_model.is_none() || Self::model_names_a_provider(requested_model))
         {
             eprintln!("[INFERENCE FAILOVER] Falling back to local inference");
             callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
-        } else if !prefer_fast_local {
+        } else if !prefer_fast_local && explicit_local_request {
             eprintln!("[INFERENCE] Caller-requested local model — native inference");
         }
 

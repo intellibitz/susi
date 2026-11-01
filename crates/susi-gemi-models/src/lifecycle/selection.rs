@@ -155,7 +155,17 @@ impl ModelManager {
         complexity: Option<crate::intent::TaskComplexity>,
         requires_sidecar: bool,
     ) -> Option<DynamicModelInfo> {
-        let hw = HardwareProfiler::get_profile();
+        // The installed runner explicitly uses CPU (--device none). Asking
+        // nvidia-smi and constructing a diagnostic GPU/OS profile cannot
+        // improve that placement; retain the live RAM admission check.
+        let hw = requires_sidecar.then(HardwareProfiler::get_profile);
+        let available_ram_gb = hw.as_ref().map_or_else(
+            || HardwareProfiler::determine_available_ram_gb() as f32,
+            |profile| profile.available_ram_gb as f32,
+        );
+        let acceleration_active = hw
+            .as_ref()
+            .is_some_and(|profile| profile.acceleration_active);
         let models = Self::list_models(workspace);
         let local_models: Vec<DynamicModelInfo> = models
             .into_iter()
@@ -185,7 +195,7 @@ impl ModelManager {
                 let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
                 Self::fits_memory(
                     size_gb,
-                    hw.available_ram_gb as f32,
+                    available_ram_gb,
                     heuristics.system_ram_buffer_gb,
                     cfg.model_lifecycle().memory_overhead_ratio,
                 )
@@ -196,13 +206,16 @@ impl ModelManager {
         // Free VRAM (minus CUDA-context reserve), not total capacity —
         // a model that fits the card on paper still OOMs at load when
         // another process or the previous inference holds memory.
-        let vram_budget_gb =
-            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
+        let vram_budget_gb = if requires_sidecar {
+            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0)
+        } else {
+            0.0
+        };
         // When any candidate fits VRAM, drop CPU-spill giants from the
         // default pick: a 19GB Q4 on an 8GB Ada card "fits" RAM but runs
         // at ~7 tok/s and trips cloud escalation. Keep oversize models
         // only when nothing GPU-resident is available.
-        let any_vram_fit = hw.acceleration_active
+        let any_vram_fit = acceleration_active
             && vram_budget_gb > 0.0
             && sized_models.iter().any(|(_, size)| *size <= vram_budget_gb);
         let sized_models: Vec<(DynamicModelInfo, f32)> = if any_vram_fit {
@@ -247,7 +260,7 @@ impl ModelManager {
             let mut score = 0.0f32;
             score +=
                 Self::size_preference_score(model_size_gb, min_size_gb, max_size_gb, complexity);
-            if hw.acceleration_active && vram_budget_gb > 0.0 && model_size_gb <= vram_budget_gb {
+            if acceleration_active && vram_budget_gb > 0.0 && model_size_gb <= vram_budget_gb {
                 score += 50.0;
             }
             if m.provider() == "NativeCandle" {
