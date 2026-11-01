@@ -418,3 +418,35 @@ regressions. Changes to this boundary require independent review and measured
 unsafe-exposure evidence; the existing baseline must not be reset merely to
 make a gate pass. Launch success proves process creation only, not completion
 of background seeding or production qualification.
+
+## Combined verification and remaining release qualification (2026-11-02)
+
+Attempt `step1-acceptance-v6-1793564732671614900-21952` passed all 14
+mandatory commands: formatting, strict licensing, workspace Clippy, all
+workspace tests and doctests, and all five replacement-adapter suites. It
+rebuilt and authenticated the private standard library before compilation.
+Clippy took 143.643 seconds; workspace tests and doctests took 931.488 seconds.
+Publication nevertheless failed closed because adapter lock generation added
+an unused local-patch stanza to the tracked regex lockfile. The candidate and
+failure remain preserved; passing commands did not publish an accepted source.
+The deterministic four-line lock metadata is now tracked, and two repetitions
+of the exact offline generation command produced identical lockfile bytes.
+
+The native seeding regression passed 21 tests with zero failures and one
+existing ignored legacy case in 50.15 seconds. A separate detached-worker test
+passed 20 consecutive Git invocations. Windows host-tool probes now suppress
+console creation, and the shared bounded-command regression checks actual
+window visibility, captured output, stdin closure and timeout cleanup. This
+addresses the orphaned terminal error windows observed during verification;
+it does not claim external llama.cpp inference was used. The new hidden-probe
+source change still requires combined immutable integration.
+
+All 60 Windows CI contract tests also passed with PATH restricted to Windows
+system directories. Unix-hosted script behavior remains tested on Unix;
+native Windows matrix assertions parse the tracked data directly in Rust.
+
+Step 1 remains incomplete until the final combined source publishes an
+acceptance receipt, the optimized product qualifies, that exact production
+artifact passes the clean Windows installed journey, and genuine A/B
+promotion, runtime health and rollback are demonstrated. GitHub publication
+or a quota-driven source merge does not waive these production gates.
