@@ -17,7 +17,7 @@ use std::process::{Command, ExitCode, Stdio};
 mod compiler_env;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v2\n";
+const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v3\n";
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
@@ -30,6 +30,8 @@ mod native_link;
 mod pe_imports;
 #[path = "../prepare_release.rs"]
 mod prepare_release;
+#[path = "../sysroot_license.rs"]
+mod sysroot_license;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
 #[path = "../vendor_regressions.rs"]
@@ -1237,6 +1239,9 @@ fn qualify_with(
         ],
     )?;
     let (host, compiler) = compiler(&candidate)?;
+    if candidate.join("crates/susi-core/Cargo.toml").is_file() {
+        sysroot_license::qualify(&candidate, &attempt, &host, &compiler)?;
+    }
     let (sbom, notices, native_audit) = inventory(&candidate, &attempt, &host)?;
     let mut proof = run_gates(&candidate, &attempt, &host)?;
     // Preserve the exact compiler report inside manifest-hashed gate evidence.
