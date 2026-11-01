@@ -1,0 +1,23 @@
+{
+  "id": "T-SUSICACHEREPAIR20261101-11",
+  "title": "Repair release workflow test for independent publishers",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "SUSICACHEREPAIR20261101",
+  "created_unix": 1793508157,
+  "closed": {
+    "at_unix": 1793508358,
+    "commit": "85f5b876059bc76d91ae26ad449dfdb71ee51046",
+    "by": "SUSICACHEREPAIR20261101"
+  }
+}
