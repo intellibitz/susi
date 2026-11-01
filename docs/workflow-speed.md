@@ -691,3 +691,43 @@ The 13 s for `susi workflow check` in the table at the top was measured on
 the Windows host with its remote reads (`gh`, `git ls-remote`), which dominate
 it; the port touched none of those, so that number stands until it is
 re-measured there.
+
+## Consolidating finish/sync network trips, auto-gc guards and process sweeps (2026-11-01)
+
+Profiling the Windows post-task boundary identified four remaining sources of
+serial latency outside compilation:
+
+- **Synchronous Git auto-gc stalls (20–24 s per fetch/commit).** Neither
+  `ensure_infrastructure` nor `parallel-workflow.sh` disabled `gc.auto` or
+  `maintenance.auto` in real worktrees, so periodic `git fetch` and `git commit`
+  calls inside `sync` and `finish` blocked on foreground `git gc --auto`.
+  `ensure_infrastructure` now reads `core.hooksPath`, `merge.ledger.driver`,
+  `gc.auto` and `maintenance.auto` in a single `git config --get-regexp` call
+  (1 subprocess instead of 4) and sets `gc.auto=0` and `maintenance.auto=false`
+  when absent; `start_worktree` and `parallel-workflow.sh` enforce the same.
+- **Single-fetch `sync` and `finish` prefetch.** Normal `susi workflow sync`
+  previously ran up to three separate `git fetch` round-trips (branch tips,
+  `renew_owned_claims` and `check-owed-runs.sh`). `sync_fetch_origin` now
+  fetches `+refs/heads/*:refs/remotes/origin/*`, `+refs/claims/*:refs/claims/*`,
+  `+refs/claim-agents/*:refs/claim-agents/*` and `+refs/closed/*:refs/closed/*`
+  together in one locked `git fetch`, passing `SUSI_REMOTE_CLAIM_FETCHED=1` and
+  `SUSI_OWED_REFS_FETCHED=1` to the downstream steps. `finish` similarly runs
+  `prefetch_finish_refs` once at entry (preserving the pre-fetch local claim
+  snapshot in `SUSI_PREFETCH_LOCAL_CLAIM_OID` and `SUSI_PREFETCH_LOCAL_CLAIM_BODY`
+  for `renew_or_readopt`) and sets `SUSI_FINISH_ORIGIN_FETCHED=1` and
+  `SUSI_CLOSE_QUEUE_SYNCED=<id>@<worktree>` so `lease`, `initial-sync` and
+  deferred-receipt `tasks close` share that single remote snapshot instead of
+  making three separate SSH round-trips.
+- **Fast process-sweep precheck on Windows** (`scripts/kill-leftover-service-runs.sh`).
+  Each `finish` and hermetic test run invoked `powershell.exe -NoProfile` and
+  `Get-CimInstance Win32_Process` (~2 s per call) even when no `susi.exe`
+  process was running. A `tasklist.exe /FI "IMAGENAME eq susi.exe" /NH` precheck
+  now exits in ~60 ms when no matching process exists, spawning PowerShell CIM
+  inspection only when a `susi.exe` instance is actually present.
+- **Shell-builtin path walking and direct stdin hashing in `gate-input-stamp.sh`.**
+  Replaced per-file `sha256sum | awk` pipelines with `sha256sum <file` and
+  replaced the parent-directory `dirname` subprocess loop with parameter
+  expansion (`${cur%/*}`). Combined with direct ref/config setup in
+  `ProofRepo` and `PublicationRepo`, the 82-test `xtask::ci_workflow_perf`
+  acceptance suite dropped from 62.8 s to 57.5 s on this Windows host.
+

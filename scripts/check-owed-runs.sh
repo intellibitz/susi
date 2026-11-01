@@ -31,7 +31,9 @@ agent=$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 remote=${SUSI_TASK_REMOTE:-origin}
 [ -f "$root/scripts/owed-task-receipts.sh" ] || exit 0
 
-git fetch --quiet --prune "$remote" "+refs/heads/*:refs/remotes/$remote/*" '+refs/closed/*:refs/closed/*' 2>/dev/null || exit 0
+if [ "${SUSI_OWED_REFS_FETCHED:-0}" != 1 ] || [ "$remote" != origin ]; then
+    git fetch --quiet --prune "$remote" "+refs/heads/*:refs/remotes/$remote/*" '+refs/closed/*:refs/closed/*' 2>/dev/null || exit 0
+fi
 while IFS= read -r id; do
     [ -n "$id" ] || continue
     body=$(git cat-file -p "refs/closed/$id" 2>/dev/null || true)

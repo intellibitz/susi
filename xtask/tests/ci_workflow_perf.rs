@@ -3622,13 +3622,6 @@ impl ProofRepo {
         std::fs::write(&global, "").unwrap();
         let version = fakes.dir.join("formatter-version");
         std::fs::write(&version, "formatter 1\n").unwrap();
-        #[cfg(windows)]
-        let tool = {
-            let path = fakes.dir.join("formatter.cmd");
-            std::fs::write(&path, "@echo off\r\ntype \"%VERSION_FILE%\"\r\n").unwrap();
-            path
-        };
-        #[cfg(not(windows))]
         let tool = {
             fakes.fake("rustfmt", "cat \"$VERSION_FILE\"");
             fakes.dir.join("rustfmt")
@@ -3653,7 +3646,9 @@ impl ProofRepo {
         }
         this.git(&["add", "."]);
         this.git(&["commit", "--quiet", "-m", "base"]);
-        this.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        let main_oid = std::fs::read_to_string(this.repo.join(".git/refs/heads/main")).unwrap();
+        std::fs::create_dir_all(this.repo.join(".git/refs/remotes/origin")).unwrap();
+        std::fs::write(this.repo.join(".git/refs/remotes/origin/main"), main_oid).unwrap();
         this
     }
 
@@ -3741,13 +3736,22 @@ impl PublicationRepo {
         contents
             .push_str("\n[receive]\n\tautogc = false\n[gc]\n\tauto = 0\n[pack]\n\tthreads = 1\n");
         std::fs::write(config, contents).unwrap();
-        world.git(&["remote", "add", "origin", server.to_str().unwrap()]);
-        world.git(&["push", "--quiet", "origin", "HEAD:main"]);
-        world.git(&["checkout", "--quiet", "-b", "work"]);
-        world.git(&["config", "susi.agent", "TEST"]);
+        let repo_config = world.repo.join(".git/config");
+        let mut repo_cfg = std::fs::read_to_string(&repo_config).unwrap();
+        repo_cfg.push_str(&format!(
+            "\n[remote \"origin\"]\n\turl = {}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[susi]\n\tagent = TEST\n[gc]\n\tauto = 0\n",
+            server.to_string_lossy().replace('\\', "/")
+        ));
+        std::fs::write(repo_config, repo_cfg).unwrap();
+        let main_oid = std::fs::read_to_string(world.repo.join(".git/refs/heads/main")).unwrap();
+        std::fs::write(world.repo.join(".git/refs/heads/work"), &main_oid).unwrap();
+        std::fs::write(world.repo.join(".git/HEAD"), "ref: refs/heads/work\n").unwrap();
         std::fs::write(world.repo.join("a.rs"), "fn accepted_change() {}\n").unwrap();
         world.git(&["commit", "--quiet", "-am", "accepted source"]);
-        let accepted_head = world.git(&["rev-parse", "HEAD"]).trim().to_string();
+        let accepted_head = std::fs::read_to_string(world.repo.join(".git/refs/heads/work"))
+            .unwrap()
+            .trim()
+            .to_string();
         std::fs::create_dir_all(world.repo.join(".agents/tasks/done")).unwrap();
         std::fs::write(
             world.repo.join(".agents/tasks/done/T-TEST-1.json"),
@@ -3757,26 +3761,48 @@ impl PublicationRepo {
         std::fs::remove_file(world.repo.join(".agents/tasks/T-TEST-1.json")).unwrap();
         world.git(&["add", ".agents/tasks"]);
         world.git(&["commit", "--quiet", "-m", "completion"]);
-        let head = world.git(&["rev-parse", "HEAD"]).trim().to_string();
-        let mut this = Self {
+        let head = std::fs::read_to_string(world.repo.join(".git/refs/heads/work"))
+            .unwrap()
+            .trim()
+            .to_string();
+        let claim_file = world._fakes.dir.join("claim.json");
+        let receipt_file = world._fakes.dir.join("receipt.json");
+        std::fs::write(
+            &claim_file,
+            r#"{"task":"T-TEST-1","agent":"TEST","branch":"work","scopes":["a.rs"]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &receipt_file,
+            format!(
+                r#"{{"task":"T-TEST-1","agent":"TEST","head":"{accepted_head}","closed_unix":1,"scopes":["a.rs"]}}"#
+            ),
+        )
+        .unwrap();
+        let oids = world.git(&[
+            "hash-object",
+            "-w",
+            claim_file.to_str().unwrap(),
+            receipt_file.to_str().unwrap(),
+        ]);
+        let mut oid_lines = oids.lines();
+        let claim = oid_lines.next().unwrap().trim().to_string();
+        let receipt = oid_lines.next().unwrap().trim().to_string();
+        let this = Self {
             world,
             server,
-            claim: String::new(),
-            receipt: String::new(),
+            claim,
+            receipt,
             accepted_head,
             head,
         };
-        this.claim = this.blob(
-            false,
-            r#"{"task":"T-TEST-1","agent":"TEST","branch":"work","scopes":["a.rs"]}"#,
-        );
-        this.receipt = this.blob(false, &format!(r#"{{"task":"T-TEST-1","agent":"TEST","head":"{}","closed_unix":1,"scopes":["a.rs"]}}"#, this.accepted_head));
         this.refs(false, &format!("update refs/claims/T-TEST-1 {}\nupdate refs/claim-agents/TEST {}\nupdate refs/closed/T-TEST-1 {}\n", this.claim, this.claim, this.receipt));
         this.world.git(&[
             "push",
             "--quiet",
             "--atomic",
             "origin",
+            "refs/heads/main:refs/heads/main",
             "refs/claims/T-TEST-1",
             "refs/claim-agents/TEST",
             "refs/closed/T-TEST-1",
@@ -4421,8 +4447,10 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     let hermetic = read("scripts/check-hermetic-tests.sh");
     assert!(
         hermetic.contains("if [ \"$arg\" = --test ]; then has_test_filter=1; fi")
-            && hermetic.contains("if [ \"$has_test_filter\" -eq 0 ]; then"),
-        "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries"
+            && hermetic.contains("if [ \"$has_test_filter\" -eq 0 ]; then")
+            && hermetic.contains("NEXTEST_TEST_THREADS=1 cargo nextest run --locked"),
+        "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries \
+         and retry failed tests alone (`NEXTEST_TEST_THREADS=1`) when parallel load causes a flake"
     );
     let mg = read("scripts/merge-gate.sh");
     assert!(
@@ -4487,7 +4515,32 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     let check_owed = read("scripts/check-owed-runs.sh").replace("\r\n", "\n");
     assert!(
         check_owed.contains("posix-compat.sh")
-            && check_owed.contains("git merge-base --is-ancestor \"$head\" \"$remote/main\""),
-        "`scripts/check-owed-runs.sh` must source `posix-compat.sh` for Windows Git Bash and skip heads already merged into main"
+            && check_owed.contains("git merge-base --is-ancestor \"$head\" \"$remote/main\"")
+            && check_owed.contains("SUSI_OWED_REFS_FETCHED"),
+        "`scripts/check-owed-runs.sh` must source `posix-compat.sh` for Windows Git Bash, skip heads already merged into main, and reuse `sync`'s fetched snapshot when `SUSI_OWED_REFS_FETCHED=1`"
+    );
+    let workflow_rs = read("crates/susi-gawd/src/admin/workflow.rs").replace("\r\n", "\n");
+    let infra_body = workflow_rs
+        .split("pub fn ensure_infrastructure(")
+        .nth(1)
+        .and_then(|s| s.split("\npub fn gather(").next())
+        .expect("ensure_infrastructure exists in workflow.rs");
+    assert!(
+        infra_body.contains("\"--get-regexp\"")
+            && infra_body.contains("\"gc.auto\", \"0\"")
+            && infra_body.contains("\"maintenance.auto\", \"false\""),
+        "`ensure_infrastructure` must disable synchronous Git auto-gc/maintenance in one config probe so `workflow check`, `sync`, and `finish` do not stall for 20s on background pack maintenance"
+    );
+    let sweep = read("scripts/kill-leftover-service-runs.sh").replace("\r\n", "\n");
+    assert!(
+        sweep.contains("tasklist.exe /FI \"IMAGENAME eq susi.exe\""),
+        "`kill-leftover-service-runs.sh` must fast-check `tasklist.exe` on Windows before spawning `powershell.exe` + WMI when no `susi.exe` process exists"
+    );
+    assert!(
+        pw.contains("prefetch_finish_refs")
+            && pw.contains("SUSI_CLOSE_QUEUE_SYNCED=\"$task@$root\"")
+            && tasks_rs.contains("bound_to_this_worktree(\"SUSI_CLOSE_QUEUE_SYNCED\", id, ws)")
+            && shell_function(&pw, "seed_own_target").contains("[ -f \"$root/target/.susi-seeded\" ]"),
+        "`finish` must prefetch branch and queue refs once across `lease`, `initial-sync`, and `close`, and `seed_own_target` must short-circuit when `target/.susi-seeded` is already present"
     );
 }

@@ -533,7 +533,24 @@ pub fn ensure_infrastructure(root: &Path) {
     if !hooks_dir.is_dir() {
         return;
     }
-    if git(root, &["config", "--get", "core.hooksPath"]).as_deref() != Some(".githooks") {
+    let existing = git(
+        root,
+        &[
+            "config",
+            "--get-regexp",
+            "^(core\\.hooksPath|merge\\.ledger\\.driver|gc\\.auto|maintenance\\.auto)$",
+        ],
+    )
+    .unwrap_or_default();
+    let has_kv = |key: &str, expected: Option<&str>| {
+        existing.lines().any(|line| {
+            let mut parts = line.splitn(2, char::is_whitespace);
+            let k = parts.next().unwrap_or("");
+            let v = parts.next().unwrap_or("").trim();
+            k.eq_ignore_ascii_case(key) && expected.is_none_or(|exp| v.eq_ignore_ascii_case(exp))
+        })
+    };
+    if !has_kv("core.hooksPath", Some(".githooks")) {
         // --worktree keeps linked-worktree config local; fall back to the
         // repo config when worktreeConfig isn't enabled (e.g. primary).
         if git(
@@ -545,7 +562,7 @@ pub fn ensure_infrastructure(root: &Path) {
             git(root, &["config", "core.hooksPath", ".githooks"]);
         }
     }
-    if git(root, &["config", "--get", "merge.ledger.driver"]).is_none() {
+    if !has_kv("merge.ledger.driver", None) {
         git(
             root,
             &[
@@ -562,6 +579,12 @@ pub fn ensure_infrastructure(root: &Path) {
                 "sh scripts/merge-ledger.sh %O %A %B",
             ],
         );
+    }
+    if !has_kv("gc.auto", Some("0")) {
+        git(root, &["config", "gc.auto", "0"]);
+    }
+    if !has_kv("maintenance.auto", Some("false")) {
+        git(root, &["config", "maintenance.auto", "false"]);
     }
     #[cfg(unix)]
     for h in HOOKS_REQUIRED {
@@ -1136,6 +1159,8 @@ pub fn start_worktree(
             "merge.roadmap.driver",
             "sh scripts/merge-roadmap.sh %O %A %B",
         ),
+        ("gc.auto", "0"),
+        ("maintenance.auto", "false"),
     ] {
         let _ = git(&dest, &["config", key, value]);
     }

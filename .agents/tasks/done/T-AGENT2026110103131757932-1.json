@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT2026110103131757932-1",
+  "title": "Sub-60s post-task workflow turnaround: eliminate auto-gc stalls, fmt/gate stamp misses, redundant fetches, and process sweep bloat",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT2026110103131757932",
+  "created_unix": 1793503756,
+  "closed": {
+    "at_unix": 1793507689,
+    "commit": "3921a9e6e4d34430655714ceae9a65818658c4c7",
+    "by": "AGENT2026110103131757932"
+  }
+}
