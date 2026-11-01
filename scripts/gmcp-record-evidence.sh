@@ -6,9 +6,9 @@
 #
 # A VC-203 evidence record (.agents/gmcp/evidence/README.md) binds to the
 # commit its check passed on: `tested_commit`, and `tested_artifacts`, the
-# sha256 of `git ls-tree -r --full-tree <commit> -- <artifacts>` over the
-# files the checks read (evidence_artifacts in tests/gmcp_requirements.rs
-# builds the same set). A mastery test rejects a record whose digest is no
+# sha256 of the committed artifact tree plus the GMCP manifest with only
+# package.version omitted (artifact_tree_digest in tests/gmcp_requirements.rs
+# builds the same bytes). A mastery test rejects a record whose digest is no
 # longer HEAD's, so a change to any of those files stales the vector's
 # evidence until both phases run again. Default vectors: every one with
 # evidence. Both phases need a clean HEAD, and record only what passed on it.
@@ -74,7 +74,7 @@ artifacts() {
             done
         for shared in "$tests" "$ledger" .agents/gmcp/sources.json .agents/gmcp/spec \
             .agents/gmcp/fixtures docs/gmcp docs/gmcp-roadmap.md \
-            scripts/check-gmcp-ledger.sh crates/susi-gmcp/src; do
+            scripts/check-gmcp-ledger.sh crates/susi-gmcp/src crates/susi-gmcp/Cargo.toml; do
             [ -e "$shared" ] && printf '%s\n' "$shared"
         done
     } | LC_ALL=C sort -u
@@ -116,7 +116,30 @@ fi
 for vector in "${vectors[@]}"; do
     file=.agents/gmcp/evidence/$vector.jsonl
     mapfile -t paths < <(artifacts "$vector")
-    digest=$(git ls-tree -r --full-tree "$head" -- "${paths[@]}" | sha256sum | cut -d' ' -f1)
+    # Same byte stream as artifact_tree_digest: object IDs except the raw
+    # manifest blob, followed by its content with only package.version omitted.
+    digest=$({
+        git ls-tree -r --full-tree "$head" -- "${paths[@]}" |
+            awk -F '\t' '$2 != "crates/susi-gmcp/Cargo.toml"'
+        printf 'susi-gmcp manifest without package.version\n'
+        git show "$head:crates/susi-gmcp/Cargo.toml" | {
+            package=0
+            while :; do
+                newline=1
+                IFS= read -r line || newline=0
+                [[ $newline == 0 && -z $line ]] && break
+                if [[ $line =~ ^[[:space:]]*\[ ]]; then
+                    package=0
+                    [[ $line =~ ^[[:space:]]*\[package\][[:space:]]*$ ]] && package=1
+                fi
+                if ! [[ $package == 1 && $line =~ ^[[:space:]]*version[[:space:]]*= ]]; then
+                    printf '%s' "$line"
+                    if [[ $newline == 1 ]]; then printf '\n'; fi
+                fi
+                if [[ $newline == 0 ]]; then break; fi
+            done
+        }
+    } | sha256sum | cut -d' ' -f1)
     newest "$file" | jq -c --argjson mastery "$mastery" \
         --arg ledger_sha "$ledger_sha" --arg who "$who" --arg head "$head" \
         --arg digest "$digest" --argjson now "$now" '

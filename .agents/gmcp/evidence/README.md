@@ -18,9 +18,11 @@ Immutable evidence artifacts for the VC-203 program. Convention (see
   the checks read: the vector's existing production paths,
   `tests/gmcp_requirements.rs`, the ledger, `sources.json`, `spec/`,
   `fixtures/`, `docs/gmcp`, `docs/gmcp-roadmap.md`,
-  `scripts/check-gmcp-ledger.sh` and `crates/susi-gmcp/src` (not its
-  manifest or `Cargo.lock`: every release bumps their `version`, and the
-  recorded checks run in every CI run anyway). A record whose digest is no
+  `scripts/check-gmcp-ledger.sh` and `crates/susi-gmcp/src`. The raw GMCP
+  manifest tree row is replaced with the marker `susi-gmcp manifest without
+  package.version` plus a newline and its committed content, omitting only
+  `version = ...` inside `[package]`. Features and dependency specifications
+  remain bound; an ordinary package release number does not stale evidence. A record whose digest is no
   longer HEAD's is stale; in a full clone `tested_commit` must also exist
   and be in HEAD's history.
 - `scripts/gmcp-record-evidence.sh` re-records, in two phases on a clean

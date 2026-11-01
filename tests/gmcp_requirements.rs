@@ -143,11 +143,8 @@ fn evidence_artifacts(root: &Path, vector: &str) -> Vec<String> {
     // What every recorded check reads besides the vector's production
     // code: the tests, the ledger and its pinned corpus, the contracts and
     // fixtures, the ledger checker, and the GMCP crate's sources. Never
-    // `.agents/gmcp/evidence`: a record cannot digest itself. Never a
-    // manifest or Cargo.lock either: every release bumps the crate's
-    // `version` in them, which would stale all evidence on main several
-    // times a day; the recorded checks still run in every CI run, so a
-    // dependency change that breaks one fails there.
+    // `.agents/gmcp/evidence`: a record cannot digest itself. The GMCP
+    // manifest is retained, with only package.version normalized below.
     for shared in [
         "tests/gmcp_requirements.rs",
         ".agents/gmcp/requirements-ledger.json",
@@ -158,6 +155,7 @@ fn evidence_artifacts(root: &Path, vector: &str) -> Vec<String> {
         "docs/gmcp-roadmap.md",
         "scripts/check-gmcp-ledger.sh",
         "crates/susi-gmcp/src",
+        "crates/susi-gmcp/Cargo.toml",
     ] {
         if root.join(shared).exists() {
             paths.insert(shared.to_string());
@@ -166,20 +164,95 @@ fn evidence_artifacts(root: &Path, vector: &str) -> Vec<String> {
     paths.into_iter().collect()
 }
 
-/// The sha256 of `git ls-tree -r --full-tree <rev> -- <artifacts>`: every
-/// artifact's object id at `rev`. Git objects, not the working tree, so a
-/// shallow CI clone digests HEAD as well as a full one; `None` when `rev` is
-/// not in this clone.
-fn artifacts_digest(root: &Path, rev: &str, artifacts: &[String]) -> Option<String> {
+/// Digest source object IDs and the GMCP manifest with only its release
+/// package.version omitted. Features and dependency specifications remain bound.
+fn artifact_tree_digest(tree: &[u8], manifest: &str) -> String {
     use sha2::Digest as _;
+    let mut digest = sha2::Sha256::new();
+    for row in tree.split_inclusive(|byte| *byte == b'\n') {
+        if !row.ends_with(b"\tcrates/susi-gmcp/Cargo.toml\n") {
+            digest.update(row);
+        }
+    }
+    digest.update(b"susi-gmcp manifest without package.version\n");
+    let mut package = false;
+    for line in manifest.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            package = trimmed == "[package]";
+        }
+        if package
+            && line
+                .split_once('=')
+                .is_some_and(|(key, _)| key.trim() == "version")
+        {
+            continue;
+        }
+        digest.update(line.as_bytes());
+    }
+    hex::encode(digest.finalize())
+}
+
+/// Git objects, not the working tree: shallow CI and full clones hash the
+/// same committed bytes. A missing revision or manifest fails closed.
+fn artifacts_digest(root: &Path, rev: &str, artifacts: &[String]) -> Option<String> {
     let out = Command::new("git")
         .args(["ls-tree", "-r", "--full-tree", rev, "--"])
         .args(artifacts)
         .current_dir(root)
         .output()
         .ok()?;
-    (out.status.success() && !out.stdout.is_empty())
-        .then(|| hex::encode(sha2::Sha256::digest(&out.stdout)))
+    if !out.status.success() || out.stdout.is_empty() {
+        return None;
+    }
+    let manifest = Command::new("git")
+        .args(["show", &format!("{rev}:crates/susi-gmcp/Cargo.toml")])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !manifest.status.success() {
+        return None;
+    }
+    Some(artifact_tree_digest(
+        &out.stdout,
+        std::str::from_utf8(&manifest.stdout).ok()?,
+    ))
+}
+
+#[test]
+fn evidence_digest_ignores_only_release_version_not_manifest_or_source_changes() {
+    let tree = b"100644 blob old-version-object\tcrates/susi-gmcp/Cargo.toml\n100644 blob source-object\tcrates/susi-gmcp/src/lib.rs\n100644 blob test-object\ttests/gmcp_requirements.rs\n100644 blob spec-object\t.agents/gmcp/spec/protocol.md\n";
+    let manifest = "[package]\nname = \"susi-gmcp\"\nversion = \"0.21.37\"\n[features]\ndefault = [\"tools-rich\"]\n[dependencies.example]\nversion = \"1\"\n";
+    let before = artifact_tree_digest(tree, manifest);
+    // Retain every other byte, including an absent final newline.
+    assert_ne!(
+        before,
+        artifact_tree_digest(tree, manifest.trim_end_matches('\n'))
+    );
+    let changed_version_tree =
+        String::from_utf8_lossy(tree).replace("old-version-object", "new-version-object");
+    assert_eq!(
+        before,
+        artifact_tree_digest(
+            changed_version_tree.as_bytes(),
+            &manifest.replace("0.21.37", "0.21.38")
+        )
+    );
+    assert_ne!(
+        before,
+        artifact_tree_digest(tree, &manifest.replace("tools-rich", "minimal"))
+    );
+    assert_ne!(
+        before,
+        artifact_tree_digest(
+            tree,
+            &manifest.replace("version = \"1\"", "version = \"2\"")
+        )
+    );
+    for object in ["source-object", "test-object", "spec-object"] {
+        let changed = String::from_utf8_lossy(tree).replace(object, "changed-object");
+        assert_ne!(before, artifact_tree_digest(changed.as_bytes(), manifest));
+    }
 }
 
 /// A vector's evidence binds to the code it ran on: each record names
