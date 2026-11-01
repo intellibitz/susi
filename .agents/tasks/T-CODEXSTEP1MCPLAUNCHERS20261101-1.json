@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1MCPLAUNCHERS20261101-1",
+  "title": "Remove launcher version processes from MCP admission",
+  "goal": "CEO step 1: native launcher resolution without repeated ten-second uvx and npx waits; missing launcher must not fabricate readiness",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-tools",
+      "mcp_launcher",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1MCPLAUNCHERS20261101",
+  "created_unix": 1793524975
+}
