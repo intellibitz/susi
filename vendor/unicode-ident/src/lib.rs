@@ -113,6 +113,9 @@ mod tests {
     }
     #[test]
     fn compiler_handles_identifiers_newer_than_system_unicode() {
+        let _fixture = compiler::TEST_SERIAL
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         // Newer than the qualification host's OS Unicode repertoire.
         assert!(try_is_xid_start('\u{105c0}').unwrap());
         assert!(try_is_xid_continue('\u{105c0}').unwrap());

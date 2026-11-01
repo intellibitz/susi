@@ -57,6 +57,10 @@ static STARTS: AtomicU64 = AtomicU64::new(0);
 static ACTIVE: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static MAX_ACTIVE: AtomicU64 = AtomicU64::new(0);
+// White-box fixtures inspect process-global counters and explicit shutdown.
+// Serialize those fixtures only; their spawned concurrent callers still race.
+#[cfg(test)]
+pub(crate) static TEST_SERIAL: Mutex<()> = Mutex::new(());
 
 /// Exact identifier acceptance by the pinned installed compiler. Infrastructure
 /// errors remain errors: callers must not store them as negative classifications.
@@ -514,6 +518,9 @@ mod tests {
 
     #[test]
     fn real_compiler_service_ordinary_future_concurrent_and_churn() {
+        let _fixture = TEST_SERIAL
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let compiler = resolve_compiler().unwrap();
         let mut broker = Broker::start(&compiler).unwrap();
         let directory = broker._files.directory.clone();
