@@ -252,6 +252,7 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 # the registry build is one graph with a fixed zip, and a registry crate is a
 # compiler-cache hit where a git one is not (susi-vendor-candle asks for it).
 [patch.crates-io]
+regex-syntax = { path = "vendor/regex-syntax" }
 idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
 htmlescape = { path = "vendor/htmlescape" }

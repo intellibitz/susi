@@ -3621,8 +3621,9 @@ dependencies = [
 [[package]]
 name = "regex-syntax"
 version = "0.8.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+dependencies = [
+ "susi-os-unicode",
+]
 
 [[package]]
 name = "reqwest"
@@ -4711,6 +4712,10 @@ dependencies = [
  "susi-paths",
  "susi-vendor-serde-json",
 ]
+
+[[package]]
+name = "susi-os-unicode"
+version = "0.1.0"
 
 [[package]]
 name = "susi-paths"
