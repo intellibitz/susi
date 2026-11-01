@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDEELOQUENTFRANKLINFLK7F5-16",
+  "title": "gmcp: restore gmcp_vc_203_001_mastery (removed in 2b7efbc33); a row's production path must exist or its reason must disclose NOT IMPLEMENTED",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEELOQUENTFRANKLINFLK7F5",
+  "created_unix": 1793518619
+}
