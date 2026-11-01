@@ -27,6 +27,9 @@ target="$root/target"
 
 case "${OSTYPE:-}" in
 msys* | cygwin*)
+    if command -v tasklist.exe >/dev/null 2>&1; then
+        MSYS2_ARG_CONV_EXCL='*' tasklist.exe /FI "IMAGENAME eq susi.exe" /NH 2>/dev/null | grep -qi "susi.exe" || exit 0
+    fi
     command -v powershell.exe >/dev/null 2>&1 || exit 0
     target_win=$(cygpath -aw "$target" 2>/dev/null) || target_win="$target"
     SUSI_SWEEP_TARGET="$target_win" powershell.exe -NoProfile -NonInteractive -Command '

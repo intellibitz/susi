@@ -262,6 +262,9 @@ fn sync_only_run(primary: &Path, common: &Path, refs_fetched: bool) -> Parked {
     if git(primary, &["symbolic-ref", "-q", "--short", "HEAD"]).as_deref() != Some("main") {
         return Parked::silent();
     }
+    if git(primary, &["rev-parse", "HEAD"]).as_deref() == Some(target.as_str()) {
+        return Parked::silent();
+    }
     // Untracked local tools are preserved. Git itself refuses a fast-forward
     // that would overwrite an untracked file; tracked edits always block.
     if !git(primary, &["status", "--porcelain", "--untracked-files=no"])
@@ -276,9 +279,6 @@ fn sync_only_run(primary: &Path, common: &Path, refs_fetched: bool) -> Parked {
     .as_deref()
         != Some("0")
     {
-        return Parked::silent();
-    }
-    if git(primary, &["rev-parse", "HEAD"]).as_deref() == Some(target.as_str()) {
         return Parked::silent();
     }
     if IN_PROGRESS.iter().any(|op| common.join(op).exists()) {
