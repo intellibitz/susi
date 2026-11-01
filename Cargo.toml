@@ -200,7 +200,6 @@ criterion = "0.5"
 
 [dev-dependencies]
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "crates/susi-vendor-ed25519-dalek" }
-sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
 susi-vendor-models = { workspace = true }
@@ -237,6 +236,7 @@ tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 console-subscriber = { package = "susi-vendor-console-subscriber", path = "crates/susi-vendor-console-subscriber" , optional = true }
 rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
 
 [build-dependencies]
