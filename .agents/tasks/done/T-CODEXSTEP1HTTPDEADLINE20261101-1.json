@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CODEXSTEP1HTTPDEADLINE20261101",
-  "created_unix": 1793530926
+  "created_unix": 1793530926,
+  "closed": {
+    "at_unix": 1793531134,
+    "commit": "6671e9d993cb581ffce34ec2dfe5b194da21fab7",
+    "by": "CODEXSTEP1HTTPDEADLINE20261101"
+  }
 }
