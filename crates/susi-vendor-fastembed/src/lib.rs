@@ -58,7 +58,37 @@ fn base_url_from(env_override: Option<&str>) -> String {
         .to_owned()
 }
 
+fn verify_pinned_artifact(name: &str, bytes: &[u8]) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let expected = match name {
+        "model.safetensors" => "3c9f31665447c8911517620762200d2245a2518d6e7208acc78cd9db317e21ad",
+        "config.json" => "094f8e891b932f2000c92cfc663bac4c62069f5d8af5b5278c4306aef3084750",
+        "tokenizer.json" => "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        _ => return Err("Unrecognized BGE artifact".into()),
+    };
+    if Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+        != expected
+    {
+        return Err(format!("[MODEL LICENSE] {name} does not match the audited MIT-licensed BGE revision; cache contents are preserved for inspection"));
+    }
+    Ok(())
+}
+
 fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, String> {
+    ensure_cached_file_with_policy(cache, base, name, &susi_core::mac_policy::egress_permitted)
+}
+fn ensure_cached_file_with_policy(
+    cache: &Path,
+    base: &str,
+    name: &str,
+    egress_allowed: &dyn Fn(&str) -> bool,
+) -> Result<Vec<u8>, String> {
+    if base.trim_end_matches('/') != DEFAULT_MODEL_BASE_URL {
+        return Err("[MODEL LICENSE] Unverified embedding model override refused; use the pinned MIT-licensed BGE model. Custom cache locations remain supported.".into());
+    }
     let path = cache.join(name);
     match std::fs::File::open(&path) {
         Ok(file) => {
@@ -73,6 +103,7 @@ fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, S
                 ));
             }
             if !bytes.is_empty() {
+                verify_pinned_artifact(name, &bytes)?;
                 return Ok(bytes);
             }
         }
@@ -80,6 +111,9 @@ fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, S
         Err(error) => return Err(format!("opening {}: {error}", path.display())),
     }
     let url = format!("{base}/{name}");
+    if !egress_allowed(&url) {
+        return Err("[PRIVACY] Embedding download denied by network-egress policy; verified cached artifacts remain available".into());
+    }
     let response =
         susi_http_transport::http_call("GET", &url, &[], DOWNLOAD_TIMEOUT_SECS, MAX_REDIRECTS)
             .map_err(|e| format!("failed to fetch {url}: {e}"))?;
@@ -92,6 +126,7 @@ fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, S
     if bytes.is_empty() {
         return Err(format!("empty model artifact: {url}"));
     }
+    verify_pinned_artifact(name, &bytes)?;
     std::fs::create_dir_all(cache).map_err(|e| e.to_string())?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -257,13 +292,23 @@ mod tests {
     }
 
     #[test]
-    fn cached_artifacts_do_not_need_network() {
+    fn altered_cache_and_unverified_origins_are_rejected() {
         let dir = std::env::temp_dir().join(format!("susi-bert-cache-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        assert!(ensure_cached_file_with_policy(
+            &dir,
+            DEFAULT_MODEL_BASE_URL,
+            "config.json",
+            &|_| false
+        )
+        .unwrap_err()
+        .contains("PRIVACY"));
         std::fs::write(dir.join("config.json"), b"cached config").unwrap();
-        assert_eq!(
-            ensure_cached_file(&dir, "http://127.0.0.1:1", "config.json").unwrap(),
-            b"cached config"
+        assert!(ensure_cached_file(&dir, "http://127.0.0.1:1", "config.json").is_err());
+        assert!(
+            ensure_cached_file(&dir, DEFAULT_MODEL_BASE_URL, "config.json")
+                .unwrap_err()
+                .contains("does not match")
         );
         std::fs::remove_file(dir.join("config.json")).unwrap();
         std::fs::remove_dir(dir).unwrap();
@@ -276,6 +321,13 @@ mod tests {
     #[ignore = "requires explicit SUSI_EMBEDDING_TEST_CACHE and model provisioning"]
     fn real_bge_model_preserves_semantic_order_batching_and_norm() {
         let cache = std::env::var("SUSI_EMBEDDING_TEST_CACHE").expect("isolated cache required");
+        ensure_cached_file_with_policy(
+            &PathBuf::from(&cache),
+            DEFAULT_MODEL_BASE_URL,
+            "config.json",
+            &|_| false,
+        )
+        .unwrap();
         let model = Embedder::load(&PathBuf::from(cache), DEFAULT_MODEL_BASE_URL).unwrap();
         let texts = vec![
             "A dog is playing in the park.".into(),

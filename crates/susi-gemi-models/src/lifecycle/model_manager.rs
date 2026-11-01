@@ -378,11 +378,19 @@ impl ModelManager {
     }
 
     pub fn execute_download_stream(target: &str, task_handle: &TaskHandle) -> Result<(), String> {
-        if cfg!(test) {
-            task_handle.mark_completed("Simulated download for test");
+        let receipt = susi_vendor_models::model_license::admit_download(target)?;
+        let models_dir = Self::get_models_dir();
+        let file_name = crate::download::artifact_name(&receipt.artifact_url)?;
+        let destination = models_dir.join(file_name);
+        if destination.exists() {
+            // Never turn an unknown user file into a resumable prefix which
+            // transfer may truncate. Matching bytes can be adopted in place.
+            receipt.record(&destination)?;
+            task_handle.mark_completed("Existing publisher-verified artifact adopted");
             return Ok(());
         }
-        Self::execute_download_stream_in(target, task_handle, &Self::get_models_dir())
+        Self::execute_download_stream_in(&receipt.artifact_url, task_handle, &models_dir)?;
+        receipt.record(&destination)
     }
 
     fn execute_download_stream_in(

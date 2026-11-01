@@ -439,6 +439,12 @@ impl ModelManager {
     }
 
     pub fn verify_model_integrity(model_path: &Path) -> EaiResult<()> {
+        susi_vendor_models::model_license::verify_local(model_path)
+            .map_err(crate::susi_error::EaiError::governance)?;
+        Self::verify_model_checksum(model_path)
+    }
+
+    pub(crate) fn verify_model_checksum(model_path: &Path) -> EaiResult<()> {
         if model_path
             .to_string_lossy()
             .contains("susi-native-synthesis")
@@ -511,6 +517,8 @@ impl ModelManager {
     pub fn load_tokenizer(
         path: &Path,
     ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+        susi_vendor_models::model_license::verify_local(path)
+            .map_err(crate::susi_error::EaiError::governance)?;
         parsed_tokenizer(path)
             .map_err(|e| crate::susi_error::EaiError::inference(format!("Tokenizer Error: {e}")))
     }

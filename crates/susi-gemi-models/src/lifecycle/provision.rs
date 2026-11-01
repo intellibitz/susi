@@ -162,8 +162,13 @@ impl ModelManager {
         let path = models_dir
             .join(&step.hf_file)
             .with_extension("tokenizer.json");
-        if susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok() {
-            return Ok(());
+        if path.exists() {
+            susi_vendor_models::model_license::verify_local(&path)
+                .map_err(crate::susi_error::EaiError::governance)?;
+            if susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok() {
+                return Ok(());
+            }
+            return Err(crate::susi_error::EaiError::governance("Existing tokenizer is invalid; preserving its bytes rather than replacing a user-owned file"));
         }
         let repo = if step.tokenizer_repo.is_empty() {
             &step.hf_repo
@@ -179,7 +184,10 @@ impl ModelManager {
         fs::create_dir_all(models_dir)?;
         let policy = cfg.model_lifecycle();
         let token = crate::susi_config::env_or_cloud_env("HF_TOKEN").ok();
-        let expected_sha256 = crate::download::published_sha256(&url, token.as_deref());
+        let receipt = susi_vendor_models::model_license::admit_download(&url)
+            .map_err(crate::susi_error::EaiError::governance)?;
+        let url = receipt.artifact_url.clone();
+        let expected_sha256 = Some(receipt.sha256.clone());
         let mut error = String::new();
         for _ in 0..policy.download_attempts.clamp(1, 8) {
             match crate::download::transfer(
@@ -192,7 +200,11 @@ impl ModelManager {
                 &|p| susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok(),
                 expected_sha256.as_deref(),
             ) {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    return receipt
+                        .record(&path)
+                        .map_err(crate::susi_error::EaiError::governance)
+                }
                 Err(e) => {
                     error = e;
                     if error.starts_with("HTTP 4") || error.starts_with("[PRIVACY]") {
@@ -439,5 +451,46 @@ impl ModelManager {
         }
 
         report
+    }
+}
+
+#[cfg(test)]
+mod license_tests {
+    use super::*;
+    #[test]
+    fn unverified_existing_tokenizer_is_not_overwritten() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-tokenizer-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("unknown.tokenizer.json");
+        fs::write(&path, b"user-owned invalid tokenizer bytes").unwrap();
+        let step = crate::hardware::ModelLadderStep {
+            step: 1,
+            label: "fixture".into(),
+            hf_repo: "org/model".into(),
+            hf_file: "unknown.gguf".into(),
+            tokenizer_repo: "org/model".into(),
+            min_bytes: 0,
+            expected_bytes: 0,
+        };
+        let result = ModelManager::ensure_ladder_tokenizer(
+            &step,
+            &dir,
+            &crate::susi_sandbox::manager::SusiConfig::default(),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"user-owned invalid tokenizer bytes"
+        );
+        assert!(!path.with_extension("json.part").exists());
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(&dir).unwrap();
     }
 }

@@ -8,8 +8,10 @@ description = "Rust-native BGE text embeddings with Candle: one process-wide mod
 
 [dependencies]
 susi-error = { workspace = true }
+susi-core = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-vendor-candle = { workspace = true }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]

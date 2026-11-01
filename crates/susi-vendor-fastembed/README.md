@@ -15,11 +15,11 @@ Model artifacts use a separate pinned-revision cache directory, so existing
 ONNX artifacts are never mistaken for safetensors or deleted.
 
 `FASTEMBED_CACHE_DIR` remains a supported cache-root override.
-`SUSI_FASTEMBED_MODEL_URL`, when explicitly set, must now expose compatible
-`config.json`, `tokenizer.json`, and `model.safetensors` files; an ONNX-only
-endpoint is no longer suitable. Overrides must satisfy the same model-license
-policy. No model weights or third-party runtime are downloaded at build time.
-
+`SUSI_FASTEMBED_MODEL_URL` accepts only the audited pinned publisher URL.
+Other origins or models are refused until they have an artifact-bound license
+admission path. Every cached and downloaded config, tokenizer and weight file
+is checked against its pinned SHA-256 before use; a custom cache location does
+not bypass provenance. No model weights or runtime are downloaded at build time.
 Normal tests are hermetic. The ignored real-model qualification test can be
 run explicitly with `SUSI_EMBEDDING_TEST_CACHE` pointing at a scratch directory.
 It checks dimensions, normalization, semantic ordering and batch/single

@@ -62,6 +62,7 @@ pub mod more_openai_compat;
 pub mod multi_gpu_plan;
 pub mod npu_detection;
 pub mod offline_bundle;
+pub mod model_license;
 pub mod ollama_models;
 pub mod open_weight;
 pub mod openrouter;
