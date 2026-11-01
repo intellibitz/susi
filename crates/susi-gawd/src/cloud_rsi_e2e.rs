@@ -637,8 +637,7 @@ fn restore(dir: &Path, snap: &BTreeMap<PathBuf, String>) {
 }
 
 #[cfg(test)]
-#[path = "tests/native_verifier.rs"]
-mod native_verifier;
+use crate::native_verifier;
 
 #[cfg(test)]
 mod tests {

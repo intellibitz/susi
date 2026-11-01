@@ -802,8 +802,7 @@ pub fn verify_candidate(
 }
 
 #[cfg(test)]
-#[path = "tests/native_verifier.rs"]
-mod native_verifier;
+use crate::native_verifier;
 
 #[cfg(test)]
 mod tests {
