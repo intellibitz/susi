@@ -2,10 +2,10 @@
 //! host import (`host_send`) exposed under both the `env` and `susi`
 //! namespaces.
 //!
-//! The wasm engine is wasmtime. Fuel is metered natively
+//! The wasm engine is Wasmi. Fuel is metered natively
 //! (`Config::consume_fuel` + `Store::set_fuel`) rather than by a compiler
-//! middleware: wasmtime charges fuel per wasm instruction, so `CELL_FUEL`
-//! keeps the same budget semantics the wasmer `Metering` middleware provided.
+//! middleware. Interpreter fuel units differ from the previous JIT; the
+//! bounded budget is qualified by real Rust/WASI and infinite-loop tests.
 //! The declared-maximum memory cap is applied by rewriting the module's
 //! memory section ([`cap_memory`]) before compile; a module that never
 //! declared a maximum still cannot grow past [`MAX_CELL_MEMORY_BYTES`], and
@@ -15,8 +15,8 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use susi_error::{EaiError, EaiResult};
+use wasmi::{Caller, Engine, Instance, Linker, Memory, Module, Store};
 use wasmparser::{Parser, Payload};
-use wasmtime::{Caller, Engine, Instance, Linker, Memory, Module, Store};
 
 /// Largest single `host_send` payload the host accepts.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
@@ -45,16 +45,15 @@ pub const MAX_CELL_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 /// Instruction budget (fuel, roughly one unit per wasm instruction) per cell
 /// or WASI reflex: an infinite loop traps instead of pinning a daemon thread
 /// forever.
-pub const CELL_FUEL: u64 = 10_000_000_000;
+pub const CELL_FUEL: u64 = 10_000_000;
 
 /// Engine with fuel metering compiled in; every store starts with
 /// [`CELL_FUEL`]. Shared by cells and the WASI reflex runner (`wasm.rs`),
 /// which executes model-written code on the same budget.
 pub(crate) fn metered_engine() -> EaiResult<Engine> {
-    let mut config = wasmtime::Config::new();
+    let mut config = wasmi::Config::default();
     config.consume_fuel(true);
-    Engine::new(&config)
-        .map_err(|e| EaiError::sandbox(format!("Failed to create wasm engine: {e}")))
+    Ok(Engine::new(&config))
 }
 
 /// Clamp every defined memory's maximum to [`MAX_CELL_MEMORY_BYTES`].
@@ -110,7 +109,7 @@ fn capped_memory_section(
     for memory in reader {
         let memory =
             memory.map_err(|e| EaiError::sandbox(format!("Failed to read memory section: {e}")))?;
-        // Checked: this runs before wasmtime validates the module, so a
+        // Checked: this runs before Wasmi validates the module, so a
         // malformed page-size exponent must error, not overflow the shift.
         let page_bytes = 1u64
             .checked_shl(memory.page_size_log2.unwrap_or(16))
@@ -138,7 +137,7 @@ fn capped_memory_section(
 ///
 /// * `module_path` – path to the compiled `.wasm` file.
 /// * `instance` – instantiated module ready for calls.
-/// * `store` – the wasmtime store holding the instance and the cell's
+/// * `store` – the Wasmi store holding the instance and the cell's
 ///   [`HostState`].
 pub struct WasmCell {
     module_path: PathBuf,
@@ -219,7 +218,7 @@ impl WasmCell {
                 .map_err(|e| EaiError::sandbox(format!("Failed to define host_send: {e}")))?;
         }
         let instance = linker
-            .instantiate(&mut store, &module)
+            .instantiate_and_start(&mut store, &module)
             .map_err(|e| EaiError::sandbox(format!("Failed to instantiate WASM module: {e}")))?;
         // Bound after instantiation: a `start` function that calls
         // `host_send` sees no memory yet and gets SEND_NO_MEMORY.

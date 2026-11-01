@@ -1,106 +1,173 @@
-// SUSI Wasm Host Substrate
-// Native Integration - High-performance reflex execution environment
-
+//! Native Rust interpreter host for capability-limited WASI reflexes.
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
-use wasmtime::{Linker, Module, Store};
-use wasmtime_wasi::p1::WasiP1Ctx;
-use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
-use wasmtime_wasi::WasiCtx;
+use wasmi::{Linker, Module, Store};
 
 pub struct WasmHost;
 
 impl WasmHost {
-    /// Pillar Sandbox: run untrusted Wasm (plugins or reflexes) under Wasmtime/WASI.
+    /// Execute untrusted WASI without inherited host capabilities.
     pub fn execute_untrusted_wasm(wasm_path: &Path, arg: &str) -> EaiResult<String> {
         Self::execute_reflex(wasm_path, arg)
     }
 
-    /// Executes a distilled reflex from a Wasm file (Wasmtime/WASI isolation).
-    ///
-    /// Reflexes are model-written code: the module is compiled on a
-    /// fuel-metered engine ([`crate::cell::CELL_FUEL`]) and its declared
-    /// memory maximum is clamped by [`crate::cell::cap_memory`], so an
-    /// infinite loop or runaway allocation traps instead of pinning the
-    /// caller's thread. No preopened directories or ambient host
-    /// capabilities are granted.
+    /// Run a fuel-metered, memory-capped Rust/WASI reflex. Stdout is capped
+    /// at 16 MiB and no directories, sockets, environment or stdin are inherited.
     pub fn execute_reflex(wasm_path: &Path, arg: &str) -> EaiResult<String> {
         let engine = crate::cell::metered_engine()?;
-        let bytes = std::fs::read(wasm_path).map_err(|e| {
-            EaiError::process(format!(
-                "Failed to read Wasm module {}: {e}",
-                wasm_path.display()
-            ))
-        })?;
-        // `wat::parse_bytes` passes already-binary modules through, so
-        // reflexes built by rustc stay cheap and hand-written WAT probes
-        // still load.
-        let wasm = wat::parse_bytes(&bytes).map_err(|e| {
-            EaiError::process(format!(
-                "Failed to parse Wasm module {}: {e}",
-                wasm_path.display()
-            ))
-        })?;
+        let bytes = std::fs::read(wasm_path)
+            .map_err(|error| EaiError::process(format!("reading Wasm: {error}")))?;
+        let wasm = wat::parse_bytes(&bytes)
+            .map_err(|error| EaiError::process(format!("parsing Wasm: {error}")))?;
         let wasm = crate::cell::cap_memory(&wasm)?;
-        let module = Module::new(&engine, &wasm).map_err(|e| {
-            EaiError::process(format!(
-                "Failed to compile Wasm module {}: {e}",
-                wasm_path.display()
-            ))
-        })?;
-
-        // No preopened directories, no inherited env, no inherited stdin: the
-        // granted capabilities are a bounded-capacity stdout pipe and an argv
-        // the caller chose.
-        //
-        // WASI argv is `[program, args…]`. The generated reflex reads its
-        // input from `std::env::args().nth(1)`, so the argument must land in
-        // the *second* slot: putting it first made it argv[0] and every reflex
-        // reported an empty input.
-        let stdout = MemoryOutputPipe::new(usize::MAX);
-        let mut builder = WasiCtx::builder();
-        builder.stdout(stdout.clone()).arg("reflex").arg(arg);
-        let mut store = Store::new(&engine, builder.build_p1());
+        let module = Module::new(&engine, &wasm)
+            .map_err(|error| EaiError::process(format!("validating Wasm: {error}")))?;
+        let context = crate::wasi::Context::new(arg).map_err(EaiError::process)?;
+        let mut store = Store::new(&engine, context);
         store
             .set_fuel(crate::cell::CELL_FUEL)
-            .map_err(|e| EaiError::process(format!("Failed to set reflex fuel: {e}")))?;
-
-        let mut linker = Linker::<WasiP1Ctx>::new(&engine);
-        // Both import spellings: rustc's wasm32-wasip1 emits
-        // `wasi_snapshot_preview1`; older hand-built probes may still speak
-        // `wasi_unstable` (preview 0).
-        wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |c| c)
-            .map_err(|e| EaiError::process(format!("Failed to link WASI p1: {e}")))?;
-        wasmtime_wasi::p0::add_to_linker_sync(&mut linker, |c| c)
-            .map_err(|e| EaiError::process(format!("Failed to link WASI p0: {e}")))?;
-
-        // This is a blocking call
+            .map_err(|error| EaiError::process(format!("setting fuel: {error}")))?;
+        let mut linker = Linker::new(&engine);
+        crate::wasi::link(&mut linker, &module)
+            .map_err(|error| EaiError::process(format!("linking WASI: {error}")))?;
         let instance = linker
-            .instantiate(&mut store, &module)
-            .map_err(|e| EaiError::process(format!("Wasm execution failed: {e}")))?;
+            .instantiate_and_start(&mut store, &module)
+            .map_err(|error| EaiError::process(format!("instantiating Wasm: {error}")))?;
+        store.data_mut().memory = instance.get_memory(&store, "memory");
         let start = instance
-            .get_typed_func::<(), ()>(&mut store, "_start")
-            .map_err(|e| EaiError::process(format!("Wasm module exports no _start: {e}")))?;
-        start
-            .call(&mut store, ())
-            .map_err(|e| EaiError::process(format!("Wasm execution failed: {e}")))?;
-
-        // Capture stdout — MemoryOutputPipe already holds the complete
-        // buffer; no channel EOF dance like the old wasmer Pipe needed.
-        let captured = stdout.contents();
-        let result = String::from_utf8_lossy(&captured);
-
+            .get_typed_func::<(), ()>(&store, "_start")
+            .map_err(|error| EaiError::process(format!("missing _start: {error}")))?;
+        if let Err(error) = start.call(&mut store, ()) {
+            if error.i32_exit_status() != Some(0) {
+                return Err(EaiError::process(format!("Wasm execution failed: {error}")));
+            }
+        }
+        let result = String::from_utf8_lossy(&store.data().stdout);
         Ok(if result.trim().is_empty() {
-            "Wasm execution success (No Output)".to_string()
+            "Wasm execution success (No Output)".to_owned()
         } else {
-            result.trim().to_string()
+            result.trim().to_owned()
         })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "explicit qualification requires the wasm32-wasip1 Rust target"]
+    fn compiled_rust_wasi_fixture_keeps_arguments_and_denies_host_state() {
+        let dir = std::env::temp_dir().join(format!("susi-wasmi-rust-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("reflex.rs");
+        let wasm = dir.join("reflex.wasm");
+        std::fs::write(
+            &source,
+            r#"
+            fn main() {
+                assert_eq!(std::env::vars_os().count(), 0);
+                assert!(std::fs::read("Cargo.toml").is_err());
+                let start = std::time::Instant::now();
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                assert!(start.elapsed().as_secs() < 60);
+                println!("native:{}", std::env::args().nth(1).unwrap());
+                std::process::exit(0);
+            }
+        "#,
+        )
+        .unwrap();
+        let output = std::process::Command::new("rustc")
+            .args(["--edition", "2021", "--target", "wasm32-wasip1", "-O"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&wasm)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            WasmHost::execute_reflex(&wasm, "isolated").unwrap(),
+            "native:isolated"
+        );
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_file(wasm).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn unsupported_wasi_never_reports_success_and_exit_zero_is_success() {
+        let path =
+            std::env::temp_dir().join(format!("susi-wasi-unsupported-{}.wat", std::process::id()));
+        std::fs::write(&path, r#"(module
+            (import "wasi_snapshot_preview1" "unsupported_operation" (func $poll (param i32 i32 i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+            (memory (export "memory") 1)
+            (func (export "_start")
+                (if (i32.ne (call $poll (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0)) (i32.const 52)) (then unreachable))
+                (call $exit (i32.const 0))))"#).unwrap();
+        assert_eq!(
+            WasmHost::execute_reflex(&path, "").unwrap(),
+            "Wasm execution success (No Output)"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn malformed_guest_pointer_traps_no_host_and_returns_fault() {
+        let path = std::env::temp_dir().join(format!("susi-wasi-fault-{}.wat", std::process::id()));
+        std::fs::write(&path, r#"(module
+            (import "wasi_snapshot_preview1" "args_sizes_get" (func $args (param i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "_start")
+                (if (i32.ne (call $args (i32.const -1) (i32.const 4)) (i32.const 21)) (then unreachable))))"#).unwrap();
+        assert!(WasmHost::execute_reflex(&path, "").is_ok());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn output_and_host_waits_are_bounded() {
+        let path =
+            std::env::temp_dir().join(format!("susi-wasi-bounds-{}.wat", std::process::id()));
+        std::fs::write(&path, r#"(module
+            (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "poll_oneoff" (func $poll (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 257)
+            (func (export "_start")
+                (i32.store (i32.const 0) (i32.const 4096))
+                (i32.store (i32.const 4) (i32.const 16777217))
+                (if (i32.ne (call $write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 64)) (i32.const 76)) (then unreachable))
+                (i32.store (i32.const 0) (i32.const 0))
+                (i32.store (i32.const 4) (i32.const 0))
+                (i32.store (i32.const 16) (i32.const 1))
+                (i64.store (i32.const 24) (i64.const 60000000000))
+                (if (i32.ne (call $poll (i32.const 0) (i32.const 128) (i32.const 1) (i32.const 256)) (i32.const 76)) (then unreachable))))"#).unwrap();
+        assert_eq!(
+            WasmHost::execute_reflex(&path, "").unwrap(),
+            "Wasm execution success (No Output)"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn malformed_wasi_signature_is_rejected_before_execution() {
+        let path =
+            std::env::temp_dir().join(format!("susi-wasi-signature-{}.wat", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"(module
+            (import "wasi_snapshot_preview1" "fd_write" (func (param i64) (result i32)))
+            (func (export "_start")))"#,
+        )
+        .unwrap();
+        assert!(WasmHost::execute_reflex(&path, "")
+            .unwrap_err()
+            .to_string()
+            .contains("invalid WASI signature"));
+        std::fs::remove_file(path).unwrap();
+    }
 
     /// Hand-written WAT (not compiled via rustc's wasm32-wasip1 target, which
     /// isn't installed in this environment) so this exercises the real
