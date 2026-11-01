@@ -31,6 +31,6 @@ fn zc_fresh_home_defaults_without_user_files() {
     let plan = SetupPlan::detect(&home);
     assert!(!plan.steps.is_empty());
     // No config.json required up front.
-    assert!(!home.join("config").join("config.json").is_file());
+    assert!(!home.join("config.json").is_file());
     let _ = std::fs::remove_dir_all(&home);
 }

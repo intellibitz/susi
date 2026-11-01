@@ -1090,6 +1090,15 @@ pub struct E2eCheck {
 /// What the built binary must do on its own newest behaviour.
 pub const E2E_CHECKS: &[E2eCheck] = &[
     E2eCheck {
+        name: "first-run setup explains readiness without configuration",
+        args: &["setup"],
+        exit: 0,
+        stdout_has: &["give me a goal", "Cloud:", "Local AI:"],
+        stderr_has: &[],
+        leaves_no_files: true,
+        setup: None,
+    },
+    E2eCheck {
         name: "brain classifies a coding prompt",
         args: &[
             "brain", "classify", "fix", "this", "bug", "in", "my", "parser",
