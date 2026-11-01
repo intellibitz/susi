@@ -338,7 +338,11 @@ fn run() -> std::process::ExitCode {
             cli::defs::command_catalogs,
         );
         susi_daemon::boot_trace::phase("composition: cli", || {
-            susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
+            if command.is_none() {
+                susi_daemon::composition::wire_goal_substrate(&substrate, catalogs);
+            } else {
+                susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs);
+            }
         });
     }
     #[cfg(all(feature = "tokio-console", tokio_unstable))]
