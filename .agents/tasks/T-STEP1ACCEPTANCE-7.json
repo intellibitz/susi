@@ -1,0 +1,31 @@
+{
+  "id": "T-STEP1ACCEPTANCE-7",
+  "title": "Verify final combined native source including hidden probes and immutable adapter locks",
+  "status": "pending",
+  "owner": "step1-acceptance-v7",
+  "scopes": [
+    ".agents/tasks/T-STEP1ACCEPTANCE-7.json"
+  ],
+  "dependencies": [
+    "T-STEP1ACCEPTANCE-6"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked",
+      "--features",
+      "xtask/release-tooling"
+    ]
+  },
+  "baseline": "800b59b821552f59ed75535aebaafa8a9229f06f",
+  "required_evidence": [
+    "Native immutable integration receipt for exact combined source",
+    "Fresh authenticated private standard library and guarded compilation",
+    "All mandatory native workspace and adapter commands pass without tracked mutation"
+  ],
+  "prior_attempt": "All 14 commands passed; immutable publication refused changed tracked regex lock. Deterministic lock correction and hidden-probe fixes are included here.",
+  "production_status": "Separate optimized qualification, exact production artifact clean Windows acceptance and genuine A/B promotion/rollback remain required"
+}
