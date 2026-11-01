@@ -53,6 +53,7 @@ fn controlled(command: &mut Command) -> &mut Command {
         let upper = name.to_string_lossy().to_ascii_uppercase();
         if upper.starts_with("RUST")
             || upper.starts_with("CARGO_TARGET_")
+            || upper.starts_with("CARGO_BUILD_")
             || upper.starts_with("CARGO_ENCODED_")
         {
             command.env_remove(name);
