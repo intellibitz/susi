@@ -335,5 +335,7 @@ pub fn redact_for_export(text: &str) -> String {
         pos += 1;
     }
     out.push_str(&text[copied..]);
-    out.trim_end().to_string()
+    // Redaction changes secrets only. Trimming an unrelated newline here
+    // invalidates exact native-read receipts for otherwise unchanged files.
+    out
 }
