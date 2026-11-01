@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
 //! Exercise the actual atomic publisher against a disposable bare Git remote.
 
 use std::path::PathBuf;
