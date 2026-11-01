@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEXSTEP1UNIXINSTALL20261101-1",
+  "title": "Open Unix first-goal session from piped install and isolate installation home",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "installer_contract",
+      "installer_unix_step1"
+    ]
+  },
+  "created_by": "CODEXSTEP1UNIXINSTALL20261101",
+  "created_unix": 1793528161
+}
