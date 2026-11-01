@@ -5,27 +5,23 @@ Baseline date: **2026-10-17**
 
 ## Normative clause
 
-GMCP conformance is defined exclusively by the machine-readable ledger at
-`.agents/gmcp/requirements-ledger.json` over the pinned upstream corpus in
-`.agents/gmcp/spec/`. Every applicable MUST, MUST NOT, SHOULD, SHOULD NOT,
-MAY, error, deprecation, security rule, official extension rule, and
-published implementation claim of MCP **2025-11-25** and **2026-07-28**
-appears as exactly one ledger row per keyword-bearing source line. A rule
-that is not in the ledger does not exist for qualification purposes, and a
-row that exists is never deleted — only re-dispositioned with recorded
-reason.
+The machine-readable ledger at `.agents/gmcp/requirements-ledger.json`
+classifies clauses from the pinned upstream corpus in `.agents/gmcp/spec/`.
+The ledger records requirements and intended trace references; it does not,
+by itself, establish that SUSI implements every clause or conforms to MCP.
+Some references name missing files or planned tests, and a path that exists is
+not proof of the behavior it purports to implement.
 
-Enforcement is fail-closed in both directions:
+The shipped `susi mcp ledger` verifier checks source pins, verbatim clauses,
+classification and trace naming. Its `verified` field applies to those checks:
+`verified_scope` states the scope and `implementation_verified` is `false`.
+`trace_references` counts rows whose production or evidence paths are missing;
+it does not verify test existence, evidence authenticity, or implementation.
 
-- `scripts/check-gmcp-ledger.py` (run by `gmcp_req_203_001_01_contract`
-  hermetically, no network) verifies the vendored corpus is byte-identical
-  to `.agents/gmcp/sources.json`, deterministically re-extracts every clause,
-  and requires the committed ledger to equal the extracted set with complete
-  classification;
-- `scripts/check-gmcp-ledger.py --drift` (CI/nightly, network) refetches each
-  pinned upstream file and fails on any byte change until the corpus is
-  re-vendored and every resulting row is classified — an unclassified change
-  invalidates the baseline rather than silently passing.
+The POSIX authoring checker `scripts/check-gmcp-ledger.sh` additionally checks
+the extracted clause count and classification; its `--drift` mode refetches
+pinned upstream files and reports changes. A successful count is not proof of
+row-by-row completeness or of implementation conformance.
 
 ## Pinned sources
 
@@ -84,12 +80,11 @@ never override vendored normative text.
   registry, claim}`; every row has at least one.
 - `id` is `TAG-<doc-slug>-<line>`; tags: `MCP-2025-1125`, `MCP-2026-0728`,
   `EXT-TASKS`, `EXT-APPS`, `EXT-AUTH`, `REG`, `CLAIM`.
-- `trace.positive_test`/`negative_test` name the owning vector's integration
-  and adversarial acceptance tests — the same names the queued
-  `T-CODEXGMCPROADMAP-*` tasks are gated on, so a row's proof obligation is
-  already bound to a scheduled test.
-- `trace.evidence` is the vector's append-only JSONL evidence artifact
-  (convention in `.agents/gmcp/evidence/README.md`).
+- `trace.positive_test`/`negative_test` name intended integration and
+  adversarial tests by convention. The names do not prove the tests exist or
+  verify the clause.
+- `trace.evidence` names an intended JSONL artifact (convention in
+  `.agents/gmcp/evidence/README.md`); some named files are absent.
 
 ## Behavior table (baseline)
 
@@ -130,7 +125,7 @@ Totals: **1,713 rows** over 72 pinned documents — 943 on `2026-07-28`, 641 on
 | Threat | Control |
 |---|---|
 | Silent upstream spec drift redefining "complete" | `--drift` refetches every pinned file and fails closed on any hash change |
-| Unclassified clause slipping in | checker requires the committed ledger to equal the deterministic extraction of the corpus — a missing or edited row fails |
+| Unclassified clause slipping in | checker compares the number of extracted clauses with the number of ledger rows; this count alone cannot prove row-by-row completeness |
 | Tampered vendored evidence | every vendored file's sha256/size is verified against `sources.json` before extraction |
 | Scope creep via mirrors/blogs/SDKs | non-vendored authorities are advisory only and enumerated in `external_authorities` |
 | Retroactive weakening of a requirement | rows are never deleted; re-disposition requires a recorded reason and passes through the same checker |
@@ -138,9 +133,10 @@ Totals: **1,713 rows** over 72 pinned documents — 943 on `2026-07-28`, 641 on
 
 ## SLOs and resource budgets
 
-- Ledger coverage: 100% of extracted clauses classified; 0 unclassified rows.
-- `scripts/check-gmcp-ledger.py` completes in < 60 s on the dev gate host
-  (it is pure file hashing + regex over ~2.7 MB).
+- Ledger coverage target: 100% of extracted clauses classified. The count check
+  alone cannot prove this target has been met.
+- `scripts/check-gmcp-ledger.sh` completes in < 60 s on the dev gate host
+  (the shell checker hashes files and counts clauses; timing varies by host).
 - `requirements-ledger.json` stays under 10 MB at this baseline (currently
   ~2 MB); growth is bounded by upstream spec size.
 - `--drift` covers all 72 pinned files in one CI job (< 5 min network-bound).
@@ -158,10 +154,11 @@ modern path) and `negative/request-null-id.json` (violates
 
 ## Evidence locations
 
-`.agents/gmcp/evidence/VC-203-<NNN>.jsonl` is the canonical, append-only
-evidence artifact per vector (see `evidence/README.md`). The ledger, the
-vendored corpus, `sources.json`, and this contract are themselves immutable
-evidence — committed, hash-pinned, and verified every gate run.
+`.agents/gmcp/evidence/VC-203-<NNN>.jsonl` is the intended evidence location
+per vector (see `evidence/README.md`). Some referenced artifacts are missing,
+and existing historical records are not authenticated or revalidated by the
+ledger verifier. Source pins protect the vendored corpus; they do not prove
+that the implementation satisfies its requirements.
 
 ## Ambiguities resolved
 
@@ -191,7 +188,9 @@ evidence — committed, hash-pinned, and verified every gate run.
 
 - `susi mcp ledger` — the production health check. Emits a bounded JSON
   report (`rows`, `documents`, `revisions`, `dispositions`, `categories`,
-  `vectors`, `verified`) and exits non-zero on any verification failure.
+  `vectors`, `verified`, `verified_scope`, `implementation_verified`, and
+  `trace_references`) and exits non-zero on classification verification failure.
+  Missing trace references are reported but do not certify implementation.
   The same payload is served by the `ledger_verify` tool on every dispatch
   surface (direct call, registry/plane-bus, daemon, served stdio), so a
   dashboard or operator sees one canonical shape.
@@ -202,9 +201,10 @@ evidence — committed, hash-pinned, and verified every gate run.
 - `susi mcp ledger --drift --refetched <dir>` — deterministic variant:
   compares a pre-fetched corpus directory (keyed by manifest `document`
   name) instead of the network. Use it in air-gapped gates and in tests.
-- `scripts/check-gmcp-ledger.py` — the authoring checker for
-  authoring-time roles (`--write` regenerates the ledger; `--drift` is the
-  Python live check). The shipped Rust path above is what deployments run.
+- `scripts/check-gmcp-ledger.sh` — the authoring checker for
+  authoring-time checks (`--drift` refetches pinned sources). `--write`
+  updates repository-document pins; it does not regenerate ledger rows. The
+  shipped Rust path above is what deployments run.
 
 ### Diagnostics
 
@@ -221,7 +221,7 @@ drift results.
 | Signal | Meaning | Action |
 |---|---|---|
 | `susi mcp ledger` exits non-zero naming a vendored source | local corpus tampered or stale vs `sources.json` | restore the file from git; if `sources.json` itself changed, treat as unauthorized re-pin — see rollback |
-| non-zero naming a ledger row / verbatim clause | `requirements-ledger.json` edited without regenerating | regenerate via `scripts/check-gmcp-ledger.py --write` on a task branch, or revert |
+| non-zero naming a ledger row / verbatim clause | `requirements-ledger.json` edited without regenerating | review and repair the ledger on a task branch, or revert |
 | `--drift` `hash_drift` finding | the pinned upstream file changed upstream | deliberate re-pin required — see migration |
 | `--drift` `unfetchable` finding | network outage, upstream deleted, or body over bound | retry; persistent failure means the pin's source is gone — recover from git history or the vendored copy, then re-pin |
 | `unfetchable` on `--refetched` | the comparison dir lacks the file | re-fetch the dir; the check fails closed rather than skipping |
@@ -231,9 +231,10 @@ drift results.
 1. Claim a task; bump the pinned `commit` in `sources.json` (upstream pin
    table) to the new revision.
 2. Refresh the vendored corpus from the new commit.
-3. `scripts/check-gmcp-ledger.py --write` regenerates the ledger from the
-   new corpus; review the row-level diff — new clauses must be
-   dispositioned, dropped clauses keep their rows as re-dispositioned.
+3. Update the ledger for the new corpus and review the row-level diff;
+   classify new clauses and record the disposition of removed clauses.
+   `scripts/check-gmcp-ledger.sh --write` updates repository-document pins
+   only; it does not generate the ledger.
 4. `susi mcp ledger` and the gate must pass before the re-pin merges.
 
 ### Rollback
