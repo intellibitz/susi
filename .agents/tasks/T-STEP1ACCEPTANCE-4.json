@@ -1,7 +1,7 @@
 {
   "id": "T-STEP1ACCEPTANCE-4",
   "title": "Accept the combined Rust-native delivery tree after complete diagnostic repairs",
-  "status": "pending",
+  "status": "canceled",
   "owner": "step1-acceptance-v4",
   "scopes": [
     ".agents/tasks/T-STEP1ACCEPTANCE-4.json"
@@ -27,5 +27,6 @@
     "Formatting, strict licenses, all-target Clippy, workspace tests and five adapter suites"
   ],
   "prior_attempt": "step1-acceptance-v3 failed honestly; all seven diagnostic failure targets have scoped repairs and focused evidence",
-  "production_status": "Separate optimized qualification and real A/B promotion, rollback and clean-machine acceptance remain required"
+  "production_status": "Separate optimized qualification and real A/B promotion, rollback and clean-machine acceptance remain required",
+  "integration": "Canceled by integrator before workspace acceptance: mandatory Windows tests still execute legacy Unix shell fixtures. Formatting and strict licenses passed; exact owned coordinator PID24420 and descendants were terminated after identity verification. No acceptance reference published. Evidence retained in step1-acceptance-v4-1793563396049566000-24420."
 }
