@@ -1613,7 +1613,12 @@ fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
         Some("check-native-link") if args.len()==3 => {
-            print!("{}", native_link_proof(Path::new(&args[1]), Path::new(&args[2]))?);
+            let binary = Path::new(&args[1]);
+            if fs::metadata(binary)?.len() > 256 * 1024 * 1024 { return Err("PE artifact exceeds inspection budget".into()); }
+            let bytes = fs::read(binary)?;
+            let imports = pe_imports::inspect(&bytes)?;
+            let (entry, map_sha256) = native_link::validate_reader(native_link::entry_address(&bytes)?, std::io::BufReader::new(fs::File::open(&args[2])?), 256 * 1024 * 1024)?;
+            println!("{}", serde_json::json!({"diagnostic_only":true,"artifact_sha256":digest(&bytes),"entry":entry,"imports":imports,"map_sha256":map_sha256}));
         },
         Some("record-gmcp") => gmcp_evidence::run(&ctx.root, &args[1..])?,
         Some("check-pe") if args.len()==2 => {
