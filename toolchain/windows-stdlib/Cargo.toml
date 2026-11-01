@@ -1,0 +1,16 @@
+[package]
+name = "susi-windows-stdlib-builder"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+sha2 = { package = "susi-vendor-sha2", path = "../../crates/susi-vendor-sha2" }
+serde_json = { package = "susi-vendor-serde-json", path = "../../crates/susi-vendor-serde-json" }
+
+[[bin]]
+name = "susi-windows-stdlib-builder"
+path = "builder.rs"
