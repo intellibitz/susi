@@ -10,6 +10,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+#[path = "../compiler_env.rs"]
+mod compiler_env;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
@@ -345,6 +348,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
         let mut command = Command::new("cargo");
+        compiler_env::apply(&mut command);
         for (key, _) in env::vars_os() {
             let name = key.to_string_lossy().to_ascii_uppercase();
             if name.starts_with("SUSI_")
