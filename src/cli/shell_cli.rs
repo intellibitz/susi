@@ -77,9 +77,12 @@ impl ShellSession {
 
     fn prepare_existing_local(&self, goal: &str) {
         // File reads need no language model. Preserve that direct path.
-        if susi_core::manifold::IntentManifold::analyze(goal).scope_of_impact
-            == susi_core::manifold::ScopeOfImpact::Read
-        {
+        let lower = goal.to_ascii_lowercase();
+        let focused = lower
+            .strip_prefix("run ")
+            .or_else(|| lower.strip_prefix("automate "))
+            .unwrap_or(&lower);
+        if focused.starts_with("read ") || focused.starts_with("cat ") {
             return;
         }
         let mut worker = self
