@@ -17,6 +17,7 @@ pub mod extensions_cli;
 pub mod framework_cli;
 pub mod frontier_cli;
 pub mod harness_cli;
+pub mod install_cli;
 pub mod intent_cli;
 pub mod intent_guard;
 pub mod keys_cli;
