@@ -496,7 +496,7 @@ impl InferenceHost {
             ))
         })?;
 
-        let mut model_data = gguf_file::Content::read(&mut file)
+        let mut model_data = ModelManager::read_gguf_metadata(&mut file)
             .map_err(|e| EaiError::inference(format!("GGUF Metadata Error: {}", e)))?;
 
         // Architectural Scout: Inspect metadata for dynamic dispatch

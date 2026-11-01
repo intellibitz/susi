@@ -117,6 +117,14 @@ impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
 }
 
 impl ModelManager {
+    /// Parse GGUF metadata with buffered reads and tracked positions, retaining
+    /// Candle's bounds checks. The source may be borrowed for later tensor seeks.
+    pub fn read_gguf_metadata<R: std::io::Read + std::io::Seek>(
+        source: R,
+    ) -> susi_vendor_candle::candle_core::Result<GgufContent> {
+        parse_gguf(source)
+    }
+
     pub fn record_inference_result(model: &str, success: bool) {
         let failures = MODEL_FAILURES.get_or_init(DashMap::new);
         if success {
@@ -933,6 +941,24 @@ mod tests {
             format!("{:?}", buffered.metadata),
             format!("{:?}", direct.metadata)
         );
+        // Native loading borrows its file for parsing, then seeks tensor data
+        // on that same file after the metadata buffer has been dropped.
+        let mut source = fs::File::open(&path).unwrap();
+        let native = ModelManager::read_gguf_metadata(&mut source).unwrap();
+        assert_eq!(native.tensor_data_offset, direct.tensor_data_offset);
+        assert_eq!(
+            format!("{:?}", native.metadata),
+            format!("{:?}", direct.metadata)
+        );
+        let device = susi_vendor_candle::candle_core::Device::Cpu;
+        let values = native
+            .tensor(&mut source, "x", &device)
+            .unwrap()
+            .dequantize(&device)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap();
+        assert_eq!(values, vec![0.0; 4]);
         assert_eq!(ModelManager::judge_gguf_payload(&path), Some(true));
         assert_eq!(
             ModelManager::judge_gguf_template_supports_tools(&path),
