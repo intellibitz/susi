@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1NATIVESPEED20261101-2",
+  "title": "Use installed llama.cpp on demand for fast small local model goals",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "llamacpp_launcher",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1NATIVESPEED20261101",
+  "created_unix": 1793538871,
+  "closed": {
+    "at_unix": 1793539602,
+    "commit": "a80f0d1eced181d962998179deb0d5eb5b404d10",
+    "by": "CODEXSTEP1NATIVESPEED20261101"
+  }
+}
