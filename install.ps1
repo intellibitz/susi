@@ -122,6 +122,13 @@ if (-not $Installed) {
     exit 1
 }
 
+# Older installations kept a second full copy. The verified replacement is
+# already installed and the old instance stopped, so retire only that copy.
+$LegacyEnginePath = Join-Path $GlobalBinDir "susi-engine.exe"
+if (Test-Path -LiteralPath $LegacyEnginePath -PathType Leaf) {
+    Remove-Item -LiteralPath $LegacyEnginePath -Force
+}
+
 # 3. PATH Automation (0-Effort Onboarding)
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not $IsolatedInstall -and $GlobalBinDir -notin ($UserPath -split ';')) {
