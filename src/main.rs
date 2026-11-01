@@ -198,7 +198,19 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+/// A locally started inference runner belongs to this invocation. Keeping the
+/// guard outside the goal loop allows reuse, then reaps it on normal exit;
+/// the Windows process job also covers termination without unwinding.
+struct LocalRunnerSession;
+
+impl Drop for LocalRunnerSession {
+    fn drop(&mut self) {
+        susi_gemi::engines::runtime::GemiEngine::shutdown_owned_runner();
+    }
+}
+
 fn run() -> std::process::ExitCode {
+    let _local_runner_session = LocalRunnerSession;
     // Before anything can write: a consumer that closes the pipe (`susi status
     // | head -1`) must stop us cleanly instead of panicking, which under
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own

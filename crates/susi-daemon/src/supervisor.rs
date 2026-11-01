@@ -40,6 +40,22 @@ const TERM_GRACE: Duration = Duration::from_secs(2);
 /// must not kill a healthy service.
 const WEDGED_MISS_LIMIT: u32 = 3;
 
+/// Attach an inference child started by this process to its lifetime guard.
+/// This uses the same Windows job as supervised services without starting a
+/// daemon or adding the child to the service restart loop. Other platforms
+/// retain the caller's scoped child owner for normal shutdown.
+pub fn adopt_ephemeral_child(child: &std::process::Child) -> bool {
+    #[cfg(windows)]
+    {
+        child_job::leaf_job().is_some_and(|job| child_job::adopt(job, child))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = child;
+        true
+    }
+}
+
 /// A kill-on-close job object for every supervised leaf child on Windows.
 ///
 /// Windows has neither a parent-death signal nor a process group to signal:
