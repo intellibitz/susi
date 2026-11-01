@@ -29,7 +29,13 @@ pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec
     if !root.join("crates/susi-core/Cargo.toml").is_file() {
         return Ok(Vec::new());
     }
-    for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
+    for name in [
+        "idna-adapter",
+        "unicode-ident",
+        "htmlescape",
+        "regex-syntax",
+        "regex-syntax/os-unicode",
+    ] {
         if !root.join("vendor").join(name).join("Cargo.toml").is_file() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -53,7 +59,13 @@ pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec
         path.replace('"', "\\\"")
     );
     let mut commands = Vec::new();
-    for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
+    for name in [
+        "idna-adapter",
+        "unicode-ident",
+        "htmlescape",
+        "regex-syntax",
+        "regex-syntax/os-unicode",
+    ] {
         let manifest = format!("vendor/{name}/Cargo.toml");
         // Their generated lockfiles are ignored, private build evidence. All
         // actual dependencies are pinned local source; resolution stays offline.
@@ -132,7 +144,13 @@ mod tests {
         );
         assert_eq!(gates[2], ["build", "-p", "susi"]);
         assert!(commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).is_err());
-        for name in ["idna-adapter", "unicode-ident", "htmlescape"] {
+        for name in [
+            "idna-adapter",
+            "unicode-ident",
+            "htmlescape",
+            "regex-syntax",
+            "regex-syntax/os-unicode",
+        ] {
             std::fs::create_dir_all(root.join("vendor").join(name)).unwrap();
             std::fs::write(
                 root.join("vendor").join(name).join("Cargo.toml"),
@@ -141,14 +159,14 @@ mod tests {
             .unwrap();
         }
         let commands = commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).unwrap();
-        assert_eq!(commands.len(), 6);
+        assert_eq!(commands.len(), 10);
         for command in &commands {
             assert!(command.contains(&"--offline".into()));
             assert!(command
                 .iter()
                 .any(|arg| arg.starts_with("patch.crates-io.idna_adapter.path=")));
         }
-        for command in [&commands[1], &commands[3], &commands[5]] {
+        for command in commands.iter().filter(|command| command[0] == "test") {
             assert_eq!(command[0], "test");
             assert!(
                 !command.contains(&"--lib".into()),
