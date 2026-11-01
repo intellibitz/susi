@@ -15,7 +15,9 @@ pub(crate) struct Library(NonNull<c_void>);
 // thread. Drop requires exclusive ownership; Symbol borrows prevent releasing
 // this reference while a symbol wrapper exists. These impls do not assert that
 // arbitrary resolved functions are thread safe: callers must uphold their ABI.
+#[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
 unsafe impl Send for Library {}
+#[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
 unsafe impl Sync for Library {}
 
 pub(crate) struct Symbol<'library, T> {
@@ -40,6 +42,7 @@ impl Library {
     /// calling convention and argument/return ABI. Any copy of the pointer
     /// must not be called after this Library is dropped. A size check alone
     /// cannot prove those requirements; the private ICU binder supplies them.
+    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
     pub(crate) unsafe fn get<T: Copy>(&self, name: &[u8]) -> io::Result<Symbol<'_, T>> {
         let name = CStr::from_bytes_with_nul(name).map_err(|_| {
             io::Error::new(
@@ -59,6 +62,7 @@ impl Library {
         let pointer = address.as_ptr();
         // SAFETY: The non-null OS address has pointer size; the caller supplies
         // the matching function-pointer ABI and preserves library lifetime.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         let value = unsafe { std::mem::transmute_copy::<*mut c_void, T>(&pointer) };
         Ok(Symbol {
             value,
@@ -71,7 +75,10 @@ impl Drop for Library {
     fn drop(&mut self) {
         // SAFETY: Exactly one successful open created this owned reference.
         // No clones or raw handle escape exist; borrowing excludes live symbols.
-        unsafe { native::close(self.0) };
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
+        unsafe {
+            native::close(self.0)
+        };
     }
 }
 
@@ -79,6 +86,7 @@ impl Drop for Library {
 mod native {
     use super::*;
     #[link(name = "kernel32")]
+    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
     unsafe extern "system" {
         fn LoadLibraryExW(name: *const u16, reserved: *mut c_void, flags: u32) -> *mut c_void;
         fn GetProcAddress(module: *mut c_void, name: *const std::ffi::c_char) -> *mut c_void;
@@ -103,6 +111,7 @@ mod native {
         let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
         // SAFETY: The name is a valid terminated UTF-16 buffer. No borrowed
         // handles are supplied; 0x800 is LOAD_LIBRARY_SEARCH_SYSTEM32.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         let handle = unsafe { LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), 0x800) };
         NonNull::new(handle).ok_or_else(io::Error::last_os_error)
     }
@@ -110,12 +119,15 @@ mod native {
     pub(super) fn symbol(handle: NonNull<c_void>, name: &CStr) -> io::Result<NonNull<c_void>> {
         // SAFETY: Library owns the live handle; CStr guarantees a terminated
         // non-ordinal name, and borrowing prevents concurrent handle release.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         NonNull::new(unsafe { GetProcAddress(handle.as_ptr(), name.as_ptr()) })
             .ok_or_else(io::Error::last_os_error)
     }
 
+    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
     pub(super) unsafe fn close(handle: NonNull<c_void>) {
         // SAFETY: The caller owns exactly one matching loader reference.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         let _ = unsafe { FreeLibrary(handle.as_ptr()) };
     }
 }
@@ -126,6 +138,7 @@ mod native {
     use std::ffi::CString;
     use std::path::{Component, Path};
     #[cfg_attr(target_os = "linux", link(name = "dl"))]
+    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
     unsafe extern "C" {
         fn dlopen(path: *const std::ffi::c_char, flags: i32) -> *mut c_void;
         fn dlsym(handle: *mut c_void, name: *const std::ffi::c_char) -> *mut c_void;
@@ -164,6 +177,7 @@ mod native {
         // is 4; on Linux it is 0. Neither platform exports symbols globally.
         let flags = 2 | if cfg!(target_os = "macos") { 4 } else { 0 };
         // SAFETY: Valid terminated absolute OS path and published loader flags.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         NonNull::new(unsafe { dlopen(name.as_ptr(), flags) })
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "OS library unavailable"))
     }
@@ -171,13 +185,16 @@ mod native {
     pub(super) fn symbol(handle: NonNull<c_void>, name: &CStr) -> io::Result<NonNull<c_void>> {
         // SAFETY: Live owned handle and terminated name. A null address cannot
         // represent a callable function, regardless of dlerror's thread state.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         NonNull::new(unsafe { dlsym(handle.as_ptr(), name.as_ptr()) }).ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, "required OS symbol unavailable")
         })
     }
 
+    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
     pub(super) unsafe fn close(handle: NonNull<c_void>) {
         // SAFETY: The caller owns exactly one matching loader reference.
+        #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
         let _ = unsafe { dlclose(handle.as_ptr()) };
     }
 }
@@ -191,6 +208,7 @@ mod native {
     pub(super) fn symbol(_: NonNull<c_void>, _: &CStr) -> io::Result<NonNull<c_void>> {
         Err(io::ErrorKind::Unsupported.into())
     }
+    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
     pub(super) unsafe fn close(_: NonNull<c_void>) {}
 }
 
@@ -217,19 +235,33 @@ mod tests {
     fn windows_system_icu_symbol_lifetime_missing_symbols_and_concurrent_lookup() {
         let library = std::sync::Arc::new(Library::new("icu.dll").unwrap());
         type Version = unsafe extern "C" fn(*mut u8);
-        assert!(unsafe { library.get::<Version>(b"susi_missing_symbol_0123456789\0") }.is_err());
-        assert!(unsafe { library.get::<Version>(b"u_getUnicodeVersion") }.is_err());
-        assert!(unsafe { library.get::<u8>(b"u_getUnicodeVersion\0") }.is_err());
+        #[allow(unsafe_code)]
+        // SAFETY: Invalid name or size is rejected before resolving/calling a symbol.
+        let rejected = unsafe { library.get::<Version>(b"susi_missing_symbol_0123456789\0") };
+        assert!(rejected.is_err());
+        #[allow(unsafe_code)]
+        // SAFETY: Invalid name or size is rejected before resolving/calling a symbol.
+        let rejected = unsafe { library.get::<Version>(b"u_getUnicodeVersion") };
+        assert!(rejected.is_err());
+        #[allow(unsafe_code)]
+        // SAFETY: Invalid name or size is rejected before resolving/calling a symbol.
+        let rejected = unsafe { library.get::<u8>(b"u_getUnicodeVersion\0") };
+        assert!(rejected.is_err());
         let workers: Vec<_> = (0..4)
             .map(|_| {
                 let library = library.clone();
                 std::thread::spawn(move || {
+                    #[allow(unsafe_code)]
+                    // SAFETY: Exact ICU ABI, with owning Arc retained through call.
                     let function =
                         unsafe { library.get::<Version>(b"u_getUnicodeVersion\0") }.unwrap();
                     let mut version = [0u8; 4];
                     // SAFETY: The exact documented ICU signature writes four bytes;
                     // this thread retains the owning Arc while calling the symbol.
-                    unsafe { function(version.as_mut_ptr()) };
+                    #[allow(unsafe_code)] // Narrow OS ABI boundary; see adjacent SAFETY contract.
+                    unsafe {
+                        function(version.as_mut_ptr())
+                    };
                     assert!(version[0] >= 10);
                 })
             })

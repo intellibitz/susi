@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 //! Original OS ICU adapter. No Unicode data or foreign implementation is bundled.
+#![deny(unsafe_code)]
 mod native_library;
 use native_library::Library;
 use std::{collections::BTreeMap, ffi::c_void, sync::OnceLock};
@@ -72,6 +73,7 @@ fn load() -> Result<Api, Unavailable> {
         for suffix in suffixes {
             // SAFETY: These are ICU's published C signatures. The owned library
             // remains alive in Api as long as any stored function is reachable.
+            #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
             let result = unsafe {
                 (|| {
                     Ok::<_, std::io::Error>((
@@ -114,6 +116,7 @@ fn api() -> Result<&'static Api, Unavailable> {
 pub fn unicode_version() -> Result<[u8; 4], Unavailable> {
     let mut version = [0; 4];
     // SAFETY: ICU writes precisely the four-byte version buffer.
+    #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
     unsafe {
         (api()?.version)(version.as_mut_ptr());
     }
@@ -128,6 +131,7 @@ pub fn ranges(property: &str, value: &str) -> Result<Vec<(char, char)>, Unavaila
     let value: Vec<u16> = value.encode_utf16().collect();
     // SAFETY: The constructor takes an empty interval; null is checked. All
     // subsequent operations receive this owned live set and bounded buffers.
+    #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
     let raw = unsafe { (api.open)(1, 0) };
     if raw.is_null() {
         return Err(Unavailable);
@@ -138,11 +142,15 @@ pub fn ranges(property: &str, value: &str) -> Result<Vec<(char, char)>, Unavaila
     }
     impl Drop for Set<'_> {
         fn drop(&mut self) {
-            unsafe { (self.api.close)(self.raw) }
+            #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
+            unsafe {
+                (self.api.close)(self.raw)
+            }
         }
     }
     let set = Set { api, raw };
     let mut status = 0;
+    #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
     unsafe {
         (api.apply)(
             set.raw,
@@ -156,6 +164,7 @@ pub fn ranges(property: &str, value: &str) -> Result<Vec<(char, char)>, Unavaila
     if status > 0 {
         return Err(Unavailable);
     }
+    #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
     let count = unsafe { (api.count)(set.raw) };
     if !(0..=0x110000).contains(&count) {
         return Err(Unavailable);
@@ -163,6 +172,7 @@ pub fn ranges(property: &str, value: &str) -> Result<Vec<(char, char)>, Unavaila
     let mut ranges = Vec::new();
     for index in 0..count {
         let (mut start, mut end) = (0, 0);
+        #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
         let length = unsafe {
             (api.item)(
                 set.raw,
@@ -210,6 +220,7 @@ pub fn folds() -> Result<&'static FoldTable, Unavailable> {
                     continue;
                 };
                 // SAFETY: ICU accepts every scalar; option zero selects default simple folding.
+                #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
                 let folded = unsafe { (api.fold)(scalar as i32, 0) };
                 let folded = char::from_u32(folded as u32).ok_or(Unavailable)?;
                 if folded != c {
@@ -244,7 +255,10 @@ pub fn supports_age(version: [u8; 2]) -> Result<bool, Unavailable> {
             for scalar in (0..=0x10ffff).filter(|n| char::from_u32(*n).is_some()) {
                 let mut age = [0; 4];
                 // SAFETY: Valid scalar and writable four-byte ICU version array.
-                unsafe { (api.age)(scalar as i32, age.as_mut_ptr()) };
+                #[allow(unsafe_code)] // Narrow audited ICU call; safety contract is adjacent.
+                unsafe {
+                    (api.age)(scalar as i32, age.as_mut_ptr())
+                };
                 if age[0] != 0 {
                     ages.insert([age[0], age[1]]);
                 }
