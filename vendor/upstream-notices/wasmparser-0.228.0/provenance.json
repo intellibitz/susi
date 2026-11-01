@@ -1,0 +1,18 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "wasmparser",
+  "version": "0.228.0",
+  "repository": "https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasmparser",
+  "revision": "e66235859a6ec0502bf6f9dcc358953eda4cafcc",
+  "path_in_vcs": "crates/wasmparser",
+  "crate_checksum": "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3",
+  "files": [
+    {
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "source_path": "LICENSE-MIT",
+      "url": "https://github.com/bytecodealliance/wasm-tools/blob/e66235859a6ec0502bf6f9dcc358953eda4cafcc/LICENSE-MIT",
+      "git_blob_sha1": "31aa79387f27e730e33d871925e152e35e428031",
+      "path": "LICENSE-MIT"
+    }
+  ]
+}

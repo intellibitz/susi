@@ -1,0 +1,20 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "ra2a",
+  "version": "0.10.1",
+  "repository": "https://github.com/qntx/ra2a",
+  "revision": "27a1e49ca877376871a92a1f6bc16707656eff56",
+  "path_in_vcs": "ra2a",
+  "crate_checksum": "dee2641520f47153feca6555d4b7d0bfc5b2b74e07a948a193905e433c1b6808",
+  "crate_checksum_origin": "SHA256 of cached published .crate archive, matched to Cargo.lock",
+  "files": [
+    {
+      "path": "LICENSE-MIT",
+      "source_path": "LICENSE-MIT",
+      "sha256": "a7923be21bff060b250fa13649ca3a3d0d2f3f69346bdfc7e8249f37ad96b0d8",
+      "git_blob_sha1": "2d1ea131015a20e98dc5778676386f4bda2b9481",
+      "url": "https://github.com/qntx/ra2a/blob/27a1e49ca877376871a92a1f6bc16707656eff56/LICENSE-MIT"
+    }
+  ],
+  "repository_redirect": "GitHub repository ID 1145940064 moved from qntx/ra2a to qntx-labs/ra2a; pinned revision and blobs are unchanged."
+}

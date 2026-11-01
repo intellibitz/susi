@@ -1,0 +1,30 @@
+{
+  "schema": "susi/upstream-notice/v1",
+  "name": "ownedbytes",
+  "version": "0.9.0",
+  "repository": "https://github.com/quickwit-oss/tantivy",
+  "revision": "c6e77d27c605cb3cea1a933fa7d68632aeb7865e",
+  "path_in_vcs": "ownedbytes",
+  "crate_checksum": "2fbd56f7631767e61784dc43f8580f403f4475bd4aaa4da003e6295e1bab4a7e",
+  "files": [
+    {
+      "url": "https://github.com/quickwit-oss/tantivy/blob/c6e77d27c605cb3cea1a933fa7d68632aeb7865e/LICENSE",
+      "git_blob_sha1": "7b1fc849b042df2e7607138009e81bd078d9db4a",
+      "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a",
+      "path": "LICENSE",
+      "source_path": "LICENSE"
+    },
+    {
+      "url": "https://github.com/quickwit-oss/tantivy/blob/c6e77d27c605cb3cea1a933fa7d68632aeb7865e/AUTHORS",
+      "git_blob_sha1": "59562653b4c2e88837c3293e1dd0e16e840d1ff8",
+      "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d",
+      "path": "AUTHORS",
+      "source_path": "AUTHORS"
+    }
+  ],
+  "crate_checksum_origin": {
+    "archive": "ownedbytes-0.9.0.crate",
+    "corroborated_by": "Cargo.lock registry checksum",
+    "kind": "registry-archive-sha256"
+  }
+}
