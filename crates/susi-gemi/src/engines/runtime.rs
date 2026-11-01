@@ -62,6 +62,7 @@ use susi_vendor_candle::tokenizers::Tokenizer;
 /// Prefer an installed runner only for ordinary automatic text work. Output
 /// formatting is not a second reasoning step; the substantive request still
 /// passes both existing classifiers and explicit capability/policy gates.
+#[allow(clippy::too_many_arguments)] // Independent request/policy facts; keep the pure gate explicit without a one-use configuration type.
 fn fast_local_eligible(
     prompt: &str,
     requested_model: Option<&str>,
