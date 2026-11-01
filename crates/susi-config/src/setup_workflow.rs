@@ -83,20 +83,40 @@ impl SetupPlan {
             .unwrap_or(1);
         let hardware = format!("cpus={cpus}");
         let mut available_engines = Vec::new();
-        if home.join("bin").join("susi").is_file() {
+        if home.join("bin").join(executable_name("susi")).is_file() {
             available_engines.push("susi".into());
         }
-        if home.join("bin").join("susi-native").is_file() || which("susi-native") {
+        if home
+            .join("bin")
+            .join(executable_name("susi-native"))
+            .is_file()
+        {
             available_engines.push("susi-native".into());
         }
         let mut engines = Vec::new();
-        if home.join("bin").join("susi").exists() || which("llama-server") {
+        if which("llama-server") {
             engines.push("local-inference".into());
         }
         engines.push("susi-native".into());
         let mut keys_present = Vec::new();
-        for name in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"] {
-            if std::env::var(name).ok().filter(|v| !v.is_empty()).is_some() {
+        let registered = std::fs::read_to_string(home.join("cloud.env"))
+            .map(|text| crate::cloud_env::parse_env_file(&text))
+            .unwrap_or_default();
+        let vendors: Vec<crate::extensions::CloudVendorEntry> = serde_json::from_str(include_str!(
+            "../../../config/extensions/default/cloud-vendors.json"
+        ))
+        .unwrap_or_default();
+        let names = vendors.iter().flat_map(|vendor| {
+            std::iter::once(&vendor.api_key_env).chain(vendor.api_key_env_alts.iter())
+        });
+        for name in names {
+            if std::env::var(name)
+                .ok()
+                .is_some_and(|v| !v.trim().is_empty())
+                || registered
+                    .iter()
+                    .any(|(key, value)| key == name && !value.trim().is_empty())
+            {
                 keys_present.push(name.to_string());
             }
         }
@@ -199,7 +219,7 @@ impl SetupPlan {
                     }
                 }
                 "default_config" => {
-                    let cfg = home.join("config").join("config.json");
+                    let cfg = home.join("config.json");
                     if !cfg.exists() {
                         validate_json_object(BUNDLED_DEFAULTS, "bundled defaults")?;
                         std::fs::write(&cfg, BUNDLED_DEFAULTS).map_err(|e| e.to_string())?;
@@ -330,8 +350,11 @@ impl SetupPlan {
 
 fn runtime_executable(home: &Path) -> Option<(String, PathBuf)> {
     for (name, path) in [
-        ("susi", home.join("bin").join("susi")),
-        ("susi-native", home.join("bin").join("susi-native")),
+        ("susi", home.join("bin").join(executable_name("susi"))),
+        (
+            "susi-native",
+            home.join("bin").join(executable_name("susi-native")),
+        ),
     ] {
         if path.is_file() {
             return Some((name.into(), path));
@@ -378,6 +401,13 @@ fn truncate_output(value: &str) -> String {
 
 fn which(bin: &str) -> bool {
     std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).any(|dir| dir.join(bin).is_file()))
+        .map(|p| {
+            std::env::split_paths(&p)
+                .any(|dir| dir.is_absolute() && dir.join(executable_name(bin)).is_file())
+        })
         .unwrap_or(false)
+}
+
+fn executable_name(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
