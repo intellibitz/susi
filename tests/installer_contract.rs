@@ -111,8 +111,19 @@ echo INSTALLER_CONTRACT_PASSED
 
 #[test]
 fn installer_unix_step1_rejects_relative_home_before_writes() {
-    let script = format!("export SUSI_HOME=relative-install-home\n{INSTALLER}");
+    let script = format!(
+        r#"scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+cd "$scratch" || exit 1
+export HOME="$scratch" SUSI_HOME=relative-install-home
+(
+{INSTALLER}
+)
+status=$?
+test "$status" -ne 0 && test ! -e relative-install-home
+"#
+    );
     let output = run_bash(&script);
-    assert!(!output.status.success());
+    assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("SUSI_HOME must be an absolute"));
 }
