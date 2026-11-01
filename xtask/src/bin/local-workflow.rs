@@ -239,6 +239,107 @@ fn git_input(root: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     Ok(String::from_utf8(out.stdout)?.trim().to_owned())
 }
 
+fn receipt_matches(
+    root: &Path,
+    reference: &str,
+    receipt: &str,
+    accepted: &str,
+    tree: &str,
+) -> Result<bool> {
+    let lines: Vec<_> = receipt.lines().collect();
+    let keys = [
+        "agent=",
+        "source=",
+        "claim-base=",
+        "previous=",
+        "commit=",
+        "tree=",
+    ];
+    if lines.len() < 8 || lines[0] != "susi-local-integration-v1" {
+        return Ok(false);
+    }
+    let fields: Option<Vec<_>> = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| lines[index + 1].strip_prefix(key))
+        .collect();
+    let Some(fields) = fields else {
+        return Ok(false);
+    };
+    if name(fields[0]).is_err()
+        || ![fields[1], fields[2], fields[4], fields[5]]
+            .iter()
+            .all(|field| valid_oid(field))
+        || fields[4] != accepted
+        || fields[5] != tree
+        || reference != format!("refs/susi/integration/receipts/{}/{}", fields[0], fields[1])
+        || lines[7..].iter().all(|line| line.trim().is_empty())
+        || !lines[7..]
+            .iter()
+            .any(|line| line.contains(" => exit code: 0;"))
+        || lines[7..]
+            .iter()
+            .any(|line| keys.iter().any(|key| line.starts_with(key)))
+        || lines[7..].iter().any(|line| {
+            line.split_once(" => ")
+                .is_some_and(|(_, status)| !status.starts_with("exit code: 0;"))
+        })
+    {
+        return Ok(false);
+    }
+    if !is_ancestor(root, fields[2], fields[1])? || !is_ancestor(root, fields[1], accepted)? {
+        return Ok(false);
+    }
+    if fields[3] != "none"
+        && (!valid_oid(fields[3])
+            || !is_ancestor(root, fields[2], fields[3])?
+            || !is_ancestor(root, fields[3], accepted)?)
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn scope_base(root: &Path, claim: &Claim, source: &str) -> Result<String> {
+    let Some(accepted) = integration_head(root)? else {
+        return Ok(claim.base.clone());
+    };
+    if !is_ancestor(root, &claim.base, &accepted)? {
+        return Err("accepted history does not descend from the reserved claim base".into());
+    }
+    let tree = git(root, &["rev-parse", &format!("{accepted}^{{tree}}")])?;
+    let receipts = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/susi/integration/receipts/",
+        ],
+    )?;
+    let mut verified = false;
+    for entry in receipts.lines() {
+        let (reference, oid) = entry
+            .split_once(' ')
+            .ok_or("malformed receipt reference listing")?;
+        let receipt = git(root, &["cat-file", "blob", oid])?;
+        if receipt_matches(root, reference, &receipt, &accepted, &tree)? {
+            verified = true;
+            break;
+        }
+    }
+    if !verified {
+        return Err("accepted integration has no matching durable source/tree receipt".into());
+    }
+    // Only history shared with the tested integration is exempt. New changes
+    // after that common ancestor remain subject to this worker's original scope.
+    let bases = git(root, &["merge-base", "--all", source, &accepted])?;
+    let bases: Vec<_> = bases.lines().collect();
+    if bases.len() != 1 || !is_ancestor(root, &claim.base, bases[0])? {
+        return Err("ambiguous or unrelated accepted merge base".into());
+    }
+    Ok(bases[0].to_owned())
+}
+
 fn check_source(root: &Path, claim: &Claim) -> Result<String> {
     if state(&claim.worktree)? != state(root)?
         || git(&claim.worktree, &["branch", "--show-current"])?
@@ -258,6 +359,7 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
     if !is_ancestor(root, &claim.base, &source)? {
         return Err("source no longer descends from its reserved base".into());
     }
+    let scope_base = scope_base(root, claim, &source)?;
     let out = Command::new("git")
         .current_dir(root)
         .args([
@@ -265,7 +367,7 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
             "--no-renames",
             "--name-only",
             "-z",
-            &claim.base,
+            &scope_base,
             &source,
         ])
         .output()?;
@@ -1166,13 +1268,16 @@ mod tests {
         let first = integrate_with(&repo, "left", |candidate, _| {
             assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
             assert!(!candidate.join("right.rs").exists());
-            Ok(vec!["test-only content verification passed".into()])
+            Ok(vec![
+                "test-only content verification passed => exit code: 0; fixture verifier completed"
+                    .into(),
+            ])
         })
         .unwrap();
         let second = integrate_with(&repo, "right", |candidate, _| {
             assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
             assert_eq!(fs::read_to_string(candidate.join("right.rs"))?, "right");
-            Ok(vec!["test-only combined content verification passed".into()])
+            Ok(vec!["test-only combined content verification passed => exit code: 0; fixture verifier completed".into()])
         })
         .unwrap();
         assert_ne!(first, second);
@@ -1191,6 +1296,115 @@ mod tests {
         assert!(receipt.contains(&format!("source={source}")));
         let third = start(&repo, "third", &["third.rs".into()]).unwrap();
         assert_eq!(git(&third, &["rev-parse", "HEAD"]).unwrap(), second);
+    }
+
+    #[test]
+    fn accepted_imports_do_not_expand_the_workers_reserved_scope() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let right = worker(&repo, "right", "right.rs", "right");
+        worker(&repo, "left", "left.rs", "left");
+        let accepted = integrate_with(&repo, "left", |_, _| {
+            Ok(vec![
+                "fixture verification => exit code: 0; fixture verifier completed".into(),
+            ])
+        })
+        .unwrap();
+        git(
+            &right,
+            &["-c", "core.hooksPath=", "merge", "--no-edit", &accepted],
+        )
+        .unwrap();
+        let claim = read_claim(&state(&repo).unwrap().join("claims/right.claim")).unwrap();
+        assert!(
+            check_source(&repo, &claim).is_ok(),
+            "previously accepted left.rs is not new worker work"
+        );
+        fs::write(right.join("outside.rs"), "new unauthorized work").unwrap();
+        git(&right, &["add", "outside.rs"]).unwrap();
+        git(
+            &right,
+            &["-c", "core.hooksPath=", "commit", "-qm", "outside"],
+        )
+        .unwrap();
+        assert!(check_source(&repo, &claim)
+            .unwrap_err()
+            .to_string()
+            .contains("outside reserved scope"));
+        // Even an accepted import cannot authorize a later edit to its file.
+        git(&right, &["revert", "--no-edit", "HEAD"]).unwrap();
+        fs::write(right.join("left.rs"), "tampered accepted import").unwrap();
+        git(&right, &["add", "left.rs"]).unwrap();
+        git(
+            &right,
+            &["-c", "core.hooksPath=", "commit", "-qm", "tamper"],
+        )
+        .unwrap();
+        assert!(check_source(&repo, &claim)
+            .unwrap_err()
+            .to_string()
+            .contains("outside reserved scope"));
+    }
+
+    #[test]
+    fn scope_exemption_requires_related_accepted_history_and_receipt() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let right = worker(&repo, "right", "right.rs", "right");
+        worker(&repo, "left", "left.rs", "left");
+        let accepted = integrate_with(&repo, "left", |_, _| {
+            Ok(vec![
+                "fixture verification => exit code: 0; fixture verifier completed".into(),
+            ])
+        })
+        .unwrap();
+        git(
+            &right,
+            &["-c", "core.hooksPath=", "merge", "--no-edit", &accepted],
+        )
+        .unwrap();
+        let claim = read_claim(&state(&repo).unwrap().join("claims/right.claim")).unwrap();
+        let receipts = git(
+            &repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/susi/integration/receipts/",
+            ],
+        )
+        .unwrap();
+        for receipt in receipts.lines() {
+            let raw = git(&repo, &["cat-file", "blob", receipt]).unwrap();
+            let tree = git(&repo, &["rev-parse", &format!("{accepted}^{{tree}}")]).unwrap();
+            assert!(receipt_matches(&repo, receipt, &raw, &accepted, &tree).unwrap());
+            for malformed in [
+                format!("susi-local-integration-v1\ncommit={accepted}\ntree={tree}\n"),
+                format!("{raw}\ncommit={accepted}\n"),
+                raw.replace(
+                    "fixture verification => exit code: 0; fixture verifier completed",
+                    "hello",
+                ),
+                raw.replace("agent=left", "agent=other"),
+                raw.replace(
+                    "fixture verification",
+                    "cargo test => exit code: 1; elapsed-ms=1",
+                ),
+            ] {
+                assert!(!receipt_matches(&repo, receipt, &malformed, &accepted, &tree).unwrap());
+            }
+            git(&repo, &["update-ref", "-d", receipt]).unwrap();
+        }
+        assert!(check_source(&repo, &claim)
+            .unwrap_err()
+            .to_string()
+            .contains("matching durable"));
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "unrelated history"]).unwrap();
+        git(&repo, &["update-ref", INTEGRATION_REF, &unrelated]).unwrap();
+        assert!(check_source(&repo, &claim)
+            .unwrap_err()
+            .to_string()
+            .contains("does not descend"));
     }
 
     #[test]
@@ -1222,7 +1436,9 @@ mod tests {
         let worktree = worker(&repo, "one", "one.rs", "one");
         assert!(integrate_with(&repo, "one", |candidate, _| {
             fs::write(candidate.join("one.rs"), "modified after verification")?;
-            Ok(vec!["test-only check".into()])
+            Ok(vec![
+                "test-only check => exit code: 0; fixture verifier completed".into(),
+            ])
         })
         .is_err());
         fs::write(worktree.join("outside.rs"), "escape").unwrap();
@@ -1247,7 +1463,9 @@ mod tests {
         let external = git(&repo, &["rev-parse", "HEAD"]).unwrap();
         assert!(integrate_with(&repo, "one", |_, _| {
             git(&repo, &["update-ref", INTEGRATION_REF, &external])?;
-            Ok(vec!["test-only check".into()])
+            Ok(vec![
+                "test-only check => exit code: 0; fixture verifier completed".into(),
+            ])
         })
         .is_err());
         assert_eq!(integration_head(&repo).unwrap(), Some(external));
@@ -1271,7 +1489,9 @@ mod tests {
         assert!(integrate_with(&repo, "one", |_, _| {
             fs::write(worktree.join("one.rs"), "new untested source")?;
             commit(&worktree, "one", "advanced during verification")?;
-            Ok(vec!["test-only prior-head check".into()])
+            Ok(vec![
+                "test-only prior-head check => exit code: 0; fixture verifier completed".into(),
+            ])
         })
         .is_err());
         assert_eq!(integration_head(&repo).unwrap(), None);
@@ -1340,6 +1560,22 @@ mod tests {
         .unwrap();
         let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
         git(&repo, &["update-ref", INTEGRATION_REF, &head]).unwrap();
+        // This fixture models a previously accepted conflicting change. Supply
+        // its matching receipt so the test reaches the actual merge conflict.
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let receipt = format!(
+            "susi-local-integration-v1\nagent=fixture\nsource={head}\nclaim-base={head}\nprevious=none\ncommit={head}\ntree={tree}\ntest-only conflict fixture => exit code: 0; fixture verified\n"
+        );
+        let blob = git_input(&repo, &["hash-object", "-w", "--stdin"], receipt.as_bytes()).unwrap();
+        git(
+            &repo,
+            &[
+                "update-ref",
+                &format!("refs/susi/integration/receipts/fixture/{head}"),
+                &blob,
+            ],
+        )
+        .unwrap();
         assert!(
             integrate_with(&repo, "one", |_, _| panic!("conflict reached verification")).is_err()
         );
