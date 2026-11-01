@@ -1,13 +1,13 @@
 //! Certificate encoding by rcgen with RustCrypto RSA signing.
 #![forbid(unsafe_code)]
-use rand::{rngs::OsRng, RngCore};
 pub use rcgen::*;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::EncodePrivateKey;
+use rsa::rand_core::{OsRng, RngCore};
 use rsa::signature::{RandomizedSigner, SignatureEncoding};
 
 pub struct RsaSigningKey {
-    signer: rsa::pkcs1v15::SigningKey<sha2::Sha256>,
+    signer: rsa::pkcs1v15::SigningKey<rsa::sha2::Sha256>,
     public_der: Vec<u8>,
     private_pem: zeroize::Zeroizing<String>,
 }
@@ -47,7 +47,7 @@ pub fn generate_simple_self_signed(
         .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
         .map_err(|_| Error::CouldNotParseKeyPair)?;
     let signing_key = RsaSigningKey {
-        signer: rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private),
+        signer: rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new(private),
         public_der,
         private_pem,
     };

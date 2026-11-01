@@ -4,7 +4,7 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "SUSI vendor facade: sole workspace owner of `ureq`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
+description = "Synchronous HTTP transport with native OS TLS; callers explicitly select platform certificate trust."
 
 [dependencies]
 ureq = { version = "3.5", default-features = false, features = ["json", "native-tls-no-default", "gzip"] }
