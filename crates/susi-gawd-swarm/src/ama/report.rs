@@ -60,6 +60,11 @@ impl SusiMissionReport {
         }
     }
 
+    /// Apply the same sink boundary used by the persisted mission report.
+    pub(super) fn final_answer_for_sink(&self) -> String {
+        sink_text("mission-result", &self.final_answer)
+    }
+
     pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
         let safe_goal = sink_text("mission-goal", &self.goal);
         let safe_answer = sink_text("mission-result", &self.final_answer);

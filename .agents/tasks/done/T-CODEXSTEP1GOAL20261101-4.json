@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXSTEP1GOAL20261101-4",
+  "title": "Publish only verified final goal output",
+  "goal": "Follow-up after original task2 merged: emit the final sink-redacted answer once after verification/recovery, keep failures visible and verbose diagnostics with persisted trace",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "first_goal"
+    ]
+  },
+  "created_by": "CODEXSTEP1GOAL20261101",
+  "created_unix": 1793526825,
+  "closed": {
+    "at_unix": 1793526933,
+    "commit": "f25dbe8cfcff12ee839ceebe0b46596da320498e",
+    "by": "CODEXSTEP1GOAL20261101"
+  }
+}
