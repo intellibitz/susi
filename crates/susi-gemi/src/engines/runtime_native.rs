@@ -8,7 +8,6 @@ use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
 use std::sync::{Arc, OnceLock};
 use susi_vendor_candle::candle_core;
-use susi_vendor_candle::tokenizers::Tokenizer;
 
 pub trait NativeInferenceEngine: Send + Sync {
     fn name(&self) -> String;
@@ -126,8 +125,7 @@ impl SusiGgufEngine {
             tokenizer_path.display()
         );
         let tokenizer_path_for_speculative = tokenizer_path.clone();
-        let tokenizer = Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| EaiError::inference(format!("Tokenizer Error: {}", e)))?;
+        let tokenizer = substrate.tokenizer.load(&tokenizer_path)?;
 
         let wrapped_prompt = substrate.prompt_format.wrap(prompt);
         tracing::debug!(
@@ -185,6 +183,7 @@ impl SusiGgufEngine {
         );
 
         let mut text_stream = crate::engines::token_stream::TokenStream::new(&tokenizer);
+        let generation_started = std::time::Instant::now();
 
         // Universal Generative Loop: Fluid Context Expansion
         for i in 0..max_tokens {
@@ -217,6 +216,13 @@ impl SusiGgufEngine {
                 .weights
                 .forward(&input, pos)
                 .map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
+            if i == 0 {
+                tracing::debug!(
+                    prompt_tokens = prompt_tokens.len(),
+                    elapsed_ms = generation_started.elapsed().as_millis(),
+                    "Native prefill complete"
+                );
+            }
 
             // Apply repetition penalty and extract next token (Mandate 35)
             let repeat_penalty = cfg.repeat_penalty();
@@ -281,6 +287,11 @@ impl SusiGgufEngine {
             .decode(&all_tokens, true)
             .map_err(|e| EaiError::inference(format!("Decoding Error: {}", e)))?;
         text_stream.finish(&output, callback);
+        tracing::debug!(
+            generated_tokens = all_tokens.len(),
+            elapsed_ms = generation_started.elapsed().as_millis(),
+            "Native generation complete"
+        );
         task_handle.mark_completed(&output);
         Ok(output)
     }

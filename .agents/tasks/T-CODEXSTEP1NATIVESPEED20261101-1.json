@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXSTEP1NATIVESPEED20261101-1",
+  "title": "Reduce native inference latency while preserving model correctness",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "runtime",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEXSTEP1NATIVESPEED20261101",
+  "created_unix": 1793537396
+}
