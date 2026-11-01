@@ -50,6 +50,12 @@ marketed as durable memory.
 - Local patches replace disallowed default hash/compression dependencies and
   self-referential tensor ownership. Original notices remain intact. Their exact
   provenance and modifications are recorded under `vendor/`.
+- Native model admission verifies immutable publisher revisions, allowed license
+  declarations and declared lineage, and artifact hashes. Editable sidecars cannot
+  establish trust. The audited starter and BGE artifacts have pinned offline proof;
+  other cold loads require authenticated publisher access. Unknown local bytes are
+  preserved. Unverified managed Ollama pulls are refused. See the model vendor's
+  MODEL-LICENSE.md for exact scope and remaining limitations.
 - `.claude`, `.codex`, CLAUDE/GEMINI/Copilot and runtime delegation directives
   follow the CEO contract. Obsolete automatic shell startup hooks were removed.
 
@@ -60,8 +66,8 @@ The source baseline is version 0.21.38 at local commit
 evidence edits are preserved. Development occurs in isolated worktrees.
 
 Component checks have passed: native MSVC debug compilation; 14 integration
-workflow tests; seven release workflow tests; three bootstrap tests; 19 xtask
-unit tests; 16 Candle tests; 21 sandbox tests; four runtime-isolation tests;
+workflow tests; eight release workflow tests; three bootstrap tests; 19 xtask
+unit tests; 16 Candle tests; 26 sandbox tests; five runtime-isolation tests;
 owned-tensor movement/source-drop validation; and a 2,500-term compressed index
 write/reopen test. The sandbox also executed a compiled Rust WASI fixture.
 Windows HTTPS tests reject untrusted, expired, mismatched and wrong-host identities.
