@@ -169,3 +169,15 @@ installed production artifact inside an authorized isolated clean Windows
 environment and retain its installation, inference and lifecycle evidence.
 Local production qualification and rollback work may continue, but Step 1 must
 not be declared fully complete on fresh-profile evidence alone.
+
+
+Windows product qualification also inspects ordinary and delay-loaded PE import
+names directly from the exact executable before launching health checks. It
+rejects malformed images, unknown DLL dependencies and separate Visual C++
+redistributables such as `VCRUNTIME140.dll` and `MSVCP140.dll`; accepted OS import
+names are retained inside manifest-hashed gate evidence. This inspection cannot
+prove dynamically constructed `LoadLibrary` paths, OS-version availability, or
+replace a clean-machine execution test. `release check-pe <executable>` exposes
+the same read-only diagnostic. Debug artifact `3AC99979...103AF0B` was observed
+to import VCRUNTIME140; optimized production must be inspected separately rather
+than assuming its panic/runtime imports match debug.

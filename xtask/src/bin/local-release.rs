@@ -15,6 +15,8 @@ const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../pe_imports.rs"]
+mod pe_imports;
 #[path = "../prepare_release.rs"]
 mod prepare_release;
 #[path = "../upstream_notices.rs"]
@@ -1195,6 +1197,17 @@ fn qualify_with(
         .join("release")
         .join(binary_name());
     let before = file_digest(&binary)?;
+    if host.ends_with("-pc-windows-msvc") && candidate.join("crates/susi-core/Cargo.toml").is_file()
+    {
+        if fs::metadata(&binary)?.len() > 256 * 1024 * 1024 {
+            return Err("PE artifact exceeds inspection budget".into());
+        }
+        let imports = pe_imports::inspect(&fs::read(&binary)?)?;
+        proof.push_str(&format!(
+            "windows-os-imports={}\n",
+            serde_json::to_string(&imports)?
+        ));
+    }
     proof.push_str(&smoke(&binary, &attempt)?);
     proof.push_str(&prove_inference(&binary, &attempt)?);
     if file_digest(&binary)? != before {
@@ -1527,6 +1540,12 @@ fn production_command(ctx: &Context, binary: &Path, args: &[String]) -> Result<C
 fn run(args: &[String]) -> Result<()> {
     let ctx = Context::open(&env::current_dir()?)?;
     match args.first().map(String::as_str) {
+        Some("check-pe") if args.len()==2 => {
+            let binary = Path::new(&args[1]);
+            if fs::metadata(binary)?.len() > 256 * 1024 * 1024 { return Err("PE artifact exceeds inspection budget".into()); }
+            let imports = pe_imports::inspect(&fs::read(binary)?)?;
+            println!("{}",serde_json::to_string(&imports)?);
+        },
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
         Some("prepare-next") if args.len()==2 && args[1]=="patch" => prepare_release::run(&ctx)?,
         Some("check-inventory") if args.len()==1 => {
