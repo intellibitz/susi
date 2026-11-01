@@ -69,7 +69,7 @@ fn print_plan(plan: &SetupPlan) {
             .map(|key| key.trim_end_matches("_API_KEY"))
             .collect();
         println!(
-            "Cloud connections found: {} (availability checked when used).",
+            "Cloud: connections found for {} (availability checked when used).",
             names.join(", ")
         );
     }
@@ -89,7 +89,7 @@ fn print_plan(plan: &SetupPlan) {
         println!("Local AI: not yet verified.");
     } else {
         println!(
-            "Local AI previously available: {} (cached observation).",
+            "Local AI: previously available {} (cached observation).",
             engines.join(", ")
         );
     }
