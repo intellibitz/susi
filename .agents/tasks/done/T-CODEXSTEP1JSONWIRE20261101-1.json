@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CODEXSTEP1JSONWIRE20261101",
-  "created_unix": 1793530248
+  "created_unix": 1793530248,
+  "closed": {
+    "at_unix": 1793530414,
+    "commit": "01adceae3889b3e1c91aa01a1f9cd7628e8a4ac6",
+    "by": "CODEXSTEP1JSONWIRE20261101"
+  }
 }
