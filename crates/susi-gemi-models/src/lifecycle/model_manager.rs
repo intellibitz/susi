@@ -421,23 +421,12 @@ impl ModelManager {
             .write(true)
             .open(staging_target.with_extension("transaction.lock"))
             .map_err(|error| error.to_string())?;
-        let waiting = std::time::Instant::now();
-        loop {
-            task_handle.check_pause();
-            if task_handle.is_cancelled() {
-                return Err("Download cancelled".into());
-            }
-            match transaction.try_lock() {
-                Ok(()) => break,
-                Err(std::fs::TryLockError::WouldBlock) => {
-                    if waiting.elapsed().as_secs() >= policy.download_timeout_secs.max(1) {
-                        return Err("Timed out waiting for another model download worker".into());
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                Err(error) => return Err(format!("Model transaction lock: {error}")),
-            }
-        }
+        Self::wait_for_download_transaction(
+            &transaction,
+            &staging_target,
+            task_handle,
+            std::time::Duration::from_secs(policy.download_timeout_secs.max(1)),
+        )?;
         if Self::managed_download_is_ready(models_dir, &file_name, target) {
             let size = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
             Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
@@ -549,6 +538,42 @@ impl ModelManager {
             },
         );
         Err(last_error)
+    }
+
+    fn wait_for_download_transaction(
+        transaction: &fs::File,
+        staging_target: &Path,
+        task: &TaskHandle,
+        idle_timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let started = std::time::Instant::now();
+        let mut last_progress = started;
+        let mut highest_bytes = crate::download::resumable_len(staging_target);
+        // Observe only this transaction's prefix. Rewrites below the high-water
+        // mark do not buy more time. Bound even a continuously trickling peer.
+        let total_timeout = idle_timeout.saturating_mul(10);
+        loop {
+            task.check_pause();
+            if task.is_cancelled() {
+                return Err("Download cancelled".into());
+            }
+            match transaction.try_lock() {
+                Ok(()) => return Ok(()),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    let bytes = crate::download::resumable_len(staging_target);
+                    if bytes > highest_bytes {
+                        highest_bytes = bytes;
+                        last_progress = std::time::Instant::now();
+                    }
+                    if last_progress.elapsed() >= idle_timeout || started.elapsed() >= total_timeout
+                    {
+                        return Err("Timed out waiting for another model download worker".into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(error) => return Err(format!("Model transaction lock: {error}")),
+            }
+        }
     }
 
     fn transactional_store(models_dir: &Path) -> Store {
@@ -710,6 +735,48 @@ impl ModelManager {
 mod tests {
     use super::*;
     use crate::susi_core::commit_log::ENV_LOCK;
+
+    #[test]
+    fn managed_download_waits_through_forward_progress_but_times_out_a_stalled_publisher() {
+        use std::time::Duration;
+
+        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let root = std::env::temp_dir().join(format!("susi-download-wait-{}", std::process::id()));
+        let mut environment = susi_paths::test_env::EnvGuard::isolated();
+        environment.set("HOME", &root).set("SUSI_HOME", &root);
+        fs::create_dir_all(&root).unwrap();
+        let lock_path = root.join("transaction.lock");
+        let holder = fs::File::create(&lock_path).unwrap();
+        holder.lock().unwrap();
+        let waiter = fs::OpenOptions::new().write(true).open(&lock_path).unwrap();
+        let staged = root.join("model");
+        let part = root.join("model.part");
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("managed_download_wait", "model");
+        let idle = Duration::from_secs(1);
+        std::thread::scope(|threads| {
+            let owner = threads.spawn(move || {
+                let data = fs::File::create(part).unwrap();
+                for size in 1..=5 {
+                    std::thread::sleep(Duration::from_millis(300));
+                    data.set_len(size).unwrap();
+                }
+                drop(holder);
+            });
+            ModelManager::wait_for_download_transaction(&waiter, &staged, &task, idle).unwrap();
+            owner.join().unwrap();
+        });
+        // The same occupied lock now makes no progress on this prefix.
+        let stalled = fs::OpenOptions::new().write(true).open(&lock_path).unwrap();
+        let error = ModelManager::wait_for_download_transaction(&stalled, &staged, &task, idle)
+            .unwrap_err();
+        assert!(error.contains("Timed out waiting"));
+        drop(waiter);
+        ModelManager::wait_for_download_transaction(&stalled, &staged, &task, idle).unwrap();
+        drop(stalled);
+        drop(environment);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
