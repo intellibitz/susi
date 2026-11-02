@@ -27,7 +27,9 @@ fn package(base: &Path, tag: &str) -> Package {
             r#"use std::io::BufRead;
 fn main() {{
     let mut args=std::env::args().skip(1);
-    if args.next().as_deref()==Some("hold") {{let _=std::io::stdin().lock().lines().next();}}
+    let arg=args.next();
+    if arg.as_deref()==Some("--version") && !std::env::var_os("USERPROFILE").is_some_and(|p|std::path::Path::new(&p).is_absolute()) {{std::process::exit(5);}}
+    if arg.as_deref()==Some("hold") {{let _=std::io::stdin().lock().lines().next();}}
     println!("susi {tag}");
 }}"#
         ),

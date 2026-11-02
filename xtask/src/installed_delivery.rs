@@ -114,18 +114,35 @@ fn checked_command(
             "CommonProgramFiles",
             "CommonProgramFiles(x86)",
             "SystemDrive",
+            "ProgramData",
+            "ALLUSERSPROFILE",
         ] {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }
         }
         let system = std::env::var_os("SystemRoot").ok_or("Windows system directory is missing")?;
-        command.env("PATH", Path::new(&system).join("System32"));
+        let volume = Path::new(&system)
+            .ancestors()
+            .last()
+            .ok_or("missing Windows system volume")?;
+        let program_data = std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| volume.join("ProgramData"));
+        command
+            .env(
+                "SystemDrive",
+                volume.to_string_lossy().trim_end_matches(['\\', '/']),
+            )
+            .env("ProgramData", &program_data)
+            .env("ALLUSERSPROFILE", &program_data)
+            .env("PATH", Path::new(&system).join("System32"));
         command
     } else {
         super::isolated_command(exe, &scratch.join("home"))?
     };
-    command.args(args);
+    command.current_dir(&scratch).args(args);
     super::measured_health(
         command,
         &scratch,

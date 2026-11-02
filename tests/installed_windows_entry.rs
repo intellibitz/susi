@@ -71,9 +71,22 @@ fn select(root: &Path, current: &str, previous: Option<&str>) {
 
 fn command(exe: &Path, profile: &Path) -> Command {
     let mut command = Command::new(exe);
-    command.env_clear().creation_flags(0x08000000);
-    let system = std::env::var_os("SystemRoot").unwrap();
     command
+        .env_clear()
+        .current_dir(profile)
+        .creation_flags(0x08000000);
+    let system = std::env::var_os("SystemRoot").unwrap();
+    let drive = Path::new(&system)
+        .ancestors()
+        .last()
+        .unwrap()
+        .to_string_lossy();
+    let program_data = profile.join("ProgramData");
+    fs::create_dir_all(&program_data).unwrap();
+    command
+        .env("SystemDrive", drive.trim_end_matches(['\\', '/']))
+        .env("ProgramData", &program_data)
+        .env("ALLUSERSPROFILE", &program_data)
         .env("SystemRoot", &system)
         .env("WINDIR", &system)
         .env("PATH", Path::new(&system).join("System32"))
@@ -163,6 +176,10 @@ fn actual_windows_susi_dispatches_pipes_and_windows_opens_its_unicode_shortcut()
     fs::write(slot.join("susi.exe"), b"tamper").unwrap();
     let failed = command(&entry, &profile).arg("--version").output().unwrap();
     assert!(!failed.status.success());
+    assert!(
+        !profile.join("%SystemDrive%").exists(),
+        "Shell cache escaped its valid OS directories"
+    );
     assert!(String::from_utf8(failed.stderr)
         .unwrap()
         .contains("admitted manifest"));

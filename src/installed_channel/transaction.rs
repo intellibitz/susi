@@ -176,13 +176,39 @@ fn finish(root: &Path, change: &Transition, register: &impl Fn(&Path) -> Result<
 }
 
 fn version_output(exe: &Path) -> Result<String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let scratch = env::temp_dir().join(format!(
+        "susi-installed-health-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&scratch)?;
     let mut command = Command::new(exe);
-    command.env_clear().arg("--version");
-    if let Some(system) = env::var_os("SystemRoot") {
-        command
-            .env("SystemRoot", &system)
-            .env("WINDIR", &system)
-            .env("PATH", Path::new(&system).join("System32"));
+    command.env_clear().current_dir(&scratch).arg("--version");
+    let system = env::var_os("SystemRoot").ok_or("Windows system directory is missing")?;
+    let drive = Path::new(&system)
+        .ancestors()
+        .last()
+        .ok_or("Windows volume is missing")?
+        .to_string_lossy();
+    command
+        .env("SystemRoot", &system)
+        .env("WINDIR", &system)
+        .env("SystemDrive", drive.trim_end_matches(['\\', '/']))
+        .env("PATH", Path::new(&system).join("System32"))
+        .env("HOME", &scratch)
+        .env("USERPROFILE", &scratch)
+        .env("SUSI_HOME", scratch.join(".susi"));
+    for key in [
+        "ProgramData",
+        "ALLUSERSPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+    ] {
+        command.env(key, &scratch);
     }
     let output =
         susi_core::bounded_cmd::output_within(&mut command, std::time::Duration::from_secs(30))?;
@@ -193,7 +219,9 @@ fn version_output(exe: &Path) -> Result<String> {
     {
         return Err("installed release health check failed".into());
     }
-    Ok(std::str::from_utf8(&output.stdout)?.trim().into())
+    let version = std::str::from_utf8(&output.stdout)?.trim().into();
+    fs::remove_dir(scratch)?;
+    Ok(version)
 }
 
 fn check_version(package: &Package) -> Result<()> {
