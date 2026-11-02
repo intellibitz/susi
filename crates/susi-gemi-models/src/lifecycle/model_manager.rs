@@ -30,6 +30,12 @@ static MODEL_FAILURES: std::sync::OnceLock<DashMap<String, std::time::Instant>> 
 
 pub struct ModelManager;
 
+struct DownloadSource<'a> {
+    requested: &'a str,
+    resolved: &'a str,
+    publisher_sha256: Option<&'a str>,
+}
+
 /// Why a GGUF header could not be read.
 enum GgufRead {
     /// An I/O error ended the read: it says nothing about the file.
@@ -378,38 +384,89 @@ impl ModelManager {
     }
 
     pub fn execute_download_stream(target: &str, task_handle: &TaskHandle) -> Result<(), String> {
-        let receipt = susi_vendor_models::model_license::admit_download(target)?;
-        let models_dir = Self::get_models_dir();
-        let file_name = crate::download::artifact_name(&receipt.artifact_url)?;
-        let destination = models_dir.join(file_name);
-        if destination.exists() {
-            // Never turn an unknown user file into a resumable prefix which
-            // transfer may truncate. Matching bytes can be adopted in place.
-            receipt.record(&destination)?;
-            task_handle.mark_completed("Existing publisher-verified artifact adopted");
-            return Ok(());
+        let receipt = match susi_vendor_models::model_license::admit_download(target) {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                Self::download_failed(target, task_handle, &error);
+                return Err(error);
+            }
+        };
+        Self::execute_download_stream_in(
+            &DownloadSource {
+                requested: target,
+                resolved: &receipt.artifact_url,
+                publisher_sha256: Some(&receipt.sha256),
+            },
+            task_handle,
+            &Self::get_models_dir(),
+            |path| receipt.record(path),
+        )
+    }
+
+    fn download_failed(requested: &str, task: &TaskHandle, error: &str) {
+        let name = crate::download::artifact_name(requested).unwrap_or_default();
+        let status = if task.is_cancelled() {
+            "STOPPED"
+        } else {
+            "FAILED"
+        };
+        Self::save_download_progress(&name, requested, 0, 0, status);
+        if !task.is_cancelled() {
+            task.mark_failed(error);
         }
-        Self::execute_download_stream_in(&receipt.artifact_url, task_handle, &models_dir)?;
-        receipt.record(&destination)
     }
 
     fn execute_download_stream_in(
-        target: &str,
+        source: &DownloadSource<'_>,
         task_handle: &TaskHandle,
         models_dir: &Path,
+        record: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<(), String> {
+        let requested = source.requested;
+        let file_name = match crate::download::artifact_name(source.resolved) {
+            Ok(name) => name,
+            Err(error) => {
+                Self::download_failed(requested, task_handle, &error);
+                return Err(error);
+            }
+        };
+        Self::save_download_progress(&file_name, requested, 0, 0, "RUNNING");
+        let result = Self::stage_and_record(source, task_handle, models_dir, &file_name, record);
+        match result {
+            Ok((size, message)) => {
+                Self::save_download_progress(&file_name, requested, size, size, "COMPLETED");
+                MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
+                task_handle.mark_completed(message);
+                Ok(())
+            }
+            Err(error) => {
+                Self::download_failed(requested, task_handle, &error);
+                Err(error)
+            }
+        }
+    }
+
+    fn stage_and_record(
+        source: &DownloadSource<'_>,
+        task_handle: &TaskHandle,
+        models_dir: &Path,
+        file_name: &str,
+        record: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> Result<(u64, &'static str), String> {
+        let target = source.resolved;
+        let requested = source.requested;
+        let admitted_sha256 = source.publisher_sha256;
         fs::create_dir_all(models_dir).map_err(|e| e.to_string())?;
-        let file_name = crate::download::artifact_name(target)?;
-        let path = models_dir.join(&file_name);
+        let path = models_dir.join(file_name);
         let store = Self::transactional_store(models_dir);
         fs::create_dir_all(
             store
-                .staging_target(&file_name)
+                .staging_target(file_name)
                 .parent()
                 .ok_or("transactional staging path has no parent directory")?,
         )
         .map_err(|e| e.to_string())?;
-        let staging_target = store.staging_target(&file_name);
+        let staging_target = store.staging_target(file_name);
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let policy = cfg.model_lifecycle();
         // Transfer's lock ends before publication. Hold a separate lock over
@@ -427,14 +484,28 @@ impl ModelManager {
             task_handle,
             std::time::Duration::from_secs(policy.download_timeout_secs.max(1)),
         )?;
-        if Self::managed_download_is_ready(models_dir, &file_name, target) {
-            let size = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
-            Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
-            MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
-            task_handle.mark_completed("Verified model is already ready");
-            return Ok(());
+        // Another worker can publish between the caller's cache check and this lock.
+        // Preserve an existing file on mismatch, even if an older manifest omitted its digest.
+        let ready = if admitted_sha256.is_some() {
+            path.try_exists().map_err(|error| error.to_string())?
+        } else {
+            Self::managed_download_is_ready(models_dir, file_name, target)
+        };
+        // The admitted recorder authenticates existing bytes and durably writes
+        // their license under this transaction lock, including a concurrent winner.
+        let finish = |message| {
+            record(&path)?;
+            let size = path.metadata().map_err(|error| error.to_string())?.len();
+            Ok((size, message))
+        };
+        if ready {
+            return finish(if admitted_sha256.is_some() {
+                "Existing publisher-verified artifact adopted"
+            } else {
+                "Verified model is already ready"
+            });
         }
-        Self::migrate_legacy_download_state(models_dir, &store, &file_name)?;
+        Self::migrate_legacy_download_state(models_dir, &store, file_name)?;
         let trusted_origin = url::Url::parse(target)
             .ok()
             .zip(url::Url::parse(&cfg.hf_base_url()).ok())
@@ -442,8 +513,11 @@ impl ModelManager {
         let token = trusted_origin
             .then(|| crate::susi_config::env_or_cloud_env("HF_TOKEN").ok())
             .flatten();
-        // Asked once: the publisher's digest does not change between retries.
-        let expected_sha256 = crate::download::published_sha256(target, token.as_deref());
+        // An authenticated receipt already binds this revision's bytes. Only an
+        // unpinned caller needs the legacy HEAD lookup. Retries reuse the same digest.
+        let expected_sha256 = admitted_sha256
+            .map(str::to_ascii_lowercase)
+            .or_else(|| crate::download::published_sha256(target, token.as_deref()));
         let mut budget = crate::download::StallBudget::new(policy.download_attempts.clamp(1, 8));
         let last_error = loop {
             let resumable_before = crate::download::resumable_len(&staging_target);
@@ -466,7 +540,7 @@ impl ModelManager {
                 &|done, total| {
                     task_handle.report_progress();
                     if last_report.borrow().elapsed().as_secs() >= 1 || done == total {
-                        Self::save_download_progress(&file_name, target, done, total, "RUNNING");
+                        Self::save_download_progress(file_name, requested, done, total, "RUNNING");
                         *last_report.borrow_mut() = std::time::Instant::now();
                     }
                 },
@@ -485,16 +559,12 @@ impl ModelManager {
                 Ok(()) => {
                     let _published = Self::publish_download(
                         models_dir,
-                        &file_name,
+                        file_name,
                         target,
                         expected_sha256.as_deref(),
-                        &|candidate| Self::valid_download_artifact(&file_name, candidate),
+                        &|candidate| Self::valid_download_artifact(file_name, candidate),
                     )?;
-                    let size = path.metadata().map(|m| m.len()).unwrap_or(0);
-                    Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
-                    MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
-                    task_handle.mark_completed("Download validated and ready");
-                    return Ok(());
+                    return finish("Download validated and ready");
                 }
                 Err(error) => {
                     let permanent = [
@@ -516,7 +586,7 @@ impl ModelManager {
                     if !budget.retry_after(progressed) {
                         break error;
                     }
-                    Self::save_download_progress(&file_name, target, 0, 0, "RETRYING");
+                    Self::save_download_progress(file_name, requested, 0, 0, "RETRYING");
                     for _ in 0..(1u64 << budget.stalls()) * 10 {
                         if task_handle.is_cancelled() {
                             break;
@@ -526,17 +596,6 @@ impl ModelManager {
                 }
             }
         };
-        Self::save_download_progress(
-            &file_name,
-            target,
-            0,
-            0,
-            if task_handle.is_cancelled() {
-                "STOPPED"
-            } else {
-                "FAILED"
-            },
-        );
         Err(last_error)
     }
 
@@ -851,9 +910,14 @@ mod tests {
             let task = crate::susi_core::task_manager::SwarmTaskManager::global()
                 .register_task("managed_download_test", url);
             done.send(ModelManager::execute_download_stream_in(
-                url,
+                &DownloadSource {
+                    requested: url,
+                    resolved: url,
+                    publisher_sha256: None,
+                },
                 &task,
                 &worker_models,
+                |_| Ok(()),
             ))
             .unwrap();
         });
@@ -1384,5 +1448,222 @@ mod tests {
         assert!(!ModelManager::supports_tool_calling(Path::new(
             "/nonexistent/model.gguf"
         )));
+    }
+
+    fn fixture_download(
+        url: &str,
+        task: &TaskHandle,
+        models: &Path,
+        pin: Option<&str>,
+    ) -> Result<(), String> {
+        ModelManager::execute_download_stream_in(
+            &DownloadSource {
+                requested: url,
+                resolved: url,
+                publisher_sha256: pin,
+            },
+            task,
+            models,
+            |path| {
+                if let Some(expected) = pin {
+                    let actual = ModelManager::calculate_simple_checksum(path)
+                        .map_err(|error| error.to_string())?;
+                    if actual != expected {
+                        return Err(
+                            "Existing model differs from the admitted publisher digest".into()
+                        );
+                    }
+                }
+                Ok(())
+            },
+        )
+    }
+
+    #[test]
+    fn admitted_download_uses_one_get_and_preserves_a_conflicting_final_file() {
+        use crate::download::tests::{server, workspace};
+        let root = workspace("admitted_weight");
+        let models = root.join("models");
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
+        let (url, transport) = server(vec![("get /weights.bin ", response)]);
+        let url = url.replace("model.gguf", "weights.bin");
+        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("admitted_weight", &url);
+        fixture_download(&url, &task, &models, Some(&digest)).unwrap();
+        transport.join().unwrap();
+        let final_path = models.join("weights.bin");
+        assert_eq!(fs::read(&final_path).unwrap(), b"abcdefghij");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(models.join("weights.bin.manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(manifest["sha256"].as_str(), Some(digest.as_str()));
+        // The server is gone. A later caller can use valid published bytes
+        // locally, and must preserve conflicting bytes rather than replace them.
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("adopt_admitted_weight", &url);
+        fixture_download(&url, &task, &models, Some(&digest)).unwrap();
+        fs::write(&final_path, b"user-owned").unwrap();
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("reject_conflicting_weight", &url);
+        let error = fixture_download(&url, &task, &models, Some(&digest)).unwrap_err();
+        assert!(error.contains("admitted publisher digest"), "{error}");
+        assert_eq!(fs::read(&final_path).unwrap(), b"user-owned");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_staging_manifest_does_not_record_a_license_or_complete_the_task() {
+        use crate::download::tests::{server, workspace};
+        use crate::susi_core::task_manager::{SwarmTaskManager, TaskStatus};
+        let root = workspace("failed_staging_manifest");
+        let models = root.join("models");
+        fs::create_dir_all(models.join("weights.bin.manifest.json")).unwrap();
+        let (url, transport) = server(vec![(
+            "get /weights.bin ",
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij",
+        )]);
+        let url = url.replace("model.gguf", "weights.bin");
+        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let task = SwarmTaskManager::global().register_task("failed_staging_manifest", &url);
+        let mut recorded = false;
+        let result = ModelManager::execute_download_stream_in(
+            &DownloadSource {
+                requested: &url,
+                resolved: &url,
+                publisher_sha256: Some(&digest),
+            },
+            &task,
+            &models,
+            |_| {
+                recorded = true;
+                Ok(())
+            },
+        );
+        transport.join().unwrap();
+        assert!(result.is_err());
+        assert!(!recorded);
+        let progress: ModelDownloadProgress =
+            serde_json::from_slice(&fs::read(ModelManager::progress_path(&url)).unwrap()).unwrap();
+        assert_eq!(progress.status, "FAILED");
+        assert_eq!(
+            task.status.load(std::sync::atomic::Ordering::Acquire),
+            TaskStatus::Failed as u8
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn receipt_storage_failure_cannot_report_completion_even_when_reusing_published_bytes() {
+        use crate::download::tests::{server, workspace};
+        use crate::susi_core::task_manager::{SwarmTaskManager, TaskStatus};
+        use std::sync::atomic::Ordering;
+        let root = workspace("receipt_write_failure");
+        let models = root.join("models");
+        let sidecar = models.join("weights.license.json");
+        fs::create_dir_all(&sidecar).unwrap(); // An actual receipt write cannot replace a directory.
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
+        let (url, transport) = server(vec![("get /weights.bin ", response)]);
+        let requested = url.replace("/model.gguf", "/resolve/main/weights.bin");
+        let resolved = url.replace("model.gguf", "weights.bin");
+        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let progress = || -> ModelDownloadProgress {
+            serde_json::from_slice(&fs::read(ModelManager::progress_path(&requested)).unwrap())
+                .unwrap()
+        };
+        // The first call transfers the bytes. The second adopts them with no
+        // server available; both must fail if the receipt cannot be stored.
+        for should_pass in [false, false, true] {
+            if should_pass {
+                fs::remove_dir(&sidecar).unwrap();
+            }
+            let task = SwarmTaskManager::global().register_task("receipt_storage", &requested);
+            let result = ModelManager::execute_download_stream_in(
+                &DownloadSource {
+                    requested: &requested,
+                    resolved: &resolved,
+                    publisher_sha256: Some(&digest),
+                },
+                &task,
+                &models,
+                |path| {
+                    assert_eq!(progress().status, "RUNNING");
+                    assert_eq!(
+                        task.status.load(Ordering::Acquire),
+                        TaskStatus::Running as u8
+                    );
+                    assert_eq!(
+                        ModelManager::calculate_simple_checksum(path).unwrap(),
+                        digest
+                    );
+                    crate::susi_config::atomic_write_json_pretty(&sidecar, &digest)
+                        .map_err(|error| error.to_string())
+                },
+            );
+            assert_eq!(result.is_ok(), should_pass);
+            let (expected_progress, expected_task) = if should_pass {
+                ("COMPLETED", TaskStatus::Completed)
+            } else {
+                ("FAILED", TaskStatus::Failed)
+            };
+            assert_eq!(progress().status, expected_progress);
+            assert_eq!(task.status.load(Ordering::Acquire), expected_task as u8);
+            assert_eq!(fs::read(models.join("weights.bin")).unwrap(), b"abcdefghij");
+        }
+        transport.join().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<String>(&fs::read(sidecar).unwrap()).unwrap(),
+            digest
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn admitted_download_retries_corrupt_bytes_and_unpinned_download_still_checks_head() {
+        use crate::download::tests::{server, workspace};
+        let good = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
+        let bad = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghik";
+        let interrupted = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nabcde";
+        let rest = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nfghij";
+        let head = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n";
+        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        for (name, pin, responses) in [
+            (
+                "retry_weight",
+                Some(digest.as_str()),
+                vec![("get /weights.bin ", bad), ("get /weights.bin ", good)],
+            ),
+            (
+                "resume_weight",
+                Some(digest.as_str()),
+                vec![
+                    ("get /weights.bin ", interrupted),
+                    ("range: bytes=5-", rest),
+                ],
+            ),
+            (
+                "unpinned_weight",
+                None,
+                vec![("head /weights.bin ", head), ("get /weights.bin ", good)],
+            ),
+        ] {
+            let root = workspace(name);
+            let models = root.join("models");
+            let (url, transport) = server(responses);
+            let url = url.replace("model.gguf", "weights.bin");
+            let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+                .register_task(name, &url);
+            fixture_download(&url, &task, &models, pin).unwrap();
+            transport.join().unwrap();
+            assert_eq!(fs::read(models.join("weights.bin")).unwrap(), b"abcdefghij");
+            let manifest: serde_json::Value = serde_json::from_slice(
+                &fs::read(models.join("weights.bin.manifest.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(manifest["sha256"].as_str(), pin);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }
