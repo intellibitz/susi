@@ -84,10 +84,8 @@ pub struct CapabilityToken {
 impl CapabilityToken {
     fn canonical_payload(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            self.subject,
-            self.action,
-            self.resource,
+            "{}|{}|{}",
+            grant_key(&self.subject, &self.action, &self.resource),
             self.issued_at,
             self.expires_at
                 .map(|e| e.to_string())
@@ -130,7 +128,21 @@ fn now_secs() -> u64 {
 }
 
 fn grant_key(subject: &str, action: &str, resource: &str) -> String {
-    format!("{subject}|{action}|{resource}")
+    if [subject, action, resource]
+        .iter()
+        .any(|field| field.contains('|'))
+    {
+        // Hex fields cannot contain either separator. The resulting key has
+        // zero pipes and cannot collide with the two-pipe legacy key.
+        format!(
+            "v2:{}:{}:{}",
+            hex::encode(subject),
+            hex::encode(action),
+            hex::encode(resource)
+        )
+    } else {
+        format!("{subject}|{action}|{resource}")
+    }
 }
 
 /// Process-wide MAC enforcer.
@@ -145,12 +157,34 @@ pub struct MacPolicy {
     /// `<dir>/mac.grants/` and privacy mode reads/writes `<dir>/privacy_mode`
     /// so sibling cell processes share policy state with this one.
     state_dir: Option<PathBuf>,
+    /// A production instance without its shared signing key may evaluate its
+    /// local-only defaults, but must never acknowledge a durable mutation.
+    persistence_error: Option<String>,
 }
 
 static POLICY: OnceLock<MacPolicy> = OnceLock::new();
 
 fn enc(key: &str) -> String {
     crate::susi_core::plane_bus_ipc::enc(key)
+}
+
+fn grant_paths(
+    dir: &Path,
+    subject: &str,
+    action: &str,
+    resource: &str,
+) -> (PathBuf, Option<PathBuf>) {
+    let mut hash = Sha256::new();
+    for field in [subject, action, resource] {
+        hash.update((field.len() as u64).to_be_bytes());
+        hash.update(field.as_bytes());
+    }
+    let current = dir.join(format!("v2-{}", hex::encode(hash.finalize())));
+    let legacy = enc(&format!("{subject}|{action}|{resource}"));
+    // Previous names were ASCII. Longer components cannot have existed on
+    // the supported filesystems, and probing one would itself fail.
+    let old = (legacy.len() <= 255).then(|| dir.join(legacy));
+    (current, old)
 }
 
 /// Load the shared substrate HMAC key, creating it (0600) on first boot.
@@ -270,30 +304,19 @@ impl MacPolicy {
             mandatory_sandbox: AtomicBool::new(mandatory_sandbox),
             enforce: AtomicBool::new(true),
             state_dir: None,
+            persistence_error: None,
         };
-        p.seed_defaults();
+        if let Err(error) = p.seed_defaults() {
+            tracing::error!(%error, "could not initialize in-memory MAC defaults");
+        }
         p
     }
 
     /// Enable shared-state persistence: grants mirror to `<dir>/mac.grants/`
     /// and mode reads/writes `<dir>/privacy_mode`.
     fn with_state_dir(mut self, dir: PathBuf) -> Self {
-        let grants = dir.join("mac.grants");
-        let _ = std::fs::create_dir_all(&grants);
-        // Replay persisted grants so this copy sees tokens issued elsewhere.
-        if let Ok(rd) = std::fs::read_dir(&grants) {
-            for e in rd.flatten() {
-                if let Some(token) = std::fs::read_to_string(e.path())
-                    .ok()
-                    .and_then(|s| serde_json::from_str::<CapabilityToken>(&s).ok())
-                {
-                    self.grants.insert(
-                        grant_key(&token.subject, &token.action, &token.resource),
-                        token,
-                    );
-                }
-            }
-        }
+        // Read persisted grants on demand so a sibling's revoke/renewal also
+        // affects this already-running instance.
         self.state_dir = Some(dir);
         self
     }
@@ -318,7 +341,10 @@ impl MacPolicy {
                 // by the rest of the substrate, so fail closed rather than
                 // run a permissive policy on a private key.
                 tracing::error!(%error, dir = %dir.display(), "substrate MAC key unavailable; enforcing local_only");
-                return Self::new(process_local_key(), PrivacyMode::LocalOnly, true);
+                let mut local = Self::new(process_local_key(), PrivacyMode::LocalOnly, true);
+                local.persistence_error =
+                    Some(format!("shared MAC signing key is unavailable: {error}"));
+                return local;
             }
         };
         let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
@@ -355,64 +381,158 @@ impl MacPolicy {
         self.state_dir.as_ref().map(|d| d.join("mac.grants"))
     }
 
-    fn persist_grant(&self, token: &CapabilityToken) {
-        let Some(dir) = self.grants_dir() else { return };
-        let path = dir.join(enc(&grant_key(
-            &token.subject,
-            &token.action,
-            &token.resource,
-        )));
-        if let Ok(bytes) = serde_json::to_vec(token) {
-            let _ = crate::susi_config::atomic_write_bytes(&path, &bytes);
+    fn locked_store(&self) -> std::io::Result<Option<(PathBuf, std::fs::File)>> {
+        if let Some(error) = &self.persistence_error {
+            return Err(std::io::Error::other(error.clone()));
         }
+        let Some(dir) = self.grants_dir() else {
+            return Ok(None);
+        };
+        crate::susi_config::create_private_dir(&dir)?;
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join(".records.lock"))?;
+        lock.lock()?;
+        Ok(Some((dir, lock)))
     }
 
-    /// File-backed grant lookup: exact key, wildcard `*`, then a prefix scan.
-    /// Keeps tokens issued by other wired copies visible to this one.
-    fn persisted_grant(
+    /// Writers hold the shared lock while atomically moving a legacy-only
+    /// record to its bounded location. Its prior signed bytes are preserved.
+    fn migrate_record(
+        &self,
+        dir: &Path,
+        subject: &str,
+        action: &str,
+        resource: &str,
+    ) -> std::io::Result<PathBuf> {
+        let (current, legacy) = grant_paths(dir, subject, action, resource);
+        if let Some(old) = legacy {
+            let matches = match std::fs::read(&old) {
+                Ok(bytes) => serde_json::from_slice::<CapabilityToken>(&bytes).is_ok_and(|t| {
+                    t.subject == subject
+                        && t.action == action
+                        && t.resource == resource
+                        && self.verify(&t)
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => return Err(error),
+            };
+            if matches {
+                if current.try_exists()? {
+                    std::fs::remove_file(old)?;
+                } else {
+                    std::fs::rename(old, &current)?;
+                }
+            }
+        }
+        Ok(current)
+    }
+
+    fn publish(&self, tokens: &[CapabilityToken]) -> std::io::Result<()> {
+        let Some((dir, _lock)) = self.locked_store()? else {
+            for token in tokens {
+                self.grants.insert(
+                    grant_key(&token.subject, &token.action, &token.resource),
+                    token.clone(),
+                );
+            }
+            return Ok(());
+        };
+        let mut changes = Vec::new();
+        for token in tokens {
+            let path = self.migrate_record(&dir, &token.subject, &token.action, &token.resource)?;
+            let before = match std::fs::read(&path) {
+                Ok(bytes) => Some(bytes),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e),
+            };
+            changes.push((
+                path,
+                before,
+                serde_json::to_vec(token).map_err(std::io::Error::other)?,
+            ));
+        }
+        for (i, (path, _, bytes)) in changes.iter().enumerate() {
+            if let Err(error) = crate::susi_config::atomic_write_bytes(path, bytes) {
+                for (written, before, _) in changes[..i].iter().rev() {
+                    let restored = match before {
+                        Some(original) => crate::susi_config::atomic_write_bytes(written, original),
+                        None => std::fs::remove_file(written),
+                    };
+                    if let Err(rollback) = restored {
+                        return Err(std::io::Error::other(format!(
+                            "grant publication failed ({error}); rollback failed ({rollback})"
+                        )));
+                    }
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn current_token(
         &self,
         subject: &str,
         action: &str,
         resource: &str,
     ) -> Option<CapabilityToken> {
-        let dir = self.grants_dir()?;
-        let read = |key: String| -> Option<CapabilityToken> {
-            std::fs::read_to_string(dir.join(enc(&key)))
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
+        let matches = |token: &CapabilityToken| {
+            token.subject == subject
+                && token.action == action
+                && token.resource == resource
+                && self.verify(token)
         };
-        let now = now_secs();
-        let live = |t: &CapabilityToken| self.verify(t) && !t.is_expired(now);
-        if let Some(t) = read(grant_key(subject, action, resource)) {
-            if live(&t) {
-                return Some(t);
-            }
-        }
-        if resource != "*" {
-            if let Some(t) = read(grant_key(subject, action, "*")) {
-                if live(&t) {
-                    return Some(t);
+        if let Some(dir) = self.grants_dir() {
+            let (current, old) = grant_paths(&dir, subject, action, resource);
+            for path in std::iter::once(current).chain(old) {
+                match std::fs::read(path) {
+                    Ok(data) => {
+                        return serde_json::from_slice::<CapabilityToken>(&data)
+                            .ok()
+                            .filter(matches)
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return None,
                 }
             }
         }
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for e in rd.flatten() {
-                let Ok(text) = std::fs::read_to_string(e.path()) else {
-                    continue;
-                };
-                let Ok(t) = serde_json::from_str::<CapabilityToken>(&text) else {
-                    continue;
-                };
-                if t.subject == subject
-                    && t.action == action
-                    && grant_covers(&t.resource, resource)
-                    && live(&t)
-                {
-                    return Some(t);
+        self.grants
+            .get(&grant_key(subject, action, resource))
+            .map(|t| t.clone())
+            .filter(matches)
+    }
+
+    fn bindings_for(&self, subject: &str) -> std::collections::BTreeSet<(String, String)> {
+        let mut bindings: std::collections::BTreeSet<_> = self
+            .grants
+            .iter()
+            .filter(|item| item.value().subject == subject)
+            .map(|item| (item.value().action.clone(), item.value().resource.clone()))
+            .collect();
+        if let Some(dir) = self.grants_dir() {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    // A lock, tombstone or in-progress atomic writer is not an issued grant.
+                    if entry.file_name().to_string_lossy().starts_with('.') {
+                        continue;
+                    }
+                    let Some(token) = std::fs::read(entry.path())
+                        .ok()
+                        .and_then(|b| serde_json::from_slice::<CapabilityToken>(&b).ok())
+                    else {
+                        continue;
+                    };
+                    if token.subject == subject {
+                        bindings.insert((token.action, token.resource));
+                    }
                 }
             }
         }
-        None
+        bindings
     }
 
     fn sticky_mode(&self) -> Option<PrivacyMode> {
@@ -433,6 +553,14 @@ impl MacPolicy {
     /// is returned: reporting a switch other processes never see would be a
     /// silent downgrade of the operator's intent.
     pub fn set_mode(&self, mode: PrivacyMode) -> std::io::Result<()> {
+        // A failed downgrade must not advertise a new local-only mode while
+        // a previous wildcard grant still permits the operation.
+        self.revoke("susi", actions::NETWORK_EGRESS, "*")
+            .map_err(std::io::Error::other)?;
+        self.revoke("susi", actions::CLOUD_INFERENCE, "*")
+            .map_err(std::io::Error::other)?;
+        self.revoke("susi", actions::PROCESS_EXEC, "*")
+            .map_err(std::io::Error::other)?;
         if let Some(dir) = self.state_dir.as_ref() {
             crate::susi_config::atomic_write_bytes(
                 &dir.join("privacy_mode"),
@@ -443,12 +571,9 @@ impl MacPolicy {
             *g = mode;
         }
         // Drop elevated grants so the new posture is authoritative.
-        self.revoke("susi", actions::NETWORK_EGRESS, "*");
-        self.revoke("susi", actions::CLOUD_INFERENCE, "*");
-        self.revoke("susi", actions::PROCESS_EXEC, "*");
         self.mandatory_sandbox
             .store(matches!(mode, PrivacyMode::LocalOnly), Ordering::Relaxed);
-        self.seed_defaults();
+        self.seed_defaults().map_err(std::io::Error::other)?;
         Ok(())
     }
 
@@ -507,71 +632,102 @@ impl MacPolicy {
                 == 0
     }
 
-    /// Issue and store a capability token.
-    pub fn grant(
+    fn issue_token(
         &self,
         subject: &str,
         action: &str,
         resource: &str,
         ttl_secs: Option<u64>,
-    ) -> CapabilityToken {
+    ) -> EaiResult<CapabilityToken> {
         let issued = now_secs();
         let mut token = CapabilityToken {
             subject: subject.into(),
             action: action.into(),
             resource: resource.into(),
             issued_at: issued,
-            expires_at: ttl_secs.map(|t| issued + t),
+            expires_at: ttl_secs
+                .map(|s| {
+                    issued.checked_add(s).ok_or_else(|| {
+                        EaiError::config("capability expiry exceeds timestamp range")
+                    })
+                })
+                .transpose()?,
             signature: String::new(),
         };
         token.signature = self.sign(&token);
-        self.grants
-            .insert(grant_key(subject, action, resource), token.clone());
-        self.persist_grant(&token);
-        token
+        Ok(token)
     }
 
-    pub fn revoke(&self, subject: &str, action: &str, resource: &str) -> bool {
+    /// Issue and store a capability token. An unwritable shared store never
+    /// turns a failed grant into a successful process-local permission.
+    pub fn grant(
+        &self,
+        subject: &str,
+        action: &str,
+        resource: &str,
+        ttl_secs: Option<u64>,
+    ) -> EaiResult<CapabilityToken> {
+        let token = self.issue_token(subject, action, resource, ttl_secs)?;
+        self.publish(std::slice::from_ref(&token))
+            .map_err(|e| EaiError::io(format!("could not persist capability grant: {e}")))?;
+        Ok(token)
+    }
+
+    pub fn revoke(&self, subject: &str, action: &str, resource: &str) -> EaiResult<bool> {
+        self.revoke_record(subject, action, resource)
+            .map_err(|e| EaiError::io(format!("could not revoke capability grant: {e}")))
+    }
+
+    fn revoke_record(&self, subject: &str, action: &str, resource: &str) -> std::io::Result<bool> {
         let key = grant_key(subject, action, resource);
-        if let Some(dir) = self.grants_dir() {
-            let _ = std::fs::remove_file(dir.join(enc(&key)));
+        let Some((dir, _lock)) = self.locked_store()? else {
+            return Ok(self.grants.remove(&key).is_some());
+        };
+        let current = self.migrate_record(&dir, subject, action, resource)?;
+        let present = match std::fs::read(&current) {
+            Ok(bytes) => serde_json::from_slice::<Option<CapabilityToken>>(&bytes)
+                .map_err(std::io::Error::other)?
+                .is_some(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.grants.contains_key(&key)
+            }
+            Err(error) => return Err(error),
+        };
+        if present {
+            if subject == "susi" && matches!(resource, "*" | "app://*") {
+                // New consumers seed implicit host defaults. A tombstone masks
+                // this binding until it is explicitly granted again.
+                crate::susi_config::atomic_write_bytes(&current, b"null")?;
+            } else {
+                std::fs::remove_file(&current)?;
+            }
         }
-        self.grants.remove(&key).is_some()
+        self.grants.remove(&key);
+        Ok(present)
     }
 
     pub fn grants_for(&self, subject: &str) -> Vec<CapabilityToken> {
-        let mut seen: std::collections::HashMap<String, CapabilityToken> = self
-            .grants
-            .iter()
-            .filter(|e| e.value().subject == subject)
-            .map(|e| (e.key().clone(), e.value().clone()))
-            .collect();
-        if let Some(dir) = self.grants_dir() {
-            if let Ok(rd) = std::fs::read_dir(&dir) {
-                for e in rd.flatten() {
-                    let Ok(text) = std::fs::read_to_string(e.path()) else {
-                        continue;
-                    };
-                    let Ok(t) = serde_json::from_str::<CapabilityToken>(&text) else {
-                        continue;
-                    };
-                    if t.subject == subject {
-                        seen.entry(grant_key(&t.subject, &t.action, &t.resource))
-                            .or_insert(t);
-                    }
-                }
-            }
-        }
-        seen.into_values().collect()
+        self.bindings_for(subject)
+            .into_iter()
+            .filter_map(|(a, r)| self.current_token(subject, &a, &r))
+            .collect()
     }
 
     /// Explicit operator consent for network egress (and optionally cloud).
-    pub fn consent_egress(&self, subject: &str, ttl_secs: u64) -> Vec<CapabilityToken> {
-        let mut out = vec![self.grant(subject, actions::NETWORK_EGRESS, "*", Some(ttl_secs))];
+    pub fn consent_egress(&self, subject: &str, ttl_secs: u64) -> EaiResult<Vec<CapabilityToken>> {
+        let mut tokens =
+            vec![self.issue_token(subject, actions::NETWORK_EGRESS, "*", Some(ttl_secs))?];
         if matches!(self.mode(), PrivacyMode::LocalOnly) {
-            out.push(self.grant(subject, actions::CLOUD_INFERENCE, "*", Some(ttl_secs)));
+            tokens.push(self.issue_token(
+                subject,
+                actions::CLOUD_INFERENCE,
+                "*",
+                Some(ttl_secs),
+            )?);
         }
-        out
+        self.publish(&tokens)
+            .map_err(|e| EaiError::io(format!("could not persist egress consent: {e}")))?;
+        Ok(tokens)
     }
 
     pub fn is_permitted(&self, subject: &str, action: &str, resource: &str) -> bool {
@@ -579,63 +735,38 @@ impl MacPolicy {
             return true;
         }
         let now = now_secs();
-        // Exact match
-        if let Some(t) = self.grants.get(&grant_key(subject, action, resource)) {
-            if self.verify(t.value()) && !t.is_expired(now) {
-                return true;
-            }
+        let live = |scope: &str| {
+            self.current_token(subject, action, scope)
+                .is_some_and(|t| !t.is_expired(now))
+        };
+        if live(resource) || (resource != "*" && live("*")) {
+            return true;
         }
-        // Wildcard resource grant
-        if resource != "*" {
-            if let Some(t) = self.grants.get(&grant_key(subject, action, "*")) {
-                if self.verify(t.value()) && !t.is_expired(now) {
-                    return true;
-                }
-            }
-        }
-        // Scoped resource: the grant covers the requested one (see
-        // `grant_covers` for the boundary rule).
-        for entry in self.grants.iter() {
-            let t = entry.value();
-            if t.subject == subject
-                && t.action == action
-                && grant_covers(&t.resource, resource)
-                && self.verify(t)
-                && !t.is_expired(now)
-            {
-                return true;
-            }
-        }
-        // Grants persisted by other wired processes.
-        self.persisted_grant(subject, action, resource).is_some()
+        self.bindings_for(subject).into_iter().any(|(a, r)| {
+            a == action && r != resource && r != "*" && grant_covers(&r, resource) && live(&r)
+        })
     }
 
-    fn seed_defaults(&self) {
-        let subject = "susi";
-        // Always allow local read of workspace-scoped data.
-        let _ = self.grant(subject, actions::FILESYSTEM_READ, "*", None);
-        let _ = self.grant(subject, actions::FILESYSTEM_WRITE, "*", None);
-        let _ = self.grant(subject, actions::SANDBOX_EXEC, "*", None);
-        let _ = self.grant(subject, actions::TRANSMIT, "app://*", None);
-
-        match self.mode() {
-            PrivacyMode::Open => {
-                let _ = self.grant(subject, actions::PROCESS_EXEC, "*", None);
-                let _ = self.grant(subject, actions::NETWORK_EGRESS, "*", None);
-                let _ = self.grant(subject, actions::CLOUD_INFERENCE, "*", None);
-            }
-            PrivacyMode::Balanced => {
-                let _ = self.grant(subject, actions::PROCESS_EXEC, "*", None);
-                // Signed default egress for host substrate so zero-config MCP
-                // keeps working; revoke or switch to local_only to lock down.
-                let _ = self.grant(subject, actions::NETWORK_EGRESS, "*", None);
-                let _ = self.grant(subject, actions::CLOUD_INFERENCE, "*", None);
-            }
-            PrivacyMode::LocalOnly => {
-                // No host process.exec by default — sandbox only.
-                // No network / cloud without consent_egress.
-            }
+    fn seed_defaults(&self) -> EaiResult<()> {
+        let mut bindings = vec![
+            (actions::FILESYSTEM_READ, "*"),
+            (actions::FILESYSTEM_WRITE, "*"),
+            (actions::SANDBOX_EXEC, "*"),
+            (actions::TRANSMIT, "app://*"),
+        ];
+        if !matches!(self.mode(), PrivacyMode::LocalOnly) {
+            bindings.extend([
+                (actions::PROCESS_EXEC, "*"),
+                (actions::NETWORK_EGRESS, "*"),
+                (actions::CLOUD_INFERENCE, "*"),
+            ]);
         }
+        let tokens = bindings
+            .into_iter()
+            .map(|(action, resource)| self.issue_token("susi", action, resource, None))
+            .collect::<EaiResult<Vec<_>>>()?;
+        self.publish(&tokens)
+            .map_err(|e| EaiError::io(format!("could not store MAC defaults: {e}")))
     }
 
     /// Tools that send data off-host but whose names match none of the
@@ -775,12 +906,78 @@ mod tests {
     #[test]
     fn tokens_verify_and_expire() {
         let p = policy(PrivacyMode::Balanced);
-        let t = p.grant("agent-a", actions::NETWORK_EGRESS, "*", Some(3600));
+        let t = p
+            .grant("agent-a", actions::NETWORK_EGRESS, "*", Some(3600))
+            .unwrap();
         assert!(p.verify(&t));
         assert!(p.is_permitted("agent-a", actions::NETWORK_EGRESS, "*"));
-        let expired = p.grant("agent-b", actions::NETWORK_EGRESS, "*", Some(0));
+        let expired = p
+            .grant("agent-b", actions::NETWORK_EGRESS, "*", Some(0))
+            .unwrap();
         assert!(!p.is_permitted("agent-b", actions::NETWORK_EGRESS, "*"));
         assert!(expired.is_expired(now_secs()));
+    }
+
+    #[test]
+    fn live_wired_readers_follow_revocation_and_refuse_a_misfiled_token() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mac-live-grants-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let writer = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let reader = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let scope = format!("mcp://peers/{}/", "long-resource".repeat(30));
+        writer
+            .grant("worker", actions::PROCESS_EXEC, &scope, None)
+            .unwrap();
+        assert!(reader.is_permitted("worker", actions::PROCESS_EXEC, &scope));
+        // A correctly signed record from a different binding cannot supply this one.
+        let dir = root.join("mac.grants");
+        let (valid, _) = grant_paths(&dir, "worker", actions::PROCESS_EXEC, &scope);
+        let (wrong, _) = grant_paths(&dir, "different", actions::NETWORK_EGRESS, "*");
+        std::fs::copy(valid, wrong).unwrap();
+        assert!(!reader.is_permitted(
+            "different",
+            actions::NETWORK_EGRESS,
+            "https://example.invalid"
+        ));
+        assert!(writer
+            .revoke("worker", actions::PROCESS_EXEC, &scope)
+            .unwrap());
+        assert!(!reader.is_permitted("worker", actions::PROCESS_EXEC, &scope));
+        assert!(!writer
+            .revoke("worker", actions::PROCESS_EXEC, &scope)
+            .unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn blocked_consent_record_does_not_publish_the_other_capability() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mac-failed-consent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let writer = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let reader = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let (blocked, _) = grant_paths(
+            &root.join("mac.grants"),
+            "agent",
+            actions::CLOUD_INFERENCE,
+            "*",
+        );
+        std::fs::create_dir_all(blocked).unwrap();
+        assert!(writer.consent_egress("agent", 60).is_err());
+        assert!(!writer.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
+        assert!(!reader.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -790,7 +987,7 @@ mod tests {
         assert!(p
             .authorize_tool("browser_automate", &arg, Path::new("."), None)
             .is_err());
-        let _ = p.consent_egress("susi", 60);
+        let _ = p.consent_egress("susi", 60).unwrap();
         assert!(p
             .authorize_tool("browser_automate", &arg, Path::new("."), None)
             .is_ok());
@@ -809,7 +1006,7 @@ mod tests {
         assert!(p
             .authorize_tool("agents_status", &refresh, ws, None)
             .is_err());
-        p.consent_egress("susi", 60);
+        p.consent_egress("susi", 60).unwrap();
         for tool in MacPolicy::EGRESS_TOOLS {
             assert!(p.authorize_tool(tool, &none, ws, None).is_ok(), "{tool}");
         }
@@ -905,7 +1102,8 @@ mod tests {
     #[test]
     fn scoped_grants_stop_at_a_path_or_host_boundary() {
         let p = policy(PrivacyMode::LocalOnly);
-        p.grant("cell-a", actions::FILESYSTEM_READ, "/srv/ws", None);
+        p.grant("cell-a", actions::FILESYSTEM_READ, "/srv/ws", None)
+            .unwrap();
         assert!(p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws"));
         assert!(p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws/src/lib.rs"));
         assert!(!p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws2"));
@@ -915,7 +1113,8 @@ mod tests {
             actions::NETWORK_EGRESS,
             "https://api.example.com",
             None,
-        );
+        )
+        .unwrap();
         assert!(p.is_permitted(
             "cell-a",
             actions::NETWORK_EGRESS,
@@ -927,7 +1126,8 @@ mod tests {
             "https://api.example.com.evil.net/x"
         ));
         // An explicit trailing `*` is a glob over its prefix.
-        p.grant("cell-a", actions::TRANSMIT, "app://*", None);
+        p.grant("cell-a", actions::TRANSMIT, "app://*", None)
+            .unwrap();
         assert!(p.is_permitted("cell-a", actions::TRANSMIT, "app://agent-b"));
         assert!(!p.is_permitted("cell-a", actions::TRANSMIT, "tcp://agent-b"));
     }
@@ -989,9 +1189,28 @@ mod tests {
     }
 
     #[test]
+    fn a_signed_binding_with_a_delimiter_cannot_be_repartitioned() {
+        let policy = policy(PrivacyMode::LocalOnly);
+        let mut token = policy
+            .grant("mission|worker", "process.exec", "*", None)
+            .unwrap();
+        assert!(policy.verify(&token));
+        token.subject = "mission".into();
+        token.action = "worker|process.exec".into();
+        assert!(!policy.verify(&token));
+        let ambiguous = format!("mission|worker|process.exec|*|{}|none", token.issued_at);
+        token.signature = hex::encode(hmac_sha256(&policy.key, ambiguous.as_bytes()));
+        assert!(!policy.verify(&token));
+        assert_ne!(
+            grant_key("mission|worker", "process.exec", "*"),
+            grant_key("mission", "worker|process.exec", "*")
+        );
+    }
+
+    #[test]
     fn tampered_token_rejected() {
         let p = policy(PrivacyMode::Open);
-        let mut t = p.grant("x", actions::FILESYSTEM_READ, "*", None);
+        let mut t = p.grant("x", actions::FILESYSTEM_READ, "*", None).unwrap();
         t.signature = "00".repeat(32);
         assert!(!p.verify(&t));
     }

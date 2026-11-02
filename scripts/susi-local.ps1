@@ -6,6 +6,9 @@ param(
     [string[]]$SusiArgs = @('shell')
 )
 $ErrorActionPreference = 'Stop'
+if ($Channel -eq 'production') {
+    throw 'Production requires the native release workflow. Use cargo local-release status, qualify, promote, rollback or run.'
+}
 $repo = Split-Path $PSScriptRoot -Parent
 $channelRoot = Join-Path ([IO.Path]::GetFullPath($Root)) $Channel
 $statePath = Join-Path $channelRoot 'channel.json'
@@ -48,7 +51,7 @@ if ($Action -eq 'Build') {
     # the changed workspace optimization and keeps both sets of artifacts;
     # no duplicated target, copied fingerprints, or global compiler settings.
     $settings = @{
-        CARGO_PROFILE_DEV_OPT_LEVEL = $(if ($Channel -eq 'production') { '1' } else { '0' })
+        CARGO_PROFILE_DEV_OPT_LEVEL = '0'
         CARGO_PROFILE_DEV_LTO = 'false'
         CARGO_PROFILE_DEV_INCREMENTAL = 'true'
         RUSTC_WRAPPER = $null
@@ -89,7 +92,7 @@ $savedHome = $env:SUSI_HOME
 $savedPort = $env:SUSI_PORT_OFFSET
 try {
     $env:SUSI_HOME = Join-Path $channelRoot 'home'
-    $env:SUSI_PORT_OFFSET = if ($Channel -eq 'dev') { '200' } else { '300' }
+    $env:SUSI_PORT_OFFSET = '200'
     & $state.current @SusiArgs
     $result = $LASTEXITCODE
 } finally {

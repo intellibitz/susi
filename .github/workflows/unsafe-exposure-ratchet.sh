@@ -28,7 +28,18 @@ trap 'rm -rf "$tmp"' EXIT
 # --forbid-only measures each crate's unsafe-forbiddance surface without
 # building the tree; the full per-function scan cannot resolve this
 # workspace's vendored path-dependency layout.
-cargo geiger --forbid-only --output-format Json >"$tmp/geiger.json"
+scan_status=0
+cargo geiger --locked --forbid-only --output-format Json >"$tmp/geiger.json" 2>"$tmp/geiger.stderr" || scan_status=$?
+cat "$tmp/geiger.stderr" >&2
+if (( scan_status != 0 )); then
+  exit "$scan_status"
+fi
+# Geiger 0.13 can return success after skipping an unparsed source file
+# or failing to match a package. Neither report can authorize a baseline.
+if grep -Eq 'Failed to parse file:|Failed to match \(ignoring source\) package:' "$tmp/geiger.stderr"; then
+  echo "Incomplete cargo-geiger scan; refusing to qualify or write a baseline" >&2
+  exit 2
+fi
 cargo metadata --format-version 1 --locked >"$tmp/metadata.json"
 
 if [ -n "$write_baseline" ]; then

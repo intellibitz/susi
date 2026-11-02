@@ -2588,7 +2588,8 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .unwrap_or("susi");
         let ttl = arg.get("ttl_secs").and_then(|v| v.as_u64()).unwrap_or(3600);
-        let tokens = crate::susi_core::mac_policy::MacPolicy::global().consent_egress(subject, ttl);
+        let tokens =
+            crate::susi_core::mac_policy::MacPolicy::global().consent_egress(subject, ttl)?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "consented": true,
             "tokens": tokens,

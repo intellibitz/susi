@@ -1,0 +1,447 @@
+{
+  "schema": "susi/qualified-windows-release-proof/v1",
+  "recorded_utc": "2026-11-02T16:04:39.6375052Z",
+  "scope": "Local Windows production release and installed rollback. This record does not establish completion of all Step 1 obligations.",
+  "release": {
+    "version": "0.21.42",
+    "id": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+    "previous_version": "0.21.41",
+    "previous_id": "7d34307299ec03877db10ef5106ae0564a95ea9b60fdd8c1c1f68030c1ee4112",
+    "previous_executable_sha256": "50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683",
+    "managed_current_blob": "3a56872832073f96874c6e3e9e616b1ec0875217",
+    "managed_previous_blob": "68627c7a3b00a0b9e3d9258796f686997d688bb1",
+    "qualifier_sha256": "f31b8b432e43e3045fafbf2817f0423c2e832d81acfd3c0b14731fa6d1647172",
+    "attempt": "qualify-1793630554892173500-64504",
+    "integration_attempt": "version42-1102-1793628836982062400-53740",
+    "manifest": {
+      "source": "45285cdcd6399e64b44ce8f7e2f650e267002a52",
+      "tree": "5254d04990335f207b36c995635d15c40a7ee5d2",
+      "artifact-sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+      "artifact-bytes": "53561344",
+      "host": "x86_64-pc-windows-msvc",
+      "integration-receipt": "537e64b3f36029ed0f109a9770eeb3a5611a361c",
+      "lock-sha256": "4bf218d6e36c37160cac19ed742fbc448b9980a099f1bfddb76d0fcbed15f47c",
+      "compiler-sha256": "5477f9bad65b15c4c5b31fc050fc72feba651ea1b330bc75cf356a4d6b0fbc80",
+      "gates-sha256": "d05879ffa98858b0d6dd8a5be78b5f046772ace8727bb696e645013872f52d14",
+      "sbom-sha256": "428b398ab535b66cde3f4116fc909193d87c5ee085b43dd41ea1989d1ab73823",
+      "notices-sha256": "02b0814e904a9a57eb254534f3494056d43d392ac7e63ff15d52639f4e95a31d",
+      "native-audit-sha256": "d5dd71531afbf13b805c23ea239dcf558264145b48a8b8177e0198ee8df7793a"
+    },
+    "package_sha256": {
+      "manifest.txt": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+      "susi.exe": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+      "gates.txt": "d05879ffa98858b0d6dd8a5be78b5f046772ace8727bb696e645013872f52d14",
+      "sbom.json": "428b398ab535b66cde3f4116fc909193d87c5ee085b43dd41ea1989d1ab73823",
+      "native-source-audit.txt": "d5dd71531afbf13b805c23ea239dcf558264145b48a8b8177e0198ee8df7793a",
+      "THIRD-PARTY-NOTICES.txt": "02b0814e904a9a57eb254534f3494056d43d392ac7e63ff15d52639f4e95a31d"
+    }
+  },
+  "guest": {
+    "task": "production-e-f476ad1b7b7c",
+    "windows_caption": "Microsoft Windows 11 Pro",
+    "windows_build": "26200",
+    "visible_ram_kib": 8387520,
+    "empty_user_state": true,
+    "empty_model_cache": true,
+    "entry_under_local_appdata": "SusiLocal/production/entry/susi.exe",
+    "fresh_command_resolution_verified": true,
+    "observed_versions": [
+      "0.21.42",
+      "0.21.41",
+      "0.21.42"
+    ],
+    "start_menu_shell_prompt_observed": true,
+    "phase_metrics": [
+      {
+        "phase": "install",
+        "elapsed_ms": 15943,
+        "stdout_bytes": 121,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 11231232,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 15823,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "ordinary-path",
+        "elapsed_ms": 333,
+        "stdout_bytes": 75,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 7385088,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 167,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "ordinary-version",
+        "elapsed_ms": 251,
+        "stdout_bytes": 13,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 7663616,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 185,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "inference",
+        "elapsed_ms": 119045,
+        "stdout_bytes": 605,
+        "stderr_bytes": 1051,
+        "sampled_peak_rss_bytes": 1037295616,
+        "verified_foreground_child_pid": 2724,
+        "foreground_exit_ms": 118949,
+        "prompt_observed_ms": 610,
+        "first_answer_observed_ms": 110054,
+        "second_answer_observed_ms": 118950,
+        "process_exited": true
+      },
+      {
+        "phase": "first-stop",
+        "elapsed_ms": 775,
+        "stdout_bytes": 31,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 8355840,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 680,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "shortcut",
+        "elapsed_ms": 721,
+        "stdout_bytes": 387,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 23113728,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 593,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "shortcut-stop",
+        "elapsed_ms": 873,
+        "stdout_bytes": 31,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 8355840,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 782,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "ordinary-rollback",
+        "elapsed_ms": 3138,
+        "stdout_bytes": 121,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 10575872,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 3074,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "rollback-health",
+        "elapsed_ms": 583,
+        "stdout_bytes": 121,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 10297344,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 519,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "rollback-version",
+        "elapsed_ms": 298,
+        "stdout_bytes": 13,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 7393280,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 203,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "ordinary-repromotion",
+        "elapsed_ms": 951,
+        "stdout_bytes": 121,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 10231808,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 855,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "repromotion-health",
+        "elapsed_ms": 554,
+        "stdout_bytes": 121,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 10276864,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 458,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "final-version",
+        "elapsed_ms": 325,
+        "stdout_bytes": 13,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 7249920,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 230,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      },
+      {
+        "phase": "stop",
+        "elapsed_ms": 727,
+        "stdout_bytes": 31,
+        "stderr_bytes": 0,
+        "sampled_peak_rss_bytes": 8359936,
+        "verified_foreground_child_pid": null,
+        "foreground_exit_ms": 631,
+        "prompt_observed_ms": null,
+        "first_answer_observed_ms": null,
+        "second_answer_observed_ms": null,
+        "process_exited": true
+      }
+    ],
+    "goals": [
+      {
+        "goal": "What is 2+2?",
+        "outcome": "SUCCESS",
+        "tools_count": 0
+      },
+      {
+        "goal": "Write one short sentence about a red kite.",
+        "outcome": "SUCCESS",
+        "tools_count": 0
+      }
+    ],
+    "answers": [
+      "2+2 equals 4.",
+      "A red kite is a colorful and majestic bird with bright colors, making it an attractive sight to see."
+    ],
+    "candle_generations": [
+      {
+        "backend": "candle",
+        "generated_tokens": 8,
+        "elapsed_ms": 1160,
+        "utc": "2026-11-02T15:57:02.069409Z"
+      },
+      {
+        "backend": "candle",
+        "generated_tokens": 22,
+        "elapsed_ms": 2248,
+        "utc": "2026-11-02T15:57:11.029863Z"
+      }
+    ],
+    "installed_files": 13,
+    "logical_bytes": 165208190,
+    "distinct_ntfs_file_bytes": 111646846,
+    "surviving_processes": 0,
+    "forced_cleanup": 0,
+    "receipt_sha256": {
+      "validated-acceptance.json": "826c04535e5420dd8dd301f8966e4da3fa5a801b88ff451f91ffae6ab8927e9d",
+      "ordinary.json": "ace6653e72de5487b9c3a663dc25e06c44068fe613396c7fcc4e34257c8d59ed",
+      "cleanup.json": "af4659c17eb13bf88ad59d5b0a7b46d0ab954cda0f80b62072fe8480b727eafe",
+      "mission_traces.jsonl": "f564bc119dbc5e1378dfffc020cc601463cd9f588bc2060b876855c43e43b1ca",
+      "last_mission_trace.json": "2ab57db018332ac0e09101389d3f09c0f0ff3884f0d6ea2c942e361814560084",
+      "inference.stdout": "66f682a243134364513528b7c80635d5295926636b5361f0ca6360e435a37b72",
+      "inference.stderr": "fd08def658922f0442eb06d6438b1151f919664a2587f494f2476dbaae8336b4",
+      "inference.metrics.json": "4fd2f2cc9b8b120784864b6ae6fc5eed864dfd88a40a38daf9b37113ea5ecc39",
+      "ordinary-path.stdout": "26a128468855d57f2d373e9f31e5811fb75514979375f004e75b76f1b7afc7db",
+      "ordinary-version.stdout": "8c53ac047d84bcfc862230472ef63509b8734818bf9c1a7d26ead7e1bfea92af",
+      "rollback-version.stdout": "c908e174f8bbfbeb3ce756fb14d273ab261128f470a70088130551226d7dc9ff",
+      "final-version.stdout": "8c53ac047d84bcfc862230472ef63509b8734818bf9c1a7d26ead7e1bfea92af",
+      "shortcut.stdout": "5e8988bc7f3e7ade9b4b97b90f6d3c733c1a9fd027de3807a76ce0de61c0cf42",
+      "harness-failure.txt": "ec50e244d35d17859087dbac0dcd880e5840fd8b6a1c389a68064d5ffd0d1bc2"
+    },
+    "baseline_receipt_sha256": "2ae833f8d6e3eb418a8fc92c5ad896b6f2faa25294afe66e5bebdc42e5cb4067"
+  },
+  "host": {
+    "entry": "LocalAppData/SusiLocal/production/entry/susi.exe",
+    "inherited_development_shell": "The calling process retained its previously inherited PATH, whose first executable was the legacy .susi/bin/susi.exe. Each observation below reconstructed the persisted machine and user PATH in a fresh CMD process with an empty working directory.",
+    "native_operations": [
+      "promote E, install-current E",
+      "rollback D, install-current D",
+      "promote E, install-current E"
+    ],
+    "phases": [
+      {
+        "phase": "first-E",
+        "expected_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "observed_version": "0.21.42",
+        "verified_slot_sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+        "fresh_path_command_ms": 357,
+        "start_menu_open_and_exit_ms": 829,
+        "observed_prompt": true,
+        "original_receipts_sha256": {
+          "where.stdout": "cd214b9afb8e4e5ad134466e7e81c17a589b09c3ed8376957abe3af91644ad5a",
+          "version.stdout": "8c53ac047d84bcfc862230472ef63509b8734818bf9c1a7d26ead7e1bfea92af",
+          "status.stdout": "6f03ebeb71b4626fccc94a320d84a9a6fff9347afc6dd1cae1634ccbe267c77e",
+          "shortcut.stdout": "59d67f80cd0b3666ce5a98ec3039df8e5833aab13567fe3524e6339bfd4c035e",
+          "verified.json": "28d8993912d792272c4141122cc96be858d9c791eca59f797335a2f805a81764"
+        }
+      },
+      {
+        "phase": "rollback-D",
+        "expected_release": "7d34307299ec03877db10ef5106ae0564a95ea9b60fdd8c1c1f68030c1ee4112",
+        "observed_version": "0.21.41",
+        "verified_slot_sha256": "50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683",
+        "fresh_path_command_ms": 274,
+        "start_menu_open_and_exit_ms": 1038,
+        "observed_prompt": true,
+        "original_receipts_sha256": {
+          "where.stdout": "cd214b9afb8e4e5ad134466e7e81c17a589b09c3ed8376957abe3af91644ad5a",
+          "version.stdout": "c908e174f8bbfbeb3ce756fb14d273ab261128f470a70088130551226d7dc9ff",
+          "status.stdout": "9cff1f7fdcfb4ed9e400b430163c348854ba1a34ae9439a5684148b88940436a",
+          "shortcut.stdout": "ddab4c210627a911b4abcd3de85d1556162d0ac39bf7a414495cab24d4b5a98a",
+          "verified.json": "94c4504afe5f47f6b8a7b8b7af2521bcdc3e2d15d1274776843007c93e942fb0"
+        }
+      },
+      {
+        "phase": "restored-E",
+        "expected_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "observed_version": "0.21.42",
+        "verified_slot_sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+        "fresh_path_command_ms": 581,
+        "start_menu_open_and_exit_ms": 1496,
+        "observed_prompt": true,
+        "original_receipts_sha256": {
+          "where.stdout": "cd214b9afb8e4e5ad134466e7e81c17a589b09c3ed8376957abe3af91644ad5a",
+          "version.stdout": "8c53ac047d84bcfc862230472ef63509b8734818bf9c1a7d26ead7e1bfea92af",
+          "status.stdout": "6f03ebeb71b4626fccc94a320d84a9a6fff9347afc6dd1cae1634ccbe267c77e",
+          "shortcut.stdout": "59d67f80cd0b3666ce5a98ec3039df8e5833aab13567fe3524e6339bfd4c035e",
+          "verified.json": "d93d064ffb4875cb86a51b22ed54168921f5218f545e2338a96f812e65c8c79a"
+        }
+      }
+    ],
+    "preexisting_processes": 6,
+    "preserved_processes": 6,
+    "final_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+    "final_exe_sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+    "final_receipt_sha256": "e07c3d4ae31891a59cbb3c1965aeab7d8f79fc1d91bb530500f11a04651ec171"
+  },
+  "independent_cached_host": {
+    "model_sha256": "7671C0C304E6CE5A7FC577BCB12ABA01E2C155CC2EFD29B2213C95B18EDAF6ED",
+    "cases": [
+      {
+        "case": "cached",
+        "prompt_ms": 101.81,
+        "audited_weight_loads": 1,
+        "goals": [
+          {
+            "index": 0,
+            "goal": "What is 2+2?",
+            "ack_ms": 0.35,
+            "first_visible_answer_ms": 12365.67,
+            "complete_visible_answer_ms": 12365.67,
+            "next_prompt_ms": 12366.71,
+            "foreground_read_bytes": 3491825753,
+            "foreground_read_operations": 49363,
+            "generations": [
+              {
+                "tokens": 8,
+                "elapsed_ms": "1525",
+                "timestamp": "2026-11-02T15:28:57.381397Z"
+              }
+            ]
+          },
+          {
+            "index": 1,
+            "goal": "What is 2+2?",
+            "ack_ms": 0.42,
+            "first_visible_answer_ms": 10278.24,
+            "complete_visible_answer_ms": 10278.24,
+            "next_prompt_ms": 10279.09,
+            "foreground_read_bytes": 3922501585,
+            "foreground_read_operations": 60337,
+            "generations": [
+              {
+                "tokens": 8,
+                "elapsed_ms": "1625",
+                "timestamp": "2026-11-02T15:29:09.326381Z"
+              }
+            ]
+          },
+          {
+            "index": 2,
+            "goal": "What is 3+4?",
+            "ack_ms": 0.55,
+            "first_visible_answer_ms": 10020.1,
+            "complete_visible_answer_ms": 10020.1,
+            "next_prompt_ms": 10021.15,
+            "foreground_read_bytes": 3922502482,
+            "foreground_read_operations": 60336,
+            "generations": [
+              {
+                "tokens": 11,
+                "elapsed_ms": "1650",
+                "timestamp": "2026-11-02T15:29:19.34904Z"
+              }
+            ]
+          },
+          {
+            "index": 3,
+            "goal": "Write one short sentence about a red kite.",
+            "ack_ms": 0.39,
+            "first_visible_answer_ms": 10194.16,
+            "complete_visible_answer_ms": 10194.16,
+            "next_prompt_ms": 10195.19,
+            "foreground_read_bytes": 3922503368,
+            "foreground_read_operations": 60336,
+            "generations": [
+              {
+                "tokens": 22,
+                "elapsed_ms": "2418",
+                "timestamp": "2026-11-02T15:29:29.560296Z"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "sampled_peak_rss_bytes": 1044942848,
+    "surviving_processes": 0,
+    "timing_receipt_sha256": "54dfd285899bb7301b0f325e3602c3746d6a6bdb5ec36a16cd33909e192dee7b"
+  },
+  "recorder_history": [
+    "The first empty-profile run launched CMD in a directory containing loose candidate susi.exe. Its rollback version output was invalid. Later runs used an empty working directory and required the first where.exe match to be the installed dispatcher.",
+    "The second run observed 0.21.42, 0.21.41, then 0.21.42. The Windows PowerShell serializer traversed metadata attached to shortcut output. The hung measurement process was stopped only after checking its stack, the raw versions, and that no product processes remained.",
+    "The third run captured all 14 successful phases, verified rollback and restoration, and completed cleanup. Its final reader looked for mission traces in the staging directory. A read-only final validation bound the original measurements to the immutable executable hashes, the installed guest workspace traces, and its two Candle generation audit entries. The original error and outputs are retained."
+  ],
+  "limitations": [
+    "The guest spent 110.054 seconds to the first answer. This release does not establish a subsecond first local goal.",
+    "Timing depends on network and guest conditions. The independent host comparator used a verified warm model cache; it must be reported separately from this first public download."
+  ]
+}

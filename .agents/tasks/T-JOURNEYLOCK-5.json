@@ -1,0 +1,10 @@
+{
+  "id": "T-JOURNEYLOCK-5",
+  "owner": "journeylock-1102",
+  "status": "implemented",
+  "title": "Explain native MCP and only the selected external peer's requirements",
+  "dependencies": ["T-JOURNEYLOCK-4"],
+  "scopes": ["src/cli/mcp_cli.rs", "tests/mcp_call_cli_tests.rs", ".agents/tasks/T-JOURNEYLOCK-5.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "mcp_call_cli_tests"]},
+  "requirement": "Setup retains the effective peer definition and enabled state, identifies the native MCP server, and names only this peer's launcher, explicit credential needs and agent readiness/enable commands."
+}
