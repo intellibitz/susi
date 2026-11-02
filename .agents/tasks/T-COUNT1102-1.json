@@ -1,0 +1,14 @@
+{
+  "id": "T-COUNT1102-1",
+  "created_by": "COUNT1102",
+  "title": "Require executed workspace tests during local release qualification",
+  "goal": "Reject successful exits with empty or malformed Rust test evidence and record the passed count.",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-COUNT1102-1.json",
+    "xtask/src/workspace_test_count.rs",
+    "xtask/src/bin/local-release.rs"
+  ],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-release", "workspace_test_count"]},
+  "size": "s"
+}

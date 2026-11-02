@@ -15,6 +15,8 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[path = "../compiler_env.rs"]
 mod compiler_env;
+#[path = "../workspace_test_count.rs"]
+mod workspace_test_count;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v4\n";
@@ -761,7 +763,8 @@ fn run_gates(
                 candidate, attempt, host, compiler,
             )?);
         }
-        let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
+        let log_path = attempt.join(format!("gate-{index}.log"));
+        let log = fs::File::create(&log_path)?;
         let started = std::time::Instant::now();
         let mut command = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?;
         if let Some(sysroot) = &sysroot {
@@ -789,6 +792,13 @@ fn run_gates(
                 attempt.display()
             )
             .into());
+        }
+        if args.first().is_some_and(|arg| arg == "test")
+            && args.iter().any(|arg| arg == "--workspace")
+        {
+            let passed = workspace_test_count::verified_pass_count(&log_path)?;
+            proof.push_str(&format!("workspace-tests-passed={passed}\n"));
+            fs::write(attempt.join("gates.txt"), &proof)?;
         }
     }
     if let Some(sysroot) = &sysroot {
@@ -1943,6 +1953,21 @@ mod tests {
         assert!(attempt.join("gate-0.log").is_file());
         assert!(!attempt.join("gate-1.log").exists());
         assert!(!root.join(".git/susi-product-sysroots").exists());
+    }
+    #[test]
+    fn workspace_test_count_rejects_empty_cargo_suite_before_production_build() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let attempt = fixture.0.join("empty-suite");
+        fs::create_dir(&attempt).unwrap();
+        let (host, compiler) = compiler(&root).unwrap();
+        let error = match run_gates(&root, &attempt, &host, &compiler) {
+            Ok(_) => panic!("empty Cargo suite must fail release qualification"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("executed no passing Rust tests"), "{error}");
+        assert!(!attempt.join("gate-4.log").exists());
     }
     #[test]
     fn selected_product_feature_proof_rejects_missing_or_ambiguous_features() {
