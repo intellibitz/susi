@@ -709,6 +709,8 @@ where
         &[
             "-c",
             "core.hooksPath=",
+            "-c",
+            "core.longpaths=true",
             "worktree",
             "remove",
             text(&candidate)?,
@@ -1545,7 +1547,15 @@ mod tests {
         let right = worker(&repo, "right", "right.rs", "right");
         let source = git(&right, &["rev-parse", "HEAD"]).unwrap();
         fs::write(repo.join("primary-dirty.txt"), "preserve primary").unwrap();
+        let mut first_candidate = PathBuf::new();
         let first = integrate_with(&repo, &["left"], |candidate, _| {
+            first_candidate = candidate.to_path_buf();
+            let mut build_output = candidate.join("target");
+            for _ in 0..6 {
+                build_output.push("nested-windows-artifact-directory-with-a-long-name");
+            }
+            fs::create_dir_all(&build_output)?;
+            fs::write(build_output.join("probe"), "build output")?;
             assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
             assert!(!candidate.join("right.rs").exists());
             Ok(vec![
@@ -1554,6 +1564,10 @@ mod tests {
             ])
         })
         .unwrap();
+        assert!(
+            !first_candidate.exists(),
+            "accepted scratch tree was retained"
+        );
         let second = integrate_with(&repo, &["right"], |candidate, _| {
             assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
             assert_eq!(fs::read_to_string(candidate.join("right.rs"))?, "right");
