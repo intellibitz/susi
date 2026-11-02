@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use susi_vendor_candle::candle_core;
 use susi_vendor_candle::candle_core::Device;
 
 /// Direct Win32 hardware probes (`kernel32.dll`) so Windows builds measure
@@ -1040,6 +1039,7 @@ mod gpu_probe_cache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use susi_vendor_candle::candle_core;
 
     #[test]
     fn test_hardware_profile_generation() {

@@ -120,6 +120,15 @@
         "difference": "before explicit safe Init export needed by coordinated byte-boundary tests"
       },
       "limitations": "Coherent standalone fa lock, not isolated future-lock qualification; exact combined locked tests remain mandatory. Existing conditional GPU tests return early on CPU; no GPU/private-model execution claimed. Upstream CPU flash remains defective and outside permitted facade exports."
+    },
+    "hardware_import_followup": {
+      "behavior": "Move candle_core namespace import into existing cfg(test) hardware module; retain production Device import and all lint severity.",
+      "focused_compiler_exit": 0,
+      "focused_compiler_seconds": 2.441838,
+      "format_exit": 0,
+      "format_seconds": 3.501615,
+      "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license/hardware-import-fix",
+      "limitation": "Read-only failed candidate dependency metadata used only after exact unchanged source/dependency binding; full native combined clippy/tests still required."
     }
   },
   "coordination": {
