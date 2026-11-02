@@ -95,13 +95,9 @@ env:
 # faster without a code change; unset it stays on the default image.
 
 jobs:
-  # This job gates every merge and used to be the slowest thing on a branch push
-  # by a wide margin (5-7.5 min against ~1 min for everything else): it compiled
-  # cargo-geiger from source (~3 min, release profile) and then built the
-  # `unsafe_ratchet` binary's 329-crate dependency closure cold, because it had no
-  # cargo cache at all. Both are now cached. geiger is pinned to the version CI
-  # resolved when the baseline was recorded, so a new release cannot silently
-  # move `.agents/baseline/unsafe-default.json`.
+  # Native measurement and comparison are required for merge. Build only their
+  # small Rust tooling crate; warm Cargo outputs are reused without installing
+  # an obsolete third-party scanner or compiling the application.
   unsafe-ratchet:
     name: Unsafe Exposure Ratchet
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -130,49 +126,26 @@ jobs:
       - name: Install Rust
         if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
-      # Branches read main's entries and never write their own. A cache entry is
-      # saved under the ref that wrote it, and the default (save on every push)
-      # put a 321 MB rust-cache entry plus the 10 MB geiger entry under every task
-      # branch while the repository was already over its quota (10.5 GB of 10), so
-      # eviction kept removing entries - the geiger one among them, which broke
-      # every push (see "Install cargo-geiger"). Same policy as `check` below.
+      # Native measurement/comparison use the small workspace tooling crate.
+      # Branches restore main's cache; only main saves dependency outputs.
       - name: Cache Cargo
         if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Cache cargo-geiger
-        id: geiger
+      - name: Provision host dependency sources
         if: steps.scope.outputs.run == 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/cargo-geiger
-          key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
-      # Skipped on a hit of the cache above. On a miss the binary can still be
-      # on disk: Swatinem/rust-cache saves and restores ~/.cargo/bin too, and
-      # `cargo install` refuses to overwrite a binary it did not install
-      # ("binary `cargo-geiger` already exists in destination"). Once this 10 MB
-      # entry was evicted that failed the job on every push of every branch, and
-      # a failed job never reaches the post-step that would re-save the entry, so
-      # it could not heal. Keep the restored binary when it is the pinned
-      # version; otherwise install over it. tests/ci_cached_tool_install.rs
-      # requires `--force` on every `cargo install` in a rust-cache job.
-      - name: Install cargo-geiger
-        if: steps.scope.outputs.run == 'true' && steps.geiger.outputs.cache-hit != 'true'
+        # Metadata resolves/downloads the complete host graph without compiling
+        # the application; the native scanner subsequently runs offline.
         run: |
-          if cargo geiger --version 2>/dev/null | grep -qx 'cargo-geiger 0.13.0'; then
-            echo "cargo-geiger 0.13.0 restored with the cargo cache"
-          else
-            cargo install cargo-geiger --locked --version 0.13.0 --force
-          fi
-      # Saved right after the install, not at job end, so a ratchet failure on
-      # main (a real unsafe regression) does not also lose the entry.
-      - name: Save cargo-geiger
-        if: steps.scope.outputs.run == 'true' && github.ref == 'refs/heads/main' && steps.geiger.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cargo/bin/cargo-geiger
-          key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
+          rustc -vV > "$RUNNER_TEMP/susi-unsafe-compiler.txt"
+          host=$(sed -n 's/^host: //p' "$RUNNER_TEMP/susi-unsafe-compiler.txt")
+          test -n "$host"
+          cargo metadata --locked --format-version 1 --filter-platform "$host" > "$RUNNER_TEMP/susi-unsafe-metadata.json"
+      - name: Build native unsafe gate tools
+        if: steps.scope.outputs.run == 'true'
+        # Build only the leaf scanner/comparator after source provisioning.
+        run: cargo build --locked -p susi-unsafe-ratchet --bins
       - name: Run unsafe exposure ratchet
         if: steps.scope.outputs.run == 'true'
         run: .github/workflows/unsafe-exposure-ratchet.sh

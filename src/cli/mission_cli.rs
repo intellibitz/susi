@@ -142,7 +142,10 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             let require_tls_remote = susi_daemon::tls::https_only();
             GemiServer::start_http_server((*cwd).to_path_buf(), listeners, tls, require_tls_remote);
         }
-        Commands::Status => {
+        Commands::Status { json } => {
+            if json {
+                return status_cli::run_json(cwd, global_dir);
+            }
             let id_file = global_dir.join("identity.key");
             if id_file.exists() {
                 if let Ok(id) = std::fs::read_to_string(id_file) {

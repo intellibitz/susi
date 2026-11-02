@@ -1,0 +1,49 @@
+{
+  "id": "T-FIXTURESTORAGE-1",
+  "title": "Keep speculative draft-size fixtures within bounded storage and memory",
+  "status": "verified_pending_integration",
+  "dependencies": ["T-NATIVE-1", "T-ASYNCRECEIPT-1"],
+  "base_commit": "5810c79fe233f6ffb506db6f62938964cfabb78d",
+  "scopes": [
+    "crates/susi-gemi/src/engines/speculative.rs",
+    ".agents/tasks/T-FIXTURESTORAGE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo", "test", "--offline", "--locked", "-p", "susi-gemi", "--lib",
+      "engines::speculative::tests::test_select_draft_model_"
+    ]
+  },
+  "acceptance": "Run both existing structural draft-selection tests with the original 100,000,000-, 100,000,000- and 5,000,000,000-byte logical fixture lengths and all original selector assertions unchanged. File::set_len replaces large zero-vector writes; the 4,096-byte tiny fixture remains real bytes. Prove the actual tests execute under a 1 GiB address-space limit. Preserve the full integration failure and require exact combined-tree gates before qualification.",
+  "failure": {
+    "candidate": "66b73b62",
+    "test": "engines::speculative::tests::test_select_draft_model_ignores_tiny_vocab_only_fixtures",
+    "error": "Os { code: 28, kind: StorageFull, message: No space left on device }",
+    "line": "crates/susi-gemi/src/engines/speculative.rs:780:64",
+    "partial_fixture_bytes": 3242041344,
+    "suite": { "passed": 420, "failed": 1, "ignored": 3, "seconds": 10.45 }
+  },
+  "validation": {
+    "target": "x86_64-unknown-linux-gnu",
+    "pinned_rustc": "1.99.0 b940084d7",
+    "compile": { "exit": 0, "elapsed_seconds": 10.129462 },
+    "structural_tests": {
+      "passed": 2, "failed": 0, "ignored": 0, "exit": 0,
+      "elapsed_seconds": 0.010242,
+      "address_space_limit_bytes": 1073741824,
+      "maximum_rss_kib": 10092
+    },
+    "speculative_filter": {
+      "harness_reported_passed": 3, "failed": 0, "exit": 0,
+      "elapsed_seconds": 0.007446,
+      "executed_structural_bodies": 2,
+      "model_pair_body": "Existing test returned early because its required local model pair is absent; not inference evidence"
+    },
+    "rustfmt": { "exit": 0, "elapsed_seconds": 0.049492 },
+    "test_artifact_sha256": "7c3ea282a024ccf3f42f41ad062f02f30bbb3dbccdf8f6294395e3989efdb435",
+    "method": "Compiled the actual susi-gemi crate tests directly with pinned rustc and authenticated sysroot, using genuine read-only target and host dependencies from candidate 66b73b62. No shared Cargo output writes. Crate source was unchanged aff638d0 to 66b73b62 before this fixture repair.",
+    "portability": "File::set_len avoids allocating multi-gigabyte Rust buffers. Sparse disk allocation depends on the filesystem; Linux execution succeeded with approximately 3.1 GiB free on the temporary filesystem.",
+    "evidence_directory": "/workspace/susi-rsa-repair-evidence/storage-repair",
+    "production": "No product behavior changed. Exact combined integration and production qualification remain required."
+  }
+}

@@ -551,24 +551,10 @@ impl SusiAdmin {
     }
 
     fn execute_release_gated(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
-        // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
-        // (e.g. metal pulls in macOS-only objc2 bindings) and cannot all build
-        // together on any single host, so `--all-features` is never used here.
-        // The GPU backend feature check compiles a nearly-disjoint dependency
-        // tree (cudarc, cudaforge, candle-kernels) — roughly a full second
-        // workspace build per phase — so it is opt-in via
-        // SUSI_RELEASE_CHECK_GPU=1. CI's own GPU lane covers that validation;
-        // locally, default features are checked unconditionally. `mkl` stays
-        // excluded: it links the closed-source Intel MKL runtime this pipeline
-        // cannot assume is installed.
+        // CPU is portable; Metal retains an explicit platform check. Retired
+        // CUDA/MKL requests must fail rather than silently claiming GPU coverage.
         let check_gpu = env::var("SUSI_RELEASE_CHECK_GPU").ok().as_deref() == Some("1");
-        let host_gpu_feature: Option<&str> = if !check_gpu {
-            None
-        } else if cfg!(target_os = "macos") {
-            Some("metal")
-        } else {
-            Some("cuda")
-        };
+        let host_gpu_feature = supported_gpu_gate(check_gpu, env::consts::OS)?;
         let feature_sets: Vec<Option<&str>> = std::iter::once(None)
             .chain(host_gpu_feature.into_iter().map(Some))
             .collect();
@@ -615,11 +601,6 @@ impl SusiAdmin {
                     eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
                     let mut cmd = Command::new("cargo");
                     cmd.args(&args).current_dir(workspace);
-                    if *features == Some("cuda") {
-                        if let Some((key, val)) = Self::cuda_version_clamp_env() {
-                            cmd.env(key, val);
-                        }
-                    }
                     let mut check = cmd
                         .stdout(std::process::Stdio::inherit())
                         .stderr(std::process::Stdio::inherit())
@@ -767,11 +748,6 @@ impl SusiAdmin {
                     args.extend(["--", "-D", "warnings"].map(String::from));
                     let mut cmd = Command::new("cargo");
                     cmd.args(&args).current_dir(workspace);
-                    if *features == Some("cuda") {
-                        if let Some((key, val)) = Self::cuda_version_clamp_env() {
-                            cmd.env(key, val);
-                        }
-                    }
                     let mut clippy = cmd
                         .stdout(std::process::Stdio::inherit())
                         .stderr(std::process::Stdio::inherit())
@@ -1373,13 +1349,25 @@ impl SusiAdmin {
     }
 }
 
+fn supported_gpu_gate(requested: bool, os: &str) -> EaiResult<Option<&'static str>> {
+    if !requested {
+        Ok(None)
+    } else if os == "macos" {
+        Ok(Some("metal"))
+    } else {
+        Err(EaiError::config(
+            "SUSI_RELEASE_CHECK_GPU requested an unsupported backend: CUDA/MKL are retired by the license/native-code policy; use the CPU release gate or separately qualified Metal on macOS.".to_string(),
+        ))
+    }
+}
+
 /// The arguments of one cargo phase of the release gate (`check`, `clippy`).
 ///
 /// The default feature set covers the whole workspace. Bare `cargo check`, `cargo
 /// test` and `cargo clippy` at this workspace root select exactly one package of
 /// 86 (`workspace_default_members` is the root crate alone), so a release gate
 /// written that way proved the root crate and nothing else - and nothing said so.
-/// An opt-in GPU backend (`--features cuda|metal`) stays on the root package, as
+/// An opt-in GPU backend (`--features metal`) stays on the root package, as
 /// it always was: the backends are mutually exclusive hardware features that only
 /// the root crate forwards, and `--workspace --features` would ask 85 crates that
 /// do not define them.
@@ -1832,11 +1820,21 @@ mod tests {
     }
 
     /// The opt-in GPU backends are root-package features: `--workspace
-    /// --features cuda` would ask 85 crates that do not define it.
+    /// --features metal` would ask 85 crates that do not define it.
+    #[test]
+    fn gpu_gate_rejects_retired_backends_instead_of_falling_back() {
+        assert_eq!(supported_gpu_gate(false, "linux").unwrap(), None);
+        assert_eq!(supported_gpu_gate(true, "macos").unwrap(), Some("metal"));
+        for os in ["linux", "windows"] {
+            let error = supported_gpu_gate(true, os).unwrap_err().to_string();
+            assert!(error.contains("CUDA/MKL are retired"), "{error}");
+        }
+    }
+
     #[test]
     fn release_gate_gpu_feature_sets_stay_on_the_root_package() {
-        let args = gate_args(&["check", "--all-targets"], Some("cuda"));
-        assert_eq!(args, ["check", "--all-targets", "--features", "cuda"]);
+        let args = gate_args(&["check", "--all-targets"], Some("metal"));
+        assert_eq!(args, ["check", "--all-targets", "--features", "metal"]);
     }
 
     #[test]

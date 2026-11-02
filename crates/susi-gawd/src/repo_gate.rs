@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 
-#[path = "../../../xtask/src/vendor_regressions.rs"]
-mod vendor_regressions;
+use susi_build_policy as vendor_regressions;
 
 /// The three checks Mandate 48 / AGENTS.md require before promoting a change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

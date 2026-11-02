@@ -1,0 +1,1038 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T18:10:27.761898+00:00",
+  "reviewer": "/root/license_advisory_review",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "scope": "Read-only exact-source review of 11 assigned historical-identity residual components. Five registry archives checked against Cargo.lock and all extracted bytes; six vendored trees checked against accepted cbf Git. No builds, models, source edits or baseline edits.",
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.lock",
+      "sha256": "9213ca390987fe49a37a060a531387072898d8775e4ac7bf883aac31e97a4c4b"
+    },
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.toml",
+      "sha256": "3e9208a9cd1c201644616ca3581b433c95ec977a6ac30a3a8190f06dee9cb144"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/unsafe-storage-repaired/metadata.stdout",
+      "sha256": "bfb1dbd7614e19593b336eedf9758b6c00c2b35cf305afa673f2abb96cd42e55"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/qualified-package/sbom.json",
+      "sha256": "8aaf0078d0c26d1a36880b4736896d49db5266df2b9f81e0ff78c317455331d3"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/source-bindings.json",
+      "sha256": "be3a46408ed1f8eb91049c6e72adcc9dcc1e8455fc1cd1e0c9bb8f0e6952c8ef"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/tree-commands.json",
+      "sha256": "a65574630dc332c982cd820cb99bf5bfcf528958415dfdbb2b7b702f1be902ea"
+    }
+  ],
+  "components": [
+    {
+      "identity": {
+        "name": "candle-core",
+        "version": "0.11.1",
+        "source": "path:vendor/candle-core/Cargo.toml"
+      },
+      "risk": "High: model byte parsing, raw tensor representations, numeric allocation and CPU kernels.",
+      "boundary": "Selected CPU tensor backend invokes Rust GEMM with raw strides, converts quantized byte buffers to aligned block slices, initializes numeric output in parallel, and exposes safetensors serialization/loading; CUDA/MKL/Metal branches are not selected in this Linux graph.",
+      "justification": "Required for actual local GGUF inference. GGUF reads cap strings/array nesting and check tensor payload against remaining file bytes; quantized slice conversion checks element divisibility and pointer alignment. CPU matmul allocates output and keeps the batch-invariant RHS fold while avoiding the documented invalid mirrored LHS fold. Parallel bf16 conversion partitions nonoverlapping chunks and publishes length after the barrier. These controls do not cure the concrete safetensors defects found below: the current historical component is not approved for migration on this review.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a98dbbcd5fd224836f1d0191ea483337c01df3ffc10e2a1171d62f2c35221976"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a141d521bc464b66f5625a954e6676759a0bef2d7c61c7451d53f1b35fc5fe92"
+        },
+        {
+          "path": "src/safetensors.rs",
+          "sha256": "d4f959cb161da62fbf5197cb06eee66d178b3b63e7ac0aa804a90dde0ad7437c"
+        },
+        {
+          "path": "src/cpu_backend/mod.rs",
+          "sha256": "0da73738ec8ed2ede1b9588f3bc766f060c268cd69081d88de7006ffb02bf642"
+        },
+        {
+          "path": "src/quantized/mod.rs",
+          "sha256": "da75d412c3d7b803c9c0060c45bd7afc36064662f98f5dfed97bab426f97ebc2"
+        },
+        {
+          "path": "src/quantized/gguf_file.rs",
+          "sha256": "303d0bc548677b41a572b4c878a79905108775eba840037daf778b051d281822"
+        },
+        {
+          "path": "src/quantized/ggml_file.rs",
+          "sha256": "dfc48f822e4393bc836efcf782f4a6bb36168ac9d641324a054f13ee862aadac"
+        }
+      ],
+      "residual_risk": "The much larger kernel/backprop/shape surface is not exhaustively audited. Unsafe alloc_uninit and shape/stride multiplication still require caller invariants; arbitrary malformed models were not fuzzed. A previously passing inference/test does not establish allocator-layout soundness.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "candle_core",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "candle-core -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "candle-core-0.11.1.tree"
+      },
+      "source_binding": {
+        "accepted_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "git_subtree": "328e6b2ee21bcde96a7ae935d89731150ecaa1df",
+        "all_tracked_files_match_accepted_git": true,
+        "mismatches": [],
+        "source_tree_sha256": "6158d1cb5f0d16949f44cef12164a3950c257b2ae1cebc125f982a1434f8935c"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-candle/src/lib.rs",
+          "sha256": "7d524ba6fa2a638b981ff5e5b528819d655f4eeefc12c2e8034338e64fd23e9c"
+        },
+        {
+          "path": "crates/susi-vendor-candle/src/qwen2_split.rs",
+          "sha256": "e590449b08df5a02acf72e8c61e1650bbb8bd29232b27ffd6a85cf0cd7d941a4"
+        },
+        {
+          "path": "crates/susi-gemi/src/engines/alpha.rs",
+          "sha256": "5624b4a58e2237718a6708984eb40fc998b0bc7f11f39926a76700ba32e79344"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [
+        "CANDLE-SAFETENSORS-ALLOC-LAYOUT",
+        "CANDLE-SAFETENSORS-PARTIAL-ELEMENT"
+      ],
+      "disposition": "requires_boundary_repair",
+      "conclusion": "Do not admit this component as reviewed clean until the listed boundary defect(s) are repaired and the changed source is reviewed and tested."
+    },
+    {
+      "identity": {
+        "name": "candle-nn",
+        "version": "0.11.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: CPU attention pointer slicing and parallel output, plus inherited model mapping/serialization contracts.",
+      "boundary": "CPU softmax calls vector reductions over contiguous tensor chunks; CPU causal flash attention reconstructs raw slices inside a barrier-pool job; VarBuilder exposes unsafe mmap construction and safe buffered construction. GPU launch code is feature-gated and not selected.",
+      "justification": "Required neural-network layers for local models and alpha checkpoints. Softmax constructs initialized output matching the layout element count and zips input/output chunks. VarBuilder carries the mmap safety contract explicitly; fastembed instead uses owned buffered safetensors. VarMap::save reaches the candle-core allocation-layout defect. Separately the exported CPU causal attention entrypoint drops K/V dimensions before raw-slice construction, leaving an unmet length precondition for mismatched safe inputs; that boundary cannot be marked clean.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "5df7737bd46878014abdca6273c5f0b5fdce17ba122eb574b8adcbb4369cf903"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9a568a854f35b1d7f866015f01e5d8f138180b4f6790fd181b6d80bb9a6a211d"
+        },
+        {
+          "path": "src/var_map.rs",
+          "sha256": "c831e9f6ab5c527d8b39feb9db2df402a67aef08e86a05c10735e251587bebba"
+        },
+        {
+          "path": "src/var_builder.rs",
+          "sha256": "e86a25ab1cfbd8f90878695b86c93f60ebbcd6247dbf59537d4b1ad21f24bcb7"
+        },
+        {
+          "path": "src/ops.rs",
+          "sha256": "5f3342ddd29441833f3739931b532c5f66ff45b107fd4f867d198370f17887e5"
+        },
+        {
+          "path": "src/attention/cpu_flash/mod.rs",
+          "sha256": "81b096395743b69520b8890f2512169603e7de02583c13a558fce6c7eceb4fbe"
+        },
+        {
+          "path": "src/attention/cpu_flash/causal.rs",
+          "sha256": "7d28116e839c83e7481b20594b9f63e0e5d9df8c9a2aa7a9c1810c7ab8fe979a"
+        }
+      ],
+      "residual_risk": "No direct Susi caller of run_causal_attn_cpu/flash_attn was found in the inspected model wrappers; the Qwen2 split uses matmul/softmax. This limits demonstrated product reachability, not the public API defect. No model, Miri, concurrency stress or malformed-tensor execution performed. mmap callers must prevent concurrent file mutation.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "candle_nn",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "candle-nn -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "candle-nn-0.11.1.tree"
+      },
+      "source_binding": {
+        "archive_path": "/workspace/.susi-cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/candle-nn-0.11.1.crate",
+        "archive_sha256": "437fabe77547c2447c7bdf3cc946e19db29a2832440176b419f77c80b0a9a05e",
+        "cargo_lock_checksum": "437fabe77547c2447c7bdf3cc946e19db29a2832440176b419f77c80b0a9a05e",
+        "all_extracted_files_match_archive": true,
+        "mismatches": [],
+        "source_tree_sha256": "9304a079a7ebdeb8d9675324872e62e32b42f746a81ecd5f6e0bb54bf5de8c52"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-gemi/src/engines/alpha.rs",
+          "sha256": "5624b4a58e2237718a6708984eb40fc998b0bc7f11f39926a76700ba32e79344"
+        },
+        {
+          "path": "crates/susi-vendor-fastembed/src/lib.rs",
+          "sha256": "2f9d2b31b69e15f4cfffce79c84cf7c1535f94844deee2f5a03c7f12d13503a7"
+        },
+        {
+          "path": "crates/susi-vendor-candle/src/qwen2_split.rs",
+          "sha256": "e590449b08df5a02acf72e8c61e1650bbb8bd29232b27ffd6a85cf0cd7d941a4"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [
+        "CANDLE-NN-CAUSAL-SLICE-LENGTH"
+      ],
+      "disposition": "requires_boundary_repair",
+      "conclusion": "Do not admit this component as reviewed clean until the listed boundary defect(s) are repaired and the changed source is reviewed and tested."
+    },
+    {
+      "identity": {
+        "name": "candle-transformers",
+        "version": "0.11.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate locally; high inherited model/tensor backend trust.",
+      "boundary": "Model implementations assemble tensor operations; local literal unsafe sites found by source scan are mmaped safetensors convenience loaders in Mimi/Stable Diffusion. The inspected quantized Qwen2 path has no local unsafe block.",
+      "justification": "Selected Susi integration reexports the crate, uses quantized RMSNorm/repeat_kv and llama model support, and uses BertModel through pinned buffered fastembed weights. Inspected Qwen2 reshapes Q/K/V into equal head dimensions, extends KV caches, applies causal masks and routes through safe Tensor matmul/softmax. Unsafe mmap conveniences are not used by the inspected GGUF Qwen2 split or owned BGE loader. Missing forbid must not be represented as a count of unsafe operations or evidence that those unrelated loaders execute.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "33d1afbf71507fe7670af3233488e0d45d774bbd34d7d2e5bcbc4c0332ee28b5"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "0b1ace7638d359ffcf52363d6fc8e15f82a305dd36a7efe21f501478006feb77"
+        },
+        {
+          "path": "src/models/quantized_qwen2.rs",
+          "sha256": "e9342335b8311d1422b77ed767d06ab75a253ada0bdcbfcf173e9485c86ffbbe"
+        },
+        {
+          "path": "src/models/mimi/encodec.rs",
+          "sha256": "53230c6f93efe16b0bd1979b2744fc3d320c93ed8593a67526ee64e5add85075"
+        },
+        {
+          "path": "src/models/stable_diffusion/mod.rs",
+          "sha256": "c2326c620740167b99af1552b06a076d9ae78a50c11d2ccc87bb388718c9180b"
+        }
+      ],
+      "residual_risk": "The full catalog of model architectures was not audited. The concrete defects in candle-core and candle-nn remain dependency blockers even though this inspected layer has no new direct defect. Model dimensions, cache growth, resource exhaustion and mmap stability remain obligations.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "candle_transformers",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "candle-transformers -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "candle-transformers-0.11.1.tree"
+      },
+      "source_binding": {
+        "archive_path": "/workspace/.susi-cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/candle-transformers-0.11.1.crate",
+        "archive_sha256": "2b1e1abeac23d7df4f94e8a3852b3dbb661d332e37c3bef479507bac867187b2",
+        "cargo_lock_checksum": "2b1e1abeac23d7df4f94e8a3852b3dbb661d332e37c3bef479507bac867187b2",
+        "all_extracted_files_match_archive": true,
+        "mismatches": [],
+        "source_tree_sha256": "6e33c96818a9c5034dad431245501d6a03edd3c76a90c347dac9bdc74b96c150"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-candle/src/qwen2_split.rs",
+          "sha256": "e590449b08df5a02acf72e8c61e1650bbb8bd29232b27ffd6a85cf0cd7d941a4"
+        },
+        {
+          "path": "crates/susi-gemi/src/engines/runtime_substrate.rs",
+          "sha256": "10a4bf1dbf106b3235e73b0556a3dde01b2c85a12874f1d91532a74cbdc661f9"
+        },
+        {
+          "path": "crates/susi-vendor-fastembed/src/lib.rs",
+          "sha256": "2f9d2b31b69e15f4cfffce79c84cf7c1535f94844deee2f5a03c7f12d13503a7"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "crc32fast",
+        "version": "1.5.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: CPU-feature dispatch and vector loads from untrusted byte streams.",
+      "boundary": "x86 checksum specialization uses SSE/PCLMUL and optional compiler-supported AVX2/AVX512 intrinsics; baseline fallback remains available. This is Rust intrinsic code, not external FFI.",
+      "justification": "Selected through HTTP gzip and ZIP processing. State::new selects only CPU-supported instruction sets; update is safe because the private State kind is created by detection. Short inputs fall back before wide loads, remaining-length loops bound vector batches, and get/get256/get512 split complete chunks before loading. Checksum results detect accidental corruption; they are not authentication and must not replace pinned SHA-256.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "c79d5b10769b1fab560e1c949d545857122284713dcb83af0e6d640a0909530a"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "d682d5c0a302883b62f2e87617cf1a2544e01ff5a795c15411715437077e199b"
+        },
+        {
+          "path": "build.rs",
+          "sha256": "deb6052c4a586e8875ef677fe2d9e9dcfafebfa949803455ea8eff6e7dbde436"
+        },
+        {
+          "path": "src/specialized/mod.rs",
+          "sha256": "2ad54230fd89b3a93b915e56ff32ca536460630fc10306d3bdb79948b0603330"
+        },
+        {
+          "path": "src/specialized/pclmulqdq.rs",
+          "sha256": "475f029d688497816f7270681440f037329676130ff5c2f3f14f04ccda2c1132"
+        },
+        {
+          "path": "src/baseline.rs",
+          "sha256": "bf842931d060899b86775bf5da4416119ad98d46ccfd8931b77e0cab2211f273"
+        }
+      ],
+      "residual_risk": "Instruction detection and compiler intrinsic contracts remain trusted. This review did not execute every CPU variant, prove the polynomial calculation, or run fuzzing. The build script controls stable_vpclmulqdq compilation separately from runtime feature detection.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "crc32fast",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default",
+          "std"
+        ],
+        "example_reverse_route": "crc32fast -> flate2 -> ureq -> susi-vendor-ureq -> susi-http-transport -> susi-adapters-llm -> susi-core -> susi",
+        "reverse_tree_receipt": "crc32fast-1.5.3.tree"
+      },
+      "source_binding": {
+        "archive_path": "/workspace/.susi-cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.3.crate",
+        "archive_sha256": "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055",
+        "cargo_lock_checksum": "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055",
+        "all_extracted_files_match_archive": true,
+        "mismatches": [],
+        "source_tree_sha256": "9ba4a336576cf970151e422972a72808bc73ea5c71081ca2f0892ead90ad41ac"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "encoding_rs",
+        "version": "0.8.42",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate to high: parser output UTF-8 invariants and spare-capacity initialization.",
+      "boundary": "Decoder wrappers create unchecked UTF-8 views, mutate String backing storage and set initialized length after decoding. The selected alloc/default graph excludes simd-accel; ASCII fallback uses checked slice/array conversions. Linux minimally_init uses page writes plus an inline-asm memory boundary.",
+      "justification": "Needed for reqwest response text. decode_to_str guards mutable bytes so panic unwinding zeros the whole slice, and clears trailing partial UTF-8 after conversion. decode_to_string exposes only the reported written prefix and asserts final length against capacity. The selected minimally_init path does not zero every byte: its explicit contract relies on the inline-asm memory-clobber model and requires the decoder to overwrite every exposed byte. This is retained as a substantive dependency trust boundary, not described as fully initialized by ordinary Rust writes.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "ad8b14108d47cbcbb2ae80ba3acdb8c5099b8aaea65a759e8b0c8d17ab0f122a"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7e129f02c254d7bd33e37d8951164a7c9e25fa284557ab4704859bc58c2f7e80"
+        },
+        {
+          "path": "src/ascii.rs",
+          "sha256": "fff21e34b75d82f804533f339aa3fec03f9c04cb08a73486bb054d3c3cc78e97"
+        },
+        {
+          "path": "src/utf_8.rs",
+          "sha256": "cacfc0df6b610d51814584870435759cae7b4fd256935582d7d62c3db288579b"
+        },
+        {
+          "path": "src/handles.rs",
+          "sha256": "d8867395e9b5dba942554173c0c8cc99a390dcac27749927fa55e4172114b248"
+        }
+      ],
+      "residual_risk": "A decoder byte-count or UTF-8 error could expose stale bytes or violate String validity. The inline-asm initialization argument and every legacy encoding table/decoder were not formally verified. No fuzz/Miri run or cross-target equivalence claim is made.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "encoding_rs",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "alloc",
+          "default"
+        ],
+        "example_reverse_route": "encoding_rs -> reqwest -> susi-vendor-mcp -> susi-tools -> susi",
+        "reverse_tree_receipt": "encoding_rs-0.8.42.tree"
+      },
+      "source_binding": {
+        "archive_path": "/workspace/.susi-cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/encoding_rs-0.8.42.crate",
+        "archive_sha256": "8e985e0451871ad22fb8d2b6b076e2028a502a0d3950998c2c5c0a4f9b5d9679",
+        "cargo_lock_checksum": "8e985e0451871ad22fb8d2b6b076e2028a502a0d3950998c2c5c0a4f9b5d9679",
+        "all_extracted_files_match_archive": true,
+        "mismatches": [],
+        "source_tree_sha256": "52361fe7a6fd0a3b3cdc8ea0a534c4e27453739ba08e9f3e82e528f38ade7c05"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "hashbrown",
+        "version": "0.16.1",
+        "source": "path:vendor/hashbrown-016/Cargo.toml"
+      },
+      "risk": "High: generic collection allocation, initialized-bucket tracking, raw pointer lifetimes and drop semantics.",
+      "boundary": "SwissTable raw storage combines element allocations with SIMD control bytes; Bucket manipulates typed pointers, RawTable supplies conditional Send/Sync, and SSE2 loads control groups on x86_64. Selected allocator-api2 supplies allocator behavior; raw-entry/serde are present.",
+      "justification": "The two versions are distinct vendored identities and were bound independently. Layout calculations use checked multiplication/addition and isize::MAX bounds before unchecked Layout construction; control alignment is max(T alignment, group width). Allocation handles null/failure, adds trailing control-group bytes and initializes control bytes before iteration. Bucket indexing documents non-null live table and index bounds; RawTable Send/Sync require corresponding T and allocator traits. Destruction tracks occupied buckets and preserves allocator/layout identity. Required via lru/Tantivy and safetensors.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "e474854767f9ff7dd7f4028cd9d0c59efbec8dee544475f5ba53c30321d45908"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "3593e802f411f0af91fc18cc9b08ae56acd2a2b6a1b3bfd1a8daf7887aa661c0"
+        },
+        {
+          "path": "src/raw/mod.rs",
+          "sha256": "c24d6b9c8a9456505fa7a5b7c42b85468e6dd76bd49af54d17696c16dec4d2e8"
+        },
+        {
+          "path": "src/raw/alloc.rs",
+          "sha256": "4a1ba016f0932495bcec6007674bf4043543084cd04f4fe9cd5796013296e857"
+        },
+        {
+          "path": "src/control/group/sse2.rs",
+          "sha256": "833da90ab3fd72d306d5b999de96a4b6b52aa1a16ee7273c89bd12c9ead3bc45"
+        },
+        {
+          "path": "src/map.rs",
+          "sha256": "2f42092439f327756317ea15a32983cfd29503add8a6ff9716b92e50c03dfd7b"
+        }
+      ],
+      "residual_risk": "Not a complete audit of all raw-entry APIs, custom allocators, panic/reentrancy handling, serde or iterator edge cases. Custom unsafe allocator implementations and correctness of hash/equality consumers remain dependencies. No evidence that every public API executes in Susi is claimed.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "hashbrown",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "allocator-api2",
+          "default",
+          "default-hasher",
+          "equivalent",
+          "inline-more",
+          "raw-entry",
+          "serde"
+        ],
+        "example_reverse_route": "hashbrown 0.16.1 -> lru -> tantivy -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "hashbrown-0.16.1.tree"
+      },
+      "source_binding": {
+        "accepted_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "git_subtree": "a8b4893d49e784f242d645e3c3c9703c19e15f9b",
+        "all_tracked_files_match_accepted_git": true,
+        "mismatches": [],
+        "source_tree_sha256": "29145460c1aebd324fbbe1301407c002e50e3afb6d1bf72ad0b87e811e582b5e"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "hashbrown",
+        "version": "0.17.1",
+        "source": "path:vendor/hashbrown/Cargo.toml"
+      },
+      "risk": "High: generic collection allocation, initialized-bucket tracking, raw pointer lifetimes and drop semantics.",
+      "boundary": "SwissTable raw storage combines element allocations with SIMD control bytes; Bucket manipulates typed pointers, RawTable supplies conditional Send/Sync, and SSE2 loads control groups on x86_64. Selected allocator-api2 supplies allocator behavior; raw-entry/serde are present.",
+      "justification": "The two versions are distinct vendored identities and were bound independently. Layout calculations use checked multiplication/addition and isize::MAX bounds before unchecked Layout construction; control alignment is max(T alignment, group width). Allocation handles null/failure, adds trailing control-group bytes and initializes control bytes before iteration. Bucket indexing documents non-null live table and index bounds; RawTable Send/Sync require corresponding T and allocator traits. Destruction tracks occupied buckets and preserves allocator/layout identity. Required via indexmap in HTTP/serialization and other selected consumers.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "da5c6b8b5fd7dc14f1e670c3f87c25b1ba790124640a7b81a56fe0bd6d2471c2"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "23de74f311e3584574b39041df306b0cbb9ecb700ed33fba1e02ba9d26f70a23"
+        },
+        {
+          "path": "src/raw.rs",
+          "sha256": "0c8ad353ba95817e72b0a8fea48fa2599099ea3def374f254ab6402a9c468d22"
+        },
+        {
+          "path": "src/alloc.rs",
+          "sha256": "7ffdd9a84787cb1f93b31184c32733649324faf500bcc3012197ee91353c9ac7"
+        },
+        {
+          "path": "src/control/group/sse2.rs",
+          "sha256": "53d7d09c72332232b4562aa7dfabf18e5f57c5009a672b2cfac7193ef468b349"
+        },
+        {
+          "path": "src/map.rs",
+          "sha256": "b79497ce537ffc5ed4f8f3399434b9216c01e7927fdc434fee190e9e9ce2abb0"
+        }
+      ],
+      "residual_risk": "Not a complete audit of all raw-entry APIs, custom allocators, panic/reentrancy handling, serde or iterator edge cases. Custom unsafe allocator implementations and correctness of hash/equality consumers remain dependencies. No evidence that every public API executes in Susi is claimed.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "hashbrown",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "allocator-api2",
+          "default",
+          "default-hasher",
+          "equivalent",
+          "inline-more",
+          "raw-entry",
+          "serde"
+        ],
+        "example_reverse_route": "hashbrown 0.17.1 -> indexmap -> h2 -> hyper -> axum -> susi-vendor-axum -> susi-harness -> susi",
+        "reverse_tree_receipt": "hashbrown-0.17.1.tree"
+      },
+      "source_binding": {
+        "accepted_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "git_subtree": "81292734667ae81148abbe6c1844e92e23e76eec",
+        "all_tracked_files_match_accepted_git": true,
+        "mismatches": [],
+        "source_tree_sha256": "e066b3b643bfe9b4d0ed8f4c6bffa76dae4fcc40b624ec78b9917414ca776890"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "idna_adapter",
+        "version": "1.1.0",
+        "source": "path:vendor/idna-adapter/Cargo.toml"
+      },
+      "risk": "High: OS dynamic-loader/ICU function-pointer ABI and Unicode identity interpretation.",
+      "boundary": "The vendored implementation loads only standard absolute Linux OS ICU paths, resolves same-version C symbols, retains the owning library in a process-wide OnceLock API, and calls normalization/property functions with typed buffers.",
+      "justification": "Selected via unicode-ident for source tooling/proc macros, not merely an unused accelerator. Library::get checks NUL termination, pointer size and non-null symbols while requiring the private caller to supply exact ABI. Api retains the library for every stored pointer; normalization checks i32 input length, uses an ICU preflight capacity, validates status/actual output and converts UTF-16 fallibly. Missing library/API/data yields typed status and rejection values for non-ASCII input. These checks support the OS boundary without bundling ICU code or data.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "0d5f78c9fd1bd69d6871da76c7fee8ccbba6572465bfc98bbcaef3aaf93ff964"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "c43c045cb4d26380bd445125a192c3fcf3b77f0ab412a032e75848b741a51a9d"
+        },
+        {
+          "path": "src/native_library.rs",
+          "sha256": "19391c463a5c102eebe321c5f18199751ef98f663aef641724652355e2958aa5"
+        },
+        {
+          "path": "src/platform.rs",
+          "sha256": "814fe1ff5afa4de63991e296de9950a2de5d3542430e67632a56afbe666cbf16"
+        }
+      ],
+      "residual_risk": "System library permissions, symlinks, ABI implementation and installed Unicode version remain trusted. Absolute paths prevent CWD/PATH selection but do not cryptographically authenticate the OS library. Full Unicode conformance and every platform were not executed here. Qualification must bind the actual platform provider/version separately.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "idna_adapter",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "compiled_data"
+        ],
+        "example_reverse_route": "idna_adapter -> unicode-ident -> proc-macro2 -> syn/susi-vendor-syn -> selected source tooling; full reverse tree retained",
+        "reverse_tree_receipt": "idna_adapter-1.1.0.tree"
+      },
+      "source_binding": {
+        "accepted_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "git_subtree": "a200f6792caaa26583016205216ed5c06abe0714",
+        "all_tracked_files_match_accepted_git": true,
+        "mismatches": [],
+        "source_tree_sha256": "68ab2fd8d1d98fa357ade37741905d02f8f101f1a958829e837af03f55ec8717"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/unicode-ident/src/lib.rs",
+          "sha256": "a313ecafc570e14fa049c4e51695e79016e9c9760d6793ed31350be3cb424596"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "sha2",
+        "version": "0.11.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: security-critical digest correctness and intrinsic/raw-array representation contracts.",
+      "boundary": "Runtime SHA256 SHA/SSE4.1 and SHA512 AVX2 dispatch; SIMD loads/stores use fixed-size state/block arrays, and the software unrolled rounds read constant-table pointers. No external crypto ABI.",
+      "justification": "Susi uses the first-party sha2 wrapper for artifact and evidence digests; rmcp is an additional route. Hardware dispatch checks required features with cpufeatures before entering specialized routines; unsupported CPUs fall back. SHA256 loads four 16-byte lanes from 64-byte blocks and two lanes from 32-byte state; SHA512 groups typed pairs of 128-byte blocks and handles the odd head separately. Software round indices are fixed 0..64/80; schedule casts preserve byte size and alignment from SIMD arrays to u64 arrays.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a2eb64ea4fa73cd686f453b7428c415dad6dda57c4e0b6825ffc6f6d765dcc05"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "5529df80c102cb5d7240e47a5239565c8347a4dd79ee5a085e5f2d749657d49c"
+        },
+        {
+          "path": "src/sha256.rs",
+          "sha256": "e1b90f72b981d384cfde99a569d8e023cddc0a02bc0cf3b7392391f9429b10ca"
+        },
+        {
+          "path": "src/sha256/x86_sha.rs",
+          "sha256": "c27e188a5235788b064eb878ed7c4d8090f194dd30d3188aa2e73b1c4027e5a5"
+        },
+        {
+          "path": "src/sha256/soft/unroll.rs",
+          "sha256": "69af1d7a57c05b3a69fda30fb0039bc7c8b53e5d9a679bf9973eb6eda245b81a"
+        },
+        {
+          "path": "src/sha512.rs",
+          "sha256": "e4f4f65b80d832e63f262d348ec60657f16a5b1715094b5ac959f1a0d01ca790"
+        },
+        {
+          "path": "src/sha512/x86_avx2.rs",
+          "sha256": "cafc5cf63b923c7a16d277b345c019cf453be0054468c5017ac48face01e4deb"
+        },
+        {
+          "path": "src/sha512/soft/unroll.rs",
+          "sha256": "4a68218d52b722bb4e11c6d70db9e5256c930bd41b23905a0d69cd893f1e3c6d"
+        }
+      ],
+      "residual_risk": "No independent cryptographic proof, exhaustive CPU test or malicious compiler test. Source hashing is provenance evidence, not proof of cryptographic correctness. sha2 0.10.9 is a separate selected identity outside this assignment.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "sha2",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "alloc",
+          "default",
+          "oid"
+        ],
+        "example_reverse_route": "sha2 0.11.1 -> susi-vendor-sha2 -> susi",
+        "reverse_tree_receipt": "sha2-0.11.1.tree"
+      },
+      "source_binding": {
+        "archive_path": "/workspace/.susi-cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/sha2-0.11.1.crate",
+        "archive_sha256": "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19",
+        "cargo_lock_checksum": "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19",
+        "all_extracted_files_match_archive": true,
+        "mismatches": [],
+        "source_tree_sha256": "ab2bb02e76970882c37d863f1ea0de46462ca34d2c9f16962f756c8b0b2e31c7"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-sha2/src/lib.rs",
+          "sha256": "d08ae9aa4b4cbcafa377699d0a88fa794591a097670c12ea46a95b201939a545"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "tantivy-sstable",
+        "version": "0.7.0",
+        "source": "path:vendor/tantivy-sstable/Cargo.toml"
+      },
+      "risk": "Moderate: untrusted index parsing/decompression and resource bounds; no local literal unsafe code found.",
+      "boundary": "Sorted-string-table blocks use OwnedBytes and safe slices, and selected zstd-compression delegates decoding to Rust ruzstd rather than foreign zstd. No unsafe token was found in src Rust files; the missing root forbid is still measurable.",
+      "justification": "Required persistent search dictionaries via tantivy-columnar/Tantivy. BlockReader rejects truncated length/codec/payload and unknown codecs before infallible reads. Compressed blocks enforce a 64 MiB frame window and decoded-output cap, including one extra byte to detect oversize. These are concrete guards around the selected codec and do not justify omitting the package from inventory.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "73ab0d4eca136e4164001a28cc3647e4c5b184109b5e34de5cd0206ac69b39e1"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "737569d2bbf79785f2b4c33c52fbe95f4ad04584dbea7bd2d0da70bb2e0bb93a"
+        },
+        {
+          "path": "src/block_reader.rs",
+          "sha256": "95d7643744bdaaf6a5f817df84f667e02459eaa391b1f5cb55ff59fd69a2f7c5"
+        },
+        {
+          "path": "src/vint.rs",
+          "sha256": "cfffe620b23dfd605bed4bd918b01f87394196e24faab261ce0031baeead3bdc"
+        },
+        {
+          "path": "src/dictionary.rs",
+          "sha256": "f84bca93f708f64b77b81c7cd1bba4d7eae1616b6e12aa8d244a414b57f61c67"
+        }
+      ],
+      "residual_risk": "Safe code and dependencies can still panic or exhaust resources. In particular vint::deserialize_read shifts by a growing value without an explicit encoded-length cap, and buffer offset methods rely on valid internal ranges. This review is not a proof that all malformed indices return errors; parser robustness remains distinct from the crate-forbid migration.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "tantivy_sstable",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "ruzstd",
+          "zstd-compression"
+        ],
+        "example_reverse_route": "tantivy-sstable -> tantivy-columnar -> tantivy -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "tantivy-sstable-0.7.0.tree"
+      },
+      "source_binding": {
+        "accepted_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "git_subtree": "2df3f7d77ce86912d722083846184f6b9c9d7cac",
+        "all_tracked_files_match_accepted_git": true,
+        "mismatches": [],
+        "source_tree_sha256": "e84c0053171055d10966739b12054429dc710dc8dce1d91177017c57db4120b7"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    },
+    {
+      "identity": {
+        "name": "zip",
+        "version": "9.2.0",
+        "source": "path:vendor/zip/Cargo.toml"
+      },
+      "risk": "Moderate to high: archive headers, extraction paths and caller-managed metadata/writer invariants.",
+      "boundary": "Fixed ZIP records use a private unsafe Pod trait for byte views and zero initialization; packed integer records and transparent u32 Magic are the inspected implementations. Metadata reuse and low-level writer mutation are explicitly unsafe APIs. Windows extraction FFI and AES features are not selected in Linux features=[].",
+      "justification": "Selected through candle-core archive/model compatibility. FixedSizeBlock::parse reads an exact initialized record, checks signature and performs endian conversion; the POD structs have integer fields and packed layout, supporting all-bit-pattern and no-padding requirements. unsafe_new_with_metadata makes reader/metadata matching the caller obligation; selected normal construction parses from the same reader. Missing root forbid cannot be replaced with a claim that ZIP has no unsafe implementation.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "ce28a903f826c7ab9241219a5d1f3dd9ea42141b86c82b8dd838a9cf81cfde63"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "cb5dd857a9ea068a9b909cc8f11675df59a58763e70ef01ebe929c4a2a986a71"
+        },
+        {
+          "path": "src/format/blocks.rs",
+          "sha256": "8b1d0ba5516abd3733f69ac25f2df5355ddb58a903a4ef91e807fc350fc662e3"
+        },
+        {
+          "path": "src/format/magic.rs",
+          "sha256": "d86ca717d532796164e9fcbd12d844cfe831a9480ec26de95fcbf00a3615ecc3"
+        },
+        {
+          "path": "src/read/zip_archive.rs",
+          "sha256": "ff9360805aec0b2b6eae83b71dedf9faf20c0d07cb572ac6dda7441061e152d8"
+        },
+        {
+          "path": "src/read/stream.rs",
+          "sha256": "ec2a598f701ac6aca7da7a2e1abfc9ebe9bf551dfed543ca170b82c6076b1cd1"
+        },
+        {
+          "path": "src/read/extract.rs",
+          "sha256": "5df5c87f16698ed8b487d5400af77519a807672d3d80f33625a472143ab91bc5"
+        },
+        {
+          "path": "src/write.rs",
+          "sha256": "c685603b68d08e514a3ff6f580c5ecf090c8780f88e4da1ca4cfc337b51d4b0e"
+        }
+      ],
+      "residual_risk": "Archive path races, compression/resource attacks, every optional writer/encryption/extraction API and Windows FFI were not exhaustively audited. The inspected metadata constructor can be misused by unsafe callers. Qwen GGUF inference does not by itself test ZIP parsing.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "zip",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [],
+        "example_reverse_route": "zip -> candle-core -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "zip-9.2.0.tree"
+      },
+      "source_binding": {
+        "accepted_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "git_subtree": "7c82aea30313e16f5f8daa29740e2f814139b78f",
+        "all_tracked_files_match_accepted_git": true,
+        "mismatches": [],
+        "source_tree_sha256": "2c7875150642de088fa98d24d5a669dc104c9f9b8486538ca272006ac991c8f7"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "findings": [],
+      "disposition": "reviewed_no_specific_blocking_defect_in_inspected_boundary",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is scoped exact-source review, not a complete upstream memory-safety audit or approval of other versions/features."
+    }
+  ],
+  "findings": [
+    {
+      "id": "CANDLE-SAFETENSORS-ALLOC-LAYOUT",
+      "component": "candle-core 0.11.1",
+      "file": "vendor/candle-core/src/safetensors.rs",
+      "lines": [
+        184,
+        195
+      ],
+      "status": "static_confirmed_contract_violation",
+      "description": "convert_back_<T> forgets Vec<T> then constructs Vec<u8> with the same pointer and scaled length/capacity. For T=f32/u32/f64/etc the original allocator alignment differs from u8; Vec::from_raw_parts requires the original allocation layout alignment, not merely sufficient pointer alignment.",
+      "reachability": "Susi alpha publish_checkpoint -> candle_nn::VarMap::save -> safetensors::serialize_to_file -> Tensor View::data -> convert_back_<f32>. Existing vendor-candle owned-safetensors test also calls save_safetensors.",
+      "corrective_option": "Allocate a separate Vec<u8> and copy initialized numeric bytes, preserving destruction of the original Vec<T> with its original layout; add relevant typed round-trip/regression checks.",
+      "runtime_reproduction": "Not attempted; no builds or UB execution authorized for this read-only review."
+    },
+    {
+      "id": "CANDLE-SAFETENSORS-PARTIAL-ELEMENT",
+      "component": "candle-core 0.11.1",
+      "file": "vendor/candle-core/src/safetensors.rs",
+      "lines": [
+        115,
+        139
+      ],
+      "status": "static_confirmed_unchecked_copy_bound",
+      "description": "convert_slice floor-divides data.len() by element size to allocate Vec<T>, then copies data.len() bytes on the unaligned branch without checking divisibility. The safe public Tensor::from_raw_buffer forwards arbitrary input. An unaligned one-byte input with dtype f32 has zero capacity and a one-byte copy to its dangling allocation; longer partial elements can also overrun.",
+      "reachability": "Safe public Tensor::from_raw_buffer, reexported via susi-vendor-candle. No direct Susi malformed-input call shown; validated safetensors views normally supply divisible lengths.",
+      "corrective_option": "Reject non-multiple element byte lengths before either cast/copy and use alignment_of::<T>(); apply the same invariant in convert_slice_with_cast. Prefer initialized typed values or checked byte chunks over a raw partial copy.",
+      "runtime_reproduction": "Not attempted; the static size arithmetic is sufficient and deliberately executing undefined behavior is unnecessary."
+    },
+    {
+      "id": "CANDLE-NN-CAUSAL-SLICE-LENGTH",
+      "component": "candle-nn 0.11.1",
+      "file": "src/attention/cpu_flash/causal.rs",
+      "lines": [
+        78,
+        81,
+        242,
+        244
+      ],
+      "status": "static_confirmed_missing_length_precondition",
+      "description": "The safe exported run_causal_attn_cpu reads Q(s_q,h_q,d), discards K/V last dimensions and V sequence length, then raw-slice kernels reconstruct K length s_kv*h_kv*d and V length s_kv*h_v*d. Mismatched safe tensor inputs can make those lengths exceed backing allocations. Public causal kernels and their dispatch need consistent shape/length/head validation before pointer reconstruction.",
+      "reachability": "Present compiled public API in selected candle-nn; no direct Susi caller of this API found. Inspected Qwen2 integration uses matmul/softmax. This is a latent package boundary defect, not a demonstrated private-model trigger.",
+      "corrective_option": "Patch/upgrade the supported dependency with rank, batch, nonzero/divisible heads, matching K/V dimensions and sequence-length validation, checked products and raw-length checks; validate all CPU dispatch paths and add malformed-shape tests.",
+      "runtime_reproduction": "Not attempted; source-bound static diagnosis only."
+    }
+  ],
+  "review_result": "11 exact identities reviewed; 9 have no specific blocking defect in inspected local boundaries; candle-core and candle-nn require repair for the three recorded source-bound defects. No blanket approval or automatic migration authorization.",
+  "gate_obligations": [
+    "Keep complete fail-closed scanner, all feature license/advisory checks and exact identity migration gates.",
+    "Do not treat the two requires_boundary_repair entries as approvals. Bind repair source/test receipts and independent follow-up review before admission.",
+    "Full integration, actual immutable production packages, installed health, real inference and verified rollback remain separate requirements."
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed": false
+}

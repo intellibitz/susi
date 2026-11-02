@@ -537,37 +537,25 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     ));
 
     // --- GPU acceleration (non-critical host capability) ---
-    // A GPU host running a CPU-only build leaves the 17x inference
-    // speedup (EV-2022920-035) unrealized — worth surfacing, not
-    // worth failing the crown over.
     let gpu_present = susi_core::bounded_cmd::output_within(
         std::process::Command::new("nvidia-smi").arg("-L"),
         std::time::Duration::from_secs(5),
     )
     .is_ok_and(|o| o.status.success());
-    let cuda_built = cfg!(feature = "cuda");
     let accel = profile
         .as_ref()
         .map(|p| p.native_acceleration.as_str())
         .unwrap_or("");
-    let cuda_runtime = accel.contains("CUDA");
     out.push(check(
         "gpu_accel",
         false,
-        if gpu_present && cuda_built {
-            cuda_runtime
-        } else {
-            !gpu_present || cuda_built
-        },
-        if cuda_runtime {
-            format!("CUDA device is the inference device ({accel})")
-        } else if cuda_built && gpu_present {
-            "cuda feature compiled in but Device::new_cuda did not become the inference device"
-                .to_string()
+        !gpu_present || accel.contains("Metal"),
+        if accel.contains("Metal") {
+            format!("Metal device is the inference device ({accel})")
         } else if gpu_present {
-            "NVIDIA GPU present but binary is CPU-only — install a CUDA release with scripts/susi-release-sync.sh".to_string()
+            "NVIDIA hardware detected; in-process CUDA/MKL support is retired because its dependencies do not pass product license/native-code gates. CPU inference and external providers remain available.".to_string()
         } else {
-            "no NVIDIA GPU; CPU inference only".to_string()
+            "CPU inference selected; no NVIDIA hardware detected".to_string()
         },
     ));
 

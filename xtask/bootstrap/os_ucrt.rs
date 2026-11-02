@@ -78,6 +78,46 @@ pub fn configure_for(binaries: &[&str]) -> io::Result<()> {
         println!("cargo:rerun-if-env-changed={name}");
     }
     let target = env::var("TARGET").map_err(io::Error::other)?;
+    if matches!(
+        target.as_str(),
+        "x86_64-unknown-linux-gnu" | "aarch64-unknown-linux-gnu"
+    ) {
+        let output = PathBuf::from(
+            env::var_os("OUT_DIR").ok_or_else(|| io::Error::other("missing Cargo OUT_DIR"))?,
+        );
+        let profile = output
+            .ancestors()
+            .nth(3)
+            .ok_or_else(|| io::Error::other("invalid Cargo output layout"))?;
+        if output.file_name().is_none_or(|name| name != "out")
+            || output
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .is_none_or(|name| name != "build")
+        {
+            return Err(io::Error::other("unexpected Cargo build output layout"));
+        }
+        for binary in binaries {
+            if binary.is_empty()
+                || !binary
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            {
+                return Err(io::Error::other("invalid native binary name"));
+            }
+            let map = profile.join(format!("{binary}.map"));
+            let map = map
+                .to_str()
+                .ok_or_else(|| io::Error::other("nonUTF8 map path"))?;
+            if map.contains([',', '\n', '\r']) {
+                return Err(io::Error::other("invalid linker map path"));
+            }
+            println!("cargo:rustc-link-arg-bin={binary}=-fuse-ld=lld");
+            println!("cargo:rustc-link-arg-bin={binary}=-Wl,-Map={map}");
+        }
+        return Ok(());
+    }
     if !target.contains("windows") {
         return Ok(());
     }

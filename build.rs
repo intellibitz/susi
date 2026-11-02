@@ -95,7 +95,7 @@ fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
 /// GPU acceleration is optional and requires separate platform, toolchain,
 /// license and runtime qualification; device detection is not that evidence.
 fn warn_if_gpu_available_but_unused() {
-    if env::var_os("CARGO_FEATURE_CUDA").is_some() || env::var_os("CARGO_FEATURE_METAL").is_some() {
+    if env::var_os("CARGO_FEATURE_METAL").is_some() {
         return;
     }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
@@ -112,9 +112,9 @@ fn warn_if_gpu_available_but_unused() {
         println!(
             "cargo:warning=NVIDIA GPU detected; this build uses CPU inference. \
              The supported native local CPU workflow is `cargo local-build debug` or \
-             `cargo local-build production`. Optional CUDA acceleration requires separate \
-             platform/toolchain, dependency-license and runtime qualification; detecting \
-             a GPU does not establish support or a performance improvement for this build."
+             `cargo local-build production`. CUDA/MKL product features are retired because \
+             their dependencies fail license/native-code gates. Hardware discovery remains \
+             available, and external model providers may use their own GPU implementations."
         );
     }
 }

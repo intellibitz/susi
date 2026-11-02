@@ -172,3 +172,28 @@ enforced size/idle memory/latency budgets, real Susi release promotion/rollback,
 and complete cross-platform Rust-only qualification. Local evidence is retained
 under `.artifacts/native-audit/`; task records stay open until their full gates
 pass. Agents own this work, including conflicts and repairs.
+
+
+## Supported accelerator contract
+
+The native product supports portable CPU inference. Metal remains an explicit
+macOS feature and requires its own platform/runtime qualification; a Linux CPU
+receipt does not qualify Metal. Physical NVIDIA/other GPU inventory and external
+model-provider connections remain available independently of in-process kernels.
+
+CUDA and MKL product features are retired. MKL's Intel-specific license and its
+transitive dependencies do not satisfy the strict product license policy. The
+current CUDA backend also requires ISC loader code, CUDA/C++ kernels and foreign
+runtime libraries prohibited by native release qualification. Replacing only a
+loader would not make that implementation compliant. No license allowance,
+advisory suppression or audit exclusion has been added.
+
+Requests such as `cargo build --features cuda` or `--features mkl` fail with an
+unknown-feature error across the product manifests; they never silently select
+CPU. Ordinary builds/installers select CPU on Linux/Windows, including NVIDIA
+hosts, and no CUDA archive/runtime bundle is published or downloaded. Existing
+installed files and historical receipts are preserved. `SUSI_RELEASE_FEATURES`
+rejects retired feature overrides; `SUSI_RELEASE_CHECK_GPU=1` is only supported
+for Metal on macOS and reports an error elsewhere. A future GPU implementation
+must satisfy the same licenses, native implementation audit and actual hardware
+execution gates before reintroducing a supported feature.

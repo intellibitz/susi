@@ -1,0 +1,20 @@
+{
+  "schema": "susi/unsafe-ratchet/v2",
+  "complete": true,
+  "verdict": "clean",
+  "source_commit": "7cfb5df2829ede4312c34332a7c1971d9b62f250",
+  "source_tree": "94e5516b6961994131089e9dc3170bf6c2d0e6a8",
+  "cargo_lock_sha256": "ffa4ea10dc9bf40b6e82a34fc1dde3bd0afb95ac6828477fb689e8fb0484c221",
+  "target": "x86_64-unknown-linux-gnu",
+  "features": "default",
+  "unit": "crate-forbid",
+  "measurement_sha256": "45d63a90a5c7f0bb19e165f8b50e870bd41a48ed7e23db93283be6a8b67ace84",
+  "baseline_sha256": "80dfc9d46e68af28560429c6d319dfd1680cfe46c18681ccaa546ed8f4fa85cf",
+  "scanner_sha256": "b703e02c66a4d47b49d2cf2d533fd4628aa6d90bfd4379dcb35e6a0287d9ed0e",
+  "comparator_sha256": "6b336484a60da89d926ea2e6816dd9940d609d47b44a0cb4c563a21a9894092e",
+  "graph_sha256": "bb2125929b9cd6720affb69ee5a13edad3769e4b039d292b2d9c7d881a76ed57",
+  "measured_packages": 479,
+  "measured_files": 500,
+  "unreviewed_exposures": [],
+  "review_sha256": "8f3626ea565d6b25b50a502e1ae77efdb5b1425e95481bbf930775fbb02c1aa6"
+}

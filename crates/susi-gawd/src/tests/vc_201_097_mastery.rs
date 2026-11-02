@@ -47,16 +47,15 @@ fn vc_201_097_mastery_records_transitive_changes_and_gates_new_exposure() {
 #[test]
 fn vc_201_097_mastery_gate_is_on_the_ci_path() {
     // The production gate must reach ratchet_unsafe: CI runs the workflow
-    // script, the script invokes the small ratchet binary, and the binary is
-    // the comparator's production call site.
+    // script, the script invokes native complete measurement and admission.
     let bin = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../susi-unsafe-ratchet/src/bin/unsafe_ratchet.rs"
     ))
     .expect("unsafe_ratchet binary present");
     assert!(
-        bin.contains("ratchet_unsafe("),
-        "the gate binary must call ratchet_unsafe"
+        bin.contains("inventory::receipt("),
+        "the gate binary must admit a complete reviewed inventory"
     );
     assert!(
         bin.contains("--write-baseline"),
@@ -68,8 +67,8 @@ fn vc_201_097_mastery_gate_is_on_the_ci_path() {
         "/../../.github/workflows/unsafe-exposure-ratchet.sh"
     ))
     .expect("ratchet workflow script present");
-    assert!(script.contains("cargo geiger"));
-    assert!(script.contains("cargo metadata --format-version 1 --locked"));
+    assert!(script.contains("--bin unsafe_measure"));
+    assert!(script.contains("--measurement"));
     assert!(script.contains("--bin unsafe_ratchet"));
 
     let workflow = std::fs::read_to_string(concat!(

@@ -1439,31 +1439,19 @@ fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
     let save = value_of(&ratchet.body, "save-if").unwrap_or_default();
     assert!(
         save.contains("refs/heads/main"),
-        "`unsafe-ratchet` must save its cargo cache only on main (branches read main's); \
-         `{save}` writes a 321 MB entry per task branch, which held the repository over its \
-         10 GB cache quota until eviction took the 10 MB cargo-geiger entry and failed every \
-         push of every branch"
+        "native scanner target cache is saved only on main: {save}"
     );
-    // `actions/cache@` saves in a post-step on whatever ref it ran on; geiger's entry
-    // is a restore plus a save that only main runs.
-    assert!(
-        !ratchet.body.contains("actions/cache@"),
-        "cache cargo-geiger with `actions/cache/restore` and a main-only `actions/cache/save`: \
-         `actions/cache` also saves, on every branch push"
-    );
-    let saves: Vec<String> = steps(&ratchet.body)
-        .into_iter()
-        .filter(|s| s.contains("actions/cache/save"))
-        .collect();
-    assert!(
-        !saves.is_empty()
-            && saves
-                .iter()
-                .all(|s| value_of(s, "if").is_some_and(|v| v.contains("refs/heads/main"))),
-        "`unsafe-ratchet` needs a cargo-geiger `actions/cache/save` step gated on \
-         `github.ref == 'refs/heads/main'`; without one the entry is never rewritten once \
-         evicted, and a branch-side save adds ~10 MB per task branch:\n{saves:?}"
-    );
+    for retired in [
+        "cargo-geiger",
+        "actions/cache/restore",
+        "actions/cache/save",
+        "cargo install",
+    ] {
+        assert!(
+            !ratchet.body.contains(retired),
+            "retired tool setup still runs: {retired}"
+        );
+    }
 }
 
 #[test]
@@ -1488,14 +1476,33 @@ fn unsafe_ratchet_keeps_stable_target_cache_key() {
     assert!(cargo_cache < comparator);
     assert!(steps[cargo_cache].contains("uses: Swatinem/rust-cache@v2"));
     assert!(steps[cargo_cache].contains("steps.scope.outputs.run == 'true'"));
+    let build = steps
+        .iter()
+        .position(|step| step.contains("name: Build native unsafe gate tools"))
+        .expect("cold cache provisions only the native tooling crate");
+    let provision = steps
+        .iter()
+        .position(|step| step.contains("name: Provision host dependency sources"))
+        .expect("cold cache provisions the complete host graph without an application build");
+    assert!(cargo_cache < provision && provision < build && build < comparator);
+    assert!(
+        steps[provision].contains("cargo metadata --locked --format-version 1 --filter-platform")
+    );
+    assert!(steps[provision].contains("rustc -vV"));
+    assert!(!steps[provision].contains("cargo build"));
+    assert!(steps[build].contains("cargo build --locked -p susi-unsafe-ratchet --bins"));
+    assert!(!steps[build].contains("--workspace"));
 }
 
 #[test]
 fn unsafe_ratchet_runner_uses_small_dependency_crate() {
     let script = read(".github/workflows/unsafe-exposure-ratchet.sh");
     assert!(
-        script.contains("cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet")
-            && !script.contains("cargo run -q -p susi-gawd"),
+        script.contains(
+            "cargo run -q -p susi-unsafe-ratchet --offline --locked --bin unsafe_measure"
+        ) && script.contains(
+            "cargo run -q -p susi-unsafe-ratchet --offline --locked --bin unsafe_ratchet"
+        ) && !script.contains("cargo run -q -p susi-gawd"),
         "the CI comparator must not pull in the full susi-gawd dependency graph"
     );
     let manifest = read("crates/susi-unsafe-ratchet/Cargo.toml");
@@ -1503,7 +1510,7 @@ fn unsafe_ratchet_runner_uses_small_dependency_crate() {
         manifest.contains("susi-vendor-serde")
             && manifest.contains("susi-vendor-serde-json")
             && !manifest.contains("susi-gawd"),
-        "the ratchet runner should depend only on its serialization crates"
+        "the native ratchet runner keeps parsing, hashing and serialization in tooling instead of pulling in the application"
     );
 }
 
@@ -1533,8 +1540,8 @@ fn unsafe_ratchet_skips_non_code_pushes() {
         "echo false",
         "Cargo",
         "unsafe-default",
-        "src/",
-        "unsafe-exposure-ratchet",
+        "\\.rs",
+        "unsafe-exposure-",
     ] {
         assert!(
             combined.contains(needle),
@@ -1544,9 +1551,8 @@ fn unsafe_ratchet_skips_non_code_pushes() {
     for name in [
         "Install Rust",
         "Cache Cargo",
-        "Cache cargo-geiger",
-        "Install cargo-geiger",
-        "Save cargo-geiger",
+        "Provision host dependency sources",
+        "Build native unsafe gate tools",
         "Run unsafe exposure ratchet",
     ] {
         let step = steps
@@ -2368,30 +2374,36 @@ fn release_bootstrap_runs_through_the_same_scripts_as_test() {
              what is missing (15-25 s per Linux leg)"
         );
         let jobs = jobs(&text);
-        let build = job(&jobs, "build");
+        let j = job(&jobs, "build");
         assert!(
-            build.body.contains("scripts/ci-system-deps.sh")
-                && build.body.contains("scripts/ci-install-mold.sh"),
-            "{wf} build must use the shared bootstrap scripts"
+            j.body.contains("scripts/ci-system-deps.sh")
+                && j.body.contains("scripts/ci-install-mold.sh"),
+            "{wf} job `build` must bootstrap through scripts/ci-system-deps.sh and \
+             scripts/ci-install-mold.sh"
         );
     }
 }
 
 #[test]
-fn releases_exclude_unqualified_cuda_artifacts_and_toolkit() {
+fn retired_cuda_backends_have_no_build_publish_or_runtime_bundle_jobs() {
     for wf in [
         ".github/workflows/release.yml",
         ".github/workflows/dev-release.yml",
     ] {
         let text = read(wf);
-        let body = code(&text);
-        for marker in [
-            "build-cuda",
-            "publish-cuda",
+        for retired in [
+            "build-cuda:",
+            "publish-cuda:",
             "nvidia-cuda-toolkit",
+            "--features cuda",
+            "collect_cuda_libs",
+            "cuda.tar.gz",
             "cuda-linux-x86_64",
         ] {
-            assert!(!body.contains(marker), "{wf} contains {marker}");
+            assert!(
+                !code(&text).contains(retired),
+                "{wf} still contains {retired}"
+            );
         }
     }
 }
@@ -4416,7 +4428,7 @@ git() {
     'cat-file -p refs/claim-agents/TESTAGENT') [ "$MODE" != legacy ] || return 1; printf '%s\n' "$receipt_json" ;;
     'cat-file -e origin/main:.agents/tasks/done/T-TEST-1.json') [ "$MODE" = published ] ;;
     'for-each-ref --format=%(objectname) refs/claims/') echo abc ;;
-    'cat-file --batch') printf 'abc blob 64\n%s\n\n' "$receipt_json" ;;
+    'cat-file --batch') cat >/dev/null; printf 'abc blob 64\n%s\n\n' "$receipt_json" ;;
     *) echo "unexpected git $*" >&2; return 9 ;;
     esac
 }

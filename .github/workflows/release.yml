@@ -550,7 +550,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The Tier-1 build job builds the Linux x86_64 binary; non-Tier-1 artifacts
-    # (macOS, ARM64, CUDA) are non-blocking, so prune runs as long as Tier-1
+    # (macOS, ARM64) are non-blocking, so prune runs as long as Tier-1
     # succeeded and `publish` attached the assets.
     if: "!cancelled() && needs.build.result == 'success' && needs.build-linux.result == 'success' && needs.publish.result == 'success' && needs.publish-linux.result == 'success' && needs.verify-tag.outputs.tag != ''"
     steps:

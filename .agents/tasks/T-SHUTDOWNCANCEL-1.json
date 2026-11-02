@@ -1,0 +1,73 @@
+{
+  "id": "T-SHUTDOWNCANCEL-1",
+  "title": "Cancel daemon startup readiness waits before forced stop escalation",
+  "agent": "SHUTDOWNCANCEL",
+  "native_worker": "shutdown-cancel",
+  "status": "implemented_pending_integration_and_production_qualification",
+  "dependencies": [],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": [
+    "crates/susi-daemon/src/supervisor.rs",
+    "crates/susi-daemon/src/server.rs",
+    ".agents/tasks/T-SHUTDOWNCANCEL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "A real owned leaf that accepts connections without answering HTTP is interrupted by shutdown before the original ten-second readiness deadline; the child is terminated and no service record survives.",
+      "Cancellation never signals or adopts an unrelated listener and prevents further boot service spawns while preserving earlier owned children for teardown.",
+      "The daemon enters common teardown when boot was cancelled and wakes from its supervision wait without changing the supervision cadence or stop escalation deadlines.",
+      "Existing readiness, process ownership, stop deadline and port-release regressions remain intact; no new dependency or unsafe allowance is introduced.",
+      "A and B require separate complete integration and production qualification; measured Linux installed start/health/stop and rollback evidence remains required before promotion."
+    ]
+  },
+  "notes": "Scoped B only. Root will qualify the gate-repaired A before integrating this change. Windows native stop still uses its existing forced process-tree termination; Linux measurements do not claim graceful Windows shutdown.",
+  "validation": {
+    "platform": "x86_64-unknown-linux-gnu",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "tests": {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "susi-daemon",
+        "--offline",
+        "--locked"
+      ],
+      "exit": 0,
+      "passed": 147,
+      "failed": 0,
+      "ignored": 4,
+      "elapsed_seconds": 405.134791,
+      "library_execution_seconds": 2.54,
+      "integration_execution_seconds": 0.21,
+      "new_regressions_executed": 3,
+      "test_executable_sha256": "8410752f12213a3acdc0fba088925097c63f6508930e923e88241d4a09dc4cc8"
+    },
+    "clippy": {
+      "exit": 0,
+      "elapsed_seconds": 57.209275,
+      "warnings_denied": true
+    },
+    "format": {
+      "exit": 0,
+      "elapsed_seconds": 5.025225
+    },
+    "configuration": {
+      "debug_information": 0,
+      "incremental": false,
+      "private_target": "/workspace/susi-release-gates-driver-agent-shutdown-cancel/target",
+      "credentials_inherited": false
+    },
+    "evidence_directory": "/workspace/susi-release-gates-evidence/shutdown-cancel",
+    "qualification": "Development tests only. Root must integrate against the separately qualified gate-repaired A and qualify production B; installed performance and A-to-B-to-A rollback are pending.",
+    "existing_optional_leaf_test": "May return early without standalone service binaries; the new regression compiles and executes its own real Rust leaf and does not rely on that optional test."
+  }
+}

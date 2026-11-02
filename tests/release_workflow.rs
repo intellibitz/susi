@@ -557,3 +557,25 @@ fn a_merged_bump_is_tagged_once() {
         "an already-released version must not move: {still}"
     );
 }
+
+#[test]
+fn retired_cuda_artifacts_are_never_built_or_published() {
+    for workflow in [
+        include_str!("../.github/workflows/release.yml"),
+        include_str!("../.github/workflows/dev-release.yml"),
+    ] {
+        for retired in [
+            "build-cuda:",
+            "publish-cuda:",
+            "--features cuda",
+            "nvidia-cuda-toolkit",
+            "susi-linux-x86_64-cuda",
+            "collect_cuda_libs",
+        ] {
+            assert!(
+                !workflow.contains(retired),
+                "retired publication route: {retired}"
+            );
+        }
+    }
+}

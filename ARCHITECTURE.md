@@ -95,7 +95,8 @@ never consume an unterminated source tail.
 | `susi-vendor-mcp-server` | The MCP *server* SDK (rmcp): Streamable HTTP + stdio, `#[tool]` macro, protocol types. GMCP depends on this crate and never declares `rmcp` | re-export of server `rmcp` | rmcp (server features) | workspace crates; `susi-gmcp` | MCP clients | sessions | no |
 | `susi-vendor-tantivy` | Full-text `DocIndex` (doc_id/source/content): add, replace, BM25 search, get, enumerate | `DocIndex`, `DocWriter`, `StoredDoc` | `susi-error`; tantivy | workspace crates | no | index dir | no |
 | `susi-vendor-fastembed` | One process-wide fastembed model (ONNX) behind `embed` / `embed_one`; cached load failure is visible to provider health | `embed`, `embed_one`, `load_failed` | `susi-error`, `susi-http-transport`; fastembed (rustls ORT download) | workspace crates | no | model cache | no |
-| `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation and the `ast_analyze` tool | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)` | syn | workspace crates | no | no | no |
+| `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation, `ast_analyze` and complete crate-forbid measurement | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)`, `crate_forbids_unsafe_checked` | syn | workspace crates | no | no | no |
+| `susi-unsafe-ratchet` | Offline source-bound unsafe declaration measurement and reviewed inventory admission | `measurement`, `inventory`, native `unsafe_measure` / `unsafe_ratchet` commands | `susi-vendor-syn`; serialization and digest facades `susi-vendor-{serde,serde-json,sha2}` | every other workspace crate, including HTTP/SDK facades and feature planes | no | measurements, reviewed baselines and receipts | source files and local Cargo/Git/compiler inspection; no network |
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; std `Command` | workspace crates | Chrome/Chromium | no | no |
 | `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK). Tick = `probe_all`; list/apply only via `susi os provision` | `probe_all`, `list_nodes`, `apply_manifest`, `CloudKind::parse` | std `Command` | `susi-daemon`, root CLI | kubectl/docker/aws/gcloud/az | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
@@ -128,6 +129,17 @@ every client share, so bollard stays linked only by `susi-sandbox`;
 consumers), and a ratchet
 (`cross_crate_source_mounts_only_decrease`) keeps the remaining cross-crate
 mounts from growing.
+
+The unsafe inventory tool is **rank 1**, immediately above the rank-0
+`susi-vendor-syn` implementation. Complete measurement tokenizes each selected
+crate entrypoint through that parser; it is no longer a dependency-free
+tree reader. This is the minimum rank permitting that real Cargo edge under
+the unchanged strictly-downward rule. The parser is not added to the pure
+facade exemption. The layer-matrix test separately limits the tool to its
+parser, serialization and hash dependencies, so raising its rank does not
+admit HTTP/SDK, daemon, feature-plane or arbitrary facade dependencies.
+The root registers it as a workspace dependency; GAWD consumes it only in
+dev-dependencies for inventory tests, not as an upward runtime edge.
 
 Shared code that is still compiled into each consumer through `#[path]`
 (pending conversion to a crate edge): **none**. The

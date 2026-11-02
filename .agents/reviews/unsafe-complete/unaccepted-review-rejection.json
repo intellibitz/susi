@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools-v2/unsafe_ratchet",
+    "--measurement",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-strict-complete.json",
+    "--baseline",
+    "/workspace/susi-release-gates-driver-agent-unsafe-complete/.agents/baseline/unsafe-default.json",
+    "--base-measurement",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/base-strict-complete.json",
+    "--review",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/all-reviews-pending.json",
+    "--write-baseline",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/pending-review-must-not-exist.json"
+  ],
+  "exit": 2,
+  "seconds": 5.46745086699957,
+  "stdout": "",
+  "stderr": "unsafe_ratchet: duplicate or unaccepted component review\n",
+  "output_exists": false,
+  "historical_baseline_unchanged": true
+}

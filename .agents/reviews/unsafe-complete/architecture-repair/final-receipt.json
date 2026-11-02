@@ -1,0 +1,117 @@
+{
+  "source_commit": "d88ae7939eba14e963e610918e4115ac3274352a",
+  "source_tree": "10def2340f471f01b35891fd70253e593f9550d4",
+  "test_source": "/workspace/susi-release-gates-driver-agent-unsafe-complete/tests/architecture_tests.rs",
+  "test_source_sha256": "ea11f6a4dbec3f2889c876476a06c6a67214279e0504bc3696b9b9c2dfd4fddc",
+  "CARGO_MANIFEST_DIR": "/workspace/susi-verify-1793645653096042135-2383919",
+  "std_only": false,
+  "sysroot": "/tmp/susi-release-gates/source/.git/susi-product-sysroots/98f331da42812d934b94783fa52fb043cad25386becd37ecb57d324d8ec98ced-1793645663965716642/sysroot",
+  "sysroot_record_sha256": "fb848a3c8a1ea5f1a2c7f030a065f1ce3afdd80f015bb0c22ee88d6dfe49efa5",
+  "immutable_dependency_borrow": "diagnostic agent explicitly confirmed completed outer compilation and stable read-only inputs; no target writes",
+  "external_libraries": {
+    "susi_core": {
+      "path": "/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps/libsusi_core-f37d08696c33de73.rlib",
+      "sha256_before": "e59876c49ae7f4ee27f27ffdd8606de2e81bee4dbcc7a3d0596d9758141af8f5",
+      "sha256_after": "e59876c49ae7f4ee27f27ffdd8606de2e81bee4dbcc7a3d0596d9758141af8f5"
+    },
+    "serde_json": {
+      "path": "/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps/libsusi_vendor_serde_json-95eaed949908e2bc.rlib",
+      "sha256_before": "0588fb157436d4960cc3881e297c44f2361394c28cda52d6dee77000c1872b5b",
+      "sha256_after": "0588fb157436d4960cc3881e297c44f2361394c28cda52d6dee77000c1872b5b"
+    }
+  },
+  "host_proc_macro_inputs": {
+    "/workspace/susi-verify-1793645653096042135-2383919/target/debug/deps/libserde_derive-e1c87524e92b11b6.so": "2544ff6000bcecdf26c278259fa48e8bf6ce85968ec2e47d77ec69f3f48900cf"
+  },
+  "steps": [
+    {
+      "argv": [
+        "/workspace/.susi-rustup/toolchains/1.99.0-x86_64-unknown-linux-gnu/bin/rustc",
+        "--edition",
+        "2021",
+        "--test",
+        "/workspace/susi-release-gates-driver-agent-unsafe-complete/tests/architecture_tests.rs",
+        "--sysroot",
+        "/tmp/susi-release-gates/source/.git/susi-product-sysroots/98f331da42812d934b94783fa52fb043cad25386becd37ecb57d324d8ec98ced-1793645663965716642/sysroot",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "-L",
+        "dependency=/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps",
+        "--extern",
+        "susi_core=/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps/libsusi_core-f37d08696c33de73.rlib",
+        "--extern",
+        "serde_json=/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps/libsusi_vendor_serde_json-95eaed949908e2bc.rlib",
+        "-L",
+        "dependency=/workspace/susi-verify-1793645653096042135-2383919/target/debug/deps",
+        "-o",
+        "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/architecture-tests"
+      ],
+      "CARGO_MANIFEST_DIR": "/workspace/susi-verify-1793645653096042135-2383919",
+      "exit": 0,
+      "seconds": 0.8052881520015944
+    },
+    {
+      "argv": [
+        "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/architecture-tests"
+      ],
+      "CARGO_MANIFEST_DIR": "/workspace/susi-verify-1793645653096042135-2383919",
+      "exit": 0,
+      "seconds": 0.5430426929997338
+    },
+    {
+      "argv": [
+        "/workspace/.susi-rustup/toolchains/1.99.0-x86_64-unknown-linux-gnu/bin/rustc",
+        "--edition",
+        "2021",
+        "--test",
+        "/workspace/susi-release-gates-driver-agent-unsafe-complete/tests/architecture_tests.rs",
+        "--sysroot",
+        "/tmp/susi-release-gates/source/.git/susi-product-sysroots/98f331da42812d934b94783fa52fb043cad25386becd37ecb57d324d8ec98ced-1793645663965716642/sysroot",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "-L",
+        "dependency=/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps",
+        "--extern",
+        "susi_core=/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps/libsusi_core-f37d08696c33de73.rlib",
+        "--extern",
+        "serde_json=/workspace/susi-verify-1793645653096042135-2383919/target/x86_64-unknown-linux-gnu/debug/deps/libsusi_vendor_serde_json-95eaed949908e2bc.rlib",
+        "-L",
+        "dependency=/workspace/susi-verify-1793645653096042135-2383919/target/debug/deps",
+        "-o",
+        "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/architecture-negative-tests"
+      ],
+      "CARGO_MANIFEST_DIR": "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/disallowed-http-fixture",
+      "exit": 0,
+      "seconds": 0.7126673899983871
+    },
+    {
+      "argv": [
+        "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/architecture-negative-tests",
+        "--exact",
+        "workspace_edges_follow_the_leaf_order"
+      ],
+      "CARGO_MANIFEST_DIR": "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/disallowed-http-fixture",
+      "exit": 0,
+      "seconds": 0.007291875001101289
+    },
+    {
+      "argv": [
+        "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/architecture-negative-tests",
+        "--exact",
+        "layer_matrix_forbidden_edges"
+      ],
+      "CARGO_MANIFEST_DIR": "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/disallowed-http-fixture",
+      "exit": 101,
+      "seconds": 0.005922844000451732
+    }
+  ],
+  "counts": [
+    [
+      36,
+      0,
+      0
+    ]
+  ],
+  "test_artifact_sha256": "2965b25efca3f69d621168b277b304c5eaf2704194a857ca988322b1c5f5ef8a",
+  "negative_boundary": "Private manifest injection: HTTP rank0 still satisfies downward rule, but explicit offline-tool boundary correctly rejects it; no real source mutated."
+}

@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "cargo",
+    "fmt",
+    "--all",
+    "--",
+    "--check"
+  ],
+  "exit": 0,
+  "seconds": 3.5590704640017066,
+  "stdout": "",
+  "stderr": ""
+}

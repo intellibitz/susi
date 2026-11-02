@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools-v2/unsafe_measure",
+    "--root",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/base-source",
+    "--target",
+    "x86_64-unknown-linux-gnu",
+    "--features",
+    "default",
+    "--output",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/base-strict-complete.json"
+  ],
+  "exit": 0,
+  "seconds": 3.354196092001075,
+  "stdout": "complete crate-forbid measurement: 483 packages, 504 files\n",
+  "stderr": ""
+}

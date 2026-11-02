@@ -3323,6 +3323,11 @@ fn the_copy_watcher_counts_an_unreaped_process_as_ended() {
 fn the_stub_still_unlinks_and_makes_an_empty_target_without_a_capable_susi() {
     let w = World::new("stubfallback");
     w.make_seed();
+    // Exercise the legacy fallback itself; the native command always has
+    // this capability and cannot demonstrate an absent installed binary.
+    let seed_stub = |args: &[&str], envs: &[(&str, &str)]| {
+        run(&w.primary, w.script().to_str().unwrap(), args, envs)
+    };
     // An installed release from before the verb: it refuses `workflow
     // seed-target --help`, as clap does with a usage error.
     let old = w.root.join("old-susi");
@@ -3345,7 +3350,7 @@ fn the_stub_still_unlinks_and_makes_an_empty_target_without_a_capable_susi() {
     write(&shared.join("sentinel"), "another worktree's build");
     let dest = w.app_worktree("app");
     link_dir(&shared, &dest.join("target"));
-    let (code, _, err) = w.seed_target(&[dest.to_str().unwrap()], &envs);
+    let (code, _, err) = seed_stub(&[dest.to_str().unwrap()], &envs);
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("no susi with"), "{err}");
     assert!(err.contains("replaced the link"), "{err}");
@@ -3360,19 +3365,19 @@ fn the_stub_still_unlinks_and_makes_an_empty_target_without_a_capable_susi() {
     );
     // A worktree with no target/ at all, through the hooks' `--background`.
     let other = w.app_worktree("other");
-    let (code, _, err) = w.seed_target(&["--background", other.to_str().unwrap()], &envs);
+    let (code, _, err) = seed_stub(&["--background", other.to_str().unwrap()], &envs);
     assert_eq!(code, 0, "{err}");
     assert!(is_empty_dir(&other.join("target")), "{err}");
     // The primary checkout keeps the target it has, and gets none.
-    let (code, _, err) = w.seed_target(&[], &envs);
+    let (code, _, err) = seed_stub(&[], &envs);
     assert_eq!(code, 0, "{err}");
     assert!(!w.primary.join("target").exists(), "{err}");
     // A build is never touched, and --refresh does nothing.
     write(&other.join("target/debug/built-here"), "mine");
-    let (code, _, _) = w.seed_target(&[other.to_str().unwrap()], &envs);
+    let (code, _, _) = seed_stub(&[other.to_str().unwrap()], &envs);
     assert_eq!(code, 0);
     assert!(other.join("target/debug/built-here").is_file());
-    let (code, _, _) = w.seed_target(&["--refresh", "--force"], &envs);
+    let (code, _, _) = seed_stub(&["--refresh", "--force"], &envs);
     assert_eq!(code, 0);
     assert!(!w.seed_src().exists());
     assert_seed_untouched(&w);

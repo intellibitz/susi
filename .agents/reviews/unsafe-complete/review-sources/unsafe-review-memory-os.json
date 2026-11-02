@@ -1,0 +1,733 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T18:13:55.398812+00:00",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "reviewer": "/root/advisory_gate_review",
+  "scope": "Read-only review of thirteen exact version/source identities required by complete inventory migration. Source files containing inspected excerpts are hashed in full, without claiming every line was audited. No new tests, build, source/baseline changes, model access or release promotion.",
+  "measurement": {
+    "path": "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-complete.json",
+    "sha256": "7334690bde3077ab7c51b908b3059160f37e2b30ec88e5b7c194416b4fd47a2a",
+    "packages": 479,
+    "target": "x86_64-unknown-linux-gnu",
+    "edges": [
+      "normal"
+    ],
+    "unit": "crate-forbid"
+  },
+  "components": [
+    {
+      "identity": {
+        "name": "arc-swap",
+        "version": "1.9.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: concurrent reference-counted pointer publication and reclamation.",
+      "boundary": "AtomicPtr storage is converted to and from Arc-like owners through unsafe RefCnt; guards and debt records prevent reclamation while readers borrow the old value.",
+      "justification": "The inspected swap path transfers an owned reference into the atomic slot, uses a sequentially consistent swap, waits for protected readers, then reconstructs the displaced owner. The hybrid reader records debt, reloads to confirm the pointer and uses the confirmed pointer for provenance; changed pointers take the fallback path. Drop and into_inner also wait for readers. RefCnt is an unsafe trait with explicit count and raw-pointer contracts, and the standard Arc/Rc implementations balance into_raw/from_raw rather than duplicating ownership.",
+      "residual_risk": "ABA, reader ordering and custom RefCnt/strategy implementations remain a complex trusted concurrency boundary. This scoped source inspection is not a Loom, Miri or reclamation proof and does not approve arbitrary downstream unsafe implementations.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "fad2e25575403e9d8d9078d6bfd3d74a172680f046931bb17d64956574110d60"
+        },
+        {
+          "path": "src/ref_cnt.rs",
+          "sha256": "b785d418a920fa6c6d4ee8378e25961e8edf73fbf234b41bba358cf955d011a0"
+        },
+        {
+          "path": "src/strategy/hybrid.rs",
+          "sha256": "0a865e6489be960e970fb0305791c9fd2fe5a14a9920c3efd5333fb39d5204ad"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "arc-swap -> tantivy 0.26.2 -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "arc-swap-1.9.3.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "89c2aede841cb7d89509582e42c955e37461d6f893dde5e0dcda38c8fd2346fb",
+        "kind": "registry-cache",
+        "archive_sha256": "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e",
+        "lock_checksum": "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "inventory",
+        "version": "0.3.25",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: startup constructor execution and type-erased static linked-list traversal.",
+      "boundary": "Linux .init_array constructors publish static Node pointers; iteration casts an erased value back to the collection type and reads UnsafeCell next links.",
+      "justification": "The collect macro creates a distinct static Registry for its type. Submission links a static node before release publication; iteration acquires the head and relies on matching element type and stable static lifetime. The selected route is typetag-generated collect!(TypetagRegistration<TypetagFn>) and submit!(typetag_register(...)), whose concrete matching registration type was inspected. No manual Collect implementation was found in the Susi source/vendor search. The missing root forbid represents real unsafe operations, not merely a stylistic lint.",
+      "residual_risk": "The type-erasure invariant is not sealed at the Rust type boundary: public but doc-hidden Registry plus safe Collect::registry could be manually implemented to return another type registry, violating the iterator cast invariant without an unsafe impl. Documentation says not to implement Collect manually. This is a concrete unsupported-API soundness concern, not a demonstrated selected-candidate trigger or proof of arbitrary safe-client soundness. Selected typetag macro use preserves the matching registry type; constructor/linker and publication-order assumptions remain trusted. No exploit or runtime test was executed.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "46a3e0ea784b18cb755182926ccc9ddbc5e88a2df637e3d686c19e4af5956d7e"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "inventory -> typetag 0.2.23 -> tantivy 0.26.2 -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "inventory-0.3.25.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "d4344b3954fd6f1172182cba6d4cd49079944234bbf7255e079af5af0ecf3d1c",
+        "kind": "registry-cache",
+        "archive_sha256": "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c",
+        "lock_checksum": "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "Selected typetag macro route was reviewed with no demonstrated candidate trigger; the unsealed doc-hidden API concern is explicitly retained for upstream follow-up. This is not a blanket crate soundness approval."
+    },
+    {
+      "identity": {
+        "name": "lazy_static",
+        "version": "1.5.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: shared access to one-time initialized static storage.",
+      "boundary": "Cell<MaybeUninit<T>> is written under std::sync::Once, then exposed by a static reference; Lazy<T> has an unsafe Sync implementation constrained by T: Sync.",
+      "justification": "The selected feature set is empty, so lib.rs selects inline_lazy.rs rather than the optional spin_no_std backend. get requires a static receiver, calls Once::call_once to initialize the cell, and forms the reference only after successful completion. A panicking initializer leaves Once poisoned rather than returning an uninitialized value. The unsafe Sync bound matches shared access to T.",
+      "residual_risk": "Recursive initialization can deadlock and initialization panics can poison later access. Global lifecycle and initializer behavior are consumer obligations. This review does not exercise shutdown, contention or the unselected spin backend.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "9478f4130a4dca55df412267b892717047555e3da4d23ea4eae24c5e40b5e027"
+        },
+        {
+          "path": "src/inline_lazy.rs",
+          "sha256": "cd8a9babcc3af7d0d39f9874dc575a1da000f0d6048a66296f3ca197c2c00b46"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "lazy_static -> sharded-slab 0.1.7 -> tracing-subscriber 0.3.23 -> susi-vendor-tracing-subscriber -> susi",
+        "reverse_tree_receipt": "lazy_static-1.5.1.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "aa266ad3345a1fdc09ee1dc4734a76cd097a5933f10dc5a1efd78eb69e3e7c99",
+        "kind": "registry-cache",
+        "archive_sha256": "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb",
+        "lock_checksum": "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "libc",
+        "version": "0.2.191",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High foundational C ABI boundary for memory mapping, signals, descriptors and process APIs.",
+      "boundary": "Raw extern declarations expose pointer/length-based mmap, munmap and write functions; Linux epoll_event and GNU x86_64 stat layouts carry OS-provided data.",
+      "justification": "The inspected declarations preserve C integer/pointer types and target-specific layouts rather than presenting raw FFI as checked safe Rust. epoll_event has the target-specific packed representation; mapping and I/O functions return values that callers must check. Susi reaches these APIs through candle-core, memmap2, mio, signal-hook and crypto wrappers. The declarations cannot carry a crate-wide unsafe-code forbid while implementing these OS boundaries.",
+      "residual_risk": "Correct ABI/layout, libc/kernel compatibility, valid buffers and descriptor ownership remain trusted. This is a narrow declaration/layout inspection, not exhaustive verification of every libc API or platform, and does not prove every downstream call meets its contract.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "929ad68438df6fe7fc2cf8bf1d1ccbef3e4a713717cc98947571bf166eacb521"
+        },
+        {
+          "path": "src/unix/mod.rs",
+          "sha256": "5983e1f99a999167c43249a3961a6db10290f6fb15b65ef285796dd05a034c2d"
+        },
+        {
+          "path": "src/unix/linux_like/mod.rs",
+          "sha256": "39afa8f72bdb7f6afa0dc9bed7e35ae0e78015dcbe520809a6324b8e58f3ca3c"
+        },
+        {
+          "path": "src/unix/linux_like/linux/gnu/b64/x86_64/mod.rs",
+          "sha256": "1e7565934b7d0f8f2a7b6ecb4f99684a443adb7974323fcf423e57cf59b2b6aa"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "default",
+          "extra_traits",
+          "std"
+        ],
+        "example_reverse_route": "libc -> candle-core 0.11.1 -> susi-vendor-candle -> susi-gemi -> susi; also mio, memmap2 and signal-hook routes",
+        "reverse_tree_receipt": "libc-0.2.191.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "3b09134d043fe3af67dc33c690ab77349a59cf2f300580121faa0f24486469f6",
+        "kind": "registry-cache",
+        "archive_sha256": "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+        "lock_checksum": "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "memmap2",
+        "version": "0.9.12",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: OS-backed virtual-memory lifetime and borrowed byte validity.",
+      "boundary": "Unix mmap64/mmap creates raw memory regions and munmap destroys them; Rust slices and StableDeref expose those bytes while a Mmap owner remains alive.",
+      "justification": "The Unix constructor aligns the requested offset to the page boundary, adjusts mapping length, checks MAP_FAILED, and retains the original mapping extent for unmap. Zero-length handling and 32-bit isize limits are explicit. File-backed constructors are unsafe and document that mutation or truncation of the file can invalidate the mapped references; mapping lifetime alone is insufficient. The selected stable_deref_trait implementation relies on the mapping address remaining stable.",
+      "residual_risk": "External modification/truncation can cause undefined behavior or SIGBUS. A one-time model/file digest is not a lifetime immutability guarantee. Callers must keep mapped files stable and retain ownership; this review did not read or mutate the private model and does not qualify Windows mapping or concurrent file mutation behavior.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "f64a847a02c70c2d0818dcb9ad2a84f6fa74a88d1f6165bb83c283717cf393aa"
+        },
+        {
+          "path": "src/unix.rs",
+          "sha256": "7cc89518012aa6e741802a110e4d5d4607ed0e739a72aee98bd873b3728540ec"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "stable_deref_trait"
+        ],
+        "example_reverse_route": "memmap2 -> candle-core 0.11.1 -> susi-vendor-candle -> susi-gemi -> susi; also search/index paths",
+        "reverse_tree_receipt": "memmap2-0.9.12.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "71b5705f8016f8cb85275ba26c4dcabbe8c9962a244762d86c115cf949d239a5",
+        "kind": "registry-cache",
+        "archive_sha256": "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157",
+        "lock_checksum": "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "mio",
+        "version": "1.2.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: event-buffer initialization and OS descriptor lifetime.",
+      "boundary": "The selected Linux epoll backend passes Vec spare storage to epoll_wait, then marks only the successful returned event count initialized; epoll descriptors are owned.",
+      "justification": "Selector construction wraps an epoll_create1 descriptor only after success, using CLOEXEC. The syscall macro maps negative results to an OS error. select clears the event vector, supplies its allocation and capacity, and sets length only after the kernel reports initialized entries. Timeout conversion rounds sub-millisecond waits upward and bounds the integer timeout. Registration creates initialized epoll_event values before epoll_ctl.",
+      "residual_risk": "The kernel ABI, descriptor reuse/lifetime and caller readiness discipline remain trusted. Readiness does not guarantee an I/O operation will complete. This review covers the selected Linux source path, not all socket methods, race cases or other OS backends; no new polling stress tests ran.",
+      "reviewed_files": [
+        {
+          "path": "src/sys/unix/mod.rs",
+          "sha256": "a5fb6482479004e1521a4b9e27f1541e40d580e15e9131a9b47a42b075431e87"
+        },
+        {
+          "path": "src/sys/unix/selector/epoll.rs",
+          "sha256": "b952cb6d4225f442524d1a5a15bb7cecad6ad4738afaed5776e6b9d4a1203891"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "net",
+          "os-ext",
+          "os-poll"
+        ],
+        "example_reverse_route": "mio -> tokio 1.54.1 -> axum 0.8.9 -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi-gawd -> susi",
+        "reverse_tree_receipt": "mio-1.2.4.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "3af3cfbf40193cd0b37ffa063352c647e11efb130c73c8a7dc23a5045edcf283",
+        "kind": "registry-cache",
+        "archive_sha256": "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee",
+        "lock_checksum": "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "process-wrap",
+        "version": "10.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High OS lifecycle boundary: post-fork callbacks, process groups and child reaping.",
+      "boundary": "Selected Tokio wrappers install a Unix pre_exec setsid callback, use group signaling and waitpid, and preserve wrapper cleanup invariants around native Child access.",
+      "justification": "The inspected session callback performs setsid and returns an OS error; group setup uses Tokio process_group. The wait loop passes initialized status storage to waitpid and distinguishes no event, ECHILD and other errors. Methods that bypass wrapper cleanup through a mutable/raw inner Child are unsafe with explicit invariant contracts. KillOnDrop delegates to Tokio kill_on_drop(true). Windows job-object and creation-flags features may appear in resolved features but their Windows code is not the selected Linux execution path.",
+      "residual_risk": "Async-signal-safe post-fork behavior, PID/group lifetime, wrapper order and platform process semantics remain trusted. Kill-on-drop does not by itself prove timely reaping or graceful shutdown. No Windows qualification or new child lifecycle/race test is claimed.",
+      "reviewed_files": [
+        {
+          "path": "src/tokio/core.rs",
+          "sha256": "c23981c0da706e921492f4032181ca86fecd3531d12e2282c1180eaff8fcf932"
+        },
+        {
+          "path": "src/tokio/process_session.rs",
+          "sha256": "70dea3c20d5de5b02c16ad31dc57fb2361052aba640847fa5cbabf6e2666a098"
+        },
+        {
+          "path": "src/tokio/process_group.rs",
+          "sha256": "68396841c599cb6ed4cae198597013a0de668d7ca1e01bcee892d0115e1013be"
+        },
+        {
+          "path": "src/tokio/kill_on_drop.rs",
+          "sha256": "3dddbc3532b9c67ccdcd9da7e81ef32e2b48941df3219e6435916a0682dab824"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "creation-flags",
+          "default",
+          "job-object",
+          "kill-on-drop",
+          "process-group",
+          "process-session",
+          "tokio1",
+          "tracing"
+        ],
+        "example_reverse_route": "process-wrap -> rmcp 3.8.0 -> susi-vendor-mcp -> susi-tools -> susi",
+        "reverse_tree_receipt": "process-wrap-10.0.1.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "69e60fea537e8430c5444114ce7a334911582255a8034e073979c91a96421e19",
+        "kind": "registry-cache",
+        "archive_sha256": "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da",
+        "lock_checksum": "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "rustix",
+        "version": "1.1.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: direct system-call assembly and conversion of raw descriptors into owned values.",
+      "boundary": "File APIs borrow existing descriptors, convert path arguments to C strings, call Linux syscalls and create OwnedFd only after decoding a successful return.",
+      "justification": "Selected features are alloc/default/fs/std with no use-libc feature. build.rs normally selects linux_raw on this target, subject to explicit cfg/environment overrides. openat accepts AsFd and path::Arg, carries the borrow through the call, enables large-file behavior and checks the raw return before constructing OwnedFd. flock also checks syscall results. The x86_64 assembly declares argument/result registers and clobbered rcx/r11; readonly and ordinary variants distinguish memory effects.",
+      "residual_risk": "Compiler assembly contracts, kernel ABI, syscall result decoding and descriptor lifetime are trusted. Features alone do not prove the final backend if build cfg overrides are supplied. This is a filesystem/syscall boundary review, not all rustix modules or operating systems, and no new ABI/runtime test ran.",
+      "reviewed_files": [
+        {
+          "path": "build.rs",
+          "sha256": "f7609b919173e7121493266d0f89db724a1e47bb105ebd05397f869639603eec"
+        },
+        {
+          "path": "src/fs/at.rs",
+          "sha256": "1b1a17f596b2c53e5ea146b56cc845aaa8a605a27c2a9577db1a657c5d05ce6a"
+        },
+        {
+          "path": "src/fs/fd.rs",
+          "sha256": "41246b5cd4faaa19b38ec21613fc246c46e1d65e3960d8b5330c367e097e528a"
+        },
+        {
+          "path": "src/backend/linux_raw/fs/syscalls.rs",
+          "sha256": "0fc8f16a123444562f93659c30a61196483e2808f88efae86c90e7a7c8a27c93"
+        },
+        {
+          "path": "src/backend/linux_raw/arch/x86_64.rs",
+          "sha256": "823327d5f16bd33c586b2641817169d216f308d15a4b70eb3a77432623aa3b16"
+        },
+        {
+          "path": "src/backend/linux_raw/conv.rs",
+          "sha256": "1bd94a915370530ef5883c16b984680c7dacb0100a660408716f4b86d0f5ea79"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "alloc",
+          "default",
+          "fs",
+          "std"
+        ],
+        "example_reverse_route": "rustix -> fs4 0.13.1 -> tantivy 0.26.2 -> susi-vendor-tantivy -> susi-gmcp -> susi; also tempfile",
+        "reverse_tree_receipt": "rustix-1.1.6.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "75cab7eb5c9ba48e931ada226cc39589a07bff6f0bb5774de07d9a2c48bd0d38",
+        "kind": "registry-cache",
+        "archive_sha256": "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa",
+        "lock_checksum": "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "signal-hook",
+        "version": "0.4.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: asynchronous signal callbacks and pipe wakeups.",
+      "boundary": "Safe convenience APIs register constrained callbacks through unsafe signal-hook-registry APIs; iterator storage uses MaybeUninit and handlers perform atomic stores and nonblocking pipe writes.",
+      "justification": "Flag helpers close over Arc-owned atomics and only store with SeqCst. Pipe registration takes an OwnedFd, sets CLOEXEC and nonblocking operation or MSG_DONTWAIT, then retains ownership inside the registered callback. The wake operation writes one static byte and intentionally tolerates a full pipe. Iterator storage initializes every slot before assume_init; signal indices and exfiltrator support are checked before registration. Registry implementation was reviewed separately as an exact identity rather than omitted after its parser failure.",
+      "residual_risk": "Async-signal safety of exfiltrators/callbacks, handler installation races and OS signal semantics remain trusted. Wakeups may coalesce; unregister and process shutdown have distinct lifecycle requirements. No signal-delivery stress test or proof of every consumer callback was performed.",
+      "reviewed_files": [
+        {
+          "path": "src/flag.rs",
+          "sha256": "6bdfffb906ae6fc08c3884660f1444a32d124f65abceaf1cf1a49f7e48fafddc"
+        },
+        {
+          "path": "src/low_level/pipe.rs",
+          "sha256": "11e328d402ec56440c4eaac9f6474c217fd697a24cab2d0a7e7b2e7c447176cd"
+        },
+        {
+          "path": "src/iterator/backend.rs",
+          "sha256": "ad313c6abaa7c1c2ffb55e05c020c4806f89c9aa7ceddd170a5fae47977e372f"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "channel",
+          "default",
+          "iterator"
+        ],
+        "example_reverse_route": "signal-hook -> susi-vendor-signal-hook -> susi and susi-daemon",
+        "reverse_tree_receipt": "signal-hook-0.4.5.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "4bfa2c67a16d2e09978a3701498992bd7f89daf07dea8c33591b44a7d67524a7",
+        "kind": "registry-cache",
+        "archive_sha256": "b29ffa27d3d59a049bb328258de100f8012848d1b08d444e08bbc02ac468435e",
+        "lock_checksum": "b29ffa27d3d59a049bb328258de100f8012848d1b08d444e08bbc02ac468435e",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "smallvec",
+        "version": "1.16.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: manually tracked initialized elements and inline/heap ownership transitions.",
+      "boundary": "SmallVec uses MaybeUninit storage, raw pointer reads/writes and allocator operations; length/capacity distinguish initialized elements from spare storage.",
+      "justification": "The selected const_generics/const_new features do not enable the optional union representation. The inspected nonunion storage uses an enum and unsafe Send/Sync constrained by element/array traits. push reserves before writing and increasing length; pop reduces length before reading ownership out. Growth validates required capacity and allocation layout, handles inline-to-heap and heap-to-inline copies, and installs a new pointer only after allocation succeeds. Unsafe raw construction/set_len retain explicit caller initialization obligations.",
+      "residual_risk": "Panic/drop ordering, zero-sized types, aliasing and custom unsafe array/raw-parts operations remain trusted. Source excerpts do not prove every drain/splice or allocation-failure case. No Miri, allocator-failure injection or full crate audit is claimed.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "c95ee991a165908b650df4a0e6473d357294137baa4bfff415e58f9bfacccec0"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "const_generics",
+          "const_new"
+        ],
+        "example_reverse_route": "smallvec -> hyper 1.12.0 -> axum 0.8.9 -> selected Susi HTTP services",
+        "reverse_tree_receipt": "smallvec-1.16.4.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "d1e0e5a4eece6dd638cc3c5550850ac0621c409d19f166a0282d7bf3e18a80f4",
+        "kind": "registry-cache",
+        "archive_sha256": "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8",
+        "lock_checksum": "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "zerocopy",
+        "version": "0.8.63",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: conversion between untyped bytes and typed references with validity, alignment and aliasing requirements.",
+      "boundary": "Unsafe layout/validity traits and internal raw-pointer invariants underlie checked byte-to-reference conversion, including dynamically sized data.",
+      "justification": "try_ref_from_bytes requires KnownLayout and Immutable, checks a cast with no leftover bytes, then calls try_into_safe before exposing a reference. The pointer cast tracks aliasing, alignment and initialized state; the no-leftover helper returns a size error if bytes remain. Trait implementations, rather than byte length alone, must justify value validity and layout. Derive and simd are selected, so generated trait implementations are part of the trusted boundary and reviewed separately.",
+      "residual_risk": "Correct unsafe trait implementations, dynamic padding/layout calculations, pointer provenance and SIMD/compiler rules remain trusted. This review is not a proof of all trait methods or all byte patterns, and no new Miri/fuzz execution was performed.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "04fab08f8ef9482e4d62d0e64f1b8e9af32a8ecfe77b1a8875a7aca5accae0db"
+        },
+        {
+          "path": "src/pointer/ptr.rs",
+          "sha256": "eca76e67328cd86b6dd2eba35b5f4b3a83a6c7751c8c295852cf83c468e4205a"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "derive",
+          "simd",
+          "zerocopy-derive"
+        ],
+        "example_reverse_route": "zerocopy -> ahash 0.8.12 -> vendored hashbrown 0.16.1 -> lru 0.16.4 -> tantivy -> Susi search",
+        "reverse_tree_receipt": "zerocopy-0.8.63.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "0e4dd9ebd98e50bbaa23324da68ec1506ce795dc7996ac59e5e0f3eb86c57376",
+        "kind": "registry-cache",
+        "archive_sha256": "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8",
+        "lock_checksum": "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "zerocopy-derive",
+        "version": "0.8.63",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High host-code-generation boundary: generated unsafe runtime trait implementations.",
+      "boundary": "The proc macro parses derive input and emits unsafe layout/byte-validity trait implementations consumed by runtime zerocopy APIs.",
+      "justification": "The inspected entrypoints parse input and turn validation errors into compile errors. IntoBytes generation distinguishes transparent, packed and C representations; field trait bounds and padding checks reject unsupported layouts instead of blindly emitting an implementation. The homogeneous generic-field case preserves each original type AST and adds Identity bounds checked by rustc, explicitly avoiding a same-spelling/different-hygiene padding mistake. Being a host proc macro does not remove the risk of unsound generated runtime code.",
+      "residual_risk": "Macro hygiene, compiler layout rules and all other generated trait paths remain trusted. Reviewed padding/field-bound branches are not an exhaustive proof of every enum/union/generic input. No new compile-fail suite or generated-code fuzzing ran.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "ddf22139f2bfb423a59f8d09e5805aa72623159657a1238e376514b2ca16e11c"
+        },
+        {
+          "path": "src/util.rs",
+          "sha256": "a4e8660d444fa0d32055f29516f3ab1e323b9c6d478a98ffe4c372c06cbbb2a7"
+        },
+        {
+          "path": "src/derive/into_bytes.rs",
+          "sha256": "ec26199f87c9a544d249509e35abec1e6397c3f431207bf5f5be1ecd5db30493"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "zerocopy-derive (host proc macro) -> zerocopy 0.8.63 -> ahash -> selected Susi dependency graph",
+        "reverse_tree_receipt": "zerocopy-derive-0.8.63.tree",
+        "host_proc_macro": true
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "d9cfc06bbf6fef280bd57f6d0a203e6605ba922e2818edef425b33e80ea0eed4",
+        "kind": "registry-cache",
+        "archive_sha256": "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f",
+        "lock_checksum": "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    },
+    {
+      "identity": {
+        "name": "zeroize",
+        "version": "1.9.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High confidentiality boundary with unsafe memory writes and compiler optimization barriers.",
+      "boundary": "Volatile writes clear initialized data or valid MaybeUninit storage; the selected x86_64 optimization barrier exposes a pointer to inline assembly to prevent dead-store removal.",
+      "justification": "Scalar implementations use volatile writes of valid values. The Vec implementation zeroizes spare capacity first, then initialized elements, then clears/drops those elements, avoiding a second pass over elements after len becomes zero. The code explicitly calls Vec zeroization best effort because old allocations may retain copies. The x86_64 barrier has readonly/preserves_flags/nostack constraints; this is a compiler-observation mechanism rather than an operating-system erasure API.",
+      "residual_risk": "Prior reallocations, temporary copies, registers, swap, crash dumps and microarchitectural leakage are outside the guarantee. Arbitrary downstream Zeroize implementations and compiler behavior remain trusted; zeroizing one buffer is not evidence all secret copies vanished. No private key/model data was inspected and no erasure runtime test ran.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "0ec1dcf0d7c33b0bab02f85d79d37f29bbb8f034f648513797859a7b37bca637"
+        },
+        {
+          "path": "src/barrier.rs",
+          "sha256": "99d5495396318717a050570dc6e6cfbdba77f218689c9fac513e1060499453be"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is measured separately from actual unsafe operations or generated unsafe runtime code."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "alloc",
+          "default",
+          "zeroize_derive"
+        ],
+        "example_reverse_route": "zeroize -> chacha20poly1305 0.10.1 -> susi-vendor-chacha20poly1305 -> susi-config -> susi; also selected native TLS/RSA encoding helpers",
+        "reverse_tree_receipt": "zeroize-1.9.1.tree",
+        "host_proc_macro": false
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "6d3893e532b049012d689995b2d8f066229d77a84581c7a7fab6e454230c8268",
+        "kind": "registry-cache",
+        "archive_sha256": "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879",
+        "lock_checksum": "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879",
+        "all_extracted_files_match_archive": true
+      },
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval or release promotion."
+    }
+  ],
+  "source_validation": {
+    "registry_archives": 13,
+    "all_archives_match_locked_checksums": true,
+    "extracted_files_checked": 1696,
+    "all_extracted_files_match_archives": true,
+    "reviewed_file_bindings": 35
+  },
+  "findings": [
+    {
+      "component": "inventory 0.3.25",
+      "status": "scoped_upstream_api_concern_no_demonstrated_candidate_trigger",
+      "detail": "The type-erasure invariant is not sealed at the Rust type boundary: public but doc-hidden Registry plus safe Collect::registry could be manually implemented to return another type registry, violating the iterator cast invariant without an unsafe impl. Documentation says not to implement Collect manually. This is a concrete unsupported-API soundness concern, not a demonstrated selected-candidate trigger or proof of arbitrary safe-client soundness. Selected typetag macro use preserves the matching registry type; constructor/linker and publication-order assumptions remain trusted. No exploit or runtime test was executed."
+    }
+  ]
+}

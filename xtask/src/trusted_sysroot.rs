@@ -8,9 +8,22 @@ use std::{
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const TARGET: &str = "x86_64-pc-windows-msvc";
+#[path = "../../toolchain/windows-stdlib/native_target.rs"]
+mod native_target;
+
+fn target(compiler: &str) -> Result<&str> {
+    let host = compiler
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .ok_or("missing compiler host")?;
+    if !native_target::supported(host) {
+        return Err("no native sysroot contract for compiler host".into());
+    }
+    Ok(host)
+}
 const INPUTS: &[&str] = &[
     "builder.rs",
+    "native_target.rs",
     "platform_unicode.rs",
     "consumer.rs",
     "Cargo.toml",
@@ -34,11 +47,13 @@ fn compiler(root: &Path) -> Result<(String, PathBuf)> {
     let text = String::from_utf8(output.stdout)?;
     if !output.status.success()
         || !text.contains("commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\n")
-        || !text.contains(&format!("host: {TARGET}\n"))
+        || target(&text).is_err()
     {
         return Err("custom sysroot requires reviewed native compiler".into());
     }
-    let output = Command::new("rustc")
+    let mut locate = Command::new("rustc");
+    super::compiler_env::apply(&mut locate);
+    let output = locate
         .current_dir(root)
         .args(["--print", "sysroot"])
         .output()?;
@@ -60,12 +75,12 @@ fn identity(root: &Path, compiler: &str) -> Result<String> {
     }
     Ok(super::sysroot_sources::hash(&bytes))
 }
-fn artifacts(destination: &Path) -> Result<Value> {
+fn artifacts(destination: &Path, host: &str) -> Result<Value> {
     let mut files = Vec::new();
     for entry in fs::read_dir(
         destination
             .join("sysroot/lib/rustlib")
-            .join(TARGET)
+            .join(host)
             .join("lib"),
     )? {
         let entry = entry?;
@@ -76,8 +91,41 @@ fn artifacts(destination: &Path) -> Result<Value> {
         files.push(json!({"filename":entry.file_name().to_str().ok_or("nonUTF8 artifact")?, "sha256":hash_file(&entry.path())?}));
     }
     files.sort_by_key(|value| value["filename"].as_str().unwrap_or_default().to_owned());
-    if files.len() != 20 {
-        return Err("reviewed Windows sysroot requires exactly20 target archives".into());
+    if files.len()
+        != if host.ends_with("-windows-msvc") {
+            20
+        } else {
+            26
+        }
+    {
+        return Err(
+            "native sysroot archive count differs from the reviewed target contract".into(),
+        );
+    }
+    for required in [
+        "core",
+        "alloc",
+        "std",
+        "compiler_builtins",
+        "panic_unwind",
+        "proc_macro",
+        "test",
+        "unwind",
+        "sysroot",
+    ] {
+        let prefix = format!("lib{required}-");
+        if files
+            .iter()
+            .filter(|f| {
+                f["filename"].as_str().is_some_and(|name| {
+                    name.starts_with(&prefix) || name == format!("lib{required}.rlib")
+                })
+            })
+            .count()
+            != 1
+        {
+            return Err(format!("missing or duplicate native sysroot archive: {required}").into());
+        }
     }
     Ok(Value::Array(files))
 }
@@ -108,6 +156,14 @@ impl VerifiedSysroot {
         if path.contains('\x1f') {
             return Err("invalid sysroot path".into());
         }
+        let host = target(
+            self.evidence["compiler"]
+                .as_str()
+                .ok_or("missing compiler evidence")?,
+        )?;
+        if host.ends_with("-unknown-linux-gnu") {
+            super::compiler_env::configure_system_openssl(command, host)?;
+        }
         command.env("SUSI_VERIFIED_SYSROOT", path);
         command.env("CARGO_ENCODED_RUSTFLAGS", format!("--sysroot\x1f{path}"));
         command.env("CARGO_ENCODED_RUSTDOCFLAGS", format!("--sysroot\x1f{path}"));
@@ -115,7 +171,14 @@ impl VerifiedSysroot {
     }
     pub(crate) fn recheck(&self) -> Result<()> {
         if self.evidence["artifacts"] != self.expected
-            || artifacts(self.path().parent().ok_or("sysroot parent missing")?)? != self.expected
+            || artifacts(
+                self.path().parent().ok_or("sysroot parent missing")?,
+                target(
+                    self.evidence["compiler"]
+                        .as_str()
+                        .ok_or("missing compiler evidence")?,
+                )?,
+            )? != self.expected
         {
             return Err("sysroot artifacts changed during compiler operation".into());
         }
@@ -141,6 +204,7 @@ fn reject_redirects(path: &Path) -> Result<()> {
 pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
     let (compiler, installed) = compiler(root)?;
+    let host = target(&compiler)?;
     super::sysroot_sources::original(&installed.join("lib/rustlib/src/rust/library"))?;
     let key = identity(root, &compiler)?;
     let common = PathBuf::from(git(
@@ -180,13 +244,13 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     if identity(root, &compiler)? != key {
         return Err("sysroot builder source changed during execution".into());
     }
-    let expected = artifacts(&destination)?;
+    let expected = artifacts(&destination, host)?;
     let mut handles = Vec::new();
     let path = destination.join("sysroot");
     for entry in expected.as_array().ok_or("invalid artifact inventory")? {
         let artifact = path
             .join("lib/rustlib")
-            .join(TARGET)
+            .join(host)
             .join("lib")
             .join(entry["filename"].as_str().ok_or("missing filename")?);
         reject_redirects(&artifact)?;
@@ -200,14 +264,16 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         handles.push(options.open(&artifact)?);
     }
 
-    if artifacts(&destination)? != expected {
+    if artifacts(&destination, host)? != expected {
         return Err("sysroot changed before archive locks were acquired".into());
     }
     // The tracked builder must finish and the reviewed stable consumer must
     // execute before admission; externally supplied receipts cannot enter.
-    let executable = destination.join("consumer.exe");
+    let executable = destination.join(native_target::executable(host, "consumer"));
     let mut consumer = Command::new("rustc");
     super::compiler_env::apply(&mut consumer);
+    let mut execute = Command::new(&executable);
+    super::compiler_env::apply(&mut execute);
     if !consumer
         .current_dir(root)
         .arg("toolchain/windows-stdlib/consumer.rs")
@@ -217,7 +283,7 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         .arg(&executable)
         .status()?
         .success()
-        || !Command::new(&executable).status()?.success()
+        || !execute.status()?.success()
     {
         return Err("custom sysroot stable consumer qualification failed".into());
     }
@@ -230,7 +296,7 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     ] {
         evidence.insert(name.into(), json!(hash_file(&destination.join(name))?));
     }
-    let record = json!({"schema":"susi/executed-sysroot/v2", "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked Windows OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
+    let record = json!({"schema":"susi/executed-sysroot/v2", "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked native OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
     fs::write(
         destination.join("executed-record.json"),
         serde_json::to_vec_pretty(&record)?,
@@ -247,7 +313,19 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use super::*;
+    #[test]
+    fn native_compiler_selection_rejects_foreign_or_unknown_targets() {
+        assert_eq!(
+            super::target("host: x86_64-unknown-linux-gnu\n").unwrap(),
+            "x86_64-unknown-linux-gnu"
+        );
+        assert!(super::target("host: aarch64-unknown-linux-gnu\n").is_ok());
+        assert!(super::target("host: x86_64-pc-windows-msvc\n").is_ok());
+        assert!(super::target("host: wasm32-wasip1\n").is_err());
+        assert!(super::target("host: x86_64-unknown-linux-musl\n").is_err());
+    }
     #[cfg(windows)]
     #[test]
     fn archive_guard_denies_mutation_until_compilation_finishes() {

@@ -1,1 +1,1 @@
-"susi-local-qualification-policy-v4\n"
+"susi-local-qualification-policy-v6\n"

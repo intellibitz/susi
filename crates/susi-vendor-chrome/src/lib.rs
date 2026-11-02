@@ -20,9 +20,9 @@
 //! with the caller.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
 
 /// A rendered page.
@@ -42,10 +42,134 @@ const DEFAULT_CHROME_CANDIDATES: &[&str] = &[
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 ];
 
+const MAX_OUTPUT: u64 = 8 * 1024 * 1024;
+
+struct Scratch(PathBuf);
+impl Scratch {
+    fn new() -> std::io::Result<Self> {
+        let path = temp_screenshot_path().with_extension("work");
+        std::fs::create_dir(&path)?;
+        let scratch = Self(path);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&scratch.0, std::fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(scratch)
+    }
+}
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// File-backed output cannot wait forever for a descendant to close an inherited
+/// pipe. Track descendant identities while running so timeout cleanup affects
+/// only this invocation, never another browser session.
+fn bounded_output(command: &mut Command, timeout: Duration) -> std::io::Result<Output> {
+    use std::collections::BTreeMap;
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+    let scratch = Scratch::new()?;
+    let stdout_path = scratch.0.join("stdout");
+    let stderr_path = scratch.0.join("stderr");
+    let stdout = std::fs::File::create(&stdout_path)?;
+    let stderr = std::fs::File::create(&stderr_path)?;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()?;
+    let root = Pid::from_u32(child.id());
+    let mut system = System::new();
+    let mut descendants = BTreeMap::new();
+    let started = Instant::now();
+    let result = loop {
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        // Repeat to discover several generations independent of process order.
+        loop {
+            let previous = descendants.len();
+            for (pid, process) in system.processes() {
+                if *pid != root
+                    && process
+                        .parent()
+                        .is_some_and(|parent| parent == root || descendants.contains_key(&parent))
+                {
+                    descendants.entry(*pid).or_insert(process.start_time());
+                }
+            }
+            if descendants.len() == previous {
+                break;
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => {}
+            Err(error) => break Err(error),
+        }
+        if started.elapsed() >= timeout {
+            break Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Chrome execution deadline exceeded",
+            ));
+        }
+        if [&stdout_path, &stderr_path].iter().any(|path| {
+            std::fs::metadata(path)
+                .map(|m| m.len() > MAX_OUTPUT)
+                .unwrap_or(true)
+        }) {
+            break Err(std::io::Error::other("Chrome output exceeds capture limit"));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // Refresh the same identities before signalling; do not kill reused PIDs.
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    for (pid, start) in descendants.iter().rev() {
+        if let Some(process) = system
+            .process(*pid)
+            .filter(|process| process.start_time() == *start)
+        {
+            process.kill();
+        }
+    }
+    if result.is_err() {
+        // Let a cooperative parent reap its terminated children before forcing
+        // it down; minimal container init processes may not reap orphans.
+        let grace = Instant::now() + Duration::from_millis(100);
+        while child.try_wait()?.is_none() && Instant::now() < grace {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = child.kill();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while child.try_wait()?.is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    let status = result?;
+    fn read_output(path: &Path) -> std::io::Result<Vec<u8>> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(MAX_OUTPUT + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_OUTPUT {
+            return Err(std::io::Error::other("Chrome output exceeds capture limit"));
+        }
+        Ok(bytes)
+    }
+    Ok(Output {
+        status,
+        stdout: read_output(&stdout_path)?,
+        stderr: read_output(&stderr_path)?,
+    })
+}
+
 fn probe_chrome_candidate(bin: &str) -> bool {
-    Command::new(bin)
-        .arg("--version")
-        .output()
+    bounded_output(Command::new(bin).arg("--version"), Duration::from_secs(2))
         .is_ok_and(|out| out.status.success())
 }
 
@@ -124,47 +248,55 @@ fn read_and_cleanup_screenshot(output: Output, screenshot_path: &Path) -> EaiRes
 }
 
 fn capture_page_with_bin(bin: &Path, url: &str) -> EaiResult<PageCapture> {
-    let dom_output = Command::new(bin)
-        .args([
+    let profile = Scratch::new()
+        .map_err(|e| EaiError::process(format!("[CAPABILITY_GAP] Chrome private profile: {e}")))?;
+    let profile_arg = format!("--user-data-dir={}", profile.0.display());
+    let dom_output = bounded_output(
+        Command::new(bin).args([
             "--headless",
             "--disable-gpu",
             "--no-sandbox",
+            &profile_arg,
             "--dump-dom",
             url,
-        ])
-        .output()
-        .map_err(|e| {
-            EaiError::process(format!(
-                "[CAPABILITY_GAP] Headless Chrome failed to launch ({}): {e}",
-                bin.display()
-            ))
-        })?;
+        ]),
+        Duration::from_secs(15),
+    )
+    .map_err(|e| {
+        EaiError::process(format!(
+            "[CAPABILITY_GAP] Headless Chrome DOM command failed ({}): {e}",
+            bin.display()
+        ))
+    })?;
     let html = parse_dom_output(dom_output)?;
 
     let screenshot_path = temp_screenshot_path();
     let screenshot_arg = format!("--screenshot={}", screenshot_path.display());
-    let shot_output = Command::new(bin)
-        .args([
+    let shot_output = bounded_output(
+        Command::new(bin).args([
             "--headless",
             "--disable-gpu",
             "--no-sandbox",
+            &profile_arg,
             &screenshot_arg,
             url,
-        ])
-        .output()
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&screenshot_path);
-            EaiError::process(format!(
-                "[CAPABILITY_GAP] Headless Chrome screenshot failed to launch ({}): {e}",
-                bin.display()
-            ))
-        })?;
+        ]),
+        Duration::from_secs(15),
+    )
+    .map_err(|e| {
+        let _ = std::fs::remove_file(&screenshot_path);
+        EaiError::process(format!(
+            "[CAPABILITY_GAP] Headless Chrome screenshot command failed ({}): {e}",
+            bin.display()
+        ))
+    })?;
     let png = read_and_cleanup_screenshot(shot_output, &screenshot_path)?;
     Ok(PageCapture { png, html })
 }
 
 /// Navigate to `url`, wait for navigation, capture a full screenshot and
-/// the DOM.
+/// the DOM. Each browser command has a 15-second deadline and an 8 MiB
+/// output read limit; executable probes have a two-second deadline.
 ///
 /// # Errors
 /// `[CAPABILITY_GAP]` when Chrome/Chromium cannot launch; otherwise the
@@ -179,6 +311,96 @@ pub fn capture_page(url: &str) -> EaiResult<PageCapture> {
 mod tests {
     use super::*;
     use std::process::Command;
+
+    #[test]
+    fn bounded_child_fixture() {
+        match std::env::var("SUSI_CHROME_TEST_MODE").as_deref() {
+            Ok("sleep") => std::thread::sleep(Duration::from_secs(30)),
+            Ok("flood") => {
+                use std::io::Write;
+                std::io::stdout()
+                    .write_all(&vec![b'x'; MAX_OUTPUT as usize + 1])
+                    .unwrap();
+            }
+            Ok("tree") => {
+                std::fs::write(
+                    std::env::var("SUSI_CHROME_TEST_PARENT_PID").unwrap(),
+                    std::process::id().to_string(),
+                )
+                .unwrap();
+                let mut child = Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "tests::bounded_child_fixture", "--nocapture"])
+                    .env("SUSI_CHROME_TEST_MODE", "sleep")
+                    .spawn()
+                    .unwrap();
+                std::fs::write(
+                    std::env::var("SUSI_CHROME_TEST_PID").unwrap(),
+                    child.id().to_string(),
+                )
+                .unwrap();
+                child.wait().unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    fn fixture_command(mode: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "tests::bounded_child_fixture", "--nocapture"])
+            .env("SUSI_CHROME_TEST_MODE", mode);
+        command
+    }
+
+    #[test]
+    fn deadline_kills_and_reaps_hung_browser_and_descendants() {
+        let scratch = Scratch::new().unwrap();
+        let pidfile = scratch.0.join("child.pid");
+        let parent_pidfile = scratch.0.join("parent.pid");
+        let mut command = fixture_command("tree");
+        command.env("SUSI_CHROME_TEST_PARENT_PID", &parent_pidfile);
+        command.env("SUSI_CHROME_TEST_PID", &pidfile);
+        let started = Instant::now();
+        let error = bounded_output(&mut command, Duration::from_millis(500)).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let pid: u32 = std::fs::read_to_string(pidfile).unwrap().parse().unwrap();
+        let mut system = sysinfo::System::new_all();
+        let parent_pid: u32 = std::fs::read_to_string(parent_pidfile)
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            system.process(sysinfo::Pid::from_u32(parent_pid)).is_none(),
+            "direct child was not reaped"
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            if system
+                .process(sysinfo::Pid::from_u32(pid))
+                .is_none_or(|process| process.status() == sysinfo::ProcessStatus::Zombie)
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Chrome descendant survived cleanup"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn output_limit_and_success_are_bounded_without_pipe_readers() {
+        let output =
+            bounded_output(&mut fixture_command("success"), Duration::from_secs(2)).unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        let error =
+            bounded_output(&mut fixture_command("flood"), Duration::from_secs(2)).unwrap_err();
+        assert!(error.to_string().contains("output exceeds"));
+    }
 
     fn ok_output(stdout: &[u8]) -> Output {
         let mut out = Command::new("rustc")
