@@ -77,5 +77,14 @@
     },
     "limitations": "Direct changed-crate rustc probes use hash-bound read-only historical prerequisites; they are not complete current-graph Cargo qualification or current TLS evidence. Full fresh combined Cargo acceptance, immutable policy-v6 artifacts, inference, health and rollback remain required. A first architecture compile missed extern dependencies and a first Gemi filter selected zero tests; corrected executions retained separately.",
     "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license"
+  },
+  "coordination": {
+    "tested_source": "fa658800f751a8947abf76336e61cb8d92b42f72",
+    "combined_manifest_owner": "unsafe-complete",
+    "locked_edges": [
+      "susi-vendor-sha2",
+      "susi-vendor-syn"
+    ],
+    "requires": "Integrate unsafe-complete manifest and this lock update atomically; fresh exact combined locked acceptance is mandatory. Historical prerequisite probes are not current-graph qualification."
   }
 }

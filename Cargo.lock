@@ -4506,6 +4506,8 @@ version = "0.1.0"
 dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-syn",
 ]
 
 [[package]]
