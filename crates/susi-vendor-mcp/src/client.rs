@@ -17,17 +17,50 @@ use std::{
     time::Duration,
 };
 
+impl McpServerConfig {
+    fn http_url(&self) -> Result<Option<reqwest::Url>, String> {
+        if !self.command.split_once("://").is_some_and(|(scheme, _)| {
+            scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+        }) {
+            return Ok(None);
+        }
+        let mut url =
+            reqwest::Url::parse(&self.command).map_err(|_| "invalid registered MCP URL")?;
+        if url.path() == "/" {
+            url.set_path("/mcp");
+        }
+        Ok(Some(url))
+    }
+
+    /// Canonical capability resource and whether requests stay on loopback.
+    /// Never expose URL credentials or query values in denial messages.
+    pub fn http_scope(&self) -> Result<Option<(String, bool)>, String> {
+        let Some(url) = self.http_url()? else {
+            return Ok(None);
+        };
+        Ok(Some((
+            format!("{}{}", url.origin().ascii_serialization(), url.path()),
+            loopback_host(&url),
+        )))
+    }
+}
+
+fn loopback_host(url: &reqwest::Url) -> bool {
+    let host = url.host_str().unwrap_or_default();
+    host.trim_end_matches('.').eq_ignore_ascii_case("localhost")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.to_canonical().is_loopback())
+}
+
 /// Connect with any host handler, exposing all SDK methods (resources, prompts,
 /// tools, subscriptions, tasks and automatic MRTR fulfillment).
 async fn connect<H: ClientHandler>(
     config: &McpServerConfig,
     handler: H,
 ) -> Result<RunningService<RoleClient, H>, String> {
-    if config.command.starts_with("http://") || config.command.starts_with("https://") {
-        let mut url = reqwest::Url::parse(&config.command).map_err(|e| e.to_string())?;
-        if url.path() == "/" {
-            url.set_path("/mcp");
-        }
+    if let Some(url) = config.http_url()? {
         let mut transport = StreamableHttpClientTransportConfig::with_uri(url.to_string());
         if let Some(token) = config.extra.get("auth_token").and_then(Value::as_str) {
             transport = transport.auth_header(token);
@@ -47,11 +80,27 @@ async fn connect<H: ClientHandler>(
         // Connect is bounded (a blackholed host otherwise waits out the OS SYN
         // retries); no total timeout, since the streamable-HTTP transport holds
         // a long-lived SSE response open by design.
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| e.to_string())?;
+            .connect_timeout(std::time::Duration::from_secs(10));
+        if loopback_host(&url) {
+            // No proxy (including one inherited from the environment) may
+            // receive a request authorized specifically as loopback-only.
+            builder = builder.no_proxy();
+            if let Some(host) = url
+                .host_str()
+                .filter(|h| h.trim_end_matches('.').eq_ignore_ascii_case("localhost"))
+            {
+                builder = builder.resolve_to_addrs(
+                    host,
+                    &[
+                        std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 0)),
+                        std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 0)),
+                    ],
+                );
+            }
+        }
+        let client = builder.build().map_err(|e| e.to_string())?;
         handler
             .serve(StreamableHttpClientTransport::with_client(
                 client, transport,
@@ -325,6 +374,38 @@ async fn call(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registered_http_scope_uses_parsed_authority_and_omits_credentials() {
+        let mut config = http_config(HashMap::new());
+        for (url, resource, local) in [
+            (
+                "HTTP://user:password@EXAMPLE.org:80?token=secret#ignore",
+                "http://example.org/mcp",
+                false,
+            ),
+            (
+                "http://localhost.evil.test/private",
+                "http://localhost.evil.test/private",
+                false,
+            ),
+            (
+                "http://127.0.0.1@bad.invalid/",
+                "http://bad.invalid/mcp",
+                false,
+            ),
+            ("http://192.168.1.4/", "http://192.168.1.4/mcp", false),
+            ("http://localhost:4321/", "http://localhost:4321/mcp", true),
+            ("http://[::1]:4321/", "http://[::1]:4321/mcp", true),
+            ("http://127.0.0.2/", "http://127.0.0.2/mcp", true),
+        ] {
+            config.command = url.to_string();
+            assert_eq!(
+                config.http_scope().unwrap(),
+                Some((resource.to_string(), local))
+            );
+        }
+    }
 
     #[test]
     fn connect_failure_cooldown_short_circuits_respawn() {

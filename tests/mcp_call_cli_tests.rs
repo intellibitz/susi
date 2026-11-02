@@ -178,6 +178,79 @@ fn run_susi(args: &[&str]) -> (i32, String, String) {
 }
 
 #[test]
+fn registered_http_requires_consent_before_a_request_can_carry_credentials() {
+    use std::net::TcpListener;
+    let scratch = std::env::temp_dir().join(format!("susi-registered-http-{}", std::process::id()));
+    let home = scratch.join("home");
+    let runtime = home.join(".susi");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::fs::write(runtime.join("privacy_mode"), "local_only").unwrap();
+    let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
+    proxy.set_nonblocking(true).unwrap();
+    let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+    let endpoint = "http://registered-peer.invalid/mcp";
+    let origin = |capabilities: &[&str]| {
+        let config = serde_json::json!({"mcp_servers":{"registered":{
+            "command":endpoint, "args":[], "auth_token":"synthetic-test-only",
+            "headers":{"X-Test-Sentinel":"synthetic-header"}, "capabilities":capabilities
+        }}});
+        std::fs::write(
+            runtime.join("mcp_config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+    };
+    let run = |args: &[&str]| {
+        let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
+            .env("SUSI_HOME", &runtime)
+            .env("HTTP_PROXY", &proxy_url)
+            .env("ALL_PROXY", &proxy_url)
+            .env("NO_PROXY", "")
+            .args(args)
+            .current_dir(&scratch)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out.stdout
+    };
+    origin(&["tools"]);
+    let denied = |reason: &str| {
+        for tool in ["*", "example"] {
+            let bytes = run(&["mcp", "call", "registered", tool, "{}"]);
+            let result: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(result["isError"], true, "{result}");
+            assert!(
+                result["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains(reason),
+                "{result}"
+            );
+            assert_eq!(
+                proxy.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+    };
+    denied("network.egress");
+    run(&[
+        "privacy",
+        "grant",
+        "--action",
+        "network.egress",
+        "--resource",
+        endpoint,
+    ]);
+    origin(&["not-granted"]);
+    denied("not-granted");
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
 fn test_mcp_call_native_status_success() {
     let (code, stdout, stderr) = run_susi(&["mcp", "call", "susi", "status", "{}"]);
     assert_eq!(code, 0, "stderr: {stderr}");

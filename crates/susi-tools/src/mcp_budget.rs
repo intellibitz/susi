@@ -10,21 +10,25 @@ fn config() -> crate::susi_sandbox::manager::SusiConfig {
     crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default()
 }
 
-fn authorize_launch(server: &McpServerConfig, policy: &MacPolicy) -> Result<(), String> {
-    if server.command.starts_with("http://") || server.command.starts_with("https://") {
-        return Ok(());
-    }
+fn authorize_transport(server: &McpServerConfig, policy: &MacPolicy) -> Result<(), String> {
+    let endpoint = server.http_scope()?;
+    let resource = endpoint
+        .as_ref()
+        .map_or(server.command.as_str(), |(url, _)| url.as_str());
     let require = |action: &str| {
-        if policy.is_permitted("susi", action, &server.command) {
+        if policy.is_permitted("susi", action, resource) {
             Ok(())
         } else {
             Err(format!(
-                "MCP launch denied: `{}` requires `{action}`",
-                server.command
+                "MCP access denied: `{resource}` requires `{action}`"
             ))
         }
     };
-    require(actions::PROCESS_EXEC)?;
+    match endpoint.as_ref() {
+        None => require(actions::PROCESS_EXEC)?,
+        Some((_, false)) => require(actions::NETWORK_EGRESS)?,
+        Some((_, true)) => {}
+    }
     if let Some(declared) = server.extra.get("capabilities") {
         for capability in declared
             .as_array()
@@ -51,7 +55,7 @@ pub(crate) fn call(
     name: String,
     arguments: Value,
 ) -> Result<String, String> {
-    authorize_launch(&config_, MacPolicy::global())?;
+    authorize_transport(&config_, MacPolicy::global())?;
     let cfg = config();
     susi_vendor_mcp::call_blocking_result(
         config_,
@@ -64,7 +68,7 @@ pub(crate) fn call(
 
 /// Catalog probe: lease capped at 30s, handshake at 10s.
 pub(crate) fn list_tools(config_: McpServerConfig) -> Result<Vec<(String, String)>, String> {
-    authorize_launch(&config_, MacPolicy::global())?;
+    authorize_transport(&config_, MacPolicy::global())?;
     let cfg = config();
     susi_vendor_mcp::list_tools_blocking(
         config_,
