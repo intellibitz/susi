@@ -613,9 +613,7 @@ impl HardwareProfiler {
             .map(|n| n.get())
             .unwrap_or(4);
 
-        let gpu_info = if candle_core::utils::cuda_is_available() {
-            "CUDA Acceleration Substrate Active".to_string()
-        } else if candle_core::utils::metal_is_available() {
+        let gpu_info = if Self::get_candle_device().is_metal() {
             "Metal Acceleration Substrate Active".to_string()
         } else {
             format!("CPU Parallel Execution Substrate Active ({} Threads)", cpus)

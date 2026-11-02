@@ -14,14 +14,18 @@
 
 use std::process::Command;
 
-fn dep_tree(target: &str) -> String {
-    let out = Command::new(env!("CARGO"))
+fn dep_tree_with_features(target: &str, all_features: bool) -> String {
+    let mut command = Command::new(env!("CARGO"));
+    command.arg("tree");
+    if all_features {
+        command.args(["--all-features", "--workspace"]);
+    }
+    let out = command
         .args([
-            "tree",
             "--target",
             target,
             "-e",
-            "normal",
+            "normal,build",
             "--prefix",
             "none",
             "--locked",
@@ -38,6 +42,10 @@ fn dep_tree(target: &str) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn dep_tree(target: &str) -> String {
+    dep_tree_with_features(target, false)
 }
 
 fn packages(tree: &str) -> std::collections::HashSet<&str> {
@@ -162,4 +170,69 @@ fn graph_assertions_cannot_confuse_facades_with_runtime_packages() {
     assert!(names.contains("wasmi"));
     assert!(!names.contains("wasmtime"));
     assert!(!names.contains("rustls"));
+}
+
+#[test]
+fn all_supported_features_exclude_retired_accelerator_dependencies() {
+    for target in [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ] {
+        let tree = dep_tree_with_features(target, true);
+        assert_native_runtime_graph(&tree);
+        let names = packages(&tree);
+        for retired in [
+            "intel-mkl-src",
+            "intel-mkl-tool",
+            "cudarc",
+            "candle-kernels",
+            "libloading",
+            "option-ext",
+            "ocipkg",
+        ] {
+            assert!(
+                !names.contains(retired),
+                "{target} selected retired {retired}: {tree}"
+            );
+        }
+    }
+}
+
+#[test]
+fn retired_feature_requests_fail_explicitly_before_building() {
+    for package in [
+        "susi",
+        "susi-gemi",
+        "susi-gemi-models",
+        "susi-vendor-candle",
+    ] {
+        for feature in ["cuda", "mkl"] {
+            let output = Command::new(env!("CARGO"))
+                .args([
+                    "tree",
+                    "--offline",
+                    "--locked",
+                    "-p",
+                    package,
+                    "--features",
+                    feature,
+                ])
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .output()
+                .unwrap();
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !output.status.success(),
+                "{package}/{feature} must not silently build CPU"
+            );
+            assert!(
+                error.contains(feature)
+                    && (error.contains("does not contain") || error.contains("does not have")),
+                "unexpected rejection: {error}"
+            );
+        }
+    }
 }

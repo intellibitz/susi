@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+
+SUSI_REQUESTED_FEATURES="${SUSI_BUILD_FEATURES:-}"
+for SUSI_REQUESTED_FEATURE in ${SUSI_REQUESTED_FEATURES//,/ }; do
+    case "$SUSI_REQUESTED_FEATURE" in
+        cuda|mkl|*/cuda|*/mkl)
+            echo "SUSI_BUILD_FEATURES requests retired CUDA/MKL support; product license/native-code gates prohibit this backend." >&2
+            exit 1 ;;
+    esac
+done
 # susi installer - Lightning Fast Intelligence Substrate Onboarding
 #
 # This script uses bash-only features (arrays, [[ ]], BASH_SOURCE) throughout.
@@ -108,31 +117,11 @@ fi
 # is seconds. Developers who need to install *this* tree's WIP binary opt into
 # source with SUSI_FORCE_SOURCE=1.
 if [ -z "${SUSI_FORCE_SOURCE:-}" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "unknown" ]]; then
-    # Download the susi binary
-    GPU_SUFFIX=""
-    if [[ "$PLATFORM" == "linux" ]] && command -v nvidia-smi >/dev/null 2>&1; then
-        if nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
-            GPU_SUFFIX="-cuda"
-            echo "GPU Environment detected (nvidia-smi). Will request GPU-accelerated binary."
-        fi
-    fi
-
-    ENGINE_BINARY="susi-$PLATFORM-$ARCH$GPU_SUFFIX"
+    # NVIDIA hardware does not opt into the retired CUDA/MKL implementation.
+    # Only the normal platform binary and its checksum are supported assets.
+    ENGINE_BINARY="susi-$PLATFORM-$ARCH"
     BASE_URL="https://github.com/$SUSI_REPO/releases/latest/download"
-
-    # The CUDA build bundles its own cuBLAS/cuDART shared libraries next to
-    # the binary (their SONAME is tied to the exact CUDA major version the
-    # release was built with - a machine with a *different* major version
-    # installed, even a newer one, won't have that exact file and the
-    # binary fails to even start) - published as a tarball containing the
-    # binary plus its lib/ dir, instead of a raw executable. Every other
-    # asset is still a raw binary + .sha256.
-    ASSET_IS_ARCHIVE=0
     DOWNLOAD_NAME="$ENGINE_BINARY"
-    if [ "$GPU_SUFFIX" = "-cuda" ]; then
-        ASSET_IS_ARCHIVE=1
-        DOWNLOAD_NAME="$ENGINE_BINARY.tar.gz"
-    fi
 
     if [ "$HAS_LOCAL_SOURCE" = "1" ]; then
         echo "Local source detected; still preferring prebuilt binary (set SUSI_FORCE_SOURCE=1 to build this checkout)."
@@ -187,19 +176,7 @@ if [ -z "${SUSI_FORCE_SOURCE:-}" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != 
         rm -f "$CHECKSUM_TMP"
     fi
 
-    EXTRACTED_LIB_DIR=""
-    EXTRACT_DIR=""
-    if [ "$DEPLOYED" = "1" ] && [ "$ASSET_IS_ARCHIVE" = "1" ]; then
-        EXTRACT_DIR=$(mktemp -d)
-        if tar -xzf "$DOWNLOAD_TMP" -C "$EXTRACT_DIR" && [ -f "$EXTRACT_DIR/$ENGINE_BINARY" ]; then
-            mv "$EXTRACT_DIR/$ENGINE_BINARY" "$ENGINE_TMP"
-            [ -d "$EXTRACT_DIR/lib" ] && EXTRACTED_LIB_DIR="$EXTRACT_DIR/lib"
-        else
-            echo "  Archive extraction failed for $DOWNLOAD_NAME; discarding and falling back to build."
-            DEPLOYED=0
-        fi
-        rm -f "$DOWNLOAD_TMP"
-    elif [ "$DEPLOYED" = "1" ]; then
+    if [ "$DEPLOYED" = "1" ]; then
         mv "$DOWNLOAD_TMP" "$ENGINE_TMP"
     fi
 
@@ -218,18 +195,13 @@ if [ -z "${SUSI_FORCE_SOURCE:-}" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != 
 
         # Transactional deployment
         rm -f "$GLOBAL_BIN_DIR/susi" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
-        rm -rf "$GLOBAL_BIN_DIR/lib" 2>/dev/null || true
         mv "$ENGINE_TMP" "$GLOBAL_BIN_DIR/susi"
-        if [ -n "$EXTRACTED_LIB_DIR" ]; then
-            mv "$EXTRACTED_LIB_DIR" "$GLOBAL_BIN_DIR/lib"
-        fi
         INSTALLED=1
         echo "Successfully deployed the susi binary from GitHub ($SUSI_REPO)."
     else
         echo "Binary download unavailable or failed. Falling back to build."
         rm -f "$ENGINE_TMP" "$DOWNLOAD_TMP" 2>/dev/null || true
     fi
-    [ -n "$EXTRACT_DIR" ] && rm -rf "$EXTRACT_DIR" 2>/dev/null || true
 elif [ -n "${SUSI_FORCE_SOURCE:-}" ]; then
     echo "SUSI_FORCE_SOURCE=1: skipping prebuilt download, building from source."
 fi
@@ -278,45 +250,12 @@ if [ "$INSTALLED" = "0" ]; then
         echo "tree (candle, wasmer, tantivy, ...) — a cold build commonly takes several"
         echo "minutes. A heartbeat below confirms progress during long silent stretches."
 
-        # 100% GPU Hardware Interrogation Build Strategy
         BUILD_FEATURES=""
         if [[ "$PLATFORM" == "macos" ]]; then
             BUILD_FEATURES="--features metal"
-        elif command -v nvcc >/dev/null 2>&1 || [ -d "/usr/local/cuda" ]; then
-            CUDA_VERSION=$(nvcc --version 2>/dev/null | grep "release" | sed 's/.*release //;s/,.*//' || echo "0")
-            if [[ "$CUDA_VERSION" == "11."* ]] || [[ "$CUDA_VERSION" == "12."* ]] || [[ "$CUDA_VERSION" == "13."* ]]; then
-                BUILD_FEATURES="--features cuda"
-                # cudarc (candle's CUDA backend) pins an exact allowlist of CUDA
-                # toolkit versions and panics on any newer point release it
-                # hasn't added yet (as of cudarc 0.19.9, that ceiling is 13.3).
-                # Clamp newer CUDA 13.x releases down to 13.3 via cudarc's own
-                # override env var - CUDA maintains ABI compatibility within a
-                # major version, so this is safe rather than silently building
-                # CPU-only with no warning, which is what happened here before.
-                CUDA_MAJOR="${CUDA_VERSION%%.*}"
-                CUDA_MINOR="${CUDA_VERSION#*.}"
-                if [[ "$CUDA_MAJOR" == "13" ]] && [[ "$CUDA_MINOR" =~ ^[0-9]+$ ]] && [ "$CUDA_MINOR" -gt 3 ]; then
-                    export CUDARC_CUDA_VERSION="13030"
-                fi
-            fi
-        fi
-
-        # Visibility for the common case the check above can't act on: most
-        # end users running this installer have an NVIDIA GPU and its driver,
-        # but not the multi-GB CUDA toolkit (nvcc) — which is genuinely
-        # required to compile --features cuda, not optional, so this can't
-        # just be flipped on. Without this, that host silently gets a
-        # CPU-only build with zero indication a GPU went unused. nvidia-smi
-        # is driver-level (no toolkit required), so it's the accurate signal
-        # for "a GPU exists here" independent of whether the toolkit that
-        # would let a build actually use it is installed (mirrors the same
-        # check build.rs makes for a manual `cargo build`, EV-2022920-036).
-        if [[ "$PLATFORM" == "linux" ]] && [ -z "$BUILD_FEATURES" ] && command -v nvidia-smi >/dev/null 2>&1; then
-            if nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
-                echo "[GPU] NVIDIA GPU detected, but the CUDA toolkit (nvcc) was not found —"
-                echo "[GPU] building CPU-only. Install the CUDA toolkit and re-run this installer"
-                echo "[GPU] (or run ./build-gpu.sh from a source checkout) for GPU-accelerated inference."
-            fi
+        elif command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
+            echo "[GPU] NVIDIA hardware detected; this product builds CPU inference."
+            echo "[GPU] CUDA/MKL are retired because their dependencies fail license/native-code gates. External providers remain available."
         fi
 
         # Prefer a fast linker when available — mold/lld cut release link time

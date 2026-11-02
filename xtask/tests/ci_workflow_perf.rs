@@ -1294,7 +1294,6 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
         ("build-linux", "publish-linux"),
         ("build-arm", "publish-arm"),
         ("build-macos", "publish-macos"),
-        ("build-cuda", "publish-cuda"),
     ] {
         let build = job(&jobs, builder);
         assert!(build.body.contains("needs: [verify-tag]"), "{builder}");
@@ -2369,7 +2368,7 @@ fn release_bootstrap_runs_through_the_same_scripts_as_test() {
              what is missing (15-25 s per Linux leg)"
         );
         let jobs = jobs(&text);
-        for id in ["build", "build-cuda"] {
+        for id in ["build"] {
             let j = job(&jobs, id);
             assert!(
                 j.body.contains("scripts/ci-system-deps.sh")
@@ -2382,58 +2381,25 @@ fn release_bootstrap_runs_through_the_same_scripts_as_test() {
 }
 
 #[test]
-fn the_cuda_toolkit_is_installed_without_its_recommends() {
+fn retired_cuda_backends_have_no_build_publish_or_runtime_bundle_jobs() {
     for wf in [
         ".github/workflows/release.yml",
         ".github/workflows/dev-release.yml",
     ] {
         let text = read(wf);
-        let body = code(&text);
-        let line = body
-            .lines()
-            .find(|l| l.contains("apt-get install") && l.contains("nvidia-cuda-toolkit"))
-            .unwrap_or_else(|| panic!("{wf} installs nvidia-cuda-toolkit"));
-        assert!(
-            line.contains("--no-install-recommends"),
-            "{wf} `{}`: the recommends are Nsight, the profiler, cuda-gdb and Java - 295 of 375 \
-             packages and ~1 GB of download (measured on ubuntu:24.04) that no build step uses",
-            line.trim()
-        );
-    }
-}
-
-#[test]
-fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
-    for wf in [
-        ".github/workflows/release.yml",
-        ".github/workflows/dev-release.yml",
-    ] {
-        let text = read(wf);
-        let jobs = jobs(&text);
-        let cuda = job(&jobs, "build-cuda");
-        assert!(
-            cuda.body.contains("RUSTC_WRAPPER: sccache"),
-            "{wf}: build-cuda installs sccache but does not set RUSTC_WRAPPER: sccache in its env"
-        );
-        let expected = if wf.ends_with("dev-release.yml") {
-            "true"
-        } else {
-            "false"
-        };
-        assert!(
-            cuda.body
-                .contains(&format!("SCCACHE_GHA_ENABLED: \"{expected}\"")),
-            "{wf}: build-cuda must use the intended cache scope"
-        );
-        let key = value_of(&cuda.body, "shared-key").unwrap_or_default();
-        assert!(
-            !key.contains("matrix."),
-            "{wf}: build-cuda is not a matrix job, but its cache key references a matrix variable: `{key}`"
-        );
-        assert!(
-            !key.is_empty(),
-            "{wf}: build-cuda must declare a non-empty cargo cache key"
-        );
+        for retired in [
+            "build-cuda:",
+            "publish-cuda:",
+            "nvidia-cuda-toolkit",
+            "--features cuda",
+            "collect_cuda_libs",
+            "cuda.tar.gz",
+        ] {
+            assert!(
+                !code(&text).contains(retired),
+                "{wf} still contains {retired}"
+            );
+        }
     }
 }
 
@@ -2505,9 +2471,6 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
             "release build lacks {setting}"
         );
     }
-    assert!(job(&release_jobs, "build-cuda")
-        .body
-        .contains("save-if: \"false\""));
 }
 
 #[test]
@@ -2582,19 +2545,6 @@ fn release_required_legs_carry_their_artifact() {
             .contains("continue-on-error: ${{ matrix.name != 'linux-x86_64' }}"),
         "dev-release.yml: only linux-x86_64 is required for a rolling dev release"
     );
-
-    for wf in [
-        ".github/workflows/release.yml",
-        ".github/workflows/dev-release.yml",
-    ] {
-        let text = read(wf);
-        let jobs = jobs(&text);
-        let cuda = job(&jobs, "build-cuda");
-        assert!(
-            cuda.body.contains("continue-on-error: true"),
-            "{wf}: `build-cuda` must set continue-on-error: true"
-        );
-    }
 
     let prune = job(&release_jobs, "prune-old-releases");
     assert!(

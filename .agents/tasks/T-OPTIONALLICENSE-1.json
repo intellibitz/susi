@@ -1,33 +1,40 @@
 {
   "id": "T-OPTIONALLICENSE-1",
   "title": "Retire unsupported CUDA/MKL product routes and clear complete dependency policy without exceptions",
-  "status": "in_progress",
+  "status": "implemented_pending_integration",
   "dependencies": [
     "T-FIXTURESTORAGE-1"
   ],
   "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
   "scopes": [
-    "Cargo.toml",
-    "Cargo.lock",
-    "crates/susi-gemi/Cargo.toml",
-    "crates/susi-gemi/src/engines/runtime.rs",
-    "crates/susi-gemi/src/engines/runtime_substrate.rs",
-    "crates/susi-gemi-models/Cargo.toml",
-    "crates/susi-gemi-models/src/hardware.rs",
-    "crates/susi-vendor-candle",
-    "src/cli/crown_cli.rs",
-    "tests/zc_matrix.rs",
-    "xtask/src/main.rs",
-    "install.sh",
-    "scripts/susi-release-sync.sh",
-    "crates/susi-gawd/src/admin/release.rs",
-    "crates/susi-gawd/src/admin/version.rs",
-    ".github/workflows/release.yml",
+    ".agents/tasks/t-optionallicense-1.json",
     ".github/workflows/dev-release.yml",
     ".github/workflows/release-warm.yml",
-    "docs/native-rust-direction.md",
+    ".github/workflows/release.yml",
+    "build-gpu.ps1",
+    "build-gpu.sh",
+    "build.rs",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-gawd/src/admin/release.rs",
+    "crates/susi-gawd/src/admin/version.rs",
+    "crates/susi-gemi-models/cargo.toml",
+    "crates/susi-gemi-models/src/hardware.rs",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_substrate.rs",
+    "crates/susi-vendor-candle",
     "docs/native-bootstrap.md",
-    ".agents/tasks/T-OPTIONALLICENSE-1.json"
+    "docs/native-rust-direction.md",
+    "install.sh",
+    "scripts/susi-release-sync.sh",
+    "src/cli/crown_cli.rs",
+    "tests/installer_contract.rs",
+    "tests/release_workflow.rs",
+    "tests/zc_matrix.rs",
+    "xtask/src/main.rs",
+    "xtask/tests/ci_workflow_perf.rs",
+    "xtask/tests/release_first_artifact.rs"
   ],
   "accept": {
     "cmd": [
@@ -43,5 +50,32 @@
   },
   "acceptance": "Actual root and workspace all-feature policy must pass unchanged strict licenses/advisories/bans/sources. Retired CUDA/MKL feature requests must fail before compilation across all first-party feature facades; supported CPU and Metal dependency graphs remain selected. Keep CPU inference and hardware inventory; remove CUDA artifact publication and automatic install/build selection. Execute graph and affected runtime/launcher tests with pinned Rust in private state. Full integration and two policy-v6 production packages/rollback are separate integrator gates.",
   "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license",
-  "native_worker": "optional-license"
+  "native_worker": "optional-license",
+  "validation": {
+    "policy": "Unchanged strict complete root/workspace all-features and native-Linux cargo-deny gates passed with pinned RustSec DB; exact commands/timings in evidence.",
+    "current_source_leaf_tests": {
+      "zc_matrix": 6,
+      "installer_contract": 4,
+      "release_workflow": 10,
+      "release_first_artifact": 1,
+      "ci_workflow_perf": 86
+    },
+    "scoped_source_probes_with_historical_prerequisites": {
+      "architecture": 36,
+      "candle": {
+        "harness_passed": 17,
+        "ignored": 2,
+        "gpu_execution": "not exercised on CPU host; conditional GPU bodies return without model/device"
+      },
+      "hardware": 11,
+      "gemi_eviction": {
+        "passed": 6,
+        "ignored": 1
+      },
+      "release_gate": 2,
+      "xtask": 23
+    },
+    "limitations": "Direct changed-crate rustc probes use hash-bound read-only historical prerequisites; they are not complete current-graph Cargo qualification or current TLS evidence. Full fresh combined Cargo acceptance, immutable policy-v6 artifacts, inference, health and rollback remain required. A first architecture compile missed extern dependencies and a first Gemi filter selected zero tests; corrected executions retained separately.",
+    "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license"
+  }
 }

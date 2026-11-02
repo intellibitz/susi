@@ -35,7 +35,7 @@
 #   SUSI_RELEASE_REMOTE    git URL of the release repo (default: GitHub intellibitz/susi)
 #   SUSI_RELEASE_SRC       private release checkout (default: ~/.susi/release-src)
 #   SUSI_RELEASE_TARGET    private cargo target dir (default: ~/.susi/build-cache/release-sync)
-#   SUSI_RELEASE_FEATURES  cargo features override (default: detected: cuda / metal / none)
+#   SUSI_RELEASE_FEATURES  cargo features override (default: metal on macOS / none elsewhere; CUDA/MKL retired)
 #   SUSI_RELEASE_IDLE_WAIT seconds to wait for an idle susi before swapping (default: 1800)
 #
 # Exit codes: 0 up to date or installed; 1 failure; 75 deferred (susi busy —
@@ -108,20 +108,17 @@ version_lt() {
 # ---- build ----------------------------------------------------------------
 
 detect_features() {
+    local feature requested="${SUSI_BUILD_FEATURES:-} ${SUSI_RELEASE_FEATURES:-}"
+    for feature in ${requested//,/ }; do
+        case "$feature" in
+            cuda|mkl|*/cuda|*/mkl) die "CUDA/MKL features are retired: their dependencies fail product license/native-code gates"; return 1 ;;
+        esac
+    done
     if [ -n "${SUSI_RELEASE_FEATURES+x}" ]; then
         printf '%s' "$SUSI_RELEASE_FEATURES"
         return
     fi
-    case "$(uname -s)" in
-        Darwin) printf 'metal' ;;
-        Linux)
-            if command -v nvcc >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1 \
-                && nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
-                printf 'cuda'
-            fi
-            ;;
-        *) ;;
-    esac
+    case "$(uname -s)" in Darwin) printf 'metal' ;; *) ;; esac
 }
 
 checkout_tag() {
@@ -140,22 +137,6 @@ build_tag() {
     local tag="$1" features="$2"
     local args=(build --release --locked -p susi --bin susi)
     [ -n "$features" ] && args+=(--features "$features")
-
-    if [ "$features" = cuda ]; then
-        # Target this GPU exactly (candle-kernels reads CUDA_COMPUTE_CAP).
-        local cap
-        cap="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '. ')"
-        [ -n "$cap" ] && export CUDA_COMPUTE_CAP="$cap"
-        # cudarc pins a CUDA allowlist that tops out at 13.3; newer 13.x is
-        # ABI-compatible, so clamp (same rule as xtask and install.sh).
-        local ver major minor
-        ver="$(nvcc --version | sed -n 's/.*release \([0-9]*\.[0-9]*\).*/\1/p')"
-        major="${ver%%.*}" minor="${ver#*.}"
-        if [ "$major" = 13 ] && [ "${minor:-0}" -gt 3 ]; then
-            export CUDARC_CUDA_VERSION=13030
-        fi
-        log "cuda build: compute_cap=${CUDA_COMPUTE_CAP:-auto} toolkit=${ver}"
-    fi
 
     log "building ${tag} (features: ${features:-none}) in ${SRC}"
     (cd "$SRC" && CARGO_TARGET_DIR="$TARGET" nice -n 10 cargo "${args[@]}")
@@ -283,7 +264,7 @@ restart_service() {
 write_marker() {
     local version="$1" features="$2" commit="$3"
     local accel=null
-    case "$features" in *cuda*) accel='"cuda"' ;; *metal*) accel='"metal"' ;; *mkl*) accel='"mkl"' ;; *) ;; esac
+    case "$features" in *metal*) accel='"metal"' ;; *) ;; esac
     printf '{"profile":"release","accelerator":%s,"channel":"release","version":"%s","commit":"%s","installed_at":%s}\n' \
         "$accel" "$version" "$commit" "$(date +%s)" >"${MARKER}.new"
     mv -f "${MARKER}.new" "$MARKER"
@@ -353,7 +334,7 @@ sync_release() {
     fi
 
     local features commit
-    features="$(detect_features)"
+    features="$(detect_features)" || return 1
     checkout_tag "$tag"
     commit="$(git -C "$SRC" rev-parse HEAD)"
     local asset built=""

@@ -58,13 +58,13 @@ fn run_bash(script: &str) -> std::process::Output {
 #[test]
 fn installer_unix_step1_isolates_verified_install_and_never_launches_headless() {
     // Exercise both explicit noninteractive mode and a pipe with no terminal.
-    for noninteractive in ["1", ""] {
+    for (noninteractive, gpu_status) in [("1", 0), ("", 0), ("1", 1), ("", 1)] {
         let script = format!(
             r#"set -e
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 export HOME="$scratch/home" SUSI_HOME="$scratch/isolated home"
-export CALLS="$scratch/calls" FIXTURE="$scratch/fixture"
+export CALLS="$scratch/calls" FIXTURE="$scratch/fixture" URLS="$scratch/urls"
 export SUSI_ALWAYS_ON=1 NONINTERACTIVE='{noninteractive}'
 mkdir -p "$HOME"
 cat >"$FIXTURE" <<'FIXTURE_EOF'
@@ -73,7 +73,7 @@ printf '%s\n' "$*" >>"$CALLS"
 case "$1" in --version) echo 'susi fixture';; *) exit 71;; esac
 FIXTURE_EOF
 uname() {{ if [ "$1" = '-s' ]; then echo Linux; else echo x86_64; fi; }}
-nvidia-smi() {{ return 1; }}
+nvidia-smi() {{ return {gpu_status}; }}
 pkill() {{ return 0; }}
 curl() {{
     local url='' dest=''
@@ -81,6 +81,7 @@ curl() {{
         case "$1" in https:*) url="$1";; -o) shift; dest="$1";; esac
         shift
     done
+    printf '%s\n' "$url" >>"$URLS"
     case "$url" in
         *.sha256)
             if command -v sha256sum >/dev/null 2>&1; then
@@ -99,6 +100,10 @@ test "$(cat "$CALLS")" = '--version'
 test ! -e "$HOME/.susi"
 test ! -e "$HOME/.profile"
 test ! -e "$HOME/.config"
+test "$(wc -l <"$URLS")" -eq 2
+test "$(grep -c '/susi-linux-x86_64$' "$URLS")" -eq 1
+test "$(grep -c '/susi-linux-x86_64.sha256$' "$URLS")" -eq 1
+! grep -Eq 'cuda|mkl|tar.gz' "$URLS"
 echo INSTALLER_CONTRACT_PASSED
 "#
         );
@@ -131,4 +136,86 @@ test "$status" -ne 0 && test ! -e relative-install-home
     let output = run_bash(&script);
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("SUSI_HOME must be an absolute"));
+}
+
+#[test]
+fn installer_rejects_retired_build_override_before_download_or_install() {
+    for feature in ["cuda", "mkl", "metal,cuda", "susi-gemi/mkl"] {
+        let script = format!(
+            r#"scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" SUSI_HOME="$scratch/install" SUSI_BUILD_FEATURES='{feature}'
+(
+{INSTALLER}
+)
+status=$?
+test "$status" -ne 0 && test ! -e "$SUSI_HOME"
+"#
+        );
+        let output = run_bash(&script);
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("retired CUDA/MKL"));
+    }
+}
+
+#[test]
+fn release_sync_rejects_retired_overrides_and_does_not_auto_select_nvidia() {
+    let source = include_str!("../scripts/susi-release-sync.sh");
+    let function = source
+        .split_once("detect_features() {")
+        .unwrap()
+        .1
+        .split_once("\ncheckout_tag()")
+        .unwrap()
+        .0;
+    for (features, rejected) in [
+        ("cuda", true),
+        ("mkl", true),
+        ("metal,cuda", true),
+        ("susi-gemi/cuda", true),
+        ("metal", false),
+        ("", false),
+    ] {
+        let script = format!(
+            r#"die() {{ echo "$*" >&2; return 1; }}
+uname() {{ echo Linux; }}
+nvidia-smi() {{ return 0; }}
+detect_features() {{{function}
+export SUSI_RELEASE_FEATURES='{features}'
+detect_features
+"#
+        );
+        let output = run_bash(&script);
+        assert_eq!(
+            !output.status.success(),
+            rejected,
+            "{features}: {:?}",
+            output
+        );
+        if rejected {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("retired"));
+        } else {
+            assert_eq!(String::from_utf8_lossy(&output.stdout), features);
+        }
+    }
+    let script = format!(
+        r#"uname() {{ echo Linux; }}
+nvidia-smi() {{ return 0; }}
+detect_features() {{{function}
+unset SUSI_RELEASE_FEATURES
+test -z "$(detect_features)"
+"#
+    );
+    assert!(run_bash(&script).status.success());
+    let script = format!(
+        r#"die() {{ echo "$*" >&2; return 1; }}
+detect_features() {{{function}
+export SUSI_BUILD_FEATURES=cuda
+unset SUSI_RELEASE_FEATURES
+detect_features
+"#
+    );
+    let output = run_bash(&script);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("retired"));
 }

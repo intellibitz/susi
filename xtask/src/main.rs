@@ -49,6 +49,12 @@ fn with_detected_features(args: &[String], detected: Vec<String>) -> Vec<String>
     out
 }
 
+fn requests_retired_backend(features: &str) -> bool {
+    features
+        .split(|c: char| c == ',' || c.is_ascii_whitespace())
+        .any(|feature| matches!(feature.rsplit('/').next(), Some("cuda" | "mkl")))
+}
+
 /// Only Metal is a supported optional in-process accelerator. NVIDIA hardware
 /// discovery remains a runtime inventory fact; it cannot opt builds into CUDA.
 fn detected_features_for_os(os: &str) -> Vec<String> {
@@ -90,6 +96,10 @@ fn ensure_dev_setup_in(dir: &Path) {
 }
 
 fn main() {
+    if env::var("SUSI_BUILD_FEATURES").is_ok_and(|features| requests_retired_backend(&features)) {
+        eprintln!("SUSI_BUILD_FEATURES requests retired CUDA/MKL support; these dependencies fail product license/native-code gates.");
+        exit(1);
+    }
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
 
@@ -120,7 +130,6 @@ fn main() {
         }
 
         cmd.args(with_detected_features(&args, gpu_args));
-
     } else {
         cmd.args(&args);
     }
@@ -157,7 +166,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{detected_features_for_os, ensure_dev_setup_in, with_detected_features};
+    use super::{
+        detected_features_for_os, ensure_dev_setup_in, requests_retired_backend,
+        with_detected_features,
+    };
     use std::process::Command;
 
     fn v(items: &[&str]) -> Vec<String> {
@@ -165,11 +177,31 @@ mod tests {
     }
 
     #[test]
+    fn retired_feature_overrides_cannot_be_silently_ignored() {
+        for features in [
+            "cuda",
+            "mkl",
+            "metal,cuda",
+            "metal mkl",
+            "susi-gemi/cuda",
+            "susi-vendor-candle/mkl",
+        ] {
+            assert!(requests_retired_backend(features), "{features}");
+        }
+        for features in ["", "metal", "tokio-console"] {
+            assert!(!requests_retired_backend(features), "{features}");
+        }
+    }
+
+    #[test]
     fn hardware_detection_never_selects_retired_backends() {
         for os in ["linux", "windows", "freebsd"] {
             assert!(detected_features_for_os(os).is_empty());
         }
-        assert_eq!(detected_features_for_os("macos"), v(&["--features", "metal"]));
+        assert_eq!(
+            detected_features_for_os("macos"),
+            v(&["--features", "metal"])
+        );
     }
 
     #[test]

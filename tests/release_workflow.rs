@@ -200,13 +200,7 @@ fn every_engine_artifact_passes_its_own_checks_before_upload() {
     assert!(upload.contains("steps.portable_e2e.outcome == 'success'"));
     let windows = find("Verify the Windows artifact answers offline");
     assert!(windows.contains("runner.os == 'Windows'"));
-    for publisher in [
-        "publish",
-        "publish-linux",
-        "publish-arm",
-        "publish-macos",
-        "publish-cuda",
-    ] {
+    for publisher in ["publish", "publish-linux", "publish-arm", "publish-macos"] {
         assert!(job(&jobs, publisher)
             .body
             .contains("needs.tests.result == 'success'"));
@@ -546,4 +540,26 @@ fn a_merged_bump_is_tagged_once() {
         still.starts_with(&bump),
         "an already-released version must not move: {still}"
     );
+}
+
+#[test]
+fn retired_cuda_artifacts_are_never_built_or_published() {
+    for workflow in [
+        include_str!("../.github/workflows/release.yml"),
+        include_str!("../.github/workflows/dev-release.yml"),
+    ] {
+        for retired in [
+            "build-cuda:",
+            "publish-cuda:",
+            "--features cuda",
+            "nvidia-cuda-toolkit",
+            "susi-linux-x86_64-cuda",
+            "collect_cuda_libs",
+        ] {
+            assert!(
+                !workflow.contains(retired),
+                "retired publication route: {retired}"
+            );
+        }
+    }
 }

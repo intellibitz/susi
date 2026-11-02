@@ -737,6 +737,32 @@ mod eviction_tests {
     }
 
     #[test]
+    fn cpu_eviction_releases_the_last_handle_on_another_thread() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct CountDrop(Arc<AtomicUsize>);
+        impl Drop for CountDrop {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let drops = Arc::new(AtomicUsize::new(0));
+        let weights = Arc::new(CountDrop(drops.clone()));
+        let in_flight = weights.clone();
+        assert_eq!(
+            release_on_device(weights, &candle_core::Device::Cpu),
+            Ok(false)
+        );
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            std::thread::spawn(move || release_on_device(in_flight, &candle_core::Device::Cpu))
+                .join()
+                .unwrap(),
+            Ok(false)
+        );
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn no_eviction_when_the_model_fits() {
         assert!(plan_evictions(1000, 900, &lru()).is_empty());
     }
