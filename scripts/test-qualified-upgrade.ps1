@@ -14,11 +14,24 @@ $env:SUSI_PORT_OFFSET = [string]($Port.LocalEndpoint.Port - 9091)
 $Port.Stop()
 function Check($Condition,$Message) { if (!$Condition) { throw $Message } }
 function Invoke-Upgrade($Digest) {
-    $Script = Join-Path $PSScriptRoot 'upgrade-qualified-windows.ps1'
+    $Script = Join-Path $Scratch 'upgrade-qualified-windows.ps1'
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script $Candidate $Digest ('a' * 40)
     $script:Code = $LASTEXITCODE
 }
 try {
+    Copy-Item (Join-Path $PSScriptRoot 'upgrade-qualified-windows.ps1') $Scratch
+    # Scope the fixture's process inventory to its private installation.
+    # Exercise the real release helper, including Windows image locks and rollback,
+    # without depending on unrelated Susi processes starting and exiting on the host.
+    $env:SUSI_FIXTURE_HELPER = Join-Path $PSScriptRoot 'susi-release-sync-windows.ps1'
+    [IO.File]::WriteAllText((Join-Path $Scratch 'susi-release-sync-windows.ps1'), @'
+param($Action,$Bin,$Built)
+function Get-CimInstance($ClassName,$Filter) {
+    CimCmdlets\Get-CimInstance -ClassName $ClassName -Filter $Filter |
+        Where-Object { $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath) -eq [IO.Path]::GetDirectoryName($Bin) }
+}
+& $env:SUSI_FIXTURE_HELPER @PSBoundParameters
+'@)
     Add-Type -OutputAssembly $Candidate -OutputType ConsoleApplication -TypeDefinition @'
 using System;
 using System.Net;
