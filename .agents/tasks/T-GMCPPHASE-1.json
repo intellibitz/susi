@@ -1,0 +1,15 @@
+{
+  "owner": "gmcpphase1102",
+  "dependencies": [],
+  "id": "T-GMCPPHASE-1",
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-GMCPPHASE-1.json",
+    "crates/susi-gmcp/src/requirements_ledger.rs"
+  ],
+  "status": "scoped_candidate",
+  "acceptance": [
+    "Measure identical adversarial cases and recoveries before and after",
+    "Run all GMCP requirement tests and preserve pinned evidence integrity"
+  ]
+}
