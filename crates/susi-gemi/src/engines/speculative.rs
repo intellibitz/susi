@@ -753,8 +753,15 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let target_path = tmp.join("target.gguf");
         let same_size_path = tmp.join("same_size.gguf");
-        std::fs::write(&target_path, vec![0u8; 100_000_000]).unwrap();
-        std::fs::write(&same_size_path, vec![0u8; 100_000_000]).unwrap();
+        // Selection only needs logical lengths, not zero-filled payloads.
+        std::fs::File::create(&target_path)
+            .unwrap()
+            .set_len(100_000_000)
+            .unwrap();
+        std::fs::File::create(&same_size_path)
+            .unwrap()
+            .set_len(100_000_000)
+            .unwrap();
 
         let result = SpeculativeDecoder::select_draft_model_in(&tmp, &target_path, 100_000_000);
         assert!(
@@ -777,7 +784,11 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let target_path = tmp.join("target.gguf");
         let tiny_path = tmp.join("ggml-vocab-qwen2.gguf");
-        std::fs::write(&target_path, vec![0u8; 5_000_000_000]).unwrap();
+        // The target is excluded by path; retain its size without a 5 GB buffer.
+        std::fs::File::create(&target_path)
+            .unwrap()
+            .set_len(5_000_000_000)
+            .unwrap();
         std::fs::write(&tiny_path, vec![0u8; 4_096]).unwrap();
 
         let result = SpeculativeDecoder::select_draft_model_in(&tmp, &target_path, 5_000_000_000);
