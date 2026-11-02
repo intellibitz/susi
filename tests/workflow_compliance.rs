@@ -9,7 +9,6 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! `scripts/check-workflow-compliance.sh` against real temp repos and the real
 //! `susi tasks` binary: a commit passes only if its `Task:` trailer names a
