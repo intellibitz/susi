@@ -14,7 +14,7 @@ pub(crate) fn reject_unverified(
 ) -> super::Result<()> {
     let mut command = Command::new("rustc");
     command.current_dir(candidate).args(["--print", "sysroot"]);
-    super::compiler_env::apply(&mut command);
+    super::compiler_env::apply_checked(&mut command)?;
     let output = command.output()?;
     if !output.status.success() {
         return Err("cannot identify selected standard library for license qualification".into());

@@ -15,15 +15,20 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[path = "../compiler_env.rs"]
 mod compiler_env;
+#[path = "../workspace_test_count.rs"]
+mod workspace_test_count;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v4\n";
+const QUALIFICATION_POLICY: &str =
+    include!("../../../src/installed_channel/qualification_policy.rs");
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
+#[path = "../installed_delivery.rs"]
+mod installed_delivery;
 #[path = "../native_link.rs"]
 mod native_link;
 #[path = "../pe_imports.rs"]
@@ -232,7 +237,7 @@ fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
         .map(PathBuf::from)
         .ok_or("missing provisioned toolchain home")?;
     let mut command = Command::new(program);
-    compiler_env::apply(&mut command);
+    compiler_env::apply_checked(&mut command)?;
     for (key, _) in env::vars_os() {
         let name = key.to_string_lossy().to_ascii_uppercase();
         if name.starts_with("SUSI_")
@@ -761,7 +766,8 @@ fn run_gates(
                 candidate, attempt, host, compiler,
             )?);
         }
-        let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
+        let log_path = attempt.join(format!("gate-{index}.log"));
+        let log = fs::File::create(&log_path)?;
         let started = std::time::Instant::now();
         let mut command = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?;
         if let Some(sysroot) = &sysroot {
@@ -789,6 +795,13 @@ fn run_gates(
                 attempt.display()
             )
             .into());
+        }
+        if args.first().is_some_and(|arg| arg == "test")
+            && args.iter().any(|arg| arg == "--workspace")
+        {
+            let passed = workspace_test_count::verified_pass_count(&log_path)?;
+            proof.push_str(&format!("workspace-tests-passed={passed}\n"));
+            fs::write(attempt.join("gates.txt"), &proof)?;
         }
     }
     if let Some(sysroot) = &sysroot {
@@ -1677,6 +1690,8 @@ fn run(args: &[String]) -> Result<()> {
         },
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
         Some("prepare-next") if args.len()==2 && args[1]=="patch" => prepare_release::run(&ctx)?,
+        Some("install-current") if args.len()==1 => installed_delivery::install_current(&ctx)?,
+        Some("export-qualified") if args.len()==3 => installed_delivery::export(&ctx,&args[1],Path::new(&args[2]))?,
         Some("check-inventory") if args.len()==1 => {
             let attempt = ctx.state.join(format!("inventory-check-{}",stamp()?));
             fs::create_dir(&attempt)?;
@@ -1709,7 +1724,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | export-qualified <release-id> <destination> | install-current | run [susi arguments]".into()),
     }
     Ok(())
 }
@@ -1943,6 +1958,21 @@ mod tests {
         assert!(attempt.join("gate-0.log").is_file());
         assert!(!attempt.join("gate-1.log").exists());
         assert!(!root.join(".git/susi-product-sysroots").exists());
+    }
+    #[test]
+    fn workspace_test_count_rejects_empty_cargo_suite_before_production_build() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let attempt = fixture.0.join("empty-suite");
+        fs::create_dir(&attempt).unwrap();
+        let (host, compiler) = compiler(&root).unwrap();
+        let error = match run_gates(&root, &attempt, &host, &compiler) {
+            Ok(_) => panic!("empty Cargo suite must fail release qualification"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("executed no passing Rust tests"), "{error}");
+        assert!(!attempt.join("gate-4.log").exists());
     }
     #[test]
     fn selected_product_feature_proof_rejects_missing_or_ambiguous_features() {
