@@ -305,7 +305,6 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     }
     let expected = artifacts(&destination)?;
     let handles = lock_archives(&destination, &expected)?;
-    let path = destination.join("sysroot");
     // The tracked builder must finish and the reviewed stable consumer must
     // execute before admission; externally supplied receipts cannot enter.
     let executable = destination.join("consumer.exe");
@@ -334,15 +333,18 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         evidence.insert(name.into(), json!(hash_file(&destination.join(name))?));
     }
     let object = cache::store(&storage, &destination, &expected, nonce)?;
-    let record = json!({"schema":"susi/executed-sysroot/v3","object":object,"cache_hit":false, "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked Windows OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
+    let canonical = storage.join("objects").join(&object);
+    let canonical_handles = lock_archives(&canonical, &expected)?;
+    drop(handles);
+    let record = json!({"schema":"susi/executed-sysroot/v3","object":object,"cache_hit":false, "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":canonical,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked Windows OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
     fs::write(
         destination.join("executed-record.json"),
         serde_json::to_vec_pretty(&record)?,
     )?;
     let verified = VerifiedSysroot {
-        path,
+        path: canonical.join("sysroot"),
         expected,
-        _handles: handles,
+        _handles: canonical_handles,
         evidence: record,
     };
     verified.recheck()?;
