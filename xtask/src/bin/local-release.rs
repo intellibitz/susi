@@ -17,6 +17,9 @@ use std::process::{Command, ExitCode, Stdio};
 mod compiler_env;
 #[path = "../workspace_test_count.rs"]
 mod workspace_test_count;
+#[allow(dead_code)]
+#[path = "../workspace_test_proof.rs"]
+mod workspace_test_proof;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const QUALIFICATION_POLICY: &str =
@@ -690,6 +693,114 @@ fn native_link_proof(binary: &Path, map: &Path) -> Result<String> {
             &serde_json::json!({"binary":binary.file_name().and_then(|name|name.to_str()),"artifact_sha256":digest(&bytes),"entry":entry,"imports":imports,"map_sha256":digest(map_text.as_bytes()),"map":map_text})
         )?
     ))
+}
+
+#[allow(dead_code)]
+fn receipt_covers_workspace_test(receipt: &str, key: &str) -> bool {
+    let mut proofs = receipt
+        .lines()
+        .filter(|line| line.starts_with(workspace_test_proof::PREFIX));
+    let successes = receipt
+        .lines()
+        .filter(|line| {
+            line.starts_with("cargo test --workspace ")
+                && line.split_once(" => ").is_some_and(|(_, status)| {
+                    status
+                        .strip_prefix("exit code: 0; elapsed-ms=")
+                        .is_some_and(|ms| ms.parse::<u128>().is_ok())
+                })
+        })
+        .count();
+    successes == 1
+        && proofs.next() == Some(workspace_test_proof::record(key).as_str())
+        && proofs.next().is_none()
+        && !receipt.lines().any(|line| {
+            line.split_once(" => ")
+                .is_some_and(|(_, s)| !s.starts_with("exit code: 0;"))
+        })
+}
+#[allow(dead_code)]
+fn authenticated_workspace_pass(root: &Path, receipt: &str, key: &str) -> bool {
+    let check = || -> Result<bool> {
+        if !receipt_covers_workspace_test(receipt, key) {
+            return Ok(false);
+        }
+        let mut signatures = receipt
+            .lines()
+            .filter_map(|line| line.strip_prefix("workspace-test-attestation-v1="));
+        let raw: String =
+            serde_json::from_str(signatures.next().ok_or("missing signed workspace pass")?)?;
+        if signatures.next().is_some() {
+            return Ok(false);
+        }
+        if !raw.starts_with("-----BEGIN PGP SIGNED MESSAGE-----") {
+            return Ok(false);
+        }
+        let signer = git(root, &["config", "--get", "user.signingkey"])?.to_ascii_uppercase();
+        if !matches!(signer.len(), 16 | 40 | 64) || !signer.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(false);
+        }
+        let keyring = workspace_test_proof::gpg(
+            root,
+            &["--with-colons", "--fingerprint", "--list-keys", &signer],
+            &[],
+        )?;
+        let listing = String::from_utf8(keyring.stdout)?;
+        let mut primary = None;
+        let mut want_primary = false;
+        for line in listing.lines() {
+            if line.starts_with("pub:") {
+                if primary.is_some() {
+                    return Ok(false);
+                }
+                want_primary = true;
+            } else if want_primary && line.starts_with("fpr:") {
+                primary = line.split(':').nth(9);
+                want_primary = false;
+            }
+        }
+        let primary = primary.ok_or("missing configured primary signing fingerprint")?;
+        let out =
+            workspace_test_proof::gpg(root, &["--status-fd", "2", "--decrypt"], raw.as_bytes())?;
+        let status = String::from_utf8(out.stderr)?;
+        let mut valid = status
+            .lines()
+            .filter_map(|line| line.strip_prefix("[GNUPG:] VALIDSIG "));
+        let Some(signature) = valid.next() else {
+            return Ok(false);
+        };
+        let expected = workspace_test_proof::signed_input(root, key)?;
+        let text = String::from_utf8(out.stdout)?.replace("\r\n", "\n");
+        Ok(valid.next().is_none()
+            && signature
+                .split_whitespace()
+                .last()
+                .is_some_and(|fingerprint| fingerprint == primary)
+            && text == expected)
+    };
+    check().unwrap_or(false)
+}
+
+#[cfg(test)]
+mod receipt_match_tests {
+    use super::{receipt_covers_workspace_test, workspace_test_proof::record};
+    #[test]
+    fn workspace_test_proof_rejects_missing_changed_duplicate_and_failed_records() {
+        let pass = format!(
+            "cargo test --workspace --locked => exit code: 0; elapsed-ms=3\n{}",
+            record("expected")
+        );
+        assert!(receipt_covers_workspace_test(&pass, "expected"));
+        for invalid in [
+            "old receipt".into(),
+            record("expected"),
+            record("other"),
+            format!("{pass}\n{pass}"),
+            format!("{pass}\ncargo test => exit code: 1;"),
+        ] {
+            assert!(!receipt_covers_workspace_test(&invalid, "expected"));
+        }
+    }
 }
 
 struct GateContext<'a> {
@@ -2102,6 +2213,200 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn workspace_test_proof_changes_with_execution_inputs() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        let home = fixture.0.join("home");
+        let target = root.join("target");
+        let mut command = isolated_command(Path::new("cargo"), &home).unwrap();
+        let args: Vec<String> = [
+            "test",
+            "--workspace",
+            "--locked",
+            "--offline",
+            "--target",
+            "test-host",
+            "--target-dir",
+            target.to_str().unwrap(),
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let archives:Vec<_>=(0..20).map(|i|serde_json::json!({"filename":format!("archive-{i}.rlib"),"sha256":format!("{i:064x}")})).collect();
+        let sysroot = serde_json::json!({"schema":"susi/executed-sysroot/v2","identity":"fixture","compiler":"rustc","authenticated_source_manifest_sha256":"fixture","destination":home,"artifacts":archives});
+        let other_archives = {
+            let mut changed = sysroot.clone();
+            changed["artifacts"][0]["sha256"] = serde_json::json!("different");
+            changed
+        };
+        let key = |args: &[String],
+                   compiler: &str,
+                   host: &str,
+                   sysroot: &serde_json::Value,
+                   command: &Command| {
+            workspace_test_proof::fingerprint(
+                &root,
+                args,
+                workspace_test_proof::Toolchain {
+                    compiler,
+                    host,
+                    sysroot,
+                },
+                command,
+                &home,
+            )
+            .unwrap()
+        };
+        let original = key(&args, "rustc", "test-host", &sysroot, &command);
+        assert_eq!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+        assert_ne!(
+            original,
+            key(
+                &args,
+                "another rustc",
+                "test-host",
+                &{
+                    let mut v = sysroot.clone();
+                    v["compiler"] = serde_json::json!("another rustc");
+                    v
+                },
+                &command
+            )
+        );
+        assert_ne!(
+            original,
+            key(&args, "rustc", "other-host", &sysroot, &command)
+        );
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &other_archives, &command)
+        );
+        let mut relocated = sysroot.clone();
+        relocated["destination"] = serde_json::json!(fixture.0.join("other-verified-sysroot"));
+        relocated["cache_hit"] = serde_json::json!(true);
+        relocated["elapsed_ms"] = serde_json::json!(700);
+        assert_eq!(
+            original,
+            key(&args, "rustc", "test-host", &relocated, &command)
+        );
+        assert!(workspace_test_proof::fingerprint(
+            &root,
+            &args,
+            workspace_test_proof::Toolchain {
+                compiler: "rustc",
+                host: "test-host",
+                sysroot: &serde_json::json!({})
+            },
+            &command,
+            &home
+        )
+        .is_err());
+        for extra in [
+            ["--features", "extra"],
+            ["--", "--ignored"],
+            ["-p", "xtask"],
+        ] {
+            let mut changed = args.clone();
+            changed.extend(extra.into_iter().map(str::to_owned));
+            assert_ne!(
+                original,
+                key(&changed, "rustc", "test-host", &sysroot, &command)
+            );
+        }
+        let lock = root.join("Cargo.lock");
+        let previous = fs::read(&lock).unwrap();
+        fs::write(&lock, b"different lockfile").unwrap();
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+        fs::write(lock, previous).unwrap();
+        command.env("CARGO_PROFILE_TEST_OPT_LEVEL", "3");
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+        let command = isolated_command(Path::new("cargo"), &home).unwrap();
+        fixture.revision("two", true);
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+    }
+
+    #[test]
+    fn workspace_test_proof_refuses_unsigned_and_malformed_attestations() {
+        let fixture = Fixture::new();
+        let pass = format!(
+            "cargo test --workspace --locked => exit code: 0; elapsed-ms=3\n{}",
+            workspace_test_proof::record("expected")
+        );
+        for suffix in [
+            "",
+            "\nworkspace-test-attestation-v1=not-json",
+            "\nworkspace-test-attestation-v1=\"not a commit\"",
+        ] {
+            assert!(!authenticated_workspace_pass(
+                &fixture.root(),
+                &format!("{pass}{suffix}"),
+                "expected"
+            ));
+        }
+    }
+
+    #[test]
+    #[ignore = "exercises an explicitly provisioned disposable GPG keyring"]
+    fn workspace_test_proof_disposable_signer() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        let signer = env::var("SUSI_TEST_DISPOSABLE_FINGERPRINT").unwrap();
+        git(
+            &root,
+            &[
+                "config",
+                "gpg.program",
+                &env::var("SUSI_TEST_DISPOSABLE_GPG").unwrap(),
+            ],
+        )
+        .unwrap();
+        git(&root, &["config", "user.signingkey", &signer]).unwrap();
+        let key = "expected";
+        let record = workspace_test_proof::record(key);
+        let input = workspace_test_proof::signed_input(&root, key).unwrap();
+        let raw = String::from_utf8(
+            workspace_test_proof::gpg(
+                &root,
+                &["--local-user", &signer, "--armor", "--clearsign"],
+                input.as_bytes(),
+            )
+            .unwrap()
+            .stdout,
+        )
+        .unwrap();
+        let pass=format!("cargo test --workspace --locked => exit code: 0; elapsed-ms=3\n{record}\nworkspace-test-attestation-v1={}",serde_json::to_string(&raw).unwrap());
+        assert!(authenticated_workspace_pass(&root, &pass, key));
+        assert!(!authenticated_workspace_pass(
+            &root,
+            &pass.replace(key, "forged"),
+            "forged"
+        ));
+        assert!(!authenticated_workspace_pass(
+            &root,
+            &pass.replace("exit code: 0", "exit code: 1"),
+            key
+        ));
+        git(&root, &["config", "user.signingkey", "0000000000000000"]).unwrap();
+        assert!(!authenticated_workspace_pass(&root, &pass, key));
+        git(&root, &["config", "user.signingkey", &signer]).unwrap();
+        fixture.revision("two", true);
+        assert!(!authenticated_workspace_pass(&root, &pass, key));
+    }
+
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
@@ -2277,7 +2582,17 @@ mod tests {
         let attempt = fixture.0.join("empty-suite");
         fs::create_dir(&attempt).unwrap();
         let (host, compiler) = compiler(&root).unwrap();
-        let error = match run_gates(&root, &attempt, &host, &compiler) {
+        let source = advisory_evidence::fixture_source(&fixture.0.join("fixture-db"));
+        let error = match run_gates(
+            GateContext {
+                candidate: &root,
+                attempt: &attempt,
+                host: &host,
+                compiler: &compiler,
+            },
+            &source,
+            &complete_release_gates::Runner::fixture(&fixture.0.join("coordinator")),
+        ) {
             Ok(_) => panic!("empty Cargo suite must fail release qualification"),
             Err(error) => error.to_string(),
         };
