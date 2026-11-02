@@ -13,6 +13,8 @@ build, test, improve and use Susi through agents and Susi itself. Finish and
 measure the native local delivery loop in `docs/step1-acceptance.md` before
 declaring Step 1 complete or moving its unfinished obligations into later steps.
 
+**Mandate 62 execution criteria.** The CEO sets the aspiration. The workflow and harness are the foundation through which agents build, test, operate and improve Susi for CEOs, in successive groups of 100 steps. Step 1 stays open until measured user response meets declared millisecond budgets and a genuine source change reaches the verified live executable in under 60 seconds. Record cold and warm build, test, startup, goal acknowledgment, first useful output and completion separately. Time the complete local delivery loop from change ready through tests, merge, promotion and observation of changed product behavior. Record inputs, repetitions, failures and rollback. Prefer simple stable public protocols and independently installable third-party plugins. Publish conformance tests for permissions, discovery, errors and compatibility. Demonstrate an external plugin update without rebuilding Susi, preserve user capabilities, and measure removed source, dependency reach, executable size and wall-clock cost before claiming bloat reduction. Agents own isolated parallel delivery, continue committing and pushing verified work, and wrap up scoped changes at 10% weekly allowance remaining. Source publication never substitutes for production qualification.
+
 The constitution is `.agents/identity.json`, compiled into the runtime. Mandates
 62–71 express the CEO's ten requirements; revised Mandates 43–54 and 61 remove
 conflicting historical shell/GitHub/human-engineering prerequisites. Existing

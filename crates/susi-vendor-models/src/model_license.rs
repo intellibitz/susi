@@ -3,7 +3,85 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{io::Read, path::Path};
+use std::{
+    fs::File,
+    io::{self, Read, Seek, Write},
+    path::Path,
+};
+#[path = "model_read_window.rs"]
+mod reads;
+pub use reads::ModelReadWindow;
+#[cfg(all(test, windows))]
+thread_local! { static HASHED_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+
+pub struct VerifiedArtifact {
+    file: File,
+    sha256: String,
+}
+impl VerifiedArtifact {
+    pub fn digest(&self) -> &str {
+        &self.sha256
+    }
+    pub fn metadata(&self) -> std::io::Result<std::fs::Metadata> {
+        self.file.metadata()
+    }
+    fn protected(&self) -> bool {
+        #[cfg(windows)]
+        {
+            susi_config::windows_model_identity::model_file_identity(&self.file).is_some()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+    /// Give the seek-based decoder the verified stream. For mutable sources,
+    /// snapshot and hash the same chunks into an anonymous private file.
+    pub fn into_decoder_reader(mut self) -> io::Result<impl Read + Seek> {
+        if self.protected() {
+            return Ok(self.file);
+        }
+        let mut snapshot = tempfile::tempfile()?;
+        if digest_stream(&mut self.file, &mut snapshot)? != self.sha256 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "model changed while creating decoder snapshot",
+            ));
+        }
+        snapshot.rewind()?;
+        Ok(snapshot)
+    }
+    pub fn into_bytes(mut self) -> std::io::Result<Vec<u8>> {
+        let protected = self.protected();
+        let mut bytes = Vec::new();
+        self.file.read_to_end(&mut bytes)?;
+        // Only a protected local stream can reuse its digest directly. Verify
+        // every other consumed buffer before it enters the tokenizer cache.
+        if !protected && hex::encode(Sha256::digest(&bytes)) != self.sha256 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "model artifact changed during consumption",
+            ));
+        }
+        Ok(bytes)
+    }
+}
+
+fn digest_stream(source: &mut File, output: &mut impl Write) -> io::Result<String> {
+    let mut hash = Sha256::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let n = source.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        output.write_all(&chunk[..n])?;
+        hash.update(&chunk[..n]);
+        #[cfg(all(test, windows))]
+        HASHED_BYTES.with(|total| total.set(total.get() + n as u64));
+    }
+    Ok(hex::encode(hash.finalize()))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublisherLicense {
@@ -323,40 +401,53 @@ impl ModelLicenseReceipt {
         Ok(())
     }
     pub fn record(&self, path: &Path) -> Result<(), String> {
-        self.authenticate(false)?;
-        self.verify_bytes(path)?;
-        crate::susi_config::atomic_write_json_pretty(&path.with_extension("license.json"), self)
-            .map_err(|e| e.to_string())
+        self.record_verified(path).map(drop)
     }
-    fn verify_bytes(&self, path: &Path) -> Result<(), String> {
+    fn record_verified(&self, path: &Path) -> Result<VerifiedArtifact, String> {
+        self.authenticate(false)?;
+        let verified = self.verify_bytes(path)?;
+        crate::susi_config::atomic_write_json_pretty(&path.with_extension("license.json"), self)
+            .map_err(|e| e.to_string())?;
+        Ok(verified)
+    }
+    fn verify_bytes(&self, path: &Path) -> Result<VerifiedArtifact, String> {
         self.validate()?;
-        let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-        let mut hash = Sha256::new();
-        let mut chunk = [0u8; 64 * 1024];
-        loop {
-            let n = file.read(&mut chunk).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            hash.update(&chunk[..n]);
+        let mut file = reads::open(path).map_err(|e| e.to_string())?;
+        let sha256 = self.sha256.to_ascii_lowercase();
+        #[cfg(windows)]
+        let identity = reads::window::identity(&file);
+        #[cfg(windows)]
+        if identity
+            .as_ref()
+            .is_some_and(|id| reads::window::matches(id, &sha256))
+        {
+            return Ok(VerifiedArtifact { file, sha256 });
         }
-        if hex::encode(hash.finalize()) != self.sha256.to_ascii_lowercase() {
+        if digest_stream(&mut file, &mut io::sink()).map_err(|e| e.to_string())? != sha256 {
             return Err(
                 "[MODEL LICENSE] Weight bytes do not match publisher license receipt".into(),
             );
         }
-        Ok(())
+        file.rewind().map_err(|e| e.to_string())?;
+        #[cfg(windows)]
+        if let Some(id) = identity {
+            reads::window::retain(id, &sha256, &file);
+        }
+        Ok(VerifiedArtifact { file, sha256 })
     }
 }
 /// User-owned files are never deleted or changed when provenance is unknown.
 pub fn verify_local(path: &Path) -> Result<(), String> {
+    open_verified_local(path).map(drop)
+}
+pub fn open_verified_local(path: &Path) -> Result<VerifiedArtifact, String> {
     verify_local_with_lookup(path, true)
 }
 /// Verify admitted evidence without any metadata lookup or network request.
 pub fn verify_local_offline(path: &Path) -> Result<(), String> {
-    verify_local_with_lookup(path, false)
+    verify_local_with_lookup(path, false).map(drop)
 }
-fn verify_local_with_lookup(path: &Path, allow_lookup: bool) -> Result<(), String> {
+fn verify_local_with_lookup(path: &Path, allow_lookup: bool) -> Result<VerifiedArtifact, String> {
     let receipt_path = path.with_extension("license.json");
     if !receipt_path.exists() {
         if !allow_lookup {
@@ -393,7 +484,7 @@ fn verify_local_with_lookup(path: &Path, allow_lookup: bool) -> Result<(), Strin
             )
         });
         if let Some(source) = source {
-            return admit_download(&source)?.record(path);
+            return admit_download(&source)?.record_verified(path);
         }
         return Err("[MODEL LICENSE] This local model has no verified Apache/MIT/BSD publisher receipt. Import it from its publisher URL so Susi can verify its license automatically; the existing file is unchanged.".into());
     }
@@ -511,5 +602,147 @@ mod tests {
         assert!(verify_requested_revision(&"a".repeat(40), &"b".repeat(40)).is_err());
         std::fs::write(&path, b"tampered weights").unwrap();
         assert!(verify_local(&path).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scoped_reads_authenticate_each_receipt_and_reject_replacements() {
+        use std::fs;
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("admission.gguf");
+        let alternate = std::path::PathBuf::from(format!("{}:other", path.display()));
+        fs::write(&path, b"original").unwrap();
+        fs::write(&alternate, b"tampered").unwrap();
+        let receipt = ModelLicenseReceipt {
+            artifact_url: format!(
+                "https://huggingface.co/org/window-fixture/resolve/{}/admission.gguf",
+                "c".repeat(40)
+            ),
+            sha256: hex::encode(Sha256::digest(b"original")),
+            publishers: vec![PublisherLicense {
+                repository: "org/window-fixture".into(),
+                revision: "c".repeat(40),
+                license: "mit".into(),
+            }],
+        };
+        remember(&receipt);
+        receipt.record(&path).unwrap();
+        HASHED_BYTES.with(|n| n.set(0));
+        let scope = ModelReadWindow::enter();
+        let mut reader = open_verified_local(&path)
+            .unwrap()
+            .into_decoder_reader()
+            .unwrap();
+        {
+            let _nested = ModelReadWindow::enter();
+            verify_local_offline(&path.canonicalize().unwrap()).unwrap();
+        }
+        assert_eq!(HASHED_BYTES.with(|n| n.get()), 8);
+        let receipt_path = path.with_extension("license.json");
+        let good_receipt = fs::read(&receipt_path).unwrap();
+        let mut forged = receipt.clone();
+        forged.publishers[0].license = "proprietary".into();
+        fs::write(&receipt_path, serde_json::to_vec(&forged).unwrap()).unwrap();
+        assert!(verify_local_offline(&path).is_err());
+        fs::write(&receipt_path, good_receipt).unwrap();
+        assert!(verify_local_offline(&alternate).is_err());
+        assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
+        let changed = d.path().join("changed");
+        fs::write(&changed, b"tampered").unwrap();
+        let stamp = fs::metadata(&path).unwrap().modified().unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&changed)
+            .unwrap()
+            .set_modified(stamp)
+            .unwrap();
+        assert_eq!(fs::metadata(&changed).unwrap().modified().unwrap(), stamp);
+        fs::rename(&changed, &path).unwrap();
+        assert!(verify_local_offline(&path).is_err());
+        let mut revised = receipt.clone();
+        revised.publishers[0].revision = "d".repeat(40);
+        revised.artifact_url = format!(
+            "https://huggingface.co/org/window-fixture/resolve/{}/admission.gguf",
+            "d".repeat(40)
+        );
+        revised.sha256 = hex::encode(Sha256::digest(b"tampered"));
+        remember(&revised);
+        fs::write(&receipt_path, serde_json::to_vec(&revised).unwrap()).unwrap();
+        verify_local_offline(&path).unwrap();
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"original");
+        drop(reader);
+        drop(scope);
+        fs::write(&path, b"original").unwrap();
+        fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        verify_local_offline(&path).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires a private copied qualifying Windows starter model"]
+    fn actual_starter_window_measures_authenticated_reads() {
+        let path =
+            std::path::PathBuf::from(std::env::var_os("SUSI_ADMISSION_PROOF_MODEL").unwrap());
+        let tokenizer = path.with_extension("tokenizer.json");
+        for (phase, model_checks, tokenizer_checks) in
+            [("first goal", 7, 5), ("resident repeat", 9, 8)]
+        {
+            for reuse in [false, true] {
+                HASHED_BYTES.with(|n| n.set(0));
+                let _window = reuse.then(ModelReadWindow::enter);
+                let clock = std::time::Instant::now();
+                for i in 0..model_checks {
+                    verify_local_offline(&path).unwrap();
+                    if i < tokenizer_checks {
+                        verify_local_offline(&tokenizer).unwrap();
+                    }
+                }
+                let bytes = HASHED_BYTES.with(|n| n.get());
+                let expected = if reuse {
+                    fs_len(&path) + fs_len(&tokenizer)
+                } else {
+                    model_checks * fs_len(&path) + tokenizer_checks * fs_len(&tokenizer)
+                };
+                assert_eq!(bytes, expected);
+                println!(
+                "phase={phase} scope={reuse} authenticated={} hashed-bytes={bytes} elapsed-ms={}",
+                model_checks+tokenizer_checks,clock.elapsed().as_millis()
+            );
+            }
+        }
+        fn fs_len(p: &Path) -> u64 {
+            std::fs::metadata(p).unwrap().len()
+        }
+    }
+
+    #[test]
+    fn unprotected_decoder_hashes_the_private_snapshot_and_consumed_tokenizer_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("weight");
+        std::fs::write(&plain, b"plain").unwrap();
+        #[cfg(windows)]
+        let path = std::path::PathBuf::from(format!("{}:mutable", plain.display()));
+        #[cfg(not(windows))]
+        let path = plain;
+        std::fs::write(&path, b"verified").unwrap();
+        let read = || VerifiedArtifact {
+            file: File::open(&path).unwrap(),
+            sha256: hex::encode(Sha256::digest(b"verified")),
+        };
+        // The permissive File::open models a source with no immutable lease.
+        // Changes after the first digest cannot enter either consumer.
+        let decoder = read();
+        let tokenizer = read();
+        std::fs::write(&path, b"modified").unwrap();
+        assert!(decoder.into_decoder_reader().is_err());
+        assert!(tokenizer.into_bytes().is_err());
+        std::fs::write(&path, b"verified").unwrap();
+        let mut snapshot = read().into_decoder_reader().unwrap();
+        std::fs::write(&path, b"modified").unwrap();
+        let mut bytes = Vec::new();
+        snapshot.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"verified");
     }
 }

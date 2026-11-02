@@ -59,7 +59,47 @@ fn controlled(command: &mut Command) -> &mut Command {
             command.env_remove(name);
         }
     }
-    command.stdin(Stdio::null())
+    // Removing these variables unmasks Cargo's host config. Empty wrappers
+    // explicitly disable it, and encoded flags take precedence over config.
+    command
+        .env("RUSTC_WRAPPER", "")
+        .env("RUSTC_WORKSPACE_WRAPPER", "")
+        .env("CARGO_ENCODED_RUSTFLAGS", "")
+        .env("CARGO_ENCODED_RUSTDOCFLAGS", "")
+        .stdin(Stdio::null())
+}
+
+fn installed_sysroot() -> Result<PathBuf> {
+    let selected = std::env::var_os("RUSTC").map(PathBuf::from);
+    if selected.as_ref().is_some_and(|path| !path.is_absolute()) {
+        return Err("stdlib build requires an absolute selected compiler".into());
+    }
+    let program = selected.as_deref().unwrap_or(Path::new("rustc"));
+    let output = controlled(Command::new(program).args(["--print", "sysroot"])).output()?;
+    if !output.status.success() {
+        return Err("cannot locate installed compiler".into());
+    }
+    let installed = PathBuf::from(String::from_utf8(output.stdout)?.trim());
+    if !installed.is_absolute() {
+        return Err("compiler reported a relative sysroot".into());
+    }
+    if let Some(selected) = selected {
+        if selected.canonicalize()? != installed.join("bin/rustc.exe").canonicalize()? {
+            return Err("selected compiler does not belong to its reported sysroot".into());
+        }
+    }
+    Ok(installed)
+}
+
+pub(crate) fn sysroot_cargo(installed: &Path) -> Command {
+    let bin = installed.join("bin");
+    let mut command = Command::new(bin.join("cargo.exe"));
+    controlled(&mut command)
+        .env("RUSTC", bin.join("rustc.exe"))
+        .env("RUSTDOC", bin.join("rustdoc.exe"))
+        .env("RUSTC_BOOTSTRAP", "1")
+        .env("CARGO_ENCODED_RUSTFLAGS", "-Zforce-unstable-if-unmarked");
+    command
 }
 
 fn run() -> Result<()> {
@@ -71,13 +111,8 @@ fn run() -> Result<()> {
     if destination.exists() {
         return Err("destination already exists; preserve it and choose a new directory".into());
     }
-    let output = controlled(Command::new("rustc").arg("--print").arg("sysroot")).output()?;
-    if !output.status.success() {
-        return Err("cannot locate installed compiler".into());
-    }
-    let installed = PathBuf::from(String::from_utf8(output.stdout)?.trim());
+    let installed = installed_sysroot()?;
     let compiler = installed.join("bin/rustc.exe");
-    let cargo = installed.join("bin/cargo.exe");
     let version = controlled(Command::new(&compiler).args(["--version", "--verbose"])).output()?;
     let version_text = String::from_utf8(version.stdout.clone())?;
     if !version.status.success()
@@ -129,11 +164,8 @@ fn run() -> Result<()> {
         destination.join("original-sources.json"),
         serde_json::to_vec_pretty(&sources)?,
     )?;
-    let mut graph_command = Command::new(&cargo);
-    let graph = controlled(&mut graph_command)
+    let graph = sysroot_cargo(&installed)
         .current_dir(&library)
-        .env("RUSTC", &compiler)
-        .env("RUSTC_BOOTSTRAP", "1")
         .args([
             "tree",
             "-p",
@@ -166,12 +198,9 @@ fn run() -> Result<()> {
     }
     fs::write(destination.join("selected-dependencies.txt"), &graph.stdout)?;
     let build = destination.join("build");
-    let mut command = Command::new(&cargo);
-    controlled(&mut command)
+    let mut command = sysroot_cargo(&installed);
+    command
         .current_dir(&library)
-        .env("RUSTC", &compiler)
-        .env("RUSTC_BOOTSTRAP", "1")
-        .env("RUSTFLAGS", "-Zforce-unstable-if-unmarked")
         .args([
             "build",
             "-p",

@@ -4,7 +4,6 @@
 #![allow(missing_docs)]
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test fixtures/assertions
-#![allow(missing_docs)] // integration test crate
 
 //! `scripts/release-await-tests.sh` through a fake `gh`.
 //!

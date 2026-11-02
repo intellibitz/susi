@@ -78,6 +78,21 @@ atomic replacement, health checks and tested rollback to the previous verified \
 artifact. Durable learning requires persisted and retrievable evidence. No model \
 assertion or hosted tag certifies success. Keep unmet requirements open and continue \
 repairing them; report actual evidence without declaring aspirational compliance.
+9. Mandate 62 execution criteria. The CEO sets the aspiration. The workflow and harness \
+are the foundation through which agents build, test, operate and improve Susi for CEOs, \
+in successive groups of 100 steps. Step 1 stays open until measured user response meets \
+declared millisecond budgets and a genuine source change reaches the verified live \
+executable in under 60 seconds. Record cold and warm build, test, startup, goal \
+acknowledgment, first useful output and completion separately. Time the complete local \
+delivery loop from change ready through tests, merge, promotion and observation of \
+changed product behavior. Record inputs, repetitions, failures and rollback. Prefer \
+simple stable public protocols and independently installable third-party plugins. \
+Publish conformance tests for permissions, discovery, errors and compatibility. \
+Demonstrate an external plugin update without rebuilding Susi, preserve user \
+capabilities, and measure removed source, dependency reach, executable size and \
+wall-clock cost before claiming bloat reduction. Agents own isolated parallel delivery, \
+continue committing and pushing verified work, and wrap up scoped changes at 10% weekly \
+allowance remaining. Source publication never substitutes for production qualification.
 [END CONTRACT]
 
 ";
@@ -131,6 +146,25 @@ mod tests {
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
         }
+    }
+
+    #[test]
+    fn delegated_speed_criteria_match_mandate_62_and_the_checkout_contract() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let governance = include_str!("../../../AGENTS.md");
+        let criteria = governance
+            .lines()
+            .find_map(|line| line.strip_prefix("**Mandate 62 execution criteria.** "))
+            .unwrap();
+        assert!(criteria.contains("verified live executable in under 60 seconds"));
+        let identity: serde_json::Value =
+            serde_json::from_str(include_str!("../../../.agents/identity.json")).unwrap();
+        let mandates = identity["pillars"]["dna"]["mandates"].as_array().unwrap();
+        let mandate = mandates.iter().find(|item| item["id"] == 62).unwrap();
+        assert!(mandate["imperative"].as_str().unwrap().ends_with(criteria));
+        let delegated = brief_task(&root, "measure the delivery loop");
+        assert!(delegated.contains(criteria));
+        assert!(delegated.ends_with("measure the delivery loop"));
     }
 
     #[test]
