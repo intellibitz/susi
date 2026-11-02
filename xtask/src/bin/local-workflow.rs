@@ -530,20 +530,23 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("RUSTC_WORKSPACE_WRAPPER", "")
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
-        let test_key = sysroot.as_ref().filter(|_| index == 3).and_then(|s| {
-            workspace_test_proof::fingerprint(
-                candidate,
-                args,
-                workspace_test_proof::Toolchain {
-                    compiler: &compiler,
-                    host,
-                    sysroot: &s.evidence,
-                },
-                &command,
-                &home,
-            )
-            .ok()
-        });
+        let measure = |cmd: &Command| {
+            sysroot.as_ref().filter(|_| index == 3).and_then(|s| {
+                workspace_test_proof::fingerprint(
+                    candidate,
+                    args,
+                    workspace_test_proof::Toolchain {
+                        compiler: &compiler,
+                        host,
+                        sysroot: &s.evidence,
+                    },
+                    cmd,
+                    &home,
+                )
+                .ok()
+            })
+        };
+        let test_key = measure(&command);
         let status = command.status()?;
         let result = format!(
             "cargo {} => {status}; elapsed-ms={}",
@@ -559,7 +562,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             )
             .into());
         }
-        if let Some(key) = test_key {
+        if let Some(key) = test_key.filter(|key| measure(&command).as_ref() == Some(key)) {
             evidence.push(workspace_test_proof::record(&key));
         }
     }

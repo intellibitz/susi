@@ -79,6 +79,32 @@ pub(crate) fn fingerprint(
         host,
         sysroot,
     } = toolchain;
+    // Both callers hold the verifier's archive handles. Normalize only its private
+    // location and diagnostics. Compiler identity, all archive bytes and all
+    // other authenticated evidence still participate in the signed key.
+    let mut verified = sysroot.clone();
+    let verified_fields = verified
+        .as_object_mut()
+        .ok_or("missing authenticated sysroot")?;
+    let destination = verified_fields
+        .remove("destination")
+        .and_then(|v| v.as_str().map(std::path::PathBuf::from))
+        .ok_or("missing authenticated destination")?
+        .join("sysroot");
+    if !matches!(
+        sysroot["schema"].as_str(),
+        Some("susi/executed-sysroot/v2" | "susi/executed-sysroot/v3")
+    ) || sysroot["compiler"] != compiler
+        || !sysroot["identity"].is_string()
+        || !sysroot["authenticated_source_manifest_sha256"].is_string()
+        || sysroot["artifacts"]
+            .as_array()
+            .is_none_or(|archives| archives.len() != 20)
+    {
+        return Err("incomplete authenticated sysroot".into());
+    }
+    verified_fields.remove("elapsed_ms");
+    verified_fields.remove("cache_hit");
     let target = root.join("target");
     let mut argv = args.to_vec();
     let mut dirs = argv
@@ -117,6 +143,13 @@ pub(crate) fn fingerprint(
             {
                 "<target>".into()
             }
+            "SUSI_VERIFIED_SYSROOT" if path == destination => "<verified-sysroot>".into(),
+            "CARGO_ENCODED_RUSTFLAGS" | "CARGO_ENCODED_RUSTDOCFLAGS"
+                if v.strip_prefix("--sysroot\x1f")
+                    .is_some_and(|p| Path::new(p) == destination) =>
+            {
+                "--sysroot\x1f<verified-sysroot>".into()
+            }
             _ => v.into(),
         };
         environment.insert(k, value);
@@ -143,11 +176,6 @@ pub(crate) fn fingerprint(
     if !cargo.status.success() {
         return Err("cannot identify cargo".into());
     }
-    let mut verified = sysroot.clone();
-    verified
-        .as_object_mut()
-        .ok_or("missing sysroot record")?
-        .remove("elapsed_ms");
     let inputs = json!({"policy":"exact-workspace-tests-v1","verifier-sources":[hash(include_bytes!("workspace_test_proof.rs")),hash(include_bytes!("bin/local-workflow.rs")),hash(include_bytes!("bin/local-release.rs")),hash(include_bytes!("compiler_env.rs")),hash(include_bytes!("trusted_sysroot.rs")),hash(include_bytes!("vendor_regressions.rs"))],"commit":git(root,&["rev-parse","HEAD"])?,"tree":git(root,&["rev-parse","HEAD^{tree}"])?,"argv":argv,"lock":hash(&fs::read(root.join("Cargo.lock"))?),"host":host,"compiler":compiler,"toolchain-files":compiler_files(root)?,"cargo":hash(&cargo.stdout),"sysroot":verified,"environment":environment,"cargo-config":config});
     Ok(hash(&serde_json::to_vec(&inputs)?))
 }

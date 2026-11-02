@@ -1997,7 +1997,13 @@ mod tests {
         .into_iter()
         .map(str::to_owned)
         .collect();
-        let sysroot = serde_json::json!({"artifacts":[{"sha256":"original"}]});
+        let archives:Vec<_>=(0..20).map(|i|serde_json::json!({"filename":format!("archive-{i}.rlib"),"sha256":format!("{i:064x}")})).collect();
+        let sysroot = serde_json::json!({"schema":"susi/executed-sysroot/v2","identity":"fixture","compiler":"rustc","authenticated_source_manifest_sha256":"fixture","destination":home,"artifacts":archives});
+        let other_archives = {
+            let mut changed = sysroot.clone();
+            changed["artifacts"][0]["sha256"] = serde_json::json!("different");
+            changed
+        };
         let key = |args: &[String],
                    compiler: &str,
                    host: &str,
@@ -2023,7 +2029,17 @@ mod tests {
         );
         assert_ne!(
             original,
-            key(&args, "another rustc", "test-host", &sysroot, &command)
+            key(
+                &args,
+                "another rustc",
+                "test-host",
+                &{
+                    let mut v = sysroot.clone();
+                    v["compiler"] = serde_json::json!("another rustc");
+                    v
+                },
+                &command
+            )
         );
         assert_ne!(
             original,
@@ -2031,14 +2047,28 @@ mod tests {
         );
         assert_ne!(
             original,
-            key(
-                &args,
-                "rustc",
-                "test-host",
-                &serde_json::json!({"artifacts":[{"sha256":"changed"}]}),
-                &command
-            )
+            key(&args, "rustc", "test-host", &other_archives, &command)
         );
+        let mut relocated = sysroot.clone();
+        relocated["destination"] = serde_json::json!(fixture.0.join("other-verified-sysroot"));
+        relocated["cache_hit"] = serde_json::json!(true);
+        relocated["elapsed_ms"] = serde_json::json!(700);
+        assert_eq!(
+            original,
+            key(&args, "rustc", "test-host", &relocated, &command)
+        );
+        assert!(workspace_test_proof::fingerprint(
+            &root,
+            &args,
+            workspace_test_proof::Toolchain {
+                compiler: "rustc",
+                host: "test-host",
+                sysroot: &serde_json::json!({})
+            },
+            &command,
+            &home
+        )
+        .is_err());
         for extra in [
             ["--features", "extra"],
             ["--", "--ignored"],
