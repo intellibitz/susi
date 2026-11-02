@@ -61,6 +61,57 @@ fn dev_root(home: &Path) -> PathBuf {
 }
 
 #[test]
+fn json_status_reports_actual_executable_without_identity_key_or_narration() {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let home = scratch("json-identity");
+    let cwd = home.join("cwd");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(dev_root(&home)).unwrap();
+    std::fs::write(
+        dev_root(&home).join("identity.key"),
+        "private-test-identity",
+    )
+    .unwrap();
+    let executable = Path::new(env!("CARGO_BIN_EXE_susi"));
+    let mut command = Command::new(executable);
+    isolate_home(&mut command, &home)
+        .args(["status", "--json"])
+        .current_dir(&cwd)
+        .env("SUSI_HOME", dev_root(&home));
+    let output = command.output().unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["schema"], "susi-status-v1");
+    assert_eq!(value["daemon"]["running"], false);
+    assert!(value["daemon"]["pid"].is_null());
+    assert_eq!(value["missions_in_flight"], 0);
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("private-test-identity"));
+    let mut file = std::fs::File::open(executable).unwrap();
+    let mut hash = Sha256::new();
+    let mut buffer = [0; 65536];
+    loop {
+        let count = file.read(&mut buffer).unwrap();
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    assert_eq!(
+        value["executable"]["sha256"],
+        format!("{:x}", hash.finalize())
+    );
+    assert_eq!(value["executable"]["bytes"], file.metadata().unwrap().len());
+    assert_eq!(
+        Path::new(value["executable"]["path"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
+        executable.canonicalize().unwrap()
+    );
+    std::fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
 fn unified_surface_status_reports_all_axes() {
     let home = scratch("axes");
     let root = dev_root(&home);
@@ -215,7 +266,7 @@ fn unified_surface_status_source_never_touches_the_swarm() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let arm = std::fs::read_to_string(root.join("src/cli/mission_cli.rs")).unwrap();
     let status_arm = arm
-        .split("Commands::Status => {")
+        .split("Commands::Status { json } => {")
         .nth(1)
         .and_then(|s| s.split("Commands::").next())
         .expect("Commands::Status arm must exist");
