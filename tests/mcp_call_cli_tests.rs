@@ -251,6 +251,38 @@ fn registered_http_requires_consent_before_a_request_can_carry_credentials() {
 }
 
 #[test]
+fn mcp_setup_explains_only_the_selected_peers_requirements() {
+    for id in ["filesystem", "github"] {
+        let (code, stdout, stderr) = run_susi(&["mcp", "setup", id]);
+        assert_eq!(code, 0, "{stderr}");
+        let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let peer = &result["server"];
+        let text = result["instructions"].as_str().unwrap();
+        assert_eq!(peer["id"], id);
+        assert!(result["enabled"].is_boolean());
+        for expected in [
+            "susi mcp serve",
+            peer["runner"].as_str().unwrap(),
+            &format!("susi mcp doctor {id}"),
+            &format!("susi mcp enable {id}"),
+        ] {
+            assert!(text.contains(expected), "{text}");
+        }
+        let keys = peer["env_keys"].as_array().unwrap();
+        if keys.is_empty() {
+            assert!(text.contains("no credential variables"), "{text}");
+        }
+        for key in keys {
+            assert!(text.contains(key.as_str().unwrap()), "{text}");
+        }
+        assert!(
+            !text.contains("SENTRY_ACCESS_TOKEN") && !text.contains("Install Node"),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn test_mcp_call_native_status_success() {
     let (code, stdout, stderr) = run_susi(&["mcp", "call", "susi", "status", "{}"]);
     assert_eq!(code, 0, "stderr: {stderr}");
