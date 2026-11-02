@@ -16,6 +16,10 @@ use susi_paths::test_env::isolate_home;
 fn susi(home: &Path, args: &[&str]) -> (i32, String, String) {
     let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), home)
         .args(args)
+        .env("SUSI_HOME", home.join("state"))
+        .env_remove("SUSI_ECO_BUNDLED")
+        .env_remove("SUSI_ECO_SOURCE")
+        .env_remove("SUSI_ECO_PROFILES")
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("XDG_DATA_HOME", home.join("xdg-data"))
         .output()
@@ -234,12 +238,41 @@ fn kb_check_fails_on_a_broken_store() {
 
 #[test]
 fn kb_defaults_to_the_layered_store() {
-    let root = root("empty");
+    let root = root("layers");
     let home = root.join("home");
-    // Nothing seeded: layered store is empty but the command still works.
+    let id = "openai-chat-completions";
     let (code, out, err) = susi(&home, &["ecosystem", "kb", "list"]);
     assert_eq!(code, 0, "{err}");
     let list: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(list.as_array().unwrap().len(), 0);
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entity| entity["id"] == id));
+
+    let empty = root.join("explicit-empty");
+    std::fs::create_dir(&empty).unwrap();
+    let (code, out, err) = susi(
+        &home,
+        &["ecosystem", "kb", "list", "--dir", empty.to_str().unwrap()],
+    );
+    assert_eq!(code, 0, "{err}");
+    let list: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(list.as_array().unwrap().is_empty());
+
+    let user = home.join("state/ecosystem");
+    std::fs::create_dir_all(&user).unwrap();
+    let mut file: serde_json::Value = serde_json::from_str(include_str!(
+        "../config/ecosystem/openai-chat-completions.json"
+    ))
+    .unwrap();
+    file["entity"]["name"] = "User catalog name".into();
+    file["relations"] = serde_json::json!([]);
+    write(&user, id, &file.to_string());
+    let (code, out, err) = susi(&home, &["ecosystem", "kb", "show", id]);
+    assert_eq!(code, 0, "{err}");
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(doc["entity"]["name"], "User catalog name");
+    assert!(doc["outgoing"].as_array().unwrap().is_empty());
     std::fs::remove_dir_all(&root).ok();
 }
