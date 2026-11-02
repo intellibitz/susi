@@ -1,24 +1,28 @@
 {
-  "schema": "susi/future-stdlib-reuse-proof/v1",
+  "schema": "susi/future-stdlib-reuse-proof/v2",
   "task": "T-STDLIBREUSE1102-1",
   "reservation": "stdlib-reuse-1102",
-  "disposition": "Future-only scoped candidate. No integration, qualification of a production release, or promotion. Reservation retained.",
+  "disposition": "Verified future-only Windows debug candidate. Both product builds launched in private state. No shared integration, production promotion or rollback qualification. Exclusive native reservation retained.",
   "source": {
     "private_clone": "F:/src/github.com/intellibitz/susi-stdlib-native-proof-1102",
     "private_common_dir": "F:/src/github.com/intellibitz/susi-stdlib-native-proof-1102/.git",
     "private_runtime": "F:/src/github.com/intellibitz/susi-stdlib-proof-state-1102",
     "binding_base": "d3f90b6a8f4bd601b4806b34febaa632c5355f62",
-    "private_cold_source": "46245ba2206855a0511f875df0818ee83567d327",
-    "private_cold_tree": "64d50a5989daa726dbda075a473d89d80058633a",
-    "private_pinned_candidate": "a0cf42ee3744b602022811176f5840a8dc3af442",
-    "private_pinned_tree": "cfe34c1f61d3e2cdf948ff59b5ebe8d05b5892ae",
-    "remote_candidate_ref": "refs/susi/candidates/stdlib-reuse-1102/a0cf42ee3744b602022811176f5840a8dc3af442",
+    "private_cold_source": "4e4fb5b98b1ccfa13c834c1a5a090081a662f961",
+    "private_cold_tree": "a364501c54e606f3b4c1ea081e2f3358ef9e14ce",
+    "private_pinned_candidate": "6b1943b5e384be15d9bc29ddbed84c1c75385cc8",
+    "private_pinned_tree": "d54bb4fc609af165b87c14e00363efe21d9e9dd6",
+    "scope_branch_implementation": "68f1afd8628c2f25057a67472f24d15abe26e275",
+    "remote_candidate_ref": "refs/susi/candidates/stdlib-reuse-1102/6b1943b5e384be15d9bc29ddbed84c1c75385cc8",
     "workspace_version": "0.21.41",
-    "scope_branch_source": "d7ac1aa5e7becbdae4e36906259794190c9129a9",
+    "raw_input_git_tree": "efa65560d25e81ba5a0bb52200a2e57507f1ff08",
+    "raw_input_ref": "refs/susi/candidates/stdlib-reuse-1102/input-bytes/efa65560d25e81ba5a0bb52200a2e57507f1ff08",
+    "raw_input_files": 25,
+    "raw_input_note": "This tree stores actual materialized repository input bytes without checkout line-ending conversion, alongside the normal source commit. It contains no installed toolchain or third-party binary archives.",
     "policy_sha256": {
       "xtask/src/rust-src-1.99.0-authenticated.json": "69e2c2f4f1fba1beb84de48483fb5c41e7d1d1d10d8c85ade87c92dd53bbf857",
       "xtask/src/trusted_sysroot.rs": "1a86024490c70ae623e15a623913c01d9076a267e7f34d0f0bdc69a7d48d1ee4",
-      "xtask/src/reviewed-stdlib.json": "68ce30391dd75716d70261bdd3a144757fd666fbf13014c225043c3e93b4843d",
+      "xtask/src/reviewed-stdlib.json": "4737a465d4523ca5340280de7e269424f97a44065615d5abdae504f5c20e40cd",
       "xtask/src/sysroot_sources.rs": "c09206407083ac0691f364ff3def15e41d417f7fd477565210b7e9e4aaeeaaeb",
       "toolchain/windows-stdlib/builder.rs": "5bddfb882ef443e235f8b12d732db5b19aff03daa60e72450980e8fc19229860",
       "crates/susi-vendor-winapi/src/sealed_directory.rs": "b32d9c26081d5595f9a0e703a768a953ddcfc07e951f4555bc06e7360325197c",
@@ -27,11 +31,11 @@
     }
   },
   "reviewed": {
-    "identity": "8c7a47a7866411a1d65e183524c03f2ab2208a201618d31f6545f6004e12d198",
-    "record_sha256": "ae7665c5d684e4a0736c967b834110317fbfcfa6c07a28b547ffc94ca310712a",
-    "archive_inventory_sha256": "1f5018f1a6e2ae742edfdf819376f9c6afb8c0006bab446dbe5ff317e0f48bbd",
+    "identity": "ab9eb9ce7f6b3c4afde0d63e8623c3367792c48dd390393fb988722bbb75a148",
+    "record_sha256": "f34d18ab34656197ee2d0e91a53820f32d2e5dc8025df0d2662d79abc2456619",
+    "archive_inventory_sha256": "b37c98a2acab44b6058787898e2eb521820b9a247a00463bcbc60d6c0a98647d",
     "archive_count": 20,
-    "archive_bytes": 113167186.0,
+    "archive_bytes": 113167220.0,
     "independently_rehashed_archives": 20,
     "source_manifest_files": 3608,
     "host_cargo_config_sha256": "169676796d3fa38c4046cca7bb0c03134e5f66c26b1b5bae9423ba0a90b1e6b3",
@@ -40,75 +44,81 @@
       "cargo.exe": "c9b44417dc8228b81923a1068a3c09e32d2793f2cced2a816789cf433c1f0d46",
       "rustc_driver-9cc664dca72b379e.dll": "6e0929ce2af23442bd04d9a03e9311e8f6806dafd54af8f6a85c3cee535bfa73",
       "rustdoc.exe": "b2efc6d05723fb258f743fdd3d8e5c0883635c54595ff75fb8623ac344cbe52e"
-    }
+    },
+    "raw_input_manifest_sha256": "362e0d59600cff7b0a61f24b9ef02aca4fd2ed35155633daca0846300b415228"
   },
   "installed": {
-    "local_release_sha256": "7fab1c8b2dffb81db5a82e59cea561b3815318dc20d25575636e5dcbbc2eb661",
-    "susi_dev_sha256": "894cea12cf7f8c427247d51f33d90bd198cc046847807224a1a26598de8bf6b6",
-    "installation": "cargo install --debug --locked --offline to private root",
-    "cold_prepare_ms": 215277,
+    "private_native_helper": "F:/src/github.com/intellibitz/susi-stdlib-proof-state-1102/install/bin/local-release.exe",
+    "local_release_sha256": "4c52b294657824ed0a519ff17a2fef4f1cda77ae4749bdd331beb5848f7cceca",
+    "susi_dev_sha256": "50c0bbeb97ceb7fcd0dc1f7704e5e81a314e439a8aa6de4c0fe492602f6883a7",
+    "cold_prepare_ms": 148468,
     "cold_exit": 0,
-    "reviewed_repeat_prepare_ms": 17241,
+    "cold_dist_cargo_report": "1m 40s",
+    "cold_consumer_tests_passed": 1,
+    "repeat_prepare_ms": 15843,
     "repeat_exit": 0,
     "builder_directories_before_and_after_repeat": [
-      4,
-      4
+      5,
+      5
     ],
-    "cold_and_repeat_selected_same_object": true,
-    "cold_and_repeat_tripwire_absent": true,
-    "tripwire_positive_control_observed": true,
-    "stable_consumer_tests_passed": 1,
-    "first_launcher_workflow_list_ms": 34457,
-    "repeat_launcher_workflow_list_ms": 19011,
-    "launcher_exit_codes": [
-      0,
-      0
-    ],
-    "first_launcher_nested_build_s": 14.89,
-    "repeat_launcher_nested_build_s": 1.79
+    "same_reviewed_object": true,
+    "wrapper_hit_on_cold_or_repeat": false,
+    "wrapper_positive_control_exit": 43,
+    "after_exact_restoration_ms": 21920,
+    "after_restoration_exit": 0
   },
   "controlled_change": {
-    "change": "Empty approval set to an independently rehashed exact qualified build pin",
+    "change": "Replace the previous compiled admission pin with the independently reviewed input and artifact record for the corrected product graph.",
     "elapsed_ms": {
-      "source": 11,
-      "two_focused_tests_passed": 10720,
-      "committed": 11034,
-      "installed": 16684,
-      "verified_private_native_operation": 33962
+      "source": 26,
+      "two_focused_tests_passed": 6961,
+      "committed": 7918,
+      "installed": 13172,
+      "verified_private_native_operation": 29048
     },
-    "scope": "Private change-to-live, including tests, commit, installation and verification. Excludes initial cold qualification, shared merge, and production release."
+    "scope": "Private source edit, tests, commit, reinstall and executed native verification. Initial cold qualification, shared merge and production promotion are outside this timing."
   },
   "security": {
     "tamper": [
       {
         "message": "local-release: stdlib record differs from reviewed SHA-256 pin",
-        "case": "record",
+        "elapsed_ms": 25546,
         "exit": 1,
-        "elapsed_ms": 12984
+        "case": "record"
       },
       {
         "message": "local-release: cached stdlib archives differ from admission",
-        "case": "archive",
+        "elapsed_ms": 25647,
         "exit": 1,
-        "elapsed_ms": 18501
+        "case": "archive"
       },
       {
         "message": "local-release: installed verifier policy differs from checkout",
-        "case": "policy",
+        "elapsed_ms": 15486,
         "exit": 1,
-        "elapsed_ms": 15053
+        "case": "policy"
+      },
+      {
+        "message": "local-release: installed stdlib approval set differs from checkout",
+        "elapsed_ms": 495,
+        "exit": 1,
+        "case": "pinset"
       }
     ],
     "wrapper_control": "Configured private Cargo wrapper executed in positive control and did not run during the installed cold or repeat.",
     "principal": "Non-elevated Windows owner; take-ownership, backup and restore privileges not present in whoami /priv.",
-    "protected_object_sddl": "O:S-1-5-21-3288113614-2965198666-3157130157-1002G:S-1-5-21-3288113614-2965198666-3157130157-513D:P(D;;WDWO;;;OW)(A;;0x1200a9;;;WD)(A;;SD;;;OW)",
-    "guarded_compiler_pid": 56136,
+    "protected_object_sddl": "D:P(D;;WDWO;;;OW)(A;;0x1200a9;;;WD)(A;;SD;;;OW)",
+    "guarded_compiler_pid": 61020,
     "write_open_win32_code": 32,
     "write_denied_for": [
       "rustc",
       "driver",
       "cargo",
       "rustdoc",
+      "workspace lock",
+      "verifier policy",
+      "compiled approval list",
+      "compiler policy",
       "builder",
       "selected Cargo configuration",
       "authenticated original Rust source",
@@ -119,7 +129,7 @@
     "ancestor_rename": "IOException",
     "compiler_alive_after_attacks": true,
     "verified_consumer_tests_passed": 2,
-    "control_compiler_pid": 56732,
+    "control_compiler_pid": 51684,
     "transient_control": "A real compiler ran with the same archives in a deliberately unsealed private namespace. An extra archive was inserted and removed, restoring the exact inventory. Compiler exit 0. Latched notification rejected admission; that executable was discarded.",
     "bootstrap": "Trust the installed native Windows OS and pinned 1.99.0-x86_64-pc-windows-msvc toolchain. Absolute rustc runs version/sysroot discovery before reuse authentication. MSVC input probing also precedes pin acceptance. No claim of pre-execution authentication for bootstrap tools.",
     "through_use": "Input handles are acquired before computing the admissible identity. Compiler, driver, source and selected configuration handles survive all compiler children. Archive read handles, protected directory handles, deny-delete ancestry and a non-resetting change notification cover the selected object through final recheck.",
@@ -132,24 +142,88 @@
       "unsafe_traits": 0,
       "unsafe_impls": 0,
       "ratchet_threshold_change": false
+    },
+    "supplemental_live_trial": {
+      "verified_compiler_pid": 61020,
+      "control_compiler_pid": 51684,
+      "write_dac_win32_code": 5,
+      "write_owner_win32_code": 5,
+      "file_add_file_win32_code": 5,
+      "compiler_alive_after_denials": true,
+      "verified_tests_passed": 2,
+      "transient_control_admission": "REFUSED",
+      "log_sha256": "e2d4de99beaf022f613ef541ef0f9287b4ec4b3afe28edb1e206aad43e33f218"
+    },
+    "fixture_sha256": {
+      "probe": "8b120b56d91b4733850d9284ca61ddef27b5b357897b6d92f18af7f292fc94b3",
+      "attack": "9c98325ae84825408e7744bb6d2c02ec452b44bb7882d72fae243566ac8c726e"
     }
   },
   "broader_product_operation": {
-    "state": "Running separately in private debug state",
+    "state": "Completed two real offline debug builds and installed launches of Susi 0.21.41.",
+    "entry": "Private installed susi-dev.exe build debug",
+    "first_build_ms": 631235,
+    "first_build_exit": 0,
+    "first_private_live_ms": 632217,
+    "first_launch_exit": 0,
+    "first_printed_version": "susi 0.21.41",
+    "repeat_build_ms": 40103,
+    "repeat_build_exit": 0,
+    "repeat_private_live_ms": 40834,
+    "repeat_launch_exit": 0,
+    "repeat_printed_version": "susi 0.21.41",
+    "installed_product_local_workflow_list_ms": 17866,
+    "installed_product_local_exit": 0,
+    "hostile_wrapper_executed": false,
+    "both_product_sha256": "291214abbe71d9ec485248f2f28e629e0aa78bb1d5fb0d61cff57bdb47166db8",
+    "artifact_bytes": 95041024,
+    "private_executable": "F:/src/github.com/intellibitz/susi-stdlib-proof-state-1102/dev-install/bin/susi.exe",
+    "fresh_stdlib_builds_during_both_product_runs": 0,
     "promoted": false
   },
   "log_root": "F:/src/github.com/intellibitz/susi-stdlib-proof-state-1102/logs",
   "log_sha256": {
-    "launcher-1": "2dcdb295dfb76e8e6e9b628c86453fe9ac793d0454f6c2c528b9dbebc73bca0d",
-    "binding": "93c0018f1ff578bc916786645c1668a099a0a3b334fb68e854cb4f8223b1c312",
-    "candidate-warm": "e22e4656256ff4c33671543c20c69d72413eee3f82fd270a47b5f85558c4e5b8",
-    "control": "c3f04e9a7f5c7bfbb3fe600bef5b0bfcec8030c794ddc532ecf33d68800fac33",
-    "pin-tests": "cb2bc2830f94a5755d4e2c0a7fd1c7e9b2e3da9320e921e2387dd54f5839fffe",
-    "launcher-2": "32dd38f000c127e4d21ff239c9317158249f7606e3a76c3b3c27f0f18ebbf51e",
-    "tamper-policy": "d67eaa7e8d5f89aae9f675f11d62d87acd8508bdadd760f952fdc0541e148b2c",
-    "tamper-archive": "440d33c1245c75f10b5489e00e06f410e4a0183c9f725d7e9356d6c605c71519",
-    "live-guard": "c14081494d8a065f504fd67cb760e899897abacd251b2b813246942c59f5ab9f",
-    "tamper-record": "d7a9c6c797665130a6c6fd5029398114779d1f9fc9e18f215810ed74cf406f30",
-    "candidate-cold": "8e53b85e1c9ff63e54da382492adb0d3083ad5ffb425f835956d8ff7fbc4c761"
-  }
+    "root-pin-tests.log": "bd18c6ead9d4aad3804737bdfb495092b9d01b296c0efdbc8d37795a37676a46",
+    "root-product-2.log": "74008cb51e8b6725e215516fcf10139868750e3e72b3c0a2df2a19787aff58ca",
+    "root-facade-tests.log": "04fc160a7d3df6502371579e8d92ab4abfc980048bf4bb651781f51a068f5325",
+    "root-checks.txt": "143d70ded98b0191bb9e2e384f57334bff6e6ec6ad0582c5693632f660fd600f",
+    "root-product-1.log": "383878dbf3d90a5a3ce85129107fe54bb1388fd4a7448b4cf303d310144186fc",
+    "root-warm.log": "e573d688399911f1aa3a64172a785b2bf04fed5677fd07525a2f8926be3cb5ff",
+    "root-restored.log": "e573d688399911f1aa3a64172a785b2bf04fed5677fd07525a2f8926be3cb5ff",
+    "root-clippy.log": "ea605b6318cb31712ac41433d5125efe1d8a30ba7dc093619048e4c7bad0a106",
+    "root-live-guard.log": "e2d4de99beaf022f613ef541ef0f9287b4ec4b3afe28edb1e206aad43e33f218",
+    "control.log": "c3f04e9a7f5c7bfbb3fe600bef5b0bfcec8030c794ddc532ecf33d68800fac33",
+    "root-product-times.txt": "a8a7fd0f05b16d15937a5faf2bcad4be3d3ec020e7df895291784346ad9ea727",
+    "root-change-live.txt": "f5196ef7abf12f7d24abe8c145246b7658d762dbacbde866237a17d79ea77a08",
+    "root-tamper-results.json": "1499e4ff7539f52d6ae5749dc2695d1d86a458e7870971be38d13641bd8d0896",
+    "root-pin-install.log": "ec86c758103dd783e3852e661fb9be6c11b85e4cbb7ed32bc7439e069bf3008f",
+    "root-product-local.log": "c89aa46da3d9776b46dd650b1e82e34a2556e006c1404d1e938a158da2b9609e",
+    "root-times.txt": "44e5047d465479116339d23a9fe9c8e5a7c9e9a740ac15c58a9eb4879ba46037",
+    "root-cold.log": "9f3fdd023adf197db01aebecf1ed22c7b34ddcead51e0cfdb3917e6f5a332cb7",
+    "root-bindings.log": "4170cb08528e15ac7ce7f33c0a4b4251102501e504537a1db6cd893b4c883519"
+  },
+  "previous_trial": {
+    "candidate": "a0cf42ee3744b602022811176f5840a8dc3af442",
+    "evidence_commit": "2d7f3cf6900a2633814b3d838601d56e37e2bfd4",
+    "helper_cold_ms": 215277,
+    "helper_repeat_ms": 17241,
+    "source_through_private_live_ms": 33962,
+    "launcher_workflow_list_ms": [
+      34457,
+      19011
+    ],
+    "product_build_exit": 1,
+    "product_build_elapsed_ms": 496329,
+    "cause": "Root Susi embeds the launcher and lacked its Windows facade dependency (E0433).",
+    "scoped_repair_commit": "63454a1fa49c4d12b37537bee1ba03ec5b3c6d3e",
+    "status": "Superseded by the corrected product graph below."
+  },
+  "checks": {
+    "format_exit": 0,
+    "clippy_exit": 0,
+    "compiler_binding_exit": 0,
+    "facade_tests_exit": 0,
+    "integrated_production_suite": "Not run in this future-only track."
+  },
+  "observation_limits": "The clone, common directory, Cargo cache, mutable targets and runtime are private. Other jobs shared the host CPU. The product repeat includes Cargo artifact reuse. Timings are individual observations on this Windows host."
 }
