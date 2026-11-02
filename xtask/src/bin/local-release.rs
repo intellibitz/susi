@@ -42,8 +42,7 @@ mod sysroot_sources;
 mod trusted_sysroot;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
-#[path = "../vendor_regressions.rs"]
-mod vendor_regressions;
+use susi_build_policy as vendor_regressions;
 
 fn text(path: &Path) -> Result<&str> {
     path.to_str().ok_or_else(|| "path is not UTF-8".into())

@@ -186,8 +186,7 @@ fn state(root: &Path) -> Result<PathBuf> {
 
 const INTEGRATION_REF: &str = "refs/susi/integration/current";
 
-#[path = "../vendor_regressions.rs"]
-mod vendor_regressions;
+use susi_build_policy as vendor_regressions;
 
 fn valid_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())

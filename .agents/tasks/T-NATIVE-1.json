@@ -5,7 +5,14 @@
   "dependencies": [],
   "scopes": [
     "xtask",
-    "toolchain"
+    "toolchain",
+    "crates/susi-build-policy",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gawd/src/repo_gate.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    "tests",
+    "scripts/ci-test-shards.sh"
   ],
   "acceptance": "Build authenticated Linux sysroot and execute consumer; enforce native TLS dynamic linkage with artifact evidence; preserve Windows gates; run affected Rust tests and clippy. Release only after complete integration and production qualification.",
   "base_commit": "e6824c957b1c41e5c2611266da564f99bf620394",
@@ -30,6 +37,19 @@
     "elf_boundary": "passed on stripped debug candidate with actual LLD map; diagnostic only",
     "thin_lto": "actual native rustc executable and link map passed",
     "release": "not qualified or promoted",
-    "other_hosts": "Windows and aarch64 require native execution; macOS and musl fail closed"
-  }
+    "other_hosts": "Windows and aarch64 require native execution; macOS and musl fail closed",
+    "tooling_and_build_policy": {
+      "passed": 197,
+      "failed": 0,
+      "ignored": 1
+    },
+    "architecture": {
+      "passed": 36,
+      "failed": 0,
+      "compile_seconds": 0.55,
+      "test_seconds": 0.39,
+      "command": "pinned rustc --edition 2021 --test with CARGO_MANIFEST_DIR and genuine dependency artifacts"
+    }
+  },
+  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership."
 }
