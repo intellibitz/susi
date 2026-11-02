@@ -661,7 +661,13 @@ mod script_shell {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let script = dir.join("probe.sh");
-        std::fs::write(&script, "mkdir -p made && dirname \"$1/leaf\" > made/out\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nmkdir -p made && dirname \"$1/leaf\" > made/out\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
         let status = workflow_script_command(&script, &["a/b"])
             .current_dir(&dir)
             .stdin(std::process::Stdio::null())

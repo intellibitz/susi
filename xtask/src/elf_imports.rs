@@ -7,6 +7,8 @@ type Result<T> = std::result::Result<T, String>;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Inventory {
     pub(crate) machine: u16,
+    pub(crate) wide: bool,
+    pub(crate) little_endian: bool,
     pub(crate) interpreter: String,
     pub(crate) needed: Vec<String>,
 }
@@ -182,6 +184,8 @@ pub(crate) fn inspect(bytes: &[u8]) -> Result<Inventory> {
     }
     Ok(Inventory {
         machine,
+        wide,
+        little_endian: reader.little,
         interpreter,
         needed: needed.into_iter().collect(),
     })
@@ -214,7 +218,11 @@ pub(crate) fn validate_os_imports(
         "aarch64-unknown-linux-gnu" => (183, "/lib/ld-linux-aarch64.so.1"),
         _ => return Err("Linux ELF target has no reviewed OS boundary".into()),
     };
-    if inventory.machine != machine || inventory.interpreter != loader {
+    if inventory.machine != machine
+        || inventory.interpreter != loader
+        || !inventory.wide
+        || !inventory.little_endian
+    {
         return Err("ELF machine/interpreter does not match selected native target".into());
     }
     for name in &inventory.needed {
@@ -435,6 +443,12 @@ mod tests {
         let mut imports = inspect(&fixture()).unwrap();
         assert!(validate_os_imports(&imports, "x86_64-unknown-linux-gnu", true).is_ok());
         assert!(validate_os_imports(&imports, "aarch64-unknown-linux-gnu", true).is_err());
+        imports.wide = false;
+        assert!(validate_os_imports(&imports, "x86_64-unknown-linux-gnu", true).is_err());
+        imports.wide = true;
+        imports.little_endian = false;
+        assert!(validate_os_imports(&imports, "x86_64-unknown-linux-gnu", true).is_err());
+        imports.little_endian = true;
         imports.needed.push("ld-linux-x86-64.so.2".into());
         assert!(validate_os_imports(&imports, "x86_64-unknown-linux-gnu", true).is_ok());
         imports.needed.push("ld-linux-aarch64.so.1".into());

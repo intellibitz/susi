@@ -12,7 +12,8 @@
     "Cargo.toml",
     "Cargo.lock",
     "tests",
-    "scripts/ci-test-shards.sh"
+    "scripts/ci-test-shards.sh",
+    "src/cli/workflow_cli.rs"
   ],
   "acceptance": "Build authenticated Linux sysroot and execute consumer; enforce native TLS dynamic linkage with artifact evidence; preserve Windows gates; run affected Rust tests and clippy. Release only after complete integration and production qualification.",
   "base_commit": "e6824c957b1c41e5c2611266da564f99bf620394",
@@ -46,10 +47,24 @@
     "architecture": {
       "passed": 36,
       "failed": 0,
-      "compile_seconds": 0.55,
-      "test_seconds": 0.39,
+      "compile_seconds": 1.025,
+      "test_seconds": 0.388,
       "command": "pinned rustc --edition 2021 --test with CARGO_MANIFEST_DIR and genuine dependency artifacts"
+    },
+    "unix_fixture_recheck": {
+      "passed": 66,
+      "failed": 0,
+      "exit": 0,
+      "elapsed_seconds": 71.968,
+      "kind": "diagnostic candidate with repaired fixtures"
+    },
+    "native_leaf_rustc_tests": {
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "compile_seconds": 0.22,
+      "test_seconds": 0.004
     }
   },
-  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership."
+  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix."
 }
