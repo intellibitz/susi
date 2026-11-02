@@ -2374,15 +2374,13 @@ fn release_bootstrap_runs_through_the_same_scripts_as_test() {
              what is missing (15-25 s per Linux leg)"
         );
         let jobs = jobs(&text);
-        for id in ["build"] {
-            let j = job(&jobs, id);
-            assert!(
-                j.body.contains("scripts/ci-system-deps.sh")
-                    && j.body.contains("scripts/ci-install-mold.sh"),
-                "{wf} job `{id}` must bootstrap through scripts/ci-system-deps.sh and \
-                 scripts/ci-install-mold.sh"
-            );
-        }
+        let j = job(&jobs, "build");
+        assert!(
+            j.body.contains("scripts/ci-system-deps.sh")
+                && j.body.contains("scripts/ci-install-mold.sh"),
+            "{wf} job `build` must bootstrap through scripts/ci-system-deps.sh and \
+             scripts/ci-install-mold.sh"
+        );
     }
 }
 

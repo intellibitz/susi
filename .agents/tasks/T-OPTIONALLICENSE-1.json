@@ -129,6 +129,25 @@
       "format_seconds": 3.501615,
       "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license/hardware-import-fix",
       "limitation": "Read-only failed candidate dependency metadata used only after exact unchanged source/dependency binding; full native combined clippy/tests still required."
+    },
+    "retirement_loop_followup": {
+      "behavior": "Direct build-job bootstrap assertion replaces collapsed single-item loop; lint policy unchanged.",
+      "ci_perf_tests": {
+        "passed": 86,
+        "failed": 0,
+        "ignored": 0,
+        "seconds": 0.754807
+      },
+      "ci_perf_clippy": {
+        "exit": 0,
+        "seconds": 0.457129
+      },
+      "changed_rust_files_reviewed": 18,
+      "other_changed_std_integration_leaf_lints_passed": 5,
+      "build_script_lint_exit": 0,
+      "format_exit": 0,
+      "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license/ci-loop-fix",
+      "limits": "Focused direct compiler/Clippy checks use exact pinned tools, read-only A-03 context and matching host dependency for build.rs. First build-script probe omitted the declared extern and is retained separately; corrected check passes. Full native combined integration remains mandatory."
     }
   },
   "coordination": {
