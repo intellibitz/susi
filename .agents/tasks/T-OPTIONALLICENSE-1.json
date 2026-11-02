@@ -11,6 +11,7 @@
     ".github/workflows/dev-release.yml",
     ".github/workflows/release-warm.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/test.yml",
     "build-gpu.ps1",
     "build-gpu.sh",
     "build.rs",
@@ -29,6 +30,7 @@
     "install.sh",
     "scripts/susi-release-sync.sh",
     "src/cli/crown_cli.rs",
+    "tests/ci_cached_tool_install.rs",
     "tests/installer_contract.rs",
     "tests/release_workflow.rs",
     "tests/zc_matrix.rs",
@@ -76,7 +78,21 @@
       "xtask": 23
     },
     "limitations": "Direct changed-crate rustc probes use hash-bound read-only historical prerequisites; they are not complete current-graph Cargo qualification or current TLS evidence. Full fresh combined Cargo acceptance, immutable policy-v6 artifacts, inference, health and rollback remain required. A first architecture compile missed extern dependencies and a first Gemi filter selected zero tests; corrected executions retained separately.",
-    "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license"
+    "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license",
+    "native_ci_followup": {
+      "current_worker_cached_tool_suite": {
+        "passed": 2,
+        "failed": 0,
+        "seconds": 0.005505
+      },
+      "coordinated_readonly_fixture_ci_perf": {
+        "passed": 86,
+        "failed": 0,
+        "seconds": 0.803122
+      },
+      "fixture_inputs": "ci-coordinated-fixture-inputs.json binds actual unsafe owner scripts/manifest copied into isolated source fixture; not native integration or current full-graph qualification",
+      "behavior": "Remove unused cargo-geiger install/cache. Provision locked host metadata sources, build only native unsafe tooling bins, run offline scanner/comparator, retain merge dependency and main-only target cache. Cold-run workflow has not been executed on hosted CI here."
+    }
   },
   "coordination": {
     "tested_source": "fa658800f751a8947abf76336e61cb8d92b42f72",
