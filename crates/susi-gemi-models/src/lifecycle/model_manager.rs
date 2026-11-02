@@ -389,7 +389,12 @@ impl ModelManager {
             task_handle.mark_completed("Existing publisher-verified artifact adopted");
             return Ok(());
         }
-        Self::execute_download_stream_in(&receipt.artifact_url, task_handle, &models_dir)?;
+        Self::execute_download_stream_in(
+            &receipt.artifact_url,
+            task_handle,
+            &models_dir,
+            Some(&receipt.sha256),
+        )?;
         receipt.record(&destination)
     }
 
@@ -397,6 +402,7 @@ impl ModelManager {
         target: &str,
         task_handle: &TaskHandle,
         models_dir: &Path,
+        admitted_sha256: Option<&str>,
     ) -> Result<(), String> {
         fs::create_dir_all(models_dir).map_err(|e| e.to_string())?;
         let file_name = crate::download::artifact_name(target)?;
@@ -427,7 +433,20 @@ impl ModelManager {
             task_handle,
             std::time::Duration::from_secs(policy.download_timeout_secs.max(1)),
         )?;
-        if Self::managed_download_is_ready(models_dir, &file_name, target) {
+        // Another worker can publish between the caller's cache check and this lock.
+        // Preserve an existing file on mismatch, even if an older manifest omitted its digest.
+        let ready = match admitted_sha256 {
+            Some(expected) if path.try_exists().map_err(|e| e.to_string())? => {
+                let actual = Self::calculate_simple_checksum(&path).map_err(|e| e.to_string())?;
+                if !actual.eq_ignore_ascii_case(expected) {
+                    return Err("Existing model differs from the admitted publisher digest".into());
+                }
+                true
+            }
+            Some(_) => false,
+            None => Self::managed_download_is_ready(models_dir, &file_name, target),
+        };
+        if ready {
             let size = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
             Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
             MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
@@ -442,8 +461,11 @@ impl ModelManager {
         let token = trusted_origin
             .then(|| crate::susi_config::env_or_cloud_env("HF_TOKEN").ok())
             .flatten();
-        // Asked once: the publisher's digest does not change between retries.
-        let expected_sha256 = crate::download::published_sha256(target, token.as_deref());
+        // An authenticated receipt already binds this revision's bytes. Only an
+        // unpinned caller needs the legacy HEAD lookup. Retries reuse the same digest.
+        let expected_sha256 = admitted_sha256
+            .map(str::to_ascii_lowercase)
+            .or_else(|| crate::download::published_sha256(target, token.as_deref()));
         let mut budget = crate::download::StallBudget::new(policy.download_attempts.clamp(1, 8));
         let last_error = loop {
             let resumable_before = crate::download::resumable_len(&staging_target);
@@ -854,6 +876,7 @@ mod tests {
                 url,
                 &task,
                 &worker_models,
+                None,
             ))
             .unwrap();
         });
@@ -1384,5 +1407,83 @@ mod tests {
         assert!(!ModelManager::supports_tool_calling(Path::new(
             "/nonexistent/model.gguf"
         )));
+    }
+
+    #[test]
+    fn admitted_download_uses_one_get_and_preserves_a_conflicting_final_file() {
+        use crate::download::tests::{server, workspace};
+        let root = workspace("admitted_weight");
+        let models = root.join("models");
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
+        let (url, transport) = server(vec![("get /weights.bin ", response)]);
+        let url = url.replace("model.gguf", "weights.bin");
+        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("admitted_weight", &url);
+        ModelManager::execute_download_stream_in(&url, &task, &models, Some(&digest)).unwrap();
+        transport.join().unwrap();
+        let final_path = models.join("weights.bin");
+        assert_eq!(fs::read(&final_path).unwrap(), b"abcdefghij");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(models.join("weights.bin.manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(manifest["sha256"].as_str(), Some(digest.as_str()));
+        // The server is gone. A later caller can use valid published bytes
+        // locally, and must preserve conflicting bytes rather than replace them.
+        ModelManager::execute_download_stream_in(&url, &task, &models, Some(&digest)).unwrap();
+        fs::write(&final_path, b"user-owned").unwrap();
+        let error = ModelManager::execute_download_stream_in(&url, &task, &models, Some(&digest))
+            .unwrap_err();
+        assert!(error.contains("admitted publisher digest"), "{error}");
+        assert_eq!(fs::read(&final_path).unwrap(), b"user-owned");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn admitted_download_retries_corrupt_bytes_and_unpinned_download_still_checks_head() {
+        use crate::download::tests::{server, workspace};
+        let good = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
+        let bad = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghik";
+        let interrupted = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcde";
+        let rest = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\nConnection: close\r\n\r\nfghij";
+        let head = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n";
+        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        for (name, pin, responses) in [
+            (
+                "retry_weight",
+                Some(digest.as_str()),
+                vec![("get /weights.bin ", bad), ("get /weights.bin ", good)],
+            ),
+            (
+                "resume_weight",
+                Some(digest.as_str()),
+                vec![
+                    ("get /weights.bin ", interrupted),
+                    ("range: bytes=5-", rest),
+                ],
+            ),
+            (
+                "unpinned_weight",
+                None,
+                vec![("head /weights.bin ", head), ("get /weights.bin ", good)],
+            ),
+        ] {
+            let root = workspace(name);
+            let models = root.join("models");
+            let (url, transport) = server(responses);
+            let url = url.replace("model.gguf", "weights.bin");
+            let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+                .register_task(name, &url);
+            ModelManager::execute_download_stream_in(&url, &task, &models, pin).unwrap();
+            transport.join().unwrap();
+            assert_eq!(fs::read(models.join("weights.bin")).unwrap(), b"abcdefghij");
+            let manifest: serde_json::Value = serde_json::from_slice(
+                &fs::read(models.join("weights.bin.manifest.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(manifest["sha256"].as_str(), pin);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }

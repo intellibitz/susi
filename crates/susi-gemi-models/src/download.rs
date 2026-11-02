@@ -49,6 +49,15 @@ pub(crate) fn published_sha256(url: &str, token: Option<&str>) -> Option<String>
     linked_etag_digest(call.header("x-linked-etag")?)
 }
 
+fn require_download_egress(url: &str) -> Result<(), String> {
+    if !crate::susi_core::mac_policy::egress_permitted(url) {
+        return Err(format!(
+            "[PRIVACY] network egress blocked by the privacy posture: {url} (run `susi privacy consent --egress`)"
+        ));
+    }
+    Ok(())
+}
+
 /// Move a validated `part` into place. With a published digest, the bytes
 /// must hash to it first (a mismatch discards the part so the next attempt
 /// starts clean), and the digest is recorded in the model's provenance so
@@ -59,13 +68,8 @@ fn publish(
     url: &str,
     expected_sha256: Option<&str>,
 ) -> Result<(), String> {
-    // Every model/tokenizer download funnels through here, including the
-    // daemon's zero-config auto-prime, which never passes authorize_tool.
-    if !crate::susi_core::mac_policy::egress_permitted(url) {
-        return Err(format!(
-            "[PRIVACY] network egress blocked by the privacy posture: {url} (run `susi privacy consent --egress`)"
-        ));
-    }
+    // Consent can change while a transfer is in progress.
+    require_download_egress(url)?;
     if let Some(expected) = expected_sha256 {
         let actual = super::lifecycle::ModelManager::calculate_simple_checksum(part)
             .map_err(|e| e.to_string())?;
@@ -289,6 +293,7 @@ pub(crate) fn transfer(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
+    require_download_egress(url)?;
     let response = susi_http_transport::http_call("GET", url, &header_refs, timeout_secs, 10)
         .map_err(|e| format!("Transfer: {e}"))?;
     if response.status == 416 {
@@ -406,15 +411,58 @@ pub(crate) fn transfer(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::time::Duration;
-    fn workspace(label: &str) -> PathBuf {
+    pub(crate) fn workspace(label: &str) -> PathBuf {
         let path =
             std::env::temp_dir().join(format!("susi_transfer_{label}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn known_digest_does_not_authorize_remote_transfer() {
+        const CHILD: &str = "SUSI_TEST_DENIED_MODEL_TRANSFER";
+        if let Some(dir) = std::env::var_os(CHILD) {
+            use crate::susi_core::mac_policy::{MacPolicy, PrivacyMode};
+            MacPolicy::init_global([17; 32], PrivacyMode::LocalOnly, true);
+            let path = PathBuf::from(dir).join("weights.bin");
+            let error = transfer(
+                "https://model.invalid/weights.bin",
+                &path,
+                1,
+                None,
+                &|| false,
+                &|_, _| {},
+                &|_| true,
+                Some(&"0".repeat(64)),
+            )
+            .unwrap_err();
+            assert!(error.contains("[PRIVACY]"), "{error}");
+            assert!(!path.exists());
+            return;
+        }
+        let root = workspace("denied_pinned_transfer");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        let (_, module) = module_path!().split_once("::").unwrap();
+        child
+            .args([
+                "--exact",
+                &format!("{module}::known_digest_does_not_authorize_remote_transfer"),
+            ])
+            .env(CHILD, &root)
+            .env("SUSI_HOME", root.join(".susi"));
+        susi_paths::test_env::isolate_home(&mut child, &root);
+        let result = child.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stdout)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -441,7 +489,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    fn server(
+    pub(crate) fn server(
         responses: Vec<(&'static str, &'static str)>,
     ) -> (String, std::thread::JoinHandle<()>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
