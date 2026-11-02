@@ -39,6 +39,7 @@ try {
     $Client.WaitForExit(10000) | Out-Null
     Copy-Item $OwnedBin (Join-Path (Split-Path $OwnedBin) 'susi-engine.exe')
     $Swap = Run-Helper 'swap' $Candidate
+    Check ($Swap.Text -match 'running') 'Swap did not report the daemon to restart'
     Check ($Swap.Code -eq 0) "Promotion failed: $($Swap.Text)"
     Check ((Get-FileHash $OwnedBin).Hash -eq $NewHash) 'Canonical executable not replaced'
     Check ((Get-FileHash (Join-Path (Split-Path $OwnedBin) 'susi.prev.exe')).Hash -eq $OriginalHash) 'Previous executable not preserved'

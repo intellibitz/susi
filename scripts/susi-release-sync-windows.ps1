@@ -26,9 +26,9 @@ if ($Action -eq 'busy') {
     $Owned | Where-Object { -not (Is-Service $_) } | ForEach-Object { $_.ProcessId }
     exit 0
 }
-if ($Action -eq 'running') {
+if ($Action -in 'running','swap') {
     if ($Owned | Where-Object { $_.CommandLine -match '^\s*(?:"[^"]+"|\S+)\s+daemon-start(?:\s|$)' }) { 'running' }
-    exit 0
+    if ($Action -eq 'running') { exit 0 }
 }
 if ($Owned | Where-Object { -not (Is-Service $_) }) { throw 'Installed Susi has active clients; retry promotion when idle.' }
 $Candidate = if ($Action -eq 'rollback') { $Previous } else { [IO.Path]::GetFullPath($Built) }
