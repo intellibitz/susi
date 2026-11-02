@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
-$Scratch = Join-Path ([IO.Path]::GetTempPath()) ('susi-qualified-test-' + [guid]::NewGuid().ToString('N'))
+$Scratch = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('susi-qualified-test-' + [guid]::NewGuid().ToString('N'))))
 $env:SUSI_HOME = $Scratch
 $BinDir = Join-Path $Scratch 'bin'
 [void][IO.Directory]::CreateDirectory($BinDir)
@@ -28,7 +28,10 @@ public class Fixture {
     public static void Main(string[] args) {
         if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("susi 1.2.3"); return; }
         if (args.Length == 2 && args[0] == "workflow") { System.Threading.Thread.Sleep(120000); return; }
-        if (Environment.GetEnvironmentVariable("SUSI_FIXTURE_FAIL") == "1") return;
+        if (Environment.GetEnvironmentVariable("SUSI_FIXTURE_FAIL") == "1") {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(Environment.GetEnvironmentVariable("SUSI_HOME"), "failed-start"), "attempted");
+            return;
+        }
         var server = new TcpListener(IPAddress.Loopback, 9091 + int.Parse(Environment.GetEnvironmentVariable("SUSI_PORT_OFFSET")));
         server.Start();
         while (true) using (var client = server.AcceptTcpClient()) {
@@ -55,7 +58,11 @@ public class Fixture {
         Check ($Code -ne 0 -and !$Watcher.HasExited -and (Get-FileHash $Bin).Hash -eq $Original) 'Active watcher must be left running'
     } finally { if (!$Watcher.HasExited) { $Watcher.Kill(); $Watcher.WaitForExit() } }
     $env:SUSI_FIXTURE_FAIL = '1'
-    Invoke-Upgrade $Digest
+    for ($i = 0; $i -lt 3; $i++) {
+        Invoke-Upgrade $Digest
+        if (Test-Path (Join-Path $Scratch 'failed-start')) { break }
+    }
+    Check (Test-Path (Join-Path $Scratch 'failed-start')) 'Fixture must reach failed daemon startup'
     Check ($Code -ne 0 -and (Get-FileHash $Bin).Hash -eq $Original -and (Get-FileHash $Marker).Hash -eq $InitialMarker) 'Health failure did not restore original'
     Remove-Item Env:SUSI_FIXTURE_FAIL
     Invoke-Upgrade $Digest
@@ -66,7 +73,10 @@ public class Fixture {
     Invoke-Upgrade $Digest
     Check ($Code -eq 0 -and (Get-FileHash (Join-Path $BinDir 'susi.prev.exe')).Hash -eq $Original) 'Retry lost original'
 } finally {
-    Get-Process -Name susi -ErrorAction SilentlyContinue | Where-Object Path -eq $Bin | Stop-Process -Force
-    if ([IO.Path]::GetDirectoryName($Scratch) -ne [IO.Path]::GetTempPath().TrimEnd('\')) { throw 'unexpected scratch location' }
+    foreach ($Process in (Get-Process -Name susi -ErrorAction SilentlyContinue | Where-Object Path -eq $Bin)) {
+        $Process.Kill()
+        $Process.WaitForExit()
+    }
+    if ([IO.Path]::GetDirectoryName($Scratch) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')) { throw 'unexpected scratch location' }
     Remove-Item -LiteralPath $Scratch -Recurse -Force
 }
