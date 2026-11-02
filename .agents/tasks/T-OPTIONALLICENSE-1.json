@@ -1,0 +1,47 @@
+{
+  "id": "T-OPTIONALLICENSE-1",
+  "title": "Retire unsupported CUDA/MKL product routes and clear complete dependency policy without exceptions",
+  "status": "in_progress",
+  "dependencies": [
+    "T-FIXTURESTORAGE-1"
+  ],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_substrate.rs",
+    "crates/susi-gemi-models/Cargo.toml",
+    "crates/susi-gemi-models/src/hardware.rs",
+    "crates/susi-vendor-candle",
+    "src/cli/crown_cli.rs",
+    "tests/zc_matrix.rs",
+    "xtask/src/main.rs",
+    "install.sh",
+    "scripts/susi-release-sync.sh",
+    "crates/susi-gawd/src/admin/release.rs",
+    "crates/susi-gawd/src/admin/version.rs",
+    ".github/workflows/release.yml",
+    ".github/workflows/dev-release.yml",
+    ".github/workflows/release-warm.yml",
+    "docs/native-rust-direction.md",
+    "docs/native-bootstrap.md",
+    ".agents/tasks/T-OPTIONALLICENSE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "zc_matrix"
+    ]
+  },
+  "acceptance": "Actual root and workspace all-feature policy must pass unchanged strict licenses/advisories/bans/sources. Retired CUDA/MKL feature requests must fail before compilation across all first-party feature facades; supported CPU and Metal dependency graphs remain selected. Keep CPU inference and hardware inventory; remove CUDA artifact publication and automatic install/build selection. Execute graph and affected runtime/launcher tests with pinned Rust in private state. Full integration and two policy-v6 production packages/rollback are separate integrator gates.",
+  "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license",
+  "native_worker": "optional-license"
+}

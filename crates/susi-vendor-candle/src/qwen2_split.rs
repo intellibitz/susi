@@ -1036,11 +1036,9 @@ mod tests {
         );
     }
 
-    fn cuda_device_or_skip() -> Option<Device> {
-        if !cfg!(feature = "cuda") {
-            return None;
-        }
-        std::panic::catch_unwind(|| Device::new_cuda(0)).ok()?.ok()
+    fn gpu_device_or_skip() -> Option<Device> {
+        let device = crate::device::probe();
+        (!device.is_cpu()).then_some(device)
     }
 
     /// Regression: `cos`/`sin`/`neg_inf` used to be computed once on
@@ -1057,11 +1055,11 @@ mod tests {
     /// `layer_in` also ends the loop GPU-resident, exercising the
     /// symmetric output_norm/output bug fixed alongside it) and asserts a
     /// real forward pass returns finite logits, not just that loading
-    /// succeeded. Skips honestly when no CUDA device or model is present.
+    /// succeeded. Skips honestly when no supported GPU device or model is present.
     #[test]
     fn test_forward_succeeds_fully_on_gpu() {
-        let Some(gpu) = cuda_device_or_skip() else {
-            eprintln!("skipping: no CUDA device available");
+        let Some(gpu) = gpu_device_or_skip() else {
+            eprintln!("skipping: no supported GPU device available");
             return;
         };
         let _home = susi_paths::SusiDirs::home_dir();
@@ -1124,11 +1122,11 @@ mod tests {
     /// causal-mask device selection (`mask_gpu` vs `mask_cpu`) added by
     /// this fix, all at once, using more than one prompt token so the
     /// causal mask path is actually taken (a single-token input skips it
-    /// entirely). Skips honestly when no CUDA device or model is present.
+    /// entirely). Skips honestly when no supported GPU device or model is present.
     #[test]
     fn test_forward_succeeds_on_partial_cpu_gpu_split() {
-        let Some(gpu) = cuda_device_or_skip() else {
-            eprintln!("skipping: no CUDA device available");
+        let Some(gpu) = gpu_device_or_skip() else {
+            eprintln!("skipping: no supported GPU device available");
             return;
         };
         let _home = susi_paths::SusiDirs::home_dir();

@@ -1242,17 +1242,11 @@ mod tests {
         }
     }
 
-    /// Only meaningfully exercised in a `--features cuda` build with a real
-    /// GPU: selecting Device::Cuda is not proof the device actually computes
-    /// (driver/toolkit mismatches, like cudarc's CUDA-version allowlist,
-    /// fail at kernel-launch time, not at device selection). Runs a real
-    /// matmul on-device and checks the numeric result.
+    /// Exercise the selected CPU or Metal device with real matrix multiplication.
+    /// Selection alone is not proof that the device executes kernels.
     #[test]
-    fn test_cuda_device_actually_computes_when_selected() {
+    fn test_selected_device_actually_computes() {
         let device = HardwareProfiler::get_candle_device();
-        if !matches!(device, candle_core::Device::Cuda(_)) {
-            return;
-        }
         use candle_core::Tensor;
         let a = Tensor::from_slice(&[1f32, 2., 3., 4.], (2, 2), &device).unwrap();
         let b = Tensor::from_slice(&[5f32, 6., 7., 8.], (2, 2), &device).unwrap();

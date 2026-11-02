@@ -10,10 +10,9 @@
     )
 )]
 
-//! Candle / CUDA / Metal vendor substrate.
+//! Candle CPU / Metal vendor substrate.
 //!
-//! Owns the Hugging Face Candle crate graph (and its CUDA / Metal / MKL
-//! features) plus the Qwen2 GGUF split that was forked from
+//! Owns the supported Hugging Face Candle CPU / Metal crate graph plus the Qwen2 GGUF split that was forked from
 //! `candle-transformers` so CPU/GPU layer placement can live next to the
 //! vendor tensors it calls. SUSI-authored inference hosts and hardware
 //! catalogs depend on this crate; they do not declare Candle themselves.
