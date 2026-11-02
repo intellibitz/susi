@@ -1,0 +1,11 @@
+{
+  "id": "T-BATCH1102-4",
+  "title": "Stop release jobs from distributing unqualified NVIDIA libraries",
+  "goal": "Tagged and development releases must not build and upload the legacy CUDA archive containing foreign runtime libraries.",
+  "size": "s",
+  "deps": [],
+  "scopes": [".github/workflows/release.yml", ".github/workflows/dev-release.yml", "tests/release_workflow.rs", ".agents/tasks/T-BATCH1102-4.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "release_workflow"]},
+  "created_by": "BATCH1102",
+  "created_unix": 1793621034
+}
