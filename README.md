@@ -78,7 +78,7 @@ updated in the same change.
 
 ## Host contract
 
-External clients can trust these ports — the daemon never silently drifts them:
+External clients can trust these ports — the daemon never silently drifts them. Verify an integration against a running host with `cargo run -p susi-conformance` ([docs/host-contract-conformance.md](docs/host-contract-conformance.md)):
 
 | Port | Surface |
 |------|---------|
