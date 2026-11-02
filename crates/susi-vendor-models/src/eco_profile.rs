@@ -8,6 +8,7 @@
 //! offline contract every profile task's tests run.
 use crate::eco_schema::{valid_id, Issue, Provenance, Stage};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult, ResultExt as Context};
 
@@ -350,15 +351,25 @@ pub fn parse(text: &str) -> EaiResult<Profile> {
     Ok(p)
 }
 
-/// Bundled profiles directory inside this repository
-/// (`config/ecosystem/profiles/`), resolved from the crate manifest.
-/// `SUSI_ECO_PROFILES` overrides (installed layouts, tests).
+/// On-disk bundled profile directory, if deployed by a catalog update.
 #[must_use]
 pub fn bundled_profiles_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("SUSI_ECO_PROFILES") {
-        return PathBuf::from(d);
+    profile_override().unwrap_or_else(|| crate::eco_store::bundled_source_dir().join("profiles"))
+}
+
+fn profile_override() -> Option<PathBuf> {
+    std::env::var_os("SUSI_ECO_PROFILES")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("SUSI_ECO_SOURCE").map(|dir| PathBuf::from(dir).join("profiles"))
+        })
+}
+
+fn installed_profiles() -> EaiResult<Option<PathBuf>> {
+    if let Some(dir) = profile_override() {
+        return Ok(Some(dir));
     }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/ecosystem/profiles")
+    Ok(crate::eco_store::installed_bundle()?.map(|dir| dir.join("profiles")))
 }
 
 /// Load one bundled profile by id.
@@ -366,10 +377,66 @@ pub fn bundled_profiles_dir() -> PathBuf {
 /// # Errors
 /// `EaiError::io`/`config` on read or validation failure.
 pub fn load_bundled(id: &str) -> EaiResult<Profile> {
-    let path = bundled_profiles_dir().join(format!("{id}.json"));
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    parse(&text)
+    let filename = crate::eco_store::file_name_for(id)?;
+    if let Some(dir) = installed_profiles()? {
+        let path = dir.join(filename);
+        let text =
+            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        return parse(&text);
+    }
+    let (_, text) = crate::eco_store::packaged_profiles()
+        .iter()
+        .find(|(key, _)| *key == id)
+        .ok_or_else(|| EaiError::config(format!("no bundled ecosystem profile {id:?}")))?;
+    parse(text)
+}
+
+fn add_subject(index: &mut BTreeMap<String, String>, text: &str, source: &str) -> EaiResult<()> {
+    let profile = parse(text).with_context(|| format!("read profile {source}"))?;
+    if index.insert(profile.id, profile.subject).is_some() {
+        return Err(EaiError::config(format!(
+            "duplicate ecosystem profile id in {source}"
+        )));
+    }
+    Ok(())
+}
+
+fn directory_subjects(dir: &Path) -> EaiResult<BTreeMap<String, String>> {
+    let mut index = BTreeMap::new();
+    for path in crate::eco_store::json_files(dir)? {
+        let text =
+            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        add_subject(&mut index, &text, &path.display().to_string())?;
+    }
+    Ok(index)
+}
+
+/// Resolve an explicit store exclusively. Otherwise a user profile overrides
+/// the entire bundled profile with the same id, including its subject.
+pub fn for_subject(subject: &str, store: Option<&Path>) -> EaiResult<Option<String>> {
+    if let Some(dir) = store {
+        return Ok(directory_subjects(&dir.join("profiles"))?
+            .into_iter()
+            .find(|(_, value)| value == subject)
+            .map(|(id, _)| id));
+    }
+    let user = directory_subjects(&crate::eco_store::default_store_dir().join("profiles"))?;
+    if let Some((id, _)) = user.iter().find(|(_, value)| value.as_str() == subject) {
+        return Ok(Some(id.clone()));
+    }
+    let bundled = if let Some(dir) = installed_profiles()? {
+        directory_subjects(&dir)?
+    } else {
+        let mut index = BTreeMap::new();
+        for (name, text) in crate::eco_store::packaged_profiles() {
+            add_subject(&mut index, text, name)?;
+        }
+        index
+    };
+    Ok(bundled
+        .into_iter()
+        .find(|(id, value)| !user.contains_key(id) && value == subject)
+        .map(|(id, _)| id))
 }
 
 #[cfg(test)]

@@ -85,8 +85,7 @@ mod tests {
     use crate::models::eco_store;
 
     fn kb() -> KnowledgeBase {
-        eco_store::load_dir(&eco_store::bundled_source_dir())
-            .expect("bundled ecosystem store loads")
+        eco_store::load_bundled().expect("bundled ecosystem store loads")
     }
 
     #[test]

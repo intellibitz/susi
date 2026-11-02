@@ -1,0 +1,10 @@
+{
+  "id": "T-ECOSTORE-1",
+  "owner": "ecostore-1103",
+  "status": "implemented",
+  "title": "Resolve ecosystem entities and profiles from the selected installed store",
+  "dependencies": [],
+  "scopes": [".agents/tasks/T-ECOSTORE-1.json", "crates/susi-vendor-models/build.rs", "crates/susi-vendor-models/src/eco_store.rs", "crates/susi-vendor-models/src/eco_profile.rs", "crates/susi-vendor-models/src/eco_gpu_clouds.rs", "crates/susi-vendor-models/src/eco_engine_capability_map.rs", "crates/susi-gemi/src/eco_compat_gate.rs", "src/cli/ecosystem_cli.rs", "tests/eco_explain.rs"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "eco_explain"]},
+  "requirement": "An ordinary isolated Windows install explains a packaged entity and profile with no source checkout or configuration. An explicit store controls both the entities and profiles of that explanation. Layered user and bundled overrides remain usable, errors surface, and release source paths are absent."
+}
