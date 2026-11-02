@@ -2,6 +2,7 @@
 #![allow(clippy::unwrap_used)] // Failed setup must fail this integration test.
 
 use std::{fs, path::Path, process::Command};
+use susi_paths::test_env::isolate_home;
 
 #[test]
 fn loaded_catalog_resolves_moonshotai() {
@@ -23,9 +24,8 @@ fn loaded_catalog_resolves_moonshotai() {
                 cmd.env_remove(key);
             }
         }
-        cmd.env("SUSI_HOME", &home)
-            .env("HOME", &home)
-            .env("USERPROFILE", &home)
+        isolate_home(&mut cmd, &home)
+            .env("SUSI_HOME", &home)
             .args(args)
             .output()
             .unwrap()
