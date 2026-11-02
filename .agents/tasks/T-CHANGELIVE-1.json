@@ -43,5 +43,22 @@
       "--test",
       "moonshot_alias"
     ]
+  },
+  "qualified_windows_receipt": {
+    "phases": {
+      "seed_ms": 334,
+      "baseline_ms": 5315,
+      "edit_ms": 5337,
+      "packaged_ms": 5768,
+      "load_ms": 6322,
+      "observed_ms": 12894,
+      "rollback_ms": 19650
+    },
+    "binary": "susi 0.21.41",
+    "baseline": "fallback variable",
+    "observed": "canonical Kimi variable",
+    "binary_sha256": "50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683",
+    "catalog_sha256": "8b37b272b0c27b99f68239e1bf15c7d8f30c3a2feb79cb77a19e595bb16d03d4",
+    "rollback": "fallback variable"
   }
 }
