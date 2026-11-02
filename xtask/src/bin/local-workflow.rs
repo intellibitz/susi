@@ -929,16 +929,37 @@ fn owns_path(held: &str, changed: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
+fn claimed_changes(claim: &Claim) -> Result<Vec<String>> {
+    let paths = changed_paths(&claim.worktree)?;
+    for path in &paths {
+        let normalized = scope(path)?;
+        if !claim.scopes.iter().any(|held| owns_path(held, &normalized)) {
+            return Err(format!(
+                "changed file is outside {}'s reserved scopes: {path}",
+                claim.name
+            )
+            .into());
+        }
+    }
+    Ok(paths)
+}
+
 /// Scope-guarded local commit, not a test/release gate. It never changes the
 /// repository's shared hook configuration or invokes its network-bound hooks.
-fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
+fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> Result<()> {
     name(claimant)?;
     if message.trim().is_empty() || message.contains('\0') {
         return Err("commit message must be nonempty and contain no NUL".into());
     }
+    if let Some(key) = signer {
+        if !matches!(key.len(), 40 | 64) || !key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("--sign requires a complete OpenPGP fingerprint".into());
+        }
+    }
     let state = state(root)?;
     let _lock = Lock::acquire(&state)?;
-    let claim = read_claim(&state.join("claims").join(format!("{claimant}.claim")))?;
+    let claim_path = state.join("claims").join(format!("{claimant}.claim"));
+    let claim = read_claim(&claim_path)?;
     let actual_root = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
     if actual_root.canonicalize()? != claim.worktree.canonicalize()? {
         return Err("commit must run inside the claimed agent's worktree".into());
@@ -948,6 +969,10 @@ fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
     {
         return Err("claim repository or branch does not match".into());
     }
+    let signing = match signer {
+        Some(key) => Some((key, git(&claim.worktree, &["rev-parse", "HEAD"])?)),
+        None => None,
+    };
     // Do not convert an in-progress merge/cherry-pick/rebase into a task commit.
     for marker in [
         "MERGE_HEAD",
@@ -964,17 +989,9 @@ fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
             return Err("finish the existing Git operation before committing".into());
         }
     }
-    let paths = changed_paths(&claim.worktree)?;
+    let paths = claimed_changes(&claim)?;
     if paths.is_empty() {
         return Err("nothing to commit".into());
-    }
-    for path in &paths {
-        let normalized = scope(path)?;
-        if !claim.scopes.iter().any(|held| owns_path(held, &normalized)) {
-            return Err(
-                format!("changed file is outside {claimant}'s reserved scopes: {path}").into(),
-            );
-        }
     }
     let hooks = state.join("empty-hooks");
     fs::create_dir_all(&hooks)?;
@@ -1012,20 +1029,97 @@ fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
     }
     let hook_config = format!("core.hooksPath={}", text(&hooks)?);
     let trailer = format!("Task: LOCAL-{claimant}");
-    let output = git(
-        &claim.worktree,
-        &[
-            "-c",
-            &hook_config,
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-m",
-            message,
-            "-m",
-            &trailer,
-        ],
-    )?;
+    let output = if let Some((key, parent)) = signing {
+        // Sign and verify a detached commit object before publishing it. A
+        // missing signer, wrong identity or concurrent branch move leaves the
+        // previous head intact and the worker can retry the staged change.
+        let tree = git(&claim.worktree, &["write-tree"])?;
+        let claim_bytes = fs::read(&claim_path)?;
+        // An optional hardware signer can wait for its operator. Unrelated
+        // workers must still be able to reserve, commit and release scopes.
+        drop(_lock);
+        let signed = git(
+            &claim.worktree,
+            &[
+                "--no-replace-objects",
+                "-c",
+                "gpg.format=openpgp",
+                "commit-tree",
+                &tree,
+                "-p",
+                &parent,
+                &format!("-S{key}"),
+                "-m",
+                message,
+                "-m",
+                &trailer,
+            ],
+        )?;
+        git(
+            &claim.worktree,
+            &[
+                "--no-replace-objects",
+                "-c",
+                "gpg.format=openpgp",
+                "verify-commit",
+                &signed,
+            ],
+        )?;
+        let identities = git(
+            &claim.worktree,
+            &[
+                "--no-replace-objects",
+                "-c",
+                "gpg.format=openpgp",
+                "show",
+                "-s",
+                "--format=%GF%n%GP",
+                &signed,
+            ],
+        )?;
+        if !identities
+            .lines()
+            .any(|fingerprint| fingerprint.eq_ignore_ascii_case(key))
+        {
+            return Err("signed commit did not verify under the requested fingerprint".into());
+        }
+        let _publish = Lock::acquire(&state)?;
+        if fs::read(&claim_path)? != claim_bytes
+            || git(&claim.worktree, &["branch", "--show-current"])?
+                != format!("local-agent/{claimant}")
+            || git(&claim.worktree, &["write-tree"])? != tree
+        {
+            return Err("worker reservation, branch or staged tree changed while signing".into());
+        }
+        claimed_changes(&claim)?;
+        git(
+            &claim.worktree,
+            &[
+                "-c",
+                &hook_config,
+                "update-ref",
+                &format!("refs/heads/local-agent/{claimant}"),
+                &signed,
+                &parent,
+            ],
+        )?;
+        format!("Verified OpenPGP commit {signed} with fingerprint {key}.")
+    } else {
+        git(
+            &claim.worktree,
+            &[
+                "-c",
+                &hook_config,
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                message,
+                "-m",
+                &trailer,
+            ],
+        )?
+    };
     println!(
         "{output}\nLocal scope guard passed; this commit is not a test or release attestation."
     );
@@ -1048,14 +1142,15 @@ fn run(args: &[String]) -> Result<()> {
             println!("Worktree: {}\nTarget: {}\nUse the local-build entrypoint to override inherited target directories. Reservations cover cooperating launcher users only.", worktree.display(), worktree.join("target").display());
         }
         Some("release") if args.len() == 2 => release(&root, &args[1])?,
-        Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2])?,
+        Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2], None)?,
+        Some("commit") if args.len() == 5 && args[3] == "--sign" => commit(&root, &args[1], &args[2], Some(&args[4]))?,
         Some("integrate") if args.len() >= 2 => { let names: Vec<_> = args[1..].iter().map(String::as_str).collect(); integrate_with(&root, &names, verify_candidate)?; },
         Some("list") if args.len() == 1 => {
             let state = state(&root)?;
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> | integrate <name> [<name> ...] | release <name>".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | integrate <name> [<name> ...] | release <name>".into()),
     }
     Ok(())
 }
@@ -1243,9 +1338,9 @@ mod tests {
         let worktree = start(&repo, "one", &["src".into()]).unwrap();
         fs::create_dir(worktree.join("src")).unwrap();
         fs::write(worktree.join("src/allowed.rs"), "allowed").unwrap();
-        assert!(commit(&repo, "one", "wrong owner").is_err());
+        assert!(commit(&repo, "one", "wrong owner", None).is_err());
         fs::write(worktree.join("outside.rs"), "outside").unwrap();
-        assert!(commit(&worktree, "one", "reject").is_err());
+        assert!(commit(&worktree, "one", "reject", None).is_err());
         assert!(git(&worktree, &["diff", "--cached", "--name-only"])
             .unwrap()
             .is_empty());
@@ -1254,7 +1349,7 @@ mod tests {
         fs::write(worktree.join(".gitignore"), "changed\n").unwrap();
         git(&worktree, &["add", ".gitignore"]).unwrap();
         fs::write(worktree.join(".gitignore"), "/target/\n").unwrap();
-        assert!(commit(&worktree, "one", "reject staged outside").is_err());
+        assert!(commit(&worktree, "one", "reject staged outside", None).is_err());
     }
 
     #[test]
@@ -1278,7 +1373,7 @@ mod tests {
         fs::write(worktree.join("src/a space.rs"), "allowed").unwrap();
         git(&worktree, &["add", "--", "src/a space.rs"]).unwrap();
         assert!(git(&worktree, &["commit", "-m", "blocked by hook"]).is_err());
-        commit(&worktree, "one", "local change").unwrap();
+        commit(&worktree, "one", "local change", None).unwrap();
         assert!(git(&worktree, &["status", "--porcelain"])
             .unwrap()
             .is_empty());
@@ -1291,10 +1386,37 @@ mod tests {
             .contains("Task: LOCAL-one"));
     }
 
+    #[test]
+    fn signing_failure_preserves_the_previous_head_and_unsigned_retry() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let worktree = start(&repo, "signer", &["owned.rs".into()]).unwrap();
+        let original = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        fs::write(worktree.join("owned.rs"), "scoped change").unwrap();
+        git(
+            &repo,
+            &[
+                "config",
+                "gpg.program",
+                text(&scratch.0.join("missing-signer")).unwrap(),
+            ],
+        )
+        .unwrap();
+        for key in ["ABC123", "0000000000000000000000000000000000000000"] {
+            assert!(commit(&worktree, "signer", "sign", Some(key)).is_err());
+            assert_eq!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), original);
+        }
+        commit(&worktree, "signer", "unsigned retry", None).unwrap();
+        assert_eq!(
+            git(&worktree, &["show", "HEAD:owned.rs"]).unwrap(),
+            "scoped change"
+        );
+    }
+
     fn worker(repo: &Path, agent: &str, file: &str, content: &str) -> PathBuf {
         let worktree = start(repo, agent, &[file.into()]).unwrap();
         fs::write(worktree.join(file), content).unwrap();
-        commit(&worktree, agent, "fixture change").unwrap();
+        commit(&worktree, agent, "fixture change", None).unwrap();
         worktree
     }
 
@@ -1571,7 +1693,7 @@ mod tests {
         let worktree = worker(&repo, "one", "one.rs", "one");
         assert!(integrate_with(&repo, &["one"], |_, _| {
             fs::write(worktree.join("one.rs"), "new untested source")?;
-            commit(&worktree, "one", "advanced during verification")?;
+            commit(&worktree, "one", "advanced during verification", None)?;
             Ok(vec![
                 "test-only prior-head check => exit code: 0; fixture verifier completed".into(),
             ])
@@ -1612,7 +1734,7 @@ mod tests {
             "#[test]\nfn actual_test() {\n    assert_eq!(2 + 2, 4);\n}\n",
         )
         .unwrap();
-        commit(&native_worker, "native", "native gate fixture").unwrap();
+        commit(&native_worker, "native", "native gate fixture", None).unwrap();
         let head = integrate_with(&repo, &["native"], verify_candidate).unwrap();
         assert_eq!(integration_head(&repo).unwrap(), Some(head.clone()));
         let broken = worker(&repo, "broken", "src/lib.rs", "#[test]\nfn failing_test() {\n    let actual = std::hint::black_box(4);\n    assert_eq!(actual, 5);\n}\n");
