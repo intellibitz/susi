@@ -4,6 +4,7 @@
 
 pub mod inventory;
 pub mod measurement;
+mod strict_json;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

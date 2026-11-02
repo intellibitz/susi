@@ -685,7 +685,7 @@ pub fn scan(root: &Path, target: &str, features: &str) -> Result<Measurement, St
             target,
         ],
     )?;
-    let metadata: Value = serde_json::from_str(&metadata_text).map_err(|e| e.to_string())?;
+    let metadata: Value = crate::strict_json::parse(metadata_text.as_bytes())?;
     let selection_args = selection_args(&metadata, target)?;
     let tree_args: Vec<_> = selection_args.iter().map(String::as_str).collect();
     let selection_tree = command(&root, "cargo", &tree_args)?;
@@ -774,8 +774,8 @@ pub fn scan(root: &Path, target: &str, features: &str) -> Result<Measurement, St
 
 pub fn read_measurement(path: &Path) -> Result<Measurement, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let measurement: Measurement =
-        serde_json::from_slice(&bytes).map_err(|e| format!("invalid complete measurement: {e}"))?;
+    let measurement: Measurement = crate::strict_json::parse(&bytes)
+        .map_err(|e| format!("invalid complete measurement: {e}"))?;
     validate(&measurement)?;
     Ok(measurement)
 }

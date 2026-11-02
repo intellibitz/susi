@@ -166,7 +166,7 @@ fn validate_review(review: &Review) -> Result<(), String> {
 pub fn read_baseline(path: &Path) -> Result<Baseline, String> {
     let bytes =
         std::fs::read(path).map_err(|e| format!("missing baseline {}: {e}", path.display()))?;
-    let baseline: Baseline = serde_json::from_slice(&bytes).map_err(|e| {
+    let baseline: Baseline = crate::strict_json::parse(&bytes).map_err(|e| {
         format!("baseline needs complete reviewed v2 migration; original retained: {e}")
     })?;
     validate_baseline(&baseline)?;
@@ -184,7 +184,7 @@ pub fn validate_baseline(baseline: &Baseline) -> Result<(), String> {
         return Err("invalid baseline schema/unit/context or empty inventory".into());
     }
     validate_review(&baseline.review)?;
-    let historical: UnsafeBaseline = serde_json::from_str(&baseline.historical_json)
+    let historical: UnsafeBaseline = crate::strict_json::parse(baseline.historical_json.as_bytes())
         .map_err(|e| format!("invalid historical inventory proof: {e}"))?;
     let required = migration_reviews(
         &historical,
@@ -459,13 +459,12 @@ pub fn migrate(
     review_path: &Path,
 ) -> Result<Baseline, String> {
     let bytes = std::fs::read(historical_path).map_err(|e| e.to_string())?;
-    let historical: UnsafeBaseline = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let historical: UnsafeBaseline = crate::strict_json::parse(&bytes)?;
     let base = measurement::read_measurement(base_path)?;
     let candidate = measurement::read_measurement(candidate_path)?;
     let required = migration_reviews(&historical, &base, &candidate)?;
     let review: Review =
-        serde_json::from_slice(&std::fs::read(review_path).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        crate::strict_json::parse(&std::fs::read(review_path).map_err(|e| e.to_string())?)?;
     validate_review(&review)?;
     if review.historical_baseline_sha256 != measurement::sha256(&bytes)
         || review.base_measurement_sha256 != measurement::file_sha256(base_path)?

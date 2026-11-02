@@ -59,7 +59,7 @@ Both scans used scanner SHA-256
 `625bdb66edd3978309da28cd6494143b45cdbe815a51debf238467b7533f6386`.
 Comparator SHA-256:
 `48d969ebd85e62ed94ee4ce143ab5f89530673d0dc379f18e3a4113fb129c725`.
-The implementation and tools are frozen pending completion of source reviews.
+That initial implementation/tool pair is retained as historical evidence; the recursive-JSON follow-up below supersedes its tool pins.
 
 ## Historical scope and migration status
 
@@ -90,3 +90,23 @@ The baseline remains unchanged until all required source reviews are bound
 and the native migration passes. No release qualification or promotion is
 claimed by these receipts. Private model data and build outputs stay outside
 this source review directory.
+
+## Recursive JSON follow-up
+
+The native decoder now rejects duplicate object keys recursively, including
+dynamic Cargo metadata and embedded historical inventory JSON. Typed structs
+alone could reject their own duplicated fields while losing duplicates in
+`serde_json::Value`. The regression covers nested metadata keys and historical
+proof keys. No graph or review policy was relaxed.
+
+The final v2 pair, preserved separately under `pinned-tools-v2`, is:
+* Scanner: `e870c551ae413c96188fb848275b26e41f1673324cfd93b4f5c8549a35c0fc88`.
+* Comparator: `6f9c5298d6fc1163da1284a4ebfeea6b86d0848288fbdcab3c30aef6aed40956`.
+
+`build-proof-v2.json` records implementation file hashes and refreshed actual
+scans: aff638d0 483 packages/504 files, exit 0, 3.354196 s; cbf85824 479/500,
+exit 0, 3.216655 s. Scoped tests passed **55/55** in **3.857478 s**; Clippy
+all targets with warnings denied passed in **0.874643 s**. Prior receipts
+remain unchanged. Final migration still needs a fresh clean post-repair
+candidate and all accepted source-bound component reviews; discovered candle
+boundary findings must be treated before that component can be admitted.

@@ -676,3 +676,32 @@ fn rejected_input_cannot_overwrite_a_baseline_or_issue_a_clean_receipt() {
         assert!(!receipt.exists());
     }
 }
+
+#[test]
+fn duplicate_keys_in_dynamic_metadata_or_baseline_proof_are_rejected() {
+    let temp = Temp::new();
+    let measured = fixture();
+    let path = temp.0.join("measurement.json");
+    let encoded = serde_json::to_string(&measured).unwrap();
+    for duplicate in [
+        encoded.replacen("\"metadata\":{", "\"metadata\":{\"version\":0,", 1),
+        encoded.replacen(
+            "\"name\":\"app\"",
+            "\"name\":\"ignored\",\"name\":\"app\"",
+            1,
+        ),
+    ] {
+        assert_ne!(duplicate, encoded);
+        std::fs::write(&path, duplicate).unwrap();
+        assert!(measurement::read_measurement(&path)
+            .unwrap_err()
+            .contains("duplicate JSON object key"));
+    }
+    let mut bad = baseline(&measured);
+    bad.historical_json = bad
+        .historical_json
+        .replacen("{", "{\"features\":\"ignored\",", 1);
+    assert!(inventory::validate_baseline(&bad)
+        .unwrap_err()
+        .contains("duplicate JSON object key"));
+}
