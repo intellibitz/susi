@@ -100,7 +100,8 @@ pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
     selection.validate()?;
     let package = installed(root, &selection.current)?;
     let pinned = package.pinned_executable()?;
-    let mut command = Command::new(package.executable());
+    // Shell-launched processes need the verbatim Windows path for deep release slots.
+    let mut command = Command::new(package.executable().canonicalize()?);
     if env::var_os("SUSI_HOME").is_none() {
         // An immutable production slot is outside ~/.susi/bin. Select the same
         // native user state explicitly so the child's development-isolation
