@@ -78,6 +78,8 @@ updated in the same change.
 
 ## Host contract
 
+Building a product on Susi? Start with [docs/integrating-with-susi.md](docs/integrating-with-susi.md).
+
 External clients can trust these ports — the daemon never silently drifts them:
 
 | Port | Surface |
