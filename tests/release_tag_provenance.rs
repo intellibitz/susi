@@ -4,7 +4,6 @@
 #![allow(missing_docs)]
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! `scripts/check-release-tag.sh`: a release tag must be the workspace version
 //! and must be on `main`.

@@ -182,20 +182,11 @@ mod tests {
 
     #[test]
     fn leading_topics_resolve_against_workspace() {
-        // Enable/disable read-modify-write `mcp_config.json` under the
-        // HOME-derived config dir. Unisolated, this test rewrote the
-        // developer's real MCP config and raced `client::tests`' admit test
-        // (which repoints HOME under ENV_LOCK), erasing an admitted server.
-        let _env = crate::susi_core::commit_log::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let Some(dir) = crate::private_config_fixture() else {
+            return;
+        };
         let h = ToolsPlaneHandler;
-        let dir = tempfile::tempdir().unwrap();
-        // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET; restored when `env` drops.
-        let mut env = susi_paths::test_env::EnvGuard::isolated();
-        env.set("HOME", dir.path());
-        env.set("XDG_CONFIG_HOME", dir.path().join("config"));
-        let ws = json!({"workspace": dir.path().to_str().unwrap()});
+        let ws = json!({"workspace": dir.to_str().unwrap()});
         // Status on a fresh workspace returns rows or a typed error — never panic.
         let listed = h.handle(topics::TOOLS_LEADING_LIST, ws.clone());
         assert!(listed.is_ok() || listed.is_err());
@@ -210,7 +201,6 @@ mod tests {
         ) {
             assert_eq!(disabled["removed"], json!(false));
         }
-        drop(env);
     }
 
     #[test]

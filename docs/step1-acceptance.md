@@ -509,3 +509,9 @@ The VM journey did not reach the recovery ladder, so the recovery change is
 proven by unit tests, not by the journey. The first VM attempt did not run:
 the three-hour administrator cache had expired and the UAC prompts were
 unattended. It ran after fresh approval.
+
+### Releases E and F on Windows
+
+Release E (0.21.42) established verified installation through the Start Menu and ordinary PATH, including rollback to D and restoration of E. A standalone Windows task subsequently found that the Codex-hosted installer had written to a virtualized filesystem. Agents repaired the actual user installation and repeated the launch and rollback checks outside Codex. [Release E standalone evidence](../.agents/evidence/release42-standalone.json)
+
+Release F (0.21.43) is the current qualified Windows production release, with E retained for rollback. On the clean 8 GiB Windows guest, installation start to prompt was 8.718 seconds. The first correct local answer arrived at 56.899 seconds and the second at 58.875 seconds. The 44.301 seconds between the model download notice and the completion notice include transport, validation and publication. A limited Windows task verified PATH and Start Menu launches through F, E and restored F. All six pre-existing production processes survived. On the separate cache-seeded host, the first answer took 4.444 seconds and the repeated goal took 2.079 seconds. The cold first-answer speed target and byte-identical standard-library rebuilds remain open. [Release F production evidence](../.agents/evidence/release43-windows.json)

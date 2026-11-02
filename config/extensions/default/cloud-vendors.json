@@ -22,7 +22,7 @@
   },
   {
     "id": "kimi",
-    "aliases": ["kimi", "moonshot"],
+    "aliases": ["kimi", "moonshot", "moonshotai"],
     "api_key_env": "MOONSHOT_API_KEY",
     "api_key_env_alts": ["KIMI_API_KEY"]
   },

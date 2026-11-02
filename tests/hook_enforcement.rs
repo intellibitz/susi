@@ -4,7 +4,6 @@
 #![allow(missing_docs)]
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! The git hooks are the loop's first enforcement layer — the commit trailer,
 //! the primary-checkout refusal, sync-before-push — and nothing ever executed

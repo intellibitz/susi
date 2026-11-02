@@ -77,6 +77,24 @@ pub(crate) enum Commands {
     Shell,
     /// Initialize sandboxed .susi environment
     Install,
+    /// Activate a qualified Windows release or restore the previous verified release
+    InstallRelease {
+        /// Trusted SHA-256 release ID supplied by the local production qualifier
+        #[arg(long, required_unless_present_any = ["rollback","status"], conflicts_with_all = ["rollback","status"])]
+        id: Option<String>,
+        /// Qualified predecessor in the adjacent sibling release directory
+        #[arg(long, requires = "id")]
+        previous: Option<String>,
+        /// Restore the previously admitted release
+        #[arg(long)]
+        rollback: bool,
+        /// Verify the installed selector, executable, PATH and Start Menu entry
+        #[arg(long, conflicts_with = "rollback")]
+        status: bool,
+        /// Require this specific release for verification or rollback
+        #[arg(long, conflicts_with = "id")]
+        expect: Option<String>,
+    },
     /// Build, test, integrate and qualify Susi locally through native guarded tools
     Local {
         /// build debug|production, workflow <command>, or release <command>

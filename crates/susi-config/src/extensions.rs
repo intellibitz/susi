@@ -39,7 +39,7 @@ pub struct PackStatus {
 }
 
 /// Pack manifest (`manifest.json`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionManifest {
     pub id: String,
     pub name: String,
@@ -81,6 +81,38 @@ pub struct ExtensionManifest {
 
 fn default_api_version() -> String {
     "1".into()
+}
+
+fn valid_file_component(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    !value.is_empty()
+        && !value.ends_with(['.', ' '])
+        && !value
+            .chars()
+            .any(|c| c.is_control() || "<>:\"/\\|?*".contains(c))
+        && !matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        )
+        && !["COM", "LPT"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|n| {
+                matches!(
+                    n,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        })
+}
+
+fn validate_pack_id(id: &str) -> Result<(), String> {
+    if id.starts_with('.') || !valid_file_component(id) {
+        return Err(format!("invalid pack id `{id}`"));
+    }
+    Ok(())
 }
 
 /// Host API major this binary supports for extension packs.
@@ -127,8 +159,12 @@ fn path_escapes_pack_root(rel: &str) -> bool {
 /// Permissions are enforced: unknown permission strings and `files` entries
 /// that escape the pack root without declaring `filesystem.read` are rejected.
 pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
-    if manifest.id.trim().is_empty() {
-        return Err("pack manifest id must not be empty".into());
+    validate_pack_id(&manifest.id)?;
+    if manifest.name.trim().is_empty() || manifest.version.trim().is_empty() {
+        return Err(format!(
+            "pack `{}` must declare a name and version",
+            manifest.id
+        ));
     }
     let major = manifest
         .api_version
@@ -197,6 +233,11 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
     }
     let can_read_outside = manifest.permissions.iter().any(|p| p == "filesystem.read");
     for (logical, rel) in &manifest.files {
+        if logical.eq_ignore_ascii_case("manifest.json")
+            || !logical.split(['/', '\\']).all(valid_file_component)
+        {
+            return Err(format!("invalid managed file name `{logical}`"));
+        }
         if Path::new(rel).is_absolute() {
             return Err(format!(
                 "pack `{id}` maps `{logical}` to an absolute path `{rel}` — pack files must be relative to the pack root",
@@ -208,6 +249,12 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
                 "pack `{id}` maps `{logical}` outside its root (`{rel}`) without declaring `filesystem.read`",
                 id = manifest.id
             ));
+        }
+        if !rel
+            .split(['/', '\\'])
+            .all(|part| matches!(part, "." | "..") || valid_file_component(part))
+        {
+            return Err(format!("invalid managed file path `{rel}`"));
         }
     }
     Ok(())
@@ -459,12 +506,24 @@ fn artifact_digests(
     manifest: &ExtensionManifest,
 ) -> Result<BTreeMap<String, String>, String> {
     let mut digests = BTreeMap::new();
-    let manifest_path = root.join("manifest.json");
+    let manifest_path = declared_path(root, "manifest.json", false)?;
     let manifest_bytes = std::fs::read(&manifest_path)
         .map_err(|e| format!("pack `{}` manifest is unavailable: {e}", manifest.id))?;
+    if !serde_json::from_slice::<ExtensionManifest>(&manifest_bytes)
+        .is_ok_and(|current| &current == manifest)
+    {
+        return Err(format!(
+            "pack `{}` manifest changed during admission",
+            manifest.id
+        ));
+    }
     digests.insert("manifest.json".to_string(), sha256_digest(&manifest_bytes));
     for (logical, rel) in &manifest.files {
-        let path = root.join(rel);
+        let path = declared_path(
+            root,
+            rel,
+            manifest.permissions.iter().any(|p| p == "filesystem.read"),
+        )?;
         let bytes = std::fs::read(&path).map_err(|e| {
             format!(
                 "pack `{}` artifact `{logical}` is unavailable at {}: {e}",
@@ -472,6 +531,7 @@ fn artifact_digests(
                 path.display()
             )
         })?;
+        verify_signature(manifest, logical, &bytes)?;
         digests.insert(logical.clone(), sha256_digest(&bytes));
     }
     Ok(digests)
@@ -553,16 +613,23 @@ fn verify_pack_integrity(
             }
         }
     }
-    for (logical, rel) in &manifest.files {
-        let bytes = std::fs::read(root.join(rel)).map_err(|e| {
-            format!(
-                "pack `{}` artifact `{logical}` is unavailable: {e}",
-                manifest.id
-            )
-        })?;
-        verify_signature(manifest, logical, &bytes)?;
-    }
     Ok(digests)
+}
+
+/// A relative escape must be explicit in the mapping and permitted. A link
+/// in a seemingly internal mapping cannot redirect it outside the pack.
+fn declared_path(root: &Path, rel: &str, can_read_outside: bool) -> Result<PathBuf, String> {
+    let path = root
+        .join(rel)
+        .canonicalize()
+        .map_err(|e| format!("managed path `{rel}` is unavailable: {e}"))?;
+    let base = root.canonicalize().map_err(|e| e.to_string())?;
+    if !path.is_file()
+        || (!path.starts_with(base) && !(can_read_outside && path_escapes_pack_root(rel)))
+    {
+        return Err(format!("managed path `{rel}` is not an authorized file"));
+    }
+    Ok(path)
 }
 
 fn normalize_checksum(value: &str) -> String {
@@ -576,6 +643,9 @@ fn normalize_checksum(value: &str) -> String {
 pub fn seed_default_pack() -> Result<PathBuf, String> {
     use sha2::{Digest, Sha256};
     let root = extensions_root().join(DEFAULT_PACK_ID);
+    if root.exists() {
+        validate_pack_root(DEFAULT_PACK_ID)?;
+    }
     private_dir(&root)?;
     let host_manifest = host_seed_manifest();
     let digests_path = root.join(".bundled-digests.json");
@@ -803,8 +873,7 @@ fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
             if !path.join("manifest.json").is_file() {
                 continue;
             }
-            let discovered = manifest_for(id);
-            if let Err(e) = validate_manifest(&discovered) {
+            if let Err(e) = manifest_for(id) {
                 eprintln!(
                     "[extensions] skipping pack `{id}`: {e} (optional failure; core continues)"
                 );
@@ -822,10 +891,10 @@ fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
     if state.active.trim().is_empty() {
         state.active = DEFAULT_PACK_ID.to_string();
     }
-    // Env override always wins for active id.
+    // Only a valid discovered pack can be forced active.
     if let Ok(forced) = std::env::var("SUSI_EXTENSION_PACK") {
         let forced = forced.trim();
-        if !forced.is_empty() {
+        if manifest_for(forced).is_ok() {
             state.active = forced.to_string();
             if !state.loaded.iter().any(|x| x == forced) {
                 state.loaded.push(forced.to_string());
@@ -833,8 +902,7 @@ fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
         }
     }
     // If active pack dir is missing (and not default), fall back.
-    let active_root = extensions_root().join(&state.active);
-    if state.active != DEFAULT_PACK_ID && !active_root.join("manifest.json").is_file() {
+    if state.active != DEFAULT_PACK_ID && manifest_for(&state.active).is_err() {
         state.active = DEFAULT_PACK_ID.to_string();
     }
     write_state(&state)?;
@@ -869,7 +937,9 @@ pub fn list_packs() -> Vec<PackStatus> {
             return;
         }
         let root = extensions_root().join(id);
-        let manifest = manifest_for(id);
+        let Ok(manifest) = manifest_for(id) else {
+            return;
+        };
         packs.push(PackStatus {
             id: id.to_string(),
             name: manifest.name,
@@ -907,28 +977,22 @@ pub fn list_packs() -> Vec<PackStatus> {
 
 /// Create a minimal pack shell under `~/.susi/extensions/<id>/` (idempotent).
 /// Does not activate; call [`load_pack`] to make it active.
-#[allow(clippy::expect_used)]
 pub fn create_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
-    if id.is_empty() {
-        return Err("pack id must not be empty".into());
-    }
-    if id.contains('/') || id.contains('\\') || id == "." || id == ".." || id.starts_with('.') {
-        return Err(format!("invalid pack id `{id}`"));
-    }
+    validate_pack_id(id)?;
     ensure_extensions_substrate()?;
     if id == DEFAULT_PACK_ID {
         seed_default_pack()?;
-        // Mandate 42: safe - seed_default_pack() just returned Ok, meaning it
-        // wrote (or confirmed) the default pack's manifest on disk; list_packs()
-        // reads that same directory synchronously with no intervening mutation,
-        // so the just-seeded id is guaranteed to be present in its output.
-        return Ok(list_packs()
+        return list_packs()
             .into_iter()
             .find(|p| p.id == DEFAULT_PACK_ID)
-            .expect("default pack"));
+            .ok_or_else(|| "default pack has no valid manifest".into());
     }
     let root = extensions_root().join(id);
+    // Creation must never follow an existing pack directory redirect.
+    if root.exists() {
+        validate_pack_root(id)?;
+    }
     private_dir(&root)?;
     let manifest_path = root.join("manifest.json");
     if !manifest_path.is_file() {
@@ -952,23 +1016,16 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
         write_private_file(&manifest_path, &format!("{text}\n"))?;
     }
     invalidate_extension_caches();
-    // Mandate 42: safe - the manifest for `id` was just written above (or
-    // already existed), and list_packs() reads that same directory
-    // synchronously with no intervening mutation, so `id` is guaranteed to
-    // be present in its output.
-    Ok(list_packs()
+    list_packs()
         .into_iter()
         .find(|p| p.id == id)
-        .expect("created pack must appear in list"))
+        .ok_or_else(|| format!("pack `{id}` has an invalid manifest"))
 }
 
 /// Load (activate + mark loaded) a pack. Seeds `default` if needed.
-#[allow(clippy::expect_used)]
 pub fn load_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
-    if id.is_empty() {
-        return Err("pack id must not be empty".into());
-    }
+    validate_pack_id(id)?;
     ensure_extensions_substrate()?;
     if id == DEFAULT_PACK_ID {
         seed_default_pack()?;
@@ -980,12 +1037,7 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
             extensions_root().display()
         ));
     }
-    let manifest = manifest_for(id);
-    if let Err(e) = validate_manifest(&manifest) {
-        // Optional / third-party packs must not brick the substrate: refuse
-        // this pack only, leave active pack unchanged.
-        return Err(format!("pack `{id}` rejected: {e}"));
-    }
+    let manifest = manifest_for(id).map_err(|e| format!("pack `{id}` rejected: {e}"))?;
     let mut state = read_state()?;
     let digests = match verify_pack_integrity(&root, &manifest, &state) {
         Ok(digests) => digests,
@@ -1011,14 +1063,10 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
     state.active = id.to_string();
     write_state(&state)?;
     invalidate_extension_caches();
-    // Mandate 42: safe - the early return above already guarantees
-    // `root.join("manifest.json")` exists for `id` before this point, and
-    // list_packs() reads that same directory synchronously with no
-    // intervening mutation, so `id` is guaranteed to be present in its output.
-    Ok(list_packs()
+    list_packs()
         .into_iter()
         .find(|p| p.id == id)
-        .expect("loaded pack must appear in list"))
+        .ok_or_else(|| format!("pack `{id}` no longer has a valid manifest"))
 }
 
 /// Explicitly re-admit a quarantined pack after its files have been inspected.
@@ -1026,20 +1074,15 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
 /// quarantine or rotates a pinned signer.
 pub fn readmit_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
-    if id.is_empty() {
-        return Err("pack id must not be empty".into());
-    }
+    validate_pack_id(id)?;
     ensure_extensions_substrate()?;
     let root = extensions_root().join(id);
-    let manifest = manifest_for(id);
-    validate_manifest(&manifest).map_err(|e| format!("pack `{id}` rejected: {e}"))?;
-    let digests = artifact_digests(&root, &manifest)?;
-    for (logical, rel) in &manifest.files {
-        let bytes = std::fs::read(root.join(rel))
-            .map_err(|e| format!("pack `{id}` artifact `{logical}` is unavailable: {e}"))?;
-        verify_signature(&manifest, logical, &bytes)?;
-    }
+    let manifest = manifest_for(id)?;
     let mut state = read_state()?;
+    state.trusted_digests.remove(id);
+    state.trusted_signers.remove(id);
+    state.quarantined.remove(id);
+    let digests = verify_pack_integrity(&root, &manifest, &state)?;
     state.trusted_digests.insert(id.to_string(), digests);
     if let Some(signer) = manifest.signer {
         state.trusted_signers.insert(id.to_string(), signer);
@@ -1056,9 +1099,7 @@ pub fn readmit_pack(id: &str) -> Result<PackStatus, String> {
 /// falls back to seeded `default` still loaded.
 pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
-    if id.is_empty() {
-        return Err("pack id must not be empty".into());
-    }
+    validate_pack_id(id)?;
     ensure_extensions_substrate()?;
     let mut state = read_state()?;
     state.loaded.retain(|x| x != id);
@@ -1095,18 +1136,7 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
 /// Resolve the active pack (auto-seeds substrate first).
 pub fn active_pack() -> ExtensionPack {
     match ensure_extensions_substrate() {
-        Ok(pack) => {
-            if let Ok(forced) = std::env::var("SUSI_EXTENSION_PACK") {
-                let forced = forced.trim();
-                if !forced.is_empty() {
-                    return ExtensionPack {
-                        id: forced.to_string(),
-                        root: extensions_root().join(forced),
-                    };
-                }
-            }
-            pack
-        }
+        Ok(pack) => pack,
         Err(_) => ExtensionPack {
             id: DEFAULT_PACK_ID.to_string(),
             root: extensions_root().join(DEFAULT_PACK_ID),
@@ -1116,62 +1146,52 @@ pub fn active_pack() -> ExtensionPack {
 
 /// Host pack file path when present and readable as a file.
 pub fn pack_file(name: &str) -> Option<PathBuf> {
-    let _ = ensure_extensions_substrate();
-    let pack = active_pack();
-    let mut state = read_state().ok()?;
-    let manifest = manifest_for(&pack.id);
-    if validate_manifest(&manifest).is_err() {
-        return None;
-    }
-    if let Err(reason) = verify_pack_integrity(&pack.root, &manifest, &state) {
-        state
-            .quarantined
-            .entry(pack.id.clone())
-            .or_default()
-            .insert("pack".to_string(), reason);
-        let _ = write_state(&state);
-        return None;
-    }
-    resolve_pack_path(&pack, name)
+    verified_pack_file(name).map(|(path, _)| path)
 }
 
-pub(crate) fn resolve_pack_path(pack: &ExtensionPack, name: &str) -> Option<PathBuf> {
-    // Runtime jail (defense in depth with validate_manifest): logical names and
-    // `files` targets stay inside the pack root unless the manifest declares
-    // `filesystem.read`.
-    if !path_escapes_pack_root(name) {
-        let direct = pack.root.join(name);
-        if direct.is_file() {
-            return Some(direct);
-        }
-    }
-    let manifest = manifest_for(&pack.id);
-    if let Some(rel) = manifest.files.get(name).map(|s| s.as_str()) {
-        let escapes = path_escapes_pack_root(rel);
-        let can_read_outside = manifest.permissions.iter().any(|p| p == "filesystem.read");
-        if Path::new(rel).is_absolute() || (escapes && !can_read_outside) {
-            eprintln!(
-                "[extensions] pack `{}` denied `{name}` (`{rel}` escapes pack root without `filesystem.read`)",
-                pack.id
-            );
+fn verified_pack_file(name: &str) -> Option<(PathBuf, String)> {
+    let pack = active_pack();
+    let mut state = read_state().ok()?;
+    let manifest = manifest_for(&pack.id).ok()?;
+    let digests = match verify_pack_integrity(&pack.root, &manifest, &state) {
+        Ok(digests) => digests,
+        Err(reason) => {
+            state
+                .quarantined
+                .entry(pack.id.clone())
+                .or_default()
+                .insert("pack".to_string(), reason);
+            let _ = write_state(&state);
             return None;
         }
-        let mapped = pack.root.join(rel);
-        if mapped.is_file() {
-            return Some(mapped);
-        }
-    }
-    None
+    };
+    let path = resolve_pack_path(&pack, &manifest, name)?;
+    Some((path, digests.get(name)?.clone()))
+}
+
+pub(crate) fn resolve_pack_path(
+    pack: &ExtensionPack,
+    manifest: &ExtensionManifest,
+    name: &str,
+) -> Option<PathBuf> {
+    let rel = manifest.files.get(name)?;
+    declared_path(
+        &pack.root,
+        rel,
+        manifest.permissions.iter().any(|p| p == "filesystem.read"),
+    )
+    .ok()
 }
 
 /// Load JSON from the host pack file when present; otherwise parse `bundled`.
 #[allow(clippy::panic)]
 pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &str) -> T {
-    let _ = ensure_extensions_substrate();
-    if let Some(path) = pack_file(pack_relative) {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            if let Ok(value) = serde_json::from_str(&text) {
-                return value;
+    if let Some((path, expected)) = verified_pack_file(pack_relative) {
+        if let Ok(bytes) = std::fs::read(path) {
+            if sha256_digest(&bytes) == expected {
+                if let Ok(value) = serde_json::from_slice(&bytes) {
+                    return value;
+                }
             }
         }
     }
@@ -1196,41 +1216,45 @@ pub fn bundled_manifest() -> ExtensionManifest {
         .expect("bundled config/extensions/default/manifest.json must be valid JSON")
 }
 
-/// Manifest for a pack id: host file wins, else bundled default when id is `default`.
-pub fn manifest_for(pack_id: &str) -> ExtensionManifest {
-    let root = extensions_root().join(pack_id);
-    let host = root.join("manifest.json");
-    if host.is_file() {
-        if let Ok(text) = std::fs::read_to_string(&host) {
-            if let Ok(m) = serde_json::from_str::<ExtensionManifest>(&text) {
-                return m;
-            }
-        }
+fn validate_pack_root(id: &str) -> Result<PathBuf, String> {
+    validate_pack_id(id)?;
+    let base = extensions_root()
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let root = base.join(id);
+    if !root.is_dir() || root.canonicalize().map_err(|e| e.to_string())? != root {
+        return Err(format!(
+            "pack directory for `{id}` is not a direct physical directory"
+        ));
     }
-    if pack_id == DEFAULT_PACK_ID {
-        return bundled_manifest();
+    Ok(root)
+}
+
+/// Read and validate the manifest actually present under this pack identity.
+pub fn manifest_for(pack_id: &str) -> Result<ExtensionManifest, String> {
+    let root = validate_pack_root(pack_id)?;
+    let file = declared_path(&root, "manifest.json", false)?;
+    let bytes =
+        std::fs::read(file).map_err(|e| format!("cannot read pack `{pack_id}` manifest: {e}"))?;
+    let manifest: ExtensionManifest = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("invalid manifest for `{pack_id}`: {e}"))?;
+    if manifest.id != pack_id {
+        return Err(format!(
+            "manifest id `{}` does not match pack directory `{pack_id}`",
+            manifest.id
+        ));
     }
-    ExtensionManifest {
-        id: pack_id.to_string(),
-        name: pack_id.to_string(),
-        version: "0.0.0".into(),
-        api_version: default_api_version(),
-        description: String::new(),
-        capabilities: Vec::new(),
-        requires: Vec::new(),
-        optional: Vec::new(),
-        permissions: Vec::new(),
-        files: Default::default(),
-        checksums: BTreeMap::new(),
-        signatures: BTreeMap::new(),
-        signer: None,
-        extra: HashMap::new(),
-    }
+    validate_manifest(&manifest)?;
+    Ok(manifest)
 }
 
 /// Cloud vendors from the active pack (host override or bundled default).
 pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
-    let _ = ensure_extensions_substrate();
+    // Third-party files and their pinned identities may change externally.
+    // Only the bundled pack uses the process-wide vendor cache.
+    if active_pack().id != DEFAULT_PACK_ID {
+        return load_json_or_bundled("cloud-vendors.json", BUNDLED_CLOUD_VENDORS);
+    }
     let generation = CACHE_GEN.load(Ordering::SeqCst);
     {
         let cache = CLOUD_VENDOR_CACHE.lock();

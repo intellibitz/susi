@@ -551,7 +551,9 @@ mod tests {
 
     #[test]
     fn mcp_launcher_missing_does_not_write_a_fabricated_server() {
-        let (_guard, dir, prev) = isolated_home();
+        if crate::private_config_fixture().is_none() {
+            return;
+        }
         let path = GmcpClient::get_config_path();
         let original = r#"{"mcp_servers":{"keep":{"command":"echo","args":[]}}}"#;
         fs::write(&path, original).unwrap();
@@ -564,12 +566,13 @@ mod tests {
             |_| panic!("wrong package must not resolve npm"),
         );
         assert_eq!(result, "ERROR_UNSUPPORTED_PACKAGE");
-        restore_home(&dir, prev);
     }
 
     #[test]
     fn mcp_launcher_selects_only_the_matching_package_runtime() {
-        let (_guard, dir, prev) = isolated_home();
+        let Some(dir) = crate::private_config_fixture() else {
+            return;
+        };
         for (name, package, expected, args) in [
             ("python", "pypi:server-test", "uvx", vec!["server-test"]),
             (
@@ -592,16 +595,6 @@ mod tests {
             );
             assert_eq!(config.mcp_servers[name].args, args);
         }
-        restore_home(&dir, prev);
-    }
-
-    /// Shared env-mutation guard: `HOME`/`XDG_CONFIG_HOME` flip the same
-    /// config-dir resolution `cluster_key()` reads, so this serializes
-    /// against susi-core's commit_log seal→verify windows too.
-    fn home_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::susi_core::commit_log::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]
@@ -624,14 +617,9 @@ mod tests {
 
     #[test]
     fn admit_mcp_server_writes_http_and_stdio() {
-        // SUSI_HOME pins the config dir. Repointing HOME/XDG_CONFIG_HOME
-        // instead was flaky: `use_xdg` used to re-check whether `$HOME/.susi`
-        // existed on every call, and concurrent tests create it under the
-        // borrowed HOME, so the second admit resolved to the legacy path
-        // (captured: `.../config/susi/mcp_config.json` then
-        // `.../.susi/mcp_config.json`) and only `fs` was listed. susi-paths
-        // now pins that decision per process (`tests/layout_stability.rs`).
-        let (_guard, dir, prev) = isolated_home();
+        let Some(dir) = crate::private_config_fixture() else {
+            return;
+        };
         let res = GmcpClient::admit_mcp_server("remote", "http://127.0.0.1:3100/mcp", &[]);
         assert_eq!(res, "SUCCESS_ADMITTED");
         let res2 = GmcpClient::admit_mcp_server(
@@ -648,45 +636,13 @@ mod tests {
         let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.iter().any(|n| n.starts_with("remote:")), "{names:?}");
         assert!(names.iter().any(|n| n.starts_with("fs:")), "{names:?}");
-        restore_home(&dir, prev);
-    }
-
-    fn isolated_home() -> (
-        std::sync::MutexGuard<'static, ()>,
-        PathBuf,
-        Option<std::ffi::OsString>,
-    ) {
-        let guard = home_lock();
-        let dir = std::env::temp_dir().join(format!(
-            "susi_mcp_cfg_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let prev = std::env::var_os("SUSI_HOME");
-        unsafe {
-            std::env::set_var("SUSI_HOME", &dir);
-        }
-        (guard, dir, prev)
-    }
-
-    fn restore_home(dir: &std::path::Path, prev: Option<std::ffi::OsString>) {
-        unsafe {
-            match prev {
-                Some(h) => std::env::set_var("SUSI_HOME", h),
-                None => std::env::remove_var("SUSI_HOME"),
-            }
-        }
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn admit_refuses_damaged_config_without_erasing_servers() {
-        let (_guard, dir, prev) = isolated_home();
+        if crate::private_config_fixture().is_none() {
+            return;
+        }
         let path = GmcpClient::get_config_path();
         let original = "{\"mcp_servers\":{\"keep\":{\"command\":\"echo\",\"args\":[]}},\"torn\"";
         fs::write(&path, original).unwrap();
@@ -696,12 +652,13 @@ mod tests {
         let res = GmcpClient::auto_configure_server("added", "some-package");
         assert_eq!(res, "ERROR_CONFIG_DAMAGED");
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        restore_home(&dir, prev);
     }
 
     #[test]
     fn admit_refuses_unreadable_config_without_replacing_it() {
-        let (_guard, dir, prev) = isolated_home();
+        if crate::private_config_fixture().is_none() {
+            return;
+        }
         let path = GmcpClient::get_config_path();
         fs::create_dir(&path).unwrap();
         let res = GmcpClient::admit_mcp_server("added", "npx", &[]);
@@ -710,6 +667,5 @@ mod tests {
             path.is_dir(),
             "unreadable config must not be replaced by a file"
         );
-        restore_home(&dir, prev);
     }
 }

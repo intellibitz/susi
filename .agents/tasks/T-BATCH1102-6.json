@@ -1,0 +1,21 @@
+{
+  "id": "T-BATCH1102-6",
+  "title": "Read the active provider catalog once per endpoint registration pass",
+  "goal": "Reduce measured startup time while preserving configured URLs, aliases, key precedence, privacy checks, and visibility of extension changes on subsequent passes.",
+  "size": "s",
+  "deps": [],
+  "scopes": ["crates/susi-vendor-models/src/cloud.rs", "crates/susi-gemi/src/engines/http_provider.rs", ".agents/tasks/T-BATCH1102-6.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-vendor-models", "--lib", "cloud::tests"]},
+  "created_by": "BATCH1102",
+  "receipt": {
+    "scope": "Isolated Windows invocation of the actual provider registration function. Each child had a private home, no real provider credentials, and an empty provider result.",
+    "fresh_phase_ms_before": [1616, 1502, 2067, 1605, 1708],
+    "fresh_phase_ms_after": [2065, 1354, 1276, 1345, 1294],
+    "seeded_phase_ms_before": [1131, 437, 455, 475],
+    "seeded_phase_ms_after": [359, 364, 327, 384],
+    "focused_vendor_tests_passed": 11,
+    "strict_clippy_packages": ["susi-vendor-models", "susi-gemi"],
+    "verified_behavior": "Provider aliases, per-provider URL isolation, saved-file lookup, current process precedence and updates between passes."
+  },
+  "created_unix": 1793621977
+}
