@@ -104,24 +104,25 @@ fn main() -> std::process::ExitCode {
 mod tests {
     use super::*;
     #[test]
-    fn requires_exact_verified_current_id() {
+    fn requires_exact_verified_current_id() -> Result<()> {
         let id = "a".repeat(64);
         let report = format!("refs/susi/releases/current: {id} directory with spaces/susi.exe\n");
         assert_eq!(
-            qualified_path(&report, &id).unwrap(),
+            qualified_path(&report, &id)?,
             PathBuf::from("directory with spaces/susi.exe")
         );
         assert!(qualified_path(&report, &"b".repeat(64)).is_err());
         assert!(qualified_path(&report, "../escape").is_err());
         assert!(qualified_path(&report.replace("current", "previous"), &id).is_err());
+        Ok(())
     }
 
     #[cfg(windows)]
     #[test]
-    fn isolated_installed_upgrade() {
+    fn isolated_installed_upgrade() -> Result<()> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .unwrap()
+            .ok_or("missing repository root")?
             .to_owned();
         assert!(Command::new("powershell.exe")
             .current_dir(root)
@@ -133,8 +134,8 @@ mod tests {
                 "-File",
                 "scripts/test-qualified-upgrade.ps1"
             ])
-            .status()
-            .unwrap()
+            .status()?
             .success());
+        Ok(())
     }
 }
