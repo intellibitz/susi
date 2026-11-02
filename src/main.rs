@@ -261,6 +261,9 @@ fn run() -> std::process::ExitCode {
     // probing catalogs; non-empty piped goals take the same real mission path.
     let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
         match read_stdin_bounded() {
+            Ok(Some(goal)) if matches!(goal.as_str(), "exit" | "quit") => {
+                return std::process::ExitCode::SUCCESS;
+            }
             Ok(Some(goal)) => Some(goal),
             Ok(None) => return std::process::ExitCode::SUCCESS,
             Err(error) => {
