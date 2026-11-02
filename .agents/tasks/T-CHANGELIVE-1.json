@@ -1,0 +1,13 @@
+{
+  "scope": [
+    "docs/workflow-speed.md",
+    ".agents/tasks/T-CHANGELIVE-1.json"
+  ],
+  "acceptance": "Measure elapsed time from real source change to observed changed behavior through installed production, with qualification, health and rollback gates preserved.",
+  "id": "T-CHANGELIVE-1",
+  "status": "open",
+  "dependencies": [
+    "launcher owner for installed production observation",
+    "qualified combined tree"
+  ]
+}
