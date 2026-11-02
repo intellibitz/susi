@@ -309,8 +309,8 @@ impl Drop for Files {
             "helper.pdb",
             "helper.dll.lib",
             "helper.dll.exp",
-            "helper.so",
-            "helper.dylib",
+            "libhelper.so",
+            "libhelper.dylib",
             "consumer.rmeta",
             "version.txt",
         ] {
@@ -386,9 +386,9 @@ impl Broker {
         let library = files.path(if cfg!(windows) {
             "helper.dll"
         } else if cfg!(target_os = "macos") {
-            "helper.dylib"
+            "libhelper.dylib"
         } else {
-            "helper.so"
+            "libhelper.so"
         });
         let mut child = command(compiler, &files.directory)
             .args([

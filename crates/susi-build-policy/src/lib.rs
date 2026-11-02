@@ -1,8 +1,12 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 //! Regression gates for standalone platform adapters excluded from the workspace.
 use std::io;
 use std::path::Path;
 
-pub(crate) fn include_release_tooling(root: &Path, gates: &mut [Vec<String>]) {
+/// Include native release-tooling tests in complete workspace acceptance.
+pub fn include_release_tooling(root: &Path, gates: &mut [Vec<String>]) {
     if !root.join("crates/susi-core/Cargo.toml").is_file() {
         return;
     }
@@ -22,7 +26,8 @@ pub(crate) fn include_release_tooling(root: &Path, gates: &mut [Vec<String>]) {
     }
 }
 
-pub(crate) fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec<Vec<String>>> {
+/// Generate offline regression commands for every required local platform adapter.
+pub fn commands(root: &Path, host: &str, target: &Path) -> io::Result<Vec<Vec<String>>> {
     // Minimal release-machinery fixtures are deliberately not the Susi product.
     // This is source identification, never a caller-controlled skip flag. A
     // real product missing this core manifest also fails its workspace build.

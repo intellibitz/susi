@@ -1,18 +1,29 @@
-//! Original Susi Windows Unicode backend. No character data is distributed.
-//! Product-specific std: runtime Windows ICU repertoire, no Unicode const API.
+//! Original Susi native Unicode backend. No character data is distributed.
+//! Product-specific std: runtime OS ICU repertoire, no Unicode const API.
 #![allow(missing_docs)]
 #![deny(unsafe_code)]
 
 // Builder pins the OS repertoire and qualification proves this exact version.
+#[cfg(windows)]
 pub const UNICODE_VERSION: (u8, u8, u8) = (15, 1, 0);
+#[cfg(target_os = "linux")]
+pub const UNICODE_VERSION: (u8, u8, u8) = (16, 0, 0);
 
-#[link(name = "icu", kind = "raw-dylib")]
-// SAFETY: signatures match the Windows SDK ICU C ABI; only OS DLL imports.
+#[cfg_attr(windows, link(name = "icu", kind = "raw-dylib"))]
+#[cfg_attr(
+    target_os = "linux",
+    link(name = "libicuuc.so.76", kind = "dylib", modifiers = "+verbatim")
+)]
+// SAFETY: signatures match the ICU 76 / Windows SDK C ABI; only OS DLL imports.
 #[allow(unsafe_code)]
 unsafe extern "C" {
+    #[cfg_attr(target_os = "linux", link_name = "u_getUnicodeVersion_76")]
     fn u_getUnicodeVersion(version: *mut u8);
+    #[cfg_attr(target_os = "linux", link_name = "u_hasBinaryProperty_76")]
     fn u_hasBinaryProperty(c: i32, property: i32) -> i8;
+    #[cfg_attr(target_os = "linux", link_name = "u_charType_76")]
     fn u_charType(c: i32) -> i8;
+    #[cfg_attr(target_os = "linux", link_name = "u_strToLower_76")]
     fn u_strToLower(
         dst: *mut u16,
         capacity: i32,
@@ -21,6 +32,7 @@ unsafe extern "C" {
         locale: *const u8,
         error: *mut i32,
     ) -> i32;
+    #[cfg_attr(target_os = "linux", link_name = "u_strToUpper_76")]
     fn u_strToUpper(
         dst: *mut u16,
         capacity: i32,
@@ -29,6 +41,7 @@ unsafe extern "C" {
         locale: *const u8,
         error: *mut i32,
     ) -> i32;
+    #[cfg_attr(target_os = "linux", link_name = "u_strToTitle_76")]
     fn u_strToTitle(
         dst: *mut u16,
         capacity: i32,
@@ -38,6 +51,7 @@ unsafe extern "C" {
         locale: *const u8,
         error: *mut i32,
     ) -> i32;
+    #[cfg_attr(target_os = "linux", link_name = "u_strFoldCase_76")]
     fn u_strFoldCase(
         dst: *mut u16,
         capacity: i32,
@@ -59,7 +73,7 @@ fn check_version() {
         unsafe { u_getUnicodeVersion(version.as_mut_ptr()) };
         assert!(
             (version[0], version[1], version[2]) == UNICODE_VERSION,
-            "Windows Unicode repertoire changed: rebuild and requalify Susi stdlib"
+            "OS Unicode repertoire changed: rebuild and requalify Susi stdlib"
         );
         CHECKED.store(true, Ordering::Release);
     }

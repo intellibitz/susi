@@ -254,12 +254,36 @@ impl World {
             // must not force the fixture's: these tests prove the proof reuse.
             .env_remove("SUSI_GATE_NOCACHE")
             .env_remove("SUSI_GATE_SERIAL")
+            .env_remove("SUSI_FINISH_WAIT")
+            .env_remove("SUSI_FINISH_NOWAIT")
+            .env_remove("SUSI_QUEUE_DEFER")
             // So does the cargo it runs: the fixture's builds stay out of the
             // caller's target.
             .env_remove("CARGO_TARGET_DIR")
             .env("SUSI_AGENT", "WORKER");
         cmd
     }
+    // No-wait finish acknowledges a detached release worker, not completion.
+    // Observe its real remote effect before checking receipt invariants or
+    // deleting the fixture. Waiting finish tests deliberately do not use this.
+    fn await_deferred_release(&self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let claims = git(
+                &self.remote,
+                &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+            );
+            if !claims.contains("refs/claims/T-WORKER-1") {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "deferred release never completed: {claims}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     fn finish(&self, fail: bool) -> std::process::Output {
         self.finish_env(fail, &[])
     }
@@ -766,7 +790,12 @@ fn an_intervening_merge_neither_re_runs_the_gate_nor_repushes() {
     );
     // The task is closed, and the claim is handed to the merge machinery.
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
-    assert!(git(&w.work, &["ls-remote", "origin", "refs/claims/*"]).is_empty());
+    assert!(
+        git(&w.work, &["ls-remote", "origin", "refs/claims/*"]).is_empty(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
@@ -921,6 +950,7 @@ fn finish_hands_off_by_default_without_waiting() {
         "the default must not enter the wait loop: {both}"
     );
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    w.await_deferred_release();
     let claims = git(
         &w.remote,
         &["for-each-ref", "--format=%(refname)", "refs/claims/"],
@@ -1011,6 +1041,7 @@ fn finish_hands_off_immediately_with_nowait() {
     );
     assert!(output.contains("no wait"), "{output}");
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    w.await_deferred_release();
     let claims = git(
         &w.remote,
         &["for-each-ref", "--format=%(refname)", "refs/claims/"],

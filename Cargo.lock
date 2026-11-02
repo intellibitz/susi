@@ -4383,6 +4383,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-build-policy"
+version = "0.1.0"
+
+[[package]]
 name = "susi-config"
 version = "0.1.0"
 dependencies = [
@@ -4488,6 +4492,7 @@ name = "susi-gawd"
 version = "0.21.41"
 dependencies = [
  "susi-abi",
+ "susi-build-policy",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -4886,6 +4891,7 @@ name = "susi-vendor-chrome"
 version = "0.1.0"
 dependencies = [
  "susi-error",
+ "susi-vendor-sysinfo",
 ]
 
 [[package]]
@@ -6934,6 +6940,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "susi-build-policy",
  "susi-vendor-serde-json",
  "susi-vendor-sha1",
  "susi-vendor-sha2",

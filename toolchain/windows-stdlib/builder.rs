@@ -1,4 +1,4 @@
-//! Private, pinned Windows product-stdlib builder. It never edits rustup sources.
+//! Private, pinned native product-stdlib builder. It never edits rustup sources.
 #![deny(unsafe_code)]
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -9,7 +9,7 @@ use std::{
     process::{Command, Stdio},
 };
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const TARGET: &str = "x86_64-pc-windows-msvc";
+mod native_target;
 const COMMIT: &str = "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4";
 
 fn hash(bytes: &[u8]) -> String {
@@ -51,10 +51,18 @@ fn copy_tree(
 fn controlled(command: &mut Command) -> &mut Command {
     for (name, _) in std::env::vars_os() {
         let upper = name.to_string_lossy().to_ascii_uppercase();
-        if upper.starts_with("RUST")
+        if (upper.starts_with("RUST") && upper != "RUSTUP_HOME")
             || upper.starts_with("CARGO_TARGET_")
             || upper.starts_with("CARGO_BUILD_")
             || upper.starts_with("CARGO_ENCODED_")
+            || matches!(
+                upper.as_str(),
+                "LD_LIBRARY_PATH"
+                    | "LD_PRELOAD"
+                    | "LD_AUDIT"
+                    | "DYLD_LIBRARY_PATH"
+                    | "DYLD_INSERT_LIBRARIES"
+            )
         {
             command.env_remove(name);
         }
@@ -76,14 +84,27 @@ fn run() -> Result<()> {
         return Err("cannot locate installed compiler".into());
     }
     let installed = PathBuf::from(String::from_utf8(output.stdout)?.trim());
-    let compiler = installed.join("bin/rustc.exe");
-    let cargo = installed.join("bin/cargo.exe");
+    let native_host = if cfg!(windows) {
+        "x86_64-pc-windows-msvc"
+    } else {
+        "linux"
+    };
+    let compiler = installed
+        .join("bin")
+        .join(native_target::executable(native_host, "rustc"));
+    let cargo = installed
+        .join("bin")
+        .join(native_target::executable(native_host, "cargo"));
     let version = controlled(Command::new(&compiler).args(["--version", "--verbose"])).output()?;
     let version_text = String::from_utf8(version.stdout.clone())?;
+    let target = version_text
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .ok_or("missing native target")?;
     if !version.status.success()
         || !version_text.contains("release: 1.99.0\n")
         || !version_text.contains(&format!("commit-hash: {COMMIT}"))
-        || !version_text.contains(&format!("host: {TARGET}"))
+        || !native_target::supported(target)
     {
         return Err("unqualified compiler: requires pinned native Rust1.99".into());
     }
@@ -139,7 +160,7 @@ fn run() -> Result<()> {
             "-p",
             "sysroot",
             "--target",
-            TARGET,
+            target,
             "--offline",
             "--locked",
             "--features",
@@ -161,7 +182,7 @@ fn run() -> Result<()> {
             line.split_whitespace().next(),
             Some("foldhash" | "unicode-ident" | "fortanix-sgx-abi")
         ) {
-            return Err("unreviewed incompatible dependency selected for Windows sysroot".into());
+            return Err("unreviewed incompatible dependency selected for native sysroot".into());
         }
     }
     fs::write(destination.join("selected-dependencies.txt"), &graph.stdout)?;
@@ -177,7 +198,7 @@ fn run() -> Result<()> {
             "-p",
             "sysroot",
             "--target",
-            TARGET,
+            target,
             "--offline",
             "--locked",
             "--features",
@@ -194,7 +215,7 @@ fn run() -> Result<()> {
         return Err("private stdlib build failed; retained build.stderr".into());
     }
     let sysroot = destination.join("sysroot");
-    let lib = sysroot.join("lib/rustlib").join(TARGET).join("lib");
+    let lib = sysroot.join("lib/rustlib").join(target).join("lib");
     fs::create_dir_all(&lib)?;
     let mut artifacts = Vec::new();
     for line in fs::read_to_string(destination.join("build-artifacts.jsonl"))?.lines() {
@@ -206,7 +227,7 @@ fn run() -> Result<()> {
             for file in files {
                 let path = PathBuf::from(file.as_str().ok_or("invalid compiler artifact path")?);
                 if path.extension().is_some_and(|s| s == "rlib")
-                    && path.starts_with(build.join(TARGET))
+                    && path.starts_with(build.join(target))
                 {
                     let name = path.file_name().ok_or("artifact has no filename")?;
                     let bytes = fs::read(&path)?;
@@ -221,12 +242,12 @@ fn run() -> Result<()> {
     }
     let receipt = json!({
         "schema": "susi/product-stdlib-prototype/v1", "status": "requires-qualification",
-        "target": TARGET, "compiler_commit": COMMIT, "compiler_vV_sha256": hash(&version.stdout),
+        "target": target, "compiler_commit": COMMIT, "compiler_vV_sha256": hash(&version.stdout),
         "upstream_notice_sha256": hash(&copyright), "unicode_replacement_sha256": hash(replacement),
         "original_sources_manifest_sha256": hash(&fs::read(destination.join("original-sources.json"))?),
         "selected_dependencies_sha256": hash(&graph.stdout),
         "builder_source_sha256": hash(include_bytes!("builder.rs")),
-        "char_methods_sha256": hash(text.as_bytes()), "os_unicode_version": [15,1,0],
+        "char_methods_sha256": hash(text.as_bytes()), "os_unicode_version": if target.contains("linux") { [16,0,0] } else { [15,1,0] },
         "removed_const_apis": ["char::is_lowercase", "char::is_uppercase", "char::is_whitespace"],
         "artifacts": artifacts,
         "limitations": ["not a general standard-library compatibility promise", "production source/link/behavior/license admission remains mandatory"]

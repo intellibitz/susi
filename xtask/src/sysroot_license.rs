@@ -69,8 +69,11 @@ pub(crate) fn qualify(
     target: &str,
     compiler: &str,
 ) -> super::Result<super::trusted_sysroot::VerifiedSysroot> {
-    if target != "x86_64-pc-windows-msvc" {
-        return Err("no reviewed custom sysroot for this target".into());
+    if !compiler
+        .lines()
+        .any(|line| line == format!("host: {target}"))
+    {
+        return Err("sysroot qualification requires the native compiler target".into());
     }
     let verified = super::trusted_sysroot::prepare(candidate)?;
     if verified.evidence["compiler"] != compiler {
