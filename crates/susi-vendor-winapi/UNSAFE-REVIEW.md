@@ -1,6 +1,6 @@
 # Native detached process boundary
 
-The original Apache-2.0 `detached::spawn` safe wrapper is the only first-party
+The original Apache-2.0 `detached::spawn` safe wrapper is a first-party
 unsafe allowance in this facade. The crate denies unsafe code by default.
 The caller in `susi-gawd` retains `forbid(unsafe_code)`.
 
@@ -56,3 +56,21 @@ blocks, not just the seven Windows/POD operations. No ratchet baseline changed.
 
 Reviewed `src/detached.rs` SHA-256 (UTF-8, LF):
 `3aa44740bf998a5b7191a3b4169881407e38df6e0c4b7a6987705a7f0c7a4f6e`.
+
+## Immutable compiler namespace
+
+The two additional, narrowly scoped Windows ABI calls in sealed_directory.rs
+set and read back a protected DACL on a newly created content-addressed
+directory. The owner-rights ACE explicitly denies WRITE_DAC and WRITE_OWNER.
+The only other rights are the owner's delete right for post-use cleanup and
+world read/execute. No ACE grants child creation. The caller holds directory
+handles denying delete during the operation and anchors every ancestor.
+The trust boundary excludes administrators exercising backup, restore,
+take-ownership or kernel privileges. The DACL is never set on a checkout or
+on a caller-supplied existing directory.
+
+The isolated native cargo-geiger audit for the complete current facade recorded
+zero unsafe functions, traits, implementations or methods and 56 used unsafe
+expressions. The original detached wrapper accounted for 38. The added
+descriptor buffers are fixed-size, aligned and bounded. The caller rechecks
+the protected DACL on the same handle it retains.

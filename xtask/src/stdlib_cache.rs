@@ -8,10 +8,7 @@ use std::{
 /// Input identity and SHA-256 of an independently observed qualified build
 /// record. Unrecognized inputs build normally. A cache file or Git ref cannot
 /// add a pin. The record binds the exact archive hashes, source and notices.
-const REVIEWED: &[(&str, &str)] = &[(
-    "bc7a0653c3042f02945160c1203902f26e912dc6c7116f042b7da4b8075259ab",
-    "a274315f79f3849dc5c46dd2d83a60a7cb12c954a903a765671b017858bf314c",
-)];
+const REVIEWED: &str = include_str!("reviewed-stdlib.json");
 
 pub(super) fn publish(storage: &Path, record: &Value, nonce: u128) -> Result<String> {
     let bytes = serde_json::to_vec(record)?;
@@ -40,7 +37,8 @@ pub(super) fn publish(storage: &Path, record: &Value, nonce: u128) -> Result<Str
 }
 
 pub(super) fn lookup(storage: &Path, key: &str) -> Result<Option<(PathBuf, Value)>> {
-    lookup_reviewed(storage, key, REVIEWED)
+    let pins: Vec<(&str, &str)> = serde_json::from_str(REVIEWED)?;
+    lookup_reviewed(storage, key, &pins)
 }
 
 fn lookup_reviewed(
@@ -83,6 +81,50 @@ fn validate_identity(record: &Value, key: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+pub(super) fn namespace_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut path = dir.to_path_buf();
+    let mut dirs = vec![path.clone()];
+    for name in ["sysroot", "lib", "rustlib", TARGET, "lib"] {
+        path.push(name);
+        dirs.push(path.clone());
+    }
+    dirs
+}
+
+#[cfg(windows)]
+pub(super) fn anchor(path: &Path) -> Result<fs::File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    let file = fs::OpenOptions::new()
+        .access_mode(0x80)
+        .share_mode(3)
+        .custom_flags(0x02000000 | 0x00200000)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_dir() || meta.file_attributes() & 0x400 != 0 {
+        return Err("redirected namespace ancestor".into());
+    }
+    Ok(file)
+}
+pub(super) fn hold_namespace(dir: &Path) -> Result<Vec<fs::File>> {
+    #[cfg(windows)]
+    {
+        let mut guards = Vec::new();
+        for ancestor in dir.ancestors().skip(1) {
+            guards.push(anchor(ancestor)?);
+        }
+        for path in namespace_dirs(dir) {
+            reject_redirects(&path)?;
+            guards.push(susi_vendor_winapi::sealed_directory::hold(&path)?);
+        }
+        Ok(guards)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        Err("only the reviewed Windows filesystem namespace can be reused".into())
+    }
+}
 pub(super) fn validate_layout(dir: &Path) -> Result<()> {
     let mut parent = dir.join("sysroot");
     for name in ["lib", "rustlib", TARGET, "lib"] {
@@ -117,6 +159,11 @@ pub(super) fn store(
         for entry in fs::read_dir(source.join(&lib))? {
             let entry = entry?;
             fs::copy(entry.path(), stage.join(&lib).join(entry.file_name()))?;
+        }
+        #[cfg(windows)]
+        for subdir in namespace_dirs(&stage).into_iter().rev() {
+            reject_redirects(&subdir)?;
+            susi_vendor_winapi::sealed_directory::seal_new(&subdir)?;
         }
         if artifacts(&stage)? != *inventory {
             return Err("stdlib changed during cache publication".into());
@@ -167,7 +214,7 @@ mod tests {
         let record = json!({"schema":"susi/executed-sysroot/v3","identity":key,"object":object,"artifacts":expected});
         let dir = storage.join("objects").join(&object);
         fs::write(
-            dir.join("executed-record.json"),
+            storage.join("executed-record.json"),
             serde_json::to_vec(&record).unwrap(),
         )
         .unwrap();
@@ -194,14 +241,27 @@ mod tests {
         assert!(lookup_reviewed(&storage, &key, &pins).is_err());
         fs::write(&trusted_record, original).unwrap();
         let extra = dir.join("sysroot/lib/unapproved");
-        fs::write(&extra, b"extra").unwrap();
-        assert!(lookup_reviewed(&storage, &key, &pins).is_err());
-        fs::remove_file(extra).unwrap();
+        #[cfg(windows)]
+        {
+            let live = hold_namespace(&dir).unwrap();
+            assert_eq!(
+                fs::write(&extra, b"extra").unwrap_err().kind(),
+                std::io::ErrorKind::PermissionDenied
+            );
+            assert!(fs::rename(dir.parent().unwrap(), storage.join("swapped")).is_err());
+            drop(live);
+        }
+        #[cfg(not(windows))]
+        {
+            fs::write(&extra, b"extra").unwrap();
+            assert!(lookup_reviewed(&storage, &key, &pins).is_err());
+            fs::remove_file(extra).unwrap();
+        }
         fs::write(dir.join(&lib).join("lib0.rlib"), b"replacement").unwrap();
         let mut forged = record.clone();
         forged["artifacts"] = artifacts(&dir).unwrap();
         fs::write(
-            dir.join("executed-record.json"),
+            storage.join("executed-record.json"),
             serde_json::to_vec(&forged).unwrap(),
         )
         .unwrap();

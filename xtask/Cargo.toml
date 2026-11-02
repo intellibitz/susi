@@ -29,3 +29,6 @@ susi-windows-runtime = { path = "../crates/susi-windows-runtime" }
 [[bin]]
 name = "susi-dev"
 path = "src/bin/susi-dev.rs"
+
+[target.'cfg(windows)'.dependencies.susi-vendor-winapi]
+path = "../crates/susi-vendor-winapi"

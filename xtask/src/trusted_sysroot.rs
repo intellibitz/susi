@@ -29,6 +29,29 @@ fn git(root: &Path, args: &[&str]) -> Result<String> {
 fn hash_file(path: &Path) -> Result<String> {
     Ok(super::sysroot_sources::hash(&fs::read(path)?))
 }
+/// Use the shared scrubber on a non-tool carrier. The selected executables
+/// below are already absolute, so rediscovery through a PATH proxy is unnecessary.
+fn bind(command: &mut Command, installed: &Path) -> Result<()> {
+    let mut policy = Command::new("stdlib-policy");
+    super::compiler_env::apply(&mut policy);
+    for (key, value) in policy.get_envs() {
+        if let Some(value) = value {
+            command.env(key, value);
+        } else {
+            command.env_remove(key);
+        }
+    }
+    let bin = installed.join("bin");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    command
+        .env(
+            "PATH",
+            std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(&path)))?,
+        )
+        .env("RUSTC", bin.join("rustc.exe"))
+        .env("RUSTDOC", bin.join("rustdoc.exe"));
+    Ok(())
+}
 fn compiler(root: &Path) -> Result<(String, PathBuf)> {
     // The platform boundary is the installed pinned toolchain, never a PATH
     // proxy. Validate the actual driver and the sysroot reported by that tool.
@@ -43,7 +66,7 @@ fn compiler(root: &Path) -> Result<(String, PathBuf)> {
     let rustc = expected.join("bin/rustc.exe");
     let checked = |args: &[&str]| -> Result<String> {
         let mut command = Command::new(&rustc);
-        super::compiler_env::apply(&mut command);
+        bind(&mut command, &expected)?;
         let output = command.current_dir(root).args(args).output()?;
         if !output.status.success() {
             return Err("pinned compiler refused identification".into());
@@ -186,6 +209,35 @@ fn identity(root: &Path, compiler: &str, installed: &Path) -> Result<(String, bo
             super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),
         ),
     ];
+    // Source, compiled policy and selected configuration are separate inputs:
+    // an older installed verifier must not approve an edited checkout.
+    for (name, compiled) in [
+        (
+            "xtask/src/trusted_sysroot.rs",
+            include_bytes!("trusted_sysroot.rs").as_slice(),
+        ),
+        (
+            "xtask/src/stdlib_cache.rs",
+            include_bytes!("stdlib_cache.rs").as_slice(),
+        ),
+        (
+            "xtask/src/compiler_env.rs",
+            include_bytes!("compiler_env.rs").as_slice(),
+        ),
+        (
+            "xtask/src/sysroot_sources.rs",
+            include_bytes!("sysroot_sources.rs").as_slice(),
+        ),
+        (
+            "crates/susi-vendor-winapi/src/sealed_directory.rs",
+            include_bytes!("../../crates/susi-vendor-winapi/src/sealed_directory.rs").as_slice(),
+        ),
+    ] {
+        if fs::read(root.join(name))? != compiled {
+            return Err("installed verifier policy differs from checkout".into());
+        }
+        inputs.push((name.into(), super::sysroot_sources::hash(compiled)));
+    }
     for input in INPUTS {
         inputs.push((
             input.to_string(),
@@ -193,6 +245,10 @@ fn identity(root: &Path, compiler: &str, installed: &Path) -> Result<(String, bo
         ));
     }
     for file in [
+        "Cargo.lock",
+        "xtask/Cargo.toml",
+        "crates/susi-vendor-winapi/Cargo.toml",
+        "crates/susi-vendor-winapi/src/lib.rs",
         "crates/susi-vendor-sha2/Cargo.toml",
         "crates/susi-vendor-sha2/src/lib.rs",
         "crates/susi-vendor-serde-json/Cargo.toml",
@@ -326,6 +382,8 @@ fn read_guard(path: &Path) -> Result<fs::File> {
 
 fn guard_source_tree(path: &Path, handles: &mut Vec<fs::File>) -> Result<()> {
     reject_redirects(path)?;
+    #[cfg(windows)]
+    handles.push(cache::anchor(path)?);
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
@@ -343,6 +401,32 @@ impl InputGuard {
     fn new(root: &Path, installed: &Path, compiler: &str) -> Result<Self> {
         let library = installed.join("lib/rustlib/src/rust/library");
         let mut files = Vec::new();
+        #[cfg(windows)]
+        {
+            let mut anchors = std::collections::BTreeSet::new();
+            let mut dirs = vec![
+                installed.join("bin"),
+                library.clone(),
+                root.join("toolchain/windows-stdlib"),
+                root.join("xtask/src"),
+                root.join("crates/susi-vendor-winapi/src"),
+                root.join("crates/susi-vendor-sha2/src"),
+                root.join("crates/susi-vendor-serde-json/src"),
+                installed.join("share/doc/rust"),
+            ];
+            for path in configs(root)? {
+                if let Some(parent) = path.parent() {
+                    dirs.push(parent.to_owned());
+                }
+            }
+            for directory in dirs {
+                for ancestor in directory.ancestors() {
+                    if ancestor.is_dir() && anchors.insert(ancestor.to_owned()) {
+                        files.push(cache::anchor(ancestor)?);
+                    }
+                }
+            }
+        }
         guard_source_tree(&library, &mut files)?;
         super::sysroot_sources::original(&library)?;
         for name in INPUTS {
@@ -369,11 +453,18 @@ impl InputGuard {
             }
         }
         for file in [
+            "Cargo.lock",
+            "xtask/Cargo.toml",
+            "crates/susi-vendor-winapi/Cargo.toml",
+            "crates/susi-vendor-winapi/src/lib.rs",
             "crates/susi-vendor-sha2/Cargo.toml",
             "crates/susi-vendor-sha2/src/lib.rs",
             "crates/susi-vendor-serde-json/Cargo.toml",
             "crates/susi-vendor-serde-json/src/lib.rs",
             "rust-toolchain.toml",
+            "xtask/src/trusted_sysroot.rs",
+            "xtask/src/stdlib_cache.rs",
+            "crates/susi-vendor-winapi/src/sealed_directory.rs",
             "xtask/src/compiler_env.rs",
             "xtask/src/sysroot_sources.rs",
         ] {
@@ -446,20 +537,11 @@ impl VerifiedSysroot {
         &self.path
     }
     pub(crate) fn apply(&self, command: &mut Command) -> Result<()> {
-        super::compiler_env::apply(command);
+        bind(command, &self.inputs.installed)?;
         let path = self.path.to_str().ok_or("nonUTF8 selected sysroot")?;
         if path.contains('\x1f') {
             return Err("invalid sysroot path".into());
         }
-        let bin = self.inputs.installed.join("bin");
-        command
-            .env("RUSTC", bin.join("rustc.exe"))
-            .env("RUSTDOC", bin.join("rustdoc.exe"));
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        command.env(
-            "PATH",
-            std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&inherited)))?,
-        );
         command.env("SUSI_VERIFIED_SYSROOT", path);
         command.env("CARGO_ENCODED_RUSTFLAGS", format!("--sysroot\x1f{path}"));
         command.env("CARGO_ENCODED_RUSTDOCFLAGS", format!("--sysroot\x1f{path}"));
@@ -520,6 +602,15 @@ fn lock_archives(destination: &Path, expected: &Value) -> Result<Vec<fs::File>> 
 
 pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
+    // This future candidate depends on the reviewed count1102 inner-Cargo
+    // binding. Never execute the older builder that can unmask a host wrapper.
+    if hash_file(&root.join("toolchain/windows-stdlib/builder.rs"))?
+        != "5bddfb882ef443e235f8b12d732db5b19aff03daa60e72450980e8fc19229860"
+        || super::sysroot_sources::hash(include_bytes!("compiler_env.rs"))
+            != "5381095c33854b1ef1c614f8bfab846429fa2ecda820ebf3e2c357e105850058"
+    {
+        return Err("stdlib candidate requires the reviewed count1102 compiler bindings".into());
+    }
     let (compiler, installed) = compiler(root)?;
     let inputs = InputGuard::new(root, &installed, &compiler)?;
     let key = inputs.key.clone();
@@ -538,7 +629,8 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     };
     if let Some((directory, mut evidence)) = hit {
         let expected = evidence["artifacts"].clone();
-        let handles = lock_archives(&directory, &expected)?;
+        let mut handles = cache::hold_namespace(&directory)?;
+        handles.extend(lock_archives(&directory, &expected)?);
         evidence["destination"] = json!(directory);
         evidence["cache_hit"] = json!(true);
         evidence["elapsed_ms"] = json!(started.elapsed().as_millis());
@@ -558,7 +650,7 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let destination = storage.join(format!("b-{nonce}"));
     let target = storage.join(format!("builder-{nonce}"));
     let mut command = Command::new(installed.join("bin/cargo.exe"));
-    super::compiler_env::apply(&mut command);
+    bind(&mut command, &installed)?;
     let status = command
         .current_dir(root)
         .args([
@@ -585,16 +677,21 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     }
     let expected = artifacts(&destination)?;
     let handles = lock_archives(&destination, &expected)?;
+    let object = cache::store(&storage, &destination, &expected, nonce)?;
+    let canonical = storage.join("objects").join(&object);
+    let mut canonical_handles = cache::hold_namespace(&canonical)?;
+    canonical_handles.extend(lock_archives(&canonical, &expected)?);
+    drop(handles);
     // The tracked builder must finish and the reviewed stable consumer must
     // execute before admission; externally supplied receipts cannot enter.
     let executable = destination.join("consumer.exe");
     let mut consumer = Command::new(installed.join("bin/rustc.exe"));
-    super::compiler_env::apply(&mut consumer);
+    bind(&mut consumer, &installed)?;
     if !consumer
         .current_dir(root)
         .arg("toolchain/windows-stdlib/consumer.rs")
         .args(["--test", "--edition", "2021", "--sysroot"])
-        .arg(destination.join("sysroot"))
+        .arg(canonical.join("sysroot"))
         .arg("-o")
         .arg(&executable)
         .status()?
@@ -612,10 +709,6 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     ] {
         evidence.insert(name.into(), json!(hash_file(&destination.join(name))?));
     }
-    let object = cache::store(&storage, &destination, &expected, nonce)?;
-    let canonical = storage.join("objects").join(&object);
-    let canonical_handles = lock_archives(&canonical, &expected)?;
-    drop(handles);
     let record = json!({"schema":"susi/executed-sysroot/v3","object":object,"cache_hit":false, "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":canonical,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked Windows OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
     fs::write(
         destination.join("executed-record.json"),
