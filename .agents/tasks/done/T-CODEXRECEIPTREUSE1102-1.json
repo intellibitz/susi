@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CODEXRECEIPTREUSE1102",
-  "created_unix": 1793604718
+  "created_unix": 1793604718,
+  "closed": {
+    "at_unix": 1793607960,
+    "commit": "88690db9330b925835d05584f8f677f3a9c89d5a",
+    "by": "CODEXRECEIPTREUSE1102"
+  }
 }
