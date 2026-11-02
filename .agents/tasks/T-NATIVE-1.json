@@ -108,7 +108,16 @@
         "exit": 0,
         "seconds": 0.662
       }
-    ]
+    ],
+    "wait_policy_regression": {
+      "passed": 97,
+      "failed": 0,
+      "exit": 0,
+      "elapsed_seconds": 15.917,
+      "race_repetitions": 20,
+      "race_repetition_failures": 0,
+      "clippy": "full workspace passed on repaired diagnostic tree"
+    }
   },
-  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix. Added combined native integration with independent scope guards, anchored dependency admission, unchanged full gates, source rechecks and atomic per-agent receipts. Cargo.lock chrome sysinfo delta deliberately joins the corresponding agent manifest only in the combined candidate. Full workspace passed; separate Unicode-identifier adapter exposed missing lib prefix on Unix procedural macro filenames. Corrected Linux/macOS output and cleanup names; all five standalone adapters passed diagnostics."
+  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix. Added combined native integration with independent scope guards, anchored dependency admission, unchanged full gates, source rechecks and atomic per-agent receipts. Cargo.lock chrome sysinfo delta deliberately joins the corresponding agent manifest only in the combined candidate. Full workspace passed; separate Unicode-identifier adapter exposed missing lib prefix on Unix procedural macro filenames. Corrected Linux/macOS output and cleanup names; all five standalone adapters passed diagnostics. Subsequent exact-tree run reproduced a wait-policy race: Rust deferred claim release despite SUSI_FINISH_WAIT=1. Matched shell environment/flag precedence in Rust, added deterministic policy tests, and corrected no-wait fixtures to await acknowledged worker completion before inspecting remote effects. Original waiting regression passed 20 consecutive runs."
 }

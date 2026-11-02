@@ -437,7 +437,26 @@ fn sync_primary(root: &Path) {
 /// The default finish hands the release to GitHub and returns. `--wait` asked
 /// to stay until the run is decided, so it confirms the release itself.
 fn finish_wants_queue_defer(args: &[&str]) -> bool {
-    matches!(args.first(), Some(&"finish")) && !args.contains(&"--wait")
+    finish_defers_with_settings(
+        args,
+        std::env::var("SUSI_FINISH_WAIT").ok().as_deref(),
+        std::env::var("SUSI_FINISH_NOWAIT").ok().as_deref(),
+    )
+}
+
+fn finish_defers_with_settings(args: &[&str], wait: Option<&str>, nowait: Option<&str>) -> bool {
+    // Match the compatibility script: literal environment values first,
+    // followed by explicit flags in order. A waiting finish must observe
+    // release completion before reporting that ownership is free.
+    let mut waiting = wait == Some("1") && nowait != Some("1");
+    for arg in args {
+        match *arg {
+            "--wait" => waiting = true,
+            "--no-wait" => waiting = false,
+            _ => {}
+        }
+    }
+    matches!(args.first(), Some(&"finish")) && !waiting
 }
 
 /// `SUSI_QUEUE_DEFER=0` keeps the release in the foreground. Unset, and `1`,
@@ -698,10 +717,32 @@ mod finish_exec_guard {
 
     #[test]
     fn finish_hands_a_release_to_github_unless_it_is_waiting() {
-        assert!(finish_wants_queue_defer(&["finish", "T-A-1"]));
-        assert!(finish_wants_queue_defer(&["finish", "T-A-1", "--no-wait"]));
-        assert!(!finish_wants_queue_defer(&["finish", "T-A-1", "--wait"]));
-        assert!(!finish_wants_queue_defer(&["sync"]));
+        let finish = ["finish", "T-A-1"];
+        assert!(finish_defers_with_settings(&finish, None, None));
+        assert!(!finish_defers_with_settings(&finish, Some("1"), None));
+        assert!(finish_defers_with_settings(&finish, Some("1"), Some("1")));
+        assert!(finish_defers_with_settings(&finish, Some("true"), None));
+        assert!(finish_defers_with_settings(
+            &["finish", "T-A-1", "--no-wait"],
+            Some("1"),
+            None
+        ));
+        assert!(!finish_defers_with_settings(
+            &["finish", "T-A-1", "--wait"],
+            None,
+            Some("1")
+        ));
+        assert!(finish_defers_with_settings(
+            &["finish", "--wait", "--no-wait"],
+            None,
+            None
+        ));
+        assert!(!finish_defers_with_settings(
+            &["finish", "--no-wait", "--wait"],
+            None,
+            None
+        ));
+        assert!(!finish_defers_with_settings(&["sync"], None, None));
         let wrapper = queue_defer_wrapper_body();
         assert!(wrapper.contains("export SUSI_QUEUE_DEFER=1"));
         assert!(wrapper.contains("[ \"$1\" = \"tasks\" ] && [ \"$2\" = \"release\" ]"));
