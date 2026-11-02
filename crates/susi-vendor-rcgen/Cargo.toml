@@ -4,11 +4,12 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "Certificate encoding with rcgen and local RustCrypto RSA signing; no native-source crypto provider."
+description = "Certificate encoding with rcgen and installed platform RSA signing; no bundled native crypto source."
 
 [dependencies]
 rcgen = { version = "0.14.10", default-features = false, features = ["pem"] }
-rsa = { version = "0.9", features = ["sha2", "pem", "getrandom"] }
+platform-tls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 zeroize = "1"
 
 [lints]

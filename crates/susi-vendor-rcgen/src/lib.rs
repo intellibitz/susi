@@ -1,13 +1,9 @@
-//! Certificate encoding by rcgen with RustCrypto RSA signing.
+//! Certificate encoding by rcgen with installed platform RSA signing.
 #![forbid(unsafe_code)]
 pub use rcgen::*;
-use rsa::pkcs1::EncodeRsaPublicKey;
-use rsa::pkcs8::EncodePrivateKey;
-use rsa::rand_core::{OsRng, RngCore};
-use rsa::signature::{RandomizedSigner, SignatureEncoding};
 
 pub struct RsaSigningKey {
-    signer: rsa::pkcs1v15::SigningKey<rsa::sha2::Sha256>,
+    signer: platform_tls::native_tls::RsaSigningKey,
     public_der: Vec<u8>,
     private_pem: zeroize::Zeroizing<String>,
 }
@@ -27,35 +23,29 @@ impl PublicKeyData for RsaSigningKey {
 impl SigningKey for RsaSigningKey {
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, Error> {
         self.signer
-            .try_sign_with_rng(&mut OsRng, message)
-            .map(|signature| signature.to_vec())
+            .sign_sha256(message)
             .map_err(|_| Error::RemoteKeyError)
     }
 }
 pub fn generate_simple_self_signed(
     names: impl Into<Vec<String>>,
 ) -> Result<CertifiedKey<RsaSigningKey>, Error> {
-    let private =
-        rsa::RsaPrivateKey::new(&mut OsRng, 3072).map_err(|_| Error::KeyGenerationUnavailable)?;
-    let public_der = private
-        .to_public_key()
-        .to_pkcs1_der()
-        .map_err(|_| Error::CouldNotParseKeyPair)?
-        .as_bytes()
-        .to_vec();
-    let private_pem = private
-        .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+    let signer = platform_tls::native_tls::RsaSigningKey::generate()
+        .map_err(|_| Error::KeyGenerationUnavailable)?;
+    let public_der = signer
+        .public_key_der()
+        .map_err(|_| Error::CouldNotParseKeyPair)?;
+    let private_pem = signer
+        .private_key_pem()
         .map_err(|_| Error::CouldNotParseKeyPair)?;
     let signing_key = RsaSigningKey {
-        signer: rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new(private),
+        signer,
         public_der,
         private_pem,
     };
     let mut parameters = CertificateParams::new(names)?;
     let mut serial = [0u8; 20];
-    OsRng
-        .try_fill_bytes(&mut serial)
-        .map_err(|_| Error::KeyGenerationUnavailable)?;
+    getrandom::fill(&mut serial).map_err(|_| Error::KeyGenerationUnavailable)?;
     serial[0] &= 0x7f;
     serial[0] |= 1;
     parameters.serial_number = Some(SerialNumber::from_slice(&serial));
