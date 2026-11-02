@@ -572,11 +572,11 @@ fn verify_pinned_ledger_inner(
         pinned.insert(doc.document.clone(), (path, doc.sha256.clone()));
     }
 
-    let mut texts: BTreeMap<String, String> = BTreeMap::new();
+    let mut texts = BTreeMap::new();
     for (document, (path, _)) in &pinned {
         let text = std::fs::read_to_string(path)
             .map_err(|e| EaiError::io(format!("read {document}: {e}")))?;
-        texts.insert(document.clone(), text);
+        texts.insert(document, (text, 0usize));
     }
 
     let mut ids: BTreeSet<&str> = BTreeSet::new();
@@ -660,8 +660,19 @@ fn verify_pinned_ledger_inner(
                 row.id, row.source.document
             )));
         }
-        let text = texts.get(&row.source.document).map_or("", String::as_str);
-        if !text.contains(&row.clause) {
+        // Generated rows follow source order. Resume after the previous match,
+        // but accept any verbatim occurrence for reordered or overlapping rows.
+        let found = texts
+            .get_mut(&row.source.document)
+            .and_then(|(text, next)| {
+                let start = text[*next..]
+                    .find(&row.clause)
+                    .map(|offset| *next + offset)
+                    .or_else(|| text.find(&row.clause))?;
+                *next = start + row.clause.len();
+                Some(())
+            });
+        if found.is_none() {
             return Err(EaiError::config(format!(
                 "{}: clause is not verbatim in {}",
                 row.id, row.source.document
