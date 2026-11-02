@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CODEXEXACTQUALIFIEDUPGRADE",
-  "created_unix": 1793604724
+  "created_unix": 1793604724,
+  "closed": {
+    "at_unix": 1793606070,
+    "commit": "368e6487700ad24f4714c92f5c003c6b7826011b",
+    "by": "CODEXEXACTQUALIFIEDUPGRADE"
+  }
 }
