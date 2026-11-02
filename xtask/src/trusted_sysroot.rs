@@ -213,6 +213,10 @@ fn identity(root: &Path, compiler: &str, installed: &Path) -> Result<(String, bo
     // an older installed verifier must not approve an edited checkout.
     for (name, compiled) in [
         (
+            "xtask/src/rust-src-1.99.0-authenticated.json",
+            include_bytes!("rust-src-1.99.0-authenticated.json").as_slice(),
+        ),
+        (
             "xtask/src/trusted_sysroot.rs",
             include_bytes!("trusted_sysroot.rs").as_slice(),
         ),
@@ -452,6 +456,15 @@ impl InputGuard {
                 files.push(read_guard(&path)?);
             }
         }
+        files.push(read_guard(&root.join("xtask/src/reviewed-stdlib.json"))?);
+        files.push(read_guard(
+            &root.join("xtask/src/rust-src-1.99.0-authenticated.json"),
+        )?);
+        if fs::read(root.join("xtask/src/reviewed-stdlib.json"))?
+            != include_bytes!("reviewed-stdlib.json")
+        {
+            return Err("approval set changed before its read handle was acquired".into());
+        }
         for file in [
             "Cargo.lock",
             "xtask/Cargo.toml",
@@ -602,8 +615,12 @@ fn lock_archives(destination: &Path, expected: &Value) -> Result<Vec<fs::File>> 
 
 pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
-    // This future candidate depends on the reviewed count1102 inner-Cargo
-    // binding. Never execute the older builder that can unmask a host wrapper.
+    if fs::read(root.join("xtask/src/reviewed-stdlib.json"))?
+        != include_bytes!("reviewed-stdlib.json")
+    {
+        return Err("installed stdlib approval set differs from checkout".into());
+    } // This future candidate depends on the reviewed count1102 inner-Cargo
+      // binding. Never execute the older builder that can unmask a host wrapper.
     if hash_file(&root.join("toolchain/windows-stdlib/builder.rs"))?
         != "5bddfb882ef443e235f8b12d732db5b19aff03daa60e72450980e8fc19229860"
         || super::sysroot_sources::hash(include_bytes!("compiler_env.rs"))
