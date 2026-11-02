@@ -1,0 +1,18 @@
+
+running 1 test
+test layer_matrix_forbidden_edges ... FAILED
+
+failures:
+
+---- layer_matrix_forbidden_edges stdout ----
+
+thread 'layer_matrix_forbidden_edges' (2796543) panicked at /workspace/susi-release-gates-driver-agent-unsafe-complete/tests/architecture_tests.rs:654:9:
+susi-unsafe-ratchet must use only parser/serialization/hash dependencies, found susi-http-transport
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layer_matrix_forbidden_edges
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.00s
+

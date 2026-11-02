@@ -173,3 +173,31 @@ combined Candle supplements without rewriting their historical conclusions.
 No product code changed after the tested c3877f873 implementation; this final
 commit contains baseline/review/task documentation only. Native full combined
 acceptance and immutable production gates must still run before promotion.
+
+## Combined architecture qualification repair
+
+Native A-04 reached real tests and failed the architecture rank check:
+`susi-unsafe-ratchet` still declared rank 0 despite depending on the rank-0
+parser implementation. It now declares the minimal valid rank 1; the global
+strictly-downward comparison is unchanged and neither crate receives an
+exception. The existing layer-matrix test additionally restricts the scanner
+to its parser/serialization/hash dependencies, preventing rank-0 HTTP/SDK or
+arbitrary pure-facade imports. ARCHITECTURE.md documents the actual boundary
+and GAWD's dev-only caller. The claim/task scopes were extended natively from
+a clean worker before changing the architecture test and document.
+
+All **36 existing architecture tests passed**, exit 0 in **0.543043 s**,
+against actual combined A-04 source `d88ae7939eba14e963e610918e4115ac3274352a`
+using the owned changed test source. Pinned rustc 1.99.0, edition 2021,
+CARGO_MANIFEST_DIR and the audited native sysroot are recorded with actual
+core/serde facade library and host derive input hashes. Compilation exited 0
+in **0.805288 s**. An initial mistaken attempt without those libraries failed
+compilation and executed zero tests; no missing dependency was stubbed or test
+removed. A private manifest counterexample adds HTTP at rank 0: the unchanged
+downward rule passes, while the new offline-tool boundary correctly rejects
+it. The real failed candidate was never edited.
+
+`cargo fmt --all -- --check` passed in **3.559070 s**. Product code, unsafe
+baseline and pinned v3 binaries remain unchanged. Full native combined
+integration is still required; this focused repair does not claim release
+qualification. Detailed receipts are under `architecture-repair/`.

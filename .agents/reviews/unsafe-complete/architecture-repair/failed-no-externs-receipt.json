@@ -1,0 +1,34 @@
+{
+  "source_commit": "d88ae7939eba14e963e610918e4115ac3274352a",
+  "source_tree": "10def2340f471f01b35891fd70253e593f9550d4",
+  "test_source": "/workspace/susi-release-gates-driver-agent-unsafe-complete/tests/architecture_tests.rs",
+  "test_source_sha256": "77178f345bcafceff73f81ed284fe59560bae84d418ec504135141e2f0d6127d",
+  "CARGO_MANIFEST_DIR": "/workspace/susi-verify-1793645653096042135-2383919",
+  "rustc": "/workspace/.susi-rustup/toolchains/1.99.0-x86_64-unknown-linux-gnu/bin/rustc",
+  "rustc_sha256": "f3834d26669b03f6855fa54bd2381443123e860167bc0c7a8dd137e5cf6e5e4f",
+  "rustc_version_exit": 0,
+  "std_only": false,
+  "external_libraries": [],
+  "steps": [
+    {
+      "argv": [
+        "/workspace/.susi-rustup/toolchains/1.99.0-x86_64-unknown-linux-gnu/bin/rustc",
+        "--edition",
+        "2024",
+        "--test",
+        "/workspace/susi-release-gates-driver-agent-unsafe-complete/tests/architecture_tests.rs",
+        "-o",
+        "/workspace/susi-release-gates-evidence/unsafe-complete/architecture-repair/architecture-tests"
+      ],
+      "exit": 1,
+      "seconds": 0.4486583719990449
+    }
+  ],
+  "attempted_without_externs": true,
+  "external_libraries_missing": [
+    "susi_core",
+    "serde_json"
+  ],
+  "executed_tests": 0,
+  "counts": []
+}
