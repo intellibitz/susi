@@ -75,7 +75,7 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
             resource,
             ttl_secs,
         } => {
-            let token = MacPolicy::global().grant(&subject, &action, &resource, ttl_secs);
+            let token = MacPolicy::global().grant(&subject, &action, &resource, ttl_secs)?;
             println!("{}", serde_json::to_string_pretty(&token)?);
         }
         PrivacyCommands::Revoke {
@@ -83,7 +83,7 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
             action,
             resource,
         } => {
-            let ok = MacPolicy::global().revoke(&subject, &action, &resource);
+            let ok = MacPolicy::global().revoke(&subject, &action, &resource)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({"revoked": ok}))?
@@ -97,7 +97,7 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
             if !egress {
                 bail!("specify --egress to authorize network egress / cloud inference consent");
             }
-            let tokens = MacPolicy::global().consent_egress(&subject, ttl_secs);
+            let tokens = MacPolicy::global().consent_egress(&subject, ttl_secs)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
