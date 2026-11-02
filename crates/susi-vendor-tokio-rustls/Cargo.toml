@@ -11,9 +11,11 @@ native-tls = { version = "0.2.18", features = ["alpn", "alpn-accept"] }
 tokio-native-tls = "0.3"
 rustls-pki-types = { version = "1", features = ["std"] }
 x509-cert = { version = "0.2", features = ["pem"] }
-rsa = "0.9"
 
 [dev-dependencies]
+pkcs1 = { version = "0.7", features = ["pem", "alloc", "pkcs8"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
+zeroize = "1"
 susi-vendor-rcgen = { path = "../susi-vendor-rcgen" }
 tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "time"] }
 

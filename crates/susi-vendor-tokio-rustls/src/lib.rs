@@ -19,27 +19,27 @@ pub fn acceptor_from_pem(cert: &[u8], key: &[u8]) -> std::io::Result<TlsAcceptor
 }
 
 fn validate_identity(cert: &[u8], key: &[u8]) -> std::io::Result<()> {
-    use rsa::pkcs1::DecodeRsaPublicKey;
-    use rsa::pkcs8::DecodePrivateKey;
     let invalid = |message| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
     let leaf = x509_cert::Certificate::load_pem_chain(cert)
         .map_err(|_| invalid("invalid certificate PEM chain"))?
         .into_iter()
         .next()
         .ok_or_else(|| invalid("empty certificate chain"))?;
-    let public = rsa::RsaPublicKey::from_pkcs1_der(
-        leaf.tbs_certificate
-            .subject_public_key_info
-            .subject_public_key
-            .as_bytes()
-            .ok_or_else(|| invalid("invalid certificate public key"))?,
-    )
-    .map_err(|_| invalid("native PKCS#8 identity requires an RSA certificate"))?;
-    let private = rsa::RsaPrivateKey::from_pkcs8_pem(
-        std::str::from_utf8(key).map_err(|_| invalid("invalid private key PEM"))?,
-    )
-    .map_err(|_| invalid("invalid RSA PKCS#8 private key"))?;
-    if private.to_public_key() != public {
+    let public_info = leaf.tbs_certificate.subject_public_key_info;
+    // DER and the explicit RSA OID identify the certificate's public key. The
+    // platform import validates private components and proves signing ability;
+    // comparing serialized n/e alone would not validate a corrupted private key.
+    if public_info.algorithm.oid.to_string() != "1.2.840.113549.1.1.1" {
+        return Err(invalid(
+            "native PKCS#8 identity requires an RSA certificate",
+        ));
+    }
+    let public = public_info
+        .subject_public_key
+        .as_bytes()
+        .ok_or_else(|| invalid("invalid certificate public key"))?;
+    let private = native_tls::RsaSigningKey::from_pkcs8(key)?;
+    if private.public_key_der()?.as_slice() != public {
         return Err(invalid("certificate and private key do not match"));
     }
     Ok(())
@@ -49,9 +49,85 @@ fn validate_identity(cert: &[u8], key: &[u8]) -> std::io::Result<()> {
 #[allow(clippy::unwrap_used)] // Test failures must identify the failing operation.
 mod tests {
     use super::*;
+    use pkcs8::der::{Decode, Encode};
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::time::Duration;
+    use zeroize::Zeroizing;
+
+    #[test]
+    fn accepts_unchanged_identity_created_by_the_accepted_rsa_implementation() {
+        let cert = include_bytes!("../tests/fixtures/accepted-rsa-cert.pem");
+        let key = include_bytes!("../tests/fixtures/accepted-rsa-key.pem");
+        assert!(acceptor_from_pem(cert, key).is_ok());
+        assert!(roundtrip(cert, key, true, "localhost"));
+    }
+
+    #[test]
+    fn platform_rsa_roundtrip_preserves_3072_bits_and_signature_integrity() {
+        let original = native_tls::RsaSigningKey::generate().unwrap();
+        let public_der = original.public_key_der().unwrap();
+        let public = pkcs1::RsaPublicKey::from_der(&public_der).unwrap();
+        assert_eq!(public.modulus.as_bytes().len(), 384);
+        assert_eq!(public.public_exponent.as_bytes(), &[1, 0, 1]);
+        let pem = original.private_key_pem().unwrap();
+        let loaded = native_tls::RsaSigningKey::from_pkcs8(pem.as_bytes()).unwrap();
+        assert_eq!(loaded.public_key_der().unwrap(), public_der);
+        let mut signature = loaded.sign_sha256(b"Susi platform key proof").unwrap();
+        original
+            .verify_sha256(b"Susi platform key proof", &signature)
+            .unwrap();
+        assert!(original
+            .verify_sha256(b"modified message", &signature)
+            .is_err());
+        signature[0] ^= 1;
+        assert!(original
+            .verify_sha256(b"Susi platform key proof", &signature)
+            .is_err());
+    }
+
+    #[test]
+    fn platform_rsa_rejects_malformed_non_rsa_and_corrupt_private_keys() {
+        assert!(native_tls::RsaSigningKey::from_pkcs8(b"malformed").is_err());
+        let original = native_tls::RsaSigningKey::generate().unwrap();
+        let pem = original.private_key_pem().unwrap();
+        let (_, document) = pkcs8::SecretDocument::from_pem(&pem).unwrap();
+        let info = pkcs8::PrivateKeyInfo::from_der(document.as_bytes()).unwrap();
+        let private = pkcs1::RsaPrivateKey::from_der(info.private_key).unwrap();
+        for field in 0..6 {
+            let mut damaged = private.clone();
+            let one = pkcs1::UintRef::new(&[1]).unwrap();
+            match field {
+                0 => damaged.private_exponent = one,
+                1 => damaged.prime1 = one,
+                2 => damaged.prime2 = one,
+                3 => damaged.exponent1 = one,
+                4 => damaged.exponent2 = one,
+                _ => damaged.coefficient = one,
+            }
+            let damaged_der = Zeroizing::new(damaged.to_der().unwrap());
+            let damaged_info = pkcs8::PrivateKeyInfo::new(pkcs1::ALGORITHM_ID, &damaged_der);
+            let damaged_document = pkcs8::SecretDocument::try_from(damaged_info).unwrap();
+            let damaged_pem = damaged_document
+                .to_pem("PRIVATE KEY", pkcs8::LineEnding::LF)
+                .unwrap();
+            assert!(
+                native_tls::RsaSigningKey::from_pkcs8(damaged_pem.as_bytes()).is_err(),
+                "corrupt private field {field} accepted"
+            );
+        }
+        let mut wrong_algorithm = info.clone();
+        wrong_algorithm.algorithm.oid = pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
+        let wrong_document = pkcs8::SecretDocument::try_from(wrong_algorithm).unwrap();
+        let wrong_pem = wrong_document
+            .to_pem("PRIVATE KEY", pkcs8::LineEnding::LF)
+            .unwrap();
+        assert!(native_tls::RsaSigningKey::from_pkcs8(wrong_pem.as_bytes()).is_err());
+        let pkcs1_pem = document
+            .to_pem("RSA PRIVATE KEY", pkcs8::LineEnding::LF)
+            .unwrap();
+        assert!(native_tls::RsaSigningKey::from_pkcs8(pkcs1_pem.as_bytes()).is_err());
+    }
 
     fn roundtrip(cert: &[u8], key: &[u8], trust: bool, host: &str) -> bool {
         let identity = native_tls::Identity::from_pkcs8(cert, key).unwrap();
