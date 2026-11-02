@@ -1,0 +1,20 @@
+{
+  "id": "T-CANDLEBYTES-1",
+  "native_worker": "candle-bytes",
+  "title": "Remove allocator-layout and partial-element memory hazards from Candle tensor byte conversion",
+  "status": "in_progress",
+  "dependencies": [],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": ["vendor/candle-core/src/safetensors.rs", "crates/susi-gemi/tests/tensor_byte_boundary.rs", ".agents/tasks/T-CANDLEBYTES-1.json"],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi", "--test", "tensor_byte_boundary"],
+    "criteria": [
+      "Typed and byte allocations retain their own allocator layouts; conversion helpers contain no unsafe pointer copies or reconstructed Vec ownership.",
+      "Malformed partial elements and shape/byte-count overflow fail before decoding, at aligned and unaligned addresses.",
+      "All numeric dtypes preserve little-endian values and serialized bit patterns; U16 conversion to U32 remains supported.",
+      "Workspace regression tests execute the actual public Tensor and alpha VarMap checkpoint save/load paths.",
+      "Full combined-tree integration, production audit, immutable qualification and private inference remain mandatory before promotion."
+    ]
+  },
+  "notes": "No new dependency, audit exception or baseline reset. CPU flash attention concerns in unowned candle-nn registry source are reviewed separately; this task does not claim they are repaired."
+}
