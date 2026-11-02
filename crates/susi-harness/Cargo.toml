@@ -1,6 +1,6 @@
 [package]
 name = "susi-harness"
-version = "0.21.43"
+version = "0.21.38"
 license = "Apache-2.0"
 edition = "2021"
 description = "Model routing, metering and budgets for fleets of coding agents: a dynamic model ladder built from the API keys in the environment, an OpenAI-compatible metering gateway, and a durable cost ledger."
@@ -20,13 +20,9 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
-susi-vendor-fastembed = { path = "../susi-vendor-fastembed" }
 
 [lints]
 workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-vendor-windows-registry" }
 
 [dev-dependencies]
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
