@@ -1,7 +1,7 @@
-#![cfg(windows)]
-#![cfg_attr(test, allow(clippy::unwrap_used))] // Fixture setup and Windows assertions must fail the test immediately.
 //! Exercise the actual Susi entry executable and Windows Shell with private fixture
 //! releases. Fixture receipts exercise dispatch only; production qualification is separate.
+#![cfg(windows)]
+#![cfg_attr(test, allow(clippy::unwrap_used))] // Fixture setup and Windows assertions must fail the test immediately.
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
