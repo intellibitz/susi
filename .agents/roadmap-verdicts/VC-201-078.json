@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-078",
-  "verdict": "delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_078_mastery.rs",
-  "missing": "",
-  "tracked_by": [],
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-03 by CEO direction: multi-tenant isolation, quotas and per-tenant billing are organisation-scale capabilities sold in susi-commercial-apps (Fleet Command). The Apache-2.0 substrate serves a single owner and fails any tenant-scoped request closed (crates/susi-gawd/src/plane_handler.rs).",
+  "tracked_by": ["T-ENTERPRISEMOVE-1"],
   "recorded_by": "ANTIGRAVITY20261015214257121476",
   "recorded_unix": 1792120096
 }
