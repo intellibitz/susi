@@ -40,7 +40,6 @@ fn each_verified_platform_can_publish_first_without_waiting_for_siblings() {
         ("build-linux", "publish-linux", "linux-x86_64"),
         ("build-arm", "publish-arm", "linux-aarch64"),
         ("build-macos", "publish-macos", "macos-aarch64"),
-        ("build-cuda", "publish-cuda", "cuda-linux-x86_64"),
     ];
     for (builder, publisher, artifact) in platforms {
         let build = &jobs[builder];
@@ -89,6 +88,7 @@ fn each_verified_platform_can_publish_first_without_waiting_for_siblings() {
     assert!(first.contains("if: env.RELEASE_HARNESS_READY == 'success'"));
     assert!(first.contains("fail_on_unmatched_files: true"));
     assert!(jobs["build"].contains("id: engine_upload"));
-    assert!(jobs["build-cuda"].contains("id: cuda_upload"));
+    assert!(!jobs.contains_key("build-cuda"));
+    assert!(!jobs.contains_key("publish-cuda"));
     assert!(jobs["prune-old-releases"].contains("needs.publish-linux.result == 'success'"));
 }

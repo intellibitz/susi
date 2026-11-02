@@ -25,7 +25,6 @@ libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 [features]
 default = []
-cuda = ["susi-vendor-candle/cuda"]
 metal = ["susi-vendor-candle/metal"]
 
 [lints]

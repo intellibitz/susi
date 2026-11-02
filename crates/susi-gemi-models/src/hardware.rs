@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use susi_vendor_candle::candle_core;
 use susi_vendor_candle::candle_core::Device;
 
 /// Direct Win32 hardware probes (`kernel32.dll`) so Windows builds measure
@@ -613,9 +612,7 @@ impl HardwareProfiler {
             .map(|n| n.get())
             .unwrap_or(4);
 
-        let gpu_info = if candle_core::utils::cuda_is_available() {
-            "CUDA Acceleration Substrate Active".to_string()
-        } else if candle_core::utils::metal_is_available() {
+        let gpu_info = if Self::get_candle_device().is_metal() {
             "Metal Acceleration Substrate Active".to_string()
         } else {
             format!("CPU Parallel Execution Substrate Active ({} Threads)", cpus)
@@ -1042,6 +1039,7 @@ mod gpu_probe_cache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use susi_vendor_candle::candle_core;
 
     #[test]
     fn test_hardware_profile_generation() {
@@ -1242,17 +1240,11 @@ mod tests {
         }
     }
 
-    /// Only meaningfully exercised in a `--features cuda` build with a real
-    /// GPU: selecting Device::Cuda is not proof the device actually computes
-    /// (driver/toolkit mismatches, like cudarc's CUDA-version allowlist,
-    /// fail at kernel-launch time, not at device selection). Runs a real
-    /// matmul on-device and checks the numeric result.
+    /// Exercise the selected CPU or Metal device with real matrix multiplication.
+    /// Selection alone is not proof that the device executes kernels.
     #[test]
-    fn test_cuda_device_actually_computes_when_selected() {
+    fn test_selected_device_actually_computes() {
         let device = HardwareProfiler::get_candle_device();
-        if !matches!(device, candle_core::Device::Cuda(_)) {
-            return;
-        }
         use candle_core::Tensor;
         let a = Tensor::from_slice(&[1f32, 2., 3., 4.], (2, 2), &device).unwrap();
         let b = Tensor::from_slice(&[5f32, 6., 7., 8.], (2, 2), &device).unwrap();

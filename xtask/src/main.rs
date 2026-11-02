@@ -49,144 +49,20 @@ fn with_detected_features(args: &[String], detected: Vec<String>) -> Vec<String>
     out
 }
 
-fn find_cuda_toolkit_root() -> Option<PathBuf> {
-    for var in ["CUDA_PATH", "CUDA_HOME"] {
-        if let Some(val) = env::var_os(var) {
-            let dir = PathBuf::from(val);
-            if dir.join("bin").is_dir() {
-                return Some(dir);
-            }
-        }
-    }
-    if cfg!(target_os = "windows") {
-        for var in ["USERPROFILE", "HOME"] {
-            if let Some(home) = env::var_os(var) {
-                let scoop_cuda = PathBuf::from(home).join("scoop/apps/cuda/current");
-                if scoop_cuda.join("bin/nvcc.exe").is_file() {
-                    return Some(scoop_cuda);
-                }
-            }
-        }
-        let nvidia_root = Path::new(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA");
-        if let Ok(entries) = std::fs::read_dir(nvidia_root) {
-            let mut dirs: Vec<PathBuf> = entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.join("bin/nvcc.exe").is_file())
-                .collect();
-            dirs.sort();
-            if let Some(latest) = dirs.pop() {
-                return Some(latest);
-            }
-        }
-    } else if Path::new("/usr/local/cuda/bin/nvcc").is_file() {
-        return Some(PathBuf::from("/usr/local/cuda"));
-    }
-    None
+fn requests_retired_backend(features: &str) -> bool {
+    features
+        .split(|c: char| c == ',' || c.is_ascii_whitespace())
+        .any(|feature| matches!(feature.rsplit('/').next(), Some("cuda" | "mkl")))
 }
 
-fn find_msvc_cl_dir() -> Option<PathBuf> {
-    if !cfg!(target_os = "windows") {
-        return None;
+/// Only Metal is a supported optional in-process accelerator. NVIDIA hardware
+/// discovery remains a runtime inventory fact; it cannot opt builds into CUDA.
+fn detected_features_for_os(os: &str) -> Vec<String> {
+    if os == "macos" {
+        vec!["--features".to_string(), "metal".to_string()]
+    } else {
+        Vec::new()
     }
-    let mut candidates = Vec::new();
-    for root in [
-        r"C:\Program Files (x86)\Microsoft Visual Studio",
-        r"C:\Program Files\Microsoft Visual Studio",
-    ] {
-        let Ok(years) = std::fs::read_dir(root) else {
-            continue;
-        };
-        for year in years.flatten() {
-            let Ok(editions) = std::fs::read_dir(year.path()) else {
-                continue;
-            };
-            for edition in editions.flatten() {
-                let msvc_dir = edition.path().join("VC/Tools/MSVC");
-                let Ok(versions) = std::fs::read_dir(msvc_dir) else {
-                    continue;
-                };
-                for ver in versions.flatten() {
-                    let bin = ver.path().join("bin/Hostx64/x64");
-                    if bin.join("cl.exe").is_file() {
-                        candidates.push(bin);
-                    }
-                }
-            }
-        }
-    }
-    candidates.sort();
-    candidates.pop()
-}
-
-/// Ensures MSVC `CL` carries `/Zc:preprocessor` (required by CUDA 13.4 CCCL
-/// headers) and `/MD` (matches Rust's dynamic CRT so `candle-kernels` static
-/// objects link without `LNK2038` runtime-library mismatch).
-fn msvc_cuda_cl_flags(existing: Option<&str>) -> String {
-    let mut parts: Vec<String> = existing
-        .unwrap_or("")
-        .split_whitespace()
-        .map(ToString::to_string)
-        .collect();
-    for flag in ["/Zc:preprocessor", "/MD"] {
-        if !parts.iter().any(|p| p.eq_ignore_ascii_case(flag)) {
-            parts.push(flag.to_string());
-        }
-    }
-    parts.join(" ")
-}
-
-fn detect_gpu_features() -> (Vec<String>, Option<String>, Option<PathBuf>) {
-    let mut args = Vec::new();
-    let mut cudarc_ver = None;
-    let mut cuda_root = None;
-
-    if cfg!(target_os = "macos") {
-        args.push("--features".to_string());
-        args.push("metal".to_string());
-    } else if cfg!(target_os = "linux") || cfg!(target_os = "windows") {
-        cuda_root = find_cuda_toolkit_root();
-        let nvcc_bin = cuda_root
-            .as_ref()
-            .map(|r| {
-                r.join("bin")
-                    .join(if cfg!(windows) { "nvcc.exe" } else { "nvcc" })
-            })
-            .filter(|p| p.is_file())
-            .unwrap_or_else(|| PathBuf::from("nvcc"));
-
-        let nvcc_check = Command::new(&nvcc_bin)
-            .arg("--version")
-            .output()
-            .map(|out| String::from_utf8_lossy(&out.stdout).to_string());
-        let mut has_cuda = false;
-
-        if let Ok(out) = nvcc_check {
-            if let Some(idx) = out.find("release ") {
-                let rest = &out[idx + 8..];
-                let ver = rest.split(',').next().unwrap_or("").trim();
-                if ver.starts_with("11.") || ver.starts_with("12.") || ver.starts_with("13.") {
-                    has_cuda = true;
-                    if ver.starts_with("13.") {
-                        if let Some(minor) = ver.split('.').nth(1) {
-                            if let Ok(m) = minor.parse::<u32>() {
-                                if m > 3 {
-                                    cudarc_ver = Some("13030".to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if has_cuda || cuda_root.is_some() || Path::new("/usr/local/cuda").exists() {
-            args.push("--features".to_string());
-            args.push("cuda".to_string());
-        }
-    }
-
-    (args, cudarc_ver, cuda_root)
 }
 
 /// Best-effort: enable the repo's git hooks and ledger merge driver once per
@@ -220,6 +96,10 @@ fn ensure_dev_setup_in(dir: &Path) {
 }
 
 fn main() {
+    if env::var("SUSI_BUILD_FEATURES").is_ok_and(|features| requests_retired_backend(&features)) {
+        eprintln!("SUSI_BUILD_FEATURES requests retired CUDA/MKL support; these dependencies fail product license/native-code gates.");
+        exit(1);
+    }
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
 
@@ -237,7 +117,7 @@ fn main() {
     if is_build {
         ensure_dev_setup();
         println!("xtask: cargo build running GPU detection...");
-        let (gpu_args, cudarc_ver, cuda_root) = detect_gpu_features();
+        let gpu_args = detected_features_for_os(env::consts::OS);
         if gpu_args.is_empty() {
             println!(
                 "xtask: [build-gpu] No GPU backend detected (or unsupported) - building CPU-only."
@@ -250,31 +130,6 @@ fn main() {
         }
 
         cmd.args(with_detected_features(&args, gpu_args));
-
-        if let Some(cv) = cudarc_ver {
-            cmd.env("CUDARC_CUDA_VERSION", cv);
-        }
-        if let Some(root) = cuda_root {
-            if env::var_os("CUDA_PATH").is_none() {
-                cmd.env("CUDA_PATH", &root);
-            }
-            let mut paths: Vec<PathBuf> = vec![root.join("bin")];
-            if root.join("bin/x64").is_dir() {
-                paths.push(root.join("bin/x64"));
-            }
-            if cfg!(target_os = "windows") {
-                if let Some(cl_dir) = find_msvc_cl_dir() {
-                    paths.push(cl_dir);
-                }
-                cmd.env("CL", msvc_cuda_cl_flags(env::var("CL").ok().as_deref()));
-            }
-            if let Some(existing) = env::var_os("PATH") {
-                paths.extend(env::split_paths(&existing));
-            }
-            if let Ok(joined) = env::join_paths(paths) {
-                cmd.env("PATH", joined);
-            }
-        }
     } else {
         cmd.args(&args);
     }
@@ -311,7 +166,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_dev_setup_in, msvc_cuda_cl_flags, with_detected_features};
+    use super::{
+        detected_features_for_os, ensure_dev_setup_in, requests_retired_backend,
+        with_detected_features,
+    };
     use std::process::Command;
 
     fn v(items: &[&str]) -> Vec<String> {
@@ -319,24 +177,38 @@ mod tests {
     }
 
     #[test]
-    fn msvc_cuda_cl_flags_preserves_existing_and_adds_required() {
-        assert_eq!(msvc_cuda_cl_flags(None), "/Zc:preprocessor /MD");
-        assert_eq!(msvc_cuda_cl_flags(Some("")), "/Zc:preprocessor /MD");
+    fn retired_feature_overrides_cannot_be_silently_ignored() {
+        for features in [
+            "cuda",
+            "mkl",
+            "metal,cuda",
+            "metal mkl",
+            "susi-gemi/cuda",
+            "susi-vendor-candle/mkl",
+        ] {
+            assert!(requests_retired_backend(features), "{features}");
+        }
+        for features in ["", "metal", "tokio-console"] {
+            assert!(!requests_retired_backend(features), "{features}");
+        }
+    }
+
+    #[test]
+    fn hardware_detection_never_selects_retired_backends() {
+        for os in ["linux", "windows", "freebsd"] {
+            assert!(detected_features_for_os(os).is_empty());
+        }
         assert_eq!(
-            msvc_cuda_cl_flags(Some("/W3 /Zc:preprocessor")),
-            "/W3 /Zc:preprocessor /MD"
-        );
-        assert_eq!(
-            msvc_cuda_cl_flags(Some("/md /Zc:preprocessor")),
-            "/md /Zc:preprocessor"
+            detected_features_for_os("macos"),
+            v(&["--features", "metal"])
         );
     }
 
     #[test]
     fn detected_features_append_when_caller_chose_none() {
         assert_eq!(
-            with_detected_features(&v(&["build", "--release"]), v(&["--features", "cuda"])),
-            v(&["build", "--release", "--features", "cuda"])
+            with_detected_features(&v(&["build", "--release"]), v(&["--features", "metal"])),
+            v(&["build", "--release", "--features", "metal"])
         );
     }
 
@@ -350,7 +222,7 @@ mod tests {
             v(&["build", "--no-default-features"]),
         ] {
             assert_eq!(
-                with_detected_features(&explicit, v(&["--features", "cuda"])),
+                with_detected_features(&explicit, v(&["--features", "metal"])),
                 explicit
             );
         }

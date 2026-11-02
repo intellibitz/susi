@@ -1294,7 +1294,6 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
         ("build-linux", "publish-linux"),
         ("build-arm", "publish-arm"),
         ("build-macos", "publish-macos"),
-        ("build-cuda", "publish-cuda"),
     ] {
         let build = job(&jobs, builder);
         assert!(build.body.contains("needs: [verify-tag]"), "{builder}");
@@ -1440,31 +1439,19 @@ fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
     let save = value_of(&ratchet.body, "save-if").unwrap_or_default();
     assert!(
         save.contains("refs/heads/main"),
-        "`unsafe-ratchet` must save its cargo cache only on main (branches read main's); \
-         `{save}` writes a 321 MB entry per task branch, which held the repository over its \
-         10 GB cache quota until eviction took the 10 MB cargo-geiger entry and failed every \
-         push of every branch"
+        "native scanner target cache is saved only on main: {save}"
     );
-    // `actions/cache@` saves in a post-step on whatever ref it ran on; geiger's entry
-    // is a restore plus a save that only main runs.
-    assert!(
-        !ratchet.body.contains("actions/cache@"),
-        "cache cargo-geiger with `actions/cache/restore` and a main-only `actions/cache/save`: \
-         `actions/cache` also saves, on every branch push"
-    );
-    let saves: Vec<String> = steps(&ratchet.body)
-        .into_iter()
-        .filter(|s| s.contains("actions/cache/save"))
-        .collect();
-    assert!(
-        !saves.is_empty()
-            && saves
-                .iter()
-                .all(|s| value_of(s, "if").is_some_and(|v| v.contains("refs/heads/main"))),
-        "`unsafe-ratchet` needs a cargo-geiger `actions/cache/save` step gated on \
-         `github.ref == 'refs/heads/main'`; without one the entry is never rewritten once \
-         evicted, and a branch-side save adds ~10 MB per task branch:\n{saves:?}"
-    );
+    for retired in [
+        "cargo-geiger",
+        "actions/cache/restore",
+        "actions/cache/save",
+        "cargo install",
+    ] {
+        assert!(
+            !ratchet.body.contains(retired),
+            "retired tool setup still runs: {retired}"
+        );
+    }
 }
 
 #[test]
@@ -1489,14 +1476,33 @@ fn unsafe_ratchet_keeps_stable_target_cache_key() {
     assert!(cargo_cache < comparator);
     assert!(steps[cargo_cache].contains("uses: Swatinem/rust-cache@v2"));
     assert!(steps[cargo_cache].contains("steps.scope.outputs.run == 'true'"));
+    let build = steps
+        .iter()
+        .position(|step| step.contains("name: Build native unsafe gate tools"))
+        .expect("cold cache provisions only the native tooling crate");
+    let provision = steps
+        .iter()
+        .position(|step| step.contains("name: Provision host dependency sources"))
+        .expect("cold cache provisions the complete host graph without an application build");
+    assert!(cargo_cache < provision && provision < build && build < comparator);
+    assert!(
+        steps[provision].contains("cargo metadata --locked --format-version 1 --filter-platform")
+    );
+    assert!(steps[provision].contains("rustc -vV"));
+    assert!(!steps[provision].contains("cargo build"));
+    assert!(steps[build].contains("cargo build --locked -p susi-unsafe-ratchet --bins"));
+    assert!(!steps[build].contains("--workspace"));
 }
 
 #[test]
 fn unsafe_ratchet_runner_uses_small_dependency_crate() {
     let script = read(".github/workflows/unsafe-exposure-ratchet.sh");
     assert!(
-        script.contains("cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet")
-            && !script.contains("cargo run -q -p susi-gawd"),
+        script.contains(
+            "cargo run -q -p susi-unsafe-ratchet --offline --locked --bin unsafe_measure"
+        ) && script.contains(
+            "cargo run -q -p susi-unsafe-ratchet --offline --locked --bin unsafe_ratchet"
+        ) && !script.contains("cargo run -q -p susi-gawd"),
         "the CI comparator must not pull in the full susi-gawd dependency graph"
     );
     let manifest = read("crates/susi-unsafe-ratchet/Cargo.toml");
@@ -1504,7 +1510,7 @@ fn unsafe_ratchet_runner_uses_small_dependency_crate() {
         manifest.contains("susi-vendor-serde")
             && manifest.contains("susi-vendor-serde-json")
             && !manifest.contains("susi-gawd"),
-        "the ratchet runner should depend only on its serialization crates"
+        "the native ratchet runner keeps parsing, hashing and serialization in tooling instead of pulling in the application"
     );
 }
 
@@ -1534,8 +1540,8 @@ fn unsafe_ratchet_skips_non_code_pushes() {
         "echo false",
         "Cargo",
         "unsafe-default",
-        "src/",
-        "unsafe-exposure-ratchet",
+        "\\.rs",
+        "unsafe-exposure-",
     ] {
         assert!(
             combined.contains(needle),
@@ -1545,9 +1551,8 @@ fn unsafe_ratchet_skips_non_code_pushes() {
     for name in [
         "Install Rust",
         "Cache Cargo",
-        "Cache cargo-geiger",
-        "Install cargo-geiger",
-        "Save cargo-geiger",
+        "Provision host dependency sources",
+        "Build native unsafe gate tools",
         "Run unsafe exposure ratchet",
     ] {
         let step = steps
@@ -2369,71 +2374,36 @@ fn release_bootstrap_runs_through_the_same_scripts_as_test() {
              what is missing (15-25 s per Linux leg)"
         );
         let jobs = jobs(&text);
-        for id in ["build", "build-cuda"] {
-            let j = job(&jobs, id);
+        let j = job(&jobs, "build");
+        assert!(
+            j.body.contains("scripts/ci-system-deps.sh")
+                && j.body.contains("scripts/ci-install-mold.sh"),
+            "{wf} job `build` must bootstrap through scripts/ci-system-deps.sh and \
+             scripts/ci-install-mold.sh"
+        );
+    }
+}
+
+#[test]
+fn retired_cuda_backends_have_no_build_publish_or_runtime_bundle_jobs() {
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/dev-release.yml",
+    ] {
+        let text = read(wf);
+        for retired in [
+            "build-cuda:",
+            "publish-cuda:",
+            "nvidia-cuda-toolkit",
+            "--features cuda",
+            "collect_cuda_libs",
+            "cuda.tar.gz",
+        ] {
             assert!(
-                j.body.contains("scripts/ci-system-deps.sh")
-                    && j.body.contains("scripts/ci-install-mold.sh"),
-                "{wf} job `{id}` must bootstrap through scripts/ci-system-deps.sh and \
-                 scripts/ci-install-mold.sh"
+                !code(&text).contains(retired),
+                "{wf} still contains {retired}"
             );
         }
-    }
-}
-
-#[test]
-fn the_cuda_toolkit_is_installed_without_its_recommends() {
-    for wf in [
-        ".github/workflows/release.yml",
-        ".github/workflows/dev-release.yml",
-    ] {
-        let text = read(wf);
-        let body = code(&text);
-        let line = body
-            .lines()
-            .find(|l| l.contains("apt-get install") && l.contains("nvidia-cuda-toolkit"))
-            .unwrap_or_else(|| panic!("{wf} installs nvidia-cuda-toolkit"));
-        assert!(
-            line.contains("--no-install-recommends"),
-            "{wf} `{}`: the recommends are Nsight, the profiler, cuda-gdb and Java - 295 of 375 \
-             packages and ~1 GB of download (measured on ubuntu:24.04) that no build step uses",
-            line.trim()
-        );
-    }
-}
-
-#[test]
-fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
-    for wf in [
-        ".github/workflows/release.yml",
-        ".github/workflows/dev-release.yml",
-    ] {
-        let text = read(wf);
-        let jobs = jobs(&text);
-        let cuda = job(&jobs, "build-cuda");
-        assert!(
-            cuda.body.contains("RUSTC_WRAPPER: sccache"),
-            "{wf}: build-cuda installs sccache but does not set RUSTC_WRAPPER: sccache in its env"
-        );
-        let expected = if wf.ends_with("dev-release.yml") {
-            "true"
-        } else {
-            "false"
-        };
-        assert!(
-            cuda.body
-                .contains(&format!("SCCACHE_GHA_ENABLED: \"{expected}\"")),
-            "{wf}: build-cuda must use the intended cache scope"
-        );
-        let key = value_of(&cuda.body, "shared-key").unwrap_or_default();
-        assert!(
-            !key.contains("matrix."),
-            "{wf}: build-cuda is not a matrix job, but its cache key references a matrix variable: `{key}`"
-        );
-        assert!(
-            !key.is_empty(),
-            "{wf}: build-cuda must declare a non-empty cargo cache key"
-        );
     }
 }
 
@@ -2505,9 +2475,6 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
             "release build lacks {setting}"
         );
     }
-    assert!(job(&release_jobs, "build-cuda")
-        .body
-        .contains("save-if: \"false\""));
 }
 
 #[test]
@@ -2582,19 +2549,6 @@ fn release_required_legs_carry_their_artifact() {
             .contains("continue-on-error: ${{ matrix.name != 'linux-x86_64' }}"),
         "dev-release.yml: only linux-x86_64 is required for a rolling dev release"
     );
-
-    for wf in [
-        ".github/workflows/release.yml",
-        ".github/workflows/dev-release.yml",
-    ] {
-        let text = read(wf);
-        let jobs = jobs(&text);
-        let cuda = job(&jobs, "build-cuda");
-        assert!(
-            cuda.body.contains("continue-on-error: true"),
-            "{wf}: `build-cuda` must set continue-on-error: true"
-        );
-    }
 
     let prune = job(&release_jobs, "prune-old-releases");
     assert!(

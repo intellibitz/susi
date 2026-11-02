@@ -4,7 +4,7 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "Candle/CUDA/Metal vendor substrate: device probe, Qwen2 GGUF split, and Hugging Face tokenizers."
+description = "Candle CPU/Metal vendor substrate: device probe, Qwen2 GGUF split, and Hugging Face tokenizers."
 
 [dependencies]
 tracing = { workspace = true }
@@ -12,16 +12,15 @@ tracing = { workspace = true }
 # Rust regex and suffix-array implementations avoid native Oniguruma/C++ builds.
 tokenizers = { version = "0.23.2", default-features = false, features = ["fancy-regex", "progressbar"] }
 
-# The default uses Rust CPU inference on every host. Optional accelerator
-# features are outside that qualification and must pass their own native/license audit.
+# The default uses Rust CPU inference on every host. Metal retains its own
+# platform qualification. CUDA/MKL are not supported product features: the
+# former bundles CUDA/C++ kernels and the latter requires Intel-only terms.
 candle-core = { version = "0.11.1" }
 candle-nn = { version = "0.11.1" }
 candle-transformers = { version = "0.11.1" }
 
 [features]
 default = []
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
-mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [lints]

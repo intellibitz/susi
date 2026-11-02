@@ -1,0 +1,162 @@
+{
+  "id": "T-OPTIONALLICENSE-1",
+  "title": "Retire unsupported CUDA/MKL product routes and clear complete dependency policy without exceptions",
+  "status": "implemented_pending_integration",
+  "dependencies": [
+    "T-FIXTURESTORAGE-1"
+  ],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": [
+    ".agents/tasks/t-optionallicense-1.json",
+    ".github/workflows/dev-release.yml",
+    ".github/workflows/release-warm.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/test.yml",
+    "build-gpu.ps1",
+    "build-gpu.sh",
+    "build.rs",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-gawd/src/admin/release.rs",
+    "crates/susi-gawd/src/admin/version.rs",
+    "crates/susi-gemi-models/cargo.toml",
+    "crates/susi-gemi-models/src/hardware.rs",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_substrate.rs",
+    "crates/susi-vendor-candle",
+    "docs/native-bootstrap.md",
+    "docs/native-rust-direction.md",
+    "install.sh",
+    "scripts/susi-release-sync.sh",
+    "src/cli/crown_cli.rs",
+    "tests/ci_cached_tool_install.rs",
+    "tests/installer_contract.rs",
+    "tests/release_workflow.rs",
+    "tests/zc_matrix.rs",
+    "xtask/src/main.rs",
+    "xtask/tests/ci_workflow_perf.rs",
+    "xtask/tests/release_first_artifact.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-candle"
+    ]
+  },
+  "acceptance": "Actual root and workspace all-feature policy must pass unchanged strict licenses/advisories/bans/sources. Retired CUDA/MKL feature requests must fail before compilation across all first-party feature facades; supported CPU and Metal dependency graphs remain selected. Keep CPU inference and hardware inventory; remove CUDA artifact publication and automatic install/build selection. Execute graph and affected runtime/launcher tests with pinned Rust in private state. Full integration and two policy-v6 production packages/rollback are separate integrator gates. Known upstream Candle NN CPU-causal flash shape defect remains unresolved; preserve actual CPU/Metal model routes behind explicit NN/model exports, reject flash aliases and upstream dense-Qwen3 imports with real compile-fail doctests, and execute the retained facade tests and CPU linear/softmax/optimizer exercise. Adding a model/NN export requires renewed boundary review.",
+  "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license",
+  "native_worker": "optional-license",
+  "validation": {
+    "policy": "Unchanged strict complete root/workspace all-features and native-Linux cargo-deny gates passed with pinned RustSec DB; exact commands/timings in evidence.",
+    "current_source_leaf_tests": {
+      "zc_matrix": 6,
+      "installer_contract": 4,
+      "release_workflow": 10,
+      "release_first_artifact": 1,
+      "ci_workflow_perf": 86
+    },
+    "scoped_source_probes_with_historical_prerequisites": {
+      "architecture": 36,
+      "candle": {
+        "harness_passed": 17,
+        "ignored": 2,
+        "gpu_execution": "not exercised on CPU host; conditional GPU bodies return without model/device"
+      },
+      "hardware": 11,
+      "gemi_eviction": {
+        "passed": 6,
+        "ignored": 1
+      },
+      "release_gate": 2,
+      "xtask": 23
+    },
+    "limitations": "Direct changed-crate rustc probes use hash-bound read-only historical prerequisites; they are not complete current-graph Cargo qualification or current TLS evidence. Full fresh combined Cargo acceptance, immutable policy-v6 artifacts, inference, health and rollback remain required. A first architecture compile missed extern dependencies and a first Gemi filter selected zero tests; corrected executions retained separately.",
+    "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license",
+    "native_ci_followup": {
+      "current_worker_cached_tool_suite": {
+        "passed": 2,
+        "failed": 0,
+        "seconds": 0.005505
+      },
+      "coordinated_readonly_fixture_ci_perf": {
+        "passed": 86,
+        "failed": 0,
+        "seconds": 0.803122
+      },
+      "fixture_inputs": "ci-coordinated-fixture-inputs.json binds actual unsafe owner scripts/manifest copied into isolated source fixture; not native integration or current full-graph qualification",
+      "behavior": "Remove unused cargo-geiger install/cache. Provision locked host metadata sources, build only native unsafe tooling bins, run offline scanner/comparator, retain merge dependency and main-only target cache. Cold-run workflow has not been executed on hosted CI here."
+    },
+    "facade_guard": {
+      "status": "focused_checks_passed_pending_combined_integration",
+      "scope": "Source-scoped prevention for actual Susi routes; not a repair or blanket safety claim about upstream candle-nn.",
+      "test_source": "coherent isolated source copy using fa658800f Cargo.lock; future unsafe edges remain for combined locked integration",
+      "evidence_directory": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage",
+      "unit_tests": {
+        "passed": 18,
+        "failed": 0,
+        "ignored": 2
+      },
+      "compile_fail_export_tests": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      "final_cargo_test": {
+        "exit": 0,
+        "seconds": 2.560146
+      },
+      "clippy": {
+        "exit": 0,
+        "seconds": 38.088471
+      },
+      "cold_prior_export_revision": {
+        "exit": 0,
+        "seconds": 318.803502,
+        "difference": "before explicit safe Init export needed by coordinated byte-boundary tests"
+      },
+      "limitations": "Coherent standalone fa lock, not isolated future-lock qualification; exact combined locked tests remain mandatory. Existing conditional GPU tests return early on CPU; no GPU/private-model execution claimed. Upstream CPU flash remains defective and outside permitted facade exports."
+    },
+    "hardware_import_followup": {
+      "behavior": "Move candle_core namespace import into existing cfg(test) hardware module; retain production Device import and all lint severity.",
+      "focused_compiler_exit": 0,
+      "focused_compiler_seconds": 2.441838,
+      "format_exit": 0,
+      "format_seconds": 3.501615,
+      "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license/hardware-import-fix",
+      "limitation": "Read-only failed candidate dependency metadata used only after exact unchanged source/dependency binding; full native combined clippy/tests still required."
+    },
+    "retirement_loop_followup": {
+      "behavior": "Direct build-job bootstrap assertion replaces collapsed single-item loop; lint policy unchanged.",
+      "ci_perf_tests": {
+        "passed": 86,
+        "failed": 0,
+        "ignored": 0,
+        "seconds": 0.754807
+      },
+      "ci_perf_clippy": {
+        "exit": 0,
+        "seconds": 0.457129
+      },
+      "changed_rust_files_reviewed": 18,
+      "other_changed_std_integration_leaf_lints_passed": 5,
+      "build_script_lint_exit": 0,
+      "format_exit": 0,
+      "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license/ci-loop-fix",
+      "limits": "Focused direct compiler/Clippy checks use exact pinned tools, read-only A-03 context and matching host dependency for build.rs. First build-script probe omitted the declared extern and is retained separately; corrected check passes. Full native combined integration remains mandatory."
+    }
+  },
+  "coordination": {
+    "tested_source": "fa658800f751a8947abf76336e61cb8d92b42f72",
+    "combined_manifest_owner": "unsafe-complete",
+    "locked_edges": [
+      "susi-vendor-sha2",
+      "susi-vendor-syn"
+    ],
+    "requires": "Integrate unsafe-complete manifest and this lock update atomically; fresh exact combined locked acceptance is mandatory. Historical prerequisite probes are not current-graph qualification."
+  }
+}

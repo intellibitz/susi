@@ -184,47 +184,6 @@ impl SusiAdmin {
             "Could not find version in Cargo.toml".to_string(),
         ))
     }
-    /// Mirrors install.sh's `CUDARC_CUDA_VERSION` clamp: cudarc (candle's CUDA
-    /// backend) pins an exact allowlist of CUDA toolkit versions and panics on
-    /// any newer 13.x point release it hasn't added yet (as of cudarc 0.19.9,
-    /// that ceiling is 13.3). install.sh exports this override before invoking
-    /// `cargo build` from a shell, but the release gate spawns `cargo` directly
-    /// as a child process — a fresh `Command` does not re-run install.sh, so
-    /// without this it inherits none of that clamp and a `cargo check/clippy
-    /// --features cuda` here panics on any host running CUDA 13.4+, exactly as
-    /// install.sh's own comment already documented happening before its fix.
-    pub(crate) fn cuda_version_clamp_env() -> Option<(&'static str, &'static str)> {
-        let output = Command::new("nvcc").arg("--version").output().ok()?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        Self::cuda_version_from_nvcc_output(&text).filter(|v| Self::cuda_version_needs_clamp(v))?;
-        Some(("CUDARC_CUDA_VERSION", "13030"))
-    }
-
-    /// Extracts the `X.Y` release version from `nvcc --version` output, e.g.
-    /// "Cuda compilation tools, release 13.4, V13.4.59" -> "13.4".
-    fn cuda_version_from_nvcc_output(text: &str) -> Option<String> {
-        text.lines()
-            .find(|l| l.contains("release"))
-            .and_then(|l| l.split("release ").nth(1))
-            .map(|v| v.split(',').next().unwrap_or(v).trim().to_string())
-    }
-
-    /// True when `version` (e.g. "13.4") is a CUDA 13.x release past cudarc
-    /// 0.19.9's hardcoded allowlist ceiling of 13.3, mirroring install.sh's
-    /// bash `CUDA_MAJOR == 13 && CUDA_MINOR > 3` check.
-    fn cuda_version_needs_clamp(version: &str) -> bool {
-        let mut parts = version.splitn(2, '.');
-        let Some(major) = parts.next() else {
-            return false;
-        };
-        let Some(minor) = parts.next() else {
-            return false;
-        };
-        major == "13"
-            && minor.chars().all(|c| c.is_ascii_digit())
-            && minor.parse::<u32>().map(|m| m > 3).unwrap_or(false)
-    }
-
     pub fn get_cargo_version(workspace: &Path) -> EaiResult<String> {
         let cargo_toml_path = workspace.join("Cargo.toml");
         let content = fs::read_to_string(&cargo_toml_path)?;
@@ -502,24 +461,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cuda_version_from_nvcc_output_extracts_release_version() {
-        let text = "nvcc: NVIDIA (R) Cuda compiler driver\n\
-                     Copyright (c) 2005-2026 NVIDIA Corporation\n\
-                     Built on Mon_Aug_03_13:24:11_PDT_2026\n\
-                     Cuda compilation tools, release 13.4, V13.4.59\n\
-                     Build cuda_13.4.r13.4/compiler.38657139_0\n";
-        assert_eq!(
-            SusiAdmin::cuda_version_from_nvcc_output(text).as_deref(),
-            Some("13.4")
-        );
-    }
-
-    #[test]
-    fn test_cuda_version_from_nvcc_output_none_without_release_line() {
-        assert_eq!(SusiAdmin::cuda_version_from_nvcc_output("garbage\n"), None);
-    }
-
-    #[test]
     fn test_bump_version_string_patch_minor_major() {
         assert_eq!(
             SusiAdmin::bump_version_string("0.2.3", VersionBump::Patch).unwrap(),
@@ -676,38 +617,6 @@ mod tests {
         assert_eq!(identity["version"], "0.3.0");
 
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn test_cuda_version_needs_clamp_matches_install_sh_thresholds() {
-        // Mirrors install.sh: only CUDA 13.x point releases past cudarc
-        // 0.19.9's 13.3 allowlist ceiling need the override.
-        assert!(!SusiAdmin::cuda_version_needs_clamp("13.3"));
-        assert!(SusiAdmin::cuda_version_needs_clamp("13.4"));
-        assert!(SusiAdmin::cuda_version_needs_clamp("13.9"));
-        assert!(!SusiAdmin::cuda_version_needs_clamp("12.9"));
-        assert!(!SusiAdmin::cuda_version_needs_clamp("14.0"));
-        assert!(!SusiAdmin::cuda_version_needs_clamp("13"));
-    }
-
-    #[test]
-    fn test_cuda_version_clamp_env_live_matches_needs_clamp() {
-        // Live-exercises the real nvcc invocation this host has (verified
-        // present: CUDA 13.4 toolkit), proving the end-to-end wiring —
-        // not just the pure parser — produces the correct override.
-        let Ok(output) = Command::new("nvcc").arg("--version").output() else {
-            return; // honest skip: no nvcc on this host/CI runner
-        };
-        let text = String::from_utf8_lossy(&output.stdout);
-        let Some(version) = SusiAdmin::cuda_version_from_nvcc_output(&text) else {
-            return;
-        };
-        let expected = if SusiAdmin::cuda_version_needs_clamp(&version) {
-            Some(("CUDARC_CUDA_VERSION", "13030"))
-        } else {
-            None
-        };
-        assert_eq!(SusiAdmin::cuda_version_clamp_env(), expected);
     }
 
     #[test]

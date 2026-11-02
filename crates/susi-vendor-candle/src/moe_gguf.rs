@@ -6,14 +6,15 @@
 //! tensors are contiguous per expert, so slicing is a byte copy, not a
 //! dequantize, and the matmul stays quantized on CPU, CUDA and Metal.
 
+use crate::candle_nn::kv_cache::ConcatKvCache;
+use crate::candle_nn::{ops, Embedding, Linear, Module};
+use crate::candle_transformers;
+use crate::candle_transformers::models::quantized_qwen3::{Gguf, RotaryEmbedding};
+use crate::candle_transformers::models::with_tracing::QMatMul;
+use crate::candle_transformers::quantized_nn::RmsNorm;
+use crate::candle_transformers::utils::repeat_kv;
 use candle_core::quantized::{gguf_file, QStorage, QTensor};
 use candle_core::{DType, Device, Result, Tensor, D};
-use candle_nn::kv_cache::ConcatKvCache;
-use candle_nn::{ops, Embedding, Linear, Module};
-use candle_transformers::models::quantized_qwen3::{Gguf, RotaryEmbedding};
-use candle_transformers::models::with_tracing::QMatMul;
-use candle_transformers::quantized_nn::RmsNorm;
-use candle_transformers::utils::repeat_kv;
 use std::borrow::Cow;
 use std::io::{Read, Seek};
 use std::sync::Arc;
