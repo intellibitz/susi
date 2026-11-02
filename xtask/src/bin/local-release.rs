@@ -234,7 +234,7 @@ fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
         .map(PathBuf::from)
         .ok_or("missing provisioned toolchain home")?;
     let mut command = Command::new(program);
-    compiler_env::apply(&mut command);
+    compiler_env::apply_checked(&mut command)?;
     for (key, _) in env::vars_os() {
         let name = key.to_string_lossy().to_ascii_uppercase();
         if name.starts_with("SUSI_")

@@ -1,14 +1,23 @@
 {
   "id": "T-COUNT1102-1",
   "created_by": "COUNT1102",
-  "title": "Require executed workspace tests during local release qualification",
-  "goal": "Reject successful exits with empty or malformed Rust test evidence and record the passed count.",
+  "title": "Bind native acceptance to the selected compiler and executed workspace tests",
+  "goal": "Require positive test evidence and prevent host Cargo compiler, documentation-tool and wrapper settings from substituting tools in integration, release or the private standard-library build.",
   "deps": [],
   "scopes": [
     ".agents/tasks/T-COUNT1102-1.json",
     "xtask/src/workspace_test_count.rs",
-    "xtask/src/bin/local-release.rs"
+    "xtask/src/bin/local-release.rs",
+    "toolchain/windows-stdlib/builder.rs",
+    "xtask/src/compiler_env.rs",
+    "xtask/src/sysroot_license.rs",
+    "xtask/src/gmcp_evidence.rs",
+    "xtask/tests/compiler_binding.rs"
   ],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-release", "workspace_test_count"]},
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--test", "compiler_binding"]},
+  "regressions": [
+    "Three focused local-release workspace_test_count tests require positive Rust harness evidence.",
+    "Real Cargo runs with hostile host rustc, rustdoc, rustc-wrapper, rustc-workspace-wrapper and rustflags must avoid the tripwire; the unbound control must execute it."
+  ],
   "size": "s"
 }
