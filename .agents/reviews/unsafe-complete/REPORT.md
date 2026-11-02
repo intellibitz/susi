@@ -1,5 +1,12 @@
 # Complete native declaration measurement
 
+**Final outcome:** reviewed v2 migration and live source admission passed on
+clean combined commit `7cfb5df2829ede4312c34332a7c1971d9b62f250`. The final
+source-bound review covers 77 components, 320 dependency files and six exact
+first-party NN guards. The original baseline and every earlier rejection are
+preserved below. Full native integration and production release qualification
+remain separate parent-owned gates.
+
 The native scanner replaces partial cargo-geiger parsing with complete,
 source-bound measurement of the existing **crate-forbid declaration proxy**.
 It does not count unsafe functions or certify the full Rust item grammar.
@@ -139,3 +146,30 @@ with exit 2 in 5.467451 s, creating no output and preserving v1 baseline bytes.
 Those historical reviews do not approve the discovered defects. Final
 migration requires the repaired clean combined candidate, updated core
 review, guarded NN retention and fresh exact measurement bindings.
+
+## Final migration and live admission
+
+The final clean combined source is
+`7cfb5df2829ede4312c34332a7c1971d9b62f250`, tree
+`94e5516b6961994131089e9dc3170bf6c2d0e6a8`. Final v3 scanner measured
+479 packages/500 entrypoint files, exit 0 in 2.748914 s. Same-tool base
+`aff638d06825f0874231ff01b546f9128a534d04` measured 483/504, exit 0
+in 2.935134 s. Exact inputs and tool pins are preserved in the baseline proof.
+
+The native migration passed with exit 0 in 6.473733 s. A separate live
+admission passed with exit 0 in 5.914207 s and no unreviewed exposure.
+All 77 component decisions include concrete boundaries and residual risk,
+with 320 dependency-file hashes and six source-root guard hashes checked.
+The repaired core includes safe numeric byte conversions and explicit F8
+dispatch; the NN defect remains upstream but is unavailable through the exact
+reviewed first-party facade/dispatch routes. The optional wasmparser
+component-model defect remains excluded by the enforced feature context.
+These are scoped decisions for the bound source, never all-API assurances.
+
+`final-migration-proof.json` and `candidate-final-ratchet-receipt.json` bind
+the actual baseline, tool, source, lock, graph, measurement and review
+digests. `review-sources/` preserves the independent records and final
+combined Candle supplements without rewriting their historical conclusions.
+No product code changed after the tested c3877f873 implementation; this final
+commit contains baseline/review/task documentation only. Native full combined
+acceptance and immutable production gates must still run before promotion.

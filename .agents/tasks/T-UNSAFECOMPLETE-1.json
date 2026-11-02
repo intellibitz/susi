@@ -2,7 +2,7 @@
   "id": "T-UNSAFECOMPLETE-1",
   "native_worker": "unsafe-complete",
   "title": "Complete native unsafe declaration measurement and reviewed inventory admission",
-  "status": "in_progress",
+  "status": "completed",
   "dependencies": [
     "T-NATIVE-1"
   ],
@@ -34,8 +34,9 @@
     "scoped_tests": "56 passed, 0 failed, 0 ignored; exit 0; 2.349698464 seconds; private base-cbf copy plus owned first-party edges",
     "scoped_clippy": "all targets, warnings denied; exit 0; 0.436793441 seconds",
     "clean_matched_scans": "same pinned scanner: aff638d0 483 packages/504 files, cbf85824 479 packages/500 files; exit 0",
-    "migration": "77 exact identity reviews collected/319 reviewed file hashes verified; clean combined repaired core/guarded NN candidate and final source-bound migration pending",
-    "combined_locked_acceptance": "pending coordinated optional-license lock and native integration",
-    "evidence": ".agents/reviews/unsafe-complete/REPORT.md"
+    "migration": "native reviewed v2 migration exit0/6.473733335s; all77 reviews,320 dependency-file hashes and6 source guards bind exact repaired clean combined source7cfb5df2",
+    "combined_locked_acceptance": "pending parent native full integration on final combined source; no product test claim from baseline-only commit",
+    "evidence": ".agents/reviews/unsafe-complete/REPORT.md",
+    "live_admission": "exit0/5.914206947s;479 packages/500 entrypoint files; zero unreviewed exposures; exact receipt .agents/reviews/unsafe-complete/candidate-final-ratchet-receipt.json"
   }
 }

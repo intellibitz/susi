@@ -1,0 +1,1861 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T18:14:36.434042+00:00",
+  "reviewer": "/root/linux_candidate_health",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "scope": "18 exact registry identities in the selected Linux normal/build dependency graph; read-only source-bound unsafe exposure review. Optional wasmparser component-model defect explicitly excluded, not waived.",
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-syntax-utilities/assigned-identities.json",
+      "sha256": "ff2231775dafb688c5c20296957ba534660345cc899a3ac919ce6c169bdbca88"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-syntax-utilities/source-bindings.json",
+      "sha256": "d8ba8dd3bf2b694004d3eedcfe21b598960322e879587d9d7b7af4c42dd5671c"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-syntax-utilities/tree-commands.json",
+      "sha256": "69174ed1baf1918912e0faf8988e1538b5b66f28c6868346b7ea95e8b16fcd4f"
+    },
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.lock",
+      "sha256": "9213ca390987fe49a37a060a531387072898d8775e4ac7bf883aac31e97a4c4b"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-complete.json",
+      "sha256": "7334690bde3077ab7c51b908b3059160f37e2b30ec88e5b7c194416b4fd47a2a"
+    }
+  ],
+  "components": [
+    {
+      "risk": "Moderate generated-code boundary; the facade itself has no lexical unsafe operations in src.",
+      "boundary": "Reexports bon-macros and provides sealed Set/Unset typestate marker traits. No unconditional crate-root forbid marker. Generated unchecked required-field access belongs to the paired macro implementation.",
+      "justification": "Inspected IsSet/IsUnset sealing and actual selected Tantivy IndexWriterOptions consumer. Its three fields all have builder(default=...) and no configured getters, so its finish fields use safe unwrap_or_else/default paths. Registry source search found no __unsafe_private field access in Tantivy. This builder supports Tantivy indexing configuration.",
+      "residual_risk": "The macros can emit unsafe for other consumers. Same-module hidden field access is discouraged by deprecated warnings, not prevented by Rust privacy; the upstream compile-fail test elevates warnings. Required-field/Getters use needs a fresh review if introduced. No macro expansion or Miri run was performed.",
+      "identity": {
+        "name": "bon",
+        "version": "3.10.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "8695fe628f59de18c6d5fc03dceb5bbe540cecb8c31a27119ee07a2714a980c9",
+          "git_blob_sha1": "a7ab35eeaabc089ed8819caff8b6fcf03f25ec4c"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "76765e3abf6466d334b8f32091ca4deb4c127f6528cbfaba75de5450c0e693f0",
+          "git_blob_sha1": "317c393784d5ea4fcf2bb421f1ef16a82453d1e8"
+        },
+        {
+          "path": "src/builder_state.rs",
+          "sha256": "ff10cb5d4e676f6a1ef68e3a4eb1a1ae13964ae058686a07ccb5fde63d887953",
+          "git_blob_sha1": "96c192876683e80ee90601264502a1b64eeb06b9"
+        },
+        {
+          "path": "src/__/mod.rs",
+          "sha256": "6c982eeff139ad3e1ca5d846fc5c3ceb64728de41bef1bc0ebfe0cd87975d8ff",
+          "git_blob_sha1": "04445d430054dc34914dd1cc4170e12f573bb671"
+        },
+        {
+          "path": "tests/integration/ui/compile_fail/private_fields_access.rs",
+          "sha256": "fbba1bdc8875527a38012e1031fdda08c43f619f1580e7875e61ecb6fc092856",
+          "git_blob_sha1": "dba7481e6a4b0e10b714e1416c35ddbe5f9a65be"
+        },
+        {
+          "path": "tests/integration/ui/compile_fail/private_fields_access.stderr",
+          "sha256": "9e9f3c70eabba015dd1165da562cf49f61ccb586e727ce25ba6b32f12a336717",
+          "git_blob_sha1": "2108e03c382fc19ca17675bfdc4ba681e21827c2"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "bon",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "alloc",
+          "default",
+          "std"
+        ],
+        "separate_feature_contexts": [
+          [
+            "alloc",
+            "default",
+            "std"
+          ]
+        ],
+        "example_reverse_route": "bon -> tantivy 0.26.2 -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "bon-3.10.3.tree",
+        "reverse_tree_sha256": "e9c8f199921967a88447b67455ee5b7f69ab1e5825ab38ca3372d077e2e88a96"
+      },
+      "source_binding": {
+        "archive_sha256": "a05442cd7005532d0cfedec676b5b9333d2b4c7c3afabe2b1a9ce2742fbe2ee6",
+        "cargo_lock_checksum": "a05442cd7005532d0cfedec676b5b9333d2b4c7c3afabe2b1a9ce2742fbe2ee6",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "cc709e91447504d8792764d1c2941ae914f075e5f27b2a12d789161daa9bc7bd",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "ddf1b7b881a5a5a5651b7a3ca8ce07cf88e25ef5"
+          },
+          "path_in_vcs": "bon"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-tantivy/Cargo.toml",
+          "sha256": "88126111639b35fa3381ff3d21619bd4241148b347fea0187d1c6dbab0aeec7f",
+          "git_blob_sha1": "abcb9da148d157b20192936d1478ae8e5b39bb46"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers.",
+      "inspected_consumer_files": [
+        {
+          "path": "tantivy-0.26.2/src/indexer/index_writer.rs",
+          "sha256": "c90b2fbb9e6b905de2cd24e655bfc2444d4943d2d60fcbd19cb1506f5a06422f",
+          "git_blob_sha1": "7ffc38615cd64cce805a62c428b8dac9e8191a98"
+        }
+      ]
+    },
+    {
+      "risk": "Moderate: proc-macro emits unchecked Option and unreachable operations in some generated runtime paths.",
+      "boundary": "Required-field finish/getter generation uses unwrap_unchecked or unreachable_unchecked under sealed State/IsComplete/IsSet constraints; builder storage fields are hidden and deprecated, but accessible inside the defining module.",
+      "justification": "The actual selected Tantivy IndexWriterOptions derive has defaults on all three fields and no getters. finish_fn branches on the configured default before the unchecked required branch, so this use does not need that unchecked branch. Typestate transitions and sealed trait generation were inspected. The dependency is host-side generation for the selected indexing crate, not a separately callable native service.",
+      "residual_risk": "A safety comment still claims random field names although deterministic __unsafe_private_named storage and the upstream compile-fail warning test show otherwise. A same-module caller could corrupt required-member storage despite typestate. No such use is present in inspected Tantivy source. This review does not approve adding required members/getters or direct hidden-field mutation without further review.",
+      "identity": {
+        "name": "bon-macros",
+        "version": "3.10.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "e5acd6b0d7bf3d2496e4b46a986952de3319b4a71b3a34806c694c59af7b3129",
+          "git_blob_sha1": "cab2fef3bb33e439bf2797c8de51ade11c1ad32d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "2ce9d6d89a8b5d5092919da77b4f72996f5d6f23726be5c1ec5320effe4b31a3",
+          "git_blob_sha1": "c17edc8ec02ed30814f30eb4cdd3caef031243aa"
+        },
+        {
+          "path": "src/builder/builder_gen/finish_fn.rs",
+          "sha256": "e77835541b6e0cc34449be95a97b58cc4aff17df993d3a40aa4e27a33a4c11fb",
+          "git_blob_sha1": "34ef173dedc17d1c3795d4513674c3cd2f536c28"
+        },
+        {
+          "path": "src/builder/builder_gen/getters.rs",
+          "sha256": "5a8c9697299af5662ffc00e5f0edbd6ad915cb0680ba43ba93f0bf8ba67c6c26",
+          "git_blob_sha1": "64a66b2c81f019a40c2242af188714021a456d82"
+        },
+        {
+          "path": "src/builder/builder_gen/state_mod.rs",
+          "sha256": "13f2c90a3d1513c0c06f6f9fc45de0edda94a37cea1c8a9e7bea7634dd228986",
+          "git_blob_sha1": "f93b611034dbe18b074359002c943bc21fd31976"
+        },
+        {
+          "path": "src/builder/builder_gen/builder_decl.rs",
+          "sha256": "f33ce7747f1ea5aad448d82718d16a60499ba442bf4e347bf9d6ff9878adcd44",
+          "git_blob_sha1": "f25c4256897f40e7e60263f8034a4b32d93adebc"
+        },
+        {
+          "path": "src/builder/builder_gen/mod.rs",
+          "sha256": "97175d0b435ad32435a0fea8b1622a6d37ce6fb592a3e6b48036f4aabda60326",
+          "git_blob_sha1": "5cf9387eb3791647865b76e6c4479be669bf046e"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "bon_macros",
+            "kind": [
+              "proc-macro"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected host proc-macro; generated output can become runtime code",
+        "features": [
+          "alloc",
+          "default",
+          "std"
+        ],
+        "separate_feature_contexts": [
+          [
+            "alloc",
+            "default",
+            "std"
+          ]
+        ],
+        "example_reverse_route": "bon-macros -> bon -> tantivy -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "bon-macros-3.10.3.tree",
+        "reverse_tree_sha256": "b108ae9185e8ab9fbd6700854c9999c6a9a032182765081863e83dc8d771f71b"
+      },
+      "source_binding": {
+        "archive_sha256": "93833e97ac7c46ba97045afcf247238c27057538fcf2f06344662ddd5f567be6",
+        "cargo_lock_checksum": "93833e97ac7c46ba97045afcf247238c27057538fcf2f06344662ddd5f567be6",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "d7b0b87a025dbf71595328bb045f253f99f5da10cb15c8f2d5a98b11773f0cf0",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "ddf1b7b881a5a5a5651b7a3ca8ce07cf88e25ef5"
+          },
+          "path_in_vcs": "bon-macros"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-tantivy/Cargo.toml",
+          "sha256": "88126111639b35fa3381ff3d21619bd4241148b347fea0187d1c6dbab0aeec7f",
+          "git_blob_sha1": "abcb9da148d157b20192936d1478ae8e5b39bb46"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers.",
+      "inspected_consumer_files": [
+        {
+          "path": "tantivy-0.26.2/src/indexer/index_writer.rs",
+          "sha256": "c90b2fbb9e6b905de2cd24e655bfc2444d4943d2d60fcbd19cb1506f5a06422f",
+          "git_blob_sha1": "7ffc38615cd64cce805a62c428b8dac9e8191a98"
+        }
+      ]
+    },
+    {
+      "risk": "Moderate: range invariants feed unchecked integer operations and optimizer assumptions.",
+      "boundary": "Private Unsafe wrapper, unsafe new_unchecked/assert_unchecked, nonzero conversions and unchecked arithmetic rely on MIN..=MAX. Selected serde deserialization is an untrusted-value entry boundary.",
+      "justification": "Safe new checks bounds; checked_add/checked_sub use primitive checked arithmetic followed by new. serde Deserialize first decodes the primitive and calls new, returning invalid_value out of range. The inner wrapper exposes immutable references, not safe mutation of the invariant. Selected use is bounded integer/time representation through time and rcgen.",
+      "residual_risk": "Public unsafe constructors/arithmetic remain caller obligations. This was inspection of construction, checked arithmetic, representation and serde paths, not a proof of every macro-generated arithmetic operation or extreme const-bound combination.",
+      "identity": {
+        "name": "deranged",
+        "version": "0.5.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "8604c48d0f13a96386d4ef94448d295c64a1639a9a6352b3a060bc00da5bc011",
+          "git_blob_sha1": "fed8cf1c2a7cb15fdbc9e40c1fb7f6bd6f94cadc"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9d6107518384ab83aea30dafaa2d89383345198a40ec6b03548ce8810b700e79",
+          "git_blob_sha1": "e22579e6841210fbea3e4fd1ff6cac76cf4613c4"
+        },
+        {
+          "path": "src/unsafe_wrapper.rs",
+          "sha256": "76e67ff03b31f0b97849f0e6c3131f1cb213fc25a11ed259664f48a6901c623e",
+          "git_blob_sha1": "6b2304c168ec7281e68eef95721923764d58af34"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "deranged",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "default",
+          "serde"
+        ],
+        "separate_feature_contexts": [
+          [
+            "default",
+            "serde"
+          ]
+        ],
+        "example_reverse_route": "deranged -> time -> rcgen -> susi-vendor-rcgen -> susi-daemon -> susi",
+        "reverse_tree_receipt": "deranged-0.5.9.tree",
+        "reverse_tree_sha256": "c392f5861e0bef71e27a8719488804a107500677fb975a631273d9d53d9c9052"
+      },
+      "source_binding": {
+        "archive_sha256": "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e",
+        "cargo_lock_checksum": "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "803d99385e242b702babeaeddb167bb38f3a7b055a696336cd77688cf8fe6796",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "aeb03a4be17fe287d5fdd509e9ae134d4b9999fc"
+          },
+          "path_in_vcs": "deranged"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-rcgen/Cargo.toml",
+          "sha256": "8cd465ecfe771c9cccd0fcc87085685d3c781db250a4af2ccc692012149910f3",
+          "git_blob_sha1": "59e11ae038a1629128a845222fdf113327bfe766"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Moderate: pin projection must not move a pinned variant.",
+      "boundary": "as_pin_ref/as_pin_mut create projected Pin with new_unchecked; mutable projection uses get_unchecked_mut on the enum.",
+      "justification": "The projection matches the current variant and immediately reborrows its contained value; it does not replace/move it. The type has no Drop or manual Unpin implementation undermining structural pinning. Other inspected variant dispatch remains safe Rust. Selected use supports tokenization iterator plumbing through itertools/rayon-cond.",
+      "residual_risk": "Structural pinning relies on future changes not adding a moving destructor or unsafe Unpin. No concurrent stress or Miri proof was run; dependency version and source bytes are bound.",
+      "identity": {
+        "name": "either",
+        "version": "1.19.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a245f305b622e445db7b93c14dda11a8157741a7f119d9b7cd0a532fa4e66834",
+          "git_blob_sha1": "1d8ad964fb1304746001b477b49296d0fc9b215b"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "f80ef9ef753ae93e29a3671eda922103d18f82502c4fc3217c22781512971270",
+          "git_blob_sha1": "0dae0804567a928545ccb1f2bf849725a0a4d5fe"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "either",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "default",
+          "std",
+          "use_std"
+        ],
+        "separate_feature_contexts": [
+          [
+            "default",
+            "std",
+            "use_std"
+          ]
+        ],
+        "example_reverse_route": "either -> itertools -> rayon-cond -> tokenizers -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "either-1.19.0.tree",
+        "reverse_tree_sha256": "6340a9c3f0c47ee1fef430f31542f23b733a461d2c7ab8fd060ee3b55b2d24ab"
+      },
+      "source_binding": {
+        "archive_sha256": "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be",
+        "cargo_lock_checksum": "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "8bfc64b8ab0330fee6f815dde5a3993896b7c78768953361f884129b7fe76cca",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "1e4326df5972eb4a0ced66cb3b67fa0c5aca8493"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-candle/Cargo.toml",
+          "sha256": "5e06a57bccf82cb93f4d0f454cbba646c1e5a911d4fe3368b3267180298ea38b",
+          "git_blob_sha1": "60cfa8d6dfdb26ea0655487b071fcb49e34f89b3"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; hashing/equality correctness remains relevant.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker is declared. Safe Equivalent and Comparable traits bridge borrowed keys with Eq/Ord/Borrow.",
+      "justification": "Inspected blanket implementations compare the borrowed key using Eq/Ord; docs require equivalent keys to hash identically. The crate supplies heterogeneous lookup traits to hashbrown/lru and Tantivy. It neither performs pointer manipulation nor FFI itself.",
+      "residual_risk": "Incorrect consumer Eq/Hash/Borrow implementations can cause incorrect lookup behavior. The absent forbid marker means future unsafe additions would not be compiler-forbidden; this review covers only pinned bytes.",
+      "identity": {
+        "name": "equivalent",
+        "version": "1.0.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "e7ef6daa56f849a07bb27bdb5ad7c9634bc9899976dd4e5a6d93ef859e5759d3",
+          "git_blob_sha1": "c2d5188132ebe2e84262aa9d8a5035cf8e9cfd8d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7d70bce18582aea798c22795b8ca283552daa4fda16d00c4090377767ab1c432",
+          "git_blob_sha1": "b3e5735603be45ac8a7af8712ffe4861e237d1ff"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "equivalent",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [],
+        "separate_feature_contexts": [
+          []
+        ],
+        "example_reverse_route": "equivalent -> hashbrown 0.16.1 -> lru -> tantivy -> susi-vendor-tantivy -> susi",
+        "reverse_tree_receipt": "equivalent-1.0.3.tree",
+        "reverse_tree_sha256": "e9fc1eeec12d142fa067d023fe4277b9f52dc9d32b48070141c2a2b546a8d34b"
+      },
+      "source_binding": {
+        "archive_sha256": "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826",
+        "cargo_lock_checksum": "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "23a743d0639d0c50ffeab39c55257dc8f70f93e9a41cadc9286cd93dea0f475b",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "4ee88130bd4ab3229e785533da2af641be22deac"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-tantivy/Cargo.toml",
+          "sha256": "88126111639b35fa3381ff3d21619bd4241148b347fea0187d1c6dbab0aeec7f",
+          "git_blob_sha1": "abcb9da148d157b20192936d1478ae8e5b39bb46"
+        },
+        {
+          "path": "vendor/hashbrown/Cargo.toml",
+          "sha256": "da5c6b8b5fd7dc14f1e670c3f87c25b1ba790124640a7b81a56fe0bd6d2471c2",
+          "git_blob_sha1": "935da7106d06aa9ee58901be7b50b4c9cb9032db"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Moderate: transparent casts and non-NaN invariants.",
+      "boundary": "Shared/mutable references are cast to repr(transparent) OrderedFloat; unsafe NotNan constructors require non-NaN. Optional rkyv implementation is not selected.",
+      "justification": "OrderedFloat permits every underlying value so the inspected reference conversions preserve lifetime, layout and validity. Safe NotNan::new rejects NaN, and Ord::cmp uses expect rather than unchecked unreachable because FloatCore implementations cannot be trusted by unsafe code. This supplies deterministic float ordering to Tantivy query grammar.",
+      "residual_risk": "Unsafe caller-created NotNan with NaN violates its contract. Serialization/rkyv/facet optional feature boundaries were not approved; current features are default,std. No exhaustive numerical property tests were run.",
+      "identity": {
+        "name": "ordered-float",
+        "version": "5.5.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "32d799fdab88cc213706e9642ca0f55f56b8acce114d35eb60c0e0acda14b303",
+          "git_blob_sha1": "fcb221f0e531a91dd5416ca853a68dc4e1849bb3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "b258d5de19efd3b1a8f57c7ac0dd4435c80f0c0652583b81dd408bacc78a0b9d",
+          "git_blob_sha1": "4f96502fdb55b522b8777c18da9559026a737cbd"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "ordered_float",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "default",
+          "std"
+        ],
+        "separate_feature_contexts": [
+          [
+            "default",
+            "std"
+          ]
+        ],
+        "example_reverse_route": "ordered-float -> tantivy-query-grammar -> tantivy -> susi-vendor-tantivy -> susi",
+        "reverse_tree_receipt": "ordered-float-5.5.1.tree",
+        "reverse_tree_sha256": "96982b7f80eee349b3dad4554e97c425c89395e567d1ae4d94d9d4094b7f2197"
+      },
+      "source_binding": {
+        "archive_sha256": "7f59006ce1e204c30956638535b74d317bca99477b9356dfaec54c37f6f600ab",
+        "cargo_lock_checksum": "7f59006ce1e204c30956638535b74d317bca99477b9356dfaec54c37f6f600ab",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "dfc6c6b3da53bee4c78c066ebd4a231369803772c5f7acb04996012a73252e8f",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "d0ff7fb107c734fd8c43725e4e2f201b657b6288"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-tantivy/Cargo.toml",
+          "sha256": "88126111639b35fa3381ff3d21619bd4241148b347fea0187d1c6dbab0aeec7f",
+          "git_blob_sha1": "abcb9da148d157b20192936d1478ae8e5b39bb46"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Moderate: initialized-byte and UTF-8 invariants plus MaybeUninit option fields.",
+      "boundary": "WriteBuffer deref accesses initialized prefix and converts it to UTF-8 without checks. Copy helper casts T/MaybeUninit<T> slices. FormatterOptions reads width/precision only when initialization flags are set.",
+      "justification": "write_str gets an in-bounds mutable range before copying valid str bytes and increments length only after success. The copy helper requires T:Copy and copies equal-length slices before assuming initialization. FormatterOptions defaults clear flags and setters initialize corresponding values while setting flags. Used for time formatting in certificate infrastructure.",
+      "residual_risk": "Safety depends on maintaining the single writer/length and flag-value invariants. This is not exhaustive coverage of every formatter or proof against all arithmetic/panic combinations.",
+      "identity": {
+        "name": "powerfmt",
+        "version": "0.2.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "623e62724836792656467cabde148f04a3e4fefb5b86ae5e43195cb79a3fcdfb",
+          "git_blob_sha1": "b146727a1c90680c6c34c6d7eae7f18917bd5ac0"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "8955710131f984fa4bc7d3215cd964d33543c70b8646ec46edf036884b0cd9fc",
+          "git_blob_sha1": "a4fd78fd34bfb7650f47acd30692608365b96a2d"
+        },
+        {
+          "path": "src/buf.rs",
+          "sha256": "1b087225aaf454336ed985d226c8fbac080be39a69e32f1a43870a47831650ad",
+          "git_blob_sha1": "18719b3b704eddd7fd392d9311e0ec94aca04d96"
+        },
+        {
+          "path": "src/smart_display.rs",
+          "sha256": "78a107b9b3cf812db19788697f66467a5931833471ffabd52e93a1553d2334d9",
+          "git_blob_sha1": "73f0ae47f856f32b748ca27ab6109d8368315f9d"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "powerfmt",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [],
+        "separate_feature_contexts": [
+          []
+        ],
+        "example_reverse_route": "powerfmt -> time -> rcgen -> susi-vendor-rcgen -> susi-daemon -> susi",
+        "reverse_tree_receipt": "powerfmt-0.2.1.tree",
+        "reverse_tree_sha256": "4648c7679eddf6eab96edc25a55b06de1be2452bd24f0e24f1fa5232aebeccb8"
+      },
+      "source_binding": {
+        "archive_sha256": "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958",
+        "cargo_lock_checksum": "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "ac02da9af19beb0bc564a115642f1c9df5dcbe2526f6a2be8608062b9c114075",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "3dd45162a7e64d6b354675e4282d0550dce8bfc8"
+          },
+          "path_in_vcs": "powerfmt"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-rcgen/Cargo.toml",
+          "sha256": "8cd465ecfe771c9cccd0fcc87085685d3c781db250a4af2ccc692012149910f3",
+          "git_blob_sha1": "59e11ae038a1629128a845222fdf113327bfe766"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; statistical and resource correctness remains.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker is declared. DDSketch stores counts/bins in safe Vecs and derives serde on its data structures.",
+      "justification": "Inspected weighted add zero-count handling, quantile range/empty checks, u64 rank handling, and capped bin resize/rotation logic. Normal Rust bounds checks protect indexed storage. Tantivy uses this sketch for approximate aggregation; this package is not a cryptographic primitive.",
+      "residual_risk": "Safe code can still panic on extreme arithmetic or invalid deserialized/configured state; NaN sample behavior and count overflow were not qualified. Review does not promise exact statistical results or unrestricted untrusted deserialization.",
+      "identity": {
+        "name": "sketches-ddsketch",
+        "version": "0.4.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "2f85f766fa2eb3875dd756ac945d87c91438ecae2e60bed15d15e34532e246fb",
+          "git_blob_sha1": "ed10b77f227dbb93de9ef9a515c0899b1eab3733"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "57ac317fe26878b888ccc52cd3e7a632c07a2c5b04f8c8532cee788d348e66dd",
+          "git_blob_sha1": "f10ad7e3f27ef3c9643f40e1bfdd72994ea3d2f1"
+        },
+        {
+          "path": "src/ddsketch.rs",
+          "sha256": "b9c4fbd4ced7bfc6d6a6e189b3c6cbcd4879cd14b8bf523863e1f466be8d2d98",
+          "git_blob_sha1": "f0e6dcf7d250ef9a5c70551191c96d248dbf74c1"
+        },
+        {
+          "path": "src/store.rs",
+          "sha256": "01215083554b6d51eb4e96c511b7a5c2b7b70fa05fa19a38f0e6fe8393ddc4a4",
+          "git_blob_sha1": "9749c1424fe88b931804687a64f221c9480a8e1b"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "sketches_ddsketch",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "serde",
+          "use_serde"
+        ],
+        "separate_feature_contexts": [
+          [
+            "serde",
+            "use_serde"
+          ]
+        ],
+        "example_reverse_route": "sketches-ddsketch -> tantivy -> susi-vendor-tantivy -> susi",
+        "reverse_tree_receipt": "sketches-ddsketch-0.4.2.tree",
+        "reverse_tree_sha256": "458df11229091eeabfb8bfb05073ad5895314bcbe5bd1de4974342b0b7afa352"
+      },
+      "source_binding": {
+        "archive_sha256": "e53e2f8d4e9c692f23a90208fad6a64862f413e286d533f1f649f160e2d5caee",
+        "cargo_lock_checksum": "e53e2f8d4e9c692f23a90208fad6a64862f413e286d533f1f649f160e2d5caee",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "c70af48afcf3059c55c43365f20853a1a730ea66f5cb739f89d1eee3da4d94f9",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "5456e9c38df787e0060b161a89b5479711eba529"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-tantivy/Cargo.toml",
+          "sha256": "88126111639b35fa3381ff3d21619bd4241148b347fea0187d1c6dbab0aeec7f",
+          "git_blob_sha1": "abcb9da148d157b20192936d1478ae8e5b39bb46"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Elevated: pointer cursor and lifetime/thread-affinity implementation is used at runtime as well as by host macros.",
+      "boundary": "Immutable boxed token buffers contain raw pointer cursors/sentinels. ParseBuffer internally erases cursor lifetime in Cell; speculative advancement verifies shared scope. ThreadBound has unsafe Sync/Copy-constrained Send. Single-span transparent token casts also occur.",
+      "justification": "Inspected buffer construction appends terminal entries before boxing; Cursor carries PhantomData<&Entry> and scope bounds. ParseBuffer limits assignments to derived cursors and Speculative::advance_to rejects different scope. ThreadBound::get checks original thread ID and Send requires Copy to prevent wrong-thread Drop. WithSpan casts apply only to one-span transparent token representation. Susi runtime facade calls syn::parse_file and exposes owned metrics/outline rather than raw cursor values.",
+      "residual_risk": "This internally fragile parser is not exhaustively audited; recursive/token resource exhaustion and all AST edge cases remain upstream risks. Textual Token![unsafe] matches are parsed syntax, not executed unsafe blocks. No Miri/fuzz run or new parser tests were performed.",
+      "identity": {
+        "name": "syn",
+        "version": "3.0.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "b6f7f6069d92142d3e294f84855a68049bebc5b886c557ed4ae980ddbc866e1c",
+          "git_blob_sha1": "44091994c70f62fdfa8d165fb5d3f7f4bfad8729"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "bbd84571900844f1c73bf784ead1adb2c1ac07163e2038920bae9c0bc132e9e5",
+          "git_blob_sha1": "79d0c43d71150b76b71f895d90f9549bbe65a2bb"
+        },
+        {
+          "path": "src/buffer.rs",
+          "sha256": "ddb6d50a9e79dc1db86d819d41dbf532e172997c8e0101d73c95052835756c50",
+          "git_blob_sha1": "f2e205bd3b8f3d23701ea82cfb0c08a18348f3e9"
+        },
+        {
+          "path": "src/thread.rs",
+          "sha256": "b91e33c563c2ea584fcd7c5454998303173f4227bdb19504776e61d09b60675c",
+          "git_blob_sha1": "82accac78ecec3ef0ec9fa624fa2d8cdffd24e26"
+        },
+        {
+          "path": "src/parse.rs",
+          "sha256": "e692d6e895ac79a14680b89a7c29611995126953238176bdb50d2a3c2fb2d9e3",
+          "git_blob_sha1": "9e10b4c9bbd556d92549a2ba55dcec25ba792068"
+        },
+        {
+          "path": "src/discouraged.rs",
+          "sha256": "7b5ca0fb3120970d028ddd4efc69363fea278a0b6ed5160d82295c326b3b08ac",
+          "git_blob_sha1": "60584809dabb07165427fb0e22e12da193e6c1fe"
+        },
+        {
+          "path": "src/token.rs",
+          "sha256": "fddf7540f6c87e088ca2e4cd59a4769bc99989907a71e0d7cb42ee6ec067a6ac",
+          "git_blob_sha1": "20e3b99f1494b9d78fbee18190c6a7e4356388f5"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "syn",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected runtime parser and host proc-macro dependency; separate target/host feature contexts retained",
+        "features": [
+          "clone-impls",
+          "default",
+          "derive",
+          "extra-traits",
+          "full",
+          "parsing",
+          "printing",
+          "proc-macro",
+          "visit",
+          "visit-mut"
+        ],
+        "separate_feature_contexts": [
+          [
+            "clone-impls",
+            "default",
+            "derive",
+            "extra-traits",
+            "full",
+            "parsing",
+            "printing",
+            "proc-macro",
+            "visit",
+            "visit-mut"
+          ],
+          [
+            "clone-impls",
+            "default",
+            "derive",
+            "full",
+            "parsing",
+            "printing",
+            "proc-macro",
+            "visit"
+          ]
+        ],
+        "example_reverse_route": "syn -> susi-vendor-syn -> susi-gawd/susi-gmcp -> susi; also syn -> async-trait/other host proc-macros -> selected graph",
+        "reverse_tree_receipt": "syn-3.0.9.tree",
+        "reverse_tree_sha256": "61d42e7345c79767e915515cb713a4080cc00bc8794409bcd3afceacd9a89de6"
+      },
+      "source_binding": {
+        "archive_sha256": "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b",
+        "cargo_lock_checksum": "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "5a350e868ca0056cfb5527523a43d58956b8d997f031b92247d15be099cdd639",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "7c44a5565b4421035101cc16184e9af08ab5fc77"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-syn/Cargo.toml",
+          "sha256": "5e51fab283f7a72c4b16a04cd22063dd96939516a79da89b34a86d4aa4d6a3c7",
+          "git_blob_sha1": "fc970c647dfac89e91392261025d0e41c9995526"
+        },
+        {
+          "path": "crates/susi-vendor-syn/src/lib.rs",
+          "sha256": "e8de1578b88d8c38aa08c99caac7c34fa9be6ed6b70eb8822d92b41a24252095",
+          "git_blob_sha1": "2a5856815925e7bbe06fdcf7fdd5d7b8206848dd"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; build-script/proc-macro trust boundary.",
+      "boundary": "No unsafe token was found in src/build.rs and no unconditional forbid marker is declared. Safe error trait coercion helpers accompany the paired derive macro; build.rs invokes configured rustc probes and writes generated private module under OUT_DIR.",
+      "justification": "AsDynError conversions preserve borrowed lifetimes using ordinary coercions and sealed implementations. Inspected build script uses structured Command arguments for the compiler probe, never shell evaluation, and generates version-bound helper module. Broad selected native error paths depend on thiserror.",
+      "residual_risk": "Host build scripts execute with Cargo environment privileges; compiler/wrapper identity and paired macro source remain separate trust obligations. No claim that error messages cannot contain sensitive application data.",
+      "identity": {
+        "name": "thiserror",
+        "version": "2.0.21",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "4ab1fdd3cba041dbaa5b813dff268978a93b1542dcc31935fb903772cc700a47",
+          "git_blob_sha1": "09a68e8071f9e1790d3b539062b55f73f81c98d2"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "e9500c55d79b4fa491c6af99169ac3149c9592163b1997b0efd0385f5b930c3f",
+          "git_blob_sha1": "9e79f673e68e0dd11ccf32d21c718c11a6bb3f2c"
+        },
+        {
+          "path": "src/aserror.rs",
+          "sha256": "c4504c7db4639c5700882fd8133bf257d6755a9dad28b55b6daf02e1fb64be56",
+          "git_blob_sha1": "ac91cc867b4863a2a8b9c26228cf2597dd7717e7"
+        },
+        {
+          "path": "build.rs",
+          "sha256": "ccc38283604f99237ad2333bbe395259e29fdf2ff4e04a60a95de9e4499c09a3",
+          "git_blob_sha1": "474120774675351ffbc881eb48af32b79c792e02"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "thiserror",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          },
+          {
+            "name": "build-script-build",
+            "kind": [
+              "custom-build"
+            ],
+            "path": "build.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected runtime helpers and host build script",
+        "features": [
+          "default",
+          "std"
+        ],
+        "separate_feature_contexts": [
+          [
+            "default",
+            "std"
+          ]
+        ],
+        "example_reverse_route": "thiserror -> bollard -> susi-vendor-bollard -> susi-sandbox -> susi",
+        "reverse_tree_receipt": "thiserror-2.0.21.tree",
+        "reverse_tree_sha256": "1b6a47aa8a2491c6bb41ca0a64b8a8865df3970c248c0394dc0fad5b58b1788e"
+      },
+      "source_binding": {
+        "archive_sha256": "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e",
+        "cargo_lock_checksum": "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "70a38fcd90c53ed01f3cf6c4559c5fa68a8f3fbc6c8eabafddcb03a1c318356c",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "b1827ee06f81a7d7f954e676771e19a97f9f8e3b"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-bollard/Cargo.toml",
+          "sha256": "c16dc035223ba2ebbe87786ab28eb45d4b0d43560911ff9461b694f82572d422",
+          "git_blob_sha1": "0353ab5e0903a5483fcf38ffe70426e3692e7de7"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; generated Error/Display/From implementations.",
+      "boundary": "The unsafe lexical match in scan_expr is a parsed keyword string, not an unsafe operation. No unconditional forbid marker. derive_error parses DeriveInput, validates attributes, and emits implementations.",
+      "justification": "Inspected expansion validates input before struct/enum handling, propagates source through borrowed AsDynError and adds inferred Error bounds. Invalid attributes produce diagnostic/fallback output rather than native pointer tricks. This is the matching host proc macro required by selected thiserror.",
+      "residual_risk": "Generated formatting/source behavior relies on application attributes and upstream parser; this was not an exhaustive macro expansion audit. Future generated unsafe tokens or new feature contexts require renewed review.",
+      "identity": {
+        "name": "thiserror-impl",
+        "version": "2.0.21",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "cc5e3660d65270da1302d5b24cbefb50b4993b258d344a9ac9b4b69a612aa27f",
+          "git_blob_sha1": "74ba27b5abe20eebcd75dab5744f69b818b048fa"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "c1ba27791c3c9124517c3df66da113a7b6c5e1292c6bb05847223343000647b1",
+          "git_blob_sha1": "25890f221db5227a86c8f883c71e41364f093140"
+        },
+        {
+          "path": "src/expand.rs",
+          "sha256": "76285acc08ccb8a0a93a3cbd58c3e12cbcde61720ad676be181fff7b1f278df3",
+          "git_blob_sha1": "e3ac7793bad535a709ed799be82eaeabae2482cf"
+        },
+        {
+          "path": "src/scan_expr.rs",
+          "sha256": "d46ae7a3eaaa6476553db3164676ec71aa82bcd8a2e4cad59deb07893c79f1c8",
+          "git_blob_sha1": "155b5b63bf02b21b226069fd7bb98d998404fd2f"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "thiserror_impl",
+            "kind": [
+              "proc-macro"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected host proc-macro",
+        "features": [],
+        "separate_feature_contexts": [
+          []
+        ],
+        "example_reverse_route": "thiserror-impl -> thiserror -> bollard -> susi-vendor-bollard -> susi",
+        "reverse_tree_receipt": "thiserror-impl-2.0.21.tree",
+        "reverse_tree_sha256": "e771bddd30b49c5fa5af920a5b7490c7813947a11ccfdb052bd3a0d9f4a46e0c"
+      },
+      "source_binding": {
+        "archive_sha256": "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524",
+        "cargo_lock_checksum": "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "cfe173d2701095a422ea3260f004e522c54ac078f54eda433323f7285cd6ad59",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "b1827ee06f81a7d7f954e676771e19a97f9f8e3b"
+          },
+          "path_in_vcs": "impl"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-bollard/Cargo.toml",
+          "sha256": "c16dc035223ba2ebbe87786ab28eb45d4b0d43560911ff9461b694f82572d422",
+          "git_blob_sha1": "0353ab5e0903a5483fcf38ffe70426e3692e7de7"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Moderate: borrowed and owned representation casts; UTF-8 invariants during platform-neutral path manipulation.",
+      "boundary": "repr(transparent) path wrappers cast borrowed str/[u8] and transfer Box/Rc/Arc allocations. UTF-8 component APIs use unchecked conversions; Windows push mutates String byte vector through encoding logic.",
+      "justification": "Inspected new takes &S and returns a borrow tied to that reference, not owned temporary input. Owned casts preserve allocation/metadata and consume the original owner before reconstruction. UTF-8 iteration starts from &str and splits at ASCII path delimiters; unsafe bytes-to-UTF8 API documents validity requirement. Windows push accepts only str data plus path separators. Selected use supports zip/Candle archive path representation on Linux without implying host filesystem authorization.",
+      "residual_risk": "Platform path normalization and traversal rejection are separate semantic obligations; safe Rust representation does not make an extraction destination safe. Windows and unsafe caller-supplied invalid UTF-8 were not executed or exhaustively audited.",
+      "identity": {
+        "name": "typed-path",
+        "version": "0.13.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "060fcd4ef9bfb9527bb8815728788bbb2968e7e0198d5fd8edca59f91c2f6b43",
+          "git_blob_sha1": "810f2493e94b3a5379efc694b856a33d084fb7f1"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "2569a85d181aa851e01fd99456405e9db759b8d5c53ce68457fe13f3fd340063",
+          "git_blob_sha1": "90cc185c9321fb2d4cd79dc39f5689e051ac1683"
+        },
+        {
+          "path": "src/common/utf8/path.rs",
+          "sha256": "6fecfa6ce964b8f56f481df8cb73710c6a46f3c75e218c5e809c6eb9f2939b24",
+          "git_blob_sha1": "9aa242b2e7c9e6514bd5af1672f0b05d08b8b238"
+        },
+        {
+          "path": "src/common/non_utf8/path.rs",
+          "sha256": "9e2de37598af3a36f82af37c2b31b45b28d21ea2ee69dd8269fe6be88183bc12",
+          "git_blob_sha1": "2056eb899e88563d18874044ca97ea0517ca9d34"
+        },
+        {
+          "path": "src/unix/utf8/components.rs",
+          "sha256": "676b332924310f1f2a55e0af2a16e879ea31b362d0bdd5b401b35bfbe8cfec2c",
+          "git_blob_sha1": "8b8a59f879e34e196bc789268c37c50914786144"
+        },
+        {
+          "path": "src/windows/utf8.rs",
+          "sha256": "af95791b08f8cafdf62d5038ad86f4942b101e6304c3251c022aefe56a12a6e1",
+          "git_blob_sha1": "36fd3b19f759bc3d2658941362af76d188cf875f"
+        },
+        {
+          "path": "src/windows/non_utf8.rs",
+          "sha256": "b4bac3abca1184522a2ecf7aab49b333302a524b41d0c44185f1b202fc8298df",
+          "git_blob_sha1": "631fdaddb0342491985e15962b99e6b22019dff3"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "typed_path",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [],
+        "separate_feature_contexts": [
+          []
+        ],
+        "example_reverse_route": "typed-path -> zip 9.2.0 -> candle-core -> susi-vendor-candle -> susi",
+        "reverse_tree_receipt": "typed-path-0.13.0.tree",
+        "reverse_tree_sha256": "b57ec734b1d44ace2bed2bf5b7c52cd69f358ca30d532da38ccb67139e8e85be"
+      },
+      "source_binding": {
+        "archive_sha256": "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e",
+        "cargo_lock_checksum": "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "8f978e9a7823c9d63f2fe039ed1dc5045de5bcf54c9a7578d07f55fb5360d6d3",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "93554f5a6a79a5d98c446fff724967f83cd72b91"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/zip/Cargo.toml",
+          "sha256": "ce28a903f826c7ab9241219a5d1f3dd9ea42141b86c82b8dd838a9cf81cfde63",
+          "git_blob_sha1": "5ef2736178f980fab29e58968bd01a792abfb247"
+        },
+        {
+          "path": "crates/susi-vendor-candle/Cargo.toml",
+          "sha256": "5e06a57bccf82cb93f4d0f454cbba646c1e5a911d4fe3368b3267180298ea38b",
+          "git_blob_sha1": "60cfa8d6dfdb26ea0655487b071fcb49e34f89b3"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; case-folding/hash consistency.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker. ASCII/Unicode case-insensitive wrapper uses safe char iterators and lookup tables.",
+      "justification": "Unicode equality and ordering consume the same folded char iterator. Hash writes the corresponding UTF-8 bytes individually and adds a prefix-freedom terminator, matching the ASCII hash convention. Selected MIME guessing pulls it through reqwest in both normal and build dependency contexts.",
+      "residual_risk": "Unicode mapping/collision semantics are not authentication or identifier-confusability protection. Generated table completeness and all Unicode cases were not independently proven.",
+      "identity": {
+        "name": "unicase",
+        "version": "2.10.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "8e8d11c783859686450d60b9edc7ec577645c878ba143c70eb7ab87d64292f16",
+          "git_blob_sha1": "e449b0862525c29069531b071cc9b8437418517b"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7c430f3aae7aed153dbef6dbc91c244a0e1adb16dc37706a2aba4be5897a1df3",
+          "git_blob_sha1": "5eda1c669e777ab1f6be0ba80cdafd7a4c3a467d"
+        },
+        {
+          "path": "src/unicode/mod.rs",
+          "sha256": "99b42dd5959d07ac7572e9d8bfee6a8b9bf776baf7bef442a479c775ac6fda50",
+          "git_blob_sha1": "bc498ab5c502ed2e8ad5bdee097fc398d0c8ef2b"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "unicase",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal and host build dependency",
+        "features": [],
+        "separate_feature_contexts": [
+          []
+        ],
+        "example_reverse_route": "unicase -> mime_guess [normal and build] -> reqwest -> susi-vendor-mcp/ra2a -> susi",
+        "reverse_tree_receipt": "unicase-2.10.0.tree",
+        "reverse_tree_sha256": "12748e7f71f2bc6202740413a6446bf97e344bb8ce551a3122115faa7d6ad566"
+      },
+      "source_binding": {
+        "archive_sha256": "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f",
+        "cargo_lock_checksum": "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "db8b047b97bd67e739a3441110d6750957d2e4ed44cc8cda72412732d7185617",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "1e739ff80fe2297c52efda9d05f0bea1038a7eb9"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/reqwest/Cargo.toml",
+          "sha256": "5eb4ef7739cdb3b44b9497649518277645d2212fcc6fbd2144f5c095a5cd4d44",
+          "git_blob_sha1": "7366a0961c21504bf22f7cd60cbacb5f415f715b"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Moderate: initialized ASCII output and nonzero/transparent representation assumptions.",
+      "boundary": "Formatting copies fixed byte arrays into MaybeUninit buffers and assumes initialized ASCII; transparent/reference casts and NonNilUuid NonZeroU128 constructor are unsafe.",
+      "justification": "Inspected formatting slices output to exact fixed lengths, copies complete arrays using disjoint borrowed buffers, then forms UTF-8. NonNilUuid::new checks nonzero; selected v4/v7 unchecked convenience constructors depend on version bits being set, and inspected v4 mask explicitly sets them. Required native request/agent identifiers use std,rng,serde,v4,v7.",
+      "residual_risk": "No statistical/randomness or monotonic v7 proof was performed. Optional v1/v3/v5/v6/v8 and unstable zerocopy behavior are outside selected feature approval. IDs alone are not authorization credentials.",
+      "identity": {
+        "name": "uuid",
+        "version": "1.29.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "01614e314e5191de7e535dfe17074116a1ad8f2cb8145de84417a6538c57bf99",
+          "git_blob_sha1": "709511542eeb6e1de098915cd88dc8d366275646"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "d865dc56af193a410f6cebaed38da838af1fb818c896f24baa05b3861db58b8a",
+          "git_blob_sha1": "f8a7c0d1f007b70b8b5ff215270af74d494e28a8"
+        },
+        {
+          "path": "src/macros.rs",
+          "sha256": "76b6c6da92909ba9da6d3ed41c818943825939c9ed6bca7be81acec737abfcb5",
+          "git_blob_sha1": "0c2fa5b9be749a1c8d7a2f8871d3d9072eda6ac1"
+        },
+        {
+          "path": "src/non_nil.rs",
+          "sha256": "ac162470b38ea2ef494ad016dd02d096b0f7306f259b669588db26d826b9f3bd",
+          "git_blob_sha1": "0a2bd7e58549ea9ab1540329094097074812a66f"
+        },
+        {
+          "path": "src/fmt.rs",
+          "sha256": "59160088a7ef7df7fd6d622d888db2a73d5a93940121ef14daf957f0d2cef68f",
+          "git_blob_sha1": "01d4bad3f1527f48d7815b9f2ed9a87dfc960465"
+        },
+        {
+          "path": "src/v4.rs",
+          "sha256": "3d553f0f14f26a1915a62b1aaea1d011def5631d77a6ef8da1a87983b5b98cd5",
+          "git_blob_sha1": "a570335e7195c2199d1284c9be5b92b7dcbb4d95"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "uuid",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "default",
+          "rng",
+          "serde",
+          "std",
+          "v4",
+          "v7"
+        ],
+        "separate_feature_contexts": [
+          [
+            "default",
+            "rng",
+            "serde",
+            "std",
+            "v4",
+            "v7"
+          ]
+        ],
+        "example_reverse_route": "uuid -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi",
+        "reverse_tree_receipt": "uuid-1.29.0.tree",
+        "reverse_tree_sha256": "81bf98585d3d0aa414671d3d208587de3db1e55009f2bb639a0c9662639fd4ae"
+      },
+      "source_binding": {
+        "archive_sha256": "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514",
+        "cargo_lock_checksum": "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "2c1f023746fce21432921a4b2d191ec0dbc086ebc1f26a3d164634248d5584f5",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "4643e607d0ded1f2f95c1c427456e17bd5edf708"
+          },
+          "path_in_vcs": ""
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-ra2a/Cargo.toml",
+          "sha256": "1e38326ee06024b5048fe237523e40f6042235a28b61cb4eb986139cac7d91ec",
+          "git_blob_sha1": "2b4d8e6657a9cc0998707974e1b4285f063e3c68"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; encoded-module correctness and allocation work.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker. Encode writes safe Vec bytes and uses LEB encoders with bounded slice extension.",
+      "justification": "Inspected usize/count conversions assert/try_from within wasm u32 size limits; byte/string/slice encoding appends length and data using safe Vec APIs. Selected route is wast/wat textual input conversion. Actual Susi host caps input, then validates the resulting module in Wasmi before execution.",
+      "residual_risk": "Encoding is not validation or execution authorization; panics/allocation amplification and semantic correctness remain possible. Review of this exact 0.262.0 identity does not cover other wasm-encoder versions in the graph.",
+      "identity": {
+        "name": "wasm-encoder",
+        "version": "0.262.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "d0081e2f5505f4f776b55391d89e05f2bf6d7043ba0b95e212161a00bb0898b9",
+          "git_blob_sha1": "65851c58e656eaf25e8ff98adc057e67fa49f910"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "5c58c41f2f93f40f915f99b63ac51cc21b2e0c09682eadc19ba6ebe59e8b14da",
+          "git_blob_sha1": "cad28180d4e0b55160f2fa69bf27deff263a9c93"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wasm_encoder",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "component-model",
+          "std"
+        ],
+        "separate_feature_contexts": [
+          [
+            "component-model",
+            "std"
+          ]
+        ],
+        "example_reverse_route": "wasm-encoder 0.262.0 -> wast -> wat -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wasm-encoder-0.262.0.tree",
+        "reverse_tree_sha256": "64b285d6dbf12d971cbfe2dd6136872c7779439fa70e19cb5943e1f37e4eba2a"
+      },
+      "source_binding": {
+        "archive_sha256": "4495a6f85dd94c411c749303efcbc5defade0b0cbdbc0541495241ab917a9b5a",
+        "cargo_lock_checksum": "4495a6f85dd94c411c749303efcbc5defade0b0cbdbc0541495241ab917a9b5a",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "22232bc315794a3499e8ad2cd90f9f602b78dc13700c2de2aca56e2d9f57bd90",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "e22db44da4eaf17a0e46ec55b911c7539589a3cc"
+          },
+          "path_in_vcs": "crates/wasm-encoder"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435",
+          "git_blob_sha1": "e05f3b280883fae7d2ae865646dabb4bd22dbcf8"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1",
+          "git_blob_sha1": "8cb1a7ba81e15b447432d5600c9c33f5063e20d0"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36",
+          "git_blob_sha1": "19f7170d10e9092b4ca326b15cc9f4d4bce1747d"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544",
+          "git_blob_sha1": "9590a1fc7692af763db206ee4e5179f0b9bc466e"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Elevated optional defect found; actual selected core-validation feature context excludes it.",
+      "boundary": "Only unsafe operation found in src is names::KebabStr::new_unchecked lifetime transmute. Public safe KebabStr::new takes owned impl AsRef<str> and returns a reference with caller-selected lifetime, permitting an owned String temporary to be dropped while a reference escapes. validator.rs gates the entire names module on component-model.",
+      "justification": "The exact executed Linux reverse graph selects features,simd,std,validate, with component-model absent. Thus the identified unsafe names boundary is not compiled into this selected Wasmi validator. Core validation check_max uses checked arithmetic, and Susi invokes Module::new after capped input/rewrite before instantiation. This component may remain only under the reviewed feature exclusion; adding component-model must be rejected pending repair.",
+      "residual_risk": "The optional component-model lifetime defect is a real source-level unsound API, not approved or waived. No UB demonstration was executed. This review is not an all-features approval, nor an exhaustive core validator semantic audit. Future feature resolution must be compared to the retained exact feature context.",
+      "identity": {
+        "name": "wasmparser",
+        "version": "0.228.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "b6cf23beb9c0a6aa4966eea05a1a44d443b6d500800220b1dbb51be2184710b3",
+          "git_blob_sha1": "2c799a82a2d42cc90bfc40d4352fa97825340329"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "031c0f7eb877b93d06313d614a8fdf787ce68d4c403af2e323b327484258bee8",
+          "git_blob_sha1": "21c377536c6d5243a149cd179d240975456ffece"
+        },
+        {
+          "path": "src/validator.rs",
+          "sha256": "b6201d86caefadb148ea395b443a859458ff818fdfa5bb4b5f218570e09ddb51",
+          "git_blob_sha1": "db9feb6cbe50ce85af398a3678ba4b149ef87fe4"
+        },
+        {
+          "path": "src/validator/names.rs",
+          "sha256": "e2cf0bf9d34ce8d08113651f924cc1c4f4797d8f25f7fadf8f5ae6ec6a4cb859",
+          "git_blob_sha1": "1b4ba6359f05e46cfadc7ed9fbb2121aa625b009"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wasmparser",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          },
+          {
+            "name": "build-script-build",
+            "kind": [
+              "custom-build"
+            ],
+            "path": "build.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "features",
+          "simd",
+          "std",
+          "validate"
+        ],
+        "separate_feature_contexts": [
+          [
+            "features",
+            "simd",
+            "std",
+            "validate"
+          ]
+        ],
+        "example_reverse_route": "wasmparser 0.228.0 -> wasmi 1.0.9 -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wasmparser-0.228.0.tree",
+        "reverse_tree_sha256": "101d2823b4bbc7cec74e5f8326950f7345cc223f802c314f07c5f38fcb07ffe6"
+      },
+      "source_binding": {
+        "archive_sha256": "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3",
+        "cargo_lock_checksum": "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "29f069cdc208dd077d2deb625e5a0795e5a7d398cf809ef2412e9fbcfa4c18b7",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "e66235859a6ec0502bf6f9dcc358953eda4cafcc"
+          },
+          "path_in_vcs": "crates/wasmparser"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435",
+          "git_blob_sha1": "e05f3b280883fae7d2ae865646dabb4bd22dbcf8"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1",
+          "git_blob_sha1": "8cb1a7ba81e15b447432d5600c9c33f5063e20d0"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36",
+          "git_blob_sha1": "19f7170d10e9092b4ca326b15cc9f4d4bce1747d"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544",
+          "git_blob_sha1": "9590a1fc7692af763db206ee4e5179f0b9bc466e"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No blocking defect identified in the inspected selected Linux boundary. The optional component-model lifetime defect is excluded by the bound feature context and must be repaired before enabling that feature.",
+      "blocked_optional_features": [
+        "component-model"
+      ]
+    },
+    {
+      "risk": "Low local unsafe exposure; untrusted text parsing and allocation/recursion work.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker. Parser holds safe borrowed text, Cells/RefCells and bump arena references; wasm-module parser checks nesting depth.",
+      "justification": "Inspected MAX_PARENS_DEPTH=100 and depth_check error, ParseBuffer construction, and top-level parse completeness. Selected component-model,wasm-module are parsing/encoding features, independent of wasmparser0.228 component-model. Text goes through wat and then the Susi Wasmi validation/limits boundary.",
+      "residual_risk": "The nesting check does not prove total CPU/RSS bounds for all valid text. The input cap and guest fuel limit do not bound every host parsing allocation. No fuzzing or all grammar audit was performed.",
+      "identity": {
+        "name": "wast",
+        "version": "262.0.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "466b07b7d4cccc752e5638fcc7b8eb4d40f7ede0b7840696d4b54a98a812f073",
+          "git_blob_sha1": "86cc69b8dc0a34be3e7fec8642b3b02a52e45db7"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "5cc68bc70d4072fdeee17374e4dc5ceb445c65986828933ab5e895395141b4fc",
+          "git_blob_sha1": "44eb0e3fb57c5a59b2967d8c8a4ff79cf3d681d4"
+        },
+        {
+          "path": "src/parser.rs",
+          "sha256": "a93f1e430dabbd3592dd4b42fe544919224aaf9c5b711343cfd8cd0bb0e0e3d2",
+          "git_blob_sha1": "58ccd33eeea97239977154de6badaf1d3bc675f6"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wast",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "component-model",
+          "wasm-module"
+        ],
+        "separate_feature_contexts": [
+          [
+            "component-model",
+            "wasm-module"
+          ]
+        ],
+        "example_reverse_route": "wast -> wat -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wast-262.0.0.tree",
+        "reverse_tree_sha256": "2b997459dac0d0f404d1ab3442e4476ca1e1b1281534eb0a72d956c024f4b5a8"
+      },
+      "source_binding": {
+        "archive_sha256": "30612a0c29249b5f185888a107e8a519d920226b7d07f9d351fd094e9f75eb23",
+        "cargo_lock_checksum": "30612a0c29249b5f185888a107e8a519d920226b7d07f9d351fd094e9f75eb23",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "ac123b6ff7434b8c96eb1d28313553ec8ca51749e53481daaa1bd9efc88ffdb0",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "e22db44da4eaf17a0e46ec55b911c7539589a3cc"
+          },
+          "path_in_vcs": "crates/wast"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435",
+          "git_blob_sha1": "e05f3b280883fae7d2ae865646dabb4bd22dbcf8"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1",
+          "git_blob_sha1": "8cb1a7ba81e15b447432d5600c9c33f5063e20d0"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36",
+          "git_blob_sha1": "19f7170d10e9092b4ca326b15cc9f4d4bce1747d"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544",
+          "git_blob_sha1": "9590a1fc7692af763db206ee4e5179f0b9bc466e"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    },
+    {
+      "risk": "Low local unsafe exposure; parser/validator distinction and host input work.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker. Binary magic inputs are returned borrowed without validation; nonbinary input must be UTF-8 then passes through wast encoding.",
+      "justification": "Inspected parse_bytes lifetime ties returned Cow to borrowed input; file helper transfers its owned read buffer only after pointer/length equality checks. Native Susi paths enforce 64 MiB input, parse text/binary, rewrite memory limits and invoke Wasmi Module::new before instantiation. Thus magic-only passthrough is followed by validation in the actual consumer.",
+      "residual_risk": "Direct wat users must not treat parse_bytes success as valid/safe executable code. Text allocation amplification and all malformed grammar cases were not tested here; selected parser component-model does not enable the blocked wasmparser0.228 feature.",
+      "identity": {
+        "name": "wat",
+        "version": "1.262.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "9d224bd70a9a1464cd3f5e25d79729b957701a994cc87da296a8e95c2a13e624",
+          "git_blob_sha1": "4655b5b7c336c2e7672951ea55cee99f67a31621"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "d1ff13a2abbb51dd993f3a27a24edb5822ff5898bab7115ab7fff6b4eb52d330",
+          "git_blob_sha1": "abd69978c4e38fdc76db8b3d118775207bd49749"
+        }
+      ],
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or memory-safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wat",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency",
+        "features": [
+          "component-model",
+          "default"
+        ],
+        "separate_feature_contexts": [
+          [
+            "component-model",
+            "default"
+          ]
+        ],
+        "example_reverse_route": "wat -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wat-1.262.0.tree",
+        "reverse_tree_sha256": "cbba354ea4f7651e493f74b564d03ce4b5ac92c09bd03c7954133fdc92a830c4"
+      },
+      "source_binding": {
+        "archive_sha256": "e228027f2b07bbaf946980ebbe2437fca73be6f54c40c2a8d4f42f277075f8d1",
+        "cargo_lock_checksum": "e228027f2b07bbaf946980ebbe2437fca73be6f54c40c2a8d4f42f277075f8d1",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "7d03fee92750af0f1c328c9e1f9116925481ccd74cc465f34cd02fd6197c405a",
+        "source_tree_hash_method": "SHA-256 of sorted path/sha256 records serialized with JSON sort_keys and compact separators",
+        "upstream_vcs": {
+          "git": {
+            "sha1": "e22db44da4eaf17a0e46ec55b911c7539589a3cc"
+          },
+          "path_in_vcs": "crates/wat"
+        },
+        "git_provenance_limit": "upstream VCS commit is archive-declared; not separately fetched/authenticated. Per-file Git blob hashes are independently computed from inspected cached bytes."
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435",
+          "git_blob_sha1": "e05f3b280883fae7d2ae865646dabb4bd22dbcf8"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1",
+          "git_blob_sha1": "8cb1a7ba81e15b447432d5600c9c33f5063e20d0"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36",
+          "git_blob_sha1": "19f7170d10e9092b4ca326b15cc9f4d4bce1747d"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544",
+          "git_blob_sha1": "9590a1fc7692af763db206ee4e5179f0b9bc466e"
+        }
+      ],
+      "scope_notes": "Read-only exact-identity inspection, source searches and offline Cargo reverse-tree commands. No dependency compilation, new tests, private model access, source edits, release selection or promotion.",
+      "conclusion": "No specific blocking defect identified in the inspected selected Linux boundary. This scoped review is not a full upstream memory-safety audit or blanket approval of future versions, features or consumers."
+    }
+  ],
+  "review_result": {
+    "reviewed_components": 18,
+    "selected_graph_blocking_defects_identified": 0,
+    "excluded_optional_defects_identified": 1,
+    "excluded_optional_defect": "wasmparser0.228.0 component-model names::KebabStr owned AsRef lifetime escape",
+    "archive_matches": 18,
+    "extracted_tree_matches": 18
+  },
+  "gate_obligations": [
+    "Preserve exact package/source/archive and selected feature/dependency bindings in the reviewed allowance.",
+    "Reject enabling wasmparser0.228.0 component-model until its owned-input lifetime defect is repaired and reviewed.",
+    "Preserve production test, complete measurement, provenance, advisory/license, installed health and rollback gates; this source review substitutes for none.",
+    "Re-review bon required-member/getter generation if selected consumer changes; current Tantivy consumer uses defaults."
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed": false
+}

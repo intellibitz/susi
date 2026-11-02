@@ -1,0 +1,56 @@
+{
+  "schema": "susi/unsafe-baseline-migration-receipt/v1",
+  "historical_baseline_sha256": "9d8fd1fa64ec943f6978bff0a9225ae7ba1f0e9098a8672a528dd982cfc3e623",
+  "baseline_sha256": "80dfc9d46e68af28560429c6d319dfd1680cfe46c18681ccaa546ed8f4fa85cf",
+  "base_source_commit": "aff638d06825f0874231ff01b546f9128a534d04",
+  "candidate_source_commit": "7cfb5df2829ede4312c34332a7c1971d9b62f250",
+  "candidate_source_tree": "94e5516b6961994131089e9dc3170bf6c2d0e6a8",
+  "base_measurement_sha256": "3b30db0327fc56ee2ee41cfa0c079ef38f2e02f466a1543d1f636cbea2569f23",
+  "candidate_measurement_sha256": "45d63a90a5c7f0bb19e165f8b50e870bd41a48ed7e23db93283be6a8b67ace84",
+  "scanner_sha256": "b703e02c66a4d47b49d2cf2d533fd4628aa6d90bfd4379dcb35e6a0287d9ed0e",
+  "comparator_sha256": "6b336484a60da89d926ea2e6816dd9940d609d47b44a0cb4c563a21a9894092e",
+  "bound_review_file_sha256": "de4f8fd29cbde8f589c318c00f421a14cefba5215b76c0dce39dcfb323abe679",
+  "component_reviews": 77,
+  "reviewed_dependency_files": 320,
+  "source_guards": 6,
+  "review_sources": [
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/unsafe-independent-review.json",
+      "sha256": "c2a97a8876cdd2fe1afd13c62d35a94f5d4ba08796dfec0b3f16f3406133dd97"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/unsafe-independent-review-supplement.json",
+      "sha256": "db539a2fa61ed858c4737cc113428e2b9bb823c39fbef5cf3f980a083a077d9a"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/unsafe-review-memory-os.json",
+      "sha256": "aca984b0f46a139ec1455d8653465adeda46f0cc2963b2e7441cc35fb886f693"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/unsafe-review-network-serde.json",
+      "sha256": "9b3e686ac20c6fb66e0c43f80ad33d449b811b5ba42f49c8891b26f7403fd1e3"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/unsafe-review-models-storage.json",
+      "sha256": "5777453d007d51a5858f554b63c0f44ae8fcb9f2d5138522cd1d3882b01552b9"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/unsafe-review-syntax-utilities.json",
+      "sha256": "5ffcf6ce2262a2cb8e7c9f4a22c9462d5f1405ca76d0e2bb3eeaf97da9051aba"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/candle-repaired-component-review.json",
+      "sha256": "c5d169109f8ea72c452e4921ee6f4011c7d0d11d774acd8286fe2e0c07f0070c"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/nn-facade-retention-review.json",
+      "sha256": "933ad05685d99e3d85d6bb7e60c8870401ea996f41efbbe7322ffcd83ddaaff0"
+    },
+    {
+      "path": ".agents/reviews/unsafe-complete/review-sources/combined-7cfb5df2-candle-review.json",
+      "sha256": "fc909fb3b33ffa68325a313a3f6869c5e83eea30dc64b4f780c1ee165d43c283"
+    }
+  ],
+  "qualifies_release": false,
+  "remaining": "Full combined locked native integration, production qualification, inference, installed health and rollback are parent-owned gates."
+}

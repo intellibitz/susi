@@ -1,0 +1,953 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T18:10:00.044186+00:00",
+  "reviewer": "/root/production_advisory_gate",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "scope": "Read-only exact-source review of eleven Linux-selected HTTP, async-runtime, MCP and serialization dependencies for the explicit historical unsafe-inventory migration. No source or baseline edits; no blanket approval.",
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.lock",
+      "sha256": "9213ca390987fe49a37a060a531387072898d8775e4ac7bf883aac31e97a4c4b"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-network-serde/source-binding-and-routes.json",
+      "sha256": "279aa760425f9df80ff7c44d2ef2b5f9bd9030c50a99d348f5cf44cea8b48c79"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-complete.json",
+      "sha256": "7334690bde3077ab7c51b908b3059160f37e2b30ec88e5b7c194416b4fd47a2a"
+    }
+  ],
+  "components": [
+    {
+      "identity": {
+        "name": "h2",
+        "version": "0.4.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: HTTP/2 and HPACK process remote-controlled headers; unchecked UTF-8 relies on the BytesStr constructor invariant.",
+      "boundary": "src/hpack/header.rs:276-283 validates Bytes with str::from_utf8 before storing them in a private tuple field, then uses from_utf8_unchecked when exposing a string. The other constructors consume str or static str. No foreign-function boundary was found in the source unsafe-token search.",
+      "justification": "Name::into_entry uses BytesStr::try_from for authority, scheme and path, while ordinary header fields use HeaderValue::from_bytes. BytesStr owns immutable Bytes and exposes no mutable byte reference in the inspected implementation; these facts support the checked-on-construction UTF-8 invariant. Retention supplies HTTP/2 for the selected Hyper client/server graph; deleting it would remove an active protocol capability, not just an optional accelerator. The crate denies missing safety documentation but does not forbid unsafe.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "21f9c0931a0aecb68fd64ba5b3aa2c311055f54c55443fb669833379bb45ed16"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "c8680fc4eb13ccb4ce944716042bd33c6554677cf8261c371442f91fbee352e0"
+        },
+        {
+          "path": "src/hpack/header.rs",
+          "sha256": "b41158784403037c347bfecb7de41b63acb46c825a9c15c4011859c418dc540d"
+        }
+      ],
+      "residual_risk": "This is not a complete HPACK/state-machine or denial-of-service audit. It does not prove every future constructor preserves UTF-8, nor verify every HTTP/2 limit or concurrency interleaving. Exact-source advisory and end-to-end network tests remain required.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "h2",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "h2 -> hyper -> axum -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi-gawd -> susi",
+        "reverse_tree_receipt": "h2-0.4.20.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118",
+        "cargo_lock_checksum": "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "834aa76856aaad9330ccc56739f064b8d784d6f4c97ca344dfc3852fb87f3cc2"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-hyper/Cargo.toml",
+          "sha256": "e11894ad1c5fb02a3ad3f4877949a0950706848ce61faf1a0aedc22d307f6d2b"
+        },
+        {
+          "path": "crates/susi-vendor-hyper/src/lib.rs",
+          "sha256": "977d45a7ddb16894e5afc8f739f97e48b5ab885d6390e3cbc81b5dceb39271f0"
+        }
+      ],
+      "scope_notes": "The search result in proto/streams/streams.rs is a comment about a deferred unsafe optimization, not an unsafe block. Review does not equate absence of extra search hits with a complete semantic proof. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "hyper",
+        "version": "1.12.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: network-facing HTTP parsing and read-buffer initialization combine unchecked header conversion, MaybeUninit and pin/lifetime operations.",
+      "boundary": "src/rt/io.rs tracks raw capacity, initialized bytes and filled bytes; the initialized-slice view and cursor lifetime narrowing are unsafe. HTTP/1 role.rs reads only parser-reported initialized header slots and constructs HeaderValue without rechecking validated bytes. These selected Rust internals differ from the unselected ffi/capi interface.",
+      "justification": "ReadBuf::new records the full initialized input length; filled() restricts the exposed slice to the filled prefix. The cursor is borrowed from a stable underlying buffer and narrows its lifetime. The server parser returns on partial/error parses, records initialized header indices after successful httparse parsing, then iterates only headers_len. These inspected invariants explain the unsafe optimization boundary without erasing it from inventory. Retention provides the selected HTTP/1 and HTTP/2 client/server engine required by Susi networking and MCP transports.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "dda7caddb7df155f479d2bd4764f201c57311f04969a0e7c893362765857161a"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "d2db6fe1da5f09a8062a8fb4f44fac931a17220f5c18603ff455846706b3d243"
+        },
+        {
+          "path": "src/rt/io.rs",
+          "sha256": "97231117887089e0a9fcd165b14f839c9abb6e3fc75dee5c02cb76604ae9730e"
+        },
+        {
+          "path": "src/proto/h1/role.rs",
+          "sha256": "ee27600c6d7ae2f23e148af5cef02fa029def6ea5999cce84af4aac058ceb03e"
+        },
+        {
+          "path": "src/proto/h1/io.rs",
+          "sha256": "27287bec2aeb9d23fbf3440b5eea5186a1826301f7de2d855e78fcfce465c745"
+        }
+      ],
+      "residual_risk": "Custom unsafe cursor users must not deinitialize bytes or advance past initialized data. Header validity depends on httparse and all unchecked-conversion call sites. The HTTP parser, cancellation and protocol-smuggling cases were not exhaustively audited or fuzzed here; large body/header budgets remain a product-level concern.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "hyper",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "client",
+          "default",
+          "full",
+          "http1",
+          "http2",
+          "server"
+        ],
+        "example_reverse_route": "hyper -> axum -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi-gawd -> susi",
+        "reverse_tree_receipt": "hyper-1.12.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c",
+        "cargo_lock_checksum": "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "f424bf90ddb79e521e6dcecb882d543dc37ce6002618ad5c995ec1655c0feb54"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-hyper/Cargo.toml",
+          "sha256": "e11894ad1c5fb02a3ad3f4877949a0950706848ce61faf1a0aedc22d307f6d2b"
+        },
+        {
+          "path": "crates/susi-vendor-hyper/src/lib.rs",
+          "sha256": "977d45a7ddb16894e5afc8f739f97e48b5ab885d6390e3cbc81b5dceb39271f0"
+        }
+      ],
+      "scope_notes": "Selected features are full/client/server/http1/http2; ffi, capi and nightly are not selected. File-wide unsafe search includes FFI and test code, which is not claimed to be shipped in this Linux closure. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "hyper-util",
+        "version": "0.1.21",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: async I/O adaptation and synchronization make unsafe initialization and Sync contracts observable through safe network APIs.",
+      "boundary": "TokioIo polls AsyncRead into the Hyper cursor as a Tokio uninitialized buffer, then advances by exactly tbuf.filled().len(). SyncWrapper<T> implements Sync for T:Send while exposing the value only through exclusive access or ownership. The inspected if_nametoindex FFI is cfg-gated to Apple/Solaris-like platforms, not Linux.",
+      "justification": "The adapter returns early for Pending/error and advances only after a successful read. SyncWrapper has no shared-reference accessor for its inner value, supporting its declared exclusive-access rationale. Linux interface binding calls socket.bind_device rather than the inspected if_nametoindex block. Retention supplies Tokio compatibility, connection pooling and client/server utilities for the selected HTTP stack; these are active capabilities. The local facade forbids new unsafe in Susi wrapper code without pretending that this forbids upstream internals.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "be68258b960525839b23a699362c550c7c5e73934cabd9dfe1b2a3fdebb37a2e"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a12123fb8ad0bcc12480a567099aa9836f2ca6c7c80eaacccfc738a557e9f731"
+        },
+        {
+          "path": "src/rt/tokio.rs",
+          "sha256": "143023606be7994c8ecbf538eb5816cbedd62172cb3fbb5f981ea411a1581d28"
+        },
+        {
+          "path": "src/common/sync.rs",
+          "sha256": "047d79590bbbf59aae35664b1b38f4d0e6478aa10116ab33a9f231e59b3fa32d"
+        },
+        {
+          "path": "src/client/legacy/connect/http.rs",
+          "sha256": "1b255783854e5d55e9490df682b52b1fd89e2ebb5b7f1daa39fd34720cac84ea"
+        }
+      ],
+      "residual_risk": "The adapter inherits the safety contract of the underlying AsyncRead implementation. Proxy policy, DNS, socket and cancellation behavior were not exhaustively checked. Apple system proxy unsafe calls are outside this Linux review and require their own platform qualification.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "hyper_util",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "client",
+          "client-legacy",
+          "client-pool",
+          "client-proxy",
+          "client-proxy-system",
+          "default",
+          "full",
+          "http1",
+          "http2",
+          "server",
+          "server-auto",
+          "server-graceful",
+          "service",
+          "tokio",
+          "tracing"
+        ],
+        "example_reverse_route": "hyper-util -> axum -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi-gawd -> susi",
+        "reverse_tree_receipt": "hyper-util-0.1.21.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "ddc03d96684f9226b8a787cdb71488417b53ab5ea8fdb1dac946cb9431cc8bff",
+        "cargo_lock_checksum": "ddc03d96684f9226b8a787cdb71488417b53ab5ea8fdb1dac946cb9431cc8bff",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "a17da5e8cd9e02978552ed4fb260362ae8d241666043ba08c961312925b5c4c3"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-hyper-util/Cargo.toml",
+          "sha256": "8d04872f0008abd60487dd13bcdc971afd9a4232f55e90e2c8ee9d38f4a2586e"
+        }
+      ],
+      "scope_notes": "The selected full feature includes client-proxy-system but platform cfg excludes its Apple/Windows implementation from Linux. Full-feature source presence is not evidence that every platform-specific block executes. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "openssl-probe",
+        "version": "0.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate trust-store/environment boundary; its optional unsafe initializer mutates process-wide environment, which can be unsafe concurrently.",
+      "boundary": "try_init_openssl_env_vars is explicitly unsafe and wraps env::set_var. The actual selected vendored native-tls caller instead constructs LazyLock<ProbeResult> with the safe openssl_probe::probe function, which reads environment and filesystem paths without mutating environment.",
+      "justification": "The inspected native-tls integration does not invoke the unsafe environment initializer. probe returns known certificate-file/directory locations, preserving configured accessible paths. Retention supports Linux native TLS trust-store discovery used by Reqwest and MCP, and the read-only probe keeps environment mutation outside this path. The inventory still correctly records absence of a crate-root forbid.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "33adb489eb66d577a45827670ae57d263a808e4788098e320a07fe53baae66e5"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "3b1dcb92338782e7b9a16e6ba79d6d2567e346b25f6888908c39fdb7519fc170"
+        }
+      ],
+      "residual_risk": "Environment-provided CA paths and filesystem trust material remain security-sensitive configuration. This review does not authenticate certificate contents or prove that every downstream consumer avoids the public unsafe initializer; adding such a call requires separate review. Platform TLS validation and external OpenSSL ABI qualification remain independent gates.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "openssl_probe",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "openssl-probe -> native-tls (vendor/native-tls) -> hyper-tls -> reqwest (vendor/reqwest) -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi-gawd -> susi",
+        "reverse_tree_receipt": "openssl-probe-0.2.2.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1",
+        "cargo_lock_checksum": "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "d2cfa3269b99f0a27c03f0ce63ddd530f3b9b8bcc08307da13bfd35f89db78d7"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "Safe probe selection is based on the actual vendored native-tls source, not the cached upstream version. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "rmcp",
+        "version": "3.8.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Protocol/authorization and process-management risk remains even though the sole explicit unsafe source call found is test-only.",
+      "boundary": "src/transport/io.rs places libc::fcntl(F_GETFL) inside cfg(test) and Linux-gated helpers. Production stdio pipe handling uses OwnedFd, OpenOptions and Tokio safe APIs; it reopens /proc/self/fd so nonblocking flags do not alter inherited standard streams.",
+      "justification": "The selected SDK provides both MCP client and server, child-process and HTTP transports. The Susi client facade exposes Susi-shaped calls rather than rmcp types, retaining separate lease/handshake policy at the caller. Reading the surrounding cfg(test) establishes that the fcntl search hit is not a new production unsafe block. Retention preserves actual MCP capability; missing forbid is still correctly reviewed in the crate-forbid inventory.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "72aa25cb2f8fd0c12e6cc0fbd498b5b23b664f851976faf1d4f15dc12669998a"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "075c3bf5ccd74441c182da6cd3cf44943d7a5cb6009c1b5e30dc63fee44e4846"
+        },
+        {
+          "path": "src/transport/io.rs",
+          "sha256": "e1842bf5992e493e8315a4b6fa08d560e893a59bbeff4dda9366158991f23ac2"
+        }
+      ],
+      "residual_risk": "No-unsafe-source is not an authorization or protocol safety guarantee. Configured child commands, remote servers, HTTP payload budgets and generated macro/dependency code remain trust boundaries. The review did not exhaustively audit all 184 archive files or validate all MCP handlers.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "rmcp",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "__reqwest",
+          "base64",
+          "client",
+          "client-side-sse",
+          "default",
+          "elicitation",
+          "macros",
+          "request-state",
+          "reqwest-native-tls",
+          "schemars",
+          "server",
+          "server-side-http",
+          "tower",
+          "transport-async-rw",
+          "transport-child-process",
+          "transport-io",
+          "transport-streamable-http-client",
+          "transport-streamable-http-client-reqwest",
+          "transport-streamable-http-server",
+          "transport-streamable-http-server-session",
+          "transport-worker",
+          "uuid"
+        ],
+        "example_reverse_route": "rmcp -> susi-vendor-mcp -> susi-tools -> susi",
+        "reverse_tree_receipt": "rmcp-3.8.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f",
+        "cargo_lock_checksum": "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "135d943de89a78daee9220c0e87fce0b844ee24766a22323ed7afef48a55b415"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-mcp/Cargo.toml",
+          "sha256": "d3528733ddfcb210c84f610af4ebb8e9ba3e523b5f161497a72dfd52dfcd8510"
+        },
+        {
+          "path": "crates/susi-vendor-mcp/src/lib.rs",
+          "sha256": "3a0e5033407475673e1969fbdbc5814a7a4615b61f2b6014376071dde62f4771"
+        },
+        {
+          "path": "crates/susi-vendor-mcp-server/Cargo.toml",
+          "sha256": "4048aa8a716d8ef73837b03598a7c430893dd9bacdb5f96a43c84383174cebbc"
+        }
+      ],
+      "scope_notes": "The client/server feature union is selected; optional auth-client-credentials-jwt and rustls transport features are not selected. Presence in the closure does not imply every exposed transport is invoked by the proof prompt. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "rmcp-macros",
+        "version": "3.8.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Build-time procedural macro execution and generated dispatch semantics; no explicit unsafe token was found under src.",
+      "boundary": "The proc-macro crate parses compiler TokenStream with syn/darling and emits Rust using quote. tool_router selects annotated handler methods, rejects an empty router unless explicitly allowed, and emits typed ToolRouter routes; it lacks an unconditional unsafe_code forbid.",
+      "justification": "The inspected tool attribute converts parse failures to compiler errors, and tool_router reports invalid trait-impl use for server_handler. The generated route expressions bind a handler to its tool metadata through typed SDK APIs. Retention provides the selected rmcp macros capability used by the server facade; this is a host build component in the selected dependency graph, not a separate runtime service.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "9c5a9f6d5db6f9a00c8799f5947d26fa3d88d2ea1ab9421e9cf83e53f1692189"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "8209f86d6d955040e64ed906cc58e69bb561fbcbf6352afaa119e0ae93185651"
+        },
+        {
+          "path": "src/tool_router.rs",
+          "sha256": "f39436afc1a3a2e084ae678a9ed40371df4b723fa6538a4bc1697bf917d07f19"
+        }
+      ],
+      "residual_risk": "A proc macro runs with compiler process privileges and can generate arbitrary code; absence of unsafe tokens is not a sandbox or generated-code proof. This review did not expand and audit every downstream handler or all dependency proc macros. Source, compiler and task-provenance pins remain necessary.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "rmcp_macros",
+            "kind": [
+              "proc-macro"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected compiler-host proc-macro dependency",
+        "features": [],
+        "example_reverse_route": "rmcp-macros (proc-macro) -> rmcp -> susi-vendor-mcp-server -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "rmcp-macros-3.8.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "8b0748e054a5f5598b3213cf72099ae6b2745ba4d996c59ccf455150a7dbb839",
+        "cargo_lock_checksum": "8b0748e054a5f5598b3213cf72099ae6b2745ba4d996c59ccf455150a7dbb839",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "0e2a87d978f96313dbc55616806f1a95cd3c674b7754153d6a47302466e8cf18"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-mcp-server/Cargo.toml",
+          "sha256": "4048aa8a716d8ef73837b03598a7c430893dd9bacdb5f96a43c84383174cebbc"
+        },
+        {
+          "path": "crates/susi-vendor-mcp/Cargo.toml",
+          "sha256": "d3528733ddfcb210c84f610af4ebb8e9ba3e523b5f161497a72dfd52dfcd8510"
+        }
+      ],
+      "scope_notes": "Reviewed as a selected compiler-host proc macro; not claimed to be a separately shipped runtime library. Unsafe-token search of all src returned no matches. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "serde_json",
+        "version": "1.0.154",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High input-processing boundary: JSON uses unchecked UTF-8 and initialized-capacity operations; selected raw_value also performs representation-preserving transmutes.",
+      "boundary": "RawValue is repr(transparent) over str. StrRead skips repeated UTF-8 validation only because input originated as str and escapes are checked. Scratch writes reserve four bytes before writing at most four and updating length. Serializer unchecked conversions split valid input only at ASCII escape boundaries.",
+      "justification": "These inspected representation, UTF-8 and allocation invariants support the specific unsafe optimizations. The selected features are alloc/std/raw_value/float_roundtrip; arbitrary_precision, preserve_order and unbounded_depth are absent. Retention supplies JSON for configuration, MCP and HTTP; the Susi facade forbids its own unsafe but leaves upstream inventory honest. This review does not treat successful JSON deserialization as evidence authentication.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "548aafeb7c702b69b9de950033f10b59f70baf38592d275d8ca8cff19f7750c3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "e3c3f2864cea66bac10c78dfc312ed8e1de43d2b7410d83bdd352a1c4b339104"
+        },
+        {
+          "path": "src/raw.rs",
+          "sha256": "0e6ae2ade492a3c5c090dfaf31f03ff4e54123a5a47b59def5f1b3dcc035a2e3"
+        },
+        {
+          "path": "src/read.rs",
+          "sha256": "523eec008a92c1be499978ee96bce7a8dc7d6ddff9a63b5ed404c19d01fb953a"
+        },
+        {
+          "path": "src/ser.rs",
+          "sha256": "f2b8cc0b97e30c49dbc58698fa22c14a7d56ea616cdb57b067835a59af49a75f"
+        }
+      ],
+      "residual_risk": "Malformed inputs, float-roundtrip correctness, recursion/resource limits and every RawValue construction path were not exhaustively fuzzed or proved. Duplicate JSON keys require the separate strict release-receipt reader; ordinary serde_json Value parsing alone is insufficient for immutable evidence admission.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "serde_json",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alloc",
+          "default",
+          "float_roundtrip",
+          "raw_value",
+          "std"
+        ],
+        "example_reverse_route": "serde_json -> susi-vendor-serde-json -> susi",
+        "reverse_tree_receipt": "serde_json-1.0.154.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6",
+        "cargo_lock_checksum": "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "b2258aa169ed8562db5c3a4db47e4bb83e5209876b8421d73f307915532a7443"
+      },
+      "susi_integration_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "3e9208a9cd1c201644616ca3581b433c95ec977a6ac30a3a8190f06dee9cb144"
+        },
+        {
+          "path": "crates/susi-vendor-serde-json/Cargo.toml",
+          "sha256": "f79981b9b5b9fae9fb14b0835e46b9abbb78214f358b3d7db0d946fcd5cfb5a6"
+        },
+        {
+          "path": "crates/susi-vendor-serde-json/src/lib.rs",
+          "sha256": "dba8e2f3b967141c4ae90e81022e54c7383883727e136eba018a21c39246e1f5"
+        }
+      ],
+      "scope_notes": "Review covers the exact selected feature union. RawValue converts str/Box<str> using transparent representation; this is not evidence that arbitrary JSON bytes may be accepted without validation. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "tokio",
+        "version": "1.54.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High foundational runtime boundary: task allocation/vtables, refcounts, readiness, buffers and synchronization rely on extensive unsafe Rust and OS interfaces.",
+      "boundary": "ReadBuf exposes only its tracked filled/initialized prefix. RawTask stores NonNull<Header> with generic task vtables and calculated field offsets; task state transitions use atomic reference counts and running/complete state. The raw task module locally allows unsafe_op_in_unsafe_fn because of its low-level role, despite the crate-wide deny.",
+      "justification": "The inspected unowned task constructor transfers two existing references into UnownedTask, and state transition_to_terminal checks the previous count before deciding to free. ReadBuf separates initialized bytes from capacity and filled bytes. These are concrete invariants supporting representative selected runtime boundaries, not a whole-runtime safety proof. Retention is necessary for Susi async execution, HTTP/MCP and subprocess/IO services; the selected full plus tracing/test-util features are recorded rather than hidden as dev-only.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "9a8189f0dc5320ae7c66786d6414b5650fcf1b1deab634135d2306bdc28d34ec"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "0c1c4e73725d5c6fa51836d6d1fdbcd28f471864f855f3525de360c25e98f4d6"
+        },
+        {
+          "path": "src/io/read_buf.rs",
+          "sha256": "f2a75bdf27487fd4681d737f892eabf528ec7e79ec24e8c5af7fc278c8c239ea"
+        },
+        {
+          "path": "src/runtime/task/mod.rs",
+          "sha256": "915f6602c452b525b83ef7938c784750df665796adc110e90b2a7b3b1374c74f"
+        },
+        {
+          "path": "src/runtime/task/raw.rs",
+          "sha256": "a56d158fd7766fd4feabb6ce8631e3ae6f419a2bf6fca038f989b7a88a614df9"
+        },
+        {
+          "path": "src/runtime/task/state.rs",
+          "sha256": "8b836adf0874bb00e9e61efec6d15010619f0acc23680e2fc23e856b1fa9ffce"
+        }
+      ],
+      "residual_risk": "The large runtime was not completely audited, model-checked with Loom, fuzzed or stress-tested here. Scheduler/abort/waker races, unsafe user AsyncRead contracts, Linux FD ownership and signal handling still depend on upstream invariants and independent runtime tests. Windows-specific code is outside this review.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "tokio",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "bytes",
+          "default",
+          "fs",
+          "full",
+          "io-std",
+          "io-util",
+          "libc",
+          "macros",
+          "mio",
+          "net",
+          "parking_lot",
+          "process",
+          "rt",
+          "rt-multi-thread",
+          "signal",
+          "signal-hook-registry",
+          "socket2",
+          "sync",
+          "test-util",
+          "time",
+          "tokio-macros",
+          "tracing"
+        ],
+        "example_reverse_route": "tokio -> susi-vendor-tokio -> susi",
+        "reverse_tree_receipt": "tokio-1.54.1.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3",
+        "cargo_lock_checksum": "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "6e376a163b57c08560fdca441599f70b1b3bc5ca62c6efb2e50c9ac9aaaf9f6e"
+      },
+      "susi_integration_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "3e9208a9cd1c201644616ca3581b433c95ec977a6ac30a3a8190f06dee9cb144"
+        },
+        {
+          "path": "crates/susi-vendor-tokio/Cargo.toml",
+          "sha256": "e35cbc8c3661760aec3d176fa31aefbedb8818a11663651ca98dae1c710053c8"
+        },
+        {
+          "path": "crates/susi-vendor-tokio/src/lib.rs",
+          "sha256": "88e12f232ebe764eb709489bcd4aaeafde4eb0382727830f465dfdc66faba43d"
+        }
+      ],
+      "scope_notes": "io-uring, taskdump and schedule-latency are not selected. The package-level inventory is not a count of unsafe operations and cannot certify every compiled/runtime-used function. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "tokio-util",
+        "version": "0.7.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High adapter boundary: lifetime/pin projection, reusable futures and libc byte search depend on unchecked invariants in safe stream/channel APIs.",
+      "boundary": "Selected io exports manually pin-project StreamReader.inner, with Unpin conditional on S. write_all_vectored extends only a shared sub-IoSlice lifetime back to its original backing buffer lifetime. PollSender erases a future lifetime but stores it within a T-parameterized owner. Selected Unix libc memchr bounds the call by the input slice and checks null before pointer-offset conversion.",
+      "justification": "The inspected projection pins only inner and exposes other fields unpinned. IoSlice advancement uses checked subtraction to avoid cumulative-length overflow, retaining the original shared backing data. PollSender documents that its future never escapes its T-bearing owner. These utilities support selected streaming bodies and codec transports in HTTP/MCP and Docker. Retention keeps these required adaptations while recording actual upstream unsafe boundaries.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "5764e31b13ee78f6682505971b022caba784b79e6c458d9b95e0f089a6fb6bda"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "293963cf0b93840eb894922fa17f7d4f6f7d8dc02df89343f99c887909506bab"
+        },
+        {
+          "path": "src/io/mod.rs",
+          "sha256": "4b456f8055218094d1a42f685e882d5823e3ef68a5b13a6ad8fb173078ea0a51"
+        },
+        {
+          "path": "src/io/stream_reader.rs",
+          "sha256": "92789246589ab2847693edb2554a42291276b4599843dea97f69bf64447acbd7"
+        },
+        {
+          "path": "src/io/write_all_vectored.rs",
+          "sha256": "1665381c603d4627133525f72717581155b0a562e6823b3a715853c540b5d3c0"
+        },
+        {
+          "path": "src/io/read_arc.rs",
+          "sha256": "feb26049baa2ca7920451edd430295f693235c9e7a28c998de1a0e9867aab4cb"
+        },
+        {
+          "path": "src/sync/mod.rs",
+          "sha256": "c1c8301187868a0778ffba383a842f5ef7f5192063195b03541f6125140d2e1c"
+        },
+        {
+          "path": "src/sync/mpsc.rs",
+          "sha256": "5e8124295e8a16a818cf89c019ec3b4b2ffba02366465ccd653ef45fc2b43109"
+        },
+        {
+          "path": "src/util/memchr.rs",
+          "sha256": "c9d7b9f5b9d03845b46ce13cad1f7e8986fa719d1cbd0caaf9935b2c0b2dfec7"
+        }
+      ],
+      "residual_risk": "Pin/drop and cancellation invariants across all reusable-box and channel code were not exhaustively proved; libc memchr correctness and the original buffer lifetime remain external contracts. No stress/fuzz tests ran in this review. Net/UDP, rt and io-util-only extras are outside the selected feature set.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "tokio_util",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "codec",
+          "default",
+          "io",
+          "libc"
+        ],
+        "example_reverse_route": "tokio-util -> bollard -> susi-vendor-bollard -> susi-sandbox -> susi",
+        "reverse_tree_receipt": "tokio-util-0.7.20.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "e464cf451ba96ebfc6f9b6542f17ee8b8956e33f1e40d9690624e59d7a7f8a4b",
+        "cargo_lock_checksum": "e464cf451ba96ebfc6f9b6542f17ee8b8956e33f1e40d9690624e59d7a7f8a4b",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "284e1e33daafd1bc9c1cb38b9df098ca2187735462c56e338ca8866bd0edf2d5"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-mcp/Cargo.toml",
+          "sha256": "d3528733ddfcb210c84f610af4ebb8e9ba3e523b5f161497a72dfd52dfcd8510"
+        },
+        {
+          "path": "crates/susi-vendor-mcp-server/Cargo.toml",
+          "sha256": "4048aa8a716d8ef73837b03598a7c430893dd9bacdb5f96a43c84383174cebbc"
+        }
+      ],
+      "scope_notes": "Actual features are codec/default/io/libc. read_exact_arc was inspected but is gated by io-util, which is absent; it is not counted as selected unsafe exposure. Sync helpers remain exported independently of rt, as src/lib.rs/src/sync/mod.rs show. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "want",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low direct unsafe exposure; concurrency/liveness behavior relies on Atomics and the try-lock dependency.",
+      "boundary": "No explicit unsafe token occurs under src and no unconditional unsafe_code forbid is present. Giver/Taker share an Arc of an AtomicUsize state and TryLock<Option<Waker>>; all state/lock operations in the inspected poll path use SeqCst.",
+      "justification": "poll_want registers a waker only after compare_exchange confirms the expected state while holding the lock, and wakes an old replaced task after dropping the lock. Closed and Want states return immediately; contention repeats the state check. Retention supplies Hyper client demand/backpressure signaling. This is a review of the absent forbid marker and concrete concurrency boundary, not a fictional unsafe block.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "0c927cd8eafad73bbcbedd78694f629ee836e04fbd090b94af0366125b0188ed"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "afea01f5fc14f8473ed3fe49a722026ef1405e4458c147d9b188b5e66da6c127"
+        }
+      ],
+      "residual_risk": "Liveness under contention, missed wakeups across all paths and try-lock internal unsafe remain dependency/runtime concerns. No concurrency model checking or load test was performed; future versions with unsafe additions require a new exact review.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "want",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "want -> hyper -> axum -> ra2a -> susi-vendor-ra2a -> susi-gawd-a2a -> susi-gawd -> susi",
+        "reverse_tree_receipt": "want-0.3.2.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b",
+        "cargo_lock_checksum": "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "92496170d7d77ded79dff8856a4d94943831f5c6c6c0d446007add55c325c14f"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-hyper/Cargo.toml",
+          "sha256": "e11894ad1c5fb02a3ad3f4877949a0950706848ce61faf1a0aedc22d307f6d2b"
+        }
+      ],
+      "scope_notes": "The upstream html_root_url says 0.3.1 but package/archive/lock identity is 0.3.2; review is bound to the latter and its exact source digest. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "erased-serde",
+        "version": "0.4.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High type-erasure boundary: raw pointer/inline storage, destructor callbacks and erased lifetimes can violate memory safety if type/lifetime contracts diverge.",
+      "boundary": "Any stores values inline only when both size and alignment fit, otherwise in a Box converted to a raw pointer. It retains a matching drop callback and typeid::of<T>. take checks the type ID, transfers the value, and forgets the original container to avoid double destruction. Any::new is unsafe because borrowed T must not outlive its referent.",
+      "justification": "The inspected Any implementation explicitly records and enforces representation/type invariants and restores Box ownership for heap values. de::Out wraps creation/take for erased deserializer results; unsafe-map helpers propagate these operations only for successful values. Retention provides selected typetag trait-object serialization through Tantivy in the document index, with alloc enabled and std/unstable-debug absent.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "58435af4256b5015e1f505dc5df95b0a2db6a8d7b660fab0a09c0c96a3e1d562"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "53b6521010a5fd750f691603d2d6780bf30eca97817d1c0badcf2d8c851c45b7"
+        },
+        {
+          "path": "src/any.rs",
+          "sha256": "2799f6ccf924bfde3866b634914cf5648c211f9cedaa980e20694ddc9a2efdb9"
+        },
+        {
+          "path": "src/de.rs",
+          "sha256": "eeab3dd83061bf2e5083451275a765e009513fb280260455ca5c75eccfd18fc3"
+        },
+        {
+          "path": "src/map.rs",
+          "sha256": "56f8817b57c5b144575d2c20d3976adb90e1d56d5128cb3fda88c103144fd5da"
+        }
+      ],
+      "residual_risk": "A type ID check cannot prove erased borrow lifetimes, and correctness depends on every call site pairing the right T and limiting lifetime. All serializer/deserializer vtable paths were not exhaustively audited. Exact-version pinning, index tests and upstream advisory checks remain required.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "erased_serde",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alloc"
+        ],
+        "example_reverse_route": "erased-serde -> typetag -> tantivy -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "erased-serde-0.4.11.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "1e59b668157f32d3459d4bd634861a06ffa2503a461ca5f0916b9f0252605e66",
+        "cargo_lock_checksum": "1e59b668157f32d3459d4bd634861a06ffa2503a461ca5f0916b9f0252605e66",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "c510fde36c9a52448eedff88cce273e954f586a03c33d3a104b09baa58f9fe26"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-tantivy/Cargo.toml",
+          "sha256": "88126111639b35fa3381ff3d21619bd4241148b347fea0187d1c6dbab0aeec7f"
+        }
+      ],
+      "scope_notes": "The crate denies unsafe_op_in_unsafe_fn, which requires explicit unsafe blocks but is not equivalent to forbid(unsafe_code). This review does not certify arbitrary caller-created erased values. Reviewed files identify inspected source containers; only the boundaries described above were semantically reviewed. Archive equality covered every regular archive member but is content binding to Cargo.lock, not independent publisher authentication.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    }
+  ],
+  "review_result": "All eleven exact locked archives match extracted source bytes. All eleven actual reverse-graph commands exited 0. Each selected crate lacks an unconditional forbid marker; concrete unsafe or absence-of-forbid boundaries and residual risk are recorded individually. No specific blocking defect was identified within these inspected boundaries.",
+  "gate_obligations": [
+    "Bind these exact review bytes and source/feature identities to the baseline migration; no name-only or self-labelled historical allowance.",
+    "Require complete matched base and candidate measurements from the pinned native scanner and reject missing/mismatched files or selected features.",
+    "Retain unchanged advisory, license, provenance, architecture, tests, installed-health and actual rollback gates; this review alone does not qualify or promote an artifact.",
+    "Root default features are empty at this source, so the independently traced --no-default-features normal/build closure matches the default root feature selection used by the complete measurement. Verify exact final integrated-source graph again."
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed": false
+}

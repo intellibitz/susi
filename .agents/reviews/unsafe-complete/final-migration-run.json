@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools-v3/unsafe_ratchet",
+    "--measurement",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-final-complete.json",
+    "--baseline",
+    "/workspace/susi-release-gates-driver-agent-unsafe-complete/.agents/baseline/unsafe-default.json",
+    "--base-measurement",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/base-final-complete.json",
+    "--review",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/bound-final-review.json",
+    "--write-baseline",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/baseline-final-v2.json"
+  ],
+  "exit": 0,
+  "seconds": 6.473733334998542,
+  "stdout": "reviewed complete baseline written: 479 full package identities\n",
+  "stderr": "",
+  "review_components": 77,
+  "combined_candle_review_sha256": "fc909fb3b33ffa68325a313a3f6869c5e83eea30dc64b4f780c1ee165d43c283"
+}

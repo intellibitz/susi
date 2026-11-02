@@ -1,0 +1,351 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T17:56:10.480151+00:00",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "reviewer": "/root/advisory_gate_review",
+  "scope": "Additive read-only review of five exact identities exposed by complete parsing/strict workspace membership. No builds, runtime tests, source/baseline changes, private-model access or release promotion. Files containing inspected excerpts are hashed in full, without claiming every line was audited.",
+  "components": [
+    {
+      "identity": {
+        "name": "signal-hook-registry",
+        "version": "1.4.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: asynchronous OS signal context, function-pointer ABI and concurrent lifetime reclamation.",
+      "boundary": "POSIX sigaction registration and previous-handler dispatch; raw global AtomicPtr and HalfLock snapshot pointers read inside asynchronous signal handlers.",
+      "justification": "The parser-omitted package is now explicitly reviewed. Registration initializes global state before installing handlers, checks the sigaction return, stores prior handler flags and dispatches the one-argument or SA_SIGINFO ABI accordingly. HalfLock readers increment a generation counter before loading a pointer; writers swap owned Box allocations and wait for readers before reclaiming old storage, outside the signal handler. Callback registration is unsafe because arbitrary callbacks must be async-signal-safe; the Susi facade re-exports signal-hook rather than making those contracts disappear. The crate intentionally cannot claim an unconditional unsafe-code forbid.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "54bcf376404635b6cfc7e20474cc84a756ef5c8b54e2954d3186e44b68854fac"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "71c67afdcaab442cc75955a6a17e5eb4e17fb725e0db7f8d1930023c680a7204"
+        },
+        {
+          "path": "src/half_lock.rs",
+          "sha256": "b73a0c35a86ce08f583c241b6fab5ad5b5e2cfef93491af12c5f24251ad76e91"
+        }
+      ],
+      "residual_risk": "This is not a formal concurrency or signal-safety proof. Callback discipline, previous handlers, platform ABI and the documented registration race remain trusted. unregister does not restore the prior/default OS handler, so shutdown/lifecycle behavior must be exercised separately. No new signal-delivery, race, Miri or lifecycle test ran in this review.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is separate from selected unsafe operations. Path dependencies are not exempt simply because metadata source is null."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "signal-hook-registry -> signal-hook 0.4.5 -> susi-vendor-signal-hook -> susi; also selected by tokio 1.54.1",
+        "reverse_tree_receipt": "signal-hook-registry-1.4.8.tree"
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "8d25129eb2b8110a0581ff2cab2dd2ff586989af5ca72f9a395462cd2c9d13f1",
+        "kind": "registry-cache",
+        "archive_sha256": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b",
+        "lock_checksum": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b",
+        "all_extracted_files_match_archive": true
+      },
+      "scope_notes": "The old cargo-geiger parser failure is not permission to omit this package. Current review binds the actual registry archive and selected Linux source; scanner completeness is a separate worker receipt.",
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval, or release promotion."
+    },
+    {
+      "identity": {
+        "name": "esaxx-rs",
+        "version": "0.1.10",
+        "source": "path:vendor/esaxx-rs/Cargo.toml"
+      },
+      "risk": "Low to moderate on selected Rust path; high foreign-code boundary if optional cpp/cc is enabled.",
+      "boundary": "Selected suffix_rs uses Rust vectors/slices and the Rust suffix-array implementation. The raw extern C esaxx_int32 wrapper and C++ compilation are gated by cc/cpp features, which are absent from the qualified Linux feature set.",
+      "justification": "Cargo.toml defaults to cpp upstream, but the actual root graph selects no esaxx-rs features. build.rs has an empty non-cpp main. The inspected suffix_rs route allocates owned Rust arrays and calls the Rust implementation; its iterator uses bounds-checked slices. The only unsafe-looking transmute in sais.rs is commented out. Thus the missing unconditional root forbid does not establish that the optional C++ wrapper is compiled into this candidate.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "d22e806c40a1c18a69599142c6b30af5e40eb053e8f349f007dd06ccb6397d84"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "b56867e0a2172f86f0c17021f8282d378cafbc8c009dc857197c63d91bf0f472"
+        },
+        {
+          "path": "build.rs",
+          "sha256": "67f2f6403547ae883fd30db8a6aff1f7527d8ae02a237ac0387686768b2f847a"
+        },
+        {
+          "path": "src/esa.rs",
+          "sha256": "c527c285a2d8f8e9a883612c6f949a6a8ee661947ab4fb4da0f7a64d39a617bd"
+        },
+        {
+          "path": "src/sais.rs",
+          "sha256": "c683c88283b94a48c68b47b8b526426ccf0b7d63e30a6d9fffee85ceab377d82"
+        },
+        {
+          "path": "src/types.rs",
+          "sha256": "2cf2ac98e417d6ee26a23eef1a2255c877728a3cddb486480046d6aa83ccc93c"
+        }
+      ],
+      "residual_risk": "Large tokenizer-training inputs can still cause allocation pressure, panics or expensive work. This review does not approve the optional C++ implementation or cc feature; enabling either requires new native-build/unsafe review and qualification. Root graph and native archive checks must remain enabled.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is separate from selected unsafe operations. Path dependencies are not exempt simply because metadata source is null."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "esaxx-rs -> tokenizers 0.23.2 -> candle-core 0.11.1 -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "esaxx-rs-0.1.10.tree"
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "3c448c364b0cb4c4bf8005df1eb25653ff7bf34c91b624e87f303401854d42b2",
+        "kind": "tracked-vendor-source",
+        "commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "package_path": "vendor/esaxx-rs",
+        "all_tracked_bytes_match_commit": true
+      },
+      "scope_notes": "The vendored files are bound to accepted Git commit bytes, not falsely attributed to a crates.io archive checksum. The package is selected; its foreign implementation is optional and unselected.",
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval, or release promotion."
+    },
+    {
+      "identity": {
+        "name": "native-tls",
+        "version": "0.2.18",
+        "source": "path:vendor/native-tls/Cargo.toml"
+      },
+      "risk": "High transitive platform-crypto boundary; Linux selected wrapper is safe Rust over reviewed OpenSSL APIs.",
+      "boundary": "Linux imp/openssl.rs and platform_rsa_openssl.rs use safe openssl wrappers; platform_rsa.rs performs PKCS/RSA validation. Windows CNG and Apple Security.framework providers contain local unsafe FFI blocks but are cfg-excluded from Linux.",
+      "justification": "The selected Linux source has no own unsafe block in lib.rs, imp/openssl.rs or platform_rsa_openssl.rs; the last forbids unsafe locally. The crate root has no unconditional forbid because supported platform backends have real FFI. Linux TLS connector defaults keep certificate/hostname validation enabled and only disable them through explicit dangerous builder options. The RSA provider generates 3072-bit keys, strictly decodes PKCS8, checks key consistency, performs a randomized sign/verify import proof, and zeroizes intermediate private encodings. This dependency is a path package and must not bypass the inventory.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "af51cc03569e7bff85220fb0f27df49a42c1de912bb35e52bb2a0a40b79a6ecc"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "74f91e0d3e5fadf26068a47c5576759fd11ad009d8eb7193388ec9c065f3ce05"
+        },
+        {
+          "path": "src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        },
+        {
+          "path": "src/platform_rsa.rs",
+          "sha256": "3c1d1cdef26b78b95564251b2c7796e0d46851ecd2d8048f9534756f44eec27f"
+        },
+        {
+          "path": "src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "src/platform_rsa_windows.rs",
+          "sha256": "5562bb3da3125b025bcfcd46f5350a88d716910dc65f1d62ed6038e91c662f50"
+        },
+        {
+          "path": "src/platform_rsa_macos.rs",
+          "sha256": "4992c813629488ad001c689b4b6ee6930898328e236541f45d87fe813f0b31bf"
+        }
+      ],
+      "residual_risk": "Safe Rust wrappers still trust openssl, openssl-sys and the installed cryptographic provider. Explicit dangerous TLS builder options remain available to consumers; this review is not proof every call site uses secure configuration. It does not qualify Windows/Apple native FFI execution or establish constant-time behavior.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is separate from selected unsafe operations. Path dependencies are not exempt simply because metadata source is null."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "alpn",
+          "alpn-accept",
+          "default"
+        ],
+        "example_reverse_route": "native-tls -> susi-vendor-tokio-rustls -> susi-daemon -> susi; also hyper-tls/reqwest and ureq",
+        "reverse_tree_receipt": "native-tls-0.2.18.tree"
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "79f6696ddfa4c3cf70b8edf0e239dba96e875ca98d48935eb83b493c3327f6c2",
+        "kind": "tracked-vendor-source",
+        "commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "package_path": "vendor/native-tls",
+        "all_tracked_bytes_match_commit": true
+      },
+      "scope_notes": "Linux selected implementation reviewed directly. Windows/Apple provider files are bound to record cfg-excluded boundaries, not claimed fully audited or runtime-tested. The original OpenSSL component review remains applicable.",
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval, or release promotion."
+    },
+    {
+      "identity": {
+        "name": "reqwest",
+        "version": "0.13.5",
+        "source": "path:vendor/reqwest/Cargo.toml"
+      },
+      "risk": "Moderate to high: asynchronous HTTP/TLS integration and initialized-buffer invariants.",
+      "boundary": "Selected blocking body path exposes spare capacity as initialized bytes after zeroing it, then advances buffer length after Read. Verbose connection adapter maps an underlying initialized ReadBuf cursor back to its caller. Native TLS is selected; Rustls/HTTP3 and wasm client paths are not part of this Linux feature set.",
+      "justification": "The inspected blocking path reserves and zeroes new spare storage before its MaybeUninit-to-byte-slice conversion; it reads only when the buffer is empty and advances through the buffer API. The connection wrapper passes the same storage to an uninitialized ReadBuf and advances only by its reported filled length, preserving initialization. These are real selected unsafe blocks, unlike the mere absence of a forbid marker. TLS setup delegates certificate/hostname flags to native-tls; the broader OpenSSL boundary has its own review.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "5eb4ef7739cdb3b44b9497649518277645d2212fcc6fbd2144f5c095a5cd4d44"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "ed6cd55caeafcd6d188893972af62d4d1fbd64d7247af1a331595f6f316b752c"
+        },
+        {
+          "path": "src/blocking/body.rs",
+          "sha256": "578d58f3c661a4c43b771e982bac1dd08a6fedaf98f8baacd096fbe0cad63f7a"
+        },
+        {
+          "path": "src/connect.rs",
+          "sha256": "74827c0f4dce00fa6c35dfc6d4f79a93944e55c82b243140f03a0db8458505ff"
+        },
+        {
+          "path": "src/async_impl/client.rs",
+          "sha256": "ab18403527e914809342a3ec16190e816b0a5520d6bbb368a7224cfae1c1d43f"
+        }
+      ],
+      "residual_risk": "Correct Read/ReadBuf implementations, buffer-capacity invariants and native TLS remain trusted. Redirect, proxy, certificate and timeout policy depend on application configuration. This source review did not run HTTP, proxy, redirect, malformed-body or TLS network tests and is not blanket approval of optional backends.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is separate from selected unsafe operations. Path dependencies are not exempt simply because metadata source is null."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [
+          "__native-tls",
+          "__native-tls-alpn",
+          "__tls",
+          "blocking",
+          "charset",
+          "default",
+          "default-tls",
+          "http2",
+          "json",
+          "multipart",
+          "native-tls",
+          "query",
+          "stream",
+          "system-proxy"
+        ],
+        "example_reverse_route": "reqwest -> susi-vendor-mcp -> susi-tools -> susi; also rmcp/ra2a routes",
+        "reverse_tree_receipt": "reqwest-0.13.5.tree"
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "9565359872ca7b1f42af32c6ca6bf317151a7f89f8e2787f1a0e9512bf1c86e9",
+        "kind": "tracked-vendor-source",
+        "commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "package_path": "vendor/reqwest",
+        "all_tracked_bytes_match_commit": true
+      },
+      "scope_notes": "Selected features include blocking, __native-tls, __native-tls-alpn, http2, json, multipart, stream and system-proxy; absence of __rustls is recorded from the qualified feature graph.",
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval, or release promotion."
+    },
+    {
+      "identity": {
+        "name": "susi-os-unicode",
+        "version": "0.1.0",
+        "source": "path:vendor/regex-syntax/os-unicode/Cargo.toml"
+      },
+      "risk": "High: dynamically resolved system ICU ABI and foreign Unicode property queries.",
+      "boundary": "Private Library owns an OS loader reference and converts named symbols to exact ICU function-pointer types. Api retains that library while OnceLock exposes the bound functions. Query calls pass bounded UTF-16/property buffers and owned ICU set handles.",
+      "justification": "The Linux loader accepts only absolute files directly in approved OS library directories, uses RTLD_NOW/local visibility and rejects null symbols. Symbol conversion checks terminated names and pointer size while explicitly requiring the caller to supply the exact ABI. The private ICU binder supplies concrete signatures and retains Library in Api. Property/value input is ASCII and at most 128 bytes; the USet handle is null-checked and closed by RAII, item counts and Unicode scalar ranges are validated, and fixed version buffers are four bytes. Library Send/Sync asserts loader-reference lifetime semantics, not arbitrary foreign function thread-safety. Root deny(unsafe_code) has local FFI allowances; there is no unconditional forbid.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a97f571d16be8969a4ced0f78b5c75fa4b2691d60c8d43f1d39a36d0365ee4a3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9b6ec804c251f7bf5731ddeeba7076d11deaf1d6eaf9e5b63e85e6f88fe3c110"
+        },
+        {
+          "path": "src/native_library.rs",
+          "sha256": "279cf2e06f3146b00d8555ae7cd82cfae502878e405e6c59c384a7fbd54c2645"
+        }
+      ],
+      "residual_risk": "The installed ICU library, exported ABI, loader/OS directory integrity and thread behavior remain trusted. Library bytes and Unicode version can vary across hosts and need separate runtime/provider receipts. Directory restrictions do not authenticate every system library byte or defeat an administrator-controlled system-library symlink. No native ICU runtime test or cross-platform execution was performed by this review.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional entrypoint forbid is separate from selected unsafe operations. Path dependencies are not exempt simply because metadata source is null."
+      },
+      "selected_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "edges": [
+          "normal"
+        ],
+        "features": [],
+        "example_reverse_route": "susi-os-unicode -> regex-syntax 0.8.11 -> fancy-regex -> tokenizers -> candle-core -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "susi-os-unicode-0.1.0.tree"
+      },
+      "source_binding": {
+        "receipt": "source-bindings.json",
+        "source_tree_sha256": "6ecbefc1b8b37602812e005a3a734c5c8716538ac454c6bcdbe17ae1916a234a",
+        "kind": "tracked-vendor-source",
+        "commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "package_path": "vendor/regex-syntax/os-unicode",
+        "all_tracked_bytes_match_commit": true
+      },
+      "scope_notes": "The package is project-authored vendored source outside workspace membership; treating every source:null package as exempt would hide its real FFI boundary. Windows/macOS loader branches are not Linux runtime qualification.",
+      "conclusion": "No specific blocking defect identified in the inspected selected boundary. Scoped review only; no complete memory-safety proof, blanket future-version/feature approval, or release promotion."
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.lock",
+      "sha256": "9213ca390987fe49a37a060a531387072898d8775e4ac7bf883aac31e97a4c4b"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-independent-review-supplement/source-bindings.json",
+      "sha256": "60fef5de95dacb31f7dffdd6b26060bcf27b0c647e5391f4c4b5cbcac58b20f8"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-independent-review-supplement/tree-commands.json",
+      "sha256": "1539bbde6a98a0b72d4a9329ef74ff43eb4ec0e633a2f93d023ace3a944cd93d"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/qualified-package/sbom.json",
+      "sha256": "8aaf0078d0c26d1a36880b4736896d49db5266df2b9f81e0ff78c317455331d3"
+    }
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed": false,
+  "gate_obligations": [
+    "Complete scanner must bind these identities to exact normal-edge root graph, source files, scanner SHA, baseline/candidate snapshots and strict workspace membership.",
+    "Do not claim optional C++ or non-Linux TLS/loader paths are qualified by Linux tests.",
+    "Preserve all independent advisory/license/provenance/production health and rollback gates."
+  ]
+}
