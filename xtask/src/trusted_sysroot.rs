@@ -539,6 +539,8 @@ fn configs(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 pub(crate) struct VerifiedSysroot {
+    #[cfg(windows)]
+    changes: susi_vendor_winapi::sealed_directory::Changes,
     inputs: InputGuard,
     path: PathBuf,
     expected: Value,
@@ -550,6 +552,8 @@ impl VerifiedSysroot {
         &self.path
     }
     pub(crate) fn apply(&self, command: &mut Command) -> Result<()> {
+        #[cfg(windows)]
+        self.changes.unchanged()?;
         bind(command, &self.inputs.installed)?;
         let path = self.path.to_str().ok_or("nonUTF8 selected sysroot")?;
         if path.contains('\x1f') {
@@ -561,6 +565,8 @@ impl VerifiedSysroot {
         Ok(())
     }
     pub(crate) fn recheck(&self) -> Result<()> {
+        #[cfg(windows)]
+        self.changes.unchanged()?;
         self.inputs.recheck()?;
         cache::validate_layout(self.path().parent().ok_or("sysroot parent missing")?)?;
         if self.evidence["artifacts"] != self.expected
@@ -568,6 +574,8 @@ impl VerifiedSysroot {
         {
             return Err("sysroot artifacts changed during compiler operation".into());
         }
+        #[cfg(windows)]
+        self.changes.unchanged()?;
         Ok(())
     }
 }
@@ -646,12 +654,16 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     };
     if let Some((directory, mut evidence)) = hit {
         let expected = evidence["artifacts"].clone();
+        #[cfg(windows)]
+        let changes = susi_vendor_winapi::sealed_directory::Changes::watch(&directory)?;
         let mut handles = cache::hold_namespace(&directory)?;
         handles.extend(lock_archives(&directory, &expected)?);
         evidence["destination"] = json!(directory);
         evidence["cache_hit"] = json!(true);
         evidence["elapsed_ms"] = json!(started.elapsed().as_millis());
         let verified = VerifiedSysroot {
+            #[cfg(windows)]
+            changes,
             inputs,
             path: directory.join("sysroot"),
             expected,
@@ -696,6 +708,8 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let handles = lock_archives(&destination, &expected)?;
     let object = cache::store(&storage, &destination, &expected, nonce)?;
     let canonical = storage.join("objects").join(&object);
+    #[cfg(windows)]
+    let changes = susi_vendor_winapi::sealed_directory::Changes::watch(&canonical)?;
     let mut canonical_handles = cache::hold_namespace(&canonical)?;
     canonical_handles.extend(lock_archives(&canonical, &expected)?);
     drop(handles);
@@ -732,6 +746,8 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         serde_json::to_vec_pretty(&record)?,
     )?;
     let verified = VerifiedSysroot {
+        #[cfg(windows)]
+        changes,
         inputs,
         path: canonical.join("sysroot"),
         expected,

@@ -104,3 +104,91 @@ pub fn hold(path: &Path) -> io::Result<File> {
     }
     Ok(file)
 }
+
+/// Latched notification. Detect a transient write, rename or DACL change even
+/// if a previously opened privileged handle restores the original bytes/ACL.
+/// Never rearm a signaled handle or accept output from that compiler invocation.
+pub struct Changes(winapi::um::winnt::HANDLE);
+impl Changes {
+    #[allow(unsafe_code)] // SAFETY: bounded NUL-terminated UTF-16 path for a native notification.
+    pub fn watch(path: &Path) -> io::Result<Self> {
+        use std::os::windows::ffi::OsStrExt;
+        use winapi::um::{
+            fileapi::FindFirstChangeNotificationW,
+            handleapi::INVALID_HANDLE_VALUE,
+            winnt::{
+                FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME,
+                FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
+                FILE_NOTIFY_CHANGE_SIZE,
+            },
+        };
+        let mut name: Vec<u16> = path.as_os_str().encode_wide().collect();
+        if name.contains(&0) {
+            return Err(io::Error::other("invalid watch path"));
+        }
+        name.push(0);
+        // SAFETY: name remains valid through the call; the filter and subtree
+        // flag are documented values. Only a valid handle is handed to Drop.
+        let handle = unsafe {
+            FindFirstChangeNotificationW(
+                name.as_ptr(),
+                1,
+                FILE_NOTIFY_CHANGE_FILE_NAME
+                    | FILE_NOTIFY_CHANGE_DIR_NAME
+                    | FILE_NOTIFY_CHANGE_SECURITY
+                    | FILE_NOTIFY_CHANGE_LAST_WRITE
+                    | FILE_NOTIFY_CHANGE_SIZE,
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(handle))
+    }
+    #[allow(unsafe_code)] // SAFETY: poll the owned, non-resetting kernel handle.
+    pub fn unchanged(&self) -> io::Result<()> {
+        // SAFETY: self owns a live change-notification handle, and zero timeout
+        // polls without acknowledging a signaled notification.
+        match unsafe { winapi::um::synchapi::WaitForSingleObject(self.0, 0) } {
+            258 => Ok(()), // WAIT_TIMEOUT
+            0 => Err(io::Error::other("stdlib namespace changed during use")),
+            _ => Err(io::Error::last_os_error()),
+        }
+    }
+}
+impl Drop for Changes {
+    #[allow(unsafe_code)] // SAFETY: release exactly this object's change-notification handle.
+    fn drop(&mut self) {
+        // SAFETY: ownership is unique, and FindCloseChangeNotification is the
+        // matching release function. Drop cannot retry or propagate an error.
+        unsafe {
+            winapi::um::fileapi::FindCloseChangeNotification(self.0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_restored_namespace_still_invalidates_the_operation() -> io::Result<()> {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(io::Error::other)?
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("stdlib-transient-{}-{nonce}", std::process::id()));
+        std::fs::create_dir(&dir)?;
+        let changes = Changes::watch(&dir)?;
+        changes.unchanged()?;
+        let extra = dir.join("transient.rlib");
+        std::fs::write(&extra, b"unadmitted")?;
+        std::fs::remove_file(&extra)?;
+        assert!(!extra.exists());
+        assert!(changes.unchanged().is_err());
+        assert!(changes.unchanged().is_err());
+        drop(changes);
+        std::fs::remove_dir(dir)
+    }
+}

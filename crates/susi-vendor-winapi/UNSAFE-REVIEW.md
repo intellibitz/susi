@@ -59,7 +59,7 @@ Reviewed `src/detached.rs` SHA-256 (UTF-8, LF):
 
 ## Immutable compiler namespace
 
-The two additional, narrowly scoped Windows ABI calls in sealed_directory.rs
+The descriptor calls in sealed_directory.rs
 set and read back a protected DACL on a newly created content-addressed
 directory. The owner-rights ACE explicitly denies WRITE_DAC and WRITE_OWNER.
 The only other rights are the owner's delete right for post-use cleanup and
@@ -70,7 +70,16 @@ take-ownership or kernel privileges. The DACL is never set on a checkout or
 on a caller-supplied existing directory.
 
 The isolated native cargo-geiger audit for the complete current facade recorded
-zero unsafe functions, traits, implementations or methods and 56 used unsafe
+zero unsafe functions, traits, implementations or methods and 66 used unsafe
 expressions. The original detached wrapper accounted for 38. The added
 descriptor buffers are fixed-size, aligned and bounded. The caller rechecks
 the protected DACL on the same handle it retains.
+
+A non-resetting Windows change notification independently rejects outputs if a
+file name, directory name, security descriptor, size or write changes anywhere
+in the selected object during use. Its three narrowly justified native calls
+create, poll and close one owned notification handle. It also detects change
+followed by restoration. This is a post-use admission check, not a process
+sandbox. Existing security handles acquired before sealing, an attacker able
+to inject into the verifier process, and privileged OS actors are outside the
+claim that ordinary filesystem access cannot insert a file.
