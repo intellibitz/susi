@@ -15,7 +15,8 @@
     "Cargo.lock",
     "tests",
     "scripts/ci-test-shards.sh",
-    "src/cli/workflow_cli.rs"
+    "src/cli/workflow_cli.rs",
+    "vendor/unicode-ident"
   ],
   "acceptance": "Build authenticated Linux sysroot and execute consumer; enforce native TLS dynamic linkage with artifact evidence; preserve Windows gates; run affected Rust tests and clippy. Release only after complete integration and production qualification.",
   "base_commit": "e6824c957b1c41e5c2611266da564f99bf620394",
@@ -72,7 +73,42 @@
       "failed": 0,
       "test_seconds": 1.73,
       "clippy": "passed"
-    }
+    },
+    "full_workspace": {
+      "passed": 4461,
+      "failed": 0,
+      "ignored": 17,
+      "exit": 0,
+      "elapsed_ms": 641041,
+      "candidate": "df33e076344718a0357b0817a1d9a0095b133fea"
+    },
+    "platform_adapter_recheck": [
+      {
+        "adapter": "idna-adapter",
+        "exit": 0,
+        "seconds": 0.148
+      },
+      {
+        "adapter": "unicode-ident",
+        "exit": 0,
+        "seconds": 18.131
+      },
+      {
+        "adapter": "htmlescape",
+        "exit": 0,
+        "seconds": 0.423
+      },
+      {
+        "adapter": "regex-syntax",
+        "exit": 0,
+        "seconds": 5.554
+      },
+      {
+        "adapter": "regex-syntax/os-unicode",
+        "exit": 0,
+        "seconds": 0.662
+      }
+    ]
   },
-  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix. Added combined native integration with independent scope guards, anchored dependency admission, unchanged full gates, source rechecks and atomic per-agent receipts. Cargo.lock chrome sysinfo delta deliberately joins the corresponding agent manifest only in the combined candidate."
+  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix. Added combined native integration with independent scope guards, anchored dependency admission, unchanged full gates, source rechecks and atomic per-agent receipts. Cargo.lock chrome sysinfo delta deliberately joins the corresponding agent manifest only in the combined candidate. Full workspace passed; separate Unicode-identifier adapter exposed missing lib prefix on Unix procedural macro filenames. Corrected Linux/macOS output and cleanup names; all five standalone adapters passed diagnostics."
 }
