@@ -61,6 +61,27 @@ async fn connect<H: ClientHandler>(
     } else {
         let mut command = tokio::process::Command::new(&config.command);
         command.args(&config.args).kill_on_drop(true);
+        // Launchers need OS paths and temp storage. Provider credentials
+        // come only from the server's own explicitly configured environment.
+        command.env_clear();
+        for key in [
+            "PATH",
+            "SystemRoot",
+            "WINDIR",
+            "ComSpec",
+            "PATHEXT",
+            "HOME",
+            "USERPROFILE",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+        ] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
         if let Some(env) = &config.env {
             command.envs(env);
         }

@@ -129,6 +129,9 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                 susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
                     .map_err(|e| anyhow::anyhow!("{e}"))?
             } else {
+                // This control-plane command returns before normal CLI composition.
+                // A registered stdio server needs the tools plane to dispatch.
+                susi_daemon::composition::wire_plane_handlers();
                 susi_gmcp::direct_call::call_tool_direct(&addr, &tool, &arguments, workspace)
                     .map_err(|e| anyhow::anyhow!("{e}"))?
             };
