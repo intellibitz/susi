@@ -657,7 +657,11 @@ fn measured_json(cwd: &Path, global_dir: &Path) -> std::io::Result<serde_json::V
         hash.update(&buffer[..count]);
         bytes += count as u64;
     }
-    let sha256 = format!("{:x}", hash.finalize());
+    let sha256: String = hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     let status = collect(
         cwd,
         global_dir,

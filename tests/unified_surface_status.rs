@@ -99,7 +99,10 @@ fn json_status_reports_actual_executable_without_identity_key_or_narration() {
     }
     assert_eq!(
         value["executable"]["sha256"],
-        format!("{:x}", hash.finalize())
+        hash.finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
     );
     assert_eq!(value["executable"]["bytes"], file.metadata().unwrap().len());
     assert_eq!(
