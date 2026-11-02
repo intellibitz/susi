@@ -1,0 +1,10 @@
+{
+  "id": "T-GRANTSTORAGE-1",
+  "owner": "grantstorage-1102",
+  "status": "active",
+  "title": "Persist scoped MAC grants under bounded names and report I/O failures",
+  "dependencies": ["T-JOURNEYLOCK-3"],
+  "scopes": [".agents/tasks/T-GRANTSTORAGE-1.json","crates/susi-core/src/mac_policy.rs","crates/susi-gmcp/src/tools/core.rs","crates/susi-tools/src/registry.rs","src/cli/privacy_cli.rs","tests/mac_grant_persistence.rs"],
+  "accept": {"cmd":["cargo","test","--offline","--locked","--test","mac_grant_persistence"]},
+  "requirement": "Normal installed privacy grant/status/revoke work across processes with long resources, without exposing credentials or success after persistence failure. Existing signed grant files remain usable and revocable."
+}

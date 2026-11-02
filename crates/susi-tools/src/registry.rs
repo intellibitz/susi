@@ -159,7 +159,10 @@ impl ToolRegistry {
         }
 
         if let Some(mission) = mission.as_deref() {
-            Self::ensure_mission_authority(mission, workspace);
+            if let Err(error) = Self::ensure_mission_authority(mission, workspace) {
+                Self::record_authority_refusal(mission, name, &error.to_string());
+                return error.to_string();
+            }
             // The mission's own token set — minted at first dispatch as the
             // posture-bounded baseline for this subject.
             if let Err(e) = MacPolicy::global().authorize_tool(name, arg, workspace, Some(mission))
@@ -414,27 +417,26 @@ impl ToolRegistry {
     /// Mint the mission's token set (once per mission id) and install its
     /// egress gate from the workspace declaration — unless an orchestrator
     /// already declared one programmatically.
-    fn ensure_mission_authority(mission: &str, workspace: &Path) {
-        {
-            let tokens = mission_tokens();
-            if read_lock(tokens).contains(mission) {
-                return;
-            }
-            let mut tokens = write_lock(tokens);
-            if !tokens.insert(mission.to_owned()) {
-                return;
-            }
+    fn ensure_mission_authority(
+        mission: &str,
+        workspace: &Path,
+    ) -> crate::susi_error::EaiResult<()> {
+        let mut tokens = write_lock(mission_tokens());
+        if tokens.contains(mission) {
+            return Ok(());
         }
         let mac = MacPolicy::global();
         for (action, resource) in MISSION_TOKEN_BASELINE {
             if mac.is_permitted("susi", action, resource) {
-                let _ = mac.grant(mission, action, resource, Some(MISSION_TOKEN_TTL_SECS));
+                mac.grant(mission, action, resource, Some(MISSION_TOKEN_TTL_SECS))?;
             }
         }
         let mut gates = write_lock(mission_gates());
         gates
             .entry(mission.to_owned())
             .or_insert_with(|| EgressGate::new(Self::mission_egress_policy(workspace)));
+        tokens.insert(mission.to_owned());
+        Ok(())
     }
 
     /// Load the mission's declared egress allow-list from
@@ -545,13 +547,14 @@ impl ToolRegistry {
 
     /// Release a finished mission's minted tokens and gate. The refusal
     /// records stay — they are the audit trail, not live state.
-    pub fn end_mission_authority(mission: &str) {
+    pub fn end_mission_authority(mission: &str) -> crate::susi_error::EaiResult<()> {
         write_lock(mission_tokens()).remove(mission);
         write_lock(mission_gates()).remove(mission);
         let mac = MacPolicy::global();
         for (action, resource) in MISSION_TOKEN_BASELINE {
-            mac.revoke(mission, action, resource);
+            mac.revoke(mission, action, resource)?;
         }
+        Ok(())
     }
 }
 
@@ -787,7 +790,9 @@ mod tests {
 
             // The mission's own token no longer covers exec — the process
             // subject still holds it, so this refusal is the mission's own.
-            assert!(MacPolicy::global().revoke(&mission, actions::PROCESS_EXEC, "*"));
+            assert!(MacPolicy::global()
+                .revoke(&mission, actions::PROCESS_EXEC, "*")
+                .unwrap());
             let out = ToolRegistry::execute_tool(
                 "exec_command",
                 &serde_json::json!({"cmd": "echo hi"}),
