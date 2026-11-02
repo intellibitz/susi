@@ -9,7 +9,6 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! `scripts/github-enforce.sh` through a fake `gh`, so the exact ruleset that
 //! would reach GitHub is checked: phases, no bypass actors, relax and status.

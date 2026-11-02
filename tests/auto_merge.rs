@@ -9,7 +9,6 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! `scripts/auto-merge-pr.sh` and `scripts/reconcile-prs.sh` through a fake
 //! `gh`: a green PR always merges, a refused one is explained once, and no PR
