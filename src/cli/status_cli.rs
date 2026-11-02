@@ -627,6 +627,65 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
 }
 
 /// The `susi status` command body.
+pub(crate) fn run_json(cwd: &Path, global_dir: &Path) -> std::process::ExitCode {
+    match measured_json(cwd, global_dir) {
+        Ok(value) => {
+            println!("{value}");
+            std::process::ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("status identity unavailable: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn measured_json(cwd: &Path, global_dir: &Path) -> std::io::Result<serde_json::Value> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let executable = std::env::current_exe()?;
+    let mut file = std::fs::File::open(&executable)?;
+    let mut hash = Sha256::new();
+    let mut bytes = 0_u64;
+    let mut buffer = [0; 65536];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+        bytes += count as u64;
+    }
+    let sha256: String = hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let status = collect(
+        cwd,
+        global_dir,
+        &susi_paths::SusiDirs::substrate_home(),
+        now_unix(),
+    );
+    Ok(serde_json::json!({
+        "schema": "susi-status-v1",
+        "version": susi::SUSI_VERSION,
+        "executable": { "path": executable, "sha256": sha256, "bytes": bytes },
+        "daemon": { "running": status.daemon_pid.is_some(), "pid": status.daemon_pid },
+        "local_model": status.routing.chosen_local_model,
+        "missions_in_flight": status.missions.len(),
+        "resumable_missions": status.resumable.len(),
+        "pending_approvals": status.approvals.len(),
+        "scheduled_queue": {
+            "total": status.queue.total,
+            "paused": status.queue.paused,
+            "due_now": status.queue.due_now
+        }
+    }))
+}
+
+/// Render the human-readable health snapshot.
 pub(crate) fn run(cwd: &Path, global_dir: &Path) {
     let status = collect(
         cwd,

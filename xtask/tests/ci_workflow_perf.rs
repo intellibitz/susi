@@ -4473,7 +4473,7 @@ git() {
     'cat-file -p refs/claim-agents/TESTAGENT') [ "$MODE" != legacy ] || return 1; printf '%s\n' "$receipt_json" ;;
     'cat-file -e origin/main:.agents/tasks/done/T-TEST-1.json') [ "$MODE" = published ] ;;
     'for-each-ref --format=%(objectname) refs/claims/') echo abc ;;
-    'cat-file --batch') printf 'abc blob 64\n%s\n\n' "$receipt_json" ;;
+    'cat-file --batch') cat >/dev/null; printf 'abc blob 64\n%s\n\n' "$receipt_json" ;;
     *) echo "unexpected git $*" >&2; return 9 ;;
     esac
 }
