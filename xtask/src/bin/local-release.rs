@@ -17,11 +17,13 @@ use std::process::{Command, ExitCode, Stdio};
 mod compiler_env;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v5\n";
+const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v6\n";
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../advisory_evidence.rs"]
+mod advisory_evidence;
 #[path = "../elf_imports.rs"]
 mod elf_imports;
 #[path = "../gmcp_evidence.rs"]
@@ -686,6 +688,7 @@ fn run_gates(
     attempt: &Path,
     host: &str,
     compiler: &str,
+    advisory_source: &advisory_evidence::Source,
 ) -> Result<(String, Option<trusted_sysroot::VerifiedSysroot>)> {
     let target = candidate.join("target");
     let gates: &[&[&str]] = &[
@@ -760,9 +763,20 @@ fn run_gates(
     }
     let adapters = vendor_regressions::commands(candidate, host, &target)?;
     gates.splice(4..4, adapters);
+    gates.insert(2, advisory_evidence::arguments(candidate, attempt, host)?);
     let mut sysroot = None;
+    let mut advisory = None;
     let mut proof = String::from(QUALIFICATION_POLICY);
     for (index, args) in gates.iter().enumerate() {
+        if index == 2 {
+            let snapshot =
+                advisory_evidence::Snapshot::prepare(candidate, attempt, advisory_source)?;
+            proof.push_str(&format!(
+                "advisory-evidence={}\n",
+                serde_json::to_string(&snapshot.evidence)?
+            ));
+            advisory = Some(snapshot);
+        }
         if sysroot.is_none()
             && matches!(
                 args.first().map(String::as_str),
@@ -776,7 +790,12 @@ fn run_gates(
         }
         let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
         let started = std::time::Instant::now();
-        let mut command = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?;
+        let scanner = if index == 2 { advisory.as_ref() } else { None };
+        let program = scanner.map_or_else(
+            || Path::new("cargo"),
+            |snapshot| snapshot.executable.as_path(),
+        );
+        let mut command = isolated_command(program, &attempt.join("gate-home"))?;
         if let Some(sysroot) = &sysroot {
             sysroot.apply(&mut command)?;
         }
@@ -785,7 +804,7 @@ fn run_gates(
         }
         let status = command
             .current_dir(candidate)
-            .args(args)
+            .args(if scanner.is_some() { &args[1..] } else { args })
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_BUILD_TARGET_DIR", &target)
             .env("CARGO_BUILD_BUILD_DIR", &target)
@@ -803,6 +822,9 @@ fn run_gates(
             started.elapsed().as_millis()
         ));
         fs::write(attempt.join("gates.txt"), &proof)?;
+        if let Some(snapshot) = scanner {
+            snapshot.recheck()?;
+        }
         if !status.success() {
             return Err(format!(
                 "release qualification failed: cargo {}; evidence {}",
@@ -812,6 +834,9 @@ fn run_gates(
             .into());
         }
     }
+    advisory
+        .ok_or("production advisory gate did not execute")?
+        .recheck()?;
     if let Some(sysroot) = &sysroot {
         sysroot.recheck()?;
         proof.push_str(&format!(
@@ -1290,6 +1315,18 @@ fn qualify_with(
     ctx: &Context,
     prove_inference: fn(&Path, &Path) -> Result<String>,
 ) -> Result<String> {
+    qualify_with_advisories(
+        ctx,
+        prove_inference,
+        &advisory_evidence::Source::provisioned()?,
+    )
+}
+
+fn qualify_with_advisories(
+    ctx: &Context,
+    prove_inference: fn(&Path, &Path) -> Result<String>,
+    advisory_source: &advisory_evidence::Source,
+) -> Result<String> {
     let _lock = Lock::acquire(&ctx.state)?;
     // The caller may be a dirty primary checkout. Only the immutable integrated
     // snapshot is built; caller files and branches never participate or move.
@@ -1318,7 +1355,7 @@ fn qualify_with(
     )?;
     let (host, compiler) = compiler(&candidate)?;
     let (sbom, mut notices, native_audit) = inventory(&candidate, &attempt, &host)?;
-    let (mut proof, sysroot) = run_gates(&candidate, &attempt, &host, &compiler)?;
+    let (mut proof, sysroot) = run_gates(&candidate, &attempt, &host, &compiler, advisory_source)?;
     if let Some(sysroot) = &sysroot {
         notices.push_str("\n===== Original Rust standard-library upstream notices (including omitted upstream components) =====\n");
         notices.push_str(
@@ -1808,6 +1845,16 @@ mod tests {
         qualify_with(ctx, |_, _| Ok("fixture-only inference boundary\n".into()))
     }
 
+    fn qualify_with(
+        ctx: &Context,
+        prove_inference: fn(&Path, &Path) -> Result<String>,
+    ) -> Result<String> {
+        let source = advisory_evidence::fixture_source(
+            &ctx.state.join(format!("fixture-advisories-{}", stamp()?)),
+        );
+        qualify_with_advisories(ctx, prove_inference, &source)
+    }
+
     #[test]
     fn inference_acceptance_requires_both_real_generations_and_successful_goal_evidence() {
         let traces = INFERENCE_PROMPTS
@@ -2009,7 +2056,8 @@ mod tests {
         let attempt = fixture.0.join("format-first");
         fs::create_dir(&attempt).unwrap();
         let (host, compiler) = compiler(&root).unwrap();
-        let error = match run_gates(&root, &attempt, &host, &compiler) {
+        let source = advisory_evidence::fixture_source(&fixture.0.join("fixture-db"));
+        let error = match run_gates(&root, &attempt, &host, &compiler, &source) {
             Ok(_) => panic!("malformed formatting must fail"),
             Err(error) => error.to_string(),
         };
@@ -2017,6 +2065,52 @@ mod tests {
         assert!(attempt.join("gate-0.log").is_file());
         assert!(!attempt.join("gate-1.log").exists());
         assert!(!root.join(".git/susi-product-sysroots").exists());
+    }
+
+    #[test]
+    fn advisory_rejection_precedes_compilation_and_retains_scanner_receipts() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        let manifest = root.join("Cargo.toml");
+        let mut cargo = fs::read_to_string(&manifest).unwrap();
+        cargo.push_str("\n[dependencies]\nautocfg = \"=1.5.1\"\n");
+        fs::write(&manifest, cargo).unwrap();
+        let lock = isolated_command(Path::new("cargo"), &fixture.0.join("lock-home"))
+            .unwrap()
+            .current_dir(&root)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap();
+        assert!(
+            lock.status.success(),
+            "{}",
+            String::from_utf8_lossy(&lock.stderr)
+        );
+        // Deliberately fabricated test-only advisory: no statement about autocfg's
+        // actual security status. It proves scanner rejection blocks compilation.
+        let source =
+            advisory_evidence::fixture_source_for(&fixture.0.join("fixture-db"), "autocfg");
+        let attempt = fixture.0.join("advisory-rejection");
+        fs::create_dir(&attempt).unwrap();
+        let (host, compiler) = compiler(&root).unwrap();
+        let error = match run_gates(&root, &attempt, &host, &compiler, &source) {
+            Ok(_) => panic!("fixture vulnerability must block qualification"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("check advisories"), "{error}");
+        let log = fs::read_to_string(attempt.join("gate-2.log")).unwrap();
+        assert!(log.contains("RUSTSEC-2026-0001"), "{log}");
+        assert!(!attempt.join("gate-3.log").exists());
+        assert!(!root.join("target").exists());
+        let receipt: serde_json::Value =
+            serde_json::from_slice(&fs::read(attempt.join("advisory-receipt.json")).unwrap())
+                .unwrap();
+        assert!(receipt["cargo_deny_sha256"]
+            .as_str()
+            .is_some_and(|value| hex(value, &[64])));
+        let gates = fs::read_to_string(attempt.join("gates.txt")).unwrap();
+        assert!(gates.contains("advisory-evidence="));
+        assert!(gates.contains("exit code: 1"));
     }
     #[test]
     fn selected_product_feature_proof_rejects_missing_or_ambiguous_features() {
