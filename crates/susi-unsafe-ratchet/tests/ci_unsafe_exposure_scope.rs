@@ -91,7 +91,12 @@ fn unsafe_ratchet_scope_tracks_native_measurement_source_and_inputs() {
         &root,
         &[".github/workflows/unsafe-exposure-scope.sh"],
     ));
-    for path in ["crates/susi-vendor-syn/src/forbid.rs", "crates/susi-gemi/src/engines/runtime_substrate.rs", "vendor/dependency/data.inc", ".agents/reviews/unsafe-complete/review.json"] {
+    for path in [
+        "crates/susi-vendor-syn/src/forbid.rs",
+        "crates/susi-gemi/src/engines/runtime_substrate.rs",
+        "vendor/dependency/data.inc",
+        ".agents/reviews/unsafe-complete/review.json",
+    ] {
         assert!(should_run(&script, &root, &[path]), "{path}");
     }
     assert!(!should_run(&script, &root, &[]));
