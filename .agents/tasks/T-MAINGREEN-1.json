@@ -1,0 +1,26 @@
+{
+  "id": "T-MAINGREEN-1",
+  "title": "Turn main green: clippy docs, restored eco store work, VC-201-097 check, candle-nn guard re-review",
+  "goal": "Fix the four CI checks failing on main at their root causes without weakening any gate, test or review: Linux missing-docs on a Windows-only test, the T-ECOSTORE-1 implementation dropped by merge 833ac49cb, the stale VC-201-097 reachability symbol, and the changed first-party guard behind the candle-nn unsafe review.",
+  "deps": [],
+  "scopes": [
+    ".agents/baseline/unsafe-default.json",
+    ".agents/roadmap-verdicts/vc-201-097.json",
+    ".agents/tasks/t-maingreen-1.json",
+    "crates/susi-gemi/src/eco_compat_gate.rs",
+    "crates/susi-vendor-models/build.rs",
+    "crates/susi-vendor-models/src/eco_engine_capability_map.rs",
+    "crates/susi-vendor-models/src/eco_gpu_clouds.rs",
+    "crates/susi-vendor-models/src/eco_profile.rs",
+    "crates/susi-vendor-models/src/eco_store.rs",
+    "src/cli/ecosystem_cli.rs",
+    "tests/eco_explain.rs",
+    "tests/installed_windows_entry.rs"
+  ],
+  "size": "m",
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "eco_cli"]
+  },
+  "created_by": "MAINGREEN",
+  "created_unix": 1793656069
+}

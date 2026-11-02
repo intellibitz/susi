@@ -22,8 +22,7 @@ mod tests {
     use crate::{eco_consistency, eco_taxonomy};
 
     fn store() -> crate::eco_schema::KnowledgeBase {
-        eco_store::load_dir(&eco_store::bundled_source_dir())
-            .expect("bundled ecosystem store loads")
+        eco_store::load_bundled().expect("bundled ecosystem store loads")
     }
 
     #[test]
