@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXEXACTQUALIFIEDUPGRADE-1",
+  "title": "Upgrade installed Windows CLI from the exact qualified local release",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "installed-upgrade"
+    ]
+  },
+  "created_by": "CODEXEXACTQUALIFIEDUPGRADE",
+  "created_unix": 1793604724
+}
