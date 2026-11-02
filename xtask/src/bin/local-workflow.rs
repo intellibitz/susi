@@ -1971,6 +1971,19 @@ mod tests {
             native_provenance::store_blob(repo, failed_bytes).unwrap(),
             failed_blob
         );
+        let failed_reference = format!("refs/susi/evidence/objects/{failed_blob}");
+        let missing_target = "refs/susi/evidence/missing-fixture-target";
+        git(repo, &["symbolic-ref", &failed_reference, missing_target]).unwrap();
+        assert!(native_provenance::store_blob(repo, failed_bytes).is_err());
+        assert_eq!(
+            git(repo, &["symbolic-ref", "--quiet", &failed_reference]).unwrap(),
+            missing_target
+        );
+        git(repo, &["symbolic-ref", "--delete", &failed_reference]).unwrap();
+        assert_eq!(
+            native_provenance::store_blob(repo, failed_bytes).unwrap(),
+            failed_blob
+        );
         git(repo, &["repack", "-ad"]).unwrap();
         git(repo, &["gc", "--prune=now"]).unwrap();
         assert_eq!(check(&permit, head).unwrap()["verified"], true);

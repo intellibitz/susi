@@ -142,6 +142,17 @@ pub fn store_blob(root: &Path, bytes: &[u8]) -> Result<String> {
     // Git does not trace object IDs embedded in JSON. Every evidence object
     // therefore has its own immutable direct ref, including failed attempts.
     let reference = format!("refs/susi/evidence/objects/{object}");
+    let symbolic = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args(["symbolic-ref", "--quiet", &reference])
+        .output()?;
+    match symbolic.status.code() {
+        Some(1) => {}
+        Some(0) => return Err("symbolic durable evidence reference cannot be replaced".into()),
+        _ => return Err("cannot inspect durable evidence reference kind".into()),
+    }
     let existing = git(
         root,
         &[
