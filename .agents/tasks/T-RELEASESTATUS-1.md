@@ -16,3 +16,9 @@ stopped/running daemon state and selected model; no composition/inference for
 status. Full integrated-tree gates and production qualification are required.
 Measure A rejecting the new option and B succeeding, then run genuine A/B/A
 promotion, installed health, digest verification and restored A inference.
+
+Scope extended to xtask/tests/ci_workflow_perf.rs after integration exposed an
+existing flaky legacy-claim fixture. Its fake cat-file --batch exited without
+reading stdin, creating a pipeline SIGPIPE (37/200 concurrent reproductions).
+Consume stdin like real Git; preserve all existing assertions. This changes the
+test double only, not the production workflow or acceptance policy.
