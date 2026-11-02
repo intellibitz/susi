@@ -200,6 +200,11 @@ where
                 }
                 let result = msg.get("result").cloned().unwrap_or(Value::Null);
                 if id == json!(init_id) {
+                    if result.get("protocolVersion").and_then(Value::as_u64)
+                        != Some(PROTOCOL_VERSION)
+                    {
+                        bail!("incompatible ACP protocol version (expected {PROTOCOL_VERSION})");
+                    }
                     new_id = request(
                         &mut writer,
                         "session/new",
@@ -302,6 +307,24 @@ mod tests {
     }
 
     #[test]
+    fn incompatible_protocol_version() {
+        for result in [json!({"protocolVersion":2}), json!({})] {
+            let mut sink = Vec::new();
+            let input = script(&[json!({"jsonrpc":"2.0","id":1,"result":result})]);
+            let task = Task {
+                cwd: ".",
+                prompt: "hello",
+                policy: Permission::Deny,
+            };
+            let err = drive(input, &mut sink, &task, &|| false).unwrap_err();
+            assert!(err
+                .to_string()
+                .contains("incompatible ACP protocol version"));
+            assert_eq!(String::from_utf8(sink).unwrap().lines().count(), 1);
+        }
+    }
+
+    #[test]
     fn collects_message_chunks_until_end_turn() {
         let chunk = |t: &str| json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":t}}}});
         let mut sink = Vec::new();
@@ -378,7 +401,7 @@ mod tests {
     #[test]
     fn non_end_turn_stop_reasons_never_report_success() {
         let script = script(&[
-            json!({"jsonrpc":"2.0","id":1,"result":{}}),
+            json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}),
             json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"s"}}),
             json!({"jsonrpc":"2.0","id":3,"result":{"stopReason":"refusal"}}),
         ]);
@@ -412,7 +435,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(e.to_string().contains("no auth"));
-        let closed = script(&[json!({"jsonrpc":"2.0","id":1,"result":{}})]);
+        let closed = script(&[json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}})]);
         assert!(drive(
             closed,
             Vec::new(),

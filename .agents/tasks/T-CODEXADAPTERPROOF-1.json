@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXADAPTERPROOF-1",
+  "title": "Reject incompatible negotiated ACP versions before session creation",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "incompatible_protocol_version"
+    ]
+  },
+  "created_by": "CODEXADAPTERPROOF",
+  "created_unix": 1793603869
+}
