@@ -31,10 +31,10 @@
   },
   "acceptance": "Run real native scanner and comparator tests including legacy bare Fn syntax, missing/partial/malformed evidence, exact host normal-edge graph identity, multiple package versions, path provenance, file completeness, mismatched contexts and preservation of rejected baseline writes. Preserve historical v1 baseline until complete matched base/candidate scans from one scanner and explicit component source reviews justify migration. No full-grammar or unsafe-function-count claim; unchanged declaration-proxy unit. Final combined locked-source integration and production qualification remain required.",
   "validation": {
-    "scoped_tests": "55 passed, 0 failed, 0 ignored; exit 0; 3.857477718 seconds; private base-cbf copy plus owned first-party edges",
-    "scoped_clippy": "all targets, warnings denied; exit 0; 0.874642637 seconds",
+    "scoped_tests": "56 passed, 0 failed, 0 ignored; exit 0; 2.349698464 seconds; private base-cbf copy plus owned first-party edges",
+    "scoped_clippy": "all targets, warnings denied; exit 0; 0.436793441 seconds",
     "clean_matched_scans": "same pinned scanner: aff638d0 483 packages/504 files, cbf85824 479 packages/500 files; exit 0",
-    "migration": "pending 77 exact source-bound reviews and clean repaired candle candidate; v1 baseline preserved",
+    "migration": "77 exact identity reviews collected/319 reviewed file hashes verified; clean combined repaired core/guarded NN candidate and final source-bound migration pending",
     "combined_locked_acceptance": "pending coordinated optional-license lock and native integration",
     "evidence": ".agents/reviews/unsafe-complete/REPORT.md"
   }

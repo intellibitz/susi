@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "susi-unsafe-ratchet",
+    "-p",
+    "susi-vendor-syn"
+  ],
+  "cwd": "/workspace/susi-unsafe-complete-dev",
+  "exit": 0,
+  "seconds": 2.3496984640005394,
+  "scope": "private base-cbf source copy plus owned manifest edges; not final combined source"
+}

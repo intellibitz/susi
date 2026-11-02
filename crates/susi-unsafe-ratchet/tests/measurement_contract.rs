@@ -705,3 +705,86 @@ fn duplicate_keys_in_dynamic_metadata_or_baseline_proof_are_rejected() {
         .unwrap_err()
         .contains("duplicate JSON object key"));
 }
+
+#[test]
+fn changed_or_missing_reviewed_module_cannot_reuse_an_unchanged_entrypoint() {
+    let temp = Temp::new();
+    let original = fixture();
+    let encoded = serde_json::to_string(&original)
+        .unwrap()
+        .replace(&original.source_root, temp.0.to_str().unwrap());
+    let mut measured: Measurement = serde_json::from_str(&encoded).unwrap();
+    measured.metadata_sha256 = measurement::json_sha256(&measured.metadata).unwrap();
+    measured.selection_tree_sha256 = measurement::sha256(measured.selection_tree.as_bytes());
+    let package = measured
+        .packages
+        .iter_mut()
+        .find(|p| p.identity.version == "1.0.0" && !p.first_party)
+        .unwrap();
+    package.forbids_unsafe = false;
+    package.files[0].forbids_unsafe = false;
+    let identity = package.identity.clone();
+    let mut reviewed = baseline(&measured);
+    let mut historical: susi_unsafe_ratchet::UnsafeBaseline =
+        serde_json::from_str(&reviewed.historical_json).unwrap();
+    historical
+        .sbom
+        .retain(|p| p.crate_name != identity.name || p.version != identity.version);
+    reviewed.historical_json = serde_json::to_string_pretty(&historical).unwrap();
+    reviewed.historical_baseline_sha256 = measurement::sha256(reviewed.historical_json.as_bytes());
+    reviewed.review.historical_baseline_sha256 = reviewed.historical_baseline_sha256.clone();
+    let path = temp.0.join("registry-one/src/reviewed.rs");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "reviewed nested source bytes").unwrap();
+    let guard = temp.0.join("facade.rs");
+    std::fs::write(&guard, "restricted source export guard").unwrap();
+    reviewed.review.components.push(inventory::ComponentReview {
+        identity: identity.clone(),
+        decision: "accept-forbid-exposure".into(),
+        risk: "Test-only boundary with an independently reviewed nested module".into(),
+        boundary: "A reviewed module beneath an unchanged measured crate entrypoint".into(),
+        justification: "Explicit synthetic regression for live reviewed source file binding".into(),
+        reviewed_files: vec![inventory::ReviewedFile {
+            path: "src/reviewed.rs".into(),
+            sha256: measurement::file_sha256(&path).unwrap(),
+        }],
+        source_guards: vec![inventory::ReviewedFile {
+            path: "facade.rs".into(),
+            sha256: measurement::file_sha256(&guard).unwrap(),
+        }],
+    });
+    reviewed.review_sha256 = measurement::json_sha256(&reviewed.review).unwrap();
+    reviewed
+        .allowances
+        .iter_mut()
+        .find(|a| a.identity == identity)
+        .unwrap()
+        .basis = "component-review".into();
+    assert!(inventory::check_inventory(&measured, &reviewed)
+        .unwrap()
+        .is_empty());
+    std::fs::write(&guard, "expanded unreviewed exports").unwrap();
+    assert_eq!(
+        inventory::check_inventory(&measured, &reviewed)
+            .unwrap()
+            .as_slice(),
+        std::slice::from_ref(&identity)
+    );
+    std::fs::remove_file(&guard).unwrap();
+    assert!(inventory::check_inventory(&measured, &reviewed).is_err());
+    std::fs::write(&guard, "restricted source export guard").unwrap();
+    std::fs::write(&path, "changed nested source bytes").unwrap();
+    assert_eq!(
+        inventory::check_inventory(&measured, &reviewed).unwrap(),
+        [identity]
+    );
+    std::fs::remove_file(&path).unwrap();
+    assert!(inventory::check_inventory(&measured, &reviewed).is_err());
+    #[cfg(unix)]
+    {
+        let outside = temp.0.join("outside-package.rs");
+        std::fs::write(&outside, "reviewed nested source bytes").unwrap();
+        std::os::unix::fs::symlink(&outside, &path).unwrap();
+        assert!(inventory::check_inventory(&measured, &reviewed).is_err());
+    }
+}

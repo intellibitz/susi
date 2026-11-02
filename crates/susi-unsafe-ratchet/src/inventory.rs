@@ -23,6 +23,7 @@ pub struct ComponentReview {
     pub boundary: String,
     pub justification: String,
     pub reviewed_files: Vec<ReviewedFile>,
+    pub source_guards: Vec<ReviewedFile>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -158,6 +159,18 @@ fn validate_review(review: &Review) -> Result<(), String> {
         }
         if paths.is_empty() {
             return Err("component review has no source evidence".into());
+        }
+        let mut guards = BTreeSet::new();
+        for file in &component.source_guards {
+            if !guards.insert(&file.path)
+                || !measurement::valid_sha256(&file.sha256)
+                || file.path.is_empty()
+                || Path::new(&file.path)
+                    .components()
+                    .any(|c| !matches!(c, std::path::Component::Normal(_)))
+            {
+                return Err("invalid or duplicate source guard".into());
+            }
         }
     }
     Ok(())
@@ -327,6 +340,25 @@ pub fn check_inventory(
             .iter()
             .find(|p| p.identity == package.identity)
             .ok_or("measured graph context missing")?;
+        // Reviewed boundaries can live below the measured crate entrypoint.
+        // A stable root declaration must not approve a changed implementation.
+        let mut reviewed_source_matches = true;
+        if let Some(review) = baseline
+            .review
+            .components
+            .iter()
+            .find(|r| r.identity == package.identity)
+        {
+            for file in &review.reviewed_files {
+                let path = measurement::contained_file(&context.directory, &file.path)?;
+                reviewed_source_matches &= measurement::file_sha256(&path)? == file.sha256;
+            }
+            for file in &review.source_guards {
+                let path =
+                    measurement::contained_file(Path::new(&measured.source_root), &file.path)?;
+                reviewed_source_matches &= measurement::file_sha256(&path)? == file.sha256;
+            }
+        }
         if !baseline.allowances.iter().any(|a| {
             a.identity == package.identity
                 && !a.first_party
@@ -337,7 +369,8 @@ pub fn check_inventory(
                     .dependencies
                     .iter()
                     .all(|d| a.dependencies.contains(d))
-        }) {
+        }) || !reviewed_source_matches
+        {
             unreviewed.push(package.identity.clone());
         }
     }
@@ -493,6 +526,12 @@ pub fn migrate(
             let path = measurement::contained_file(&package.directory, &file.path)?;
             if measurement::file_sha256(&path)? != file.sha256 {
                 return Err(format!("review source changed: {}", path.display()));
+            }
+        }
+        for file in &component.source_guards {
+            let path = measurement::contained_file(Path::new(&candidate.source_root), &file.path)?;
+            if measurement::file_sha256(&path)? != file.sha256 {
+                return Err(format!("review source guard changed: {}", path.display()));
             }
         }
     }

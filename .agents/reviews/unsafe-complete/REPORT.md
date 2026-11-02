@@ -110,3 +110,32 @@ all targets with warnings denied passed in **0.874643 s**. Prior receipts
 remain unchanged. Final migration still needs a fresh clean post-repair
 candidate and all accepted source-bound component reviews; discovered candle
 boundary findings must be treated before that component can be admitted.
+
+## Final reviewed-file and source-guard admission
+
+Component reviews can cover nested modules outside the crate entrypoint.
+Admission now rechecks **every reviewed dependency file** against the actual
+selected package. An unchanged lib.rs cannot carry approval across a changed
+safetensors implementation. A missing file or symlink escaping its package
+fails closed. Each component also declares `source_guards` (an explicit empty
+list if none): source-root-relative paths/digests binding first-party export
+and dispatch restrictions on which scoped retention relies. Migration and
+admission verify these guards; changed/missing facade guards require renewed
+review even when dependency entrypoints/features are unchanged.
+
+The final immutable pair is under `pinned-tools-v3`:
+* Scanner: `b703e02c66a4d47b49d2cf2d533fd4628aa6d90bfd4379dcb35e6a0287d9ed0e`.
+* Comparator: `6b336484a60da89d926ea2e6816dd9940d609d47b44a0cb4c563a21a9894092e`.
+
+`build-proof-v3.json` binds this implementation and tool pair. Scoped tests
+passed **56/56 in 2.349698 s**; Clippy all targets with warnings denied passed
+in **0.436793 s**. Changed/missing nested source, matching-byte symlink escape
+and widened/missing first-party guard regressions all executed.
+
+All 77 independent source review records now match the required identity set;
+319 reviewed file bindings were checked against retained historical cbf
+source. The real native comparator rejected the two explicit candle holds
+with exit 2 in 5.467451 s, creating no output and preserving v1 baseline bytes.
+Those historical reviews do not approve the discovered defects. Final
+migration requires the repaired clean combined candidate, updated core
+review, guarded NN retention and fresh exact measurement bindings.
