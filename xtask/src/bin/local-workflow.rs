@@ -19,6 +19,8 @@ mod compiler_env;
 mod sysroot_sources;
 #[path = "../trusted_sysroot.rs"]
 mod trusted_sysroot;
+#[path = "../workspace_test_proof.rs"]
+mod workspace_test_proof;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -387,6 +389,17 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
     Ok(source)
 }
 
+fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
+    let signer = git(root, &["config", "--get", "user.signingkey"])?;
+    let input = workspace_test_proof::signed_input(root, key)?;
+    let out = workspace_test_proof::gpg(
+        root,
+        &["--local-user", &signer, "--armor", "--clearsign"],
+        input.as_bytes(),
+    )?;
+    Ok(String::from_utf8(out.stdout)?)
+}
+
 /// Verify the exact merged checkout, using only native executable invocations.
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
@@ -495,7 +508,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         if let Some(sysroot) = &sysroot {
             sysroot.apply(&mut command)?;
         }
-        let status = command
+        command
             .current_dir(candidate)
             .args(args)
             .env("HOME", &home)
@@ -516,8 +529,22 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("RUSTC_WRAPPER", "")
             .env("RUSTC_WORKSPACE_WRAPPER", "")
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
-            .status()?;
+            .stderr(Stdio::from(log));
+        let test_key = sysroot.as_ref().filter(|_| index == 3).and_then(|s| {
+            workspace_test_proof::fingerprint(
+                candidate,
+                args,
+                workspace_test_proof::Toolchain {
+                    compiler: &compiler,
+                    host,
+                    sysroot: &s.evidence,
+                },
+                &command,
+                &home,
+            )
+            .ok()
+        });
+        let status = command.status()?;
         let result = format!(
             "cargo {} => {status}; elapsed-ms={}",
             args.join(" "),
@@ -531,6 +558,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                 attempt.display()
             )
             .into());
+        }
+        if let Some(key) = test_key {
+            evidence.push(workspace_test_proof::record(&key));
         }
     }
     if let Some(sysroot) = &sysroot {
@@ -625,7 +655,7 @@ where
     }
     let head = git(&candidate, &["rev-parse", "HEAD"])?;
     let tree = git(&candidate, &["rev-parse", "HEAD^{tree}"])?;
-    let evidence = match verify(&candidate, &attempt) {
+    let mut evidence = match verify(&candidate, &attempt) {
         Ok(evidence) => evidence,
         Err(error) => {
             fs::write(
@@ -652,6 +682,18 @@ where
         return Err(
             "source or reservation changed during verification; retry against its new head".into(),
         );
+    }
+    // Sign only after the full gate, sysroot recheck, clean tree and claim checks.
+    if let Some(key) = evidence
+        .iter()
+        .find_map(|line| line.strip_prefix(workspace_test_proof::PREFIX))
+    {
+        if let Ok(attestation) = sign_workspace_pass(&candidate, key) {
+            evidence.push(format!(
+                "workspace-test-attestation-v1={}",
+                serde_json::to_string(&attestation)?
+            ));
+        }
     }
     let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
     let receipt_oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;

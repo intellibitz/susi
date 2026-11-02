@@ -15,6 +15,8 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[path = "../compiler_env.rs"]
 mod compiler_env;
+#[path = "../workspace_test_proof.rs"]
+mod workspace_test_proof;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v4\n";
@@ -668,7 +670,94 @@ fn native_link_proof(binary: &Path, map: &Path) -> Result<String> {
     ))
 }
 
+fn receipt_covers_workspace_test(receipt: &str, key: &str) -> bool {
+    let mut proofs = receipt
+        .lines()
+        .filter(|line| line.starts_with(workspace_test_proof::PREFIX));
+    let successes = receipt
+        .lines()
+        .filter(|line| {
+            line.starts_with("cargo test --workspace ")
+                && line.split_once(" => ").is_some_and(|(_, status)| {
+                    status
+                        .strip_prefix("exit code: 0; elapsed-ms=")
+                        .is_some_and(|ms| ms.parse::<u128>().is_ok())
+                })
+        })
+        .count();
+    successes == 1
+        && proofs.next() == Some(workspace_test_proof::record(key).as_str())
+        && proofs.next().is_none()
+        && !receipt.lines().any(|line| {
+            line.split_once(" => ")
+                .is_some_and(|(_, s)| !s.starts_with("exit code: 0;"))
+        })
+}
+fn authenticated_workspace_pass(root: &Path, receipt: &str, key: &str) -> bool {
+    let check = || -> Result<bool> {
+        if !receipt_covers_workspace_test(receipt, key) {
+            return Ok(false);
+        }
+        let mut signatures = receipt
+            .lines()
+            .filter_map(|line| line.strip_prefix("workspace-test-attestation-v1="));
+        let raw: String =
+            serde_json::from_str(signatures.next().ok_or("missing signed workspace pass")?)?;
+        if signatures.next().is_some() {
+            return Ok(false);
+        }
+        if !raw.starts_with("-----BEGIN PGP SIGNED MESSAGE-----") {
+            return Ok(false);
+        }
+        let signer = git(root, &["config", "--get", "user.signingkey"])?.to_ascii_uppercase();
+        if !matches!(signer.len(), 16 | 40 | 64) || !signer.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(false);
+        }
+        let out =
+            workspace_test_proof::gpg(root, &["--status-fd", "2", "--decrypt"], raw.as_bytes())?;
+        let status = String::from_utf8(out.stderr)?;
+        let mut valid = status
+            .lines()
+            .filter_map(|line| line.strip_prefix("[GNUPG:] VALIDSIG "));
+        let Some(signature) = valid.next() else {
+            return Ok(false);
+        };
+        let expected = workspace_test_proof::signed_input(root, key)?;
+        let text = String::from_utf8(out.stdout)?.replace("\r\n", "\n");
+        Ok(valid.next().is_none()
+            && signature
+                .split_whitespace()
+                .last()
+                .is_some_and(|fingerprint| fingerprint.ends_with(&signer))
+            && text == expected)
+    };
+    check().unwrap_or(false)
+}
+
+#[cfg(test)]
+mod receipt_match_tests {
+    use super::{receipt_covers_workspace_test, workspace_test_proof::record};
+    #[test]
+    fn workspace_test_proof_rejects_missing_changed_duplicate_and_failed_records() {
+        let pass = format!(
+            "cargo test --workspace --locked => exit code: 0; elapsed-ms=3\n{}",
+            record("expected")
+        );
+        assert!(receipt_covers_workspace_test(&pass, "expected"));
+        for invalid in [
+            "old receipt".into(),
+            record("expected"),
+            record("other"),
+            format!("{pass}\n{pass}"),
+            format!("{pass}\ncargo test => exit code: 1;"),
+        ] {
+            assert!(!receipt_covers_workspace_test(&invalid, "expected"));
+        }
+    }
+}
+
 fn run_gates(
+    receipt: Option<(&str, &str)>,
     candidate: &Path,
     attempt: &Path,
     host: &str,
@@ -767,15 +856,44 @@ fn run_gates(
         if let Some(sysroot) = &sysroot {
             sysroot.apply(&mut command)?;
         }
-        let status = command
+        command
             .current_dir(candidate)
             .args(args)
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_BUILD_TARGET_DIR", &target)
             .env("CARGO_BUILD_BUILD_DIR", &target)
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
-            .status()?;
+            .stderr(Stdio::from(log));
+        if let (3, Some((oid, raw)), Some(s)) = (
+            index,
+            receipt.filter(|(_, raw)| {
+                raw.lines()
+                    .any(|line| line.starts_with("workspace-test-attestation-v1="))
+            }),
+            sysroot.as_ref(),
+        ) {
+            s.recheck()?;
+            if let Ok(key) = workspace_test_proof::fingerprint(
+                candidate,
+                args,
+                workspace_test_proof::Toolchain {
+                    compiler,
+                    host,
+                    sysroot: &s.evidence,
+                },
+                &command,
+                &attempt.join("gate-home"),
+            ) {
+                if authenticated_workspace_pass(candidate, raw, &key) {
+                    proof.push_str(&format!(
+                        "workspace-test-reused={oid} key={key} elapsed-ms={}\n",
+                        started.elapsed().as_millis()
+                    ));
+                    continue;
+                }
+            }
+        }
+        let status = command.status()?;
         proof.push_str(&format!(
             "cargo {} => {status}; elapsed-ms={}\n",
             args.join(" "),
@@ -1272,7 +1390,16 @@ fn qualify_with(
     )?;
     let (host, compiler) = compiler(&candidate)?;
     let (sbom, mut notices, native_audit) = inventory(&candidate, &attempt, &host)?;
-    let (mut proof, sysroot) = run_gates(&candidate, &attempt, &host, &compiler)?;
+    let (mut proof, sysroot) = run_gates(
+        Some((
+            &integration,
+            &git(&ctx.root, &["cat-file", "blob", &integration])?,
+        )),
+        &candidate,
+        &attempt,
+        &host,
+        &compiler,
+    )?;
     if let Some(sysroot) = &sysroot {
         notices.push_str("\n===== Original Rust standard-library upstream notices (including omitted upstream components) =====\n");
         notices.push_str(
@@ -1849,6 +1976,170 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn workspace_test_proof_changes_with_execution_inputs() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        let home = fixture.0.join("home");
+        let target = root.join("target");
+        let mut command = isolated_command(Path::new("cargo"), &home).unwrap();
+        let args: Vec<String> = [
+            "test",
+            "--workspace",
+            "--locked",
+            "--offline",
+            "--target",
+            "test-host",
+            "--target-dir",
+            target.to_str().unwrap(),
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let sysroot = serde_json::json!({"artifacts":[{"sha256":"original"}]});
+        let key = |args: &[String],
+                   compiler: &str,
+                   host: &str,
+                   sysroot: &serde_json::Value,
+                   command: &Command| {
+            workspace_test_proof::fingerprint(
+                &root,
+                args,
+                workspace_test_proof::Toolchain {
+                    compiler,
+                    host,
+                    sysroot,
+                },
+                command,
+                &home,
+            )
+            .unwrap()
+        };
+        let original = key(&args, "rustc", "test-host", &sysroot, &command);
+        assert_eq!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+        assert_ne!(
+            original,
+            key(&args, "another rustc", "test-host", &sysroot, &command)
+        );
+        assert_ne!(
+            original,
+            key(&args, "rustc", "other-host", &sysroot, &command)
+        );
+        assert_ne!(
+            original,
+            key(
+                &args,
+                "rustc",
+                "test-host",
+                &serde_json::json!({"artifacts":[{"sha256":"changed"}]}),
+                &command
+            )
+        );
+        for extra in [
+            ["--features", "extra"],
+            ["--", "--ignored"],
+            ["-p", "xtask"],
+        ] {
+            let mut changed = args.clone();
+            changed.extend(extra.into_iter().map(str::to_owned));
+            assert_ne!(
+                original,
+                key(&changed, "rustc", "test-host", &sysroot, &command)
+            );
+        }
+        let lock = root.join("Cargo.lock");
+        let previous = fs::read(&lock).unwrap();
+        fs::write(&lock, b"different lockfile").unwrap();
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+        fs::write(lock, previous).unwrap();
+        command.env("CARGO_PROFILE_TEST_OPT_LEVEL", "3");
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+        let command = isolated_command(Path::new("cargo"), &home).unwrap();
+        fixture.revision("two", true);
+        assert_ne!(
+            original,
+            key(&args, "rustc", "test-host", &sysroot, &command)
+        );
+    }
+
+    #[test]
+    fn workspace_test_proof_refuses_unsigned_and_malformed_attestations() {
+        let fixture = Fixture::new();
+        let pass = format!(
+            "cargo test --workspace --locked => exit code: 0; elapsed-ms=3\n{}",
+            workspace_test_proof::record("expected")
+        );
+        for suffix in [
+            "",
+            "\nworkspace-test-attestation-v1=not-json",
+            "\nworkspace-test-attestation-v1=\"not a commit\"",
+        ] {
+            assert!(!authenticated_workspace_pass(
+                &fixture.root(),
+                &format!("{pass}{suffix}"),
+                "expected"
+            ));
+        }
+    }
+
+    #[test]
+    #[ignore = "exercises an explicitly provisioned disposable GPG keyring"]
+    fn workspace_test_proof_disposable_signer() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        let signer = env::var("SUSI_TEST_DISPOSABLE_FINGERPRINT").unwrap();
+        git(
+            &root,
+            &[
+                "config",
+                "gpg.program",
+                &env::var("SUSI_TEST_DISPOSABLE_GPG").unwrap(),
+            ],
+        )
+        .unwrap();
+        git(&root, &["config", "user.signingkey", &signer]).unwrap();
+        let key = "expected";
+        let record = workspace_test_proof::record(key);
+        let input = workspace_test_proof::signed_input(&root, key).unwrap();
+        let raw = String::from_utf8(
+            workspace_test_proof::gpg(
+                &root,
+                &["--local-user", &signer, "--armor", "--clearsign"],
+                input.as_bytes(),
+            )
+            .unwrap()
+            .stdout,
+        )
+        .unwrap();
+        let pass=format!("cargo test --workspace --locked => exit code: 0; elapsed-ms=3\n{record}\nworkspace-test-attestation-v1={}",serde_json::to_string(&raw).unwrap());
+        assert!(authenticated_workspace_pass(&root, &pass, key));
+        assert!(!authenticated_workspace_pass(
+            &root,
+            &pass.replace(key, "forged"),
+            "forged"
+        ));
+        assert!(!authenticated_workspace_pass(
+            &root,
+            &pass.replace("exit code: 0", "exit code: 1"),
+            key
+        ));
+        git(&root, &["config", "user.signingkey", "0000000000000000"]).unwrap();
+        assert!(!authenticated_workspace_pass(&root, &pass, key));
+        git(&root, &["config", "user.signingkey", &signer]).unwrap();
+        fixture.revision("two", true);
+        assert!(!authenticated_workspace_pass(&root, &pass, key));
+    }
+
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
@@ -1935,7 +2226,7 @@ mod tests {
         let attempt = fixture.0.join("format-first");
         fs::create_dir(&attempt).unwrap();
         let (host, compiler) = compiler(&root).unwrap();
-        let error = match run_gates(&root, &attempt, &host, &compiler) {
+        let error = match run_gates(None, &root, &attempt, &host, &compiler) {
             Ok(_) => panic!("malformed formatting must fail"),
             Err(error) => error.to_string(),
         };

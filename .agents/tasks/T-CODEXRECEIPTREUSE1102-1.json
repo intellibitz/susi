@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXRECEIPTREUSE1102-1",
+  "title": "Authenticate integration workspace-test inputs for release reuse",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "workspace_test_proof"
+    ]
+  },
+  "created_by": "CODEXRECEIPTREUSE1102",
+  "created_unix": 1793604718
+}
