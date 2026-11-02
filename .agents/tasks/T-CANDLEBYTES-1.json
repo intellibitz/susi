@@ -1,20 +1,89 @@
 {
   "id": "T-CANDLEBYTES-1",
   "native_worker": "candle-bytes",
-  "title": "Remove allocator-layout and partial-element memory hazards from Candle tensor byte conversion",
-  "status": "in_progress",
+  "title": "Repair Candle tensor byte ownership, malformed input validation and F8 conversion recursion",
+  "status": "implemented_pending_integration",
   "dependencies": [],
   "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
-  "scopes": ["vendor/candle-core/src/safetensors.rs", "crates/susi-gemi/tests/tensor_byte_boundary.rs", ".agents/tasks/T-CANDLEBYTES-1.json"],
+  "scopes": [
+    "vendor/candle-core/src/safetensors.rs",
+    "vendor/candle-core/src/dtype.rs",
+    "crates/susi-gemi/tests/tensor_byte_boundary.rs",
+    ".agents/tasks/T-CANDLEBYTES-1.json"
+  ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi", "--test", "tensor_byte_boundary"],
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--test",
+      "tensor_byte_boundary"
+    ],
     "criteria": [
       "Typed and byte allocations retain their own allocator layouts; conversion helpers contain no unsafe pointer copies or reconstructed Vec ownership.",
       "Malformed partial elements and shape/byte-count overflow fail before decoding, at aligned and unaligned addresses.",
-      "All numeric dtypes preserve little-endian values and serialized bit patterns; U16 conversion to U32 remains supported.",
+      "All numeric dtypes preserve little-endian values and serialized bit patterns; U16 conversion to U32 remains supported; F8-to-F64 conversion uses the inherent float8 method without recursive trait dispatch.",
       "Workspace regression tests execute the actual public Tensor and alpha VarMap checkpoint save/load paths.",
       "Full combined-tree integration, production audit, immutable qualification and private inference remain mandatory before promotion."
     ]
   },
-  "notes": "No new dependency, audit exception or baseline reset. CPU flash attention concerns in unowned candle-nn registry source are reviewed separately; this task does not claim they are repaired."
+  "notes": "No new dependency, audit exception or baseline reset. CPU flash attention concerns in unowned candle-nn registry source are reviewed separately; this task does not claim they are repaired.",
+  "validation": {
+    "tests": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gemi",
+        "--test",
+        "tensor_byte_boundary"
+      ],
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "exit": 0,
+      "elapsed_seconds": 65.298764,
+      "test_runtime_display_seconds": "0.00",
+      "receipt": "/workspace/susi-release-gates-evidence/candle-bytes/focused-test-repaired.json"
+    },
+    "clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gemi",
+        "--test",
+        "tensor_byte_boundary",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 46.061605
+    },
+    "format": {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 4.596532
+    },
+    "source_sha256": {
+      "vendor/candle-core/src/safetensors.rs": "d69c57a79558f188243309b048888e3afea48662d86a9d60900dad33a4e09733",
+      "vendor/candle-core/src/dtype.rs": "a622935f8873d253c7b5fc0082a59cc9bebf32424610f894790413b182e37a52",
+      "crates/susi-gemi/tests/tensor_byte_boundary.rs": "18dcdc5c03123d9c20ec7d86b50a55cc579f75f65afb81c3b4a44e87b94fdb1e"
+    },
+    "preserved_failure": "First test run exposed pre-existing F8-to-F64 recursive dispatch; timed failure and bounded diagnostic are retained, then exact same six tests passed after narrow inherent-call repair.",
+    "limitations": "Linux focused tests only; full combined integration, strict audit, production qualification, private inference, installed health and verified rollback remain required."
+  }
 }
