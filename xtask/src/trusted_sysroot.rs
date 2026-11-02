@@ -1,6 +1,6 @@
-//! A custom sysroot is selected only after this native tool executes the tracked
-//! builder and holds its observed output in memory through compilation. Prototype
-//! receipts are build diagnostics, never an import/approval mechanism.
+//! A sysroot must originate in a locally executed and qualified build. Its immutable
+//! admission is held separately from cache files. Read handles guard selected archives
+//! through compilation and the complete compiler-visible inventory is rechecked.
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -8,6 +8,8 @@ use std::{
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+#[path = "stdlib_cache.rs"]
+mod cache;
 const TARGET: &str = "x86_64-pc-windows-msvc";
 const INPUTS: &[&str] = &[
     "builder.rs",
@@ -50,15 +52,93 @@ fn compiler(root: &Path) -> Result<(String, PathBuf)> {
         PathBuf::from(String::from_utf8(output.stdout)?.trim()),
     ))
 }
-fn identity(root: &Path, compiler: &str) -> Result<String> {
-    let mut bytes = compiler.as_bytes().to_vec();
-    bytes.extend_from_slice(include_bytes!("rust-src-1.99.0-authenticated.json"));
+fn identity(root: &Path, compiler: &str, installed: &Path) -> Result<String> {
+    let mut inputs = vec![
+        ("compiler".to_owned(), compiler.to_owned()),
+        (
+            "manifest".into(),
+            super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),
+        ),
+    ];
     for input in INPUTS {
-        bytes.extend_from_slice(&fs::read(
-            root.join("toolchain/windows-stdlib").join(input),
-        )?);
+        inputs.push((
+            input.to_string(),
+            hash_file(&root.join("toolchain/windows-stdlib").join(input))?,
+        ));
     }
-    Ok(super::sysroot_sources::hash(&bytes))
+    for file in [
+        "crates/susi-vendor-sha2/Cargo.toml",
+        "crates/susi-vendor-sha2/src/lib.rs",
+        "crates/susi-vendor-serde-json/Cargo.toml",
+        "crates/susi-vendor-serde-json/src/lib.rs",
+        ".cargo/config.toml",
+        "rust-toolchain.toml",
+        "xtask/src/compiler_env.rs",
+        "xtask/src/sysroot_sources.rs",
+    ] {
+        inputs.push((file.into(), hash_file(&root.join(file))?));
+    }
+    for file in [
+        "bin/rustc.exe",
+        "bin/cargo.exe",
+        "share/doc/rust/COPYRIGHT-library.html",
+    ] {
+        inputs.push((file.into(), hash_file(&installed.join(file))?));
+    }
+    for entry in fs::read_dir(installed.join("bin"))? {
+        let path = entry?.path();
+        if path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.starts_with("rustc_driver") && s.ends_with(".dll"))
+        {
+            inputs.push(("rustc driver".into(), hash_file(&path)?));
+        }
+    }
+    // Cargo reads configuration from the invocation directory, its parents
+    // and CARGO_HOME. Bind effective config bytes, including an absent file.
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".cargo")))
+        .ok_or("cannot identify Cargo home")?;
+    let mut dirs: Vec<_> = root.ancestors().map(|p| p.join(".cargo")).collect();
+    dirs.push(cargo_home);
+    for (index, dir) in dirs.iter().enumerate() {
+        for file in ["config", "config.toml"] {
+            let value = match fs::read(dir.join(file)) {
+                Ok(bytes) => super::sysroot_sources::hash(&bytes),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(err) => return Err(err.into()),
+            };
+            inputs.push((format!("cargo-config-{index}/{file}"), value));
+        }
+    }
+    for (name, value) in std::env::vars_os() {
+        let name = name.to_string_lossy().to_ascii_uppercase();
+        if name.starts_with("CARGO_PROFILE_")
+            || name.starts_with("CARGO_TARGET_") && !name.ends_with("_DIR")
+            || name.starts_with("CARGO_SOURCE_")
+            || name.starts_with("CARGO_REGISTRIES_") && !name.ends_with("_TOKEN")
+            || [
+                "PATH",
+                "LIB",
+                "LIBPATH",
+                "LINK",
+                "_LINK_",
+                "INCLUDE",
+                "VCTOOLSINSTALLDIR",
+                "WINDOWSSDKDIR",
+                "WINDOWSSDKVERSION",
+                "VCTOOLSVERSION",
+                "RUSTUP_TOOLCHAIN",
+            ]
+            .contains(&name.as_str())
+        {
+            inputs.push((name, super::sysroot_sources::hash(value.as_encoded_bytes())));
+        }
+    }
+    inputs.sort();
+    Ok(super::sysroot_sources::hash(&serde_json::to_vec(&inputs)?))
 }
 fn artifacts(destination: &Path) -> Result<Value> {
     let mut files = Vec::new();
@@ -114,6 +194,7 @@ impl VerifiedSysroot {
         Ok(())
     }
     pub(crate) fn recheck(&self) -> Result<()> {
+        cache::validate_layout(self.path().parent().ok_or("sysroot parent missing")?)?;
         if self.evidence["artifacts"] != self.expected
             || artifacts(self.path().parent().ok_or("sysroot parent missing")?)? != self.expected
         {
@@ -138,21 +219,63 @@ fn reject_redirects(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn lock_archives(destination: &Path, expected: &Value) -> Result<Vec<fs::File>> {
+    let mut handles = Vec::new();
+    let path = destination.join("sysroot");
+    for entry in expected.as_array().ok_or("invalid artifact inventory")? {
+        let artifact = path
+            .join("lib/rustlib")
+            .join(TARGET)
+            .join("lib")
+            .join(entry["filename"].as_str().ok_or("missing filename")?);
+        reject_redirects(&artifact)?;
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.share_mode(1); // FILE_SHARE_READ only: prohibit writes/deletes.
+        }
+        handles.push(options.open(&artifact)?);
+    }
+
+    if artifacts(destination)? != *expected {
+        return Err("sysroot changed before archive locks were acquired".into());
+    }
+    Ok(handles)
+}
+
 pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
     let (compiler, installed) = compiler(root)?;
     super::sysroot_sources::original(&installed.join("lib/rustlib/src/rust/library"))?;
-    let key = identity(root, &compiler)?;
+    let key = identity(root, &compiler, &installed)?;
     let common = PathBuf::from(git(
         root,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )?);
     let storage = common.join("susi-product-sysroots");
     fs::create_dir_all(&storage)?;
+    reject_redirects(&storage)?;
+    if let Some((directory, mut evidence)) = cache::lookup(root, &storage, &key)? {
+        let expected = evidence["artifacts"].clone();
+        let handles = lock_archives(&directory, &expected)?;
+        evidence["destination"] = json!(directory);
+        evidence["cache_hit"] = json!(true);
+        evidence["elapsed_ms"] = json!(started.elapsed().as_millis());
+        let verified = VerifiedSysroot {
+            path: directory.join("sysroot"),
+            expected,
+            _handles: handles,
+            evidence,
+        };
+        verified.recheck()?;
+        return Ok(verified);
+    }
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
-    let destination = storage.join(format!("{key}-{nonce}"));
+    let destination = storage.join(format!("b-{nonce}"));
     let target = storage.join(format!("builder-{nonce}"));
     let mut command = Command::new("cargo");
     super::compiler_env::apply(&mut command);
@@ -177,32 +300,12 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         return Err("tracked sysroot builder failed; private evidence retained".into());
     }
     source_check(root, &destination, &installed)?;
-    if identity(root, &compiler)? != key {
+    if identity(root, &compiler, &installed)? != key {
         return Err("sysroot builder source changed during execution".into());
     }
     let expected = artifacts(&destination)?;
-    let mut handles = Vec::new();
+    let handles = lock_archives(&destination, &expected)?;
     let path = destination.join("sysroot");
-    for entry in expected.as_array().ok_or("invalid artifact inventory")? {
-        let artifact = path
-            .join("lib/rustlib")
-            .join(TARGET)
-            .join("lib")
-            .join(entry["filename"].as_str().ok_or("missing filename")?);
-        reject_redirects(&artifact)?;
-        let mut options = fs::OpenOptions::new();
-        options.read(true);
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            options.share_mode(1); // FILE_SHARE_READ only: prohibit writes/deletes.
-        }
-        handles.push(options.open(&artifact)?);
-    }
-
-    if artifacts(&destination)? != expected {
-        return Err("sysroot changed before archive locks were acquired".into());
-    }
     // The tracked builder must finish and the reviewed stable consumer must
     // execute before admission; externally supplied receipts cannot enter.
     let executable = destination.join("consumer.exe");
@@ -230,7 +333,8 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     ] {
         evidence.insert(name.into(), json!(hash_file(&destination.join(name))?));
     }
-    let record = json!({"schema":"susi/executed-sysroot/v2", "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked Windows OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
+    let object = cache::store(&storage, &destination, &expected, nonce)?;
+    let record = json!({"schema":"susi/executed-sysroot/v3","object":object,"cache_hit":false, "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked Windows OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
     fs::write(
         destination.join("executed-record.json"),
         serde_json::to_vec_pretty(&record)?,
@@ -242,6 +346,7 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         evidence: record,
     };
     verified.recheck()?;
+    cache::publish(root, &key, &verified.evidence)?;
     Ok(verified)
 }
 
