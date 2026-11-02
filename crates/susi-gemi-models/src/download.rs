@@ -157,6 +157,41 @@ fn verified_hf_cache_asset(url: &str, digest: &str, roots: &[PathBuf]) -> Option
     })
 }
 
+/// Bytes already resumable for `destination` (its `.part` prefix).
+pub(crate) fn resumable_len(destination: &Path) -> u64 {
+    fs::metadata(format!("{}.part", destination.display()))
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+/// Retry budget for one artifact. Each transfer call has a fixed total
+/// timeout, so a large file on a slow link needs several calls; only calls
+/// that add no resumable bytes spend the budget, and progress refunds it.
+pub(crate) struct StallBudget {
+    max_stalls: u32,
+    stalls: u32,
+}
+
+impl StallBudget {
+    pub(crate) fn new(max_stalls: u32) -> Self {
+        Self {
+            max_stalls: max_stalls.max(1),
+            stalls: 0,
+        }
+    }
+
+    /// Consecutive stalled attempts so far (drives the backoff).
+    pub(crate) fn stalls(&self) -> u32 {
+        self.stalls
+    }
+
+    /// Records a failed attempt; true when another attempt is allowed.
+    pub(crate) fn retry_after(&mut self, progressed: bool) -> bool {
+        self.stalls = if progressed { 0 } else { self.stalls + 1 };
+        self.stalls < self.max_stalls
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 pub(crate) fn transfer(
     url: &str,
@@ -455,6 +490,92 @@ mod tests {
         assert!(!dir.join("model.gguf.part").exists());
         server.join().unwrap();
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn slow_link_completes_while_each_attempt_adds_bytes() {
+        let dir = workspace("slow_link");
+        let path = dir.join("model.gguf");
+        // Every connection ends early, as a fixed per-call timeout does on a
+        // slow link: five calls are needed, but no call stalls.
+        let (url, server) = server(vec![
+            (
+                "get /model.gguf",
+                "HTTP/1.1 200 OK
+Content-Length: 10
+ETag: \"v1\"
+Connection: close
+
+ab",
+            ),
+            (
+                "range: bytes=2-",
+                "HTTP/1.1 206 Partial Content
+Content-Range: bytes 2-9/10
+Content-Length: 8
+ETag: \"v1\"
+Connection: close
+
+cd",
+            ),
+            (
+                "range: bytes=4-",
+                "HTTP/1.1 206 Partial Content
+Content-Range: bytes 4-9/10
+Content-Length: 6
+ETag: \"v1\"
+Connection: close
+
+ef",
+            ),
+            (
+                "range: bytes=6-",
+                "HTTP/1.1 206 Partial Content
+Content-Range: bytes 6-9/10
+Content-Length: 4
+ETag: \"v1\"
+Connection: close
+
+gh",
+            ),
+            (
+                "range: bytes=8-",
+                "HTTP/1.1 206 Partial Content
+Content-Range: bytes 8-9/10
+Content-Length: 2
+ETag: \"v1\"
+Connection: close
+
+ij",
+            ),
+        ]);
+        let validate = |p: &Path| fs::read(p).is_ok_and(|b| b == b"abcdefghij");
+        let mut budget = StallBudget::new(2);
+        let mut calls = 0;
+        loop {
+            let before = resumable_len(&path);
+            calls += 1;
+            match transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate, None) {
+                Ok(()) => break,
+                Err(error) => assert!(
+                    budget.retry_after(resumable_len(&path) > before),
+                    "gave up after {calls} calls: {error}"
+                ),
+            }
+        }
+        assert_eq!(calls, 5);
+        assert_eq!(fs::read(&path).unwrap(), b"abcdefghij");
+        server.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn consecutive_stalls_exhaust_the_budget_and_progress_refunds_it() {
+        let mut budget = StallBudget::new(2);
+        assert!(budget.retry_after(false));
+        assert!(budget.retry_after(true));
+        assert!(budget.retry_after(false));
+        assert!(!budget.retry_after(false));
     }
 
     #[test]
