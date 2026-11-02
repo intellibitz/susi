@@ -328,27 +328,29 @@ async fn verify_recovery_answer(
     context: &str,
     _registry: &CapabilityRegistry,
     workspace: &Path,
-    generative: bool,
+    cite_own_output: bool,
 ) -> EaiResult<(String, EvidenceRecord)> {
     let answer_text = wrap_tool_output("recovery-provider-answer", &answer_text(&answer.answer))
         .redacted_for_sink();
     if !matches!(answer.status, CompletionStatus::Complete) {
         return Err(EaiError::inference(answer_text));
     }
-    // Generative missions (`/v1/chat/completions`): the model's output is
+    // Generative missions (`/v1/chat/completions`), and local in-process
+    // rungs on missions that captured nothing to cite: the model's output is
     // the product — there may be nothing to cite but the call itself.
     // Promote a prose answer to a citation of an inference receipt minted
     // for this call, so the ledger renders exactly the provider's output.
-    // Answers that already carry citations resolve normally below; on
-    // non-generative missions prose without receipts still fails the
-    // absolute gate — provider narrative is never self-evidence there.
-    let answer_text =
-        if generative && crate::susi_core::capture::GroundedAnswer::parse(&answer_text).is_none() {
-            cite_inference_output(provider, &answer_text, &report.goal, workspace)
-                .unwrap_or(answer_text)
-        } else {
-            answer_text
-        };
+    // Answers that already carry citations resolve normally below; cloud
+    // prose on non-generative missions still fails the absolute gate —
+    // provider narrative is never self-evidence there.
+    let answer_text = if cite_own_output
+        && crate::susi_core::capture::GroundedAnswer::parse(&answer_text).is_none()
+    {
+        cite_inference_output(provider, &answer_text, &report.goal, workspace)
+            .unwrap_or(answer_text)
+    } else {
+        answer_text
+    };
     // Crown gate: citations resolve from the ledger; if receipts exist and
     // were not cited, fail — never promote narrative over captured evidence.
     let mut resolved_attempt =
@@ -446,6 +448,14 @@ async fn verify_recovery_answer(
     Ok((verified, evidence))
 }
 
+/// A tool-free goal leaves a local rung nothing to cite. Its in-process
+/// output is then judged like the first attempt's uncited answer: accepted
+/// with the same visible warning. A mission that captured evidence must
+/// still cite it, and generative missions already self-cite.
+fn uncited_local_rung(generative: bool, workspace: &Path) -> bool {
+    !generative && !crate::susi_core::capture::EvidenceSession::has_citable_receipts_for(workspace)
+}
+
 fn parse_recovery_answer(raw: &str) -> EaiResult<CloudAnswer> {
     let raw = raw.trim();
     let candidates = [
@@ -510,6 +520,8 @@ fn extract_json_object(raw: &str) -> Option<&str> {
 /// legitimately need several minutes. A hung local model still escalates to
 /// cloud — it just has to actually hang, not merely be slow.
 const LOCAL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(600);
+/// The first attempt's marker for an answer with nothing to cite.
+const UNCITED_WARNING: &str = "⚠️  No citations found; answer may be unverified.";
 
 #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 async fn recover_with_providers(
@@ -597,6 +609,7 @@ async fn recover_with_providers(
             } else {
                 recovery_prompt(&report.goal, &context)
             };
+            let uncited_local = uncited_local_rung(generative, workspace);
             let workspace_owned = workspace.to_path_buf();
             let attempted_model = local_model.clone();
             let requires_owned = requires.map(str::to_string);
@@ -641,7 +654,7 @@ async fn recover_with_providers(
                     &context,
                     registry,
                     workspace,
-                    generative,
+                    generative || uncited_local,
                 )
                 .await
             })
@@ -652,11 +665,22 @@ async fn recover_with_providers(
                     record_attempt(
                         report,
                         &provider_name,
-                        "LOCAL_ATTEMPT_VERIFIED",
+                        if uncited_local {
+                            "LOCAL_ATTEMPT_UNCITED"
+                        } else {
+                            "LOCAL_ATTEMPT_VERIFIED"
+                        },
                         evidence.render_for_gemi(),
                     );
                     report.status = "COMPLETE".into();
-                    report.final_answer = answer;
+                    report.final_answer = if uncited_local {
+                        format!(
+                            "{UNCITED_WARNING}
+{answer}"
+                        )
+                    } else {
+                        answer
+                    };
                     return;
                 }
                 Ok(Err(error)) => record_attempt(
@@ -1293,6 +1317,63 @@ mod tests {
             .final_answer
             .contains("The observed result is available."));
         assert_eq!(*calls.lock().unwrap(), ["a-gen"]);
+    }
+
+    /// A tool-free goal ("What is 2+2?") captures nothing to cite. The local
+    /// rung's own answer passes like the first attempt's uncited answer; a
+    /// mission with captured evidence still owes citations.
+    #[tokio::test]
+    async fn tool_free_local_answer_self_cites_but_captured_evidence_is_still_owed() {
+        wire_verify_stub();
+        let ws = TempWorkspace::new();
+        let session = crate::susi_core::capture::EvidenceSession::new("What is 2+2?", &ws.0, |s| {
+            s.to_string()
+        })
+        .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+        assert!(uncited_local_rung(false, &ws.0));
+        assert!(!uncited_local_rung(true, &ws.0));
+
+        let (registry, _calls) = providers(&[]);
+        let prose = || CloudAnswer {
+            status: CompletionStatus::Complete,
+            answer: serde_json::Value::String("2 + 2 = 4".into()),
+        };
+        let report = report();
+        // The unchanged strict gate rejects the same prose uncited (checked
+        // first: the self-cited receipt below becomes citable evidence).
+        assert!(verify_recovery_answer(
+            &report,
+            "local:starter",
+            prose(),
+            "",
+            &registry,
+            &ws.0,
+            false,
+        )
+        .await
+        .is_err());
+
+        let (answer, _) = verify_recovery_answer(
+            &report,
+            "local:starter",
+            prose(),
+            "",
+            &registry,
+            &ws.0,
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(answer.contains("2 + 2 = 4"), "{answer}");
+        crate::susi_core::capture::EvidenceSession::capture_call(
+            "open_meteo_weather",
+            &serde_json::json!({"place": "Chennai"}),
+            &ws.0,
+            || Ok("24.8C overcast observed".to_string()),
+        )
+        .unwrap();
+        assert!(!uncited_local_rung(false, &ws.0));
     }
 
     #[tokio::test]

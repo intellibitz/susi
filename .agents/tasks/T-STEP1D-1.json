@@ -1,0 +1,11 @@
+{
+  "id": "T-STEP1D-1",
+  "title": "Let slow downloads finish and judge a tool-free local recovery answer like the first attempt",
+  "goal": "Downloads: each transfer call keeps its fixed total timeout, but only calls that add no resumable bytes spend the retry budget, so a slow link completes. Recovery: when a mission captured nothing to cite, the local in-process rung self-cites its inference receipt and is shown with the first attempt's uncited warning; captured evidence must still be cited and cloud prose stays strict.",
+  "size": "m",
+  "deps": ["T-STEP1C-1"],
+  "scopes": ["crates/susi-gemi-models/src/download.rs", "crates/susi-gemi-models/src/lifecycle/model_manager.rs", "crates/susi-gawd-swarm/src/cloud_recovery.rs", "version surfaces"],
+  "accept": { "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi-models", "-p", "susi-gawd-swarm", "--lib"] },
+  "acceptance": ["A download needing five cut-short calls completes under a two-stall budget", "Consecutive stalls exhaust the budget; progress refunds it", "A tool-free local recovery answer is accepted with the uncited warning while the strict gate still rejects the same uncited prose", "A mission with captured evidence is not treated as tool-free", "Native combined-tree acceptance and qualified fresh 8 GiB Windows VM journey remain required before production promotion"],
+  "created_by": "step1-limits"
+}
