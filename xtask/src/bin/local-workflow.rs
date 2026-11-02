@@ -518,8 +518,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
+        // ExitStatus Display differs across OSes ("exit status" on Unix).
+        // Durable receipts use one explicit numeric wire representation.
+        let status_text = status
+            .code()
+            .map_or_else(|| status.to_string(), |code| format!("exit code: {code}"));
         let result = format!(
-            "cargo {} => {status}; elapsed-ms={}",
+            "cargo {} => {status_text}; elapsed-ms={}",
             args.join(" "),
             started.elapsed().as_millis()
         );
@@ -1533,7 +1538,8 @@ mod tests {
         let head = integrate_with(&repo, "native", verify_candidate).unwrap();
         assert_eq!(integration_head(&repo).unwrap(), Some(head.clone()));
         let broken = worker(&repo, "broken", "src/lib.rs", "#[test]\nfn failing_test() {\n    let actual = std::hint::black_box(4);\n    assert_eq!(actual, 5);\n}\n");
-        assert!(integrate_with(&repo, "broken", verify_candidate).is_err());
+        let failure = integrate_with(&repo, "broken", verify_candidate).unwrap_err();
+        eprintln!("failing fixture gate: {failure}");
         assert_eq!(integration_head(&repo).unwrap(), Some(head));
         assert!(broken.exists());
         let attempts = state(&repo).unwrap().join("attempts");

@@ -17,15 +17,19 @@ use std::process::{Command, ExitCode, Stdio};
 mod compiler_env;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v4\n";
+const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v5\n";
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../elf_imports.rs"]
+mod elf_imports;
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
 #[path = "../native_link.rs"]
 mod native_link;
+#[path = "../native_openssl.rs"]
+mod native_openssl;
 #[path = "../pe_imports.rs"]
 mod pe_imports;
 #[path = "../prepare_release.rs"]
@@ -564,7 +568,17 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
         // select different features. Screen each context separately: unioning
         // `pure` from one context must never hide native code in another.
         for context in &feature_contexts {
-            native_source_check(package, context)?;
+            if name == "openssl-sys" && native_openssl::supported(host) {
+                native_openssl::admit(
+                    host,
+                    &version,
+                    context,
+                    Path::new(required(package, "manifest_path")?),
+                )?;
+                audit.push_str("OpenSSL Rust binding admitted provisionally: dynamic OS library and link-map proof required at artifact qualification.\n");
+            } else {
+                native_source_check(package, context)?;
+            }
         }
         let features: Vec<_> = feature_contexts
             .iter()
@@ -767,6 +781,9 @@ fn run_gates(
         if let Some(sysroot) = &sysroot {
             sysroot.apply(&mut command)?;
         }
+        if native_openssl::supported(host) {
+            elf_imports::configure_system_openssl(&mut command, host)?;
+        }
         let status = command
             .current_dir(candidate)
             .args(args)
@@ -776,8 +793,13 @@ fn run_gates(
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
+        // ExitStatus Display differs across OSes ("exit status" on Unix).
+        // Durable receipts use one explicit numeric wire representation.
+        let status_text = status
+            .code()
+            .map_or_else(|| status.to_string(), |code| format!("exit code: {code}"));
         proof.push_str(&format!(
-            "cargo {} => {status}; elapsed-ms={}\n",
+            "cargo {} => {status_text}; elapsed-ms={}\n",
             args.join(" "),
             started.elapsed().as_millis()
         ));
@@ -1236,6 +1258,31 @@ impl Manifest {
     }
 }
 
+fn elf_boundary_proof(
+    executable: &Path,
+    map: &Path,
+    host: &str,
+    require_tls: bool,
+    retain_map: bool,
+) -> Result<String> {
+    if fs::metadata(executable)?.len() > 256 * 1024 * 1024
+        || fs::metadata(map)?.len()
+            > if retain_map {
+                256 * 1024 * 1024
+            } else {
+                512 * 1024 * 1024
+            }
+    {
+        return Err("ELF artifact or link map exceeds inspection budget".into());
+    }
+    let imports = elf_imports::inspect(&fs::read(executable)?)?;
+    elf_imports::validate_os_imports(&imports, host, require_tls)?;
+    let map_text = fs::read_to_string(map)?;
+    let inputs = elf_imports::validate_link_map(&map_text)?;
+    let record = serde_json::json!({"binary":executable.file_name().and_then(|s| s.to_str()),"target":host,"artifact_sha256":file_digest(executable)?,"map_sha256":file_digest(map)?,"interpreter":imports.interpreter,"needed":imports.needed,"link_inputs":inputs,"link_map":if retain_map { Some(map_text) } else { None }});
+    Ok(format!("ELF native boundary {record}\n"))
+}
+
 fn qualify(ctx: &Context) -> Result<String> {
     qualify_with(ctx, inference_acceptance)
 }
@@ -1310,6 +1357,27 @@ fn qualify_with(
             let executable = profile.join(format!("{name}.exe"));
             let map = native_link::find_map(&profile, name)?;
             proof.push_str(&native_link_proof(&executable, &map)?);
+        }
+    }
+    if native_openssl::supported(&host) && candidate.join("crates/susi-core/Cargo.toml").is_file() {
+        let profile = candidate.join("target").join(&host).join("release");
+        for name in [
+            "susi",
+            "xtask",
+            "local-workflow",
+            "local-release",
+            "ci-release-only",
+            "susi-dev",
+        ] {
+            let executable = profile.join(name);
+            let map = profile.join(format!("{name}.map"));
+            proof.push_str(&elf_boundary_proof(
+                &executable,
+                &map,
+                &host,
+                name == "susi",
+                true,
+            )?);
         }
     }
     proof.push_str(&smoke(&binary, &attempt)?);
@@ -1669,6 +1737,13 @@ fn run(args: &[String]) -> Result<()> {
             println!("Authenticated source and reviewed replacement delta verified; artifacts remain unqualified.");
         },
         Some("record-gmcp") => gmcp_evidence::run(&ctx.root, &args[1..])?,
+        Some("check-elf") if args.len()==3 => {
+            let (host, _) = compiler(&ctx.root)?;
+            let proof = elf_boundary_proof(Path::new(&args[1]), Path::new(&args[2]), &host, true, false)?;
+            let evidence = ctx.state.join(format!("elf-check-{}.txt",stamp()?));
+            fs::write(&evidence, proof)?;
+            println!("Native ELF boundary passed; evidence {}. Diagnostic only: no release qualified or promoted.", evidence.display());
+        },
         Some("check-pe") if args.len()==2 => {
             let binary = Path::new(&args[1]);
             if fs::metadata(binary)?.len() > 256 * 1024 * 1024 { return Err("PE artifact exceeds inspection budget".into()); }
@@ -1709,7 +1784,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-elf <candidate> <link-map> | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
     }
     Ok(())
 }

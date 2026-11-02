@@ -1,0 +1,35 @@
+{
+  "id": "T-NATIVE-1",
+  "title": "Native Linux build and release qualification alongside Windows",
+  "status": "verified_pending_integration",
+  "dependencies": [],
+  "scopes": [
+    "xtask",
+    "toolchain"
+  ],
+  "acceptance": "Build authenticated Linux sysroot and execute consumer; enforce native TLS dynamic linkage with artifact evidence; preserve Windows gates; run affected Rust tests and clippy. Release only after complete integration and production qualification.",
+  "base_commit": "e6824c957b1c41e5c2611266da564f99bf620394",
+  "validation": {
+    "host": "x86_64-unknown-linux-gnu",
+    "rustc": "1.99.0 b940084d7",
+    "xtask_bins": {
+      "passed": 93,
+      "failed": 0,
+      "ignored": 1
+    },
+    "fmt": "passed",
+    "clippy": "passed, all xtask targets, warnings denied",
+    "cargo_deny_licenses": "passed offline/locked",
+    "native_sysroot_consumer": "passed, authenticated custom standard library, Unicode 16.0 ICU 76",
+    "native_debug_build": {
+      "exit": 0,
+      "elapsed_ms": 420637,
+      "artifact_bytes": 427960184
+    },
+    "version_smoke": "susi 0.21.41",
+    "elf_boundary": "passed on stripped debug candidate with actual LLD map; diagnostic only",
+    "thin_lto": "actual native rustc executable and link map passed",
+    "release": "not qualified or promoted",
+    "other_hosts": "Windows and aarch64 require native execution; macOS and musl fail closed"
+  }
+}
