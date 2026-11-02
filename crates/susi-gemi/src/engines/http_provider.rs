@@ -407,13 +407,9 @@ pub fn register_configured_cloud_endpoints(
         }
         return;
     }
-    for endpoint in effective_inference_endpoints() {
+    for (endpoint, api_key) in susi_gemi_models::cloud::inference_endpoints_with_keys() {
         let api_base = endpoint.api_base.trim().to_string();
-        if api_base.is_empty() {
-            continue;
-        }
         let protocol = InferenceProtocol::from_config(&endpoint.protocol_type);
-        let api_key = HttpProvider::resolve_api_key(&endpoint.api_key_env, &endpoint.name);
         let is_cloud = HttpProvider::is_remote_cloud(&api_base);
 
         // Cloud vendors require a key; skip silently when unset so offline installs stay clean.
