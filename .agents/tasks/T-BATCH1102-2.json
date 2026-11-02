@@ -3,7 +3,7 @@
   "title": "Exit the native CLI immediately on a redirected quit command",
   "goal": "A redirected exit or quit by itself exits before creating a mission or starting a service, while other redirected text remains a goal.",
   "size": "s",
-  "deps": [],
+  "deps": ["T-CHANNELGUARD-1"],
   "scopes": ["src/main.rs", "tests/first_goal_opening.rs", ".agents/tasks/T-BATCH1102-2.json"],
   "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "first_goal_opening"]},
   "created_by": "BATCH1102",
