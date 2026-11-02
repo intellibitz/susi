@@ -3,11 +3,14 @@
 //! files and refs never select their own trust roots.
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+
+#[path = "native_json.rs"]
+mod native_json;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const POLICY: &str = "susi-native-provenance-policy-v1\nindependent-immutable-permit-and-coordinator\nforward-adoption-preserves-incomplete-historical-ownership\ncomplete-reservation-task-source-tree-ancestry-and-scope\nexact-gate-plan-success-and-nonempty-tests\ncontent-addressed-logs-and-claims\n";
@@ -74,7 +77,12 @@ fn sha(value: &str) -> Result<()> {
 }
 
 fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git").current_dir(root).args(args).output()?;
+    let output = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args(args)
+        .output()?;
     if !output.status.success() {
         return Err(format!(
             "git {}: {}",
@@ -90,8 +98,30 @@ fn git(root: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8(git_bytes(root, args)?)?.trim().to_owned())
 }
 
+pub fn require_unmodified_history(root: &Path) -> Result<()> {
+    if std::env::var_os("GIT_GRAFT_FILE").is_some() {
+        return Err("native provenance refuses a GIT_GRAFT_FILE override".into());
+    }
+    let path = git(root, &["rev-parse", "--git-path", "info/grafts"])?;
+    let path = Path::new(&path);
+    let path = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        root.join(path)
+    };
+    if fs::symlink_metadata(path).is_ok() {
+        return Err(
+            "native provenance refuses legacy graft files; immutable object ancestry is required"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 pub fn store_blob(root: &Path, bytes: &[u8]) -> Result<String> {
     let mut child = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(["hash-object", "-w", "--stdin"])
         .stdin(Stdio::piped())
@@ -127,6 +157,8 @@ fn ancestor(root: &Path, before: &str, after: &str) -> Result<()> {
     oid(before)?;
     oid(after)?;
     let status = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(["merge-base", "--is-ancestor", before, after])
         .status()?;
@@ -231,12 +263,52 @@ fn acceptance(argv: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn task_acceptance(argv: &[String]) -> Result<Vec<String>> {
+    acceptance(argv)?;
+    let mut manifests = Vec::new();
+    let mut rest = argv[2..].iter();
+    while let Some(argument) = rest.next() {
+        match argument.as_str() {
+            "--offline" | "--locked" | "--workspace" | "--all-targets" | "--all-features"
+            | "--no-default-features" | "--lib" | "--tests" | "--bins" | "--examples" => {}
+            "-p" | "--package" | "--bin" | "--test" | "--example" | "--features" => {
+                let value = rest.next().ok_or("missing task acceptance option value")?;
+                if value.is_empty() || value.starts_with('-') { return Err("invalid task acceptance option value".into()); }
+            }
+            "--manifest-path" => {
+                let path = rest.next().ok_or("missing task manifest path")?;
+                normalized(path)?;
+                if !path.ends_with("Cargo.toml") { return Err("task acceptance requires an in-tree Cargo manifest".into()); }
+                manifests.push(path.clone());
+            }
+            value if !value.starts_with('-') => {}
+            _ => return Err("task acceptance cannot override Cargo configuration, toolchain, target, output directory or test execution".into()),
+        }
+    }
+    Ok(manifests)
+}
+
 #[derive(Clone)]
 pub struct Task {
     pub id: String,
     pub path: String,
     pub blob: String,
     pub argv: Vec<String>,
+}
+
+fn regular_manifest(root: &Path, commit: &str, manifest: &str) -> Result<()> {
+    let entry = git(root, &["ls-tree", "--full-tree", commit, "--", manifest])?;
+    let (metadata, path) = entry
+        .split_once('\t')
+        .ok_or("task manifest is absent from identified tree")?;
+    if path != manifest
+        || (!metadata.starts_with("100644 blob ") && !metadata.starts_with("100755 blob "))
+    {
+        return Err(
+            "task acceptance manifest is not the exact regular file in its identified tree".into(),
+        );
+    }
+    Ok(())
 }
 
 pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]) -> Result<Task> {
@@ -256,7 +328,7 @@ pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]
             continue;
         }
         let object = git(root, &["rev-parse", &format!("{source}:{path}")])?;
-        let value: Value = serde_json::from_slice(&blob(root, &object)?)?;
+        let value = native_json::from_slice(&blob(root, &object)?)?;
         if value.get("native_worker").and_then(Value::as_str) != Some(worker) {
             continue;
         }
@@ -277,7 +349,9 @@ pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]
             return Err("native task was already closed before acceptance".into());
         }
         let argv = strings(value.get("accept").ok_or("task has no acceptance")?, "cmd")?;
-        acceptance(&argv)?;
+        for manifest in task_acceptance(&argv)? {
+            regular_manifest(root, source, &manifest)?;
+        }
         found = Some(Task {
             id: id.into(),
             path: path.into(),
@@ -292,14 +366,22 @@ pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]
 mod native_test_counts;
 use native_test_counts::test_counts;
 
-pub fn gate(
-    root: &Path,
-    id: &str,
-    argv: &[String],
-    status: std::process::ExitStatus,
-    elapsed_ms: u128,
-    log: &Path,
-) -> Result<Value> {
+pub struct GateExecution<'a> {
+    pub id: &'a str,
+    pub argv: &'a [String],
+    pub status: std::process::ExitStatus,
+    pub elapsed_ms: u128,
+    pub log: &'a Path,
+}
+
+pub fn gate(root: &Path, execution: GateExecution<'_>) -> Result<Value> {
+    let GateExecution {
+        id,
+        argv,
+        status,
+        elapsed_ms,
+        log,
+    } = execution;
     let bytes = fs::read(log)?;
     let (passed, failed, ignored) = test_counts(&bytes, argv, root)?;
     if !status.success() || status.code() != Some(0) {
@@ -315,16 +397,24 @@ pub fn gate(
     )
 }
 
-pub fn receipt(
-    root: &Path,
-    worker: &str,
-    claim_bytes: &[u8],
-    source: &str,
-    scope_base: &str,
-    previous: Option<&str>,
-    accepted: &str,
-    gates: &Value,
-) -> Result<Value> {
+pub struct IntegrationSource<'a> {
+    pub worker: &'a str,
+    pub claim_bytes: &'a [u8],
+    pub source: &'a str,
+    pub scope_base: &'a str,
+    pub previous: Option<&'a str>,
+    pub accepted: &'a str,
+}
+
+pub fn receipt(root: &Path, input: IntegrationSource<'_>, gates: &Value) -> Result<Value> {
+    let IntegrationSource {
+        worker,
+        claim_bytes,
+        source,
+        scope_base,
+        previous,
+        accepted,
+    } = input;
     let text = std::str::from_utf8(claim_bytes)?;
     let fields: Vec<_> = text.lines().collect();
     if fields.len() < 5 || fields[0] != "susi-local-claim-v2" || fields[1] != worker {
@@ -335,6 +425,9 @@ pub fn receipt(
     let task_at_acceptance = git(root, &["rev-parse", &format!("{accepted}:{}", task.path)])?;
     if task_at_acceptance != task.blob {
         return Err("task changed between source and integrated acceptance".into());
+    }
+    for manifest in task_acceptance(&task.argv)? {
+        regular_manifest(root, accepted, &manifest)?;
     }
     Ok(json!({"schema":RECEIPT_SCHEMA,"worker":worker,
         "coordinator_sha256":file_digest(&std::env::current_exe()?)?,
@@ -347,12 +440,29 @@ pub fn receipt(
         "gates":gates.get("gates").ok_or("missing actual gates")?}))
 }
 
-fn verify_gates(root: &Path, receipt: &Value, task: &Task) -> Result<()> {
+fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<String>) -> Result<()> {
     let plan = array(receipt, "gate_plan")?;
     let gates = array(receipt, "gates")?;
     if plan.len() != gates.len() || gates.len() < 5 {
         return Err("incomplete native integration gate plan".into());
     }
+    let integrated = string(
+        receipt.get("integration").ok_or("missing integration")?,
+        "commit",
+    )?;
+    let product = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args([
+            "cat-file",
+            "-e",
+            &format!("{integrated}:crates/susi-core/Cargo.toml"),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?
+        .success();
     let mut ids = BTreeSet::new();
     let mut task_seen = false;
     for (expected, gate) in plan.iter().zip(gates) {
@@ -405,6 +515,25 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task) -> Result<()> {
     }
     if !task_seen {
         return Err("task acceptance was not executed on integrated tree".into());
+    }
+    let mut expected_ids: BTreeSet<String> = ["format", "licenses", "clippy", "workspace-tests"]
+        .iter()
+        .map(|id| (*id).into())
+        .collect();
+    expected_ids.extend(tasks.iter().map(|task| format!("task:{task}")));
+    if product {
+        expected_ids.extend((4..14).map(|index| format!("integration:{index}")));
+    }
+    if ids
+        .iter()
+        .map(|id| (*id).to_owned())
+        .collect::<BTreeSet<_>>()
+        != expected_ids
+    {
+        return Err(
+            "native gate plan does not exactly cover its required integration and task gates"
+                .into(),
+        );
     }
     let required: [(&str, &[&str]); 4] = [
         ("format", &["cargo", "fmt", "--all", "--check"]),
@@ -460,7 +589,12 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task) -> Result<()> {
                 return Err("required gate lost its exact isolated compiler arguments".into());
             }
             suffix.drain(..4);
-            if suffix.starts_with(&["--features", "xtask/release-tooling"]) {
+            if product {
+                if !suffix.starts_with(&["--features", "xtask/release-tooling"]) {
+                    return Err(
+                        "product integration omitted native release-tooling tests or lint".into(),
+                    );
+                }
                 suffix.drain(..2);
             }
         }
@@ -473,25 +607,107 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task) -> Result<()> {
             return Err("required gate contains a filter or weakened command".into());
         }
     }
+    if product {
+        let workspace = gates
+            .iter()
+            .find(|gate| gate["id"] == "workspace-tests")
+            .ok_or("missing workspace gate")?;
+        let argv = strings(workspace, "argv")?;
+        let target = argv
+            .windows(2)
+            .find(|pair| pair[0] == "--target")
+            .ok_or("missing target")?[1]
+            .clone();
+        let target_dir = argv
+            .windows(2)
+            .find(|pair| pair[0] == "--target-dir")
+            .ok_or("missing target directory")?[1]
+            .clone();
+        let cwd = string(workspace, "cwd")?;
+        let patch_path = Path::new(cwd)
+            .join("vendor/idna-adapter")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let patch = format!(
+            "patch.crates-io.idna_adapter.path=\"{}\"",
+            patch_path.replace('"', "\\\"")
+        );
+        for (index, name) in [
+            "idna-adapter",
+            "unicode-ident",
+            "htmlescape",
+            "regex-syntax",
+            "regex-syntax/os-unicode",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let manifest = format!("vendor/{name}/Cargo.toml");
+            git(
+                root,
+                &["cat-file", "-e", &format!("{integrated}:{manifest}")],
+            )?;
+            let lock = vec![
+                "cargo".into(),
+                "generate-lockfile".into(),
+                "--offline".into(),
+                "--manifest-path".into(),
+                manifest.clone(),
+                "--config".into(),
+                patch.clone(),
+            ];
+            let tests = vec![
+                "cargo".into(),
+                "test".into(),
+                "--offline".into(),
+                "--locked".into(),
+                "--manifest-path".into(),
+                manifest,
+                "--config".into(),
+                patch.clone(),
+                "--target".into(),
+                target.clone(),
+                "--target-dir".into(),
+                Path::new(&target_dir)
+                    .join("platform-adapters")
+                    .join(name)
+                    .to_string_lossy()
+                    .into_owned(),
+            ];
+            for (offset, expected) in [(0, lock), (1, tests)] {
+                let id = format!("integration:{}", 4 + index * 2 + offset);
+                let record = gates
+                    .iter()
+                    .find(|gate| gate["id"] == id)
+                    .ok_or("missing mandatory adapter gate")?;
+                if strings(record, "argv")? != expected || string(record, "cwd")? != cwd {
+                    return Err("mandatory adapter gate command or checkout was substituted".into());
+                }
+            }
+        }
+    }
     Ok(())
 }
 
 /// Verify only against trust pins supplied independently of the candidate.
 /// The caller must retain the immutable permit in its trusted external registry.
-pub fn verify(
-    root: &Path,
-    permit_path: &Path,
-    permit_sha256: &str,
-    verifier_sha256: &str,
-    policy_sha256: &str,
-    head: &str,
-) -> Result<Value> {
+pub struct TrustPins<'a> {
+    pub permit_sha256: &'a str,
+    pub verifier_sha256: &'a str,
+    pub policy_sha256: &'a str,
+}
+
+pub fn verify(root: &Path, permit_path: &Path, pins: &TrustPins<'_>, head: &str) -> Result<Value> {
+    let permit_sha256 = pins.permit_sha256;
+    let verifier_sha256 = pins.verifier_sha256;
+    let policy_sha256 = pins.policy_sha256;
+    require_unmodified_history(root)?;
     for hash in [permit_sha256, verifier_sha256, policy_sha256] {
         sha(hash)?;
     }
     oid(head)?;
     let canonical_root = root.canonicalize()?;
-    if fs::symlink_metadata(permit_path)?.file_type().is_symlink()
+    if !fs::symlink_metadata(permit_path)?.file_type().is_file()
         || permit_path.canonicalize()?.starts_with(&canonical_root)
     {
         return Err("trusted permit must be a regular file outside candidate source".into());
@@ -505,7 +721,7 @@ pub fn verify(
     {
         return Err("independently pinned verifier or policy digest mismatch".into());
     }
-    let permit: Value = serde_json::from_slice(&bytes)?;
+    let permit = native_json::from_slice(&bytes)?;
     if string(&permit, "schema")? != PERMIT_SCHEMA
         || string(&permit, "verifier_sha256")? != verifier_sha256
         || string(&permit, "policy_sha256")? != policy_sha256
@@ -540,8 +756,24 @@ pub fn verify(
     let mut scopes = BTreeSet::new();
     let mut summaries = Vec::new();
     let mut identities = BTreeSet::new();
+    let mut integration_tasks: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for object in &receipt_oids {
+        let record = native_json::from_slice(&blob(root, object)?)?;
+        let integrated = string(
+            record.get("integration").ok_or("missing integration")?,
+            "commit",
+        )?;
+        let task = string(record.get("task").ok_or("missing task")?, "id")?;
+        if !integration_tasks
+            .entry(integrated.into())
+            .or_default()
+            .insert(task.into())
+        {
+            return Err("duplicate task in one native integration".into());
+        }
+    }
     for receipt_oid in &receipt_oids {
-        let receipt: Value = serde_json::from_slice(&blob(root, receipt_oid)?)?;
+        let receipt = native_json::from_slice(&blob(root, receipt_oid)?)?;
         if string(&receipt, "schema")? != RECEIPT_SCHEMA
             || string(&receipt, "coordinator_sha256")? != verifier_sha256
             || string(&receipt, "policy_sha256")? != policy_sha256
@@ -604,12 +836,23 @@ pub fn verify(
         {
             return Err("task identity, source acceptance or integrated task changed".into());
         }
+        for manifest in task_acceptance(&task.argv)? {
+            regular_manifest(root, integrated, &manifest)?;
+        }
         if !identities.insert((worker.to_owned(), commit.to_owned(), task.id.clone())) {
             return Err("reused native task receipt".into());
         }
-        verify_gates(root, &receipt, &task)?;
+        verify_gates(
+            root,
+            &receipt,
+            &task,
+            integration_tasks
+                .get(integrated)
+                .ok_or("missing integration task set")?,
+        )?;
         for introduced in git(root, &["rev-list", &format!("{scope_base}..{commit}")])?.lines() {
             // Net-zero changes must not conceal an unscoped intermediate commit.
+            ancestor(root, scope_base, introduced)?;
             let parents = git(root, &["show", "-s", "--format=%P", introduced])?;
             for parent in parents.split_whitespace() {
                 if ancestor(root, scope_base, parent).is_ok() {
@@ -681,6 +924,17 @@ mod tests {
             assert!(acceptance(&argv.iter().map(|s| (*s).into()).collect::<Vec<_>>()).is_err());
         }
         assert!(acceptance(&["cargo".into(), "test".into(), "--workspace".into()]).is_ok());
+        for argv in [
+            vec!["cargo", "test", "--manifest-path", "/tmp/other/Cargo.toml"],
+            vec!["cargo", "test", "--manifest-path", "../other/Cargo.toml"],
+            vec!["cargo", "test", "--config", "build.rustc=other"],
+            vec!["cargo", "test", "--target-dir", "/tmp/shared"],
+            vec!["cargo", "test", "--manifest-path=/tmp/other/Cargo.toml"],
+        ] {
+            assert!(
+                task_acceptance(&argv.iter().map(|v| (*v).into()).collect::<Vec<_>>()).is_err()
+            );
+        }
     }
     #[test]
     fn scope_and_task_identity_reject_ambiguous_or_unscoped_paths() {

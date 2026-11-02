@@ -284,6 +284,16 @@ check_claim_owner() {
 # that cannot be resolved, or a branch that removed the script, is an error
 # rather than a silent "nothing to check" — an unresolvable base used to make
 # the loop below iterate zero commits and print its ✅ line.
+export GIT_NO_REPLACE_OBJECTS=1
+if [ "${GIT_GRAFT_FILE+x}" = x ]; then
+    echo "❌ workflow compliance: a graft-file override cannot select protected history" >&2
+    exit 1
+fi
+graft_path=$(git rev-parse --git-path info/grafts) || exit 1
+if [ -e "$graft_path" ] || [ -L "$graft_path" ]; then
+    echo "❌ workflow compliance: legacy grafts cannot select protected history" >&2
+    exit 1
+fi
 head_commit=$(git rev-parse --verify --quiet "${head}^{commit}") || {
     echo "❌ workflow compliance: cannot resolve head '${head}'" >&2
     exit 1

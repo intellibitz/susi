@@ -9,7 +9,8 @@
     "xtask/src/native_provenance.rs",
     "scripts/check-workflow-compliance.sh",
     ".agents/tasks/T-PROVENANCE-1.json",
-    "xtask/src/native_test_counts.rs"
+    "xtask/src/native_test_counts.rs",
+    "xtask/src/native_json.rs"
   ],
   "accept": {
     "cmd": [

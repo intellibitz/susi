@@ -25,7 +25,12 @@ mod trusted_sysroot;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git").current_dir(dir).args(args).output()?;
+    let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(dir)
+        .args(args)
+        .output()?;
     if !out.status.success() {
         return Err(format!(
             "git {}: {}",
@@ -196,6 +201,8 @@ fn valid_oid(value: &str) -> bool {
 
 fn integration_head(root: &Path) -> Result<Option<String>> {
     let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(["show-ref", "--verify", "--quiet", INTEGRATION_REF])
         .output()?;
@@ -210,6 +217,8 @@ fn integration_head(root: &Path) -> Result<Option<String>> {
 
 fn is_ancestor(root: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
     let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(["merge-base", "--is-ancestor", ancestor, descendant])
         .output()?;
@@ -222,6 +231,8 @@ fn is_ancestor(root: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
 
 fn git_input(root: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     let mut child = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(args)
         .stdin(Stdio::piped())
@@ -362,6 +373,8 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
     }
     let scope_base = scope_base(root, claim, &source)?;
     let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args([
             "diff",
@@ -392,6 +405,7 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
+    native_provenance::require_unmodified_history(candidate)?;
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
@@ -594,11 +608,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .collect();
         native_gates.push(native_provenance::gate(
             candidate,
-            &gate_ids[index],
-            &argv,
-            status,
-            started.elapsed().as_millis(),
-            &log_path,
+            native_provenance::GateExecution {
+                id: &gate_ids[index],
+                argv: &argv,
+                status,
+                elapsed_ms: started.elapsed().as_millis(),
+                log: &log_path,
+            },
         )?);
         fs::write(
             attempt.join("native-gates.json"),
@@ -628,6 +644,7 @@ fn integrate_many_with<F>(root: &Path, claimants: &[&str], verify: F) -> Result<
 where
     F: FnOnce(&Path, &Path) -> Result<Vec<String>>,
 {
+    native_provenance::require_unmodified_history(root)?;
     let claimant = *claimants
         .first()
         .ok_or("at least one claimant is required")?;
@@ -812,12 +829,14 @@ where
         if let Some(gates) = &native_gates {
             let native = native_provenance::receipt(
                 root,
-                claimant,
-                bytes,
-                source,
-                &scope_base(root, claim, source)?,
-                previous.as_deref(),
-                &head,
+                native_provenance::IntegrationSource {
+                    worker: claimant,
+                    claim_bytes: bytes,
+                    source,
+                    scope_base: &scope_base(root, claim, source)?,
+                    previous: previous.as_deref(),
+                    accepted: &head,
+                },
                 gates,
             )?;
             let native_oid = native_provenance::store_blob(root, &serde_json::to_vec(&native)?)?;
@@ -861,6 +880,7 @@ where
 }
 
 fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> {
+    native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     let mut scopes = raw_scopes
         .iter()
@@ -935,6 +955,7 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
 }
 
 fn extend(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<()> {
+    native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     let requested = raw_scopes
         .iter()
@@ -1034,7 +1055,12 @@ fn changed_paths(root: &Path) -> Result<Vec<String>> {
         vec!["diff", "--no-renames", "--name-only", "-z"],
         vec!["ls-files", "--others", "--exclude-standard", "-z"],
     ] {
-        let out = Command::new("git").current_dir(root).args(args).output()?;
+        let out = Command::new("git")
+            .arg("--literal-pathspecs")
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .current_dir(root)
+            .args(args)
+            .output()?;
         if !out.status.success() {
             return Err(format!(
                 "cannot inspect changes: {}",
@@ -1065,6 +1091,7 @@ fn owns_path(held: &str, changed: &str) -> bool {
 /// Scope-guarded local commit, not a test/release gate. It never changes the
 /// repository's shared hook configuration or invokes its network-bound hooks.
 fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
+    native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     if message.trim().is_empty() || message.contains('\0') {
         return Err("commit message must be nonempty and contain no NUL".into());
@@ -1119,6 +1146,8 @@ fn commit(root: &Path, claimant: &str, message: &str) -> Result<()> {
     // NUL-delimited literal pathspecs preserve spaces and metacharacters and
     // avoid the Windows command-line length limit for large tasks.
     let mut add = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(&claim.worktree)
         .args([
             "--literal-pathspecs",
@@ -1183,7 +1212,8 @@ fn run(args: &[String]) -> Result<()> {
             }
             let get = |key| flags.get(key).copied().ok_or("missing required provenance argument");
             let report = native_provenance::verify(Path::new(get("--root")?), Path::new(get("--permit")?),
-                get("--permit-sha256")?, get("--verifier-sha256")?, get("--policy-sha256")?, get("--head")?)?;
+                &native_provenance::TrustPins {permit_sha256:get("--permit-sha256")?,
+                    verifier_sha256:get("--verifier-sha256")?,policy_sha256:get("--policy-sha256")?}, get("--head")?)?;
             println!("{}",serde_json::to_string(&report)?);
         },
         Some("start" | "extend") => {
@@ -1905,15 +1935,32 @@ mod tests {
             native_provenance::verify(
                 repo,
                 &path,
-                &native_provenance::digest(&bytes),
-                &verifier,
-                &policy,
+                &native_provenance::TrustPins {
+                    permit_sha256: &native_provenance::digest(&bytes),
+                    verifier_sha256: &verifier,
+                    policy_sha256: &policy,
+                },
                 expected_head,
             )
         };
         let report = check(&permit, head).unwrap();
         assert_eq!(report["verified"], true);
         assert_eq!(report["historical_ownership"], "incomplete");
+        // Candidate replacement refs cannot reinterpret independently pinned IDs.
+        git(repo, &["replace", head, &base]).unwrap();
+        assert_eq!(
+            check(&permit, head).unwrap()["source"]["tree"],
+            accepted_tree
+        );
+        let mut replaced_tree = permit.clone();
+        replaced_tree["source"]["tree"] = base_tree.clone().into();
+        assert!(check(&replaced_tree, head).is_err());
+        git(repo, &["replace", "-d", head]).unwrap();
+        let graft = repo.join(git(repo, &["rev-parse", "--git-path", "info/grafts"]).unwrap());
+        fs::create_dir_all(graft.parent().unwrap()).unwrap();
+        fs::write(&graft, format!("{head} {base}\n")).unwrap();
+        assert!(check(&permit, head).is_err());
+        fs::remove_file(graft).unwrap();
         assert!(check(&permit, &base).is_err());
         let original: serde_json::Value =
             serde_json::from_str(&git(repo, &["cat-file", "blob", &receipts[0]]).unwrap()).unwrap();
@@ -1999,21 +2046,110 @@ mod tests {
                     .into();
         }
         assert!(check(&hidden_permit, &hidden).is_err());
+        // A source merge may not claim unrelated pre-reservation history whose
+        // out-of-scope edit was subsequently reverted to a clean net diff.
+        let outside_blob =
+            native_provenance::store_blob(repo, b"unowned historical edit\n").unwrap();
+        let outside_tree = git_input(
+            repo,
+            &["mktree"],
+            format!(
+                "{}\n100644 blob {outside_blob}\toutside.txt\n",
+                git(repo, &["ls-tree", &base]).unwrap()
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let outside_commit = git_input(
+            repo,
+            &["-c", "commit.gpgsign=false", "commit-tree", &outside_tree],
+            b"unrelated scope bypass\n",
+        )
+        .unwrap();
+        let reverted = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &base_tree,
+                "-p",
+                &outside_commit,
+            ],
+            b"hide unrelated edit\n",
+        )
+        .unwrap();
+        let original_source = original["source"]["commit"].as_str().unwrap();
+        let original_tree = original["source"]["tree"].as_str().unwrap();
+        let mixed_source = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                original_tree,
+                "-p",
+                original_source,
+                "-p",
+                &reverted,
+            ],
+            b"source with hidden pre-scope history\n",
+        )
+        .unwrap();
+        let mixed_head = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &accepted_tree,
+                "-p",
+                head,
+                "-p",
+                &mixed_source,
+            ],
+            b"integrated hidden pre-scope history\n",
+        )
+        .unwrap();
+        let mut mixed_permit = permit.clone();
+        mixed_permit["source"]["commit"] = mixed_head.clone().into();
+        for (index, oid) in receipts.iter().enumerate() {
+            let mut record: serde_json::Value =
+                serde_json::from_str(&git(repo, &["cat-file", "blob", oid]).unwrap()).unwrap();
+            record["integration"]["commit"] = mixed_head.clone().into();
+            if index == 0 {
+                record["source"]["commit"] = mixed_source.clone().into();
+            }
+            mixed_permit["receipts"][index] =
+                native_provenance::store_blob(repo, &serde_json::to_vec(&record).unwrap())
+                    .unwrap()
+                    .into();
+        }
+        assert!(check(&mixed_permit, &mixed_head).is_err());
         let original_bytes = serde_json::to_vec(&permit).unwrap();
         let original_digest = native_provenance::digest(&original_bytes);
         fs::write(&path, b"forged permit").unwrap();
-        assert!(
-            native_provenance::verify(repo, &path, &original_digest, &verifier, &policy, head)
-                .is_err()
-        );
+        assert!(native_provenance::verify(
+            repo,
+            &path,
+            &native_provenance::TrustPins {
+                permit_sha256: &original_digest,
+                verifier_sha256: &verifier,
+                policy_sha256: &policy
+            },
+            head
+        )
+        .is_err());
         let candidate_permit = repo.join("self-authorized.json");
         fs::write(&candidate_permit, &original_bytes).unwrap();
         assert!(native_provenance::verify(
             repo,
             &candidate_permit,
-            &original_digest,
-            &verifier,
-            &policy,
+            &native_provenance::TrustPins {
+                permit_sha256: &original_digest,
+                verifier_sha256: &verifier,
+                policy_sha256: &policy
+            },
             head
         )
         .is_err());
