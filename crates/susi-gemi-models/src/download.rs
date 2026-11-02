@@ -506,9 +506,33 @@ pub(crate) mod tests {
                     socket.read_exact(&mut byte).unwrap();
                     request.push(byte[0]);
                 }
-                assert!(String::from_utf8_lossy(&request)
-                    .to_lowercase()
-                    .contains(expected));
+                let request = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                let mut fields = request
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .split_whitespace();
+                let method = fields.next().unwrap_or_default();
+                let path = fields
+                    .next()
+                    .unwrap_or_default()
+                    .split('?')
+                    .next()
+                    .unwrap_or_default();
+                let range = request
+                    .lines()
+                    .find_map(|line| line.strip_prefix("range:"))
+                    .map(str::trim)
+                    .filter(|value| {
+                        value.starts_with("bytes=")
+                            && value[6..]
+                                .bytes()
+                                .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b','))
+                    });
+                assert!(
+                    request.contains(expected),
+                    "expected {expected}, received {method} {path}, byte range {range:?}"
+                );
                 socket.write_all(response.as_bytes()).unwrap();
             }
         });

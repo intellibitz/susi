@@ -30,6 +30,12 @@ static MODEL_FAILURES: std::sync::OnceLock<DashMap<String, std::time::Instant>> 
 
 pub struct ModelManager;
 
+struct DownloadSource<'a> {
+    requested: &'a str,
+    resolved: &'a str,
+    publisher_sha256: Option<&'a str>,
+}
+
 /// Why a GGUF header could not be read.
 enum GgufRead {
     /// An I/O error ended the read: it says nothing about the file.
@@ -386,11 +392,13 @@ impl ModelManager {
             }
         };
         Self::execute_download_stream_in(
-            target,
-            &receipt.artifact_url,
+            &DownloadSource {
+                requested: target,
+                resolved: &receipt.artifact_url,
+                publisher_sha256: Some(&receipt.sha256),
+            },
             task_handle,
             &Self::get_models_dir(),
-            Some(&receipt.sha256),
             |path| receipt.record(path),
         )
     }
@@ -409,14 +417,13 @@ impl ModelManager {
     }
 
     fn execute_download_stream_in(
-        requested: &str,
-        target: &str,
+        source: &DownloadSource<'_>,
         task_handle: &TaskHandle,
         models_dir: &Path,
-        admitted_sha256: Option<&str>,
         record: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<(), String> {
-        let file_name = match crate::download::artifact_name(target) {
+        let requested = source.requested;
+        let file_name = match crate::download::artifact_name(source.resolved) {
             Ok(name) => name,
             Err(error) => {
                 Self::download_failed(requested, task_handle, &error);
@@ -424,15 +431,7 @@ impl ModelManager {
             }
         };
         Self::save_download_progress(&file_name, requested, 0, 0, "RUNNING");
-        let result = Self::stage_and_record(
-            requested,
-            target,
-            task_handle,
-            models_dir,
-            &file_name,
-            admitted_sha256,
-            record,
-        );
+        let result = Self::stage_and_record(source, task_handle, models_dir, &file_name, record);
         match result {
             Ok((size, message)) => {
                 Self::save_download_progress(&file_name, requested, size, size, "COMPLETED");
@@ -448,14 +447,15 @@ impl ModelManager {
     }
 
     fn stage_and_record(
-        requested: &str,
-        target: &str,
+        source: &DownloadSource<'_>,
         task_handle: &TaskHandle,
         models_dir: &Path,
         file_name: &str,
-        admitted_sha256: Option<&str>,
         record: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<(u64, &'static str), String> {
+        let target = source.resolved;
+        let requested = source.requested;
+        let admitted_sha256 = source.publisher_sha256;
         fs::create_dir_all(models_dir).map_err(|e| e.to_string())?;
         let path = models_dir.join(file_name);
         let store = Self::transactional_store(models_dir);
@@ -562,7 +562,7 @@ impl ModelManager {
                         file_name,
                         target,
                         expected_sha256.as_deref(),
-                        &|candidate| Self::valid_download_artifact(&file_name, candidate),
+                        &|candidate| Self::valid_download_artifact(file_name, candidate),
                     )?;
                     return finish("Download validated and ready");
                 }
@@ -910,11 +910,13 @@ mod tests {
             let task = crate::susi_core::task_manager::SwarmTaskManager::global()
                 .register_task("managed_download_test", url);
             done.send(ModelManager::execute_download_stream_in(
-                url,
-                url,
+                &DownloadSource {
+                    requested: url,
+                    resolved: url,
+                    publisher_sha256: None,
+                },
                 &task,
                 &worker_models,
-                None,
                 |_| Ok(()),
             ))
             .unwrap();
@@ -1454,16 +1456,27 @@ mod tests {
         models: &Path,
         pin: Option<&str>,
     ) -> Result<(), String> {
-        ModelManager::execute_download_stream_in(url, url, task, models, pin, |path| {
-            if let Some(expected) = pin {
-                let actual = ModelManager::calculate_simple_checksum(path)
-                    .map_err(|error| error.to_string())?;
-                if actual != expected {
-                    return Err("Existing model differs from the admitted publisher digest".into());
+        ModelManager::execute_download_stream_in(
+            &DownloadSource {
+                requested: url,
+                resolved: url,
+                publisher_sha256: pin,
+            },
+            task,
+            models,
+            |path| {
+                if let Some(expected) = pin {
+                    let actual = ModelManager::calculate_simple_checksum(path)
+                        .map_err(|error| error.to_string())?;
+                    if actual != expected {
+                        return Err(
+                            "Existing model differs from the admitted publisher digest".into()
+                        );
+                    }
                 }
-            }
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 
     #[test]
@@ -1516,11 +1529,13 @@ mod tests {
         let task = SwarmTaskManager::global().register_task("failed_staging_manifest", &url);
         let mut recorded = false;
         let result = ModelManager::execute_download_stream_in(
-            &url,
-            &url,
+            &DownloadSource {
+                requested: &url,
+                resolved: &url,
+                publisher_sha256: Some(&digest),
+            },
             &task,
             &models,
-            Some(&digest),
             |_| {
                 recorded = true;
                 Ok(())
@@ -1566,11 +1581,13 @@ mod tests {
             }
             let task = SwarmTaskManager::global().register_task("receipt_storage", &requested);
             let result = ModelManager::execute_download_stream_in(
-                &requested,
-                &resolved,
+                &DownloadSource {
+                    requested: &requested,
+                    resolved: &resolved,
+                    publisher_sha256: Some(&digest),
+                },
                 &task,
                 &models,
-                Some(&digest),
                 |path| {
                     assert_eq!(progress().status, "RUNNING");
                     assert_eq!(
@@ -1608,8 +1625,8 @@ mod tests {
         use crate::download::tests::{server, workspace};
         let good = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
         let bad = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghik";
-        let interrupted = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcde";
-        let rest = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\nConnection: close\r\n\r\nfghij";
+        let interrupted = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nabcde";
+        let rest = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nfghij";
         let head = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n";
         let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
         for (name, pin, responses) in [
