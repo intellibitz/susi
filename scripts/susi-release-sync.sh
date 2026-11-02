@@ -293,9 +293,8 @@ swap_in() {
     local built="$1"
     mkdir -p "$BIN_DIR"
     if [ "$WINDOWS" = 1 ]; then
-        WINDOWS_DAEMON_WAS_RUNNING="$(windows_release running)"
         [ ! -f "$MARKER" ] || cp -p "$MARKER" "${MARKER}.prev"
-        if ! windows_release swap "$built"; then
+        if ! WINDOWS_DAEMON_WAS_RUNNING="$(windows_release swap "$built")"; then
             # Restore service availability as well as bytes on a failed swap.
             restart_service || true
             return 1

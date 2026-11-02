@@ -1,0 +1,14 @@
+{
+  "id": "T-CODEXLOCALINTEGRATIONLATENCY1102-1",
+  "title": "Reduce Windows release process inspection latency",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/test-release-sync-windows.sh"
+    ]
+  },
+  "created_by": "CODEXLOCALINTEGRATIONLATENCY1102",
+  "created_unix": 1793603848
+}
