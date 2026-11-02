@@ -1,0 +1,11 @@
+{
+  "id": "T-STEP1C-1",
+  "title": "See a model another process downloads while the first goal waits",
+  "goal": "On a fresh install the daemon can finish the starter download while the shell's first goal waits; the shell's 60-second model scan cache hid it until after the 120-second wait expired. The cache is now also keyed on the shared models folder's modification time.",
+  "size": "s",
+  "deps": ["T-STEP1B-1"],
+  "scopes": ["crates/susi-gemi-models/src/lifecycle/scan.rs", "version surfaces prepared by local release prepare-next patch"],
+  "accept": { "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi-models", "-p", "susi-gemi", "--lib"] },
+  "acceptance": ["A model file added to the models folder without an in-process generation bump is listed by the next scan", "The regression test fails on the previous cache key", "Native combined-tree acceptance and qualified fresh 8 GiB Windows VM journey remain required before production promotion"],
+  "created_by": "step1-scan-fresh"
+}
