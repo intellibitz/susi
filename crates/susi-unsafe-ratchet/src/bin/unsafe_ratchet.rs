@@ -68,15 +68,15 @@ fn read_json(path: &str) -> Result<serde_json::Value, String> {
 /// supported: full `cargo geiger` scans carry
 /// `unsafety.used.functions.unsafe` (or `unsafe_`) counts; `--forbid-only` scans carry a
 /// `forbids_unsafe` bool — the exposure unit is then the crate itself (1).
-fn unsafe_fns_of(item: &serde_json::Value) -> u64 {
+fn unsafe_fns_of(item: &serde_json::Value) -> Option<u64> {
     if let Some(forbids) = item.get("forbids_unsafe").and_then(|f| f.as_bool()) {
-        return u64::from(!forbids);
+        return Some(u64::from(!forbids));
     }
-    let unsafety = item.get("unsafety").cloned().unwrap_or_default();
-    unsafe_counts_of(&unsafety)
+    let unsafety = item.get("unsafety")?;
+    unsafe_counts_of(unsafety)
 }
 
-fn unsafe_counts_of(unsafety: &serde_json::Value) -> u64 {
+fn unsafe_counts_of(unsafety: &serde_json::Value) -> Option<u64> {
     fn leaf(v: &serde_json::Value) -> Option<u64> {
         // Older exports use `unsafe`; current cargo-geiger serializes the
         // Rust field name `unsafe_`. Never let a duplicate zero hide exposure.
@@ -92,14 +92,14 @@ fn unsafe_counts_of(unsafety: &serde_json::Value) -> u64 {
             .or_else(|| v.get("functions").and_then(leaf))
     }
     if let Some(n) = count(unsafety) {
-        return n;
+        return Some(n);
     }
     // Last resort: sum every {..,"unsafe":n} leaf under `unsafety.used`.
-    let mut total = 0u64;
+    let mut total = None::<u64>;
     if let Some(used) = unsafety.get("used").and_then(|u| u.as_object()) {
         for section in used.values() {
             if let Some(n) = leaf(section) {
-                total = total.saturating_add(n);
+                total = Some(total.unwrap_or(0).saturating_add(n));
             }
         }
     }
@@ -114,14 +114,14 @@ fn unsafe_counts_of(unsafety: &serde_json::Value) -> u64 {
 fn current_exposure(
     geiger: &serde_json::Value,
     first_party: &std::collections::BTreeSet<String>,
-) -> Vec<UnsafeExposure> {
+) -> Result<Vec<UnsafeExposure>, String> {
     let mut out = Vec::new();
     let packages = geiger
         .get("packages")
         .and_then(|p| p.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for item in &packages {
+        .filter(|packages| !packages.is_empty())
+        .ok_or("incomplete geiger report: expected a nonempty packages array")?;
+    for item in packages {
         let name = item
             .get("package")
             .and_then(|p| p.get("id"))
@@ -132,9 +132,10 @@ fn current_exposure(
             .unwrap_or("")
             .to_string();
         if name.is_empty() {
-            continue;
+            return Err("incomplete geiger report: unnamed package".into());
         }
-        let unsafe_fns = unsafe_fns_of(item);
+        let unsafe_fns = unsafe_fns_of(item)
+            .ok_or_else(|| format!("incomplete geiger report: no measurement for {name}"))?;
         if unsafe_fns == 0 {
             continue;
         }
@@ -144,7 +145,7 @@ fn current_exposure(
             first_party_exception: first_party.contains(&name),
         });
     }
-    out
+    Ok(out)
 }
 
 /// SBOM + first-party set from `cargo metadata` output.
@@ -153,6 +154,8 @@ fn sbom_from_metadata(
 ) -> (Vec<SbomEntry>, std::collections::BTreeSet<String>) {
     let mut sbom = Vec::new();
     let mut first_party = std::collections::BTreeSet::new();
+    let mut external_names = std::collections::BTreeSet::new();
+    let members = metadata.get("workspace_members").and_then(|v| v.as_array());
     if let Some(packages) = metadata.get("packages").and_then(|p| p.as_array()) {
         for pkg in packages {
             let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or("");
@@ -160,11 +163,17 @@ fn sbom_from_metadata(
             if name.is_empty() {
                 continue;
             }
+            let workspace_path = pkg.get("source").is_some_and(|s| s.is_null())
+                && pkg
+                    .get("id")
+                    .is_some_and(|id| members.is_some_and(|m| m.contains(id)));
+            if workspace_path {
+                first_party.insert(name.to_string());
+            } else {
+                external_names.insert(name.to_string());
+            }
             let provenance = match pkg.get("source") {
-                Some(serde_json::Value::Null) | None => {
-                    first_party.insert(name.to_string());
-                    "path".to_string()
-                }
+                Some(serde_json::Value::Null) => "path".to_string(),
                 Some(serde_json::Value::String(s)) => s.clone(),
                 _ => "unknown".to_string(),
             };
@@ -175,6 +184,8 @@ fn sbom_from_metadata(
             });
         }
     }
+    // The legacy baseline keys exposure by name. An ambiguous name must be gated.
+    first_party.retain(|name| !external_names.contains(name));
     (sbom, first_party)
 }
 
@@ -190,7 +201,7 @@ fn run() -> Result<i32, String> {
     let geiger = read_json(&args.geiger)?;
     let metadata = read_json(&args.metadata)?;
     let (sbom, first_party) = sbom_from_metadata(&metadata);
-    let current = current_exposure(&geiger, &first_party);
+    let current = current_exposure(&geiger, &first_party)?;
 
     if let Some(out_path) = &args.write_baseline {
         let baseline = UnsafeBaseline {
@@ -285,19 +296,20 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn both_geiger_schemas_record_nonzero_exposure_and_require_review() {
+    fn both_geiger_schemas_record_nonzero_exposure_and_require_review() -> Result<(), String> {
         for key in ["unsafe", "unsafe_"] {
             let report = json!({"packages": [{
                 "package": {"id": {"name": "third-party-ffi"}},
                 "unsafety": {"used": {"functions": {"safe": 6, (key): 2},
                     "exprs": {(key): 45}}, "forbids_unsafe": false}
             }]});
-            let current = current_exposure(&report, &Default::default());
+            let current = current_exposure(&report, &Default::default())?;
             assert_eq!(current.len(), 1);
             assert_eq!(current[0].unsafe_fns, 2);
             assert!(matches!(ratchet_unsafe(&[], &current, &[], &[]),
                 GeigerVerdict::NeedsReview { new_crates } if new_crates == ["third-party-ffi"]));
         }
+        Ok(())
     }
 
     #[test]
@@ -306,11 +318,11 @@ mod tests {
             unsafe_counts_of(&json!({"used": {
                 "exprs": {"unsafe_": 45}, "item_impls": {"unsafe": 1}
             }})),
-            46
+            Some(46)
         );
         assert_eq!(
             unsafe_counts_of(&json!({"functions": {"unsafe": 0, "unsafe_": 2}})),
-            2
+            Some(2)
         );
         // Function-count measurement remains stable: a measured zero is not
         // replaced with an expression count from a different exposure unit.
@@ -318,13 +330,40 @@ mod tests {
             unsafe_counts_of(&json!({"used": {
                 "functions": {"unsafe_": 0}, "exprs": {"unsafe_": 45}
             }})),
-            0
+            Some(0)
         );
     }
 
     #[test]
     fn forbid_only_measurement_preserves_existing_baseline_units() {
-        assert_eq!(unsafe_fns_of(&json!({"forbids_unsafe": false})), 1);
-        assert_eq!(unsafe_fns_of(&json!({"forbids_unsafe": true})), 0);
+        assert_eq!(unsafe_fns_of(&json!({"forbids_unsafe": false})), Some(1));
+        assert_eq!(unsafe_fns_of(&json!({"forbids_unsafe": true})), Some(0));
+    }
+
+    #[test]
+    fn incomplete_reports_cannot_pass_as_zero_exposure() {
+        for report in [
+            json!({}),
+            json!({"packages":[]}),
+            json!({"packages":[{}]}),
+            json!({"packages":[{"name":"ffi"}]}),
+            json!({"packages":[{"name":"ffi","unsafety":{}}]}),
+        ] {
+            assert!(current_exposure(&report, &Default::default()).is_err());
+        }
+    }
+
+    #[test]
+    fn vendored_paths_and_external_namesakes_stay_in_the_gate() {
+        let (_, owned) = sbom_from_metadata(&json!({
+            "workspace_members":["local","collision"],
+            "packages":[
+                {"id":"local","name":"owned","source":null},
+                {"id":"collision","name":"shared","source":null},
+                {"id":"external","name":"shared","source":"registry+index"},
+                {"id":"patch","name":"vendored","source":null}
+            ]
+        }));
+        assert_eq!(owned.into_iter().collect::<Vec<_>>(), ["owned"]);
     }
 }
