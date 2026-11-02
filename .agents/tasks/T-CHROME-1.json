@@ -1,0 +1,23 @@
+{
+  "id": "T-CHROME-1",
+  "title": "Bound native Chromium subprocess execution",
+  "dependencies": [],
+  "scopes": [
+    "crates/susi-vendor-chrome"
+  ],
+  "acceptance": [
+    "Browser version probes and captures have deadlines and output limits",
+    "Timed-out owned child and descendants are terminated without blocking on inherited output pipes",
+    "Existing capture tests and timeout/output regression tests pass"
+  ],
+  "status": "ready-for-integration",
+  "validation": {
+    "tests": "cargo test --offline --locked -p susi-vendor-chrome",
+    "passed": 6,
+    "failed": 0,
+    "ignored": 0,
+    "test_seconds": 15.37,
+    "clippy": "cargo clippy --offline --locked -p susi-vendor-chrome --all-targets -- -D warnings: exit 0",
+    "lockfile_handoff": "Parent adds susi-vendor-sysinfo under susi-vendor-chrome dependencies in Cargo.lock"
+  }
+}
