@@ -1,15 +1,16 @@
 # Agent-operated local Windows channels
 
-Agents can build, install and exercise Susi without waiting for GitHub. From
-their own warm worktree, run `scripts/susi-local.ps1`. The default `Build`
-action uses the existing incremental development profile and installs under
-`%LOCALAPPDATA%/SusiLocal/dev`; it never replaces the public production install.
-`-Channel production` uses an optimized local build and a separate local
-production installation. Neither channel needs a release tag or remote CI.
-It keeps inference dependencies optimized at O3 and optimizes Susi at O1 using
-process-local Cargo development-profile overrides. Incremental compilation,
-debug assertions, overflow checks and line backtraces remain enabled; this is
-distinct from the public release profile. Whole-program LTO is disabled. Cargo
+Agents build development executables with `cargo local-build debug` in a
+reserved worktree. For production, `cargo local-release qualify` verifies the
+accepted integration head and returns the release ID. Agents promote the
+qualified ID with `cargo local-release promote <id>`, launch it with
+`cargo local-release run`, and restore its verified predecessor with
+`cargo local-release rollback`. Use `cargo local-release status` to inspect
+both release IDs. These commands work locally.
+
+The legacy Windows helper `scripts/susi-local.ps1` supports the development
+channel only. Its default `Build` action installs the incremental development
+executable under `%LOCALAPPDATA%/SusiLocal/dev`. Whole-program LTO is disabled. Cargo
 fingerprints the optimization differences while reusing unchanged dependencies
 in the same worktree cache, without duplicating the target directory. This warm
 incremental path invokes rustc directly, independently of a shared compiler-cache
@@ -22,8 +23,8 @@ in a fresh temporary workspace. Both the visible answer and the governed mission
 record must contain the fixture's random content. Failure leaves the current
 channel intact. Evidence stays in the printed temporary directory.
 
-`-Action Run` launches the activated channel with its own Susi home and port
-offset (development 200, local production 300). `-SusiArgs` passes arguments to
+`-Action Run` launches the development channel with its own Susi home and port
+offset 200. `-SusiArgs` passes arguments to
 that executable. `-Action Rollback` selects the previous installed build without
 recompilation; `-Action Status` shows the activation record. Agents operate these
 commands; the CEO supplies goals. Build and rollback refuse activation while
