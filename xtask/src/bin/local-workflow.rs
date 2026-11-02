@@ -592,6 +592,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_BUILD_TARGET_DIR", &target)
             .env("CARGO_BUILD_BUILD_DIR", &target)
+            // Evidence logs are parsed; hosted CI exports CARGO_TERM_COLOR=always.
+            .env("CARGO_TERM_COLOR", "never")
             // Host compiler wrappers may consult non-hermetic user-profile
             // configuration or run a shared daemon. The local gate is self-contained.
             .env("RUSTC_WRAPPER", "")
