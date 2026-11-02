@@ -154,7 +154,9 @@ impl PromptFormat {
             Self::Llama3 => format!(
                 "<|start_header_id|>system<|end_header_id|>\n\nYou are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
             ),
-            Self::Gemma => format!("<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"),
+            Self::Gemma => {
+                format!("<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n")
+            }
             Self::Mistral => format!("[INST] {prompt} [/INST]"),
             Self::Raw => prompt.to_string(),
         }
@@ -269,10 +271,10 @@ impl InferenceHost {
     /// Current admitted weights on the device and KV budget inference would
     /// request. This is stronger than a diagnostic snapshot or filename match.
     pub(crate) fn model_is_reusable(path: &Path) -> bool {
-        if !ModelManager::admitted_local_path(path) {
+        let Some(verified) = ModelManager::admitted_local_weights(path) else {
             return false;
-        }
-        let Ok(metadata) = path.metadata() else {
+        };
+        let Ok(metadata) = verified.metadata() else {
             return false;
         };
         let device = HardwareProfiler::get_dynamic_device(
@@ -281,7 +283,7 @@ impl InferenceHost {
         let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
-        Self::cache().is_reusable(path, &device, kv_capacity)
+        Self::cache().is_reusable_admitted(path, &device, kv_capacity, &verified)
     }
 
     /// Background loop: unload models idle longer than
@@ -469,31 +471,43 @@ impl InferenceHost {
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
         // Cache hits do not waive current publisher/license admission.
-        ModelManager::verify_model_integrity(model_path)?;
+        let verified = ModelManager::open_verified_model(model_path)?;
         Self::make_room(model_path, device);
-        Self::cache().get_or_load(model_path, device, kv_capacity, |path| {
-            if task_handle.is_cancelled() {
-                return Err(susi_gemi_models::susi_error::EaiError::inference(
-                    "Model loading cancelled",
-                ));
-            }
-            if !ModelManager::cold_load_fits_memory(path) {
-                return Err(susi_gemi_models::susi_error::EaiError::inference(
-                    "Insufficient current memory for a new model allocation; cached residency changed",
-                ));
-            }
-            let model = Self::load_model(path, device, kv_capacity)?;
-            if task_handle.is_cancelled() {
-                return Err(susi_gemi_models::susi_error::EaiError::inference(
-                    "Model loading cancelled",
-                ));
-            }
-            Ok(model)
-        })
+        Self::cache().get_or_load_admitted(
+            (model_path, verified),
+            device,
+            kv_capacity,
+            |path, artifact| {
+                if task_handle.is_cancelled() {
+                    return Err(susi_gemi_models::susi_error::EaiError::inference(
+                        "Model loading cancelled",
+                    ));
+                }
+                if !ModelManager::cold_load_fits_memory(path) {
+                    return Err(susi_gemi_models::susi_error::EaiError::inference(
+                        "Insufficient current memory for a new model allocation; cached residency changed",
+                    ));
+                }
+                // The original cold-load boundary checks the current publisher
+                // receipt again. Decode only its verified stream for this cache key.
+                let current = ModelManager::open_verified_model(path)?;
+                if current.digest() != artifact.digest() {
+                    return Err(EaiError::inference("Model changed during load; retry the request"));
+                }
+                let model = Self::load_model(path, current.into_decoder_reader()?, device, kv_capacity)?;
+                if task_handle.is_cancelled() {
+                    return Err(susi_gemi_models::susi_error::EaiError::inference(
+                        "Model loading cancelled",
+                    ));
+                }
+                Ok(model)
+            },
+        )
     }
 
     fn load_model(
         model_path: &Path,
+        mut file: impl std::io::Read + std::io::Seek,
         device: &candle_core::Device,
         kv_cache_capacity: usize,
     ) -> EaiResult<ModelSubstrate> {
@@ -512,17 +526,7 @@ impl InferenceHost {
         pb.set_message("Loading weights...");
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        // Integrity Verification
-        ModelManager::verify_model_integrity(model_path)?;
-
-        let mut file = std::fs::File::open(model_path).map_err(|e| {
-            EaiError::inference(format!(
-                "Failed to open weights {}: {}",
-                model_path.display(),
-                e
-            ))
-        })?;
-
+        // Parse the exact handle whose publisher receipt and bytes were admitted.
         let mut model_data = ModelManager::read_gguf_metadata(&mut file)
             .map_err(|e| EaiError::inference(format!("GGUF Metadata Error: {}", e)))?;
 

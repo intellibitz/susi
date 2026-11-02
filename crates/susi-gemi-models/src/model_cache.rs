@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 use susi_vendor_candle::candle_core::Device;
+use susi_vendor_models::model_license::VerifiedArtifact;
 
 #[derive(Debug, PartialEq, Eq)]
 struct SidecarVersion {
@@ -83,6 +84,7 @@ impl ModelVersion {
 
 struct Entry<T> {
     version: ModelVersion,
+    admitted_digest: Option<String>,
     device: Device,
     kv_capacity: usize,
     loaded_at: SystemTime,
@@ -171,6 +173,24 @@ impl<T> ModelCache<T> {
     /// exact inputs. Loading, obsolete files and a different runtime budget
     /// are not residency evidence. Observation never waits for a model load.
     pub fn is_reusable(&self, path: &Path, device: &Device, kv_capacity: usize) -> bool {
+        self.reusable_with_digest(path, device, kv_capacity, None)
+    }
+    pub fn is_reusable_admitted(
+        &self,
+        path: &Path,
+        device: &Device,
+        kv_capacity: usize,
+        artifact: &VerifiedArtifact,
+    ) -> bool {
+        self.reusable_with_digest(path, device, kv_capacity, Some(artifact.digest()))
+    }
+    fn reusable_with_digest(
+        &self,
+        path: &Path,
+        device: &Device,
+        kv_capacity: usize,
+        digest: Option<&str>,
+    ) -> bool {
         let Ok(path) = path.canonicalize() else {
             return false;
         };
@@ -185,6 +205,7 @@ impl<T> ModelCache<T> {
         };
         guard.as_ref().is_some_and(|entry| {
             entry.version == version
+                && digest.is_none_or(|digest| entry.admitted_digest.as_deref() == Some(digest))
                 && entry.device.same_device(device)
                 && entry.kv_capacity == kv_capacity
         })
@@ -272,12 +293,34 @@ impl<T> ModelCache<T> {
         kv_capacity: usize,
         load: impl FnOnce(&Path) -> EaiResult<T>,
     ) -> EaiResult<Arc<RwLock<T>>> {
+        self.get_or_load_with_digest((path, None), device, kv_capacity, load)
+    }
+    pub fn get_or_load_admitted(
+        &self,
+        (path, artifact): (&Path, VerifiedArtifact),
+        device: &Device,
+        kv_capacity: usize,
+        load: impl FnOnce(&Path, VerifiedArtifact) -> EaiResult<T>,
+    ) -> EaiResult<Arc<RwLock<T>>> {
+        let digest = artifact.digest().to_owned();
+        self.get_or_load_with_digest((path, Some(&digest)), device, kv_capacity, move |path| {
+            load(path, artifact)
+        })
+    }
+    fn get_or_load_with_digest(
+        &self,
+        (path, digest): (&Path, Option<&str>),
+        device: &Device,
+        kv_capacity: usize,
+        load: impl FnOnce(&Path) -> EaiResult<T>,
+    ) -> EaiResult<Arc<RwLock<T>>> {
         let path = path.canonicalize()?;
         let slot = self.slots.lock().entry(path.clone()).or_default().clone();
         let mut entry = slot.lock();
         let version = ModelVersion::read(&path)?;
         if let Some(cached) = entry.as_mut() {
             if cached.version == version
+                && cached.admitted_digest.as_deref() == digest
                 && cached.device.same_device(device)
                 && cached.kv_capacity == kv_capacity
             {
@@ -296,6 +339,7 @@ impl<T> ModelCache<T> {
         }
         let value = Arc::new(RwLock::new(value));
         *entry = Some(Entry {
+            admitted_digest: digest.map(str::to_owned),
             version,
             device: device.clone(),
             kv_capacity,
@@ -335,6 +379,23 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
         }
+    }
+
+    #[test]
+    fn authenticated_byte_digest_is_part_of_resident_identity() {
+        let file = Fixture::new();
+        let cache = ModelCache::default();
+        let original = cache
+            .get_or_load_with_digest((&file.0, Some("original")), &Device::Cpu, 32, |_| Ok(1))
+            .unwrap();
+        assert!(cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("original")));
+        assert!(!cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("replacement")));
+        let updated = cache
+            .get_or_load_with_digest((&file.0, Some("replacement")), &Device::Cpu, 32, |_| Ok(2))
+            .unwrap();
+        assert_eq!(*original.read(), 1);
+        assert_eq!(*updated.read(), 2);
+        assert!(cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("replacement")));
     }
 
     #[test]

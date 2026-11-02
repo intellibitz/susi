@@ -1,0 +1,357 @@
+{
+  "schema": "susi/qualified-windows-release-proof/v2",
+  "recorded_utc": "2026-11-02T18:05:20.1604173Z",
+  "release": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+  "version": "0.21.43",
+  "previous": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+  "previous_version": "0.21.42",
+  "manifest": {
+    "source": "bdccb2c75841bc9e810b9f6301d8f08fbf599d28",
+    "tree": "3d6404632a9f3948ad1317c570d677ff7f5dc6de",
+    "artifact-sha256": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+    "artifact-bytes": "53535744",
+    "host": "x86_64-pc-windows-msvc",
+    "integration-receipt": "59760847517cb1ff51bc59233737b2b8d8a4fa96",
+    "lock-sha256": "78e292345b7817a1981a475148e86275ad95763cfb9aa460049cfe2d03f8a311",
+    "compiler-sha256": "5477f9bad65b15c4c5b31fc050fc72feba651ea1b330bc75cf356a4d6b0fbc80",
+    "gates-sha256": "c19666becea7a3d1c6a45fec3cb03cbe03395cb4fa66805e6e1ea96194f83fb6",
+    "sbom-sha256": "e15d23a3e9b22ddafefb1e77d9620756fc17b390112a75a4f561f81f9ad1e923",
+    "notices-sha256": "02b0814e904a9a57eb254534f3494056d43d392ac7e63ff15d52639f4e95a31d",
+    "native-audit-sha256": "14ac6373fa2b8302705ef678fc61480378005d022271edfcdeadce675dc485b7"
+  },
+  "qualification": {
+    "accepted_source": "bdccb2c75841bc9e810b9f6301d8f08fbf599d28",
+    "accepted_tree": "3d6404632a9f3948ad1317c570d677ff7f5dc6de",
+    "workspace_tests_on_integrated_tree": 4242,
+    "integrated_attempt": "version43-1102-1793637334477444900-28120",
+    "qualifying_attempt": "qualify-1793640327563700700-41828",
+    "original_failed_attempt": "qualify-1793638873608413900-49944",
+    "original_failure": "The detached worker finished 20 Git children in 20.574 seconds after the 15-second fixture deadline. The first attempt failed. A fresh full run on the identical source passed every unchanged gate.",
+    "compiler_helper_sha256": "60610421f6c2bb1569b35f079ede682ff8c3748751c65999f9ae90a6123b0f1b",
+    "release_package_hashes": {
+      "manifest.txt": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+      "susi.exe": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+      "gates.txt": "c19666becea7a3d1c6a45fec3cb03cbe03395cb4fa66805e6e1ea96194f83fb6",
+      "sbom.json": "e15d23a3e9b22ddafefb1e77d9620756fc17b390112a75a4f561f81f9ad1e923",
+      "native-source-audit.txt": "14ac6373fa2b8302705ef678fc61480378005d022271edfcdeadce675dc485b7",
+      "THIRD-PARTY-NOTICES.txt": "02b0814e904a9a57eb254534f3494056d43d392ac7e63ff15d52639f4e95a31d"
+    },
+    "final_pe_link_records": [
+      {
+        "executable": "susi.exe",
+        "artifact_sha256": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+        "link_map_sha256": "74d50295b71dacc5480ae9798c4d70fbbd6e3bd71480683c3eeb373e8a9acf45",
+        "entry": "0x0000000142303ce0",
+        "imports": 21
+      },
+      {
+        "executable": "xtask.exe",
+        "artifact_sha256": "621c1628ed78efd6c68e20a49b9ddc5a5f8a2e8c300fc91f6471a19a31fb3742",
+        "link_map_sha256": "1a7279cddb2912377848e88050cbd9dab27dec52883ad71e9c8b9a95cf2b7943",
+        "entry": "0x0000000140037380",
+        "imports": 8
+      },
+      {
+        "executable": "local-workflow.exe",
+        "artifact_sha256": "5d4a3c1f996e6374f6f9653222c2f6b2244ee7583b889710a1c5acc9ef8a191b",
+        "link_map_sha256": "1377af7a982a68b814b4894e3e086d58e4caf293874b3d6bacab5607e51d1c86",
+        "entry": "0x000000014006ea90",
+        "imports": 8
+      },
+      {
+        "executable": "local-release.exe",
+        "artifact_sha256": "2c6ba7a06a66aebd19179c3008d09af7895ebb07479745abd38a7fde49abd75d",
+        "link_map_sha256": "340de0c9004b9e2805f0e6217de1371f0e950cc85528ef8394b1945b55b8d7d0",
+        "entry": "0x00000001400bee90",
+        "imports": 15
+      },
+      {
+        "executable": "ci-release-only.exe",
+        "artifact_sha256": "b297fd9acd568869f86d8c4fe248c2a81208af06f7a31bcf317760f76c313ab4",
+        "link_map_sha256": "a7c1e35ad64af3a13f1172c0d71deafd423036a7e31bb2aceb4a02985d849fa1",
+        "entry": "0x0000000140030c80",
+        "imports": 8
+      },
+      {
+        "executable": "susi-dev.exe",
+        "artifact_sha256": "43f80b47c9328bd7c17a51eb1b7f69d696318180bb87b0d5a3b3d830c7641221",
+        "link_map_sha256": "b980955d3be7695261c4a4f104a4748261fed943d21bf5ff110edb1dee762878",
+        "entry": "0x00000001400518a0",
+        "imports": 8
+      }
+    ],
+    "sysroot": {
+      "archives": 20,
+      "authenticated_source_manifest_sha256": "69e2c2f4f1fba1beb84de48483fb5c41e7d1d1d10d8c85ade87c92dd53bbf857",
+      "admitted_build_evidence_sha256": "ca8e5ade5cd0b3d480ab5851ae6452033d7c9d410f7e7d50da0141cceffe6bbe",
+      "failed_attempt_build_evidence_sha256": "d951af682b82eb5fd9f26817e5663d1c94fb7113e213a7508901defc0b79f59d",
+      "different_archives_between_runs": 20,
+      "qualification_boundary": "The executed archives and embedded maps are hash-bound to this build. Separate builds produced different archive bytes. Complete byte-for-byte reproducibility across builds remains open."
+    }
+  },
+  "fresh_guest": {
+    "task": "production-e-f1601b724b43",
+    "clean_user_state": true,
+    "empty_model_cache": true,
+    "visible_ram_kib": 8387520,
+    "single_monotonic_install_clock": [
+      {
+        "phase": "install",
+        "event": "start",
+        "ms_from_start_of_install": 0
+      },
+      {
+        "phase": "install",
+        "event": "end",
+        "ms_from_start_of_install": 7313
+      },
+      {
+        "phase": "ordinary-path",
+        "event": "start",
+        "ms_from_start_of_install": 7617
+      },
+      {
+        "phase": "ordinary-path",
+        "event": "end",
+        "ms_from_start_of_install": 7895
+      },
+      {
+        "phase": "ordinary-version",
+        "event": "start",
+        "ms_from_start_of_install": 7940
+      },
+      {
+        "phase": "ordinary-version",
+        "event": "end",
+        "ms_from_start_of_install": 8183
+      },
+      {
+        "phase": "inference",
+        "event": "start",
+        "ms_from_start_of_install": 8187
+      },
+      {
+        "phase": "inference",
+        "event": "promptMs",
+        "ms_from_start_of_install": 8718
+      },
+      {
+        "phase": "inference",
+        "event": "firstMs",
+        "ms_from_start_of_install": 56899
+      },
+      {
+        "phase": "inference",
+        "event": "secondMs",
+        "ms_from_start_of_install": 58875
+      },
+      {
+        "phase": "inference",
+        "event": "end",
+        "ms_from_start_of_install": 58974
+      }
+    ],
+    "timing_notes": "PATH resolution and version probes ran between installation and the shell. Download timing runs from the first download notice to the completion notice and includes transfer and product work inside that interval.",
+    "shell_elapsed_ms": 50787,
+    "shell_prompt_ms": 530,
+    "first_answer_ms": 48711,
+    "second_answer_ms": 50688,
+    "public_download_notice_ms": 2423,
+    "public_download_completed_ms": 46724,
+    "public_download_interval_ms": 44301,
+    "foreground_sampled_peak_bytes": 1048117248,
+    "model_generation_ms": [
+      772,
+      1233
+    ],
+    "generated_tokens": [
+      8,
+      22
+    ],
+    "goals": [
+      {
+        "goal": "What is 2+2?",
+        "outcome": "SUCCESS",
+        "tools_count": 0
+      },
+      {
+        "goal": "Write one short sentence about a red kite.",
+        "outcome": "SUCCESS",
+        "tools_count": 0
+      }
+    ],
+    "observed_versions": [
+      "0.21.43",
+      "0.21.42",
+      "0.21.43"
+    ],
+    "installed_files": 13,
+    "logical_bytes": 165994526,
+    "distinct_installed_bytes": 112458782,
+    "surviving_product_processes": 0,
+    "forced_stops": 0,
+    "original_hashes": {
+      "acceptance.json": "e20ef1fd66372937dbd9d43b98cb9ecdf986aa54670f569fd47fc9b4e08e6ede",
+      "installed-journey-clock.tsv": "cc7be83ed918cfb7997ac107cc87b4b5823aaec8e7d47b9d3c0a0e52ee148335",
+      "inference-stream-clock.tsv": "114c48f4674cfa1c750073424162e2e878eb11b7aeaae8f17276952bf862a8fe",
+      "ordinary.json": "3507138f7c8cc57b991c2088fe70bef101afcfd5230439629b2321fb153e7f59",
+      "cleanup.json": "b255221603f8defd6f00ad23b13808730fb5287edf00c62b66f60805519cffce",
+      "mission_traces.jsonl": "0210256a334f454afc793391986fe212caa0bd025a95f80cadc999ec0f9d39c6",
+      "last_mission_trace.json": "fca51aaf24905027c16f8993648a2b810e529cb0f44bd3db3d69972913a48107",
+      "inference.metrics.json": "b4504b79c58a4adbce14456c46d57ee8de082362267917c2e219b14be6995f4d",
+      "inference.stdout": "f743399c26b2f2b1fffe6dfa72012bc28128137336dc62d3290a93dd33f0ffe5",
+      "inference.stderr": "d6ab4866164ec9450a91de544c38c3abd90464fc74dd25fadb16bb88c002d0f7",
+      "ordinary-path.stdout": "4136ba6e43a7cdb2f50415a2eb0aaf3158d0b6b62542387df00c02f66cc7a0e1",
+      "rollback-version.stdout": "8c53ac047d84bcfc862230472ef63509b8734818bf9c1a7d26ead7e1bfea92af",
+      "final-version.stdout": "7eb9df3b6f152dbb22fa38bba2cdb256ccba03ce2f030af71023477d7f7a1dd4",
+      "shortcut.stdout": "5c2fc87804ac612cea0676121ba27d86815c2ed7627ae1159e881644bfcb592c"
+    }
+  },
+  "standalone_host": {
+    "boundary": "A limited Task Scheduler interactive user process outside Codex performed native managed promotion, rollback, restoration and ordinary installation.",
+    "scheduler_receipt_sha256": "bad9d4372694d2b214df8e08b5ad76ff9b5ec31af6104e89d7bc87cc9e592f1f",
+    "terminal_receipt_sha256": "2555b08eeebc9a597beb74ac02839c98bdb14dab21dfde83fc9f648350a06092",
+    "task_last_result": 0,
+    "managed_transitions": [
+      {
+        "phase": "prior",
+        "current_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "current_object": "3a56872832073f96874c6e3e9e616b1ec0875217",
+        "previous_object": "68627c7a3b00a0b9e3d9258796f686997d688bb1",
+        "original_receipt_sha256": "09b9a25e017118d7fbc4be6800f76a1a90cad4463a42a3fd81cbf517a489a2d2"
+      },
+      {
+        "phase": "promote",
+        "current_release": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+        "current_object": "199a8d5440549be27722c1773954d11340d8a4e4",
+        "previous_object": "3a56872832073f96874c6e3e9e616b1ec0875217",
+        "original_receipt_sha256": "eeda2b087fee8fc39cba7a1420d28d9b0c4aa130a421b7be8cb66dd9fae109a6"
+      },
+      {
+        "phase": "rollback",
+        "current_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "current_object": "3a56872832073f96874c6e3e9e616b1ec0875217",
+        "previous_object": "199a8d5440549be27722c1773954d11340d8a4e4",
+        "original_receipt_sha256": "44140d6001a165119d34e3d14c454d324ab19d8a75773584bea5ad03ffa069cf"
+      },
+      {
+        "phase": "restore",
+        "current_release": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+        "current_object": "199a8d5440549be27722c1773954d11340d8a4e4",
+        "previous_object": "3a56872832073f96874c6e3e9e616b1ec0875217",
+        "original_receipt_sha256": "75ba9ab903f87fcd0bd21fe9efeef601213e61c716f0d1715f19e70c3b2da149"
+      },
+      {
+        "phase": "final",
+        "current_release": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+        "current_object": "199a8d5440549be27722c1773954d11340d8a4e4",
+        "previous_object": "3a56872832073f96874c6e3e9e616b1ec0875217",
+        "original_receipt_sha256": "44987099a73b5350fbb555f7fcd7fde5fcb5dc2ac3505a7922192578c326aced"
+      }
+    ],
+    "ordinary_phases": [
+      {
+        "phase": "real-current",
+        "release": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+        "version": "0.21.43",
+        "slot_sha256": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+        "first_effective_path_is_installed_entry": true,
+        "shortcut_opened_shell": true,
+        "source_hashes": {
+          "where.stdout": "2fa3b1f358ae2283c4dc092239a39cf866cb6311a7cea75dcfefcfb11da8dfea",
+          "version.stdout": "7eb9df3b6f152dbb22fa38bba2cdb256ccba03ce2f030af71023477d7f7a1dd4",
+          "status.stdout": "c83e50cc0cc6e297545005b68e5e7e8875394fb996d8cba7be4b6ed493667142",
+          "shortcut.stdout": "796e3bffe71eda754396aa4ad8afc6aebda87320c89bf5b7b3fbd3554734006f",
+          "verified.json": "10a1bebded028b54ca2362277647907593b4afcac0dbbcce721d24d30deadff0"
+        }
+      },
+      {
+        "phase": "real-rollback",
+        "release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "version": "0.21.42",
+        "slot_sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+        "first_effective_path_is_installed_entry": true,
+        "shortcut_opened_shell": true,
+        "source_hashes": {
+          "where.stdout": "2fa3b1f358ae2283c4dc092239a39cf866cb6311a7cea75dcfefcfb11da8dfea",
+          "version.stdout": "8c53ac047d84bcfc862230472ef63509b8734818bf9c1a7d26ead7e1bfea92af",
+          "status.stdout": "6f03ebeb71b4626fccc94a320d84a9a6fff9347afc6dd1cae1634ccbe267c77e",
+          "shortcut.stdout": "5293cd943728b3ea86549ebc25896eb78786737a7600dc444ff79dc7fbc52d95",
+          "verified.json": "3c127b8e368de97564da582f17088592409ca8efdd09907cc1c6f11088d0450f"
+        }
+      },
+      {
+        "phase": "real-restored",
+        "release": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+        "version": "0.21.43",
+        "slot_sha256": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+        "first_effective_path_is_installed_entry": true,
+        "shortcut_opened_shell": true,
+        "source_hashes": {
+          "where.stdout": "2fa3b1f358ae2283c4dc092239a39cf866cb6311a7cea75dcfefcfb11da8dfea",
+          "version.stdout": "7eb9df3b6f152dbb22fa38bba2cdb256ccba03ce2f030af71023477d7f7a1dd4",
+          "status.stdout": "c83e50cc0cc6e297545005b68e5e7e8875394fb996d8cba7be4b6ed493667142",
+          "shortcut.stdout": "796e3bffe71eda754396aa4ad8afc6aebda87320c89bf5b7b3fbd3554734006f",
+          "verified.json": "e17fc52ed9b302bfb3123ff8515294155de9fe3eb377715eff8bde84d57a6d14"
+        }
+      }
+    ],
+    "original_processes_preserved": 6,
+    "legacy_executable_preserved": true,
+    "recorder_history": "The controller first marshalled the rollback argument incorrectly. Its rejected command changed no release. Explicit rollback then passed. A terminal observer mixed live and serialized CIM timestamps after resuming. A fresh standalone task compared normalized before, after and final snapshots, checked each original phase, and verified the final release.",
+    "independent_s4u": {
+      "execution": "Separate limited S4U scheduled process under the same actual Windows user outside Codex",
+      "observed_bare_executable": "susi.exe",
+      "observed_version": "0.21.43",
+      "actual_first_path_match": "LocalAppData/SusiLocal/production/entry/susi.exe",
+      "verified_management_status": true,
+      "current": "e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7",
+      "previous": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+      "sha256": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+      "original_receipt_sha256": "ce9eb0526ec34a7c3ac29c904aca0cc6b0aa45781dbb679c8498fd2ec6ef73a0",
+      "observer_correction": "The independent observer checked the first PATH match, then invoked bare susi.exe."
+    }
+  },
+  "matched_cached_host": {
+    "model_sha256": "7671C0C304E6CE5A7FC577BCB12ABA01E2C155CC2EFD29B2213C95B18EDAF6ED",
+    "prompt_ms": 59.84,
+    "goals": [
+      {
+        "goal": "What is 2+2?",
+        "acknowledged_ms": 0.22,
+        "complete_answer_ms": 4443.81,
+        "read_bytes": 884286278
+      },
+      {
+        "goal": "What is 2+2?",
+        "acknowledged_ms": 0.32,
+        "complete_answer_ms": 2079.22,
+        "read_bytes": 436406754
+      },
+      {
+        "goal": "What is 3+4?",
+        "acknowledged_ms": 0.91,
+        "complete_answer_ms": 2254.49,
+        "read_bytes": 436407644
+      },
+      {
+        "goal": "Write one short sentence about a red kite.",
+        "acknowledged_ms": 0.33,
+        "complete_answer_ms": 3208.84,
+        "read_bytes": 436408527
+      }
+    ],
+    "weight_loads": 1,
+    "surviving_processes": 0,
+    "timing_receipt_sha256": "769d58a0a4c23a1134a209f36d808b417e3de26979a74e4f23a266af9e32cec1",
+    "sealed_journey_ref": "refs/susi/private-evidence/step1/qualified-e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7/journey",
+    "sealed_journey_object": "c9fc29edcb9212d88ddc024f60860bfc23193b3f",
+    "sealed_peer_ref": "refs/susi/private-evidence/step1/qualified-e9dafc76b5a97ba5e91b5dd3009d02e9e360d7259133cde5fe707cfbd09371c7/mcp",
+    "sealed_peer_object": "d4d19fe95b45fdb5fa283da5ef62f9f8eda01ed8",
+    "prior_first_answer_ms": 12365.67,
+    "prior_repeated_answer_ms": 10278.24,
+    "prior_clean_guest_first_ms": 78857,
+    "prior_clean_guest_download_interval_ms": 54425
+  },
+  "scope": "Verifies the optimized .43 Windows release, its installed first goal, measured improvement, managed and ordinary rollback, and preservation of running processes. The fresh model download remains the dominant observed delay. Other Step 1 obligations remain open."
+}

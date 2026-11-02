@@ -1,0 +1,39 @@
+{
+  "id": "T-VERSION42-1",
+  "title": "Prepare and qualify the 0.21.42 local Windows successor",
+  "goal": "Verify the 12 version inputs move together, launch the authenticated executable from normal and deep Unicode Windows profiles, and qualify the accepted source with a fresh installed goal and verified rollback.",
+  "size": "m",
+  "deps": [
+    "T-CHANNELGUARD-1",
+    "T-BATCH1102-2"
+  ],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/t-version42-1.json",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml",
+    "readme.md",
+    "src/installed_channel/transaction.rs",
+    "tests/installed_windows_entry.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "installed_windows_entry"
+    ]
+  },
+  "created_by": "VERSION42",
+  "created_unix": 1793628815
+}

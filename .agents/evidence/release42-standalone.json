@@ -1,0 +1,86 @@
+{
+  "schema": "susi/qualified-release-host-supplement/v1",
+  "release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+  "previous": "7d34307299ec03877db10ef5106ae0564a95ea9b60fdd8c1c1f68030c1ee4112",
+  "artifact_sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+  "updates": ".agents/evidence/release42-windows.json",
+  "scope": "The earlier host observation ran inside the Codex application process tree. A separate ordinary Windows process demonstrated that those files were virtualized. The standalone observations below establish the actual host installation.",
+  "real_user": {
+    "entry_before": false,
+    "entry_after": true,
+    "legacy_binary_before_sha256": "4faa9d3d504ed8996bb0f0bb1cac02d38227dc24d3360f287256ce0effdb2765",
+    "legacy_binary_after_sha256": "4faa9d3d504ed8996bb0f0bb1cac02d38227dc24d3360f287256ce0effdb2765",
+    "expected_first_real_path": "LocalAppData/SusiLocal/production/entry/susi.exe",
+    "execution": "Windows Task Scheduler, current interactive user, limited run level, native Windows PowerShell parent independent of Codex",
+    "task_last_result": 0,
+    "phases": [
+      {
+        "phase": "real-first-E",
+        "version": "0.21.42",
+        "release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+        "shortcut_prompt_observed": true,
+        "first_PATH_match_was_installed_entry": true,
+        "source_receipt_sha256": "45bd8d3798c2c93b5a18ec836b5bc86d565fed076652a2bf0b9bd4e93f2644ca"
+      },
+      {
+        "phase": "real-rollback-D",
+        "version": "0.21.41",
+        "release": "7d34307299ec03877db10ef5106ae0564a95ea9b60fdd8c1c1f68030c1ee4112",
+        "sha256": "50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683",
+        "shortcut_prompt_observed": true,
+        "first_PATH_match_was_installed_entry": true,
+        "source_receipt_sha256": "72fb7c9048e4b8161047ae04532ec9d3bb9c9d662fb09e6eea4329c64206b77b"
+      },
+      {
+        "phase": "real-restored-E",
+        "version": "0.21.42",
+        "release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+        "sha256": "857fc6a57b58baf8d8f7a7d2b2ebcb9e454fe617fc597dc3479c1bc94c1aa73e",
+        "shortcut_prompt_observed": true,
+        "first_PATH_match_was_installed_entry": true,
+        "source_receipt_sha256": "108b5aee8723f7ca3d69197ddeb08081fb785fef76015a2ae5c5ba3a56c7447b"
+      }
+    ],
+    "initial_processes": 6,
+    "previous_processes_preserved": 6,
+    "receipt_sha256": "0442870092b147556ad355391ac380df7d38f8235e88d2db7b20546770165d0b",
+    "task_definition_sha256": "4913c04e292b24bf095d7addd13d9adc9987221bb8b7189212415c62a08343a2",
+    "pre_snapshot_sha256": "636a927dd724788f5ad6c31634c627197834e92f831015390703c434f306c2ab",
+    "post_snapshot_sha256": "18a737e2e0d36d0d9a2e86236d130fbd47deb94ed46b1c08cacd098ca118038d",
+    "terminal_receipt_sha256": "d2468a7321e73fd5b46fe164d66bba902eede956c4a318a4eddece361fa08201",
+    "independent_probe": {
+      "execution": "Separate same-account noninteractive S4U scheduled process outside Codex",
+      "observed_release_version": "0.21.42",
+      "susi_exit_code": 0,
+      "first_PATH_match_was_installed_entry": true,
+      "sanitized_receipt_sha256": "d326eeb031b9e7ad630271cb0840985d36463e2abce490ee9c2d78a94167e020"
+    }
+  },
+  "fresh_clean_guest_repeat": {
+    "task": "production-e-58c3182651c9",
+    "passed_original_recorder": true,
+    "acceptance_sha256": "312e64e18e7ce7516bb29559588f0056c6f1c654b4fe382d57afd0a7d23f575f",
+    "ordinary_sha256": "8b9311e2d883ec9725f4f3d9a4513faa50465257f0bb9dc8e0ed4432472c544d",
+    "cleanup_sha256": "9cb137ff3366d69d5e15ab430c54efccda3be1841db42272320fdb5b8250620b",
+    "stream_clock_sha256": "b2964d939db503a4e998ff86d463f91e1bad5e576c2def87c88125f7da04c42f",
+    "workspace_mission_traces_sha256": "0bcb19a29e224dcfbed692ef08ef9232779afd352cfe45438925d2b0f8b567ca",
+    "last_creative_trace_sha256": "f220c65aab7af78b7d9919a97897f4de1da3ddd3fe6f1fc76481f9fbad64a96e",
+    "fresh_prompt_ms": 728,
+    "download_notice_ms": 2920,
+    "download_complete_ms": 57345,
+    "user_visible_download_ms": 54425,
+    "first_answer_ms": 78857,
+    "second_answer_ms": 114568,
+    "foreground_peak_bytes": 1042292736,
+    "real_candle_generations": 2,
+    "survivors": 0,
+    "observed_versions": [
+      "0.21.42",
+      "0.21.41",
+      "0.21.42"
+    ],
+    "distinct_installed_bytes": 111646846
+  },
+  "conclusion": "E is the final managed and installed release. D remains the previous qualified package. Existing interactive shells retain inherited environments. This receipt verifies Windows production operations; the first local answer latency remains open."
+}

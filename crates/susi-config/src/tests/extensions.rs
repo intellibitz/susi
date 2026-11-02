@@ -258,7 +258,121 @@ fn resolve_pack_path_jails_escapes_without_filesystem_read() {
             id: "jailbreak".into(),
             root: dir,
         };
-        assert!(resolve_pack_path(&pack, "loot").is_none());
+        let manifest: ExtensionManifest =
+            serde_json::from_slice(&std::fs::read(pack.root.join("manifest.json")).unwrap())
+                .unwrap();
+        assert!(resolve_pack_path(&pack, &manifest, "loot").is_none());
+    });
+}
+
+#[test]
+fn external_manifest_must_parse_and_match_the_directory_even_when_forced() {
+    with_temp_home(|| {
+        let root = extensions_root().join("external");
+        private_dir(&root).unwrap();
+        for body in ["{", r#"{"id":"default","name":"External","version":"1"}"#] {
+            write_private_file(&root.join("manifest.json"), body).unwrap();
+            assert!(load_pack("external").is_err());
+            assert!(readmit_pack("external").is_err());
+            let mut env = susi_paths::test_env::EnvGuard::isolated();
+            env.set("SUSI_EXTENSION_PACK", "external");
+            assert_eq!(active_pack().id, "default");
+            assert!(!list_packs().iter().any(|p| p.id == "external" && p.loaded));
+        }
+        for id in [
+            "../external",
+            "..\\external",
+            "C:elsewhere",
+            "CON",
+            "hidden.",
+            "data:stream",
+        ] {
+            assert!(create_pack(id).is_err());
+            assert!(load_pack(id).is_err());
+            assert!(readmit_pack(id).is_err());
+        }
+    });
+}
+
+#[test]
+fn external_pack_consumes_only_declared_bytes_even_with_a_shadowing_direct_file() {
+    with_temp_home(|| {
+        let root = extensions_root().join("external");
+        private_dir(&root).unwrap();
+        let manifest = |files: &str| {
+            format!(r#"{{"id":"external","name":"External","version":"1","files":{files}}}"#)
+        };
+        let overlay = r#"[{"id":"shadow","aliases":["shadow"],"api_key_env":"SHADOW_KEY"}]"#;
+        write_private_file(&root.join("cloud-vendors.json"), overlay).unwrap();
+        write_private_file(&root.join("manifest.json"), &manifest("{}")).unwrap();
+        load_pack("external").unwrap();
+        assert!(pack_file("cloud-vendors.json").is_none());
+        assert!(!load_cloud_vendors().iter().any(|v| v.id == "shadow"));
+
+        let declared = root.join("catalogs/vendors.json");
+        write_private_file(&declared, &overlay.replace("shadow", "declared")).unwrap();
+        write_private_file(
+            &root.join("manifest.json"),
+            &manifest(r#"{"cloud-vendors.json":"catalogs/vendors.json"}"#),
+        )
+        .unwrap();
+        readmit_pack("external").unwrap();
+        assert_eq!(load_cloud_vendors()[0].id, "declared");
+        assert!(pack_file("../external/cloud-vendors.json").is_none());
+        write_private_file(&declared, overlay).unwrap();
+        assert!(!load_cloud_vendors()
+            .iter()
+            .any(|v| v.id == "declared" || v.id == "shadow"));
+        assert!(list_packs()
+            .iter()
+            .any(|p| p.id == "external" && p.quarantined));
+    });
+}
+
+#[cfg(any(windows, unix))]
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires the Windows symlink privilege or Developer Mode"
+)]
+fn external_pack_cannot_read_through_a_redirected_directory_or_file() {
+    #[cfg(unix)]
+    use std::os::unix::fs::{symlink as symlink_dir, symlink as symlink_file};
+    #[cfg(windows)]
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+    with_temp_home(|| {
+        private_dir(&extensions_root()).unwrap();
+        let outside = extensions_root().parent().unwrap().join("other");
+        private_dir(&outside).unwrap();
+        let root = extensions_root().join("external");
+        let body = r#"{"id":"external","name":"External","version":"1","permissions":["filesystem.read"],"files":{"x":"data"}}"#;
+        write_private_file(&outside.join("manifest.json"), body).unwrap();
+        write_private_file(&outside.join("data"), "[]").unwrap();
+        symlink_dir(&outside, &root).unwrap();
+        assert!(load_pack("external").is_err());
+        #[cfg(unix)]
+        std::fs::remove_file(&root).unwrap();
+        #[cfg(windows)]
+        std::fs::remove_dir(&root).unwrap();
+        private_dir(&root).unwrap();
+        write_private_file(&root.join("manifest.json"), body).unwrap();
+        symlink_file(outside.join("data"), root.join("data")).unwrap();
+        assert!(load_pack("external").is_err());
+    });
+}
+
+#[test]
+fn external_pack_with_permission_can_use_an_explicit_relative_mapping() {
+    with_temp_home(|| {
+        let root = extensions_root().join("external");
+        private_dir(&root).unwrap();
+        write_private_file(&root.join("manifest.json"), r#"{"id":"external","name":"External","version":"1","permissions":["filesystem.read"],"files":{"data":"../shared.json"}}"#).unwrap();
+        write_private_file(&extensions_root().join("shared.json"), r#"["declared"]"#).unwrap();
+        load_pack("external").unwrap();
+        assert_eq!(
+            load_json_or_bundled::<Vec<String>>("data", "[]"),
+            ["declared"]
+        );
     });
 }
 

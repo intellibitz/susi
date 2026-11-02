@@ -129,6 +129,9 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                 susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
                     .map_err(|e| anyhow::anyhow!("{e}"))?
             } else {
+                // This control-plane command returns before normal CLI composition.
+                // A registered stdio server needs the tools plane to dispatch.
+                susi_daemon::composition::wire_plane_handlers();
                 susi_gmcp::direct_call::call_tool_direct(&addr, &tool, &arguments, workspace)
                     .map_err(|e| anyhow::anyhow!("{e}"))?
             };
@@ -244,10 +247,23 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         McpCommands::Setup { server } => {
             let manager = LeadingMcpManager::new(workspace)?;
             let def = manager.effective(&server)?;
+            let credentials = if def.env_keys.is_empty() {
+                "This peer declares no credential variables.".to_string()
+            } else {
+                format!(
+                    "This peer requires authorization to supply {}.",
+                    def.env_keys.join(", ")
+                )
+            };
+            let instructions = format!(
+                "Susi serves MCP natively with `susi mcp serve`. The optional `{id}` peer uses the configured launcher `{runner}`. {credentials} An agent can check readiness with `susi mcp doctor {id}` and register it with `susi mcp enable {id}`.",
+                id = def.id,
+                runner = def.runner,
+            );
             print_json(&serde_json::json!({
                 "server": def,
                 "enabled": manager.is_enabled(&def.id)?,
-                "instructions": "Install Node (npx), Docker (for GitHub MCP), and/or uv (uvx). Top 5: filesystem, github, context7, browser (Playwright; also chrome-devtools), sentry (SENTRY_ACCESS_TOKEN). Set env_keys as needed (GITHUB_PERSONAL_ACCESS_TOKEN, SENTRY_ACCESS_TOKEN, BRAVE_API_KEY, …). Run doctor, then enable to write ~/.susi/mcp_config.json. Override argv/runner with configure. No packages or credentials are provisioned implicitly."
+                "instructions": instructions
             }))?;
             Ok(false)
         }

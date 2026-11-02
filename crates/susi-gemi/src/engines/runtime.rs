@@ -269,6 +269,7 @@ impl GemiEngine {
         requires: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
+        let _model_reads = crate::models::ModelReadWindow::enter();
         if allow_reflex {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
