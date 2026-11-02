@@ -43,5 +43,6 @@ pub mod hardware;
 pub mod intent;
 mod lifecycle;
 pub mod model_cache;
+pub mod zc_first_model;
 
 pub use lifecycle::*;
