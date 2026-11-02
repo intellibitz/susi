@@ -113,7 +113,10 @@ pub fn ratchet_unsafe(
         if e.first_party_exception {
             continue;
         }
-        match baseline.iter().find(|b| b.crate_name == e.crate_name) {
+        match baseline
+            .iter()
+            .find(|b| !b.first_party_exception && b.crate_name == e.crate_name)
+        {
             Some(b) if e.unsafe_fns > b.unsafe_fns => new_crates.push(e.crate_name.clone()),
             None => new_crates.push(e.crate_name.clone()),
             _ => {}

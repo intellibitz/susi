@@ -132,6 +132,15 @@ fn first_goal_opening_empty_pipe_does_not_boot_a_mission() {
 }
 
 #[test]
+fn redirected_exit_and_quit_finish_without_starting_a_mission() {
+    for input in [b"exit\r\n".as_slice(), b"\xef\xbb\xbfquit\n"] {
+        let (stdout, stderr) = opening(&[], input);
+        assert!(stdout.is_empty(), "{stdout}");
+        assert!(!stderr.contains("composition: cli"), "{stderr}");
+    }
+}
+
+#[test]
 fn first_goal_session_runs_successive_goals_without_rebooting() {
     let (stdout, stderr) = opening(&["shell"], b"\xef\xbb\xbfRead first.txt and return its contents.\nRead second.txt and return its contents.\nexit\n");
     assert!(stdout.contains("cedar-1739"), "{stdout}");

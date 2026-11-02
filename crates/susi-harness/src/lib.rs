@@ -69,6 +69,8 @@ pub mod balance;
 pub mod budget;
 pub mod cache;
 pub mod catalog;
+#[cfg(windows)]
+pub mod channel_bindings;
 pub mod cockpit;
 pub mod control;
 pub mod event;

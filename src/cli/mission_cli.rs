@@ -96,6 +96,9 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 .exit_code()
         }),
         Commands::Install => return super::install_cli::execute(),
+        command @ Commands::InstallRelease { .. } => {
+            return super::install_cli::installed_channel::manage(&command);
+        }
         Commands::Local { args } => return super::local_delivery_cli::execute(&args),
         Commands::Uninstall => {
             uninstall(global_dir);

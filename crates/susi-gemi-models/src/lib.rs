@@ -28,6 +28,7 @@ pub use susi_config;
 pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_core;
+pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
     cloud, cloud_eligibility, cloud_manage, eco_conflicts, eco_consistency, eco_coverage,

@@ -1,0 +1,12 @@
+{
+  "id": "T-JOURNEYLOCK-1",
+  "owner": "journeylock-1102",
+  "status": "implemented",
+  "title": "Wait for an active publisher through a slow first model download",
+  "dependencies": ["T-STEP1C-1"],
+  "scopes": ["crates/susi-gemi-models/src/lifecycle/model_manager.rs", ".agents/tasks/T-JOURNEYLOCK-1.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi-models", "managed_download"]},
+  "requirement": "Slow forward progress from the competing publisher must extend its idle deadline, with bounded waiting, cancellation and independent validation after acquisition.",
+  "fixture_isolation": "The parent runs each lock case in its own test process with a private home set before startup, waits for that whole process, then removes the fixture.",
+  "fixture_stress": "12 full library runs, three processes in parallel and 16 test threads per process: 1,236 passed tests, zero failures, zero remaining private lock fixtures. The optional publisher-cache test is reported separately."
+}

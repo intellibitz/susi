@@ -1,0 +1,23 @@
+{
+  "title": "Reject incomplete unsafe exposure measurements",
+  "goal": "Preserve exposure findings and fail closed on scanner errors",
+  "scopes": [
+    "crates/susi-unsafe-ratchet",
+    ".github/workflows/unsafe-exposure-ratchet.sh",
+    ".agents/tasks/T-UNSAFESCAN1102-1.json"
+  ],
+  "created_unix": 1793616028,
+  "deps": [],
+  "size": "s",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-unsafe-ratchet",
+      "incomplete"
+    ]
+  },
+  "created_by": "UNSAFESCAN1102",
+  "id": "T-UNSAFESCAN1102-1"
+}
