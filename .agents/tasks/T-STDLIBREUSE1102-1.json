@@ -5,6 +5,7 @@
   "size": "m",
   "deps": [],
   "scopes": [
+    "Cargo.toml",
     "Cargo.lock",
     "crates/susi-vendor-winapi",
     "xtask/Cargo.toml",

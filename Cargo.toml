@@ -241,6 +241,7 @@ sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo"
 
 [target.'cfg(windows)'.dependencies]
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
+susi-vendor-winapi = { path = "crates/susi-vendor-winapi" }
 
 [build-dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
