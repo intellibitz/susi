@@ -450,3 +450,39 @@ acceptance receipt, the optimized product qualifies, that exact production
 artifact passes the clean Windows installed journey, and genuine A/B
 promotion, runtime health and rollback are demonstrated. GitHub publication
 or a quota-driven source merge does not waive these production gates.
+
+## Production release C: clean 8 GiB journey, promotion and rollback (2026-11-02)
+
+Release B (0.21.39, release `7b7ad72a…`, source `423cf1c0`) qualified but
+failed the clean 8 GiB Hyper-V journey and was never promoted. Its exact-memory
+admission worked: the fresh user's starter download completed in about 85
+seconds. The first goal still timed out: the shell's 60-second model scan
+cache, invalidated only by in-process downloads, hid the model the daemon had
+published until after the 120-second wait expired. The ladder's recovery
+attempt then rejected an uncited arithmetic answer under the unchanged
+truth-governance rule. Evidence is retained as
+`guest-journey-production-b-task-evidence`.
+
+Release C (0.21.40, task T-STEP1C-1) keys the scan cache on the shared models
+directory's modification time as well. A regression test fails on the old key
+and passes on the new one.
+
+| Gate | Result | Wall clock |
+| --- | --- | --- |
+| Combined integration, 14 commands | accepted `f902d660`, receipt for `b9e3410f` | 1076 s |
+| Production qualification | release `b8bb0f99…`, artifact SHA256 `0f48535a…4b7a` | 1585 s |
+| Clean 8 GiB VM, fresh user `SusiBTeff6e655`, uncached | passed; both goals answered by in-process Candle; zero forced cleanup | 138 s |
+| Promote C | current `b8bb0f99…`, previous A `a3687f7f…`; `run --version` 0.21.40 | 3.4 s |
+| Roll back to A | current A; `run --version` 0.21.38 | 2.4 s |
+| Re-promote C | current C, previous A; `run --version` 0.21.40 | 2.4 s |
+
+In the journey the starter downloaded in about 40 seconds, the first goal
+continued as soon as it landed, and the whole inference phase took 67 seconds
+with 1.06 GB peak sampled memory. Logs are in
+`.artifacts/native-audit/step1-c-integration.log`,
+`production-c-qualification.log` and `production-c-promote-rollback.log`.
+
+Known limits, not waived: one download attempt still has a 60-second total
+budget, so completion relies on resumed retries, and the recovery ladder's
+citation rule can still reject a correct uncited local answer. Neither blocked
+this journey.
