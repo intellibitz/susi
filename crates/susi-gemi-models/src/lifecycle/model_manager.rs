@@ -455,8 +455,9 @@ impl ModelManager {
             .flatten();
         // Asked once: the publisher's digest does not change between retries.
         let expected_sha256 = crate::download::published_sha256(target, token.as_deref());
-        let mut last_error = String::new();
-        for attempt in 0..policy.download_attempts.clamp(1, 8) {
+        let mut budget = crate::download::StallBudget::new(policy.download_attempts.clamp(1, 8));
+        let last_error = loop {
+            let resumable_before = crate::download::resumable_len(&staging_target);
             task_handle.check_pause();
             if task_handle.is_cancelled() {
                 return Err("Download cancelled".into());
@@ -518,22 +519,24 @@ impl ModelManager {
                     ]
                     .iter()
                     .any(|s| error.contains(s));
-                    last_error = error;
                     if permanent || task_handle.is_cancelled() {
-                        break;
+                        break error;
                     }
-                    if attempt + 1 < policy.download_attempts.clamp(1, 8) {
-                        Self::save_download_progress(&file_name, target, 0, 0, "RETRYING");
-                        for _ in 0..(1u64 << attempt) * 10 {
-                            if task_handle.is_cancelled() {
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                    let progressed =
+                        crate::download::resumable_len(&staging_target) > resumable_before;
+                    if !budget.retry_after(progressed) {
+                        break error;
+                    }
+                    Self::save_download_progress(&file_name, target, 0, 0, "RETRYING");
+                    for _ in 0..(1u64 << budget.stalls()) * 10 {
+                        if task_handle.is_cancelled() {
+                            break;
                         }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                 }
             }
-        }
+        };
         Self::save_download_progress(
             &file_name,
             target,
