@@ -545,34 +545,44 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
 
 /// Serialize only integration, not agent edits/commits. Publish the tested commit
 /// and its receipt together in one Git ref transaction. No primary checkout moves.
-fn integrate_with<F>(root: &Path, claimant: &str, verify: F) -> Result<String>
+fn integrate_with<F>(root: &Path, claimants: &[&str], verify: F) -> Result<String>
 where
     F: FnOnce(&Path, &Path) -> Result<Vec<String>>,
 {
-    name(claimant)?;
+    let first = claimants.first().ok_or("integration requires a claimant")?;
+    for (index, claimant) in claimants.iter().enumerate() {
+        name(claimant)?;
+        if claimants[..index].contains(claimant) {
+            return Err(format!("duplicate integration claimant: {claimant}").into());
+        }
+    }
     let state = state(root)?;
     let _integration = Lock::acquire(&state.join("integration"))?;
-    let claim_path = state.join("claims").join(format!("{claimant}.claim"));
-    let (claim, source, claim_bytes) = {
+    let mut inputs = Vec::new();
+    {
         let _claims = Lock::acquire(&state)?;
-        let claim = read_claim(&claim_path)?;
-        let source = check_source(root, &claim)?;
-        let bytes = fs::read(&claim_path)?;
-        (claim, source, bytes)
-    };
+        for claimant in claimants {
+            let path = state.join("claims").join(format!("{claimant}.claim"));
+            let claim = read_claim(&path)?;
+            let source = check_source(root, &claim)?;
+            inputs.push((claim, source, fs::read(&path)?, path));
+        }
+    }
     let previous = integration_head(root)?;
-    let base = previous.clone().unwrap_or_else(|| claim.base.clone());
-    if !is_ancestor(root, &claim.base, &base)? {
-        return Err(
-            "integration history does not contain the claim base; reconcile explicitly".into(),
-        );
+    let base = previous.as_ref().unwrap_or(&inputs[0].0.base);
+    for (claim, _, _, _) in &inputs {
+        if !is_ancestor(root, &claim.base, base)? {
+            return Err(
+                "integration history does not contain the claim base; reconcile explicitly".into(),
+            );
+        }
     }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
     let attempt = state
         .join("attempts")
-        .join(format!("{claimant}-{stamp}-{}", std::process::id()));
+        .join(format!("{first}-{stamp}-{}", std::process::id()));
     fs::create_dir_all(&attempt)?;
     let checkout = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
     let candidate = checkout
@@ -588,40 +598,43 @@ where
             "add",
             "--detach",
             text(&candidate)?,
-            &base,
+            base,
         ],
     )?;
-    fs::write(
-        attempt.join("inputs.txt"),
-        format!(
-            "claim-base={}\nsource={source}\nintegration-base={base}\n",
-            claim.base
-        ),
-    )?;
-    let merged = git(
-        &candidate,
-        &[
-            "-c",
-            "core.hooksPath=",
-            "-c",
-            "user.name=Susi Local Integration",
-            "-c",
-            "user.email=susi-local@localhost",
-            "-c",
-            "commit.gpgsign=false",
-            "merge",
-            "--no-ff",
-            "--no-edit",
-            &source,
-        ],
-    );
-    if let Err(error) = merged {
-        fs::write(attempt.join("status"), format!("merge failed: {error}\n"))?;
-        return Err(format!(
-            "merge failed; source and reservation retained; repair evidence at {}: {error}",
-            candidate.display()
-        )
-        .into());
+    let mut manifest = format!("integration-base={base}\n");
+    for (claim, source, _, _) in &inputs {
+        manifest.push_str(&format!(
+            "agent={}\nclaim-base={}\nsource={source}\n",
+            claim.name, claim.base
+        ));
+    }
+    fs::write(attempt.join("inputs.txt"), manifest)?;
+    for (_, source, _, _) in &inputs {
+        let merged = git(
+            &candidate,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "user.name=Susi Local Integration",
+                "-c",
+                "user.email=susi-local@localhost",
+                "-c",
+                "commit.gpgsign=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                source,
+            ],
+        );
+        if let Err(error) = merged {
+            fs::write(attempt.join("status"), format!("merge failed: {error}\n"))?;
+            return Err(format!(
+                "merge failed; source and reservation retained; repair evidence at {}: {error}",
+                candidate.display()
+            )
+            .into());
+        }
     }
     let head = git(&candidate, &["rev-parse", "HEAD"])?;
     let tree = git(&candidate, &["rev-parse", "HEAD^{tree}"])?;
@@ -648,22 +661,38 @@ where
         return Err("verification changed the candidate tree; refusing promotion".into());
     }
     let _claims = Lock::acquire(&state)?;
-    if fs::read(&claim_path)? != claim_bytes || check_source(root, &claim)? != source {
-        return Err(
-            "source or reservation changed during verification; retry against its new head".into(),
-        );
-    }
-    let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
-    let receipt_oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
-    let receipt_ref = format!("refs/susi/integration/receipts/{claimant}/{source}");
     let zero = "0".repeat(head.len());
-    let transaction = format!("start\nupdate {INTEGRATION_REF} {head} {}\ncreate {receipt_ref} {receipt_oid}\nprepare\ncommit\n", previous.as_deref().unwrap_or(&zero));
+    let mut transaction = format!(
+        "start\nupdate {INTEGRATION_REF} {head} {}\n",
+        previous.as_deref().unwrap_or(&zero)
+    );
+    let mut published = Vec::new();
+    for (claim, source, bytes, path) in &inputs {
+        if fs::read(path)? != *bytes || check_source(root, claim)? != *source {
+            return Err(
+                "source or reservation changed during verification; retry against its new head"
+                    .into(),
+            );
+        }
+        let claimant = &claim.name;
+        let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
+        let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
+        let reference = format!("refs/susi/integration/receipts/{claimant}/{source}");
+        transaction.push_str(&format!("create {reference} {oid}\n"));
+        published.push(reference);
+    }
+    transaction.push_str("prepare\ncommit\n");
     git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())?;
     fs::write(
         attempt.join("status"),
-        format!("accepted {head}\nreceipt {receipt_ref}\n"),
+        format!(
+            "accepted {head}\nreceipt {}\n",
+            published.join("\nreceipt ")
+        ),
     )?;
-    fs::remove_file(claim_path)?;
+    for (_, _, _, path) in inputs {
+        fs::remove_file(path)?;
+    }
     // The accepted commit and receipt are durable; retain failure candidates,
     // but reclaim successful scratch builds without touching agent worktrees.
     if let Err(error) = git(
@@ -681,7 +710,11 @@ where
             candidate.display()
         );
     }
-    println!("Integrated {claimant}: {head}; receipt {receipt_ref}. Primary checkout unchanged.");
+    println!(
+        "Integrated {}: {head}; receipts {}. Primary checkout unchanged.",
+        claimants.join(", "),
+        published.join(", ")
+    );
     Ok(head)
 }
 
@@ -1007,13 +1040,13 @@ fn run(args: &[String]) -> Result<()> {
         }
         Some("release") if args.len() == 2 => release(&root, &args[1])?,
         Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2])?,
-        Some("integrate") if args.len() == 2 => { integrate_with(&root, &args[1], verify_candidate)?; },
+        Some("integrate") if args.len() >= 2 => { let names: Vec<_> = args[1..].iter().map(String::as_str).collect(); integrate_with(&root, &names, verify_candidate)?; },
         Some("list") if args.len() == 1 => {
             let state = state(&root)?;
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> | integrate <name> | release <name>".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> | integrate <name> [<name> ...] | release <name>".into()),
     }
     Ok(())
 }
@@ -1257,6 +1290,46 @@ mod tests {
     }
 
     #[test]
+    fn batch_retries_all_claims_and_publishes_only_the_verified_combination() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let workers = ["left", "right"];
+        for name in workers {
+            worker(&repo, name, &format!("{name}.rs"), name);
+        }
+        let receipts = "refs/susi/integration/receipts/";
+        assert!(integrate_with(&repo, &workers, |candidate, _| {
+            assert!(candidate.join("left.rs").is_file());
+            assert!(candidate.join("right.rs").is_file());
+            Err("combined fixture rejected".into())
+        })
+        .is_err());
+        assert!(integration_head(&repo).unwrap().is_none());
+        assert!(git(&repo, &["for-each-ref", receipts]).unwrap().is_empty());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
+        let head = integrate_with(&repo, &workers, |candidate, _| {
+            for name in workers {
+                assert_eq!(
+                    fs::read_to_string(candidate.join(format!("{name}.rs")))?,
+                    name
+                );
+            }
+            Ok(vec![
+                "test-only combined fixture => exit code: 0; both files verified".into(),
+            ])
+        })
+        .unwrap();
+        let tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
+        for name in workers {
+            let source = git(&repo, &["rev-parse", &format!("local-agent/{name}")]).unwrap();
+            let reference = format!("{receipts}{name}/{source}");
+            let receipt = git(&repo, &["cat-file", "blob", &reference]).unwrap();
+            assert!(receipt_matches(&repo, &reference, &receipt, &head, &tree).unwrap());
+        }
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+    }
+
+    #[test]
     fn integration_tests_the_combined_tree_and_publishes_atomic_receipt() {
         let scratch = Scratch::new();
         let repo = scratch.repo();
@@ -1265,7 +1338,7 @@ mod tests {
         let right = worker(&repo, "right", "right.rs", "right");
         let source = git(&right, &["rev-parse", "HEAD"]).unwrap();
         fs::write(repo.join("primary-dirty.txt"), "preserve primary").unwrap();
-        let first = integrate_with(&repo, "left", |candidate, _| {
+        let first = integrate_with(&repo, &["left"], |candidate, _| {
             assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
             assert!(!candidate.join("right.rs").exists());
             Ok(vec![
@@ -1274,7 +1347,7 @@ mod tests {
             ])
         })
         .unwrap();
-        let second = integrate_with(&repo, "right", |candidate, _| {
+        let second = integrate_with(&repo, &["right"], |candidate, _| {
             assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
             assert_eq!(fs::read_to_string(candidate.join("right.rs"))?, "right");
             Ok(vec!["test-only combined content verification passed => exit code: 0; fixture verifier completed".into()])
@@ -1304,7 +1377,7 @@ mod tests {
         let repo = scratch.repo();
         let right = worker(&repo, "right", "right.rs", "right");
         worker(&repo, "left", "left.rs", "left");
-        let accepted = integrate_with(&repo, "left", |_, _| {
+        let accepted = integrate_with(&repo, &["left"], |_, _| {
             Ok(vec![
                 "fixture verification => exit code: 0; fixture verifier completed".into(),
             ])
@@ -1352,7 +1425,7 @@ mod tests {
         let repo = scratch.repo();
         let right = worker(&repo, "right", "right.rs", "right");
         worker(&repo, "left", "left.rs", "left");
-        let accepted = integrate_with(&repo, "left", |_, _| {
+        let accepted = integrate_with(&repo, &["left"], |_, _| {
             Ok(vec![
                 "fixture verification => exit code: 0; fixture verifier completed".into(),
             ])
@@ -1413,7 +1486,7 @@ mod tests {
         let repo = scratch.repo();
         let worktree = worker(&repo, "one", "one.rs", "one");
         assert!(release(&repo, "one").is_err());
-        let result = integrate_with(&repo, "one", |_, attempt| {
+        let result = integrate_with(&repo, &["one"], |_, attempt| {
             fs::write(attempt.join("gate-0.log"), "test failure evidence")?;
             Err("deliberate test-only gate failure".into())
         });
@@ -1434,7 +1507,7 @@ mod tests {
         let scratch = Scratch::new();
         let repo = scratch.repo();
         let worktree = worker(&repo, "one", "one.rs", "one");
-        assert!(integrate_with(&repo, "one", |candidate, _| {
+        assert!(integrate_with(&repo, &["one"], |candidate, _| {
             fs::write(candidate.join("one.rs"), "modified after verification")?;
             Ok(vec![
                 "test-only check => exit code: 0; fixture verifier completed".into(),
@@ -1448,9 +1521,10 @@ mod tests {
             &["-c", "core.hooksPath=", "commit", "-qm", "outside scope"],
         )
         .unwrap();
-        assert!(
-            integrate_with(&repo, "one", |_, _| panic!("scope violation reached gate")).is_err()
-        );
+        assert!(integrate_with(&repo, &["one"], |_, _| panic!(
+            "scope violation reached gate"
+        ))
+        .is_err());
         assert_eq!(integration_head(&repo).unwrap(), None);
     }
 
@@ -1461,7 +1535,7 @@ mod tests {
         let worktree = worker(&repo, "one", "one.rs", "one");
         let source = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
         let external = git(&repo, &["rev-parse", "HEAD"]).unwrap();
-        assert!(integrate_with(&repo, "one", |_, _| {
+        assert!(integrate_with(&repo, &["one"], |_, _| {
             git(&repo, &["update-ref", INTEGRATION_REF, &external])?;
             Ok(vec![
                 "test-only check => exit code: 0; fixture verifier completed".into(),
@@ -1486,7 +1560,7 @@ mod tests {
         let scratch = Scratch::new();
         let repo = scratch.repo();
         let worktree = worker(&repo, "one", "one.rs", "one");
-        assert!(integrate_with(&repo, "one", |_, _| {
+        assert!(integrate_with(&repo, &["one"], |_, _| {
             fs::write(worktree.join("one.rs"), "new untested source")?;
             commit(&worktree, "one", "advanced during verification")?;
             Ok(vec![
@@ -1530,10 +1604,10 @@ mod tests {
         )
         .unwrap();
         commit(&native_worker, "native", "native gate fixture").unwrap();
-        let head = integrate_with(&repo, "native", verify_candidate).unwrap();
+        let head = integrate_with(&repo, &["native"], verify_candidate).unwrap();
         assert_eq!(integration_head(&repo).unwrap(), Some(head.clone()));
         let broken = worker(&repo, "broken", "src/lib.rs", "#[test]\nfn failing_test() {\n    let actual = std::hint::black_box(4);\n    assert_eq!(actual, 5);\n}\n");
-        assert!(integrate_with(&repo, "broken", verify_candidate).is_err());
+        assert!(integrate_with(&repo, &["broken"], verify_candidate).is_err());
         assert_eq!(integration_head(&repo).unwrap(), Some(head));
         assert!(broken.exists());
         let attempts = state(&repo).unwrap().join("attempts");
@@ -1576,9 +1650,10 @@ mod tests {
             ],
         )
         .unwrap();
-        assert!(
-            integrate_with(&repo, "one", |_, _| panic!("conflict reached verification")).is_err()
-        );
+        assert!(integrate_with(&repo, &["one"], |_, _| panic!(
+            "conflict reached verification"
+        ))
+        .is_err());
         assert_eq!(integration_head(&repo).unwrap(), Some(head));
         assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 1);
         let worktrees = git(&repo, &["worktree", "list", "--porcelain"]).unwrap();
