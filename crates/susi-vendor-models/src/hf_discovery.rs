@@ -3,22 +3,26 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct HfModel {
     id: String,
     #[serde(rename = "cardData", default)]
     card_data: Option<HfCardData>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    siblings: Vec<HfFile>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct HfCardData {
     #[serde(default)]
     base_model: Option<HfBaseModel>,
+    #[serde(default)]
+    license: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(untagged)]
 enum HfBaseModel {
     One(String),
@@ -70,11 +74,6 @@ fn hf_get_json<T: serde::de::DeserializeOwned>(url: &str, headers: &[(&str, &str
     .ok()
 }
 
-fn hf_head_ok(url: &str, headers: &[(&str, &str)]) -> bool {
-    susi_http_transport::http_call("HEAD", url, headers, 8, 10)
-        .is_ok_and(|c| (200..300).contains(&c.status))
-}
-
 fn declared_base_model(card_data: Option<HfCardData>, tags: &[String]) -> Option<String> {
     card_data
         .and_then(|card| card.base_model)
@@ -90,10 +89,142 @@ fn declared_base_model(card_data: Option<HfCardData>, tags: &[String]) -> Option
         })
 }
 
-#[derive(Deserialize)]
-struct HfTreeEntry {
-    path: String,
+#[derive(Clone, Deserialize)]
+struct HfFile {
+    rfilename: String,
+    #[serde(default)]
     size: u64,
+}
+
+fn permitted_license(model: &HfModel) -> bool {
+    let allowed = |name: &str| {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "apache-2.0" | "mit" | "bsd-2-clause" | "bsd-3-clause" | "0bsd"
+        )
+    };
+    let mut declared = false;
+    if let Some(value) = model
+        .card_data
+        .as_ref()
+        .and_then(|card| card.license.as_ref())
+    {
+        if !value.as_str().is_some_and(allowed) {
+            return false;
+        }
+        declared = true;
+    }
+    for name in model
+        .tags
+        .iter()
+        .filter_map(|tag| tag.strip_prefix("license:"))
+    {
+        if !allowed(name) {
+            return false;
+        }
+        declared = true;
+    }
+    declared
+}
+
+/// Bounded per-repository metadata lookup shared by configured, cached and
+/// newly discovered ladders. Failed/unknown results retry after one minute.
+fn repo_metadata(base: &str, repo: &str, headers: &[(&str, &str)]) -> Option<HfModel> {
+    type Entries = std::collections::HashMap<(String, String), (u64, Option<HfModel>)>;
+    static CACHE: OnceLock<Mutex<Entries>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (base.to_string(), repo.to_string());
+    if let Some((at, value)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        if now().saturating_sub(*at) < 60 {
+            return value.clone();
+        }
+    }
+    if !crate::susi_core::mac_policy::egress_permitted(base) {
+        return None;
+    }
+    let result = susi_http_transport::http_call(
+        "GET",
+        &format!("{base}/api/models/{repo}?blobs=true"),
+        headers,
+        2,
+        0,
+    )
+    .ok()
+    .filter(|call| (200..300).contains(&call.status))
+    .and_then(|call| {
+        crate::susi_core::bounded_io::json_capped::<HfModel>(
+            call.into_reader(),
+            crate::susi_core::bounded_io::JSON_BODY_CAP,
+        )
+        .ok()
+    })
+    .filter(|model| model.id == repo);
+    if result
+        .as_ref()
+        .is_none_or(|model| !permitted_license(model))
+    {
+        eprintln!(
+            "Automatic download unavailable for {repo}: a publisher-declared Apache, MIT or BSD license could not be verified."
+        );
+    }
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.len() >= 128 {
+        guard.clear();
+    }
+    guard.insert(key, (now(), result.clone()));
+    result
+}
+
+fn admitted_step(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    step: &ModelLadderConfigStep,
+    headers: &[(&str, &str)],
+) -> bool {
+    let base = cfg.hf_base_url();
+    let Some(model) = repo_metadata(&base, &step.hf_repo, headers) else {
+        return false;
+    };
+    if !model
+        .siblings
+        .iter()
+        .any(|file| file.rfilename == step.hf_file)
+    {
+        return false;
+    }
+    if !permitted_license(&model) {
+        return false;
+    }
+    if matches!(model.card_data.as_ref().and_then(|card| card.base_model.as_ref()), Some(HfBaseModel::Many(models)) if models.iter().filter(|name| !name.trim().is_empty()).count() > 1)
+    {
+        return false;
+    }
+    if let Some(original) = declared_base_model(model.card_data.clone(), &model.tags) {
+        if original != model.id
+            && !repo_metadata(&base, &original, headers)
+                .is_some_and(|model| permitted_license(&model))
+        {
+            return false;
+        }
+    }
+    let tokenizer = if step.tokenizer_repo.is_empty() {
+        &step.hf_repo
+    } else {
+        &step.tokenizer_repo
+    };
+    tokenizer == &step.hf_repo
+        || repo_metadata(&base, tokenizer, headers).is_some_and(|model| permitted_license(&model))
+}
+
+fn retain_admitted(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    steps: Vec<ModelLadderConfigStep>,
+) -> Vec<ModelLadderConfigStep> {
+    let auth = hf_auth_headers();
+    let headers = hf_header_refs(&auth);
+    retain_quantized(steps)
+        .into_iter()
+        .filter(|step| admitted_step(cfg, step, &headers))
+        .collect()
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -163,9 +294,9 @@ pub fn resolve_model_ladder(
 ) -> Vec<ModelLadderConfigStep> {
     let configured = cfg.model_ladder();
     if configured.is_empty() {
-        discover_dynamic_ladder()
+        retain_admitted(cfg, discover_dynamic_ladder())
     } else {
-        retain_quantized(configured)
+        retain_admitted(cfg, configured)
     }
 }
 
@@ -273,7 +404,7 @@ pub fn resolve_bootstrap_ladder(
 ) -> Vec<ModelLadderConfigStep> {
     let configured = cfg.model_ladder();
     if !configured.is_empty() {
-        return retain_quantized(configured);
+        return retain_admitted(cfg, configured);
     }
     if !crate::susi_core::mac_policy::egress_permitted(&cfg.hf_base_url()) {
         return Vec::new();
@@ -303,23 +434,51 @@ fn resolve_repo_step(
 ) -> Option<ModelLadderConfigStep> {
     let base = cfg.hf_base_url();
     let policy = cfg.model_lifecycle();
-    let files = hf_get_json::<Vec<HfTreeEntry>>(
-        &format!("{base}/api/models/{repo}/tree/main?limit=1000"),
-        headers,
-    )?;
-    let tokenizer_repo = if files
+    let model = repo_metadata(&base, &repo, headers)?;
+    let tokenizer_repo = if model
+        .siblings
         .iter()
-        .any(|f| f.path == cfg.tokenizer_filename() && f.size > 0)
+        .any(|f| f.rfilename == cfg.tokenizer_filename() && f.size > 0)
     {
         repo.clone()
     } else {
         base_repo.clone()?
     };
-    let tokenizer_url = format!(
-        "{base}/{tokenizer_repo}/resolve/main/{}",
-        cfg.tokenizer_filename()
-    );
-    if !hf_head_ok(&tokenizer_url, headers) {
+    let tokenizer = repo_metadata(&base, &tokenizer_repo, headers)?;
+    if !permitted_license(&tokenizer)
+        || !tokenizer
+            .siblings
+            .iter()
+            .any(|file| file.rfilename == cfg.tokenizer_filename() && file.size > 0)
+    {
+        return None;
+    }
+    let best = model
+        .siblings
+        .iter()
+        .filter(|f| {
+            requested_file.is_none_or(|requested| f.rfilename == requested)
+                && f.rfilename.to_ascii_lowercase().ends_with(".gguf")
+                && !f.rfilename.contains("-of-")
+                && !f.rfilename.contains('/')
+                && f.size > 0
+                && is_quantized_gguf(&f.rfilename)
+                && permitted_license(&model)
+        })
+        .min_by_key(|f| (!f.rfilename.to_ascii_uppercase().contains("Q4_K_M"), f.size))?;
+    let overhead = policy.memory_overhead_ratio.max(1.0);
+    let step = ModelLadderConfigStep {
+        step: 0,
+        label: format!("{} ({:.1} GiB)", repo, best.size as f64 / 1073741824.0),
+        hf_repo: repo,
+        hf_file: best.rfilename.clone(),
+        tokenizer_repo: tokenizer_repo.clone(),
+        min_ram_gb: best.size as f32 / 1073741824.0 * overhead,
+        min_bytes: best.size,
+        expected_bytes: best.size,
+        fields: Default::default(),
+    };
+    if !admitted_step(cfg, &step, headers) {
         return None;
     }
     // Discovery must stay within the backends actually implemented here.
@@ -331,29 +490,7 @@ fn resolve_repo_step(
     if !supported_model_type(config.get("model_type").and_then(|v| v.as_str())) {
         return None;
     }
-    let best = files
-        .into_iter()
-        .filter(|f| {
-            requested_file.is_none_or(|requested| f.path == requested)
-                && f.path.to_ascii_lowercase().ends_with(".gguf")
-                && !f.path.contains("-of-")
-                && !f.path.contains('/')
-                && f.size > 0
-                && is_quantized_gguf(&f.path)
-        })
-        .min_by_key(|f| (!f.path.to_ascii_uppercase().contains("Q4_K_M"), f.size))?;
-    let overhead = policy.memory_overhead_ratio.max(1.0);
-    Some(ModelLadderConfigStep {
-        step: 0,
-        label: format!("{} ({:.1} GiB)", repo, best.size as f64 / 1073741824.0),
-        hf_repo: repo,
-        hf_file: best.path,
-        tokenizer_repo,
-        min_ram_gb: best.size as f32 / 1073741824.0 * overhead,
-        min_bytes: best.size,
-        expected_bytes: best.size,
-        fields: Default::default(),
-    })
+    Some(step)
 }
 
 fn fetch_dynamic_ladder(
@@ -368,7 +505,10 @@ fn fetch_dynamic_ladder(
     if !crate::susi_core::mac_policy::egress_permitted(&base) {
         return Vec::new();
     }
-    let url = format!("{base}/api/models?search=Instruct&filter=gguf&sort=downloads&direction=-1&limit={}&full=true&cardData=true", policy.discovery_limit.clamp(1, 50));
+    let url = format!(
+        "{base}/api/models?search=Instruct&filter=gguf&sort=downloads&direction=-1&limit={}&full=true&cardData=true",
+        policy.discovery_limit.clamp(1, 50)
+    );
     let Some(mut models) = hf_get_json::<Vec<HfModel>>(&url, &hdr) else {
         return Vec::new();
     };
@@ -378,8 +518,10 @@ fn fetch_dynamic_ladder(
             id: fallback.hf_repo,
             card_data: Some(HfCardData {
                 base_model: Some(HfBaseModel::One(fallback.tokenizer_repo)),
+                license: None,
             }),
             tags: Vec::new(),
+            siblings: Vec::new(),
         });
     }
     let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(4).build() else {
@@ -400,6 +542,150 @@ fn fetch_dynamic_ladder(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configured_and_legacy_cached_steps_require_publisher_licenses() {
+        use std::io::{BufRead, Write};
+        use std::sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        };
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", home.path());
+        env.remove("HF_TOKEN");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let done = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let worker_done = done.clone();
+        let worker_requests = requests.clone();
+        let worker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !worker_done.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                };
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = String::new();
+                std::io::BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                worker_requests.fetch_add(1, Ordering::Relaxed);
+                let path = request.split_whitespace().nth(1).unwrap();
+                let repo = path
+                    .strip_prefix("/api/models/")
+                    .unwrap()
+                    .split('?')
+                    .next()
+                    .unwrap();
+                let license = match repo {
+                    "org/allowed" | "org/derived" => serde_json::json!("MIT"),
+                    "org/restricted" => serde_json::json!("llama3.2"),
+                    "org/custom" => serde_json::json!("qwen-research"),
+                    _ => serde_json::Value::Null,
+                };
+                let mut card = serde_json::json!({"license": license});
+                if repo == "org/derived" {
+                    card["base_model"] = serde_json::json!("org/restricted");
+                }
+                let body = serde_json::json!({"id":repo,"cardData":card,"siblings":[{"rfilename":"model-Q4_0.gguf","size":123}]}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let steps: Vec<_> = ["allowed", "restricted", "custom", "unknown", "derived"]
+            .into_iter()
+            .map(|name| ModelLadderConfigStep {
+                hf_repo: format!("org/{name}"),
+                hf_file: "model-Q4_0.gguf".into(),
+                fields: [("license".into(), serde_json::json!("MIT"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            })
+            .collect();
+        let mut cfg = crate::susi_sandbox::manager::SusiConfig::default();
+        cfg.settings
+            .insert("hf_base_url".into(), serde_json::json!(base));
+        cfg.settings
+            .insert("model_ladder".into(), serde_json::to_value(&steps).unwrap());
+        let configured = resolve_model_ladder(&cfg);
+        assert_eq!(
+            configured
+                .iter()
+                .map(|step| step.hf_repo.as_str())
+                .collect::<Vec<_>>(),
+            vec!["org/allowed"]
+        );
+        // Serialized old caches carry no trusted publisher evidence, even if
+        // their free-form fields assert a permissive license themselves.
+        let legacy: DiscoveryCache =
+            serde_json::from_value(serde_json::json!({"refreshed_at":now(),"steps":steps}))
+                .unwrap();
+        let cache = CACHED_DYNAMIC_LADDER.get_or_init(Default::default);
+        let original = std::mem::replace(
+            &mut *cache.lock().unwrap_or_else(|e| e.into_inner()),
+            legacy,
+        );
+        cfg.settings
+            .insert("model_ladder".into(), serde_json::json!([]));
+        let cached = resolve_model_ladder(&cfg);
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = original;
+        done.store(true, Ordering::Relaxed);
+        worker.join().unwrap();
+        assert_eq!(
+            cached
+                .iter()
+                .map(|step| step.hf_repo.as_str())
+                .collect::<Vec<_>>(),
+            vec!["org/allowed"]
+        );
+        assert_eq!(
+            requests.load(Ordering::Relaxed),
+            5,
+            "each repository is fetched once across configured and cached admission"
+        );
+    }
+
+    #[test]
+    fn license_metadata_fails_closed_for_unknown_and_conflicting_values() {
+        for accepted in ["apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "0BSD"] {
+            let model: HfModel = serde_json::from_value(
+                serde_json::json!({"id":"org/model","cardData":{"license":accepted}}),
+            )
+            .unwrap();
+            assert!(permitted_license(&model));
+        }
+        for rejected in [
+            serde_json::json!("unknown"),
+            serde_json::json!("other"),
+            serde_json::json!(["MIT", "llama3.2"]),
+        ] {
+            let model: HfModel = serde_json::from_value(serde_json::json!({"id":"org/model","cardData":{"license":rejected},"tags":["license:mit"]})).unwrap();
+            assert!(!permitted_license(&model));
+        }
+        for data in [
+            serde_json::json!({"id":"org/model"}),
+            serde_json::json!({"id":"org/model","tags":["license:mit","license:llama3.2"]}),
+            serde_json::json!({"id":"org/model","cardData":{"license":"mit"},"tags":["license:other"]}),
+        ] {
+            assert!(!permitted_license(&serde_json::from_value(data).unwrap()));
+        }
+    }
 
     #[test]
     fn bootstrap_requests_only_exact_starter_and_rejects_unsupported_architecture() {
@@ -423,10 +709,10 @@ mod tests {
                     let mut request = String::new();
                     reader.read_line(&mut request).unwrap();
                     paths.push(request.split_whitespace().nth(1).unwrap().to_string());
-                    let body = if request.contains("/tree/main") {
-                        r#"[{"path":"starter-q4_k_m.gguf","size":100000000},{"path":"other-q4_k_m.gguf","size":1}]"#.to_string()
-                    } else if request.starts_with("HEAD ") {
-                        String::new()
+                    let body = if request.contains("/api/models/org/starter?") {
+                        r#"{"id":"org/starter","cardData":{"license":"apache-2.0","base_model":"org/base"},"siblings":[{"rfilename":"starter-q4_k_m.gguf","size":100000000},{"rfilename":"other-q4_k_m.gguf","size":1}]}"#.to_string()
+                    } else if request.contains("/api/models/org/base?") {
+                        r#"{"id":"org/base","cardData":{"license":"apache-2.0"},"siblings":[{"rfilename":"tokenizer.json","size":42}]}"#.to_string()
                     } else {
                         format!(r#"{{"model_type":"{architecture}"}}"#)
                     };
@@ -455,8 +741,8 @@ mod tests {
             assert_eq!(
                 worker.join().unwrap(),
                 vec![
-                    "/api/models/org/starter/tree/main?limit=1000",
-                    "/org/base/resolve/main/tokenizer.json",
+                    "/api/models/org/starter?blobs=true",
+                    "/api/models/org/base?blobs=true",
                     "/org/base/resolve/main/config.json"
                 ]
             );
