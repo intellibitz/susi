@@ -90,6 +90,60 @@ pub(super) fn is_dispatcher(exe: &Path) -> bool {
         })
 }
 
+const ENTRY_RECEIPT: &str = "entry-receipt-v1.txt";
+
+/// Identity of the entry file as last proven byte-equal to `release`.
+fn entry_stamp(release: &str, exe: &Path) -> Result<String> {
+    let meta = fs::metadata(exe)?;
+    Ok(format!(
+        "release={release}\nbytes={}\ncreated={}\nwritten={}\n",
+        meta.file_size(),
+        meta.creation_time(),
+        meta.last_write_time()
+    ))
+}
+
+/// When the running entry is the current release, it already is the selected
+/// product: hashing a second 51 MB image and spawning it added ~120 ms to every
+/// command. The entry is proven byte-equal to the current release once and
+/// that proof is keyed to the entry file's identity; any change to the file or
+/// the selection repeats the proof, and a mismatch keeps the verified child
+/// launch. Integrity of the code already running cannot be self-checked, so
+/// nothing is lost by skipping the repeat.
+pub(super) fn run_in_place(exe: &Path) -> Result<bool> {
+    let root = exe
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("missing installed channel")?;
+    let selection: Selection =
+        get(&root.join(ACTIVE))?.ok_or("missing installed release receipt")?;
+    selection.validate()?;
+    if selection.current != selection.dispatcher {
+        return Ok(false);
+    }
+    let stamp = entry_stamp(&selection.current, exe)?;
+    let receipt = root.join(ENTRY_RECEIPT);
+    if fs::read_to_string(&receipt).ok().as_deref() != Some(stamp.as_str()) {
+        if installed(root, &selection.current)?
+            .verify_entry(exe)
+            .is_err()
+        {
+            return Ok(false);
+        }
+        // A missing receipt only costs the next launch another proof.
+        let _ = atomic_file(&receipt, stamp.as_bytes());
+    }
+    if env::var_os("SUSI_HOME").is_none() {
+        let home = crate::get_home_dir().join(".susi");
+        if !home.is_absolute() {
+            return Err("cannot discover the installed user's production home".into());
+        }
+        // Still single-threaded: `dispatch` runs first in `main`.
+        env::set_var("SUSI_HOME", home);
+    }
+    Ok(true)
+}
+
 pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
     let root = exe
         .parent()

@@ -56,6 +56,82 @@ fn main(){{
     (id, slot)
 }
 
+/// Admit `exe` itself as a release slot, as `install` does for the real product.
+fn admit(root: &Path, exe: &Path) -> String {
+    let bytes = fs::read(exe).unwrap();
+    let other = hex(b"fixture evidence");
+    let oid = "a".repeat(40);
+    let manifest = format!(
+        "susi-local-release-v1
+source={oid}
+tree={oid}
+artifact-sha256={}
+artifact-bytes={}
+host={}-pc-windows-msvc
+integration-receipt={oid}
+lock-sha256={other}
+compiler-sha256={other}
+gates-sha256={other}
+sbom-sha256={other}
+notices-sha256={other}
+native-audit-sha256={other}
+",
+        hex(&bytes),
+        bytes.len(),
+        std::env::consts::ARCH
+    );
+    let id = hex(manifest.as_bytes());
+    let slot = root.join("releases").join(&id);
+    fs::create_dir_all(&slot).unwrap();
+    fs::write(slot.join("manifest.txt"), manifest).unwrap();
+    fs::copy(exe, slot.join("susi.exe")).unwrap();
+    id
+}
+
+/// When the entry is the current release, commands run in the entry process
+/// itself: no second 51 MB image is hashed or spawned. The one-time proof is
+/// keyed to the entry file and repeats when the file changes.
+#[test]
+fn entry_that_is_the_current_release_runs_in_place() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let profile = std::env::temp_dir().join(format!("susi-inplace-{stamp}"));
+    let root = profile.join("AppData/Local/SusiLocal/production");
+    let entry = root.join("entry/susi.exe");
+    fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_susi"), &entry).unwrap();
+    let id = admit(&root, &entry);
+    select(&root, &id, None);
+    for _ in 0..2 {
+        let out = command(&entry, &profile).arg("--version").output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(String::from_utf8(out.stdout).unwrap().starts_with("susi "));
+    }
+    let receipt = fs::read_to_string(root.join("entry-receipt-v1.txt")).unwrap();
+    assert!(
+        receipt.starts_with(&format!(
+            "release={id}
+"
+        )),
+        "{receipt}"
+    );
+    // Removing the release slot proves no child is launched on the fast path.
+    fs::remove_file(root.join("releases").join(&id).join("susi.exe")).unwrap();
+    let out = command(&entry, &profile).arg("--version").output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    fs::remove_dir_all(profile).unwrap();
+}
+
 fn select(root: &Path, current: &str, previous: Option<&str>) {
     let record = format!(
         r#"{{"current":"{current}","previous":{},"dispatcher":"{current}"}}"#,
