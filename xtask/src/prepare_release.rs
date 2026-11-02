@@ -332,6 +332,41 @@ fn verify_version_base(root: &Path, promoted: &str, head: &str, old: &str) -> Re
     Ok(())
 }
 
+fn version_metadata(root: &Path, home: &Path, host: &str) -> Result<Command> {
+    // Use the release policy's authenticated compiler selection to address
+    // Cargo by its physical executable as well, independently of PATH or cwd.
+    let selected = isolated_command(Path::new("cargo"), home)?;
+    let rustc = selected
+        .get_envs()
+        .find_map(|(key, value)| (key == "RUSTC").then_some(value).flatten())
+        .ok_or("version preparation requires a verified physical compiler")?;
+    let cargo = Path::new(rustc).with_file_name(format!("cargo{}", std::env::consts::EXE_SUFFIX));
+    if !cargo.is_absolute() {
+        return Err("version preparation requires an absolute Cargo executable".into());
+    }
+    let mut command = isolated_command(&cargo, home)?;
+    let target = home.join("target");
+    command
+        .current_dir(root)
+        .env("CARGO_TARGET_DIR", &target)
+        .env("CARGO_BUILD_TARGET_DIR", &target)
+        .env("CARGO_BUILD_BUILD_DIR", &target)
+        .args([
+            "--config",
+            "build.rustc-wrapper=''",
+            "--config",
+            "build.rustc-workspace-wrapper=''",
+            "metadata",
+            "--offline",
+            "--locked",
+            "--format-version",
+            "1",
+            "--filter-platform",
+            host,
+        ]);
+    Ok(command)
+}
+
 pub(super) fn run(ctx: &Context) -> Result<()> {
     let _release = Lock::acquire(&ctx.state)?;
     clean(&ctx.root)?;
@@ -398,17 +433,7 @@ pub(super) fn run(ctx: &Context) -> Result<()> {
         return Err("promoted artifact does not report its source version".into());
     }
     let version = apply(&ctx.root, &attempt, |root| {
-        let status = Command::new("cargo")
-            .current_dir(root)
-            .args([
-                "metadata",
-                "--offline",
-                "--locked",
-                "--format-version",
-                "1",
-                "--filter-platform",
-                &manifest.host,
-            ])
+        let status = version_metadata(root, &attempt.join("metadata-home"), &manifest.host)?
             .stdout(std::process::Stdio::null())
             .status()?;
         if !status.success() {
@@ -558,6 +583,57 @@ mod tests {
         assert!(!scope_covers_version_path("Cargo.toml", "cargo"));
         assert!(!scope_covers_version_path("Cargo.toml", "../cargo.toml"));
         assert!(!scope_covers_version_path("Cargo.toml", ""));
+    }
+
+    #[test]
+    fn version_metadata_uses_verified_physical_cargo_and_compiler_under_hostile_config() {
+        let root = fixture();
+        let home = root.join("isolated-metadata");
+        let mut rustc = isolated_command(Path::new("rustc"), &home).unwrap();
+        let version = rustc.arg("-vV").output().unwrap();
+        assert!(version.status.success());
+        let text = String::from_utf8(version.stdout).unwrap();
+        let host = text
+            .lines()
+            .find_map(|line| line.strip_prefix("host: "))
+            .unwrap();
+        fs::create_dir(root.join(".cargo")).unwrap();
+        fs::write(root.join(".cargo/config.toml"),"[build]\nrustc = 'missing-version-compiler'\nrustc-wrapper = 'missing-version-wrapper'\nrustc-workspace-wrapper = 'missing-version-wrapper'\n").unwrap();
+        let mut command = version_metadata(&root, &home, host).unwrap();
+        let physical = Path::new(command.get_program());
+        let compiler = command
+            .get_envs()
+            .find_map(|(key, value)| (key == "RUSTC").then_some(value).flatten())
+            .unwrap();
+        assert!(physical.is_absolute());
+        assert_eq!(physical.parent(), Path::new(compiler).parent());
+        let control = Command::new(physical)
+            .current_dir(&root)
+            .env_remove("RUSTC")
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("RUSTC_WORKSPACE_WRAPPER")
+            .env_remove("CARGO_BUILD_RUSTC")
+            .args([
+                "metadata",
+                "--offline",
+                "--locked",
+                "--format-version",
+                "1",
+                "--filter-platform",
+                host,
+            ])
+            .output()
+            .unwrap();
+        assert!(!control.status.success());
+        assert!(String::from_utf8_lossy(&control.stderr).contains("missing-version-"));
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let graph: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(graph["workspace_members"].as_array().unwrap().len(), 8);
     }
 
     #[test]
