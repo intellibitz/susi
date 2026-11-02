@@ -736,15 +736,64 @@ mod tests {
     use super::*;
     use crate::susi_core::commit_log::ENV_LOCK;
 
+    // Configuration, telemetry and task workers may retain a resolved home.
+    // Run the real lock tests with a private home from process creation, then
+    // let the parent clean up only after the fixture process has exited.
+    fn private_download_fixture(name: &str) -> Option<PathBuf> {
+        const CHILD: &str = "SUSI_MANAGED_DOWNLOAD_TEST_CHILD";
+        let cwd = std::env::current_dir().unwrap();
+        if std::env::var(CHILD).is_ok_and(|value| value == name)
+            && fs::read_to_string(cwd.join(".download-fixture")).is_ok_and(|value| value == name)
+        {
+            assert_eq!(
+                PathBuf::from(std::env::var_os("SUSI_HOME").unwrap())
+                    .canonicalize()
+                    .unwrap(),
+                cwd.canonicalize().unwrap()
+            );
+            return Some(cwd);
+        }
+        let root = std::env::temp_dir().join(format!(
+            "susi-download-fixture-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join(".download-fixture"), name).unwrap();
+        let (_, module) = module_path!().split_once("::").unwrap();
+        let output = susi_paths::test_env::isolate_home(
+            &mut std::process::Command::new(std::env::current_exe().unwrap()),
+            &root,
+        )
+        .env(CHILD, name)
+        .env("SUSI_HOME", &root)
+        .current_dir(&root)
+        .args(["--exact", &format!("{module}::{name}"), "--test-threads=1"])
+        .output()
+        .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed; 0 failed"),
+            "isolated fixture {} failed: {stdout}\n{}",
+            root.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::remove_dir_all(root).unwrap();
+        None
+    }
+
     #[test]
     fn managed_download_waits_through_forward_progress_but_times_out_a_stalled_publisher() {
         use std::time::Duration;
 
-        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
-        let root = std::env::temp_dir().join(format!("susi-download-wait-{}", std::process::id()));
-        let mut environment = susi_paths::test_env::EnvGuard::isolated();
-        environment.set("HOME", &root).set("SUSI_HOME", &root);
-        fs::create_dir_all(&root).unwrap();
+        let Some(root) = private_download_fixture(
+            "managed_download_waits_through_forward_progress_but_times_out_a_stalled_publisher",
+        ) else {
+            return;
+        };
         let lock_path = root.join("transaction.lock");
         let holder = fs::File::create(&lock_path).unwrap();
         holder.lock().unwrap();
@@ -774,23 +823,15 @@ mod tests {
         drop(waiter);
         ModelManager::wait_for_download_transaction(&stalled, &staged, &task, idle).unwrap();
         drop(stalled);
-        drop(environment);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
-        let _environment = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
-        let root = std::env::temp_dir().join(format!(
-            "susi-managed-download-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let mut environment = susi_paths::test_env::EnvGuard::isolated();
-        environment.set("HOME", &root).set("SUSI_HOME", &root);
+        let Some(root) = private_download_fixture(
+            "managed_download_waits_for_publication_and_reuses_verified_artifact",
+        ) else {
+            return;
+        };
         let models = root.join("models");
         let store = ModelManager::transactional_store(&models);
         let name = "shared.bin";
@@ -839,10 +880,6 @@ mod tests {
         ));
         fs::write(models.join(name), b"tampered shared payload").unwrap();
         assert!(!ModelManager::managed_download_is_ready(&models, name, url));
-        // Background configuration readers must stop resolving this home before
-        // it is removed; otherwise they can recreate a directory mid-cleanup.
-        drop(environment);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
