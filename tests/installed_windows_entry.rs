@@ -99,16 +99,38 @@ fn command(exe: &Path, profile: &Path) -> Command {
 
 #[test]
 fn actual_windows_susi_dispatches_pipes_and_windows_opens_its_unicode_shortcut() {
+    run_installed_entry(false);
+}
+
+#[test]
+fn windows_shell_opens_a_deep_unicode_profile_with_a_long_release_slot() {
+    run_installed_entry(true);
+}
+
+fn run_installed_entry(deep: bool) {
+    use std::os::windows::ffi::OsStrExt;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let profile = std::env::temp_dir().join(format!("susi-普通-{stamp}"));
+    let mut label = format!("susi-普通-{stamp}");
+    if deep {
+        let length = std::env::temp_dir()
+            .join(&label)
+            .as_os_str()
+            .encode_wide()
+            .count();
+        label.push_str(&"d".repeat(194usize.saturating_sub(length)));
+    }
+    let profile = std::env::temp_dir().join(label);
     let root = profile.join("AppData/Local/SusiLocal/production");
     let entry = root.join("entry/susi.exe");
     fs::create_dir_all(entry.parent().unwrap()).unwrap();
     fs::copy(env!("CARGO_BIN_EXE_susi"), &entry).unwrap();
     let (a, slot) = fixture(&root, "A");
+    if deep {
+        assert!(slot.join("susi.exe").as_os_str().encode_wide().count() > 260);
+    }
     let (b, _) = fixture(&root, "B");
     let argument = r#"Δ with spaces and "quotes"\last"#;
     for (tag, current, previous) in [
