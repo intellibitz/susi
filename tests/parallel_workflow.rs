@@ -1107,6 +1107,7 @@ fn a_gate_cache_hit_skips_the_scoped_suite() {
         gates_after_first,
         "a stamp hit runs no gate commands at all"
     );
+    w.await_deferred_release();
     let claims = git(
         &w.remote,
         &["for-each-ref", "--format=%(refname)", "refs/claims/"],
