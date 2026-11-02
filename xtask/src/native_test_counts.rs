@@ -33,7 +33,7 @@ pub fn test_counts(log: &[u8], argv: &[String], cwd: &Path) -> Result<(u64, u64,
             .to_string_lossy()
             .replace('\\', "/")
     );
-    let text = std::str::from_utf8(log)?;
+    let text = strip_ansi(std::str::from_utf8(log)?);
     let lines: Vec<_> = text.lines().collect();
     let binaries: Vec<_> = lines
         .iter()
@@ -136,6 +136,26 @@ pub fn test_counts(log: &[u8], argv: &[String], cwd: &Path) -> Result<(u64, u64,
     Ok(totals)
 }
 
+/// Remove ANSI CSI sequences: hosted CI sets `CARGO_TERM_COLOR=always`, and a
+/// coloured `Running` or `test result:` line must parse like a plain one.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for next in chars.by_ref() {
+                if ('@'..='~').contains(&next) {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn add_counts(total: &mut (u64, u64, u64), next: (u64, u64, u64)) -> Result<()> {
     for (target, value) in [
         (&mut total.0, next.0),
@@ -209,6 +229,14 @@ mod tests {
         .iter()
         .map(|s| (*s).into())
         .collect()
+    }
+    #[test]
+    fn coloured_cargo_output_counts_like_plain_output() {
+        let coloured = "\u{1b}[1m\u{1b}[92m     Running\u{1b}[0m unittests src/lib.rs (target/host/debug/deps/outer)\nrunning 1 test\ntest actual_test ... \u{1b}[32mok\u{1b}[0m\n\ntest result: \u{1b}[32mok\u{1b}[0m. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;\n";
+        assert_eq!(
+            test_counts(coloured.as_bytes(), &command(), Path::new("/repo")).unwrap(),
+            (1, 0, 0)
+        );
     }
     #[test]
     fn final_binary_nested_doctests_do_not_become_outer_suites() {
