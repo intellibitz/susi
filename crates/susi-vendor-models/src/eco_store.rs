@@ -22,6 +22,14 @@ use susi_error::{EaiError, EaiResult, ResultExt as Context};
 /// Directory name under `SusiDirs::config_dir()` for the user layer.
 pub const STORE_DIR: &str = "ecosystem";
 
+mod packaged {
+    include!(concat!(env!("OUT_DIR"), "/ecosystem.rs"));
+}
+
+pub(crate) fn packaged_profiles() -> &'static [(&'static str, &'static str)] {
+    packaged::PROFILES
+}
+
 /// One entity file: the entity plus its outgoing relations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntityFile {
@@ -53,15 +61,59 @@ pub fn default_store_dir() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join(STORE_DIR)
 }
 
-/// Bundled-layer source inside this repository (`config/ecosystem/`) —
-/// what a release installs as the bundled layer and what offline profile
-/// tests validate. `SUSI_ECO_SOURCE` overrides (installed layouts).
+/// On-disk location of the bundled catalog or its configured replacement.
 #[must_use]
 pub fn bundled_source_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("SUSI_ECO_SOURCE") {
-        return PathBuf::from(d);
+    bundle_override().unwrap_or_else(|| susi_paths::SusiDirs::data_dir().join("ecosystem-bundled"))
+}
+
+fn bundle_override() -> Option<PathBuf> {
+    std::env::var_os("SUSI_ECO_BUNDLED")
+        .or_else(|| std::env::var_os("SUSI_ECO_SOURCE"))
+        .map(PathBuf::from)
+}
+
+/// A selected replacement is authoritative, including an intentionally empty
+/// catalog. Use the compiled catalog only when there is no replacement.
+pub(crate) fn installed_bundle() -> EaiResult<Option<PathBuf>> {
+    if let Some(dir) = bundle_override() {
+        return Ok(Some(dir));
     }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/ecosystem")
+    let dir = bundled_source_dir();
+    Ok(dir
+        .try_exists()
+        .with_context(|| format!("inspect {}", dir.display()))?
+        .then_some(dir))
+}
+
+/// Load the selected on-disk bundle, or the catalog packaged in Susi.
+pub fn load_bundled() -> EaiResult<KnowledgeBase> {
+    if let Some(dir) = installed_bundle()? {
+        return load_dir(&dir);
+    }
+    let mut kb = KnowledgeBase::new();
+    for (id, text) in packaged::ENTITIES {
+        append_entity(&mut kb, id, text)?;
+    }
+    Ok(kb)
+}
+
+/// Load the configured user layer over the active bundle.
+pub fn load_default() -> EaiResult<KnowledgeBase> {
+    Ok(overlay(load_bundled()?, load_dir(&default_store_dir())?))
+}
+
+fn append_entity(kb: &mut KnowledgeBase, source: &str, text: &str) -> EaiResult<()> {
+    let file: EntityFile = serde_json::from_str(text).with_context(|| format!("parse {source}"))?;
+    if file.version != SCHEMA_VERSION {
+        return Err(EaiError::config(format!(
+            "{source}: schema version {:?}, expected {SCHEMA_VERSION:?}",
+            file.version
+        )));
+    }
+    kb.entities.push(file.entity);
+    kb.relations.extend(file.relations);
+    Ok(())
 }
 
 /// Persist a knowledge base as one file per entity. Refuses to write an
@@ -101,35 +153,32 @@ pub fn write_kb(kb: &KnowledgeBase, dir: &Path) -> EaiResult<usize> {
     Ok(written)
 }
 
-/// Load every `<id>.json` under `dir` into a knowledge base. Missing or
-/// unreadable directories yield an empty base; malformed files are an error —
-/// a corrupt fact must surface, not silently drop.
+pub(crate) fn json_files(dir: &Path) -> EaiResult<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        result => result.with_context(|| format!("list ecosystem directory {}", dir.display()))?,
+    };
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("list ecosystem directory {}", dir.display()))?
+            .path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+/// Load every `<id>.json` under `dir`. Missing layers are empty; unreadable
+/// directories or corrupt entries surface an error.
 pub fn load_dir(dir: &Path) -> EaiResult<KnowledgeBase> {
     let mut kb = KnowledgeBase::new();
-    if !dir.is_dir() {
-        return Ok(kb);
-    }
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
-        .context("read ecosystem store directory")?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .collect();
-    paths.sort();
-    for path in paths {
+    for path in json_files(dir)? {
         let text =
             std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let file: EntityFile =
-            serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
-        if file.version != SCHEMA_VERSION {
-            return Err(EaiError::config(format!(
-                "{}: schema version {:?}, expected {SCHEMA_VERSION:?}",
-                path.display(),
-                file.version
-            )));
-        }
-        kb.entities.push(file.entity);
-        kb.relations.extend(file.relations);
+        append_entity(&mut kb, &path.display().to_string(), &text)?;
     }
     Ok(kb)
 }
@@ -139,9 +188,13 @@ pub fn load_dir(dir: &Path) -> EaiResult<KnowledgeBase> {
 /// relations, since relations are filed with their source. Additions on
 /// either side union.
 pub fn load(bundled: &Path, user: &Path) -> EaiResult<KnowledgeBase> {
-    let base = load_dir(bundled)?;
-    let over = load_dir(user)?;
+    Ok(overlay(load_dir(bundled)?, load_dir(user)?))
+}
 
+fn overlay(base: KnowledgeBase, over: KnowledgeBase) -> KnowledgeBase {
+    if over.entities.is_empty() && over.relations.is_empty() {
+        return base;
+    }
     // The user layer replaces a bundled entity whole-file: the overridden
     // entity's bundled outgoing relations go with it, so relations are
     // filtered against the ids that survive *from the same layer*.
@@ -172,7 +225,7 @@ pub fn load(bundled: &Path, user: &Path) -> EaiResult<KnowledgeBase> {
     let mut kb = KnowledgeBase::new();
     kb.entities = entities;
     kb.relations = relations;
-    Ok(kb)
+    kb
 }
 
 /// Validate a store directory as a knowledge base — the check CI runs over

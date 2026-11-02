@@ -5,9 +5,9 @@
 use crate::cli_json::print_json;
 use anyhow::{bail, Context as _, Result};
 use clap::Subcommand;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use susi_gemi::models::eco_schema::{Entity, EntityKind, KnowledgeBase};
-use susi_gemi::models::{eco_consistency, eco_relations, eco_store, eco_taxonomy};
+use susi_gemi::models::{eco_consistency, eco_profile, eco_relations, eco_store, eco_taxonomy};
 
 #[derive(Debug, Subcommand)]
 pub enum EcosystemCommands {
@@ -79,19 +79,10 @@ pub enum KbCommands {
     },
 }
 
-/// Bundled KB layer: where the signed catalog channel installs updates
-/// (`data_dir()/ecosystem-bundled`; `SUSI_ECO_BUNDLED` overrides for tests).
-fn bundled_dir() -> PathBuf {
-    std::env::var_os("SUSI_ECO_BUNDLED")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| susi_paths::SusiDirs::data_dir().join("ecosystem-bundled"))
-}
-
-fn load_kb(dir: Option<PathBuf>) -> Result<KnowledgeBase> {
+fn load_kb(dir: Option<&Path>) -> Result<KnowledgeBase> {
     match dir {
-        Some(d) => eco_store::load_dir(&d).with_context(|| format!("load {}", d.display())),
-        None => eco_store::load(&bundled_dir(), &eco_store::default_store_dir())
-            .context("load layered ecosystem store"),
+        Some(d) => eco_store::load_dir(d).with_context(|| format!("load {}", d.display())),
+        None => eco_store::load_default().context("load layered ecosystem store"),
     }
 }
 
@@ -146,7 +137,7 @@ fn entity_json(e: &Entity) -> serde_json::Value {
 fn kb_execute(action: KbCommands) -> Result<()> {
     match action {
         KbCommands::List { kind, dir } => {
-            let kb = load_kb(dir)?;
+            let kb = load_kb(dir.as_deref())?;
             let f = Filters {
                 query: None,
                 kind: kind.as_deref(),
@@ -162,7 +153,7 @@ fn kb_execute(action: KbCommands) -> Result<()> {
             print_json(&rows)?;
         }
         KbCommands::Show { id, dir } => {
-            let kb = load_kb(dir)?;
+            let kb = load_kb(dir.as_deref())?;
             let Some(e) = kb.entity(&id) else {
                 bail!("no ecosystem entity {id:?} — try `susi ecosystem kb search`");
             };
@@ -181,7 +172,7 @@ fn kb_execute(action: KbCommands) -> Result<()> {
             vendor,
             dir,
         } => {
-            let kb = load_kb(dir)?;
+            let kb = load_kb(dir.as_deref())?;
             let f = Filters {
                 query: query.as_deref(),
                 kind: kind.as_deref(),
@@ -197,7 +188,7 @@ fn kb_execute(action: KbCommands) -> Result<()> {
             print_json(&serde_json::json!({ "count": rows.len(), "entities": rows }))?;
         }
         KbCommands::Check { dir } => {
-            let kb = load_kb(dir)?;
+            let kb = load_kb(dir.as_deref())?;
             let issues = eco_consistency::check(&kb);
             print_json(&serde_json::json!({
                 "entities": kb.entities.len(),
@@ -216,7 +207,7 @@ fn kb_execute(action: KbCommands) -> Result<()> {
 /// is, every recorded version, who publishes/implements it, its
 /// capabilities, the profile susi uses for it and the provenance cited.
 fn explain(id: &str, dir: Option<PathBuf>) -> Result<()> {
-    let kb = load_kb(dir)?;
+    let kb = load_kb(dir.as_deref())?;
     let Some(e) = kb.entity(id) else {
         bail!("no ecosystem entity {id:?} — try `susi ecosystem kb search`");
     };
@@ -254,23 +245,7 @@ fn explain(id: &str, dir: Option<PathBuf>) -> Result<()> {
         .iter()
         .map(|c| c.id().to_string())
         .collect();
-    // How susi uses it: the bundled profile that details this subject.
-    let profiles_dir = eco_store::bundled_source_dir().join("profiles");
-    let profile = std::fs::read_dir(&profiles_dir)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let text = std::fs::read_to_string(e.path()).ok()?;
-            let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
-            if doc["subject"] == id {
-                doc["id"].as_str().map(str::to_string)
-            } else {
-                None
-            }
-        })
-        .next();
+    let profile = eco_profile::for_subject(id, dir.as_deref())?;
     print_json(&serde_json::json!({
         "entity": e,
         "versions": versions,

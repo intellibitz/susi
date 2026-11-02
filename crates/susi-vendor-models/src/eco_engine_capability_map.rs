@@ -64,8 +64,7 @@ mod tests {
     use crate::eco_store;
 
     fn map() -> BTreeMap<String, EngineSurface> {
-        let kb = eco_store::load_dir(&eco_store::bundled_source_dir())
-            .expect("bundled ecosystem store loads");
+        let kb = eco_store::load_bundled().expect("bundled ecosystem store loads");
         capability_map(&kb)
     }
 

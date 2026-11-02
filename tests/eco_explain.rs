@@ -13,17 +13,112 @@ use std::process::Command;
 use susi_paths::test_env::isolate_home;
 
 fn susi(home: &Path, args: &[&str]) -> (i32, String, String) {
-    let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), home)
+    susi_with(home, args, &[])
+}
+
+fn susi_with(home: &Path, args: &[&str], overrides: &[(&str, &Path)]) -> (i32, String, String) {
+    std::fs::create_dir_all(home).unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
+    let cmd = isolate_home(&mut cmd, home);
+    cmd.current_dir(home)
         .args(args)
+        .env("SUSI_HOME", home.join("state"))
         .env("XDG_CONFIG_HOME", home.join("xdg"))
-        .env("XDG_DATA_HOME", home.join("xdg-data"))
-        .output()
-        .unwrap();
+        .env("XDG_DATA_HOME", home.join("xdg-data"));
+    for key in ["SUSI_ECO_BUNDLED", "SUSI_ECO_SOURCE", "SUSI_ECO_PROFILES"] {
+        cmd.env_remove(key);
+    }
+    let out = cmd.envs(overrides.iter().copied()).output().unwrap();
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
+}
+
+fn profile(dir: &Path, id: &str, subject: &str) {
+    std::fs::create_dir_all(dir).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_str(include_str!(
+        "../config/ecosystem/profiles/openai-chat-completions.json"
+    ))
+    .unwrap();
+    doc["id"] = id.into();
+    doc["subject"] = subject.into();
+    write(dir, id, &doc.to_string());
+}
+
+fn subject(
+    home: &Path,
+    id: &str,
+    root: Option<&Path>,
+    overrides: &[(&str, &Path)],
+) -> serde_json::Value {
+    let mut args = vec!["ecosystem", "explain", id];
+    if let Some(dir) = root {
+        args.extend(["--dir", dir.to_str().unwrap()]);
+    }
+    let (code, out, err) = susi_with(home, &args, overrides);
+    assert_eq!(code, 0, "{err}");
+    serde_json::from_str::<serde_json::Value>(&out).unwrap()["susi_profile"].clone()
+}
+
+#[test]
+fn fresh_install_finds_packaged_profiles_and_honors_whole_user_overrides() {
+    let root = root("packaged");
+    let home = &root.join("home");
+    let id = "openai-chat-completions";
+    assert_eq!(subject(home, id, None, &[]), id);
+    let user = home.join("state/ecosystem/profiles");
+    profile(&user, id, "other-subject");
+    assert!(subject(home, id, None, &[]).is_null());
+    profile(&user, "user-profile", id);
+    assert_eq!(subject(home, id, None, &[]), "user-profile");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn selected_store_controls_profiles_and_reports_corrupt_files() {
+    let root = root("selected");
+    let home = root.join("home");
+    let store = fixture_store(&root);
+    let other = root.join("other-profiles");
+    profile(&other, "overlay", "proto");
+    let overrides = [
+        ("SUSI_ECO_PROFILES", other.as_path()),
+        ("SUSI_ECO_BUNDLED", store.as_path()),
+    ];
+    assert_eq!(subject(&home, "proto", None, &overrides), "overlay");
+    assert!(subject(&home, "proto", Some(&store), &overrides).is_null());
+    let profiles = store.join("profiles");
+    profile(&profiles, "from-selected-store", "proto");
+    assert_eq!(
+        subject(&home, "proto", Some(&store), &overrides),
+        "from-selected-store"
+    );
+    assert_eq!(
+        subject(
+            &home,
+            "proto",
+            None,
+            &[("SUSI_ECO_SOURCE", store.as_path())]
+        ),
+        "from-selected-store"
+    );
+    write(&profiles, "broken", "{");
+    let (code, _, err) = susi_with(
+        &home,
+        &[
+            "ecosystem",
+            "explain",
+            "proto",
+            "--dir",
+            store.to_str().unwrap(),
+        ],
+        &overrides,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("broken.json"), "{err}");
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 const PROV: &str = r#""provenance":{"source":"https://specs.example.test/v1","spec_version":"1.0","retrieved":"2026-09-01","confidence":"verified"}"#;
