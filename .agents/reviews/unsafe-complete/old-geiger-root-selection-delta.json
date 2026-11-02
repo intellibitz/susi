@@ -1,0 +1,878 @@
+[
+  {
+    "identity": {
+      "name": "bit-set",
+      "version": "0.11.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "bit-set",
+          "version": "0.11.1",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "bit-vec",
+            "version": "0.10.1",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "serde",
+            "version": "1.0.229",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#proptest@1.12.0",
+        "dependency": {
+          "name": "bit_set",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#bit-set@0.11.1",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "bit-vec",
+      "version": "0.10.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "bit-vec",
+          "version": "0.10.1",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "serde",
+            "version": "1.0.229",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#bit-set@0.11.1",
+        "dependency": {
+          "name": "bit_vec",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#bit-vec@0.10.1",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      },
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#proptest@1.12.0",
+        "dependency": {
+          "name": "bit_vec",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#bit-vec@0.10.1",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "objc2",
+      "version": "0.6.5",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "objc2",
+          "version": "0.6.5",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "objc2-encode",
+            "version": "4.1.0",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#dispatch2@0.3.1",
+        "dependency": {
+          "name": "objc2",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2@0.6.5",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      },
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2-core-foundation@0.3.2",
+        "dependency": {
+          "name": "objc2",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2@0.6.5",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      },
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2-foundation@0.3.2",
+        "dependency": {
+          "name": "objc2",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2@0.6.5",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      },
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2-open-directory@0.3.2",
+        "dependency": {
+          "name": "objc2",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2@0.6.5",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "objc2-core-foundation",
+      "version": "0.3.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "objc2-core-foundation",
+          "version": "0.3.2",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "bitflags",
+            "version": "2.13.2",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "libc",
+            "version": "0.2.191",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "objc2",
+            "version": "0.6.5",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2-io-kit@0.3.2",
+        "dependency": {
+          "name": "objc2_core_foundation",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2-core-foundation@0.3.2",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      },
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2-open-directory@0.3.2",
+        "dependency": {
+          "name": "objc2_core_foundation",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2-core-foundation@0.3.2",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      },
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#sysinfo@0.39.6",
+        "dependency": {
+          "name": "objc2_core_foundation",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2-core-foundation@0.3.2",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": "cfg(any(target_os = \"macos\", target_os = \"ios\"))"
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "objc2-encode",
+      "version": "4.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "objc2-encode",
+          "version": "4.1.0",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2@0.6.5",
+        "dependency": {
+          "name": "objc2_encode",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2-encode@4.1.0",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "objc2-foundation",
+      "version": "0.3.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "objc2-foundation",
+          "version": "0.3.2",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "bitflags",
+            "version": "2.13.2",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "libc",
+            "version": "0.2.191",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "objc2",
+            "version": "0.6.5",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "objc2-core-foundation",
+            "version": "0.3.2",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#objc2-open-directory@0.3.2",
+        "dependency": {
+          "name": "objc2_foundation",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#objc2-foundation@0.3.2",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "proptest",
+      "version": "1.12.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "proptest",
+          "version": "1.12.0",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "bit-set",
+            "version": "0.11.1",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "bit-vec",
+            "version": "0.10.1",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "bitflags",
+            "version": "2.13.2",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "chacha20",
+            "version": "0.10.2",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "core_detect",
+            "version": "1.0.0",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "num-traits",
+            "version": "0.2.19",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "rand",
+            "version": "0.10.3",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "rand_xorshift",
+            "version": "0.5.0",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "regex-syntax",
+            "version": "0.8.11",
+            "source": {
+              "Path": "file:///workspace/susi-verify-1793634934932473570-1545267/vendor/regex-syntax%230.8.1"
+            }
+          },
+          {
+            "name": "rusty-fork",
+            "version": "0.3.1",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "tempfile",
+            "version": "3.27.0",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "unarray",
+            "version": "0.1.4",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "path+file:///workspace/susi-verify-1793634934932473570-1545267/crates/susi-vendor-proptest#0.1.0",
+        "dependency": {
+          "name": "proptest",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#proptest@1.12.0",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "quick-error",
+      "version": "1.2.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "quick-error",
+          "version": "1.2.3",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#rusty-fork@0.3.1",
+        "dependency": {
+          "name": "quick_error",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#quick-error@1.2.3",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "rand_xorshift",
+      "version": "0.5.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "rand_xorshift",
+          "version": "0.5.0",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "rand_core",
+            "version": "0.10.1",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "serde",
+            "version": "1.0.229",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": true
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#proptest@1.12.0",
+        "dependency": {
+          "name": "rand_xorshift",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#rand_xorshift@0.5.0",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "rusty-fork",
+      "version": "0.3.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "rusty-fork",
+          "version": "0.3.1",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "fnv",
+            "version": "1.0.7",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "quick-error",
+            "version": "1.2.3",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "tempfile",
+            "version": "3.27.0",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          },
+          {
+            "name": "wait-timeout",
+            "version": "0.2.1",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#proptest@1.12.0",
+        "dependency": {
+          "name": "rusty_fork",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#rusty-fork@0.3.1",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "unarray",
+      "version": "0.1.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "unarray",
+          "version": "0.1.4",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#proptest@1.12.0",
+        "dependency": {
+          "name": "unarray",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#unarray@0.1.4",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  },
+  {
+    "identity": {
+      "name": "wait-timeout",
+      "version": "0.2.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    "old_geiger_record": {
+      "package": {
+        "id": {
+          "name": "wait-timeout",
+          "version": "0.2.1",
+          "source": {
+            "Registry": {
+              "name": "crates.io",
+              "url": "https://github.com/rust-lang/crates.io-index"
+            }
+          }
+        },
+        "dependencies": [
+          {
+            "name": "libc",
+            "version": "0.2.191",
+            "source": {
+              "Registry": {
+                "name": "crates.io",
+                "url": "https://github.com/rust-lang/crates.io-index"
+              }
+            }
+          }
+        ],
+        "dev_dependencies": [],
+        "build_dependencies": []
+      },
+      "forbids_unsafe": false
+    },
+    "metadata_reverse_edges": [
+      {
+        "package_id": "registry+https://github.com/rust-lang/crates.io-index#rusty-fork@0.3.1",
+        "dependency": {
+          "name": "wait_timeout",
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#wait-timeout@0.2.1",
+          "dep_kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      }
+    ],
+    "reason": "Not selected by actual cargo tree --package root --target x86_64-unknown-linux-gnu --edges normal. Historical geiger normal-declaration traversal admitted workspace feature/unselected platform closure; not an exemption for selected production components."
+  }
+]

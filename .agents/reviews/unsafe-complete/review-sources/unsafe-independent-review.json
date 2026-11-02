@@ -1,0 +1,1463 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T17:36:28.722198+00:00",
+  "reviewer": "/root/advisory_gate_review",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "scope": "Read-only source/dependency review of 19 exact residual entries for the accepted Linux production candidate. No model access, builds, runtime tests, baseline edit or release promotion. Source hashes bind entire files containing inspected boundary excerpts; they do not imply every line was audited.",
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.lock",
+      "sha256": "9213ca390987fe49a37a060a531387072898d8775e4ac7bf883aac31e97a4c4b"
+    },
+    {
+      "path": "/workspace/susi-release-gates-driver/Cargo.toml",
+      "sha256": "3e9208a9cd1c201644616ca3581b433c95ec977a6ac30a3a8190f06dee9cb144"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/unsafe-storage-repaired/metadata.stdout",
+      "sha256": "bfb1dbd7614e19593b336eedf9758b6c00c2b35cf305afa673f2abb96cd42e55"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/unsafe-storage-repaired/geiger.stdout",
+      "sha256": "fb3dd5db843b93baaf12ea52da4eb296dc94817a57e4dd6b0067b7e655e5d18e"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/unsafe-storage-repaired/geiger.stderr",
+      "sha256": "e49a9ce923956061ec12343f06da1b5243b9b5f838c72d51b19c4dcdc1b135b9"
+    },
+    {
+      "path": "/workspace/susi-rsa-repair-evidence/qualified-package/sbom.json",
+      "sha256": "8aaf0078d0c26d1a36880b4736896d49db5266df2b9f81e0ff78c317455331d3"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-independent-review/source-bindings.json",
+      "sha256": "6776e5b981e9769c79f80f72b6c20323523182943f19c57537424e29c496d382"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-independent-review/tree-commands.json",
+      "sha256": "e7ee98cf1f0e45d35baf78a211db8324326a84868a9333d96f235bd392648b63"
+    }
+  ],
+  "components": [
+    {
+      "identity": {
+        "name": "base64ct",
+        "version": "1.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: byte-level decoder and string-validity invariants on key material.",
+      "boundary": "In-place base64 decoding uses overlapping-source/destination raw pointers; encoding converts known ASCII output with unchecked UTF-8. No external FFI.",
+      "justification": "The full-chunk loop derives 4-byte reads and 3-byte writes from buf.len()/4 and reads into a temporary before writing. The remainder derives lengths from the decoded length, rejects invalid encodings, then copies from a separate fixed-size temporary. Encoders bound destination size and emit the fixed base64 alphabet/padding, which supports the unchecked UTF-8 conversion. The crate warns on unsafe_code and locally allows these operations; it does not forbid them. This dependency remains necessary for strict PKCS key/PEM handling after removal of RustCrypto rsa.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "950ec911574afbf038e970968c9bcd03df0fe56d78eabee157012e54d487cb29"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "ebb6d9fe0d1199bb6aefaecb4e44524358c99d0db8d82e39b01a0b27f084b087"
+        },
+        {
+          "path": "src/encoding.rs",
+          "sha256": "18828be1ed13a89e3cf723675b30addf8703be5c78583eb41bbea7b08de4b03f"
+        }
+      ],
+      "residual_risk": "Arithmetic and alphabet invariants still depend on this exact upstream implementation. Source review did not fuzz malformed or extreme-length inputs, prove constant-time behavior, or establish that every exported method is called by the executable.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "base64ct",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alloc"
+        ],
+        "example_reverse_route": "base64ct -> pem-rfc7468 0.7.0 -> der 0.7.10 -> pkcs1 0.7.5 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "base64ct-1.8.3.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06",
+        "cargo_lock_checksum": "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "1458becc532e3021062b7a7816994d49a474c168bf22b17b7ee9ea977a0c5ee1"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "der",
+        "version": "0.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: ASN.1 parsing of certificate/key bytes; narrow representation casts.",
+      "boundary": "Four reference casts wrap byte/str slices in repr(transparent) newtypes: BytesRef, StringRef, SequenceRef and OctetStringRef.",
+      "justification": "Inspected constructors preserve the input borrow lifetime, use repr(transparent), and validate Length before constructing externally supplied slice views. StringRef::from_bytes validates UTF-8 before its cast. The crate uses deny(unsafe_code) with local allowances for these casts, so the forbid-only metric is false even though the unsafe surface is narrow. This is the ureq DER path; der 0.7.10 is a different package and is not this rejected entry.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "de18a104d776584ebb3c488debd47c25bcce8f899d924be89615401c84aa2d36"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "824ab4817784f4ec7422ef43739ebac39df77be25283ce35ee2893bc2c6e13eb"
+        },
+        {
+          "path": "src/bytes.rs",
+          "sha256": "7d941a592510d69fde204b4ba7b0fde3343a0eebb09ba33a5d5cdf7277e671b2"
+        },
+        {
+          "path": "src/string.rs",
+          "sha256": "95a58cc462b4ff433c87b4343b44c57d4f8b4185383907a61792207da7b5edd5"
+        },
+        {
+          "path": "src/asn1/sequence.rs",
+          "sha256": "efeb55cb345305d5efa5baff912716358374fe1e227636fdc1a14ee02a66ff90"
+        },
+        {
+          "path": "src/asn1/octet_string.rs",
+          "sha256": "e150ae119ae0df77c0251a150b78505da9bf76c781d1f9658b20bb81b26227f4"
+        }
+      ],
+      "residual_risk": "Length/DER semantic validation and the complete parser remain upstream trust. This inspection covers cast invariants, not a proof of every parser rule or every ASN.1 type.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "der",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alloc",
+          "pem",
+          "std",
+          "zeroize"
+        ],
+        "example_reverse_route": "der 0.8.3 -> ureq 3.5.0 -> susi-vendor-ureq -> susi-http-transport -> susi-adapters-llm -> susi-core -> susi",
+        "reverse_tree_receipt": "der-0.8.3.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "6a996a108feb8b427a6e12fcf6af4aa83409b79d72c15337d7741368131ee004",
+        "cargo_lock_checksum": "6a996a108feb8b427a6e12fcf6af4aa83409b79d72c15337d7741368131ee004",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "729521913a102b3548c36d1136b3407030a6c3299308997e004d6e3b898fc0c3"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "flagset",
+        "version": "0.4.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: unchecked logical flag-set construction and exported macro contracts.",
+      "boundary": "Public unsafe new_unchecked stores caller-supplied bits; flags! emits an unsafe construction from declared enum variants. This inspected implementation performs no raw-pointer dereference or external FFI.",
+      "justification": "The macro constructs a set from declared flag variants, satisfying its own valid-bit requirement. External arbitrary bitsets have the checked new/new_truncated alternatives. The crate-level marker is absent, and its unsafe API is a real caller obligation even though the current constructor only stores bits. Inclusion is through der 0.7.10 used by the strict PKCS key path.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "aff39788171bd6e1a00bd2c6114ff2d12701fd76b60e0feb34681c64a75a8edb"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "cebb7204afb35bcc84c42af55433084f49717539c1d8e87314615348efe840c6"
+        }
+      ],
+      "residual_risk": "Consumers can violate the unsafe constructor contract; macros move that obligation into downstream expansions. Future upstream implementation changes could turn a logical invariant failure into memory unsafety. Review is bound to this exact version.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "flagset",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "flagset -> der 0.7.10 -> pkcs1 0.7.5 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "flagset-0.4.7.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe",
+        "cargo_lock_checksum": "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "2116c91fe7635f34c8ce7727ddb77ac8d5f139f2155a1b703f13f7d67a8fac10"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "foreign-types",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: ownership and lifetime bridge around platform cryptography objects.",
+      "boundary": "foreign_type! generates raw foreign pointers, owning Drop, pointer-to-reference Deref/DerefMut and optional clone hooks.",
+      "justification": "Owned handles delegate destruction to the specified C destructor; borrowed references are tied by generated Deref to the Rust wrapper borrow. Correctness therefore requires non-null live objects, matched allocation/free functions, and valid aliasing supplied by openssl. The macro does not itself validate arbitrary pointers; from_ptr is unsafe. Review of openssl null-result conversion and RAII call sites supports the selected integration rather than treating this macro as intrinsically safe.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "1a667c28f60115423b68fea369255c2dcb129b8dce10f30e0e1da73d05f9adab"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "4f0a33bf8ec94a57d1b71e50f1af8ca410985e447f69fdc9c680545b03ea4566"
+        }
+      ],
+      "residual_risk": "A mismatched destructor, invalid pointer, C-side aliasing or refcount error can cause UB. Type definitions and C-library behavior remain part of the trusted boundary; the entire openssl object catalog was not audited.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "foreign_types",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "foreign-types -> openssl 0.10.81 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "foreign-types-0.3.2.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1",
+        "cargo_lock_checksum": "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "10cc19c43426ecfdb64ba573cb8526e9125e2e783cce9a93805f082e863798b6"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "foreign-types-shared",
+        "version": "0.1.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: raw pointer to Rust-reference conversion with caller-selected lifetime.",
+      "boundary": "ForeignTypeRef::from_ptr/from_ptr_mut dereference a raw pointer as an opaque reference; ForeignType::from_ptr is an unsafe owning-handle contract.",
+      "justification": "The tiny shared crate exposes the unsafety explicitly: callers must supply live correctly represented C objects and enforce uniqueness for mutable borrows. Opaque uses UnsafeCell, and generated foreign-types wrappers constrain safe Deref lifetimes to the owner borrow. This is supporting infrastructure for openssl, not a standalone safe parser.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "6b91ae600fe7b521537096b2269ab7bfd606f8a1fcd97749634dd03ba18daf53"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "77aed289fd36258c273f033e766e572ee05330249083c017d045f0a75662f5df"
+        }
+      ],
+      "residual_risk": "The trait signatures permit incorrect unsafe implementations or lifetime selection. Soundness rests on the concrete openssl wrappers and library ABI; no independent proof of all implementations is claimed.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "foreign_types_shared",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "foreign-types-shared -> foreign-types 0.3.2 -> openssl 0.10.81 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "foreign-types-shared-0.1.1.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b",
+        "cargo_lock_checksum": "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "a3894d2d88c0ecf10f94ab64c2b97684f1a5f24ab5718634358160c93b585275"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "hyper-tls",
+        "version": "0.6.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: network/TLS policy and downstream native-provider exposure, not local raw-memory code.",
+      "boundary": "HTTPS connector delegates asynchronous handshakes to tokio-native-tls/native-tls and otherwise supports plain HTTP. No literal unsafe token was found in the src Rust files.",
+      "justification": "The reviewed client path derives the destination hostname, optionally rejects non-HTTPS requests when force_https is set, and returns the native TLS handshake result. The missing forbid marker must not be reported as a count of unsafe blocks. It remains selected via reqwest for MCP/A2A traffic. Its native TLS dependencies still have genuine unsafe boundaries.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a6c37b683eda329abcbe9fd9eba554ad9fac442c1a44dbd5c801aa1e6af3071a"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7be7f215f1c0a674697337eac20a312ed31f3009dc2b353d1976fcbc87454aa4"
+        },
+        {
+          "path": "src/client.rs",
+          "sha256": "e84fd214f2e3343e17b37606d2362ad88c4281d212dbf1c13e11cf9728fd8ba9"
+        },
+        {
+          "path": "src/stream.rs",
+          "sha256": "99dd6700f1876241ac421d463c0dcd0eeb61c6792961566f9a6be3d05196c3d0"
+        }
+      ],
+      "residual_risk": "Default support for HTTP is an API behavior, not proof all application requests enforce HTTPS. Certificate/hostname policy and memory safety depend on native-tls configuration, tokio-native-tls and the OS provider. Lexical absence of unsafe does not establish safety of dependencies or macro expansion.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "hyper_tls",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alpn"
+        ],
+        "example_reverse_route": "hyper-tls -> reqwest 0.13.5 -> susi-vendor-mcp -> susi-tools -> susi",
+        "reverse_tree_receipt": "hyper-tls-0.6.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0",
+        "cargo_lock_checksum": "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "29f408ec3b356d15c856faa5421d171597e13b09cca5f93fffab1884bc51bf67"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "No runtime or network tests performed by this review.",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "openssl",
+        "version": "0.10.81",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: cryptographic C ABI, opaque-object ownership, I/O callbacks and secret operations.",
+      "boundary": "Safe Rust wrappers call the platform OpenSSL C library for TLS and RSA3072/SHA256 identity operations. Selected paths include RSA allocation/key generation, EVP signing, DER parsing/serialization, SSL read/write and BIO callbacks.",
+      "justification": "Inspected cvt_p/cvt reject null/nonpositive C returns before safe wrappers are formed; RSA generation obtains a managed handle before the fallible operation. Sign-to-Vec allocates the advertised output size and truncates to actual output. MemBioSlice retains a lifetime marker for borrowed input and checks C integer length bounds. TLS calls pass Rust buffer lengths; BIO callbacks catch Rust panics before crossing the C boundary. The Susi Linux provider itself forbids unsafe_code, validates PKCS8 and RSA consistency, signs through EVP, and verifies using an exported/reimported public key. These checks justify the selected boundary, while not eliminating the C dependency.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "f78aa73885313fec152f91a20a2c96c6380d61f1bb81ff316c406b5e2edfbf47"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "3f74b428ccee8a71f2aa569307b80f5ea0bd6b6ba750d1485f6a9a989bab7714"
+        },
+        {
+          "path": "src/macros.rs",
+          "sha256": "84e1cc0db6630a7eb293e2e087f7d9d1b226466fb4c30dd1c3226d92bedb11a2"
+        },
+        {
+          "path": "src/bio.rs",
+          "sha256": "529367a9758889678da98a5355e0ee25ee67d3710163dff84b9cee55742dff9d"
+        },
+        {
+          "path": "src/rsa.rs",
+          "sha256": "32a1ce25338b49d50ce1b7de1c9f7f8b82ffd246328e5a2b672a469352bcac85"
+        },
+        {
+          "path": "src/pkey.rs",
+          "sha256": "1f32be54d88ee49ad3db4dea4415f2ca8d508ac4de635dbab83957d5b414f16c"
+        },
+        {
+          "path": "src/sign.rs",
+          "sha256": "9e42ca66977c8370cc92e5952e5b1fcd8462a86cb810e583071b7ab7afa1e952"
+        },
+        {
+          "path": "src/ssl/bio.rs",
+          "sha256": "b540da8add428cffd928208c1f2038562fe925faf4c2a8105d13a8a7ee918ae5"
+        },
+        {
+          "path": "src/ssl/mod.rs",
+          "sha256": "c1dfb4620e2bc35c0233fffc08750d8fe9c58711dfefa9cd593dab9ae105aee6"
+        }
+      ],
+      "residual_risk": "Correct C lengths, ownership/refcounts, thread behavior, ABI/header matching and cryptographic behavior remain trusted. This is not a full audit of the large openssl crate or system library and does not prove constant-time behavior. Qualification must separately bind the actual dynamic library/provider and keep advisory/TLS gates enabled; upgrades require requalification.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "openssl",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "openssl -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "openssl-0.10.81.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "77823a27f0babb03091cb9ed9ef80af3b39dbc82f97e8fa530374b7dafd87a45",
+        "cargo_lock_checksum": "77823a27f0babb03091cb9ed9ef80af3b39dbc82f97e8fa530374b7dafd87a45",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "52e881539ec49d6e85302eb3bc0c7354f9cc2dabcc7cbc851844c86daaecf8af"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "openssl-macros",
+        "version": "0.1.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low: host proc macro rewriting function attributes.",
+      "boundary": "The corresponds attribute macro parses an identifier and function, adds documentation/doc-alias attributes, and re-emits the existing attributes, visibility, signature and body. No literal unsafe token occurs in its only src Rust file.",
+      "justification": "The complete 32-line implementation was inspected. It neither creates unsafe blocks nor mutates the function body; existing unsafety in an input function remains in that function. It is a host proc-macro dependency of openssl, included in the normal/build SBOM, not an independent runtime library to label optional.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a0f4f5f613ead670c0512bf5f42c0426c8c3ab119f3737c6119190a5a34b657d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a53de10a52f0870e854ed7575d35eba46165f9eaf9f69d1abfff141d2e2aaf33"
+        }
+      ],
+      "residual_risk": "Compiler/proc-macro parsing and dependency supply-chain trust remain. The missing unconditional forbid marker is still a real inventory difference, but is not evidence of runtime unsafe operations in this crate.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "openssl_macros",
+            "kind": [
+              "proc-macro"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "host proc-macro dependency; code generation, not an independently shipped runtime library",
+        "features": [],
+        "example_reverse_route": "openssl-macros (host proc macro) -> openssl 0.10.81 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "openssl-macros-0.1.1.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c",
+        "cargo_lock_checksum": "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "f4ff34d393894bdb9a335d5a2bae82c022d42e889aeb319a0426b736f6cb1e05"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "openssl-sys",
+        "version": "0.9.117",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: low-level C ABI declarations and build-time selection of platform provider.",
+      "boundary": "Raw extern C declarations expose RSA/EVP/SSL/BIO handles and buffers. Build logic locates platform OpenSSL through environment/pkg-config and selects static or dynamic linkage.",
+      "justification": "The reviewed RSA declarations show the pointer/length ABI consumed by openssl, without pretending this low-level crate validates callers. No vendored feature is present in the qualified feature set. Build probing reads system headers/libraries, and explicit OPENSSL_STATIC can alter linkage; source alone therefore cannot prove the actual library identity. Retaining binary/provider audit receipts and the no-foreign-archive gate is essential to the accepted dynamic-provider strategy.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "0398fda9f72001a6d7f9dad48cf7c04a8e84161aa8a2342fc183247f90190085"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "4f863e7c8506ecfd412333d50bbed037ada503ab93cdaf84da9ecac512f64967"
+        },
+        {
+          "path": "src/handwritten/rsa.rs",
+          "sha256": "549685efff3bfcf9e0d906e876ba3cd25a8d7bf0d294776d11ab8125ca8ed615"
+        },
+        {
+          "path": "build/main.rs",
+          "sha256": "3a7f63b3c446451801ac03c34e03051b8d3ebcceea28b8fb2688922255629d27"
+        },
+        {
+          "path": "build/find_normal.rs",
+          "sha256": "015b5d233c175a67111743c25839a1917242b575f9bbf2fa36582d060c9d1696"
+        }
+      ],
+      "residual_risk": "An ABI mismatch, compromised or vulnerable system library, wrong build environment or unsafe downstream call can breach safety. This review does not authenticate the OS library bytes or qualify other platforms; the production artifact receipts must do that independently.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "openssl_sys",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "openssl-sys -> openssl 0.10.81 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "openssl-sys-0.9.117.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "b47e7e6bb2c38cd930d25a23b40fa52e068c10e85f3e03a7f5ba5aaca5713695",
+        "cargo_lock_checksum": "b47e7e6bb2c38cd930d25a23b40fa52e068c10e85f3e03a7f5ba5aaca5713695",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "f42c9ebef61acdf3cba650eca02eb2316f1ecfd2d94efc4705a5f1f339c596ae"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "pem-rfc7468",
+        "version": "0.7.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: ASCII/UTF-8 representation invariant for encoded key material.",
+      "boundary": "Encoder returns a str using from_utf8_unchecked after constructing PEM output. The decoder and length handling remain separate safe API logic.",
+      "justification": "The inspected encode function computes the written slice, then performs an always-on scan rejecting any byte with its high bit set before the unchecked UTF-8 conversion. Thus ASCII validity is checked even when debug assertions are off. The crate denies unsafe_code with one local allowance, not an unconditional forbid. Both versions are independently selected and reviewed; no name-only deduplication is appropriate.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "88c9f826dd390af0f176cd074ea3d27be8a63e6b5671f77db699daa7df3b121e"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a390b39b5166b526db31a10cae08643e735ba0734f7e92c102608881b7c173b8"
+        },
+        {
+          "path": "src/encoder.rs",
+          "sha256": "477dc159381c889e5b4523ec7bc51b474965d890eeaf5917e007ebe6e9fd25fd"
+        }
+      ],
+      "residual_risk": "Encoding/decoding grammar, length handling, secret handling and constant-time claims are not fully proven by this cast review. The reviewed branch establishes string validity only for this exact implementation.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "pem_rfc7468",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alloc"
+        ],
+        "example_reverse_route": "pem-rfc7468 0.7.0 -> der 0.7.10 -> pkcs1 0.7.5 -> native-tls 0.2.18 -> susi-vendor-tokio-rustls -> susi-daemon -> susi",
+        "reverse_tree_receipt": "pem-rfc7468-0.7.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412",
+        "cargo_lock_checksum": "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "d3192bf571b4740aafb0fd65736af35370abe78ea9bc63e2acd8f17a26b29972"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/native-tls/src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "vendor/native-tls/src/imp/openssl.rs",
+          "sha256": "a2adb1e6927738b6edf0f44dad632d31c4eeb956383712268bc6fdfd43de2863"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "pem-rfc7468",
+        "version": "1.0.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: ASCII/UTF-8 representation invariant for encoded key material.",
+      "boundary": "Encoder returns a str using from_utf8_unchecked after constructing PEM output. The decoder and length handling remain separate safe API logic.",
+      "justification": "The inspected encode function computes the written slice, then performs an always-on scan rejecting any byte with its high bit set before the unchecked UTF-8 conversion. Thus ASCII validity is checked even when debug assertions are off. The crate denies unsafe_code with one local allowance, not an unconditional forbid. Both versions are independently selected and reviewed; no name-only deduplication is appropriate.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "75ef488842c8bbccebfcf1858869ba319895420285ec1ed5d1f96f7306b97302"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "2874217b5a9893593d2d7776ce853d28fcbdf5701efc4947c1ed6596b498dcc6"
+        },
+        {
+          "path": "src/encoder.rs",
+          "sha256": "6e5ecf1f63a0c12eda84080379f9a3d427c90d7dd1a8d2570e5b41c29e6f44a5"
+        }
+      ],
+      "residual_risk": "Encoding/decoding grammar, length handling, secret handling and constant-time claims are not fully proven by this cast review. The reviewed branch establishes string validity only for this exact implementation.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "pem_rfc7468",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "alloc"
+        ],
+        "example_reverse_route": "pem-rfc7468 1.0.0 -> der 0.8.3 -> ureq 3.5.0 -> susi-vendor-ureq -> susi-http-transport -> susi-adapters-llm -> susi-core -> susi",
+        "reverse_tree_receipt": "pem-rfc7468-1.0.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "a6305423e0e7738146434843d1694d621cce767262b2a86910beab705e4493d9",
+        "cargo_lock_checksum": "a6305423e0e7738146434843d1694d621cce767262b2a86910beab705e4493d9",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "832c837a7f5d9048401e361d0d4be843f29dcf67f4733675ed1a375b65bf8cf8"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "ruzstd",
+        "version": "0.9.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: compressed-input parser using manually managed allocation and unchecked byte copies.",
+      "boundary": "RingBuffer owns a raw allocation, maintains initialized head/tail regions, copies repeated sequences, returns slices from raw parts and manually implements Send/Sync.",
+      "justification": "The inspected code documents allocation/initialized-range/head-tail invariants, reserves space before writing, and derives repeat ranges before calling unchecked copies. The selected Susi tantivy-sstable adapter validates encoded block length/codec and uses new_with_max_window_size with a 64 MiB maximum plus a 64 MiB+1 output read followed by rejection if oversized. This materially bounds this selected decode route; it is not an optional accelerator dependency.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "bc0aed1cbef827ad6366effb31fa7c01a3d5655ea5ed9040b755f91cce871636"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "f1020baed7b35d247cc2d003badbb3e15b482d30762d1cb22198920e663ae748"
+        },
+        {
+          "path": "src/decoding/ringbuffer.rs",
+          "sha256": "37269636f9abf9c2e1ef7de005739e7529488b70214a0c342ad0b10eed43a32f"
+        },
+        {
+          "path": "src/decoding/decode_buffer.rs",
+          "sha256": "a51131817133ea71b4da429d3af4a60e18ab397d880872015dfbc9e280401fdb"
+        }
+      ],
+      "residual_risk": "Malformed compression data still exercises a substantial unsafe decoder. Arithmetic/copy invariants, decompression CPU use and allocation failure behavior remain upstream risks. Bounds reduce resource exposure but do not prove memory safety or all compressed-frame corner cases. No new fuzz/Miri run was performed.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "ruzstd",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "default",
+          "hash",
+          "std"
+        ],
+        "example_reverse_route": "ruzstd -> tantivy-sstable 0.7.0 -> tantivy-columnar 0.7.0 -> tantivy 0.26.2 -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "ruzstd-0.9.1.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5",
+        "cargo_lock_checksum": "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "5cfe182b3383ec6ecce3cd9bdd2fd53c7c3b1844e9dcf76f570eb3529e593aef"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/tantivy-sstable/src/block_reader.rs",
+          "sha256": "95d7643744bdaaf6a5f817df84f667e02459eaa391b1f5cb55ff59fd69a2f7c5"
+        },
+        {
+          "path": "vendor/tantivy-sstable/src/delta.rs",
+          "sha256": "26afb64caa51e13bc6e21974a293cb232810fd1f2e9f656ea1e2232e51b16cbc"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "self_cell",
+        "version": "1.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: self-referential allocation, erased dependent lifetimes and manual drop order.",
+      "boundary": "Macro-generated cell places owner and borrowing dependent in stable heap storage; UnsafeSelfCell erases pointers/lifetimes and reconstructs borrows, Send/Sync and destruction.",
+      "justification": "Inspected invariants require initialized immovable owner, stable allocation, controlled access and dependent-before-owner destruction. Constructors take a higher-ranked builder borrowing only the owner; panic guards free initialized state, and explicit drop order avoids dangling dependent destructors. Send/Sync require the corresponding owner/dependent traits. The selected candle-core use is covariant SafeTensors borrowing either Vec<u8> or mmap ownership, with no old_rust feature enabled; the documented pre-1.51 fallback is not selected.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "749b8099307e198cce66b130b9905175e51ab6b7c0acf2a7125ef256ab72f316"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "2336cb23738c82abf7630ef1fa7ea6c51baba699ad6b3bfd6436d97fa5c37817"
+        },
+        {
+          "path": "src/unsafe_self_cell.rs",
+          "sha256": "ac720dc37da3ecdf8dd3d07f7f194bf4e047ca915ee2a53c9e43a9dbc53b9124"
+        }
+      ],
+      "residual_risk": "Macro expansion, variance and destructor/panic paths remain subtle. For mmap-backed tensors, file mutation/truncation is a separate unsafe mmap caller obligation which self_cell does not solve. This review did not exercise models or establish file immutability; it preserves that existing API obligation.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "self_cell",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "self_cell -> candle-core 0.11.1 -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "self_cell-1.3.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813",
+        "cargo_lock_checksum": "2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "207dbab5632618f345c736800b80493d4637b1d83d461c53609cd58ac3de2eb1"
+      },
+      "susi_integration_files": [
+        {
+          "path": "vendor/candle-core/src/safetensors.rs",
+          "sha256": "d4f959cb161da62fbf5197cb06eee66d178b3b63e7ac0aa804a90dde0ad7437c"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "tokio-native-tls",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: task Context lifetime and manual Send/Sync across asynchronous TLS polling.",
+      "boundary": "AllowStd stores a raw erased Context pointer while adapting AsyncRead/AsyncWrite to native-tls synchronous calls; with_context casts it back. Send/Sync are manually conditioned on the stream traits.",
+      "justification": "Inspected stream polling installs the current Context, uses a Guard to clear it on completion/unwind, asserts it is non-null before access, and converts Pending to WouldBlock. Initial handshake code clears the pointer before returning either completed or resumable handshake state. Exclusive &mut access and S: Unpin support the temporary pin/borrow. This confines the raw context to polling rather than persisting a valid Rust reference across awaits.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "6bb138e0cd1d8edc28e1e4e37e796b732a9b4f9db909d6b10779225e1581bcb0"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9f29482a3522a6f2c8051affc0ff41ca1e90b9494dca83c108e4d911b94dda89"
+        }
+      ],
+      "residual_risk": "The invariants still depend on all handshake/panic/reentrancy paths, native-tls callback behavior and correct stream trait implementations. No complete concurrency model check was run. Native provider risks remain additional to this pointer-lifetime bridge.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "tokio_native_tls",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [],
+        "example_reverse_route": "tokio-native-tls -> hyper-tls 0.6.0 -> reqwest 0.13.5 -> susi-vendor-mcp -> susi-tools -> susi",
+        "reverse_tree_receipt": "tokio-native-tls-0.3.1.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2",
+        "cargo_lock_checksum": "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "9097edfdb5caf3824a6d76c20e2d392045fd710bb06768660616607ccf2f6eeb"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "twox-hash",
+        "version": "2.1.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: fixed-size byte reinterpretation for a noncryptographic checksum.",
+      "boundary": "Selected xxhash64 code views initialized [u64;4] storage as [u8;32] and reads 32-byte input chunks as unaligned lanes.",
+      "justification": "The source asserts byte alignment is no stricter than lane alignment, initializes all lanes, and uses split_first_chunk::<32> before read_unaligned. All u64 bit patterns are valid. The qualified feature set is xxhash64 only, so xxhash3 SIMD modules are not part of this selected path and must not inflate the runtime claim.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "c9fb91bb98d4064d2e415ac38f3f4b7aa6f9783d8c2cd5659726f6a906cf987d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "87808adcb7dbb3ef84d622ffb54a5b3e3ab5757db4acb8d8ea70a609f8ebc431"
+        },
+        {
+          "path": "src/xxhash64.rs",
+          "sha256": "c644234b948126d259d80719013f05632f9edb553ec76fdd1526f1322020cd15"
+        }
+      ],
+      "residual_risk": "This is a noncryptographic hash; it must not substitute for the pinned model/artifact SHA-256. Review of this selected representation path is not a review of unselected xxhash3/SIMD features or a proof against hostile collision workloads.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "twox_hash",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "xxhash64"
+        ],
+        "example_reverse_route": "twox-hash -> ruzstd 0.9.1 -> tantivy-sstable 0.7.0 -> tantivy-columnar 0.7.0 -> tantivy 0.26.2 -> susi-vendor-tantivy -> susi-gmcp -> susi",
+        "reverse_tree_receipt": "twox-hash-2.1.4.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "5283634e518fe9e82c7b20520bb4bc209009fd16c82077c802f8111ecbb0117a",
+        "cargo_lock_checksum": "5283634e518fe9e82c7b20520bb4bc209009fd16c82077c802f8111ecbb0117a",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "048dec9f8233c1e5b1c014f234f21177b8cf735c33bce54973eed03997ba56f0"
+      },
+      "susi_integration_files": [],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "wasmi",
+        "version": "1.0.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: interpreter validity, raw instruction/stack pointers and pinned code lifetime.",
+      "boundary": "Interpreter internals use raw instruction pointers and unchecked indexing assumptions from validated translation; CodeMap extends references to pinned append-only code beyond its mutex guard. Memory growth refreshes cached pointers.",
+      "justification": "The reviewed Module::new path parses and validates; Susi calls it after size checks and does not invoke Module::new_unchecked. The selected extra-checks feature makes the interpreter unreachable_unchecked macro panic rather than invoke core::hint::unreachable_unchecked, while other raw pointer operations remain. Susi limits modules to 64 MiB, each store to one memory/instance/table, memory to 256 MiB, table elements to 1,000,000, output to 16 MiB and fuel to 10,000,000. CodeMap lifetime adjustment documents pinned append-only storage. These are concrete mitigations for model-written Wasm, not evidence the interpreter is memory-safe by construction.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "cc7ae6db439cac0461bcb7a95b7fea124870536ed1e79804789f0a9285779d6d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a592e17ecf2b0f4e0c66f4a180ece1e67a98d47bac1c3c612e1e2b00072d6185"
+        },
+        {
+          "path": "src/module/mod.rs",
+          "sha256": "9700a132a808ebd7e2c1e48b175704048f1b187ef7bbf7302054996ad48f6dad"
+        },
+        {
+          "path": "src/engine/code_map.rs",
+          "sha256": "f7aacf9ffe8b114c4a78d73579ca001ce9d589b631cfd2f03510c6fa64693448"
+        },
+        {
+          "path": "src/engine/utils.rs",
+          "sha256": "b881d72c5e925bbf7a47a08bbc0989835fa7fe778068ef2f67b3d598023d5d90"
+        },
+        {
+          "path": "src/engine/executor/instr_ptr.rs",
+          "sha256": "4ad8cf61bcb07880eaf26183b7f5d06f0aadea968d14ce584bcc38bbff507900"
+        },
+        {
+          "path": "src/engine/executor/stack/values.rs",
+          "sha256": "8c736902f4a5656fbe77152feed23caaf77f5f2d81eaf64d5d05f49621e158c2"
+        },
+        {
+          "path": "src/engine/executor/instrs/memory.rs",
+          "sha256": "d91aee1975c0404d8fb95220a798a0f433212f140b41573ade9d121908cb6e51"
+        }
+      ],
+      "residual_risk": "Translator bugs can invalidate instruction/stack pointer assumptions; pinned-lifetime and cache invalidation correctness remain trusted. Fuel/resource caps do not guarantee memory safety or total compile-time CPU bounds. This scoped review is not a full interpreter audit or new adversarial/fuzz campaign.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wasmi",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "extra-checks",
+          "simd",
+          "std"
+        ],
+        "example_reverse_route": "wasmi -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wasmi-1.0.9.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "22bf475363d09d960b48275c4ea9403051add498a9d80c64dbc91edabab9d1d0",
+        "cargo_lock_checksum": "22bf475363d09d960b48275c4ea9403051add498a9d80c64dbc91edabab9d1d0",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "c8f7add20ef47ad2b14d8c168224c1a79abd83bab55e627e835b85bbc72c4b0d"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "wasmi_collections",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: transparent string wrapper and thread-trait bounds for arenas.",
+      "boundary": "LenOrderStr converts &str using transmute; Arena/ComponentVec implement Send/Sync without requiring the phantom index type to be Send/Sync.",
+      "justification": "The inspected string wrapper is repr(transparent) over str and preserves the original lifetime; it does not extend a borrow to static. Arena owns Vec<T> and ComponentVec owns Vec<Option<T>>; their Send/Sync implementations retain T: Send/T: Sync and only drop the unused index-marker bound. This is the precise residual unsafe surface, distinct from the larger interpreter.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "132fa206e00d9816f65ac874c55c53c53aedb2e30f0e6f34e45622185401c2d6"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "f85867c84a5bf46849b75dcb3dedc0f996734a329a51de6daa27ebde23dbb8d4"
+        },
+        {
+          "path": "src/string_interner/detail.rs",
+          "sha256": "c59ae7eb2e181601b8e3eea51f02860a267e3e872334dabaac71000e149b4051"
+        },
+        {
+          "path": "src/arena/mod.rs",
+          "sha256": "de5ba43d4f845b4c741679a3b6be688643f4ee30eb146049897fb80ae91dbbca"
+        },
+        {
+          "path": "src/arena/component_vec.rs",
+          "sha256": "8ffaf3578d3f0bb0173b17f6aabca2d6e0403147a988fc5233712db1f1e70a18"
+        }
+      ],
+      "residual_risk": "Correctness assumes no later interior state is added without updating trait bounds and the transparent wrapper layout remains unchanged. This does not validate the interpreter algorithms consuming these collections.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wasmi_collections",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "std"
+        ],
+        "example_reverse_route": "wasmi_collections -> wasmi 1.0.9 -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wasmi_collections-1.1.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "f8a8c42a2a76148d43097b1d7cc2a5bf33d5c23bd4dd69015fc887e311767884",
+        "cargo_lock_checksum": "f8a8c42a2a76148d43097b1d7cc2a5bf33d5c23bd4dd69015fc887e311767884",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "96151aa4aac63bffe3393f1902355bad077eeaad015e7ac4b3076936da9d2a4a"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "wasmi_core",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: guest linear-memory ownership and SIMD representation conversion.",
+      "boundary": "ByteBuffer stores Vec/static-slice raw parts, reconstructs slices and Vec ownership, and manually implements Send/Sync; selected SIMD code transmutes equal-sized numeric lanes and V128.",
+      "justification": "Inspected creation zero-initializes accessible memory, records capacity, uses checked reservation for growth, updates raw parts after reallocation, and distinguishes static borrowed ownership from Vec ownership before freeing. Slice methods tie borrows to &self/&mut self. SIMD conversions use same-size types with valid numeric bit patterns. Susi applies the store/resource caps described in its wasmi integration; SIMD is actually selected.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "635fe563fd54945ae5b7d8278842921ce40103b9ff95fa672a1dcccf76021974"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a38a1fbc99efea939115d9f64b18b90e04e67a7482162a7529eb2913766b16ec"
+        },
+        {
+          "path": "src/memory/buffer.rs",
+          "sha256": "c39e7c330a4525ff2abeee4d274072a9e9c4468fe92113ede3ace11ded7790d6"
+        },
+        {
+          "path": "src/simd.rs",
+          "sha256": "739c83301c9132a9188bc3f60afc3f70d98ac658f417b4b6c54d8db8b256463b"
+        }
+      ],
+      "residual_risk": "Raw-part consistency, growth failure paths, aliasing and interpreter use of cached memory pointers remain trusted. Bounds do not prove all memory operations or SIMD semantics; test-only static-mut snippets are not counted as production operations.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wasmi_core",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "simd",
+          "std"
+        ],
+        "example_reverse_route": "wasmi_core -> wasmi 1.0.9 -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wasmi_core-1.1.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "9013136083d988725953390bf668b64b7a218fabf26f8b913bbc59546b97ee27",
+        "cargo_lock_checksum": "9013136083d988725953390bf668b64b7a218fabf26f8b913bbc59546b97ee27",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "e37abbcd941e89b3ab4ebfb6469220326e50b90a30de8caaeced51c0da01b533"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    },
+    {
+      "identity": {
+        "name": "wasmi_ir",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: compact immediate representation preserving NonZero invariants.",
+      "boundary": "Const16<NonZero<T>> converts back through NonZero::new_unchecked in an internal macro.",
+      "justification": "The generic raw constructor is private; public conversions for NonZero immediates receive NonZero inputs and checked compact conversions. The unsafe conversion therefore relies on a concrete nonzero invariant, rather than arbitrary caller bits. This inspected operation is an IR representation optimization, not external FFI.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "eac9be472a5d497ec4ffb8a39ba633c783a5662caedb11a48aceccbad821ee96"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7c49b5191954b00fc41acfe304b966f910c47e8516fc9f3ae85c1c0e33b04b95"
+        },
+        {
+          "path": "src/immeditate.rs",
+          "sha256": "39c8e5e3b23c66a5e43397def8a81e1e4e14f4cc340916b567bb71116132eea2"
+        }
+      ],
+      "residual_risk": "Future constructors or transformations could violate the private invariant. This review does not establish correctness of all translated opcodes or the consuming interpreter.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Absence of the unconditional forbid marker is an inventory indicator, not an unsafe operation count or a memory safety verdict.",
+        "declared_entrypoints": [
+          {
+            "name": "wasmi_ir",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal dependency; not merely an optional accelerator",
+        "features": [
+          "simd"
+        ],
+        "example_reverse_route": "wasmi_ir -> wasmi 1.0.9 -> susi-vendor-wasmtime -> susi",
+        "reverse_tree_receipt": "wasmi_ir-1.1.0.tree"
+      },
+      "source_binding": {
+        "archive_sha256": "ba1fa003f79156f406d62ef0e1464dc03e11ace37170e9fa7524299a75ad8f68",
+        "cargo_lock_checksum": "ba1fa003f79156f406d62ef0e1464dc03e11ace37170e9fa7524299a75ad8f68",
+        "all_extracted_files_match_archive": true,
+        "source_tree_sha256": "397de8a301d626514260f68bed523b1acec9981da5c22c8be620f4e942a03b99"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-wasmtime/Cargo.toml",
+          "sha256": "e9d187019486b85938df1f9ef5bbae0669e2e34be1b46466cb5edb3ff940c435"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/cell.rs",
+          "sha256": "6015b3fc052be13d33eeb381ede9135a77af93f462dc55f35975bd818dcd9d36"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/resources.rs",
+          "sha256": "23e45a3dacbe6f540e6ffc1f175abb02216f39b987fab144519019ba0294b1d1"
+        },
+        {
+          "path": "crates/susi-vendor-wasmtime/src/wasm.rs",
+          "sha256": "ed5e1abb85647764d9ce7c223ff560ac4d141368d7e3de000f9bb571d9321544"
+        }
+      ],
+      "scope_notes": "",
+      "conclusion": "No specific blocking defect identified in the inspected boundary. This is a scoped dependency-change review, not a complete upstream memory-safety audit or blanket approval of future versions/features."
+    }
+  ],
+  "review_result": "19 exact component identities reviewed with source-bound boundary, rationale, selected features and residual risk; no specific blocking defect identified in inspected boundaries. Not a complete upstream memory-safety audit.",
+  "gate_obligations": [
+    "A complete fail-closed scanner measurement must replace the incomplete cargo-geiger result that omitted signal-hook-registry 1.4.8 after its parser error.",
+    "The gate worker must bind this review to exact baseline/candidate graph and scanner identities, per-file measurements and historical baseline provenance; this receipt alone does not pass the ratchet.",
+    "Preserve advisory/license/provenance checks and actual production qualification/health/rollback requirements. Source review cannot promote a package or approve future versions/features."
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed": false
+}

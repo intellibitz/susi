@@ -1,0 +1,187 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T18:27:42.336848+00:00",
+  "reviewer": "/root/license_advisory_review",
+  "source_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
+  "source_tree": "1c8078457d69c0b978413e1d97e3f1ccc204073c",
+  "scope": "Independent read-only final review of repaired safetensors numeric conversion and explicit F8 conversion dispatch, including exact immutable source, focused execution logs and preserved historical defect evidence.",
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/component-reviews.json",
+      "sha256": "5777453d007d51a5858f554b63c0f44ae8fcb9f2d5138522cd1d3882b01552b9"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/candle-byte-draft-review.json",
+      "sha256": "4b76d9436e429325ac35459cc988869542f9cf8bea37edce8df4fd3946f06154"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/candle-repaired-source-files.json",
+      "sha256": "878b32130d339e811d253654658c136545092e5a91343376e11d99a57023a410"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/candle-bytes/focused-test-repaired.json",
+      "sha256": "9ecb9490a193006ea44349f0223d55916dcfba216b55a301147c02280e642c36"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/candle-bytes/focused-test-repaired.log",
+      "sha256": "4012c2df38236a39434fa3172b8811caf7882caa5a091bd6fe1590978c3b8ca2"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/candle-bytes/focused-clippy.json",
+      "sha256": "fb3d151194a3cf2e6d6bd2a6fda00eb72bdb274956b81c3a2abc524dd1907b0a"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/candle-bytes/format.json",
+      "sha256": "c32a88608ee2bfc6d2ccf36751c24c81bcf7592fbf2cb1487bf2a4338c358faa"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/candle-bytes/test-artifact.json",
+      "sha256": "5429f7dcf8009208a85eb4f30b7120d192325d3103cebd4ce2c682530d776a1d"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/candle-bytes/toolchain.txt",
+      "sha256": "91a27f7fa86c27583f5a7c3d1f23dbd9a7e42ed18dc031db7472502cc55c88b9"
+    },
+    {
+      "path": "/workspace/.susi-cargo/registry/src/index.crates.io-1949cf8c6b5b557f/float8-0.7.0/src/lib.rs",
+      "sha256": "22c652e917e4a43e1e5b925db9725a96e2de76d98c81bb1501fbbeb5fc1e0b48"
+    }
+  ],
+  "components": [
+    {
+      "identity": {
+        "name": "candle-core",
+        "version": "0.11.1",
+        "source": "path:vendor/candle-core/Cargo.toml"
+      },
+      "risk": "High: model byte parsing, raw tensor representations, numeric allocation and CPU kernels.",
+      "boundary": "Selected CPU tensor backend invokes Rust GEMM with raw strides, converts quantized byte buffers to aligned block slices, initializes numeric output in parallel, and exposes safetensors serialization/loading; CUDA/MKL/Metal branches are not selected in this Linux graph.",
+      "justification": "Required CPU tensor substrate for actual local inference. The historical review identified two real safetensors conversion defects; commit 57468e3a29f7a01d971082ccda61b2be8283edce removes both rather than allowing them. Private TensorBytes codecs enumerate only fixed numeric wire types. Decoders check shape multiplication, element-byte multiplication and exact payload length before allocating or iterating complete little-endian chunks. Typed values are initialized by safe constructors. Serialization creates its own Vec<u8> and drops Vec<T> with its original allocation layout; no raw ownership cast, copy_nonoverlapping or forget remains in those helpers. The unchanged six-test public workspace suite covers aligned/unaligned partial elements, shape/byte overflow, empty/scalar cases, all ten numeric dtypes, NaN/sign-bit wire roundtrips, U16 cast, and real VarMap checkpoint save/load. It also exposed pre-existing F8 conversion recursion; explicit inherent F8E4M3::to_f64(&v) fixes dispatch and the same numeric test now passes. Previous inspected GGUF bounds, quantized slice alignment/divisibility checks and CPU GEMM/parallel initialization invariants remain unchanged.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a98dbbcd5fd224836f1d0191ea483337c01df3ffc10e2a1171d62f2c35221976"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a141d521bc464b66f5625a954e6676759a0bef2d7c61c7451d53f1b35fc5fe92"
+        },
+        {
+          "path": "src/safetensors.rs",
+          "sha256": "d69c57a79558f188243309b048888e3afea48662d86a9d60900dad33a4e09733"
+        },
+        {
+          "path": "src/cpu_backend/mod.rs",
+          "sha256": "0da73738ec8ed2ede1b9588f3bc766f060c268cd69081d88de7006ffb02bf642"
+        },
+        {
+          "path": "src/quantized/mod.rs",
+          "sha256": "da75d412c3d7b803c9c0060c45bd7afc36064662f98f5dfed97bab426f97ebc2"
+        },
+        {
+          "path": "src/quantized/gguf_file.rs",
+          "sha256": "303d0bc548677b41a572b4c878a79905108775eba840037daf778b051d281822"
+        },
+        {
+          "path": "src/quantized/ggml_file.rs",
+          "sha256": "dfc48f822e4393bc836efcf782f4a6bb36168ac9d641324a054f13ee862aadac"
+        },
+        {
+          "path": "src/dtype.rs",
+          "sha256": "a622935f8873d253c7b5fc0082a59cc9bebf32424610f894790413b182e37a52"
+        }
+      ],
+      "residual_risk": "This repairs the identified byte boundary and F8 conversion, not all Candle unsafe internals. CPU raw GEMM/shape/stride, parallel initialization, mmap lifetime/file stability and other dtype/kernel APIs retain their documented invariants. No exhaustive malformed-model fuzzing, Miri, cross-platform GPU execution or proof of constant-time behavior was performed. Exact combined candidate tests and real inference remain separate requirements.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "candle_core",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "candle-core -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "candle-core-0.11.1.tree"
+      },
+      "source_binding": {
+        "accepted_base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "reviewed_repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
+        "git_subtree": "34e2220efb4a332e2d55c4ba10f58316b9af09a9",
+        "all_tracked_files_match_reviewed_git": true,
+        "source_tree_sha256": "93702972c11265dca0e648f2af65d0c8d1ae575bf0943f842f08b3d215778117",
+        "source_files_receipt": "candle-repaired-source-files.json"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-gemi/src/engines/alpha.rs",
+          "sha256": "5624b4a58e2237718a6708984eb40fc998b0bc7f11f39926a76700ba32e79344"
+        },
+        {
+          "path": "crates/susi-gemi/tests/tensor_byte_boundary.rs",
+          "sha256": "18dcdc5c03123d9c20ec7d86b50a55cc579f75f65afb81c3b4a44e87b94fdb1e"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [
+        "CANDLE-SAFETENSORS-ALLOC-LAYOUT",
+        "CANDLE-SAFETENSORS-PARTIAL-ELEMENT"
+      ],
+      "disposition": "reviewed_after_specific_boundary_repairs",
+      "conclusion": "The two concrete byte defects and the exposed F8 recursion are resolved in this exact repaired source, with six nonignored focused tests passing. No new blocker identified in the inspected repaired boundary; this is scoped review, not complete upstream memory-safety approval.",
+      "finding_resolution": {
+        "CANDLE-SAFETENSORS-ALLOC-LAYOUT": {
+          "status": "repaired_and_focused_tests_passed",
+          "repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce"
+        },
+        "CANDLE-SAFETENSORS-PARTIAL-ELEMENT": {
+          "status": "repaired_and_focused_tests_passed",
+          "repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce"
+        },
+        "CANDLE-F8-TO-F64-RECURSION": {
+          "status": "repaired_explicit_inherent_dispatch",
+          "repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
+          "evidence": "Unchanged ten-dtype numeric conversion test now terminates and passes; initial failed run/diagnostic preserved by repair owner."
+        }
+      }
+    }
+  ],
+  "review_result": "Historical Candle core byte findings resolved and final source-bound review complete. Six focused tests passed; clippy/fmt passed. This does not replace combined source qualification or certify all unsafe tensor kernels.",
+  "gate_obligations": [
+    "Final candidate must preserve repaired safetensors.rs and dtype.rs hashes and run the public workspace byte regressions.",
+    "Combine the independent restricted Candle facade source and all remaining worker changes under final locked common acceptance.",
+    "Retain full advisory/license/unsafe/provenance gates, immutable artifact tests, real inference, installed health and verified rollback."
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed_by_reviewer": false,
+  "test_receipts_reviewed": {
+    "passed": 6,
+    "failed": 0,
+    "ignored": 0,
+    "exit": 0,
+    "seconds": 65.298764,
+    "clippy_seconds": 46.061605,
+    "format_seconds": 4.596532,
+    "binary_sha256_verified": "1bfc61fdc876f8d339c26efee430e6294bb73e52e617013fc3614cefa61241e2"
+  },
+  "new_tests_executed": false
+}

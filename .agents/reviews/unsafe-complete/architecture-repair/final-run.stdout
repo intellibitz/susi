@@ -1,0 +1,41 @@
+
+running 36 tests
+test ceo_git_authority_preserves_evidence_and_scope ... ok
+test architecture_md_exists ... ok
+test ceo_mandates_are_complete_and_keep_evidence_honest ... ok
+test ci_has_no_bot_pr_triggered_noise_runs ... ok
+test agents_md_opens_with_start_here_and_the_workflow_check ... ok
+test core_os_crates_must_not_declare_http_clients ... ok
+test brain_lanes_board_is_retired_into_data ... ok
+test default_extension_manifest_declares_api_version ... ok
+test every_non_facade_crate_has_tests ... ok
+test gemi_models_must_not_declare_vendor_http_or_tokenizers ... ok
+test github_ruleset_requires_only_checks_the_workflows_produce ... ok
+test layer_matrix_forbidden_edges ... ok
+test linker_features_flag_is_x86_64_linux_only ... ok
+test mcp_sdk_stays_in_vendor_crates ... ok
+test no_workspace_crate_cycles ... ok
+test pruned_non_ai_os_bloat_modules_and_deps_stay_removed ... ok
+test reachability_from_core_stays_downward ... ok
+test readme_covers_the_workflow_ecosystem_and_brain ... ok
+test release_sync_downloads_the_published_binary_and_falls_back_to_a_build ... ok
+test dev_builds_never_install_the_release_binary ... ok
+test self_build_contract_reaches_every_code_writing_path ... ok
+test susi_core_must_not_depend_on_infra_or_features ... ok
+test susi_crates_declare_zero_external_dependencies ... ok
+test susi_error_must_not_depend_on_candle_or_features ... ok
+test the_lockfile_carries_fixed_zip_and_the_approved_candle_sources ... ok
+test cross_crate_source_mounts_only_decrease ... ok
+test roadmap_vectors_and_tasks_stay_linked ... ok
+test vendor_patches_are_local_and_preserve_upstream_licenses ... ok
+test workflow_mandates_are_in_identity_and_their_enforcement_exists ... ok
+test workspace_edges_follow_the_leaf_order ... ok
+test workspace_enforces_apache_mit_bsd_license_policy ... ok
+test worktree_workflow_guard_is_wired_into_every_hook ... ok
+test zc_quickstart_budget ... ok
+test every_panic_path_allow_is_justified ... ok
+test ureq_types_stay_inside_http_transport ... ok
+test unreachable_daemon_modules_only_decrease ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+

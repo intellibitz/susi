@@ -8,6 +8,8 @@ publish = false
 [dependencies]
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+susi-vendor-syn = { path = "../susi-vendor-syn" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 [lints]
 workspace = true

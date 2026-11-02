@@ -1,0 +1,172 @@
+{
+  "schema": "susi/unsafe-scanner-build-proof/v1",
+  "source_base": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_worktree": "/workspace/susi-release-gates-driver-agent-unsafe-complete",
+  "private_build_root": "/workspace/susi-unsafe-complete-dev",
+  "private_build_lock_sha256": "e7c9794ec3717db8e4b5b1519961cbd584d0bc8736c6fcf377d0c3d1d842af58",
+  "build_scope": "base-cbf source copy plus the two owned first-party dependency edges; final combined --locked validation remains mandatory",
+  "tools": {
+    "unsafe_measure": {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools/unsafe_measure",
+      "sha256": "625bdb66edd3978309da28cd6494143b45cdbe815a51debf238467b7533f6386",
+      "bytes": 19658040
+    },
+    "unsafe_ratchet": {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools/unsafe_ratchet",
+      "sha256": "48d969ebd85e62ed94ee4ce143ab5f89530673d0dc379f18e3a4113fb129c725",
+      "bytes": 18377096
+    }
+  },
+  "scans": {
+    "base-complete": {
+      "source_commit": "aff638d06825f0874231ff01b546f9128a534d04",
+      "source_tree": "a0e2d65b6ea1022dd74ecbde869e322ac76d5866",
+      "cargo_lock_sha256": "9ae06c018533d3437370a8d5dcbe846846548fb7262eed932e2f221f1ae269fe",
+      "scanner_sha256": "625bdb66edd3978309da28cd6494143b45cdbe815a51debf238467b7533f6386",
+      "cargo_version": "cargo 1.99.0 (5f94df478 2026-08-27)",
+      "graph_sha256": "ec11dcacc21eeab4632afae90f4f018965a16b51d45a38d2966c7141d9bc9014",
+      "selection_tree_sha256": "3c987cc11497c4f0f42696909a7b20e01dc39acd0cd3032c8ad4129cda35d2d3",
+      "sha256": "a28a8f918e3d7bc1610ed539d3256781843e67481f447fc07f11bd866ec5f48c",
+      "packages": 483,
+      "files": 504
+    },
+    "candidate-complete": {
+      "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+      "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+      "cargo_lock_sha256": "9213ca390987fe49a37a060a531387072898d8775e4ac7bf883aac31e97a4c4b",
+      "scanner_sha256": "625bdb66edd3978309da28cd6494143b45cdbe815a51debf238467b7533f6386",
+      "cargo_version": "cargo 1.99.0 (5f94df478 2026-08-27)",
+      "graph_sha256": "bb2125929b9cd6720affb69ee5a13edad3769e4b039d292b2d9c7d881a76ed57",
+      "selection_tree_sha256": "21cb9bb51484ca556a7a02b1f193825186e3dad1a4aee537706f6e5a545c0770",
+      "sha256": "7334690bde3077ab7c51b908b3059160f37e2b30ec88e5b7c194416b4fd47a2a",
+      "packages": 479,
+      "files": 500
+    }
+  },
+  "historical_sha256": "9d8fd1fa64ec943f6978bff0a9225ae7ba1f0e9098a8672a528dd982cfc3e623",
+  "old_tool_contract_sources": [
+    {
+      "path": "cargo-geiger-0.13.0/src/graph.rs",
+      "sha256": "1c1b84156a3d8113f2dce4cc5b35795ccc8f7f57643e936d9c726181b26fc56c"
+    },
+    {
+      "path": "cargo-geiger-0.13.0/src/scan/find.rs",
+      "sha256": "85a6e7196712337716c770c371af0c0472f01d16eec8c05ed68e07fc2736eb3e"
+    },
+    {
+      "path": "cargo-geiger-0.13.0/src/scan/rs_file.rs",
+      "sha256": "b8dc416e12ec3c983aac4f5cee3d29ceb9590a70df039aea646c2f5a81233aa7"
+    }
+  ],
+  "test_counts": [
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      31,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      13,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      7,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0
+    ]
+  ],
+  "tests_total": {
+    "passed": 54,
+    "failed": 0,
+    "ignored": 0
+  },
+  "owned_implementation_files": [
+    {
+      "path": "crates/susi-unsafe-ratchet/Cargo.toml",
+      "sha256": "e17ae62c39011d9ab888dc2058214e010e9f9cdf645a686113debb57eb10afc7"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/src/bin/unsafe_measure.rs",
+      "sha256": "3c665eb05849759b4cf8d05413a13f098be0f5c5d7b1678fde606890f7682001"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/src/bin/unsafe_ratchet.rs",
+      "sha256": "f718161293c5f9bede5a877a11d8353b887ae94cff8069b0c2215d3618b12576"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/src/inventory.rs",
+      "sha256": "7766a6aeff618f1579237caa2348aeb6656944b7cce54f6547b422b99df4ce6c"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/src/lib.rs",
+      "sha256": "1498c29abe04abe5ffd8e5edff2591bb218b96f16ef76a6104c09de26a653c1f"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/src/measurement.rs",
+      "sha256": "ea3324ca87e7efee64a3e5f077fffaff9434109afc3ff72faa1e8f7dfb538c67"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/tests/ci_changed_crates.rs",
+      "sha256": "a6f453c8b0aa97a25bf48e95aa9ef0d8046868cad3bc130aaa9d5b23977c2aec"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/tests/ci_unsafe_exposure_scope.rs",
+      "sha256": "79f51cdfe912d17a25b165e99756409f45b4b664fc00064747e6f436c3c7c3c8"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/tests/measurement_contract.rs",
+      "sha256": "810feef122f4acd573df4205b957337753ab2ca5563ba8200812a67ec49193a1"
+    },
+    {
+      "path": "crates/susi-unsafe-ratchet/tests/owed_receipts.rs",
+      "sha256": "768ec0be8aaa69fab374f78272e400fab876cbfc1f8a93188b28a70d09a408d7"
+    },
+    {
+      "path": "crates/susi-vendor-syn/Cargo.toml",
+      "sha256": "5e51fab283f7a72c4b16a04cd22063dd96939516a79da89b34a86d4aa4d6a3c7"
+    },
+    {
+      "path": "crates/susi-vendor-syn/src/forbid.rs",
+      "sha256": "6e1c36bab3cf09263fc34d75f122c60955570ed71d5825d54dfb339ca0bbcf9b"
+    },
+    {
+      "path": "crates/susi-vendor-syn/src/lib.rs",
+      "sha256": "703296605639c4bc8199ec95edea39d99d1d3df9d827f322aea674409799b8fa"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "argv": [
+    "cargo",
+    "clippy",
+    "--offline",
+    "--locked",
+    "-p",
+    "susi-unsafe-ratchet",
+    "-p",
+    "susi-vendor-syn",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "cwd": "/workspace/susi-unsafe-complete-dev",
+  "exit": 0,
+  "seconds": 0.8746426369980327,
+  "scope": "private base-cbf source copy plus owned manifest edges; not final combined source"
+}
