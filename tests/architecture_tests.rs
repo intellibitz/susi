@@ -2109,6 +2109,7 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         "crates/susi-gemi/src/status_pages.rs",
         "crates/susi-gmcp/src/eco_mcp_auth.rs",
         "crates/susi-gmcp/src/zc_mcp_autoinstall.rs",
+        "crates/susi-harness/src/memory.rs",
         "crates/susi-sandbox-client/src/mission_sandbox_limits.rs",
         "crates/susi-server/src/gateway_embeddings.rs",
         "crates/susi-server/src/web_dashboard.rs",
@@ -2132,6 +2133,23 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
     assert!(
         !daemon_manifest.contains("ed25519-dalek"),
         "susi-daemon must not depend on ed25519-dalek after pruning uncalled signing/identity stubs"
+    );
+    assert!(
+        !daemon_manifest.contains("parking_lot") && !daemon_manifest.contains("parking-lot"),
+        "susi-daemon must not depend on unused parking_lot"
+    );
+    let harness_manifest = std::fs::read_to_string(root.join("crates/susi-harness/Cargo.toml"))
+        .expect("read susi-harness Cargo.toml");
+    assert!(
+        !harness_manifest.contains("susi-vendor-fastembed"),
+        "susi-harness must not depend on susi-vendor-fastembed after pruning unpersisted memory stub"
+    );
+    let root_manifest =
+        std::fs::read_to_string(root.join("Cargo.toml")).expect("read root Cargo.toml");
+    assert!(
+        !root_manifest.contains("\"*\".*=.*opt-level = 3")
+            && !root_manifest.contains("\"*\" = { opt-level = 3 }"),
+        "root Cargo.toml must not force opt-level = 3 across all dev/test dependencies"
     );
     for manifest_rel in [
         "crates/susi-core/Cargo.toml",
