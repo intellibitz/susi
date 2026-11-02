@@ -55,6 +55,8 @@ pub mod state_migration;
 mod types;
 pub mod validate;
 pub mod versioned_store;
+#[cfg(windows)]
+pub mod windows_environment;
 pub mod zc_bare_susi;
 pub mod zc_debt_ratchet;
 pub mod zc_debt_report;

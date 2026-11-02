@@ -1,4 +1,6 @@
 //! Native, no-overwrite installation of the executable the user launched.
+#[path = "../installed_channel.rs"]
+pub(crate) mod installed_channel;
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,

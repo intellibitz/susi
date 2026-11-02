@@ -1,0 +1,10 @@
+{
+  "id": "T-JOURNEYLOCK-2",
+  "owner": "journeylock-1102",
+  "status": "implemented",
+  "title": "Admit external extension manifests and read only their declared files",
+  "dependencies": ["T-JOURNEYLOCK-1"],
+  "scopes": ["crates/susi-config/src/extensions.rs", "crates/susi-config/src/tests/extensions.rs", ".agents/tasks/T-JOURNEYLOCK-2.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-config", "extensions"]},
+  "requirement": "Malformed or mismatched external manifests, undeclared shadow files and unintended path escapes cannot activate or supply data. Legitimate declared mappings, integrity admission and bundled fallback remain functional."
+}

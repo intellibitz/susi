@@ -11,6 +11,143 @@
 use std::process::Command;
 use susi_paths::test_env::isolate_home;
 
+#[test]
+fn registered_stdio_server_requires_grants_for_both_discovery_and_call() {
+    let scratch =
+        std::env::temp_dir().join(format!("susi-registered-stdio-{}", std::process::id()));
+    let home = scratch.join("home");
+    let runtime = home.join(".susi");
+    let marker = scratch.join("spawned");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let source = scratch.join("peer.rs");
+    let peer = scratch.join(format!("peer{}", std::env::consts::EXE_SUFFIX));
+    // An actual Rust stdio process, with a marker written before it reads any
+    // request. A rejected handshake cannot masquerade as a pre-spawn denial.
+    std::fs::write(&source, r##"
+use std::io::{self,BufRead,Write};
+fn main() {
+    std::fs::write(std::env::args_os().nth(1).unwrap(), "started").unwrap();
+    for line in io::stdin().lock().lines().map_while(Result::ok) {
+        let Some((_,rest))=line.split_once("\"id\"") else {continue};
+        let id:String=rest.trim_start_matches(|c:char|c.is_whitespace()||c==':').chars().take_while(char::is_ascii_digit).collect();
+        let result=if line.contains("tools/list") {
+            r#"{"tools":[{"name":"check_env","inputSchema":{"type":"object"}}]}"#
+        } else if line.contains("tools/call") {
+            if std::env::var_os("SUSI_TEST_AMBIENT_SECRET").is_none() && std::env::var("PEER_SETTING").as_deref()==Ok("explicit") {
+                r#"{"content":[{"type":"text","text":"isolated peer"}],"isError":false}"#
+            } else { r#"{"content":[{"type":"text","text":"wrong environment"}],"isError":true}"# }
+        } else if line.contains("initialize") {
+            r#"{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"proof","version":"1"}}"#
+        } else {continue};
+        println!("{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{}}}",id,result);
+        io::stdout().flush().unwrap();
+    }
+}
+"##).unwrap();
+    let compiled = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .args(["--edition", "2021"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&peer)
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let configure = |capabilities: &[&str]| {
+        let config = serde_json::json!({"mcp_servers":{"proof":{"command":peer,"args":[marker],"env":{"PEER_SETTING":"explicit"},"capabilities":capabilities}}});
+        std::fs::write(
+            runtime.join("mcp_config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+    };
+    let invoke = |tool: &str| {
+        let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
+            .env("SUSI_HOME", &runtime)
+            .env("SUSI_TEST_AMBIENT_SECRET", "private-sentinel")
+            .args(["mcp", "call", "proof", tool, "{}"])
+            .current_dir(&scratch)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    configure(&["tools"]);
+    std::fs::write(runtime.join("privacy_mode"), "local_only").unwrap();
+    for tool in ["*", "check_env"] {
+        let result = invoke(tool);
+        assert_eq!(result["isError"], true, "{result}");
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("process.exec"),
+            "{result}"
+        );
+        assert!(!marker.exists());
+    }
+    // The same installed CLI can issue a scoped process grant; this permits
+    // the peer without opening network egress or changing privacy mode.
+    let grant = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
+        .env("SUSI_HOME", &runtime)
+        .args(["privacy", "grant", "--action", "process.exec", "--resource"])
+        .arg(&peer)
+        .current_dir(&scratch)
+        .output()
+        .unwrap();
+    assert!(
+        grant.status.success(),
+        "{}",
+        String::from_utf8_lossy(&grant.stderr)
+    );
+    for (capability, denied) in [
+        ("network", "network.egress"),
+        ("unknown-hardware", "unknown-hardware"),
+    ] {
+        configure(&[capability]);
+        for tool in ["*", "check_env"] {
+            let result = invoke(tool);
+            assert_eq!(result["isError"], true, "{result}");
+            assert!(
+                result["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains(denied),
+                "{result}"
+            );
+            assert!(!marker.exists());
+        }
+    }
+    configure(&["tools"]);
+    let listing = invoke("*");
+    assert_eq!(listing["isError"], false, "{listing}");
+    assert!(
+        listing["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("proof:check_env"),
+        "{listing}"
+    );
+    let called = invoke("check_env");
+    assert_eq!(called["isError"], false, "{called}");
+    assert!(
+        called["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("isolated peer"),
+        "{called}"
+    );
+    assert!(marker.is_file());
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
 fn run_susi(args: &[&str]) -> (i32, String, String) {
     static CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let id = CTR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -38,6 +175,111 @@ fn run_susi(args: &[&str]) -> (i32, String, String) {
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
+}
+
+#[test]
+fn registered_http_requires_consent_before_a_request_can_carry_credentials() {
+    use std::net::TcpListener;
+    let scratch = std::env::temp_dir().join(format!("susi-registered-http-{}", std::process::id()));
+    let home = scratch.join("home");
+    let runtime = home.join(".susi");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::fs::write(runtime.join("privacy_mode"), "local_only").unwrap();
+    let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
+    proxy.set_nonblocking(true).unwrap();
+    let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+    let endpoint = "http://registered-peer.invalid/mcp";
+    let origin = |capabilities: &[&str]| {
+        let config = serde_json::json!({"mcp_servers":{"registered":{
+            "command":endpoint, "args":[], "auth_token":"synthetic-test-only",
+            "headers":{"X-Test-Sentinel":"synthetic-header"}, "capabilities":capabilities
+        }}});
+        std::fs::write(
+            runtime.join("mcp_config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+    };
+    let run = |args: &[&str]| {
+        let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
+            .env("SUSI_HOME", &runtime)
+            .env("HTTP_PROXY", &proxy_url)
+            .env("ALL_PROXY", &proxy_url)
+            .env("NO_PROXY", "")
+            .args(args)
+            .current_dir(&scratch)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out.stdout
+    };
+    origin(&["tools"]);
+    let denied = |reason: &str| {
+        for tool in ["*", "example"] {
+            let bytes = run(&["mcp", "call", "registered", tool, "{}"]);
+            let result: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(result["isError"], true, "{result}");
+            assert!(
+                result["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains(reason),
+                "{result}"
+            );
+            assert_eq!(
+                proxy.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+    };
+    denied("network.egress");
+    run(&[
+        "privacy",
+        "grant",
+        "--action",
+        "network.egress",
+        "--resource",
+        endpoint,
+    ]);
+    origin(&["not-granted"]);
+    denied("not-granted");
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn mcp_setup_explains_only_the_selected_peers_requirements() {
+    for id in ["filesystem", "github"] {
+        let (code, stdout, stderr) = run_susi(&["mcp", "setup", id]);
+        assert_eq!(code, 0, "{stderr}");
+        let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let peer = &result["server"];
+        let text = result["instructions"].as_str().unwrap();
+        assert_eq!(peer["id"], id);
+        assert!(result["enabled"].is_boolean());
+        for expected in [
+            "susi mcp serve",
+            peer["runner"].as_str().unwrap(),
+            &format!("susi mcp doctor {id}"),
+            &format!("susi mcp enable {id}"),
+        ] {
+            assert!(text.contains(expected), "{text}");
+        }
+        let keys = peer["env_keys"].as_array().unwrap();
+        if keys.is_empty() {
+            assert!(text.contains("no credential variables"), "{text}");
+        }
+        for key in keys {
+            assert!(text.contains(key.as_str().unwrap()), "{text}");
+        }
+        assert!(
+            !text.contains("SENTRY_ACCESS_TOKEN") && !text.contains("Install Node"),
+            "{text}"
+        );
+    }
 }
 
 #[test]

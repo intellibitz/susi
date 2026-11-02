@@ -1,0 +1,28 @@
+{
+  "owner": "ceo-speed-standard",
+  "remaining": "Step 1 response budgets, live under-60-second delivery and plugin conformance require separate measured product evidence.",
+  "status": "ready_for_integration",
+  "title": "Propagate Mandate 62 execution criteria into delegated Susi work",
+  "id": "T-CEOSPEED-1",
+  "dependencies": [],
+  "acceptance": [
+    "The complete Mandate 62 execution criteria agree across the constitution, checkout instructions and compiled delegated task.",
+    "The delegated goal is retained, other repositories are unaffected, and repeated briefing is idempotent.",
+    "Run nonempty self-build tests and verify the signed handoff before integration."
+  ],
+  "scopes": [
+    ".agents/identity.json",
+    "AGENTS.md",
+    "crates/susi-core/src/self_build.rs",
+    ".agents/tasks/T-CEOSPEED-1.json"
+  ],
+  "mandates": [
+    61,
+    62
+  ],
+  "evidence": [
+    "cargo fmt --all --check passed",
+    "cargo test -p susi-core --lib --locked --offline self_build::tests executed 5 tests, all passed",
+    "Builder, swarm DAG, external agent command and external peer paths call the shared briefing function"
+  ]
+}

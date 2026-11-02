@@ -37,10 +37,13 @@ fn generic_vendor_api_key_env(vendor: &str) -> String {
 }
 
 fn find_vendor_entry(needle: &str) -> Option<CloudVendorEntry> {
-    let lower = needle.to_ascii_lowercase();
-    load_cloud_vendors().into_iter().find(|v| {
-        v.id.eq_ignore_ascii_case(&lower)
-            || v.aliases.iter().any(|a| a.eq_ignore_ascii_case(&lower))
+    vendor_in(&load_cloud_vendors(), needle).cloned()
+}
+
+fn vendor_in<'a>(vendors: &'a [CloudVendorEntry], needle: &str) -> Option<&'a CloudVendorEntry> {
+    vendors.iter().find(|v| {
+        v.id.eq_ignore_ascii_case(needle)
+            || v.aliases.iter().any(|a| a.eq_ignore_ascii_case(needle))
     })
 }
 
@@ -225,6 +228,61 @@ pub fn endpoint_named(name: &str) -> Option<crate::susi_sandbox::manager::Infere
 /// Ensures new OpenAI-compat presets (DeepSeek, Kimi, …) appear even when
 /// `~/.susi/config.json` still has an older endpoints array.
 pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::InferenceEndpointItem> {
+    endpoints_with_catalog(&RegistrationSettings::load())
+}
+
+struct RegistrationSettings {
+    vendors: Vec<CloudVendorEntry>,
+    registered: Vec<(String, String)>,
+}
+
+impl RegistrationSettings {
+    fn load() -> Self {
+        Self {
+            vendors: load_cloud_vendors(),
+            registered: crate::susi_config::cloud_env_overlay(),
+        }
+    }
+
+    fn value(&self, name: &str) -> Option<String> {
+        match std::env::var(name) {
+            Ok(value) if !value.is_empty() => Some(value),
+            // A non-Unicode process value is omitted from the child overlay.
+            // Keep the existing registered-file fallback for this rare case.
+            Err(std::env::VarError::NotUnicode(_)) => env_nonempty(name),
+            _ => self
+                .registered
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value)
+                .filter(|value| !value.is_empty())
+                .cloned(),
+        }
+    }
+}
+
+/// Resolve nonempty endpoint URLs and credential aliases with the same admitted
+/// catalog and saved settings for one pass. The next pass reads both again.
+pub fn inference_endpoints_with_keys(
+) -> impl Iterator<Item = (crate::susi_sandbox::manager::InferenceEndpointItem, String)> {
+    let settings = RegistrationSettings::load();
+    endpoints_with_catalog(&settings)
+        .into_iter()
+        .filter(|endpoint| !endpoint.api_base.trim().is_empty())
+        .map(move |endpoint| {
+            let key = resolve_key_with(
+                &endpoint.api_key_env,
+                &endpoint.name,
+                || vendor_in(&settings.vendors, &endpoint.name).cloned(),
+                |name| settings.value(name),
+            );
+            (endpoint, key)
+        })
+}
+
+fn endpoints_with_catalog(
+    settings: &RegistrationSettings,
+) -> Vec<crate::susi_sandbox::manager::InferenceEndpointItem> {
     let bundled = crate::susi_sandbox::manager::SusiConfig::default()
         .inference_endpoints()
         .endpoints;
@@ -244,7 +302,12 @@ pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::Infe
         .into_values()
         .map(|mut endpoint| {
             remap_retired_endpoint_model(&mut endpoint);
-            endpoint.api_base = resolve_api_base(&endpoint.api_base, &endpoint.name);
+            endpoint.api_base = base_with_vendor(
+                &endpoint.api_base,
+                &endpoint.name,
+                vendor_in(&settings.vendors, &endpoint.name),
+                |name| settings.value(name),
+            );
             // Anthropic SDKs accept an origin; the Messages wire appends /messages.
             // Preserve explicit versioned or reverse-proxy paths.
             if endpoint.protocol_type.eq_ignore_ascii_case("anthropic") {
@@ -285,18 +348,32 @@ fn env_nonempty(name: &str) -> Option<String> {
 
 /// Resolve an API key from env / vendor convention (never logs the value).
 pub fn resolve_api_key(api_key_env: &str, endpoint_name: &str) -> String {
+    resolve_key_with(
+        api_key_env,
+        endpoint_name,
+        || find_vendor_entry(endpoint_name),
+        env_nonempty,
+    )
+}
+
+fn resolve_key_with(
+    api_key_env: &str,
+    endpoint_name: &str,
+    vendor: impl FnOnce() -> Option<CloudVendorEntry>,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> String {
     if !api_key_env.is_empty() {
-        if let Some(v) = env_nonempty(api_key_env) {
+        if let Some(v) = lookup(api_key_env) {
             return v;
         }
     }
     // Pack aliases + primary/alt env names (OpenAI-compat + native APIs).
-    if let Some(entry) = find_vendor_entry(endpoint_name) {
-        if let Some(v) = env_nonempty(&entry.api_key_env) {
+    if let Some(entry) = vendor() {
+        if let Some(v) = lookup(&entry.api_key_env) {
             return v;
         }
         for alt in &entry.api_key_env_alts {
-            if let Some(v) = env_nonempty(alt) {
+            if let Some(v) = lookup(alt) {
                 return v;
             }
         }
@@ -304,7 +381,7 @@ pub fn resolve_api_key(api_key_env: &str, endpoint_name: &str) -> String {
     // Any named endpoint: try `{NAME}_API_KEY` (e.g. DeepSeek → DEEPSEEK_API_KEY).
     let generic = generic_vendor_api_key_env(endpoint_name);
     if !generic.is_empty() {
-        if let Some(v) = env_nonempty(&generic) {
+        if let Some(v) = lookup(&generic) {
             return v;
         }
     }
@@ -315,15 +392,29 @@ pub fn resolve_api_key(api_key_env: &str, endpoint_name: &str) -> String {
 /// vendor aliases. An OpenAI override must never redirect unrelated providers.
 #[must_use]
 pub fn resolve_api_base(api_base_default: &str, endpoint_name: &str) -> String {
+    base_with_vendor(
+        api_base_default,
+        endpoint_name,
+        find_vendor_entry(endpoint_name).as_ref(),
+        env_nonempty,
+    )
+}
+
+fn base_with_vendor(
+    api_base_default: &str,
+    endpoint_name: &str,
+    vendor: Option<&CloudVendorEntry>,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> String {
     let prefix = |name: &str| {
         generic_vendor_api_key_env(name)
             .trim_end_matches("_API_KEY")
             .to_string()
     };
     let mut prefixes = vec![prefix(endpoint_name)];
-    if let Some(entry) = find_vendor_entry(endpoint_name) {
+    if let Some(entry) = vendor {
         prefixes.push(prefix(&entry.id));
-        for key in std::iter::once(entry.api_key_env).chain(entry.api_key_env_alts) {
+        for key in std::iter::once(&entry.api_key_env).chain(&entry.api_key_env_alts) {
             if let Some(name) = key.strip_suffix("_API_KEY") {
                 prefixes.push(name.to_string());
             }
@@ -335,7 +426,7 @@ pub fn resolve_api_base(api_base_default: &str, endpoint_name: &str) -> String {
             continue;
         }
         for suffix in ["API_BASE", "BASE_URL", "API_BASE_URL"] {
-            if let Some(value) = env_nonempty(&format!("{name}_{suffix}")) {
+            if let Some(value) = lookup(&format!("{name}_{suffix}")) {
                 return value;
             }
         }
@@ -353,6 +444,49 @@ pub fn is_remote_cloud(api_base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bulk_registration_preserves_overrides_and_refreshes_between_passes() {
+        let _lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", home.path());
+        for (url, key) in [
+            ("https://first.invalid/v1", "first-fixture"),
+            ("https://second.invalid/v1", "second-fixture"),
+        ] {
+            env.set("OPENAI_API_BASE", url);
+            env.set("OPENAI_API_KEY", key);
+            let (endpoint, selected) = inference_endpoints_with_keys()
+                .find(|(endpoint, _)| endpoint.name.eq_ignore_ascii_case("openai"))
+                .unwrap();
+            assert_eq!(endpoint.api_base, url);
+            assert!(selected == key);
+            assert!(selected == resolve_api_key(&endpoint.api_key_env, &endpoint.name));
+        }
+        env.remove("OPENAI_API_BASE");
+        env.remove("OPENAI_API_KEY");
+        let path = cloud_env_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "OPENAI_API_BASE=https://saved.invalid/v1\nOPENAI_API_KEY=saved-fixture\n",
+        )
+        .unwrap();
+        let (endpoint, selected) = inference_endpoints_with_keys()
+            .find(|(endpoint, _)| endpoint.name.eq_ignore_ascii_case("openai"))
+            .unwrap();
+        assert_eq!(endpoint.api_base, "https://saved.invalid/v1");
+        assert!(selected == "saved-fixture");
+        env.set("OPENAI_API_KEY", "process-wins");
+        let (_, selected) = inference_endpoints_with_keys()
+            .find(|(endpoint, _)| endpoint.name.eq_ignore_ascii_case("openai"))
+            .unwrap();
+        assert!(selected == "process-wins");
+    }
 
     #[test]
     fn first_model_endpoint_overrides_stay_with_their_provider() {

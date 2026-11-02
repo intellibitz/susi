@@ -256,7 +256,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<()> {
     let target = root.join("target/local-native");
     let mut command =
         super::isolated_command(Path::new("cargo"), &target.join("gmcp-evidence-home"))?;
-    super::compiler_env::apply(&mut command);
+    super::compiler_env::apply_checked(&mut command)?;
     let output = command
         .current_dir(root)
         .args([

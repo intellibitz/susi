@@ -1,0 +1,3 @@
+# T-LAUNCHFIX41-1 Windows production launcher
+Owner launchfix41. Scope installed production Start Menu shortcut and channel record. Depends on qualified current and previous release objects. Acceptance requires digest validation, preserved rollback and observed normal shell startup.
+Verified Start Menu target SHA-256 50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683. Shell displayed Susi 0.21.41 and goal prompt, then exited 0 on exit. Previous installed artifact reported susi 0.21.40. Original shortcut and channel record retained in rollback-launchfix41-db348229-31f7-4f7f-94cf-2e340a0f8043.

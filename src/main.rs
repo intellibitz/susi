@@ -184,6 +184,9 @@ fn guarded_worker_invocation(args: &[String]) -> bool {
 }
 
 fn main() -> std::process::ExitCode {
+    if let Some(status) = cli::install_cli::installed_channel::dispatch() {
+        return status;
+    }
     if guarded_worker_invocation(&std::env::args().collect::<Vec<_>>()) {
         eprintln!(
             "refused: the harness owns susi workflow/tasks commands; leave the changes in the tree"
@@ -221,6 +224,9 @@ fn run() -> std::process::ExitCode {
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
     let mut cli = Cli::parse();
+    if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
+        return status;
+    }
     if let Some(cli::defs::Commands::Local { args }) = &cli.command {
         return cli::local_delivery_cli::execute(args);
     }
@@ -261,6 +267,9 @@ fn run() -> std::process::ExitCode {
     // probing catalogs; non-empty piped goals take the same real mission path.
     let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
         match read_stdin_bounded() {
+            Ok(Some(goal)) if matches!(goal.as_str(), "exit" | "quit") => {
+                return std::process::ExitCode::SUCCESS;
+            }
             Ok(Some(goal)) => Some(goal),
             Ok(None) => return std::process::ExitCode::SUCCESS,
             Err(error) => {
