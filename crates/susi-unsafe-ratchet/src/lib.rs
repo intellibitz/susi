@@ -1,5 +1,10 @@
 //! Ratchet dependency unsafe exposure and provenance (VC-201-097).
 
+#![forbid(unsafe_code)]
+
+pub mod inventory;
+pub mod measurement;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 

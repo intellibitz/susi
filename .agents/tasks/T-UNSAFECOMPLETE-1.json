@@ -1,0 +1,41 @@
+{
+  "id": "T-UNSAFECOMPLETE-1",
+  "native_worker": "unsafe-complete",
+  "title": "Complete native unsafe declaration measurement and reviewed inventory admission",
+  "status": "in_progress",
+  "dependencies": [
+    "T-NATIVE-1"
+  ],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": [
+    "crates/susi-unsafe-ratchet",
+    "crates/susi-vendor-syn",
+    ".github/workflows/unsafe-exposure-ratchet.sh",
+    ".github/workflows/unsafe-exposure-scope.sh",
+    "crates/susi-gawd/src/tests/vc_201_097_mastery.rs",
+    ".agents/baseline/unsafe-default.json",
+    ".agents/reviews/unsafe-complete",
+    ".agents/tasks/T-UNSAFECOMPLETE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "-p",
+      "susi-vendor-syn"
+    ]
+  },
+  "acceptance": "Run real native scanner and comparator tests including legacy bare Fn syntax, missing/partial/malformed evidence, exact host normal-edge graph identity, multiple package versions, path provenance, file completeness, mismatched contexts and preservation of rejected baseline writes. Preserve historical v1 baseline until complete matched base/candidate scans from one scanner and explicit component source reviews justify migration. No full-grammar or unsafe-function-count claim; unchanged declaration-proxy unit. Final combined locked-source integration and production qualification remain required.",
+  "validation": {
+    "scoped_tests": "54 passed, 0 failed, 0 ignored; exit 0; 3.573504791 seconds; private base-cbf copy plus owned first-party edges",
+    "scoped_clippy": "all targets, warnings denied; exit 0; 1.491841369 seconds",
+    "clean_matched_scans": "same pinned scanner: aff638d0 483 packages/504 files, cbf85824 479 packages/500 files; exit 0",
+    "migration": "failed closed exit 2: 77 exact identities require review; first 24 complete, 53 source reviews in progress; v1 baseline preserved",
+    "combined_locked_acceptance": "pending coordinated optional-license lock and native integration",
+    "evidence": ".agents/reviews/unsafe-complete/REPORT.md"
+  }
+}

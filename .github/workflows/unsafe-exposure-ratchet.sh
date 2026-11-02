@@ -1,47 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Unsafe-exposure ratchet (VC-201-097): run cargo-geiger + SBOM generation
-# for the pinned feature set, then gate through the production comparator
-# `susi_gawd::unsafe_ratchet::ratchet_unsafe` via its binary. New exposure
-# fails the job; the auditable review path is re-running with
-# --write-baseline and committing the regenerated baseline diff.
-#
-#   unsafe-exposure-ratchet.sh [baseline-path] [--write-baseline]
-
+# Compatibility entry point for CI. Measurement and admission are native Rust;
+# raw cargo-geiger exports cannot prove complete per-file measurement.
+# Baseline migration is deliberately a separate evidence-bound native command.
 baseline="${1:-.agents/baseline/unsafe-default.json}"
-write_baseline=""
-for arg in "${@:2}"; do
-  case "$arg" in
-    --write-baseline) write_baseline="1" ;;
-    *) echo "unknown argument: $arg" >&2; exit 1 ;;
-  esac
-done
-
-command -v cargo-geiger >/dev/null || {
-  echo "cargo-geiger is required for the unsafe-exposure ratchet" >&2
-  exit 1
-}
-mkdir -p "$(dirname "$baseline")"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-# --forbid-only measures each crate's unsafe-forbiddance surface without
-# building the tree; the full per-function scan cannot resolve this
-# workspace's vendored path-dependency layout.
-cargo geiger --forbid-only --output-format Json >"$tmp/geiger.json"
-cargo metadata --format-version 1 --locked >"$tmp/metadata.json"
-
-if [ -n "$write_baseline" ]; then
-  exec cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet -- \
-    --geiger "$tmp/geiger.json" \
-    --metadata "$tmp/metadata.json" \
-    --baseline "$baseline" \
-    --write-baseline "$baseline" \
-    --features default
+if [ "$#" -gt 1 ]; then
+  echo 'baseline migration requires matched native scans and component review; use unsafe_ratchet --write-baseline with those inputs' >&2
+  exit 2
 fi
-
-exec cargo run -q -p susi-unsafe-ratchet --locked --bin unsafe_ratchet -- \
-  --geiger "$tmp/geiger.json" \
-  --metadata "$tmp/metadata.json" \
-  --baseline "$baseline" \
-  --features default
+root=$(git rev-parse --show-toplevel)
+target=$(rustc -vV | sed -n 's/^host: //p')
+[ -n "$target" ] || { echo 'rustc did not identify its host' >&2; exit 2; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+cargo run -q -p susi-unsafe-ratchet --offline --locked --bin unsafe_measure -- \
+  --root "$root" --target "$target" --features default --output "$tmp/measurement.json"
+cargo run -q -p susi-unsafe-ratchet --offline --locked --bin unsafe_ratchet -- \
+  --measurement "$tmp/measurement.json" --baseline "$baseline" --receipt "$tmp/receipt.json"

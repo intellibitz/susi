@@ -66,13 +66,13 @@ fn should_run(script: &Path, root: &Path, paths: &[&str]) -> bool {
 }
 
 #[test]
-fn unsafe_ratchet_scope_tracks_geiger_entry_points_and_inputs() {
+fn unsafe_ratchet_scope_tracks_native_measurement_source_and_inputs() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repository = crate_dir.parent().unwrap().parent().unwrap();
     let script = repository.join(".github/workflows/unsafe-exposure-scope.sh");
     let root = workspace();
 
-    assert!(!should_run(&script, &root, &["src/admin/release.rs"]));
+    assert!(should_run(&script, &root, &["src/admin/release.rs"]));
     assert!(should_run(&script, &root, &["src/lib.rs"]));
     assert!(should_run(&script, &root, &["tools/custom.rs"]));
     assert!(should_run(&script, &root, &["generated/custom.rs"]));
@@ -86,11 +86,16 @@ fn unsafe_ratchet_scope_tracks_geiger_entry_points_and_inputs() {
             ".github/workflows/unsafe-exposure-ratchet.sh",
         ],
     ));
-    assert!(!should_run(
+    assert!(should_run(
         &script,
         &root,
         &[".github/workflows/unsafe-exposure-scope.sh"],
     ));
+    for path in ["crates/susi-vendor-syn/src/forbid.rs", "crates/susi-gemi/src/engines/runtime_substrate.rs", "vendor/dependency/data.inc", ".agents/reviews/unsafe-complete/review.json"] {
+        assert!(should_run(&script, &root, &[path]), "{path}");
+    }
+    assert!(!should_run(&script, &root, &[]));
+    assert!(!should_run(&script, &root, &["docs/readme.md"]));
 
     let workflow = fs::read_to_string(repository.join(".github/workflows/test.yml")).unwrap();
     assert!(workflow.contains("unsafe-exposure-scope.sh"));
