@@ -91,12 +91,9 @@ fn command(exe: &Path, profile: &Path) -> Command {
         .env("SystemRoot", &system)
         .env("WINDIR", &system)
         .env("PATH", Path::new(&system).join("System32"))
-        .env("USERPROFILE", profile)
-        .env("HOME", profile)
-        .env("LOCALAPPDATA", profile.join("AppData/Local"))
-        .env("APPDATA", profile.join("AppData/Roaming"))
         .env("TEMP", profile)
         .env("TMP", profile);
+    susi_paths::test_env::isolate_home(&mut command, profile);
     command
 }
 
