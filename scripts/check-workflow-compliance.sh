@@ -292,6 +292,40 @@ base_commit=$(git rev-parse --verify --quiet "${base}^{commit}") || {
     echo "❌ workflow compliance: cannot resolve base '${base}' — refusing to certify an unknown range" >&2
     exit 1
 }
+# Native adoption is authorized only by policy already present in the resolved
+# protected base. A candidate-added policy, LOCAL trailer, receipt ref or caller
+# supplied permit cannot exempt its own history. The ordinary legacy checks
+# below remain unchanged when no native route is explicitly requested.
+if [ -n "${SUSI_TRUSTED_NATIVE_VERIFIER:-}" ] || [ -n "${SUSI_TRUSTED_NATIVE_PERMIT_DIR:-}" ]; then
+    protected_policy=$(git show "$base_commit:.agents/native-provenance-policy.json" 2>/dev/null) || {
+        echo "❌ workflow compliance: native provenance has no trust policy in protected base $base_commit; candidate policy cannot authorize historical adoption" >&2
+        exit 1
+    }
+    verifier_sha=$(jq -er 'select(.schema == "susi-hosted-native-policy-v1") | .verifier_sha256' <<<"$protected_policy") || exit 1
+    policy_sha=$(jq -er '.policy_sha256' <<<"$protected_policy") || exit 1
+    permit_sha=$(jq -er --arg head "$head_commit" '.permits[$head]' <<<"$protected_policy") || {
+        echo "❌ workflow compliance: protected base does not authorize an immutable native permit for $head_commit" >&2
+        exit 1
+    }
+    for digest in "$verifier_sha" "$policy_sha" "$permit_sha"; do
+        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "❌ workflow compliance: malformed protected native digest" >&2; exit 1; }
+    done
+    verifier=${SUSI_TRUSTED_NATIVE_VERIFIER:-}
+    permit_dir=${SUSI_TRUSTED_NATIVE_PERMIT_DIR:-}
+    [ -f "$verifier" ] && [ -x "$verifier" ] && [ ! -L "$verifier" ] && [ -d "$permit_dir" ] || {
+        echo "❌ workflow compliance: missing independently provisioned native verifier or permit registry" >&2
+        exit 1
+    }
+    actual_verifier_sha=$(sha256sum -- "$verifier") || exit 1
+    [ "${actual_verifier_sha%% *}" = "$verifier_sha" ] || {
+        echo "❌ workflow compliance: independently pinned native verifier digest mismatch" >&2
+        exit 1
+    }
+    "$verifier" verify-provenance --root "$(git rev-parse --show-toplevel)" \
+        --permit "$permit_dir/$permit_sha.json" --permit-sha256 "$permit_sha" \
+        --verifier-sha256 "$verifier_sha" --policy-sha256 "$policy_sha" --head "$head_commit"
+    exit $?
+fi
 cutover=$(git log --diff-filter=A --format=%H -1 "$head_commit" -- scripts/check-workflow-compliance.sh)
 if [ -z "$cutover" ]; then
     # The script is not in this branch's history at all. That is either history
