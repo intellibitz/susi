@@ -801,7 +801,17 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
     Ok(worktree)
 }
 
-fn extend(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<()> {
+enum ScopeChange {
+    Extend,
+    Shrink,
+}
+
+fn update_scopes(
+    root: &Path,
+    claimant: &str,
+    raw_scopes: &[String],
+    change: ScopeChange,
+) -> Result<()> {
     name(claimant)?;
     let requested = raw_scopes
         .iter()
@@ -818,21 +828,39 @@ fn extend(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<()> {
     if actual.canonicalize()? != claim.worktree.canonicalize()?
         || git(root, &["branch", "--show-current"])? != format!("local-agent/{claimant}")
     {
-        return Err("extend must run inside the claimed agent branch and worktree".into());
+        return Err("scope changes must run inside the claimed agent branch and worktree".into());
     }
     if !git(root, &["status", "--porcelain"])?.is_empty() {
-        return Err("extend requires a clean agent worktree".into());
+        return Err("scope changes require a clean agent worktree".into());
     }
-    for active in claims(&state)? {
-        if active.name != claimant
-            && requested
-                .iter()
-                .any(|new| active.scopes.iter().any(|held| overlaps(new, held)))
-        {
-            return Err(format!("requested scope overlaps agent {}", active.name).into());
+    match change {
+        ScopeChange::Extend => {
+            for active in claims(&state)? {
+                if active.name != claimant
+                    && requested
+                        .iter()
+                        .any(|new| active.scopes.iter().any(|held| overlaps(new, held)))
+                {
+                    return Err(format!("requested scope overlaps agent {}", active.name).into());
+                }
+            }
+            claim.scopes.extend(requested);
+        }
+        ScopeChange::Shrink => {
+            if requested.iter().any(|scope| !claim.scopes.contains(scope)) {
+                return Err("shrink requires an exact held scope".into());
+            }
+            claim.scopes.retain(|scope| !requested.contains(scope));
+            if claim.scopes.is_empty() {
+                return Err("use release to relinquish the last scope".into());
+            }
+            if git(&claim.worktree, &["rev-parse", "HEAD"])? != claim.base {
+                // Validate the proposed claim against the actual committed
+                // delta before atomically replacing the reservation.
+                check_source(root, &claim)?;
+            }
         }
     }
-    claim.scopes.extend(requested);
     claim.scopes.sort();
     claim.scopes.dedup();
     let data = format!(
@@ -1129,7 +1157,7 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
-        Some("start" | "extend") => {
+        Some("start" | "extend" | "shrink") => {
             let claimant = args.get(1).ok_or("start requires an agent name")?;
             let mut scopes = Vec::new();
             let mut rest = args[2..].iter();
@@ -1137,7 +1165,8 @@ fn run(args: &[String]) -> Result<()> {
                 if flag != "--scope" { return Err(format!("unknown argument: {flag}").into()); }
                 scopes.push(rest.next().ok_or("--scope requires a path")?.clone());
             }
-            if args[0] == "extend" { extend(&root, claimant, &scopes)?; return Ok(()); }
+            if args[0] == "extend" { update_scopes(&root, claimant, &scopes, ScopeChange::Extend)?; return Ok(()); }
+            if args[0] == "shrink" { update_scopes(&root, claimant, &scopes, ScopeChange::Shrink)?; return Ok(()); }
             let worktree = start(&root, claimant, &scopes)?;
             println!("Worktree: {}\nTarget: {}\nUse the local-build entrypoint to override inherited target directories. Reservations cover cooperating launcher users only.", worktree.display(), worktree.join("target").display());
         }
@@ -1150,7 +1179,7 @@ fn run(args: &[String]) -> Result<()> {
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | integrate <name> [<name> ...] | release <name>".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | integrate <name> [<name> ...] | release <name>".into()),
     }
     Ok(())
 }
@@ -1225,15 +1254,15 @@ mod tests {
         start(&repo, "second", &["src/second".into()]).unwrap();
         let claim_path = state(&repo).unwrap().join("claims/first.claim");
         let base = read_claim(&claim_path).unwrap().base;
-        extend(&first, "first", &["tests".into()]).unwrap();
+        update_scopes(&first, "first", &["tests".into()], ScopeChange::Extend).unwrap();
         let claim = read_claim(&claim_path).unwrap();
         assert_eq!(claim.base, base);
         assert!(claim.scopes.contains(&"tests".into()));
         let before = fs::read(&claim_path).unwrap();
-        assert!(extend(&first, "first", &["src".into()]).is_err());
-        assert!(extend(&repo, "first", &["docs".into()]).is_err());
+        assert!(update_scopes(&first, "first", &["src".into()], ScopeChange::Extend).is_err());
+        assert!(update_scopes(&repo, "first", &["docs".into()], ScopeChange::Extend).is_err());
         fs::write(first.join("dirty"), "pending").unwrap();
-        assert!(extend(&first, "first", &["docs".into()]).is_err());
+        assert!(update_scopes(&first, "first", &["docs".into()], ScopeChange::Extend).is_err());
         assert_eq!(fs::read(claim_path).unwrap(), before);
     }
 
@@ -1264,6 +1293,53 @@ mod tests {
         for bad in ["con", "aux", "a/b", "-abc", "abc-", "A", ""] {
             assert!(name(bad).is_err());
         }
+    }
+
+    #[test]
+    fn unused_scope_can_transfer_without_orphaning_committed_changes() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let worktree = start(
+            &repo,
+            "builder",
+            &["runtime.rs".into(), "Cargo.toml".into()],
+        )
+        .unwrap();
+        fs::write(worktree.join("runtime.rs"), "changed").unwrap();
+        commit(&worktree, "builder", "retain changed runtime", None).unwrap();
+        let path = state(&repo).unwrap().join("claims/builder.claim");
+        let original = fs::read(&path).unwrap();
+        for scopes in [
+            vec!["runtime.rs".into()],
+            vec!["absent".into()],
+            vec!["runtime.rs".into(), "Cargo.toml".into()],
+        ] {
+            assert!(update_scopes(&worktree, "builder", &scopes, ScopeChange::Shrink).is_err());
+            assert_eq!(fs::read(&path).unwrap(), original);
+        }
+        fs::write(worktree.join("pending"), "keep dirty changes").unwrap();
+        assert!(update_scopes(
+            &worktree,
+            "builder",
+            &["Cargo.toml".into()],
+            ScopeChange::Shrink
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        fs::remove_file(worktree.join("pending")).unwrap();
+        update_scopes(
+            &worktree,
+            "builder",
+            &["Cargo.toml".into()],
+            ScopeChange::Shrink,
+        )
+        .unwrap();
+        assert_eq!(read_claim(&path).unwrap().scopes, vec!["runtime.rs"]);
+        start(&repo, "version", &["Cargo.toml".into()]).unwrap();
+        assert_eq!(
+            git(&worktree, &["show", "HEAD:runtime.rs"]).unwrap(),
+            "changed"
+        );
     }
     #[test]
     fn reservation_is_exclusive_and_lock_is_released() {
