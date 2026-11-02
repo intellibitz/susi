@@ -50,7 +50,12 @@ fn host_compiler_wrappers_doc_runner_and_flags_cannot_enter_native_gates() {
     .unwrap();
     fs::write(scratch.join("src/lib.rs"), "//! ```\n//! assert_eq!(2+2, 4);\n//! ```\n#[cfg(poison)] compile_error!(\"unreviewed flags\");\n").unwrap();
     let exe = poison.to_str().unwrap().replace('\\', "/");
+    // Cargo also reads .cargo in every ancestor of TEMP. Give the fixture
+    // its own nearest config so an unrelated host wrapper cannot intercept
+    // the negative control before its tripwire runs.
+    fs::create_dir(scratch.join(".cargo")).unwrap();
     fs::write(home.join("config.toml"), format!("[build]\nrustc='{exe}'\nrustdoc='{exe}'\nrustc-wrapper='{exe}'\nrustc-workspace-wrapper='{exe}'\nrustflags=['--cfg','poison']\n")).unwrap();
+    fs::copy(home.join("config.toml"), scratch.join(".cargo/config.toml")).unwrap();
     let run = |mut command: Command, args: &[&str]| {
         command
             .current_dir(&scratch)
@@ -65,17 +70,33 @@ fn host_compiler_wrappers_doc_runner_and_flags_cannot_enter_native_gates() {
             .unwrap()
     };
     // An unbound real Cargo invocation must genuinely execute the tripwire.
-    let mut control = Command::new("cargo");
+    let selected = rustc
+        .get_envs()
+        .find(|(key, _)| key == &"RUSTC")
+        .unwrap()
+        .1
+        .unwrap();
+    let bin = std::path::Path::new(selected).parent().unwrap();
+    let mut control = Command::new(bin.join(format!("cargo{}", std::env::consts::EXE_SUFFIX)));
     for key in [
         "RUSTC",
         "RUSTDOC",
         "RUSTC_WRAPPER",
         "RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_BUILD_RUSTC",
+        "CARGO_BUILD_RUSTDOC",
+        "CARGO_BUILD_RUSTC_WRAPPER",
+        "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_ENCODED_RUSTDOCFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+        "RUSTFLAGS",
+        "RUSTDOCFLAGS",
     ] {
         control.env_remove(key);
     }
-    assert!(!run(control, &["tree"]).status.success());
-    assert!(marker.exists());
+    let output = run(control, &["check"]);
+    assert!(!output.status.success() && marker.exists(), "{output:?}");
     fs::remove_file(&marker).unwrap();
     let mut cargo = Command::new("cargo");
     compiler_env::apply(&mut cargo);
@@ -84,17 +105,7 @@ fn host_compiler_wrappers_doc_runner_and_flags_cannot_enter_native_gates() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
     #[cfg(windows)]
     {
-        let selected = rustc
-            .get_envs()
-            .find(|(key, _)| key == &"RUSTC")
-            .unwrap()
-            .1
-            .unwrap();
-        let installed = std::path::Path::new(selected)
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap();
+        let installed = bin.parent().unwrap();
         for operation in ["tree", "build"] {
             let output = run(builder::sysroot_cargo(installed), &[operation]);
             assert!(output.status.success(), "{output:?}");
