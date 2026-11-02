@@ -100,26 +100,6 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         // same keys SUSI's own lookups do, without mutating our env.
         .envs(crate::susi_config::cloud_env_overlay())
         .env("SUSI_AGENT_PROMPT", &run.prompt);
-    // OpenHands headless banners pollute JSONL capture; suppress when we can.
-    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "openhands") {
-        cmd.env("OPENHANDS_SUPPRESS_BANNER", "1");
-        // BYOK: translate the registered provider key into LLM_API_KEY/BASE_URL.
-        cmd.envs(super::byok::openhands_env(&super::byok::system_lookup));
-    }
-    // Gemini CLI: isolate from IDE gateway settings when API key auth is available.
-    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "gemini") {
-        super::gemini_cli::apply_headless_env(&mut cmd, &run.workspace);
-    }
-    // Browser Use: optional model override from env.
-    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "browser-use") {
-        super::browser_use::apply_model_override(&mut cmd);
-    }
-    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "ov") {
-        super::openviking::ensure_process_banner(&mut cmd);
-    }
-    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "deerflow") {
-        super::deerflow::apply_process_env(&mut cmd);
-    }
     // Armed last so the probes see the agent's final env; refuses launch into
     // a git work tree whose identity the agent could not see.
     let identity = super::git_identity::GitIdentityGuard::arm(&run.workspace, &mut cmd)?;

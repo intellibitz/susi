@@ -238,9 +238,9 @@
     "rank": 15,
     "documentation": "https://docs.openhands.dev/openhands/usage/api/v1",
     "adapter": {
-      "kind": "open_hands_server",
-      "base_url": "https://app.all-hands.dev",
-      "api_key_env": "OPENHANDS_API_KEY"
+      "kind": "a2a",
+      "url": "https://app.all-hands.dev",
+      "token_env": "OPENHANDS_API_KEY"
     }
   }
 ]
