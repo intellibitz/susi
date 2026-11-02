@@ -713,6 +713,26 @@ fn authenticated_workspace_pass(root: &Path, receipt: &str, key: &str) -> bool {
         if !matches!(signer.len(), 16 | 40 | 64) || !signer.bytes().all(|c| c.is_ascii_hexdigit()) {
             return Ok(false);
         }
+        let keyring = workspace_test_proof::gpg(
+            root,
+            &["--with-colons", "--fingerprint", "--list-keys", &signer],
+            &[],
+        )?;
+        let listing = String::from_utf8(keyring.stdout)?;
+        let mut primary = None;
+        let mut want_primary = false;
+        for line in listing.lines() {
+            if line.starts_with("pub:") {
+                if primary.is_some() {
+                    return Ok(false);
+                }
+                want_primary = true;
+            } else if want_primary && line.starts_with("fpr:") {
+                primary = line.split(':').nth(9);
+                want_primary = false;
+            }
+        }
+        let primary = primary.ok_or("missing configured primary signing fingerprint")?;
         let out =
             workspace_test_proof::gpg(root, &["--status-fd", "2", "--decrypt"], raw.as_bytes())?;
         let status = String::from_utf8(out.stderr)?;
@@ -728,7 +748,7 @@ fn authenticated_workspace_pass(root: &Path, receipt: &str, key: &str) -> bool {
             && signature
                 .split_whitespace()
                 .last()
-                .is_some_and(|fingerprint| fingerprint.ends_with(&signer))
+                .is_some_and(|fingerprint| fingerprint == primary)
             && text == expected)
     };
     check().unwrap_or(false)

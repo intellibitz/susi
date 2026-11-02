@@ -196,7 +196,13 @@ pub(crate) fn gpg(root: &Path, args: &[&str], input: &[u8]) -> Result<std::proce
         .unwrap_or_else(|_| "gpg".into());
     let mut child = Command::new(program)
         .current_dir(root)
-        .args(["--batch", "--no-tty", "--pinentry-mode", "error"])
+        .args([
+            "--batch",
+            "--no-tty",
+            "--no-auto-key-retrieve",
+            "--pinentry-mode",
+            "error",
+        ])
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
