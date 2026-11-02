@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CODEXADAPTERPROOF",
-  "created_unix": 1793603869
+  "created_unix": 1793603869,
+  "closed": {
+    "at_unix": 1793604778,
+    "commit": "d52b5922f6c2d37505b357e54dfa3a063a1dcf2e",
+    "by": "CODEXADAPTERPROOF"
+  }
 }
