@@ -1,0 +1,11 @@
+{
+  "id": "T-STDLIBREUSE1102-1",
+  "title": "Reuse authenticated identical native standard-library builds",
+  "goal": "Verify immutable qualified standard-library archives before reuse",
+  "size": "m",
+  "deps": [],
+  "scopes": ["xtask/src/trusted_sysroot.rs","xtask/src/stdlib_cache.rs",".agents/tasks/T-STDLIBREUSE1102-1.json"],
+  "accept": {"cmd":["cargo","test","--offline","--locked","-p","xtask","--bin","local-workflow","trusted_sysroot::cache::tests"]},
+  "created_unix": 1793604917,
+  "created_by": "STDLIBREUSE1102"
+}
