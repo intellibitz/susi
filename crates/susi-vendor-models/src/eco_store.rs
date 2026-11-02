@@ -41,7 +41,7 @@ pub struct EntityFile {
 
 /// `<id>.json`. Entity ids are `[a-z0-9._:-]` so they are already path-safe;
 /// this double-checks before a file name is ever built from untrusted data.
-pub(crate) fn file_name_for(id: &str) -> EaiResult<String> {
+fn file_name_for(id: &str) -> EaiResult<String> {
     if id.is_empty()
         || id.len() > 128
         || id.chars().any(|c| {

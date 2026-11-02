@@ -377,9 +377,20 @@ fn installed_profiles() -> EaiResult<Option<PathBuf>> {
 /// # Errors
 /// `EaiError::io`/`config` on read or validation failure.
 pub fn load_bundled(id: &str) -> EaiResult<Profile> {
-    let filename = crate::eco_store::file_name_for(id)?;
+    if !valid_id(id) {
+        return Err(EaiError::config(format!(
+            "invalid ecosystem profile id {id:?}"
+        )));
+    }
     if let Some(dir) = installed_profiles()? {
-        let path = dir.join(filename);
+        // Some valid ecosystem IDs contain a colon. Select a real directory
+        // entry so an ID cannot become a Windows drive prefix or data stream.
+        let path = crate::eco_store::json_files(&dir)?
+            .into_iter()
+            .find(|path| path.file_stem().and_then(|s| s.to_str()) == Some(id))
+            .ok_or_else(|| {
+                EaiError::config(format!("no ecosystem profile {id:?} in {}", dir.display()))
+            })?;
         let text =
             std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         return parse(&text);
