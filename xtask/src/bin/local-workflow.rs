@@ -19,6 +19,8 @@ mod compiler_env;
 mod sysroot_sources;
 #[path = "../trusted_sysroot.rs"]
 mod trusted_sysroot;
+#[path = "../workspace_test_count.rs"]
+mod workspace_test_count;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -518,11 +520,18 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
-        let result = format!(
+        let mut result = format!(
             "cargo {} => {status}; elapsed-ms={}",
             args.join(" "),
             started.elapsed().as_millis()
         );
+        if status.success() && args.first().is_some_and(|arg| arg == "test") {
+            let log_path = attempt.join(format!("gate-{index}.log"));
+            let passed = workspace_test_count::verified_pass_count(&log_path).map_err(|error| {
+                format!("gate failed: {result}; {}: {error}", log_path.display())
+            })?;
+            result.push_str(&format!("; observed-passes={passed}"));
+        }
         evidence.push(result.clone());
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
         if !status.success() {

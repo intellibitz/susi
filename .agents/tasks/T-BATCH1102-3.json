@@ -1,0 +1,11 @@
+{
+  "id": "T-BATCH1102-3",
+  "title": "Reap the exact MCP server when Windows tree cleanup misses it",
+  "goal": "Integration fixtures must complete teardown or report a failure. A failed tree termination must never lead to waiting indefinitely on a running server.",
+  "size": "s",
+  "deps": [],
+  "scopes": ["tests/gmcp_requirements.rs", ".agents/tasks/T-BATCH1102-3.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "gmcp_requirements"]},
+  "created_by": "BATCH1102",
+  "created_unix": 1793619373
+}

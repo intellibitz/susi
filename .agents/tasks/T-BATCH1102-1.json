@@ -3,7 +3,7 @@
   "title": "Accept disjoint workers together on one verified Windows tree",
   "goal": "Run one complete gate on the combined tree and atomically publish each participant's receipt. Failure preserves all claims and the prior accepted head.",
   "size": "m",
-  "deps": [],
+  "deps": ["T-COUNT1102-1"],
   "scopes": [
     "xtask/src/bin/local-workflow.rs",
     ".agents/tasks/T-BATCH1102-1.json"
