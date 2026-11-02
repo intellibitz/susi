@@ -37,6 +37,6 @@
     "migration": "native reviewed v2 migration exit0/6.473733335s; all77 reviews,320 dependency-file hashes and6 source guards bind exact repaired clean combined source7cfb5df2",
     "combined_locked_acceptance": "pending parent native full integration on final combined source; no product test claim from baseline-only commit",
     "evidence": ".agents/reviews/unsafe-complete/REPORT.md",
-    "live_admission": "exit0/5.914206947s;479 packages/500 entrypoint files; zero unreviewed exposures; exact receipt .agents/reviews/unsafe-complete/candidate-final-ratchet-receipt.json"
+    "live_admission": "exit0/5.914206560s;479 packages/500 entrypoint files; zero unreviewed exposures; exact receipt .agents/reviews/unsafe-complete/candidate-final-ratchet-receipt.json"
   }
 }
