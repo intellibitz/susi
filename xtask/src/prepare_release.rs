@@ -1,7 +1,7 @@
 //! Local-only, transactional source-version preparation after a promoted release.
 use super::{
-    checked_package, clean, git, isolated_command, measured_health, resolve, stamp, Context, Lock,
-    Manifest, Result, CURRENT, HEALTH_BUDGET,
+    checked_package, clean, git, integration_receipt, isolated_command, measured_health, resolve,
+    stamp, Context, Lock, Manifest, Result, CURRENT, HEALTH_BUDGET,
 };
 use std::fs;
 use std::io::Write;
@@ -239,6 +239,24 @@ fn scope_covers_version_path(path: &str, scope: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
+fn verify_version_base(
+    root: &Path,
+    promoted: &str,
+    head: &str,
+    files: &[FileChange],
+) -> Result<()> {
+    if git(root, &["merge-base", promoted, head])? != promoted {
+        return Err("version preparation requires a descendant of the promoted source".into());
+    }
+    let mut args = vec!["diff", "--name-only", promoted, head, "--"];
+    args.extend(files.iter().map(|(path, _, _)| path.as_str()));
+    let changed = git(root, &args)?;
+    if !changed.is_empty() {
+        return Err(format!("version inputs changed since promotion: {changed}").into());
+    }
+    Ok(())
+}
+
 pub(super) fn run(ctx: &Context) -> Result<()> {
     let _release = Lock::acquire(&ctx.state)?;
     clean(&ctx.root)?;
@@ -271,10 +289,10 @@ pub(super) fn run(ctx: &Context) -> Result<()> {
     let base = lines.next().ok_or("claim base missing")?;
     let head = git(&ctx.root, &["rev-parse", "HEAD"])?;
     if base != head {
-        return Err("prepare-next requires a fresh claim at the promoted source head".into());
+        return Err("prepare-next requires an unchanged claim head".into());
     }
     let scopes: Vec<_> = lines.collect();
-    let (_, _, files) = plan(&ctx.root)?;
+    let (old, _, files) = plan(&ctx.root)?;
     if files.iter().any(|(path, _, _)| {
         !scopes
             .iter()
@@ -289,11 +307,10 @@ pub(super) fn run(ctx: &Context) -> Result<()> {
         .ok_or("prepare-next requires a genuinely qualified and promoted release A")?;
     let (_, binary) = checked_package(ctx, &current)?;
     let manifest = Manifest::decode(&(git(&ctx.root, &["cat-file", "blob", &current])? + "\n"))?;
-    if manifest.source != head {
-        return Err("worktree HEAD is not the promoted release source".into());
-    }
+    let tree = git(&ctx.root, &["rev-parse", "HEAD^{tree}"])?;
+    integration_receipt(ctx, &head, &tree)?;
+    verify_version_base(&ctx.root, &manifest.source, &head, &files)?;
     let attempt = ctx.state.join(format!("prepare-next-{}", stamp()?));
-    let (old, _, _) = plan(&ctx.root)?;
     let health = ctx.state.join(format!("prepare-health-{}", stamp()?));
     fs::create_dir(&health)?;
     let mut command = isolated_command(&binary, &health.join("home"))?;
@@ -457,6 +474,43 @@ mod tests {
         assert!(!scope_covers_version_path("Cargo.toml", "cargo"));
         assert!(!scope_covers_version_path("Cargo.toml", "../cargo.toml"));
         assert!(!scope_covers_version_path("Cargo.toml", ""));
+    }
+
+    #[test]
+    fn version_preparation_accepts_descendants_only_with_unchanged_version_inputs() {
+        let root = fixture();
+        git(&root, &["init", "-q"]).unwrap();
+        git(&root, &["config", "user.name", "Fixture"]).unwrap();
+        git(&root, &["config", "user.email", "fixture@example.invalid"]).unwrap();
+        let commit = || {
+            git(&root, &["add", "."]).unwrap();
+            git(
+                &root,
+                &[
+                    "-c",
+                    "core.hooksPath=",
+                    "commit",
+                    "--no-gpg-sign",
+                    "-qm",
+                    "fixture",
+                ],
+            )
+            .unwrap();
+            git(&root, &["rev-parse", "HEAD"]).unwrap()
+        };
+        let (_, _, inputs) = plan(&root).unwrap();
+        let promoted = commit();
+        assert!(verify_version_base(&root, &promoted, &promoted, &inputs).is_ok());
+        fs::write(root.join("src/lib.rs"), "// unrelated accepted change\n").unwrap();
+        let head = commit();
+        assert!(verify_version_base(&root, &promoted, &head, &inputs).is_ok());
+        assert!(verify_version_base(&root, &head, &promoted, &inputs).is_err());
+        fs::write(root.join("Cargo.lock"), "# changed dependency graph\n").unwrap();
+        let changed = commit();
+        assert!(verify_version_base(&root, &promoted, &changed, &inputs)
+            .unwrap_err()
+            .to_string()
+            .contains("Cargo.lock"));
     }
 
     #[test]

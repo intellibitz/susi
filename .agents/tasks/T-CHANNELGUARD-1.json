@@ -1,20 +1,21 @@
 {
   "id": "T-CHANNELGUARD-1",
-  "title": "Prevent the legacy development helper from modifying the installed production channel",
-  "goal": "All production actions must fail before accessing channel state. Development status remains usable. The native release workflow is responsible for verified qualification, promotion, rollback and launch.",
+  "title": "Protect production selection and prepare the next version from accepted descendants",
+  "goal": "All production actions must fail before accessing channel state. Development status remains usable. The native release workflow is responsible for verified qualification, promotion, rollback and launch. Permit version preparation on a receipted integrated descendant of the verified promoted source only when all version input files match that source. Preserve qualification, version health, scope checks and failure recovery.",
   "size": "s",
   "deps": [],
   "scopes": [
     "scripts/susi-local.ps1",
     "docs/local-channels.md",
-    ".agents/tasks/T-CHANNELGUARD-1.json"
+    ".agents/tasks/T-CHANNELGUARD-1.json",
+    "xtask/src/prepare_release.rs"
   ],
   "accept": {
     "cmd": [
       "powershell",
       "-NoProfile",
       "-Command",
-      "$ErrorActionPreference='Stop'\n$fixture=Join-Path ([IO.Path]::GetTempPath()) ('susi-channel-guard-'+[Guid]::NewGuid().ToString('N'))\n$dev=Join-Path $fixture 'dev'\n$production=Join-Path $fixture 'production'\n[void][IO.Directory]::CreateDirectory($dev)\n[void][IO.Directory]::CreateDirectory($production)\n$record=Join-Path $production 'channel.json'\n[IO.File]::WriteAllText($record,'malformed sentinel that must never be read')\n$expected=(Get-FileHash -LiteralPath $record).Hash\nforeach($action in 'Build','Rollback','Run','Status'){\n    $reason=$null\n    try { & ./scripts/susi-local.ps1 -Channel production -Root $fixture -Action $action }\n    catch { $reason=$_.Exception.Message }\n    if($reason -notlike 'Production requires the native release workflow.*'){throw \"Production $action guard failed: $reason\"}\n}\nif((Get-FileHash -LiteralPath $record).Hash -ne $expected -or @(Get-ChildItem -LiteralPath $production -Force).Count -ne 1){throw 'Production fixture changed'}\n[IO.File]::WriteAllText((Join-Path $dev 'channel.json'),'{\"channel\":\"dev\",\"version\":\"fixture\"}')\n$status=& ./scripts/susi-local.ps1 -Channel dev -Root $fixture -Action Status | ConvertFrom-Json\nif($status.version -ne 'fixture'){throw 'Development status regression'}\n'5 channel checks passed'\n"
+      "$ErrorActionPreference='Stop'\n$fixture=Join-Path ([IO.Path]::GetTempPath()) ('susi-channel-guard-'+[Guid]::NewGuid().ToString('N'))\n$dev=Join-Path $fixture 'dev'\n$production=Join-Path $fixture 'production'\n[void][IO.Directory]::CreateDirectory($dev)\n[void][IO.Directory]::CreateDirectory($production)\n$record=Join-Path $production 'channel.json'\n[IO.File]::WriteAllText($record,'malformed sentinel that must never be read')\n$expected=(Get-FileHash -LiteralPath $record).Hash\nforeach($action in 'Build','Rollback','Run','Status'){\n    $reason=$null\n    try { & ./scripts/susi-local.ps1 -Channel production -Root $fixture -Action $action }\n    catch { $reason=$_.Exception.Message }\n    if($reason -notlike 'Production requires the native release workflow.*'){throw \"Production $action guard failed: $reason\"}\n}\nif((Get-FileHash -LiteralPath $record).Hash -ne $expected -or @(Get-ChildItem -LiteralPath $production -Force).Count -ne 1){throw 'Production fixture changed'}\n[IO.File]::WriteAllText((Join-Path $dev 'channel.json'),'{\"channel\":\"dev\",\"version\":\"fixture\"}')\n$status=& ./scripts/susi-local.ps1 -Channel dev -Root $fixture -Action Status | ConvertFrom-Json\nif($status.version -ne 'fixture'){throw 'Development status regression'}\n'5 channel checks passed'\n& cargo test --offline --locked -p xtask --features release-tooling --bin local-release prepare_release::tests\r\nif($LASTEXITCODE){exit $LASTEXITCODE}"
     ]
   },
   "created_by": "CHANNELGUARD",
