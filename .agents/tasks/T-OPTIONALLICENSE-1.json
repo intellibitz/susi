@@ -45,12 +45,10 @@
       "--offline",
       "--locked",
       "-p",
-      "susi",
-      "--test",
-      "zc_matrix"
+      "susi-vendor-candle"
     ]
   },
-  "acceptance": "Actual root and workspace all-feature policy must pass unchanged strict licenses/advisories/bans/sources. Retired CUDA/MKL feature requests must fail before compilation across all first-party feature facades; supported CPU and Metal dependency graphs remain selected. Keep CPU inference and hardware inventory; remove CUDA artifact publication and automatic install/build selection. Execute graph and affected runtime/launcher tests with pinned Rust in private state. Full integration and two policy-v6 production packages/rollback are separate integrator gates.",
+  "acceptance": "Actual root and workspace all-feature policy must pass unchanged strict licenses/advisories/bans/sources. Retired CUDA/MKL feature requests must fail before compilation across all first-party feature facades; supported CPU and Metal dependency graphs remain selected. Keep CPU inference and hardware inventory; remove CUDA artifact publication and automatic install/build selection. Execute graph and affected runtime/launcher tests with pinned Rust in private state. Full integration and two policy-v6 production packages/rollback are separate integrator gates. Known upstream Candle NN CPU-causal flash shape defect remains unresolved; preserve actual CPU/Metal model routes behind explicit NN/model exports, reject flash aliases and upstream dense-Qwen3 imports with real compile-fail doctests, and execute the retained facade tests and CPU linear/softmax/optimizer exercise. Adding a model/NN export requires renewed boundary review.",
   "evidence_directory": "/workspace/susi-release-gates-evidence/optional-license",
   "native_worker": "optional-license",
   "validation": {
@@ -92,6 +90,36 @@
       },
       "fixture_inputs": "ci-coordinated-fixture-inputs.json binds actual unsafe owner scripts/manifest copied into isolated source fixture; not native integration or current full-graph qualification",
       "behavior": "Remove unused cargo-geiger install/cache. Provision locked host metadata sources, build only native unsafe tooling bins, run offline scanner/comparator, retain merge dependency and main-only target cache. Cold-run workflow has not been executed on hosted CI here."
+    },
+    "facade_guard": {
+      "status": "focused_checks_passed_pending_combined_integration",
+      "scope": "Source-scoped prevention for actual Susi routes; not a repair or blanket safety claim about upstream candle-nn.",
+      "test_source": "coherent isolated source copy using fa658800f Cargo.lock; future unsafe edges remain for combined locked integration",
+      "evidence_directory": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage",
+      "unit_tests": {
+        "passed": 18,
+        "failed": 0,
+        "ignored": 2
+      },
+      "compile_fail_export_tests": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      "final_cargo_test": {
+        "exit": 0,
+        "seconds": 2.560146
+      },
+      "clippy": {
+        "exit": 0,
+        "seconds": 38.088471
+      },
+      "cold_prior_export_revision": {
+        "exit": 0,
+        "seconds": 318.803502,
+        "difference": "before explicit safe Init export needed by coordinated byte-boundary tests"
+      },
+      "limitations": "Coherent standalone fa lock, not isolated future-lock qualification; exact combined locked tests remain mandatory. Existing conditional GPU tests return early on CPU; no GPU/private-model execution claimed. Upstream CPU flash remains defective and outside permitted facade exports."
     }
   },
   "coordination": {

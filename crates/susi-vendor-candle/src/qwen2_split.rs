@@ -13,13 +13,13 @@
 //! - [Model Card](https://huggingface.co/Qwen/Qwen2)
 //!
 
+use crate::candle_nn::{self, Embedding, Module};
+use crate::candle_transformers::quantized_nn::RmsNorm;
+use crate::candle_transformers::utils::repeat_kv;
 use candle_core::{
     quantized::{gguf_file, QMatMul},
     DType, Device, IndexOp, Result, Tensor,
 };
-use candle_nn::{Embedding, Module};
-use candle_transformers::quantized_nn::RmsNorm;
-use candle_transformers::utils::repeat_kv;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
