@@ -2308,3 +2308,27 @@ fn ceo_git_authority_preserves_evidence_and_scope() {
         );
     }
 }
+
+/// Open-core boundary (AGENTS.md): organisation-scale capabilities are sold in
+/// susi-commercial-apps and must not return to the Apache-2.0 substrate.
+#[test]
+fn enterprise_capabilities_live_in_commercial_apps() {
+    let root = workspace_root();
+    for rel in [
+        "crates/susi-gawd/src/tenant_isolation.rs",
+        "helm",
+        "deploy/helm",
+        "scripts/check-helm-chart.sh",
+    ] {
+        assert!(
+            !root.join(rel).exists(),
+            "enterprise capability belongs in susi-commercial-apps: {rel}"
+        );
+    }
+    let handler = std::fs::read_to_string(root.join("crates/susi-gawd/src/plane_handler.rs"))
+        .expect("read GAWD plane handler");
+    assert!(
+        handler.contains("MULTI_TENANT_COMMERCIAL") && !handler.contains("tenant_isolation"),
+        "tenant-scoped plane requests must fail closed in the open substrate"
+    );
+}

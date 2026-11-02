@@ -129,7 +129,6 @@ pub mod self_validation;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
 pub mod telemetry;
-pub mod tenant_isolation;
 pub mod worker_identity;
 pub mod zc_agent_identity;
 pub mod zc_tasks_next;
@@ -236,12 +235,6 @@ mod vc_201_019_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_020.rs"]
 mod vc_201_020_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_078_mastery.rs"]
-mod vc_201_078_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_078.rs"]
-mod vc_201_078_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;
