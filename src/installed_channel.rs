@@ -70,6 +70,14 @@ pub(crate) fn dispatch() -> Option<ExitCode> {
         if command.as_deref() == Some(std::ffi::OsStr::new("install-release")) {
             return None;
         }
+        match transaction::run_in_place(&exe) {
+            Ok(true) => return None,
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!("Installed Susi could not launch: {error}");
+                return Some(ExitCode::FAILURE);
+            }
+        }
         match transaction::dispatch(&exe) {
             Ok(status) => std::process::exit(status.code().unwrap_or(1)),
             Err(error) => {

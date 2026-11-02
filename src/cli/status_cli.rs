@@ -153,7 +153,7 @@ pub(crate) fn collect(
     let rollback_ready = read_rollback_ready(cwd);
     let queue = read_queue(substrate_home, now);
     let brain = read_brain(now);
-    let routing = read_routing(cwd, now);
+    let routing = read_routing(now);
     let spend = read_spend(global_dir);
     let approvals = read_approvals();
     UnifiedStatus {
@@ -401,15 +401,25 @@ fn read_brain(now: u64) -> BrainSection {
     }
 }
 
-fn read_routing(cwd: &Path, now: u64) -> RoutingSection {
+/// The user's explicit local model selection (`susi models select`), if any.
+fn selected_local_model() -> Option<String> {
+    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("selected_model_override.txt"))
+        .ok()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+}
+
+fn read_routing(now: u64) -> RoutingSection {
     let pref = InferenceRouter::load_preference();
     let cooled: Vec<(String, u64)> = InferenceRouter::cooled_providers()
         .into_iter()
         .map(|c| (c.provider, c.until_unix.saturating_sub(now)))
         .collect();
-    let chosen_local_model =
-        susi_gemi::models::ModelManager::identify_best_suited_local_model(cwd, None)
-            .map(|m| m.name().to_string());
+    // Status reports state, not a fresh recommendation: ranking local models
+    // probes the GPU (nvidia-smi, ~2 s cold on Windows) and re-authenticates
+    // publisher licenses over the network. The goal path still admits and
+    // ranks models before any load.
+    let chosen_local_model = selected_local_model();
     RoutingSection {
         preferred_cloud: pref.preferred_cloud,
         policy_override: pref.policy_override,
@@ -573,7 +583,7 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
     out.push_str(&format!("budget: {}\n", r.budget_label));
     match &r.chosen_local_model {
         Some(m) => out.push_str(&format!("local model: {m}\n")),
-        None => out.push_str("local model: none selected\n"),
+        None => out.push_str("local model: automatic (chosen when a goal runs)\n"),
     }
     match &r.preferred_cloud {
         Some(p) => out.push_str(&format!("preferred cloud: {p}\n")),

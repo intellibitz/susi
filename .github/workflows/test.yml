@@ -726,10 +726,12 @@ jobs:
         run: ${{ steps.affected.outputs.lintcmd }}
 
       - name: Install cargo-nextest for branch tests
+      # The native gate fixture (xtask local-workflow) runs `cargo deny`; without
+      # it the test fails in 14 ms with exit 101 (main, 2026-11-03).
         if: steps.affected.outputs.has_tests == 'true'
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-nextest@0.9.146
+          tool: cargo-nextest@0.9.146,cargo-deny
 
       - name: Test affected crates before merge
         if: steps.affected.outputs.has_tests == 'true'
@@ -795,7 +797,7 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-nextest@0.9.146
+          tool: cargo-nextest@0.9.146,cargo-deny
 
       # nextest schedules each test as its own process (~40% faster than
       # libtest's per-binary pools on this suite) and isolates cross-process

@@ -1,9 +1,3 @@
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test fixtures/assertions
-
 //! `scripts/release-await-tests.sh` through a fake `gh`.
 //!
 //! A release builds four binaries for half an hour and publishes them, so
@@ -13,6 +7,11 @@
 //! full suite" is the part worth pinning: a branch-push run only compiles and
 //! lints, so a green one proves nothing about the tests, and neither does the
 //! merge bot's `gate=branch` retest, which is a dispatch run like the suite.
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![cfg(unix)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test fixtures/assertions
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -1,12 +1,3 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unreachable
-)]
-#![allow(missing_docs)] // integration test crate: no public API to document
-#![cfg(unix)] // after the allows: elsewhere it empties the crate, allows and docs too
-
 //! A cloud session (Claude Code on the web) works in the clone its harness
 //! made: a primary checkout on a feature branch, in a disposable container,
 //! with no laptop behind it. The loop used to refuse exactly that shape — "do
@@ -18,6 +9,14 @@
 //! The mark lives on the clone (`git config susi.cloud`), never in the
 //! environment: these tests run inside cloud containers too, and a fixture
 //! must behave like a laptop's clone until it is marked.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+#![allow(missing_docs)] // integration test crate: no public API to document
+#![cfg(unix)] // after the allows: elsewhere it empties the crate, allows and docs too
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

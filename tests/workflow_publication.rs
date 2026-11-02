@@ -1,10 +1,9 @@
+//! Exercise the actual atomic publisher against a disposable bare Git remote.
 // Optional POSIX/hosted compatibility fixtures execute shell scripts.
 // Native Windows delivery is covered by the Rust coordinator, bootstrap,
 // installer and release suites; it must not require a POSIX userland.
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-//! Exercise the actual atomic publisher against a disposable bare Git remote.
 
 use std::path::PathBuf;
 use std::process::Command;
