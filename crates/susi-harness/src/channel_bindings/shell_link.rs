@@ -80,7 +80,7 @@ pub(super) fn encode(target: &Path, working: &Path) -> io::Result<Vec<u8>> {
             *slot = *unit as u8;
         }
     }
-    for (slot, unit) in block[268..].chunks_exact_mut(2).zip(words) {
+    for (slot, unit) in block[268..].as_chunks_mut::<2>().0.iter_mut().zip(words) {
         slot.copy_from_slice(&unit.to_le_bytes());
     }
     data.extend(block);
@@ -101,7 +101,9 @@ fn local_text(data: &[u8], offset: usize, unicode: bool) -> io::Result<OsString>
     let bytes = data.get(offset..).ok_or_else(invalid)?;
     if unicode {
         let words = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect::<Vec<_>>();
         let end = words.iter().position(|n| *n == 0).ok_or_else(invalid)?;
