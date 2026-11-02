@@ -47,6 +47,19 @@ const PORT_ADVISORY_TIMEOUT: Duration = Duration::from_millis(100);
 /// answers with, right after the bind.
 const CONTRACT_PROVIDERS: &str = "contract-providers";
 
+/// Preserve the supervision cadence while letting shutdown interrupt its idle
+/// wait. The flag is shared with the signal handler on every native platform.
+fn wait_for_shutdown(shutdown: &AtomicBool, duration: Duration) {
+    let start = Instant::now();
+    while !shutdown.load(Ordering::Acquire) {
+        let remaining = duration.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            break;
+        }
+        thread::sleep(remaining.min(Duration::from_millis(100)));
+    }
+}
+
 /// What `susi stop` actually accomplished — the CLI must exit non-zero when
 /// the host contract did not release, instead of printing success for a
 /// daemon that is still listening.
@@ -1184,6 +1197,10 @@ impl SusiDaemon {
         phase("daemon: leaf services", || {
             crate::supervisor::start(Arc::clone(&ctx.shutdown_signal))
         });
+        if ctx.is_shutdown_requested() {
+            Self::shutdown_children();
+            return;
+        }
 
         // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
         let blackboard = crate::blackboard::SwarmBlackboard::new();
@@ -1336,9 +1353,16 @@ impl SusiDaemon {
             let supervision = crate::service_supervision::Supervisor::global();
             supervision.supervise();
             supervision.persist_report();
-            thread::sleep(crate::service_supervision::SUPERVISE_INTERVAL);
+            wait_for_shutdown(
+                ctx.shutdown_signal.as_ref(),
+                crate::service_supervision::SUPERVISE_INTERVAL,
+            );
         }
 
+        Self::shutdown_children();
+    }
+
+    fn shutdown_children() {
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
         // Swarm Cells are the daemon's children; never orphan them.
         let stopped = crate::auto_discovery::stop_all_cells();
@@ -2522,6 +2546,26 @@ mod tests {
         let tmp_dir = std::env::temp_dir();
         let path = SusiDaemon::get_lock_file(&tmp_dir);
         assert_eq!(path, tmp_dir.join("substrate.lock"));
+    }
+
+    #[test]
+    fn shutdown_interrupts_supervision_wait_without_shortening_its_cadence() {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let start = Instant::now();
+        wait_for_shutdown(&shutdown, Duration::from_millis(30));
+        assert!(start.elapsed() >= Duration::from_millis(30));
+        let cancel = Arc::clone(&shutdown);
+        let signal = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(30));
+            cancel.store(true, Ordering::Release);
+        });
+        let start = Instant::now();
+        wait_for_shutdown(&shutdown, crate::service_supervision::SUPERVISE_INTERVAL);
+        signal.join().unwrap();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        let start = Instant::now();
+        wait_for_shutdown(&shutdown, crate::service_supervision::SUPERVISE_INTERVAL);
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

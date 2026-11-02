@@ -448,11 +448,14 @@ fn utc_now() -> String {
 
 /// Wait until a port answers HTTP or the deadline passes — bind alone
 /// isn't readiness; axum must actually serve.
-fn wait_for_port(port: u16, deadline: Duration) -> bool {
+fn wait_for_port(port: u16, deadline: Duration, shutdown: Option<&AtomicBool>) -> bool {
     let start = Instant::now();
     while start.elapsed() < deadline {
+        if shutdown.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return false;
+        }
         if service_table::http_probe(port) {
-            return true;
+            return !shutdown.is_some_and(|flag| flag.load(Ordering::Acquire));
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -621,8 +624,18 @@ fn kill_stale_orphan(svc: &LeafService, pid: u32) {
 /// supervised pid. Services already listening are left alone — the daemon
 /// adopts supervision of its own children only.
 pub fn ensure_leaf_services() {
+    ensure_leaf_services_until(None);
+}
+
+/// The daemon's boot pass uses the same cancellation flag as its monitor.
+/// Keep already-owned rows until the final merge so shutdown_all can find
+/// every child successfully started before cancellation.
+fn ensure_leaf_services_until(shutdown: Option<&AtomicBool>) {
     let mut table = service_table::load();
     for svc in LEAF_SERVICES {
+        if shutdown.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            break;
+        }
         // An operator stop survives daemon restarts — the flag lives in
         // the table, and "holds it down until `susi services start`"
         // means exactly that.
@@ -663,7 +676,7 @@ pub fn ensure_leaf_services() {
                 }
             }
         }
-        if let Some(pid) = spawn_and_record(svc, &mut table, None) {
+        if let Some(pid) = spawn_and_record(svc, &mut table, shutdown) {
             slog(&format!("[supervisor] started {} (pid {})", svc.name, pid));
         } else if !table.iter().any(|r| r.name == svc.name) {
             slog(&format!(
@@ -709,27 +722,49 @@ fn spawn_and_record(
     table: &mut Vec<service_table::ServiceRecord>,
     shutdown: Option<&AtomicBool>,
 ) -> Option<u32> {
+    if shutdown.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        return None;
+    }
     let pid = spawn_service(svc)?;
-    if !wait_for_port(svc.port(), STARTUP_WAIT) {
-        let _ = signal(pid, SIGKILL);
-        return None;
-    }
-    if shutdown.is_some_and(|f| f.load(Ordering::Acquire)) {
+    record_spawned_service(svc, svc.port(), pid, table, shutdown)
+}
+
+/// `pid` must be the child just spawned for this service, never a listener
+/// discovered by its port. Separating readiness from spawn keeps ownership
+/// explicit and lets the cancellation regression exercise a real stalled child.
+fn record_spawned_service(
+    svc: &LeafService,
+    port: u16,
+    pid: u32,
+    table: &mut Vec<service_table::ServiceRecord>,
+    shutdown: Option<&AtomicBool>,
+) -> Option<u32> {
+    let ready = wait_for_port(port, STARTUP_WAIT, shutdown);
+    if shutdown.is_some_and(|flag| flag.load(Ordering::Acquire)) {
         let _ = signal(pid, SIGTERM);
-        thread::sleep(Duration::from_millis(200));
+        let start = Instant::now();
+        while child_alive(pid) && start.elapsed() < Duration::from_millis(200) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        if child_alive(pid) {
+            let _ = signal(pid, SIGKILL);
+        }
+        return None;
+    }
+    if !ready {
         let _ = signal(pid, SIGKILL);
         return None;
     }
-    match service_table::pid_for_port(svc.port()) {
+    match service_table::pid_for_port(port) {
         Some(holder) if holder == pid => {
-            service_table::record(table, svc.name, pid, svc.port());
+            service_table::record(table, svc.name, pid, port);
             Some(pid)
         }
         Some(holder) => {
             let _ = signal(pid, SIGKILL);
             match classify_holder(svc, holder) {
                 HolderKind::OursCurrent => {
-                    service_table::record(table, svc.name, holder, svc.port());
+                    service_table::record(table, svc.name, holder, port);
                     slog(&format!(
                         "[supervisor] {} port held by our orphan pid {holder}; adopted",
                         svc.name
@@ -739,7 +774,7 @@ fn spawn_and_record(
                     kill_stale_orphan(svc, holder);
                 }
                 HolderKind::Foreign => {
-                    service_table::record_external(table, svc.name, holder, svc.port());
+                    service_table::record_external(table, svc.name, holder, port);
                     slog(&format!(
                         "[supervisor] {} port held by pid {holder}; adopted as external",
                         svc.name
@@ -751,7 +786,7 @@ fn spawn_and_record(
         // Holder unresolvable — give our live spawn the benefit; a wrong
         // record is caught and corrected as external on the next pass.
         None => {
-            service_table::record(table, svc.name, pid, svc.port());
+            service_table::record(table, svc.name, pid, port);
             Some(pid)
         }
     }
@@ -1061,7 +1096,10 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
 /// so a crashed monitor is itself restarted (bounded). The daemon joins
 /// it via `service_supervision::Supervisor::join` on shutdown.
 pub fn start(shutdown: Arc<AtomicBool>) {
-    ensure_leaf_services();
+    ensure_leaf_services_until(Some(shutdown.as_ref()));
+    if shutdown.load(Ordering::Acquire) {
+        return;
+    }
     // A monitor pass can block in wait_for_port for STARTUP_WAIT per
     // recovering service — the heartbeat bound leaves that headroom.
     crate::service_supervision::Supervisor::global().spawn(
@@ -1086,6 +1124,16 @@ pub fn shutdown_all() {
         table.len(),
         service_table::table_path()
     ));
+    shutdown_records(&table);
+    table.clear();
+    if let Err(e) = service_table::save(&table) {
+        slog(&format!("[supervisor] clear process table: {e}"));
+    }
+}
+
+/// Only owned records are termination targets; an external listener remains
+/// outside our process lifetime even when it occupies a leaf service port.
+fn shutdown_records(table: &[service_table::ServiceRecord]) {
     for rec in table.iter().filter(|r| !r.external) {
         let ok = signal(rec.pid, SIGTERM);
         slog(&format!(
@@ -1105,15 +1153,243 @@ pub fn shutdown_all() {
             let _ = signal(rec.pid, SIGKILL);
         }
     }
-    table.clear();
-    if let Err(e) = service_table::save(&table) {
-        slog(&format!("[supervisor] clear process table: {e}"));
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_readiness_does_not_probe_or_wait() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let shutdown = AtomicBool::new(true);
+        let start = Instant::now();
+        assert!(!wait_for_port(
+            listener.local_addr().unwrap().port(),
+            STARTUP_WAIT,
+            Some(&shutdown),
+        ));
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    /// A native Rust fixture owns its TCP socket. Cancellation is raised only
+    /// after it has accepted the readiness request but deliberately withheld
+    /// the response, reproducing the real boot wait without shell fixtures or
+    /// global environment mutation. Both its process and a separate foreign
+    /// listener are observed through the production process probes.
+    #[test]
+    fn shutdown_cancels_real_stalled_leaf_and_preserves_foreign_listener() {
+        // Teardown logs use substrate paths; serialize with sibling tests
+        // that temporarily redirect those paths, without changing any env here.
+        let _env_guard = susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        struct FixtureRoot(PathBuf);
+        impl Drop for FixtureRoot {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        struct FixtureChild(std::process::Child);
+        impl FixtureChild {
+            fn wait_stopped(&mut self) -> std::process::ExitStatus {
+                let start = Instant::now();
+                loop {
+                    if let Some(status) = self.0.try_wait().unwrap() {
+                        return status;
+                    }
+                    assert!(
+                        start.elapsed() < Duration::from_secs(2),
+                        "owned fixture survived cancellation"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+        impl Drop for FixtureChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = FixtureRoot(
+            std::env::temp_dir().join(format!("susi-shutdown-leaf-{}-{stamp}", std::process::id())),
+        );
+        fs::create_dir(&root.0).unwrap();
+        let source = root.0.join("leaf.rs");
+        fs::write(&source, r#"
+use std::{env, fs, io::{Read, Write}, net::TcpListener, thread, time::{Duration, Instant}};
+fn main() -> std::io::Result<()> {
+    let args: Vec<_> = env::args().collect();
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    listener.set_nonblocking(true)?;
+    fs::write(&args[1], listener.local_addr()?.port().to_string())?;
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(30) {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                fs::write(&args[2], b"accepted")?;
+                if args[3] == "ready" {
+                    stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+                    let _ = stream.read(&mut [0; 256]);
+                    let _ = stream.write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
+                } else {
+                    thread::sleep(Duration::from_secs(20));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(10)),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+"#).unwrap();
+        let binary = root.0.join(if cfg!(windows) { "leaf.exe" } else { "leaf" });
+        let compiler = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let build = Command::new(compiler)
+            .args(["--edition", "2021"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&binary)
+            .output()
+            .unwrap();
+        assert!(
+            build.status.success(),
+            "{}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let spawn = |name: &str, mode: &str| {
+            let port_file = root.0.join(format!("{name}.port"));
+            let accepted = root.0.join(format!("{name}.accepted"));
+            let mut child = FixtureChild(
+                Command::new(&binary)
+                    .arg(&port_file)
+                    .arg(&accepted)
+                    .arg(mode)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .unwrap(),
+            );
+            let start = Instant::now();
+            let port = loop {
+                if let Ok(text) = fs::read_to_string(&port_file)
+                    && let Ok(port) = text.parse::<u16>()
+                {
+                    break port;
+                }
+                assert!(
+                    child.0.try_wait().unwrap().is_none(),
+                    "fixture exited before binding"
+                );
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "fixture did not bind"
+                );
+                thread::sleep(Duration::from_millis(10));
+            };
+            (child, port, accepted)
+        };
+        let service = LeafService {
+            name: "owned-fixture",
+            binary: "unused",
+            port_env: "UNUSED",
+            default_port: 0,
+        };
+        let (mut stalled, port, accepted) = spawn("stalled", "stall");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let cancel = Arc::clone(&shutdown);
+        let trigger = thread::spawn(move || {
+            let start = Instant::now();
+            while !accepted.exists() && start.elapsed() < Duration::from_secs(5) {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let saw_request = accepted.exists();
+            cancel.store(true, Ordering::Release);
+            saw_request
+        });
+        let mut table = Vec::new();
+        let start = Instant::now();
+        assert!(
+            record_spawned_service(&service, port, stalled.0.id(), &mut table, Some(&shutdown))
+                .is_none()
+        );
+        assert!(
+            trigger.join().unwrap(),
+            "fixture must accept the real readiness request"
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "cancellation waited for the ten-second startup deadline"
+        );
+        assert!(!stalled.wait_stopped().success());
+        assert!(!child_alive(stalled.0.id()));
+        assert!(table.is_empty());
+
+        let (foreign, foreign_port, _) = spawn("foreign", "ready");
+        assert!(wait_for_port(foreign_port, Duration::from_secs(2), None));
+        let (mut owned, owned_port, _) = spawn("cancelled", "stall");
+        assert!(
+            record_spawned_service(
+                &service,
+                foreign_port,
+                owned.0.id(),
+                &mut table,
+                Some(&shutdown)
+            )
+            .is_none()
+        );
+        let _ = owned.wait_stopped();
+        assert!(!child_alive(owned.0.id()));
+        assert!(
+            table.is_empty(),
+            "cancelled readiness must not adopt a foreign listener"
+        );
+        assert!(child_alive(foreign.0.id()));
+        assert!(wait_for_port(foreign_port, Duration::from_secs(2), None));
+        assert!(!service_table::probe(owned_port));
+
+        let (mut ready, ready_port, _) = spawn("owned-ready", "ready");
+        assert_eq!(
+            record_spawned_service(&service, ready_port, ready.0.id(), &mut table, None),
+            Some(ready.0.id())
+        );
+        service_table::record_external(&mut table, "foreign", foreign.0.id(), foreign_port);
+        shutdown_records(&table);
+        let _ = ready.wait_stopped();
+        assert!(
+            !child_alive(ready.0.id()),
+            "teardown must terminate owned boot children"
+        );
+        assert!(
+            child_alive(foreign.0.id()),
+            "teardown must preserve foreign listeners"
+        );
+        assert!(wait_for_port(foreign_port, Duration::from_secs(2), None));
+
+        let (timeout, timeout_port, _) = spawn("timeout", "stall");
+        let start = Instant::now();
+        assert!(!wait_for_port(
+            timeout_port,
+            Duration::from_millis(200),
+            None
+        ));
+        assert!(start.elapsed() >= Duration::from_millis(200));
+        assert!(
+            child_alive(timeout.0.id()),
+            "readiness alone must not terminate a process"
+        );
+    }
 
     #[cfg(windows)]
     #[test]
