@@ -6,6 +6,16 @@
   "deps": [],
   "scopes": ["tests/gmcp_requirements.rs", ".agents/tasks/T-BATCH1102-3.json"],
   "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "gmcp_requirements"]},
+  "receipt": {
+    "old_attempt": "launchfix41-1793614404495630200-9920",
+    "observed_process_waits": 3,
+    "fallback_probe_ms": 1683,
+    "requirement_checks": 54,
+    "requirement_elapsed_s": 76.9,
+    "mastery_checks": 9,
+    "mastery_elapsed_s": 23.31,
+    "remaining_owned_susi_processes": 0
+  },
   "created_by": "BATCH1102",
   "created_unix": 1793619373
 }

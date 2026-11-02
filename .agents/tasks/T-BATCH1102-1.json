@@ -20,6 +20,16 @@
       "local-workflow"
     ]
   },
+  "receipt": {
+    "coordinator_tests": 25,
+    "combined_attempt": "step1-batch-1102-1793619590036847400-49328",
+    "passed_gates_ms": {
+      "format": 20832,
+      "licenses": 5075,
+      "clippy": 312511
+    },
+    "workspace_gate": "Superseded to regenerate immutable GMCP records before publication."
+  },
   "created_by": "BATCH1102",
   "created_unix": 1793618335
 }
