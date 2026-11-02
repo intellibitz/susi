@@ -4,6 +4,7 @@
   "goal": "Ship susi-conformance, a dependency-light black-box suite integrators run against a live host (health without token, 401 without bearer on every HTTP port, MCP 2026-07-28 discover/tools/unknown-method, MCP 2025-06-18 session flow, A2A card and -32601, GEMI models with a path-leak warning, per-check latency), and fix what it found: public /health on 9090/9093/9094 and standard JSON-RPC codes from A2A. Also stop /v1/models from advertising Windows filesystem paths as model ids. Also stop the first MCP tools/list on a fresh host from blocking on external MCP server probes (measured 10.3 s).",
   "deps": [],
   "scopes": [
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-conformance-1.json",
     "cargo.lock",
     "cargo.toml",
@@ -14,7 +15,9 @@
     "crates/susi-tools/src/client.rs",
     "crates/susi-tools/src/registry.rs",
     "docs/host-contract-conformance.md",
-    "readme.md"
+    "readme.md",
+    "scripts/ci-test-shards.sh",
+    "tests/architecture_tests.rs"
   ],
   "size": "m",
   "accept": {
