@@ -18,10 +18,8 @@ pub fn test_counts(log: &[u8], argv: &[String], cwd: &Path) -> Result<(u64, u64,
     }
     let target = option(argv, "--target")?;
     let target_dir = Path::new(option(argv, "--target-dir")?);
-    if !target_dir.is_absolute()
-        || !cwd.is_absolute()
-        || !target_dir.starts_with(cwd.join("target"))
-    {
+    let is_abs = |p: &Path| p.is_absolute() || p.to_string_lossy().starts_with('/');
+    if !is_abs(target_dir) || !is_abs(cwd) || !target_dir.starts_with(cwd.join("target")) {
         return Err("test output directory is not bound to the isolated candidate".into());
     }
     let absolute = format!(

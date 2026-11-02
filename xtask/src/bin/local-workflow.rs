@@ -1025,6 +1025,7 @@ enum ScopeChange {
     Shrink,
 }
 
+#[cfg(test)]
 fn extend(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<()> {
     update_scopes(root, claimant, raw_scopes, ScopeChange::Extend)
 }

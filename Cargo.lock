@@ -4362,7 +4362,6 @@ dependencies = [
  "susi-error",
  "susi-http-transport",
  "susi-vendor-axum",
- "susi-vendor-fastembed",
  "susi-vendor-futures",
  "susi-vendor-hex",
  "susi-vendor-serde",

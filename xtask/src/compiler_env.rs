@@ -157,6 +157,7 @@ fn apply_names(command: &mut Command, names: impl Iterator<Item = OsString>) {
         command.env_remove(key);
     }
 }
+#[allow(dead_code)]
 pub(crate) fn configure_system_openssl(
     command: &mut std::process::Command,
     target: &str,
