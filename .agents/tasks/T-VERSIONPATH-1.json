@@ -1,0 +1,30 @@
+{
+  "id": "T-VERSIONPATH-1",
+  "title": "Match native release version ownership against canonical coordinator scopes",
+  "status": "implemented",
+  "owner": "step1-version-path",
+  "scopes": [
+    "xtask/src/prepare_release.rs",
+    ".agents/tasks/T-VERSIONPATH-1.json"
+  ],
+  "dependencies": [
+    "T-STEP1ACCEPTANCE-7"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "prepare_release::tests"
+    ]
+  },
+  "requirement": "Normalize planned version paths identically to stored coordinator scopes without weakening path containment or qualified-source checks",
+  "production_status": "Actual version B preparation and combined integration remain mandatory"
+}

@@ -2,9 +2,9 @@
 
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::DynamicModelInfo;
-use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use susi_vendor_models::model_license::VerifiedArtifact;
 
 use crate::hardware::HardwareProfiler;
 
@@ -22,7 +22,7 @@ struct TokenizerCache {
 
 struct CachedTokenizer {
     path: PathBuf,
-    digest: [u8; 32],
+    digest: String,
     tokenizer: std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>,
 }
 
@@ -33,14 +33,30 @@ impl TokenizerCache {
     ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
         use sha2::{Digest, Sha256};
         let bytes = fs::read(path)?;
-        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        let digest = hex::encode(Sha256::digest(&bytes));
+        self.parse_or_reuse(path, digest, || Ok(bytes))
+    }
+    fn load_verified(
+        &mut self,
+        path: &Path,
+        verified: VerifiedArtifact,
+    ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
+        let digest = verified.digest().to_owned();
+        self.parse_or_reuse(path, digest, move || verified.into_bytes())
+    }
+    fn parse_or_reuse(
+        &mut self,
+        path: &Path,
+        digest: String,
+        read: impl FnOnce() -> std::io::Result<Vec<u8>>,
+    ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
         if let Some(entry) = &self.entry {
             if entry.path == path && entry.digest == digest {
                 return Ok(std::sync::Arc::clone(&entry.tokenizer));
             }
         }
         let tokenizer = std::sync::Arc::new(
-            susi_vendor_candle::tokenizers::Tokenizer::from_bytes(bytes)
+            susi_vendor_candle::tokenizers::Tokenizer::from_bytes(read()?)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
         );
         self.entry = Some(CachedTokenizer {
@@ -54,14 +70,18 @@ impl TokenizerCache {
 
 fn parsed_tokenizer(
     path: &Path,
+    verified: Option<VerifiedArtifact>,
 ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<TokenizerCache>> =
         std::sync::OnceLock::new();
-    CACHE
+    let mut cache = CACHE
         .get_or_init(Default::default)
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .load(path)
+        .unwrap_or_else(|e| e.into_inner());
+    match verified {
+        Some(file) => cache.load_verified(path, file),
+        None => cache.load(path),
+    }
 }
 
 impl ModelManager {
@@ -191,13 +211,19 @@ impl ModelManager {
 
     /// Admission remains mandatory for resident weights as well as cold loads.
     pub fn admitted_local_path(path: &Path) -> bool {
-        path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
-            && !Self::cooling_down(&path.to_string_lossy())
-            && Self::valid_gguf_payload(path)
-            && Self::verify_model_integrity(path).is_ok()
-            && Self::get_tokenizer_path(&path.to_string_lossy()).is_some_and(|tokenizer| {
-                susi_vendor_models::model_license::verify_local(&tokenizer).is_ok()
-            })
+        Self::admitted_local_weights(path).is_some()
+    }
+    pub fn admitted_local_weights(path: &Path) -> Option<VerifiedArtifact> {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("gguf")
+            || Self::cooling_down(&path.to_string_lossy())
+            || !Self::valid_gguf_payload(path)
+        {
+            return None;
+        }
+        let model = Self::open_verified_model(path).ok()?;
+        let tokenizer = Self::get_tokenizer_path(&path.to_string_lossy())?;
+        susi_vendor_models::model_license::verify_local(&tokenizer).ok()?;
+        Some(model)
     }
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
         susi_vendor_models::set_selected_model_override(model_name)
@@ -564,12 +590,20 @@ impl ModelManager {
     }
 
     pub fn verify_model_integrity(model_path: &Path) -> EaiResult<()> {
-        susi_vendor_models::model_license::verify_local(model_path)
+        Self::open_verified_model(model_path).map(drop)
+    }
+    pub fn open_verified_model(model_path: &Path) -> EaiResult<VerifiedArtifact> {
+        let artifact = susi_vendor_models::model_license::open_verified_local(model_path)
             .map_err(crate::susi_error::EaiError::governance)?;
-        Self::verify_model_checksum(model_path)
+        Self::verify_recorded_checksum(model_path, Some(artifact.digest()))?;
+        Ok(artifact)
     }
 
+    #[cfg(test)]
     pub(crate) fn verify_model_checksum(model_path: &Path) -> EaiResult<()> {
+        Self::verify_recorded_checksum(model_path, None)
+    }
+    fn verify_recorded_checksum(model_path: &Path, admitted_digest: Option<&str>) -> EaiResult<()> {
         if Self::is_synthetic_model_id(&model_path.to_string_lossy()) {
             return Ok(());
         }
@@ -586,27 +620,19 @@ impl ModelManager {
             .map_err(|_| crate::susi_error::EaiError::governance("Malformed model provenance"))?;
 
         if let Some(trusted_checksum) = provenance.original_checksum {
-            // Downloads now record the publisher's digest, so this runs on
-            // every cold load; hashing multi-GB weights each time is paid
-            // once per unchanged file (same length and mtime) per process.
-            type Stamp = (u64, std::time::SystemTime, String);
-            static VERIFIED: std::sync::OnceLock<DashMap<PathBuf, Stamp>> =
-                std::sync::OnceLock::new();
-            let meta = fs::metadata(model_path)?;
-            let stamp = (meta.len(), meta.modified()?, trusted_checksum.clone());
-            let verified = VERIFIED.get_or_init(DashMap::new);
-            if verified.get(model_path).is_some_and(|seen| *seen == stamp) {
-                return Ok(());
-            }
-            let actual_checksum = Self::calculate_simple_checksum(model_path)?;
-            if actual_checksum != trusted_checksum {
-                verified.remove(model_path);
+            let observed;
+            let actual = if let Some(digest) = admitted_digest {
+                digest
+            } else {
+                observed = Self::calculate_simple_checksum(model_path)?;
+                &observed
+            };
+            if actual != trusted_checksum {
                 return Err(crate::susi_error::EaiError::governance(format!(
                     "Model TAMPERING detected! Hash mismatch for {}",
                     model_path.display()
                 )));
             }
-            verified.insert(model_path.to_path_buf(), stamp);
         }
 
         Ok(())
@@ -627,7 +653,7 @@ impl ModelManager {
     /// Selection and inference share one bounded parser cache. Errors reading
     /// the artifact remain retryable; only content failures become verdicts.
     fn judge_tokenizer(path: &Path) -> Option<bool> {
-        match parsed_tokenizer(path) {
+        match parsed_tokenizer(path, None) {
             Ok(_) => Some(true),
             Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
             Err(_) => None,
@@ -639,9 +665,9 @@ impl ModelManager {
     pub fn load_tokenizer(
         path: &Path,
     ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-        susi_vendor_models::model_license::verify_local(path)
+        let verified = susi_vendor_models::model_license::open_verified_local(path)
             .map_err(crate::susi_error::EaiError::governance)?;
-        parsed_tokenizer(path)
+        parsed_tokenizer(path, Some(verified))
             .map_err(|e| crate::susi_error::EaiError::inference(format!("Tokenizer Error: {e}")))
     }
 

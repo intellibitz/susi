@@ -1,0 +1,34 @@
+{
+  "id": "T-MODELREAD-1",
+  "owner": "modelread1102",
+  "status": "implemented",
+  "title": "Authenticate each local model access while reusing immutable verified bytes within one inference request",
+  "dependencies": [
+    "T-JOURNEYLOCK-2"
+  ],
+  "scopes": [
+    ".agents/tasks/T-MODELREAD-1.json",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/windows_model_identity.rs",
+    "crates/susi-gemi-models/src/lib.rs",
+    "crates/susi-gemi-models/src/lifecycle/selection.rs",
+    "crates/susi-gemi-models/src/model_cache.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_substrate.rs",
+    "crates/susi-vendor-models/Cargo.toml",
+    "crates/susi-vendor-models/src/model_license.rs",
+    "crates/susi-vendor-models/src/model_read_window.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "model_license::tests"
+    ]
+  },
+  "requirement": "Each access authenticates current publisher evidence. Same-length/timestamp, stream, replacement and parent substitution cannot inherit trusted bytes. Decode authenticated handles or immutable verified snapshots. Establish measured first/repeated native goal reads and real resident behavior."
+}

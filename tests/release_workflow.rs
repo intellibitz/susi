@@ -200,16 +200,26 @@ fn every_engine_artifact_passes_its_own_checks_before_upload() {
     assert!(upload.contains("steps.portable_e2e.outcome == 'success'"));
     let windows = find("Verify the Windows artifact answers offline");
     assert!(windows.contains("runner.os == 'Windows'"));
-    for publisher in [
-        "publish",
-        "publish-linux",
-        "publish-arm",
-        "publish-macos",
-        "publish-cuda",
-    ] {
+    for publisher in ["publish", "publish-linux", "publish-arm", "publish-macos"] {
         assert!(job(&jobs, publisher)
             .body
             .contains("needs.tests.result == 'success'"));
+    }
+}
+
+#[test]
+fn distributed_archives_exclude_the_unqualified_cuda_bundle() {
+    for file in ["release.yml", "dev-release.yml"] {
+        let workflow =
+            std::fs::read_to_string(root().join(".github/workflows").join(file)).unwrap();
+        let actions = code(&workflow);
+        for marker in [
+            "collect_cuda_libs",
+            "susi-linux-x86_64-cuda",
+            "--features cuda",
+        ] {
+            assert!(!actions.contains(marker), "{file} includes {marker}");
+        }
     }
 }
 

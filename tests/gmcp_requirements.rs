@@ -838,20 +838,34 @@ impl StdioSession {
     }
 }
 
+fn stop_test_server(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id().to_string();
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    // The stdio peer can still hold its input pipe open if tree cleanup failed.
+    // Only wait after the exact child has exited or its own kill succeeded.
+    let result = child.try_wait().and_then(|status| match status {
+        Some(_) => Ok(()),
+        None => child.kill().and_then(|()| child.wait().map(|_| ())),
+    });
+    if let Err(error) = result {
+        eprintln!("failed to reap test server {}: {error}", child.id());
+        assert!(
+            std::thread::panicking(),
+            "test server cleanup failed: {error}"
+        );
+    }
+}
+
 impl Drop for StdioSession {
     fn drop(&mut self) {
-        #[cfg(windows)]
-        {
-            let pid = self.child.id().to_string();
-            let _ = Command::new("taskkill")
-                .args(["/PID", &pid, "/T", "/F"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-        }
-        #[cfg(not(windows))]
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        stop_test_server(&mut self.child);
     }
 }
 
@@ -7723,18 +7737,7 @@ fn gmcp_req_203_005_03_integration() {
     struct Serve(std::process::Child);
     impl Drop for Serve {
         fn drop(&mut self) {
-            #[cfg(windows)]
-            {
-                let pid = self.0.id().to_string();
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid, "/T", "/F"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-            }
-            #[cfg(not(windows))]
-            let _ = self.0.kill();
-            let _ = self.0.wait();
+            stop_test_server(&mut self.0);
         }
     }
 
