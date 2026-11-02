@@ -148,10 +148,60 @@ fn apply_names(command: &mut Command, names: impl Iterator<Item = OsString>) {
         "CARGO_BUILD_RUSTC",
         "CARGO_BUILD_RUSTC_WRAPPER",
         "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "LD_AUDIT",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
     ] {
         command.env_remove(key);
     }
 }
+pub(crate) fn configure_system_openssl(
+    command: &mut std::process::Command,
+    target: &str,
+) -> Result<(), String> {
+    let multiarch = match target {
+        "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
+        "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
+        _ => return Err("system OpenSSL configuration requires reviewed Linux target".into()),
+    };
+    let libdir = std::path::Path::new("/usr/lib").join(multiarch);
+    for name in ["libssl.so", "libcrypto.so"] {
+        let resolved = libdir
+            .join(name)
+            .canonicalize()
+            .map_err(|_| "system OpenSSL development libraries missing")?;
+        if !resolved.starts_with("/usr/lib") && !resolved.starts_with("/lib") {
+            return Err("OpenSSL library resolves outside OS directories".into());
+        }
+    }
+    let keys: Vec<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .chain(command.get_envs().map(|(key, _)| key.to_os_string()))
+        .collect();
+    for key in keys {
+        let name = key.to_string_lossy().to_ascii_uppercase();
+        if name.contains("OPENSSL")
+            || name.contains("PKG_CONFIG")
+            || matches!(
+                name.as_str(),
+                "LIBRARY_PATH" | "LD_LIBRARY_PATH" | "LD_PRELOAD" | "LD_AUDIT"
+            )
+        {
+            command.env_remove(key);
+        }
+    }
+    command
+        .env("OPENSSL_STATIC", "0")
+        .env("OPENSSL_NO_VENDOR", "1")
+        .env("OPENSSL_NO_PKG_CONFIG", "1")
+        .env("OPENSSL_LIB_DIR", libdir)
+        .env("OPENSSL_INCLUDE_DIR", "/usr/include")
+        .env("OPENSSL_LIBS", "ssl:crypto");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +233,9 @@ mod tests {
             "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER",
             "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS",
             "RUSTC_BOOTSTRAP",
+            "LD_LIBRARY_PATH",
+            "LD_PRELOAD",
+            "LD_AUDIT",
         ] {
             assert!(command
                 .get_envs()

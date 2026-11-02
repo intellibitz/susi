@@ -10,6 +10,9 @@
 
 use syn::visit::{self, Visit};
 
+mod forbid;
+pub use forbid::crate_forbids_unsafe_checked;
+
 /// True when `src` parses as a Rust source file.
 #[must_use]
 pub fn is_valid_rust(src: &str) -> bool {

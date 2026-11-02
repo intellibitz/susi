@@ -85,28 +85,6 @@ pub struct ModelSubstrate {
     pub(crate) weights: ModelBackend,
     pub(crate) eos_token_ids: Vec<u32>,
     pub(crate) prompt_format: PromptFormat,
-    /// Device the weights were loaded onto; `Drop` binds its context.
-    // Read only by the CUDA branch of `Drop`; CPU-only builds never need it.
-    #[cfg_attr(not(feature = "cuda"), allow(dead_code))]
-    device: candle_core::Device,
-}
-
-/// Weights can be dropped on any thread: an unload, the idle sweeper, a
-/// request finishing after its model was evicted, or a cache replacement
-/// on a fresh request thread. cudarc's `CudaSlice` drop frees without
-/// binding the CUDA context and only records a failure, so a drop on a
-/// thread with no current context leaks the VRAM with
-/// `CUDA_ERROR_INVALID_CONTEXT`. Binding here, before the fields drop,
-/// makes every drop site safe.
-impl Drop for ModelSubstrate {
-    fn drop(&mut self) {
-        #[cfg(feature = "cuda")]
-        if let candle_core::Device::Cuda(cuda) = &self.device {
-            if let Err(error) = cuda.cuda_stream().context().bind_to_thread() {
-                tracing::warn!(%error, "could not bind CUDA context to free model weights");
-            }
-        }
-    }
 }
 
 /// The chat-turn wrapper a model expects, detected from its GGUF-embedded
@@ -202,46 +180,8 @@ fn plan_evictions(
         .collect()
 }
 
-/// Free evicted weights on `device` and return the memory to the driver.
-///
-/// cudarc's `CudaSlice` drop calls `cuMemFreeAsync` without binding the
-/// device context and only *records* a failure, so dropping weights on a
-/// thread with no current context (the daemon's request threads) leaks the
-/// allocation with `CUDA_ERROR_INVALID_CONTEXT`. Bind first, drop, then
-/// synchronize — which surfaces any recorded free error — and trim the
-/// device's memory pool so the VRAM is usable by other programs, not just
-/// reserved for this process. `Ok(false)` when `device` is not CUDA.
-#[cfg(feature = "cuda")]
-#[allow(unsafe_code)]
-pub(super) fn release_on_device<T>(
-    weights: Arc<T>,
-    device: &candle_core::Device,
-) -> Result<bool, String> {
-    use candle_core::cuda_backend::cudarc::driver::result;
-    let candle_core::Device::Cuda(cuda) = device else {
-        drop(weights);
-        return Ok(false);
-    };
-    let stream = cuda.cuda_stream();
-    let ctx = stream.context();
-    ctx.bind_to_thread().map_err(|e| e.to_string())?;
-    drop(weights);
-    // Completes the async frees and reports any error recorded by a drop.
-    ctx.synchronize().map_err(|e| e.to_string())?;
-    // SAFETY: `cu_device` comes from a live `CudaContext` that `ctx` keeps
-    // alive for this whole call, and the context is bound to this thread.
-    // `cuDeviceGetMemPool` returns the driver-owned current pool, which is
-    // never freed or destroyed here, and `cuMemPoolTrimTo` only releases
-    // reservations that no live allocation uses.
-    unsafe {
-        let pool = result::device::get_mem_pool(ctx.cu_device()).map_err(|e| e.to_string())?;
-        result::mem_pool::trim_to(pool, 0).map_err(|e| e.to_string())?;
-    }
-    Ok(true)
-}
-
-#[cfg(not(feature = "cuda"))]
-#[allow(clippy::unnecessary_wraps)] // mirrors the CUDA variant's signature
+/// Drop evicted CPU/Metal weights. No CUDA driver pool is owned by Susi.
+#[allow(clippy::unnecessary_wraps)] // preserves the eviction error-handling contract
 pub(super) fn release_on_device<T>(
     weights: Arc<T>,
     _device: &candle_core::Device,
@@ -625,7 +565,6 @@ impl InferenceHost {
             weights,
             eos_token_ids,
             prompt_format,
-            device: device.clone(),
         })
     }
 
@@ -799,6 +738,32 @@ mod eviction_tests {
             ("mid".into(), 300),
             ("new".into(), 200),
         ]
+    }
+
+    #[test]
+    fn cpu_eviction_releases_the_last_handle_on_another_thread() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct CountDrop(Arc<AtomicUsize>);
+        impl Drop for CountDrop {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let drops = Arc::new(AtomicUsize::new(0));
+        let weights = Arc::new(CountDrop(drops.clone()));
+        let in_flight = weights.clone();
+        assert_eq!(
+            release_on_device(weights, &candle_core::Device::Cpu),
+            Ok(false)
+        );
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            std::thread::spawn(move || release_on_device(in_flight, &candle_core::Device::Cpu))
+                .join()
+                .unwrap(),
+            Ok(false)
+        );
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
     }
 
     #[test]

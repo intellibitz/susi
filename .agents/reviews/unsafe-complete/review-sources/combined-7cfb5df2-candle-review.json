@@ -1,0 +1,351 @@
+{
+  "schema": "susi/unsafe-independent-review/v1",
+  "created_at": "2026-11-02T18:34:59.084378+00:00",
+  "reviewer": "/root/license_advisory_review",
+  "source_commit": "7cfb5df2829ede4312c34332a7c1971d9b62f250",
+  "source_tree": "94e5516b6961994131089e9dc3170bf6c2d0e6a8",
+  "scope": "Read-only final combined source rebind for repaired Candle core and restricted Candle NN facade; original detailed reviews, defects and execution receipts remain unchanged.",
+  "inputs": [
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/candle-repaired-component-review.json",
+      "sha256": "c5d169109f8ea72c452e4921ee6f4011c7d0d11d774acd8286fe2e0c07f0070c"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/nn-facade-retention-review.json",
+      "sha256": "933ad05685d99e3d85d6bb7e60c8870401ea996f41efbbe7322ffcd83ddaaff0"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/facade-independent-review-binding.json",
+      "sha256": "f9422fd3b119e0704dfc96072790376a7e09502462b33b6b4d6a10ff99344598"
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/combined-7cfb5df2-tree-commands.json",
+      "sha256": "b5e4fed8ca12fd4980a7d2dc0d41cedc85f3d288f24ff4f25430c1d055101f5a"
+    },
+    {
+      "path": "/workspace/susi-release-gates-prebaseline-v3/Cargo.toml",
+      "sha256": "7dfb7c052752ef167aee548d2d959f748f5eba0989406d7f172b91a1767b7954"
+    },
+    {
+      "path": "/workspace/susi-release-gates-prebaseline-v3/Cargo.lock",
+      "sha256": "ffa4ea10dc9bf40b6e82a34fc1dde3bd0afb95ac6828477fb689e8fb0484c221"
+    },
+    {
+      "path": "/workspace/susi-release-gates-prebaseline-v3/vendor/candle-core/Cargo.toml",
+      "sha256": "a98dbbcd5fd224836f1d0191ea483337c01df3ffc10e2a1171d62f2c35221976"
+    },
+    {
+      "path": "/workspace/susi-release-gates-prebaseline-v3/crates/susi-vendor-candle/Cargo.toml",
+      "sha256": "a6ed72e6c812755f95ce6d22ee8c4927619d31143d76a6f7965616fd99041c93"
+    }
+  ],
+  "components": [
+    {
+      "identity": {
+        "name": "candle-core",
+        "version": "0.11.1",
+        "source": "path:vendor/candle-core/Cargo.toml"
+      },
+      "risk": "High: model byte parsing, raw tensor representations, numeric allocation and CPU kernels.",
+      "boundary": "Selected CPU tensor backend invokes Rust GEMM with raw strides, converts quantized byte buffers to aligned block slices, initializes numeric output in parallel, and exposes safetensors serialization/loading; CUDA/MKL/Metal branches are not selected in this Linux graph.",
+      "justification": "Required CPU tensor substrate for actual local inference. The historical review identified two real safetensors conversion defects; commit 57468e3a29f7a01d971082ccda61b2be8283edce removes both rather than allowing them. Private TensorBytes codecs enumerate only fixed numeric wire types. Decoders check shape multiplication, element-byte multiplication and exact payload length before allocating or iterating complete little-endian chunks. Typed values are initialized by safe constructors. Serialization creates its own Vec<u8> and drops Vec<T> with its original allocation layout; no raw ownership cast, copy_nonoverlapping or forget remains in those helpers. The unchanged six-test public workspace suite covers aligned/unaligned partial elements, shape/byte overflow, empty/scalar cases, all ten numeric dtypes, NaN/sign-bit wire roundtrips, U16 cast, and real VarMap checkpoint save/load. It also exposed pre-existing F8 conversion recursion; explicit inherent F8E4M3::to_f64(&v) fixes dispatch and the same numeric test now passes. Previous inspected GGUF bounds, quantized slice alignment/divisibility checks and CPU GEMM/parallel initialization invariants remain unchanged.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a98dbbcd5fd224836f1d0191ea483337c01df3ffc10e2a1171d62f2c35221976"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a141d521bc464b66f5625a954e6676759a0bef2d7c61c7451d53f1b35fc5fe92"
+        },
+        {
+          "path": "src/safetensors.rs",
+          "sha256": "d69c57a79558f188243309b048888e3afea48662d86a9d60900dad33a4e09733"
+        },
+        {
+          "path": "src/cpu_backend/mod.rs",
+          "sha256": "0da73738ec8ed2ede1b9588f3bc766f060c268cd69081d88de7006ffb02bf642"
+        },
+        {
+          "path": "src/quantized/mod.rs",
+          "sha256": "da75d412c3d7b803c9c0060c45bd7afc36064662f98f5dfed97bab426f97ebc2"
+        },
+        {
+          "path": "src/quantized/gguf_file.rs",
+          "sha256": "303d0bc548677b41a572b4c878a79905108775eba840037daf778b051d281822"
+        },
+        {
+          "path": "src/quantized/ggml_file.rs",
+          "sha256": "dfc48f822e4393bc836efcf782f4a6bb36168ac9d641324a054f13ee862aadac"
+        },
+        {
+          "path": "src/dtype.rs",
+          "sha256": "a622935f8873d253c7b5fc0082a59cc9bebf32424610f894790413b182e37a52"
+        }
+      ],
+      "residual_risk": "This repairs the identified byte boundary and F8 conversion, not all Candle unsafe internals. CPU raw GEMM/shape/stride, parallel initialization, mmap lifetime/file stability and other dtype/kernel APIs retain their documented invariants. No exhaustive malformed-model fuzzing, Miri, cross-platform GPU execution or proof of constant-time behavior was performed. Exact combined candidate tests and real inference remain separate requirements.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "candle_core",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "candle-core -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "candle-core-0.11.1.tree"
+      },
+      "source_binding": {
+        "accepted_base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+        "reviewed_repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
+        "git_subtree": "34e2220efb4a332e2d55c4ba10f58316b9af09a9",
+        "all_tracked_files_match_reviewed_git": true,
+        "source_tree_sha256": "93702972c11265dca0e648f2af65d0c8d1ae575bf0943f842f08b3d215778117",
+        "source_files_receipt": "candle-repaired-source-files.json",
+        "reviewed_combined_commit": "7cfb5df2829ede4312c34332a7c1971d9b62f250",
+        "all_core_files_identical_to_reviewed_repair_commit": true,
+        "combined_git_subtree": "34e2220efb4a332e2d55c4ba10f58316b9af09a9"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-gemi/src/engines/alpha.rs",
+          "sha256": "5624b4a58e2237718a6708984eb40fc998b0bc7f11f39926a76700ba32e79344"
+        },
+        {
+          "path": "crates/susi-gemi/tests/tensor_byte_boundary.rs",
+          "sha256": "18dcdc5c03123d9c20ec7d86b50a55cc579f75f65afb81c3b4a44e87b94fdb1e"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [
+        "CANDLE-SAFETENSORS-ALLOC-LAYOUT",
+        "CANDLE-SAFETENSORS-PARTIAL-ELEMENT"
+      ],
+      "disposition": "reviewed_after_specific_boundary_repairs",
+      "conclusion": "The two concrete byte defects and the exposed F8 recursion are resolved in this exact repaired source, with six nonignored focused tests passing. No new blocker identified in the inspected repaired boundary; this is scoped review, not complete upstream memory-safety approval.",
+      "finding_resolution": {
+        "CANDLE-SAFETENSORS-ALLOC-LAYOUT": {
+          "status": "repaired_and_focused_tests_passed",
+          "repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce"
+        },
+        "CANDLE-SAFETENSORS-PARTIAL-ELEMENT": {
+          "status": "repaired_and_focused_tests_passed",
+          "repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce"
+        },
+        "CANDLE-F8-TO-F64-RECURSION": {
+          "status": "repaired_explicit_inherent_dispatch",
+          "repair_commit": "57468e3a29f7a01d971082ccda61b2be8283edce",
+          "evidence": "Unchanged ten-dtype numeric conversion test now terminates and passes; initial failed run/diagnostic preserved by repair owner."
+        }
+      }
+    },
+    {
+      "identity": {
+        "name": "candle-nn",
+        "version": "0.11.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: CPU attention pointer slicing and parallel output, plus inherited model mapping/serialization contracts.",
+      "boundary": "CPU softmax calls vector reductions over contiguous tensor chunks; CPU causal flash attention reconstructs raw slices inside a barrier-pool job; VarBuilder exposes unsafe mmap construction and safe buffered construction. GPU launch code is feature-gated and not selected.",
+      "justification": "Required neural-network layers for local models and alpha checkpoints. Softmax constructs initialized output matching the layout element count and zips input/output chunks. VarBuilder carries the mmap safety contract explicitly; fastembed instead uses owned buffered safetensors. VarMap::save reaches the candle-core allocation-layout defect. Separately the exported CPU causal attention entrypoint drops K/V dimensions before raw-slice construction, leaving an unmet length precondition for mismatched safe inputs; that boundary cannot be marked clean. Follow-up commit 9759d5301e8ff733a71d75897bf6ae607635fd20 replaces broad public NN/model reexports with explicit currently used exports. CPU flash/compatibility aliases are unavailable to first-party facade consumers; the upstream dense Qwen3 model catalog is unavailable, while its GGUF/rotary helper types are crate-private. Internal Qwen2/MoE implementations now import through this facade. The actual source-bound CLI/daemon routes still use matmul/softmax. Five executed compile-fail doctests prove the prohibited import routes fail, and actual retained unit tests exercise NN behavior. This justifies retention of the selected package exposure for the guarded product routes, not calling the upstream causal API safe.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "5df7737bd46878014abdca6273c5f0b5fdce17ba122eb574b8adcbb4369cf903"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9a568a854f35b1d7f866015f01e5d8f138180b4f6790fd181b6d80bb9a6a211d"
+        },
+        {
+          "path": "src/var_map.rs",
+          "sha256": "c831e9f6ab5c527d8b39feb9db2df402a67aef08e86a05c10735e251587bebba"
+        },
+        {
+          "path": "src/var_builder.rs",
+          "sha256": "e86a25ab1cfbd8f90878695b86c93f60ebbcd6247dbf59537d4b1ad21f24bcb7"
+        },
+        {
+          "path": "src/ops.rs",
+          "sha256": "5f3342ddd29441833f3739931b532c5f66ff45b107fd4f867d198370f17887e5"
+        },
+        {
+          "path": "src/attention/cpu_flash/mod.rs",
+          "sha256": "81b096395743b69520b8890f2512169603e7de02583c13a558fce6c7eceb4fbe"
+        },
+        {
+          "path": "src/attention/cpu_flash/causal.rs",
+          "sha256": "7d28116e839c83e7481b20594b9f63e0e5d9df8c9a2aa7a9c1810c7ab8fe979a"
+        }
+      ],
+      "residual_risk": "No direct Susi caller of run_causal_attn_cpu/flash_attn was found in the inspected model wrappers; the Qwen2 split uses matmul/softmax. This limits demonstrated product reachability, not the public API defect. No model, Miri, concurrency stress or malformed-tensor execution performed. mmap callers must prevent concurrent file mutation. The known upstream defect remains unresolved in the package. Expanding the facade or switching current model dispatch to upstream flash attention requires a genuine upstream fix and renewed review; no exception to that obligation is granted. Final combined candidate source must preserve the exact guard files and pass full native tests.",
+      "inventory_metric": {
+        "unit": "crate-forbid",
+        "unconditional_crate_root_forbid_unsafe_code": false,
+        "meaning": "Missing unconditional crate-root forbid is an inventory indicator, not an unsafe-site count or memory-safety verdict. Review includes selected internal boundaries beyond the scanner entrypoint.",
+        "declared_entrypoints": [
+          {
+            "name": "candle_nn",
+            "kind": [
+              "lib"
+            ],
+            "path": "src/lib.rs"
+          }
+        ]
+      },
+      "qualified_linux_graph": {
+        "present": true,
+        "target": "x86_64-unknown-linux-gnu",
+        "root": "susi",
+        "root_features": [],
+        "dependency_edges": [
+          "normal",
+          "build"
+        ],
+        "classification": "selected normal/build dependency; source inclusion does not prove every API is exercised",
+        "features": [
+          "default"
+        ],
+        "example_reverse_route": "candle-nn -> susi-vendor-candle -> susi-gemi -> susi",
+        "reverse_tree_receipt": "candle-nn-0.11.1.tree"
+      },
+      "source_binding": {
+        "archive_path": "/workspace/.susi-cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/candle-nn-0.11.1.crate",
+        "archive_sha256": "437fabe77547c2447c7bdf3cc946e19db29a2832440176b419f77c80b0a9a05e",
+        "cargo_lock_checksum": "437fabe77547c2447c7bdf3cc946e19db29a2832440176b419f77c80b0a9a05e",
+        "all_extracted_files_match_archive": true,
+        "mismatches": [],
+        "source_tree_sha256": "9304a079a7ebdeb8d9675324872e62e32b42f746a81ecd5f6e0bb54bf5de8c52",
+        "integration_guards_reverified_at_commit": "7cfb5df2829ede4312c34332a7c1971d9b62f250"
+      },
+      "susi_integration_files": [
+        {
+          "path": "crates/susi-vendor-candle/src/lib.rs",
+          "sha256": "f6a51ec93092214755857d322dae1e725dd7e365fec4a3f4172ab81d037a67d8"
+        },
+        {
+          "path": "crates/susi-vendor-candle/src/qwen2_split.rs",
+          "sha256": "eaee7248d6b5174ca0ba516bd6431fcb5715e57e209bd7867fc186b5066a66bd"
+        },
+        {
+          "path": "crates/susi-vendor-candle/src/moe_gguf.rs",
+          "sha256": "754b88f66bba0a0ccb28eee643b8aaa616697eb4f2dc7a2aac9d2bc22fb02a08"
+        },
+        {
+          "path": "crates/susi-gemi/src/engines/runtime_substrate.rs",
+          "sha256": "760d33058c952211701bfca2b4f0a3a19f9e9c1f6cfba4c1d265dc52316bf9a5"
+        },
+        {
+          "path": "crates/susi-vendor-fastembed/src/lib.rs",
+          "sha256": "2f9d2b31b69e15f4cfffce79c84cf7c1535f94844deee2f5a03c7f12d13503a7"
+        },
+        {
+          "path": "crates/susi-gemi/src/engines/alpha.rs",
+          "sha256": "5624b4a58e2237718a6708984eb40fc998b0bc7f11f39926a76700ba32e79344"
+        }
+      ],
+      "scope_notes": "",
+      "findings": [
+        "CANDLE-NN-CAUSAL-SLICE-LENGTH"
+      ],
+      "disposition": "reviewed_for_scoped_selected_route_retention_with_defective_upstream_api_withheld",
+      "conclusion": "The guarded current Susi routes support scoped retention of this exact candle-nn package; the defective CPU flash API remains expressly unqualified and unavailable via the public Susi facade. This is not blanket upstream API approval or evidence of linker elimination.",
+      "finding_resolution": {
+        "CANDLE-NN-CAUSAL-SLICE-LENGTH": {
+          "upstream_status": "unresolved",
+          "susi_status": "current runtime routes do not call it; explicit facade prevents first-party imports/model construction reaching it",
+          "guard_commit": "9759d5301e8ff733a71d75897bf6ae607635fd20",
+          "guard_tests": {
+            "unit_passed": 18,
+            "unit_failed": 0,
+            "unit_ignored": 2,
+            "compile_fail_passed": 5,
+            "compile_fail_failed": 0
+          },
+          "required_future_action": "Fix upstream boundary before exposing/using it; do not broaden model/NN exports without renewed qualification"
+        }
+      }
+    }
+  ],
+  "review_result": "All eight reviewed core files and all six NN integration guards match prior reviewed hashes. Entire core subtree is identical to repaired57468e3a. Both final normal/build dependency-tree commands passed offline/locked.",
+  "manifest_finding": {
+    "vendor_core_manifest_changed_since_repair": false,
+    "vendor_core_manifest_sha256": "a98dbbcd5fd224836f1d0191ea483337c01df3ffc10e2a1171d62f2c35221976",
+    "retirement_contract_path": "crates/susi-vendor-candle/Cargo.toml",
+    "retirement_contract_sha256": "a6ed72e6c812755f95ce6d22ee8c4927619d31143d76a6f7965616fd99041c93",
+    "retirement_contract": "First-party default=[] and Metal only. Upstream optional CUDA/MKL declarations remain in the vendored manifest but are not exposed by supported first-party feature routes; no claim that upstream declarations were removed."
+  },
+  "gate_obligations": [
+    "Final migration must retain these exact nested source and first-party guard hashes and the known upstream NN defect note.",
+    "Core byte and facade test receipts are focused worker evidence; execute actual combined required tests and full production gates before qualification.",
+    "No blanket upstream API approval, feature expansion, model execution or promotion is inferred from this read-only rebind."
+  ],
+  "blanket_approval": false,
+  "baseline_edited": false,
+  "new_tests_executed": false,
+  "read_only_graph_commands": [
+    {
+      "argv": [
+        "cargo",
+        "tree",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--no-default-features",
+        "--edges",
+        "normal,build",
+        "-i",
+        "candle-core@0.11.1"
+      ],
+      "cwd": "/workspace/susi-release-gates-prebaseline-v3",
+      "exit": 0,
+      "seconds": 0.308696,
+      "stdout": "combined-7cfb5df2-candle-core.tree",
+      "stdout_sha256": "f8028b9d38536f233398fc551c9fdb7735c102c3ad93f816f18a08346263a79d"
+    },
+    {
+      "argv": [
+        "cargo",
+        "tree",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--no-default-features",
+        "--edges",
+        "normal,build",
+        "-i",
+        "candle-nn@0.11.1"
+      ],
+      "cwd": "/workspace/susi-release-gates-prebaseline-v3",
+      "exit": 0,
+      "seconds": 0.303366,
+      "stdout": "combined-7cfb5df2-candle-nn.tree",
+      "stdout_sha256": "1c6fb3c28469dcdf60e2ce24ff600ffa3438e1290096e31bbdede52fd967e389"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "T-UNSAFECOMPLETE-1",
+  "native_worker": "unsafe-complete",
+  "title": "Complete native unsafe declaration measurement and reviewed inventory admission",
+  "status": "completed",
+  "dependencies": [
+    "T-NATIVE-1"
+  ],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": [
+    ".agents/baseline/unsafe-default.json",
+    ".agents/reviews/unsafe-complete",
+    ".agents/tasks/t-unsafecomplete-1.json",
+    ".github/workflows/unsafe-exposure-ratchet.sh",
+    ".github/workflows/unsafe-exposure-scope.sh",
+    "architecture.md",
+    "crates/susi-gawd/src/tests/vc_201_097_mastery.rs",
+    "crates/susi-unsafe-ratchet",
+    "crates/susi-vendor-syn",
+    "tests/architecture_tests.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "-p",
+      "susi-vendor-syn"
+    ]
+  },
+  "acceptance": "Run real native scanner and comparator tests including legacy bare Fn syntax, missing/partial/malformed evidence, exact host normal-edge graph identity, multiple package versions, path provenance, file completeness, mismatched contexts and preservation of rejected baseline writes. Preserve historical v1 baseline until complete matched base/candidate scans from one scanner and explicit component source reviews justify migration. No full-grammar or unsafe-function-count claim; unchanged declaration-proxy unit. Final combined locked-source integration and production qualification remain required.",
+  "validation": {
+    "scoped_tests": "56 passed, 0 failed, 0 ignored; exit 0; 2.349698464 seconds; private base-cbf copy plus owned first-party edges",
+    "scoped_clippy": "all targets, warnings denied; exit 0; 0.436793441 seconds",
+    "clean_matched_scans": "same pinned scanner: aff638d0 483 packages/504 files, cbf85824 479 packages/500 files; exit 0",
+    "migration": "native reviewed v2 migration exit0/6.473733335s; all77 reviews,320 dependency-file hashes and6 source guards bind exact repaired clean combined source7cfb5df2",
+    "combined_locked_acceptance": "pending parent native full integration on final combined source; no product test claim from baseline-only commit",
+    "evidence": ".agents/reviews/unsafe-complete/REPORT.md",
+    "live_admission": "exit0/5.914206560s;479 packages/500 entrypoint files; zero unreviewed exposures; exact receipt .agents/reviews/unsafe-complete/candidate-final-ratchet-receipt.json",
+    "architecture_repair": {
+      "combined_source_commit": "d88ae7939eba14e963e610918e4115ac3274352a",
+      "test_source": "owned updated tests/architecture_tests.rs; complete36 existing tests; real immutable core/serde facade dependencies and audited sysroot",
+      "compile_exit": 0,
+      "compile_seconds": 0.8052881520015944,
+      "passed": 36,
+      "failed": 0,
+      "ignored": 0,
+      "exit": 0,
+      "seconds": 0.5430426929997338,
+      "format_exit": 0,
+      "format_seconds": 3.5590704640017066,
+      "negative_boundary": "private HTTP rank0 edge passes strictly-downward rule but correctly fails offline-tool allowed-dependency boundary",
+      "initial_probe": "without external libraries failed compilation; zero tests executed; corrected actual dependency-bound probe recorded",
+      "evidence": ".agents/reviews/unsafe-complete/architecture-repair/final-receipt.json"
+    }
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "id": "T-RSAREPAIR-1",
+  "title": "Replace vulnerable shipped RSA arithmetic with installed platform providers",
+  "agent": "RSAREPAIR",
+  "status": "implemented_pending_integration_and_production_qualification",
+  "dependencies": [],
+  "base_commit": "aff638d06825f0874231ff01b546f9128a534d04",
+  "scopes": [
+    "vendor/native-tls",
+    "crates/susi-vendor-rcgen",
+    "crates/susi-vendor-tokio-rustls",
+    "Cargo.lock",
+    ".agents/tasks/T-RSAREPAIR-1.json",
+    "tests/zc_matrix.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-rcgen",
+      "-p",
+      "susi-vendor-tokio-rustls",
+      "-p",
+      "susi"
+    ],
+    "criteria": [
+      "No RustCrypto rsa package remains selected; unchanged advisory check passes with an immutable database receipt.",
+      "Generated RSA3072 and existing PKCS8 identities complete real TLS; malformed and mismatched keys, corrupt private components, untrusted and expired certificates and wrong hostnames fail closed; ALPN remains negotiated.",
+      "Platform provider source is reviewed; no foreign crypto implementation source is bundled. Windows/macOS execution is reported separately from Linux evidence.",
+      "Integration and immutable production qualification, installed health, real inference and rollback remain required before promotion.",
+      "The locked normal graphs for Linux, Windows MSVC and Apple require their actual platform TLS providers and DER encoders, retain Wasmi/Candle and retired-backend checks, and forbid vulnerable RustCrypto rsa."
+    ]
+  },
+  "notes": "Preserve accepted A/B artifacts, source and qualification receipts. No advisory ignore, baseline refresh, historical claim fabrication or target-gated vulnerable dependency. New native commits retain the actual LOCAL trailer; hosted provenance migration is a separate unresolved gate.",
+  "validation": {
+    "linux": {
+      "tests_passed": 4,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "tests_seconds": 1.74581,
+      "clippy_exit": 0,
+      "clippy_seconds": 0.502556,
+      "format_exit": 0,
+      "format_seconds": 3.203363,
+      "licenses_exit": 0,
+      "licenses_seconds": 1.74251,
+      "normal_graph_advisories_exit": 0,
+      "normal_graph_advisories_seconds": 1.395227,
+      "all_features_advisories_exit": 0,
+      "all_features_advisories_seconds": 1.683705
+    },
+    "cross_target_type_checks": {
+      "x86_64-pc-windows-msvc": {
+        "exit": 0,
+        "seconds": 0.590868
+      },
+      "aarch64-apple-darwin": {
+        "exit": 0,
+        "seconds": 0.545678
+      }
+    },
+    "cross_target_runtime_tests_executed": false,
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "advisory_database_commit": "263a4d951a0867d4bddc29dddd6d59427c78f9a7",
+    "evidence_directory": "/workspace/susi-rsa-repair-evidence/implementation",
+    "legacy_test_fixture_source": "aff638d06825f0874231ff01b546f9128a534d04",
+    "additional_commands": [
+      [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-rcgen",
+        "-p",
+        "susi-vendor-tokio-rustls",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      [
+        "cargo",
+        "deny",
+        "--offline",
+        "--locked",
+        "check",
+        "licenses"
+      ],
+      [
+        "cargo",
+        "tree",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--no-default-features",
+        "--edges",
+        "normal,build"
+      ]
+    ],
+    "graph_gate_repair": {
+      "tests_passed": 4,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "compile_exit": 0,
+      "compile_seconds": 0.219986,
+      "test_exit": 0,
+      "test_seconds": 0.905391,
+      "method": "Pinned rustc --edition 2021 --test tests/zc_matrix.rs with CARGO_MANIFEST_DIR and pinned CARGO; exact existing std-only test file, locked normal target graphs.",
+      "source_sha256": "d21895759af167dcf2b958e2790884851a4d6c87497e87a571b676ec4986eaac",
+      "evidence_directory": "/workspace/susi-rsa-repair-evidence/graph-repair",
+      "prior_failed_integration_log": "/tmp/susi-rsa-release/source/.git/susi-local-workflow/attempts/rsa-repair-1793630398913296453-761929/gate-3.log",
+      "reason": "Existing Windows graph gate required the removed vulnerable rsa crate; updated target graph requirements now forbid rsa and require actual platform provider dependencies."
+    }
+  }
+}

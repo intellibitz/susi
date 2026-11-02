@@ -292,7 +292,13 @@ fn the_binary_prunes_as_the_script_did() {
 fn the_prune_stub_refuses_an_unknown_argument() {
     let w = World::new("usage");
     let runner = w.worktree("runner", "TEST", "finished");
-    let (code, out) = run(&runner, &script("prune-worktrees.sh"), &["--force"], &[]);
+    let output = script_command(Path::new(&script("prune-worktrees.sh")))
+        .arg("--force")
+        .current_dir(&runner)
+        .output()
+        .unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let out = String::from_utf8_lossy(&output.stderr);
     assert_eq!(code, 2, "{out}");
     assert!(out.contains("usage: prune-worktrees.sh"), "{out}");
 }

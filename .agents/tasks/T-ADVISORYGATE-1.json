@@ -1,0 +1,54 @@
+{
+  "id": "T-ADVISORYGATE-1",
+  "title": "Bind production qualification to offline pinned shipped-dependency advisory evidence",
+  "status": "verified_pending_integration",
+  "dependencies": [
+    "T-NATIVE-1"
+  ],
+  "base_commit": "aff638d06825f0874231ff01b546f9128a534d04",
+  "scopes": [
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/advisory_evidence.rs",
+    ".agents/tasks/T-ADVISORYGATE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "acceptance": "Production qualification checks the root native normal/build dependency graph with no default features and no dev dependencies, before compilation. Pin a clean approved RustSec Git revision and bind its tree/content, unchanged policy, scanner version and executable digest to manifest-hashed receipts. Reject missing, dirty, mismatched, wrong-origin, stale/future, modified and advisory-failing inputs. Preserve all existing license, build, test, inference, health and package checks; advance qualification policy so older licenses-only receipts do not imply advisory clearance.",
+  "provisioning": {
+    "SUSI_RELEASE_ADVISORY_DB": "Path to a clean agent-provisioned RustSec checkout; no network fetch in qualifier",
+    "SUSI_RELEASE_ADVISORY_REVISION": "Full approved commit object ID",
+    "freshness": "Commit timestamp maximum seven days old, maximum five minutes future skew",
+    "authentication": "Caller authenticates provisioning; offline gate checks configured standard HTTPS origin, revision, tree and bytes and does not claim remote authentication"
+  },
+  "validation": {
+    "pinned_rustc": "1.99.0 b940084d7",
+    "target": "x86_64-unknown-linux-gnu",
+    "local_release_tests": {
+      "passed": 45,
+      "failed": 0,
+      "ignored": 1
+    },
+    "clippy": "passed with warnings denied",
+    "format": "passed",
+    "fixture_scope": "New advisory negative regression uses an explicitly fabricated test-only database and real cargo-deny. No fixture receipt is product qualification.",
+    "production": "Pending combined integration and real product requalification; no promotion or waiver.",
+    "private_target": "/workspace/susi-rsa-advisory-target",
+    "commands": [
+      "cargo fmt --all --check",
+      "cargo clippy -p xtask --features release-tooling --bin local-release --tests --offline --locked -- -D warnings",
+      "cargo test -p xtask --features release-tooling --bin local-release --offline --locked"
+    ]
+  }
+}

@@ -4,6 +4,7 @@ members = [
     "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
+    "crates/susi-build-policy",
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
@@ -144,6 +145,7 @@ too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
+susi-build-policy = { path = "crates/susi-build-policy" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
@@ -267,13 +269,11 @@ hashbrown-016 = { package = "hashbrown", path = "vendor/hashbrown-016" }
 zip = { path = "vendor/zip" }
 candle-core = { path = "vendor/candle-core" }
 tantivy-sstable = { path = "vendor/tantivy-sstable" }
-# GPU backends live in susi-vendor-candle. Root forwards features through
-# susi-gemi so `cargo build -p susi --features cuda|mkl|metal` enables the
-# inference stack without the CLI package owning Candle dependencies.
+# CPU inference is portable. Metal remains an explicit platform feature.
+# CUDA/MKL are retired: their foreign implementation/license requirements
+# fail the product gates. Unknown feature requests fail instead of falling back.
 [features]
 default = []
-cuda = ["susi-gemi/cuda"]
-mkl = ["susi-gemi/mkl"]
 metal = ["susi-gemi/metal"]
 # Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
 tokio-console = ["dep:console-subscriber"]

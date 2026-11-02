@@ -15,6 +15,8 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[path = "../compiler_env.rs"]
 mod compiler_env;
+#[path = "../native_provenance.rs"]
+mod native_provenance;
 #[path = "../sysroot_sources.rs"]
 mod sysroot_sources;
 #[path = "../trusted_sysroot.rs"]
@@ -25,7 +27,12 @@ mod workspace_test_count;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git").current_dir(dir).args(args).output()?;
+    let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(dir)
+        .args(args)
+        .output()?;
     if !out.status.success() {
         return Err(format!(
             "git {}: {}",
@@ -188,8 +195,7 @@ fn state(root: &Path) -> Result<PathBuf> {
 
 const INTEGRATION_REF: &str = "refs/susi/integration/current";
 
-#[path = "../vendor_regressions.rs"]
-mod vendor_regressions;
+use susi_build_policy as vendor_regressions;
 
 fn valid_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -197,6 +203,8 @@ fn valid_oid(value: &str) -> bool {
 
 fn integration_head(root: &Path) -> Result<Option<String>> {
     let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(["show-ref", "--verify", "--quiet", INTEGRATION_REF])
         .output()?;
@@ -211,6 +219,8 @@ fn integration_head(root: &Path) -> Result<Option<String>> {
 
 fn is_ancestor(root: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
     let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(["merge-base", "--is-ancestor", ancestor, descendant])
         .output()?;
@@ -223,6 +233,8 @@ fn is_ancestor(root: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
 
 fn git_input(root: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     let mut child = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(args)
         .stdin(Stdio::piped())
@@ -363,6 +375,8 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
     }
     let scope_base = scope_base(root, claim, &source)?;
     let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args([
             "diff",
@@ -393,6 +407,7 @@ fn check_source(root: &Path, claim: &Claim) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
+    native_provenance::require_unmodified_history(candidate)?;
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
@@ -454,6 +469,56 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .collect();
     vendor_regressions::include_release_tooling(candidate, &mut gates);
     gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+    let mut gate_ids: Vec<String> = (0..gates.len())
+        .map(|index| match index {
+            0 => "format".into(),
+            1 => "licenses".into(),
+            2 => "clippy".into(),
+            3 => "workspace-tests".into(),
+            _ => format!("integration:{index}"),
+        })
+        .collect();
+    let inputs: serde_json::Value =
+        serde_json::from_slice(&fs::read(attempt.join("native-inputs.json"))?)?;
+    for input in inputs
+        .as_array()
+        .ok_or("invalid native integration inputs")?
+    {
+        let worker = input["worker"].as_str().ok_or("missing native worker")?;
+        let source = input["source"].as_str().ok_or("missing native source")?;
+        let scopes = input["scopes"]
+            .as_array()
+            .ok_or("missing native scopes")?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or("invalid native scope")
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let task = native_provenance::task_for_claim(candidate, source, worker, &scopes)?;
+        let mut args = task.argv[1..].to_vec();
+        args.extend([
+            "--target".into(),
+            host.into(),
+            "--target-dir".into(),
+            text(&target)?.into(),
+        ]);
+        gate_ids.push(format!("task:{}", task.id));
+        gates.push(args);
+    }
+    let plan: Vec<_> = gate_ids
+        .iter()
+        .zip(&gates)
+        .map(|(id, args)| {
+            let argv: Vec<_> = std::iter::once("cargo".to_owned())
+                .chain(args.iter().cloned())
+                .collect();
+            serde_json::json!({"id":id,"argv":argv})
+        })
+        .collect();
+    let mut native_gates = Vec::new();
     let mut sysroot = None;
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
@@ -466,7 +531,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         {
             sysroot = Some(trusted_sysroot::prepare(candidate)?);
         }
-        let log = fs::File::create(attempt.join(format!("gate-{index}.log")))?;
+        let log_path = attempt.join(format!("gate-{index}.log"));
+        let log = fs::File::create(&log_path)?;
         let started = std::time::Instant::now();
         let mut command = Command::new("cargo");
         compiler_env::apply_checked(&mut command)?;
@@ -520,8 +586,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
+        // ExitStatus Display differs across OSes ("exit status" on Unix).
+        // Durable receipts use one explicit numeric wire representation.
+        let status_text = status
+            .code()
+            .map_or_else(|| status.to_string(), |code| format!("exit code: {code}"));
         let mut result = format!(
-            "cargo {} => {status}; elapsed-ms={}",
+            "cargo {} => {status_text}; elapsed-ms={}",
             args.join(" "),
             started.elapsed().as_millis()
         );
@@ -535,12 +606,34 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         evidence.push(result.clone());
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
         if !status.success() {
+            let failed_log = native_provenance::store_blob(candidate, &fs::read(&log_path)?)?;
+            fs::write(
+                attempt.join(format!("gate-{index}.log.oid")),
+                format!("{failed_log}\n"),
+            )?;
             return Err(format!(
-                "gate failed: {result}; logs retained at {}",
-                attempt.display()
+                "gate failed: {result}; log-blob={failed_log}; logs retained at {}",
+                attempt.display(),
             )
             .into());
         }
+        let argv: Vec<_> = std::iter::once("cargo".to_owned())
+            .chain(args.iter().cloned())
+            .collect();
+        native_gates.push(native_provenance::gate(
+            candidate,
+            native_provenance::GateExecution {
+                id: &gate_ids[index],
+                argv: &argv,
+                status,
+                elapsed_ms: started.elapsed().as_millis(),
+                log: &log_path,
+            },
+        )?);
+        fs::write(
+            attempt.join("native-gates.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({"plan":plan,"gates":native_gates}))?,
+        )?;
     }
     if let Some(sysroot) = &sysroot {
         sysroot.recheck()?;
@@ -558,29 +651,60 @@ fn integrate_with<F>(root: &Path, claimants: &[&str], verify: F) -> Result<Strin
 where
     F: FnOnce(&Path, &Path) -> Result<Vec<String>>,
 {
-    let first = claimants.first().ok_or("integration requires a claimant")?;
-    for (index, claimant) in claimants.iter().enumerate() {
+    integrate_many_with(root, claimants, verify)
+}
+
+fn integrate_many_with<F>(root: &Path, claimants: &[&str], verify: F) -> Result<String>
+where
+    F: FnOnce(&Path, &Path) -> Result<Vec<String>>,
+{
+    native_provenance::require_unmodified_history(root)?;
+    let first = *claimants
+        .first()
+        .ok_or("at least one claimant is required")?;
+    let mut unique = std::collections::BTreeSet::new();
+    for claimant in claimants {
         name(claimant)?;
-        if claimants[..index].contains(claimant) {
-            return Err(format!("duplicate integration claimant: {claimant}").into());
+        if !unique.insert(*claimant) {
+            return Err("duplicate integration claimant".into());
         }
     }
     let state = state(root)?;
     let _integration = Lock::acquire(&state.join("integration"))?;
-    let mut inputs = Vec::new();
-    {
+    let inputs = {
         let _claims = Lock::acquire(&state)?;
-        for claimant in claimants {
-            let path = state.join("claims").join(format!("{claimant}.claim"));
-            let claim = read_claim(&path)?;
-            let source = check_source(root, &claim)?;
-            inputs.push((claim, source, fs::read(&path)?, path));
-        }
-    }
+        claimants
+            .iter()
+            .map(|claimant| {
+                let path = state.join("claims").join(format!("{claimant}.claim"));
+                let claim = read_claim(&path)?;
+                let source = check_source(root, &claim)?;
+                let bytes = fs::read(&path)?;
+                Ok((claim, source, path, bytes))
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
     let previous = integration_head(root)?;
-    let base = previous.as_ref().unwrap_or(&inputs[0].0.base);
-    for (claim, _, _, _) in &inputs {
-        if !is_ancestor(root, &claim.base, base)? {
+    let base = previous.clone().unwrap_or_else(|| inputs[0].0.base.clone());
+    // Dependency chains must be rooted in accepted history. Two unaccepted
+    // workers cannot authorize each other's common, unowned starting commit.
+    let mut admitted = vec![false; inputs.len()];
+    loop {
+        let before = admitted.clone();
+        for (index, (claim, _, _, _)) in inputs.iter().enumerate() {
+            if is_ancestor(root, &claim.base, &base)? {
+                admitted[index] = true;
+            }
+            for (other, (_, source, _, _)) in inputs.iter().enumerate() {
+                if before[other] && is_ancestor(root, &claim.base, source)? {
+                    admitted[index] = true;
+                }
+            }
+        }
+        if admitted.iter().all(|value| *value) {
+            break;
+        }
+        if admitted == before {
             return Err(
                 "integration history does not contain the claim base; reconcile explicitly".into(),
             );
@@ -607,17 +731,35 @@ where
             "add",
             "--detach",
             text(&candidate)?,
-            base,
+            &base,
         ],
     )?;
-    let mut manifest = format!("integration-base={base}\n");
-    for (claim, source, _, _) in &inputs {
-        manifest.push_str(&format!(
-            "agent={}\nclaim-base={}\nsource={source}\n",
-            claim.name, claim.base
-        ));
-    }
-    fs::write(attempt.join("inputs.txt"), manifest)?;
+    fs::write(
+        attempt.join("inputs.txt"),
+        inputs
+            .iter()
+            .map(|(claim, source, _, _)| {
+                format!(
+                    "agent={}\nclaim-base={}\nsource={source}\nintegration-base={base}\n",
+                    claim.name, claim.base
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )?;
+    fs::write(
+        attempt.join("native-inputs.json"),
+        serde_json::to_vec_pretty(
+            &inputs
+                .iter()
+                .map(|(claim, source, _, _)| {
+                    serde_json::json!({
+                        "worker":claim.name,"source":source,"scopes":claim.scopes
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )?,
+    )?;
     for (_, source, _, _) in &inputs {
         let merged = git(
             &candidate,
@@ -670,36 +812,64 @@ where
         return Err("verification changed the candidate tree; refusing promotion".into());
     }
     let _claims = Lock::acquire(&state)?;
-    let zero = "0".repeat(head.len());
-    let mut transaction = format!(
-        "start\nupdate {INTEGRATION_REF} {head} {}\n",
-        previous.as_deref().unwrap_or(&zero)
-    );
-    let mut published = Vec::new();
-    for (claim, source, bytes, path) in &inputs {
+    for (claim, source, path, bytes) in &inputs {
         if fs::read(path)? != *bytes || check_source(root, claim)? != *source {
             return Err(
                 "source or reservation changed during verification; retry against its new head"
                     .into(),
             );
         }
+    }
+    let zero = "0".repeat(head.len());
+    let mut transaction = format!(
+        "start\nupdate {INTEGRATION_REF} {head} {}\n",
+        previous.as_deref().unwrap_or(&zero)
+    );
+    let mut receipts = Vec::new();
+    let native_gates = if attempt.join("native-gates.json").is_file() {
+        Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
+            attempt.join("native-gates.json"),
+        )?)?)
+    } else {
+        None
+    };
+    for (claim, source, _, bytes) in &inputs {
         let claimant = &claim.name;
         let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
         let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
-        let reference = format!("refs/susi/integration/receipts/{claimant}/{source}");
-        transaction.push_str(&format!("create {reference} {oid}\n"));
-        published.push(reference);
+        let receipt_ref = format!("refs/susi/integration/receipts/{claimant}/{source}");
+        transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
+        receipts.push(receipt_ref);
+        if let Some(gates) = &native_gates {
+            let native = native_provenance::receipt(
+                root,
+                native_provenance::IntegrationSource {
+                    worker: claimant,
+                    claim_bytes: bytes,
+                    source,
+                    scope_base: &scope_base(root, claim, source)?,
+                    previous: previous.as_deref(),
+                    accepted: &head,
+                },
+                gates,
+            )?;
+            let native_oid = native_provenance::store_blob(root, &serde_json::to_vec(&native)?)?;
+            let native_ref = format!("refs/susi/provenance/receipts/{claimant}/{source}");
+            transaction.push_str(&format!("create {native_ref} {native_oid}\n"));
+            receipts.push(native_ref);
+        }
     }
     transaction.push_str("prepare\ncommit\n");
     git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())?;
     fs::write(
         attempt.join("status"),
         format!(
-            "accepted {head}\nreceipt {}\n",
-            published.join("\nreceipt ")
+            "accepted {head}\nreceipt {}\nreceipts {}\n",
+            receipts.join("\nreceipt "),
+            receipts.join(" ")
         ),
     )?;
-    for (_, _, _, path) in inputs {
+    for (_, _, path, _) in &inputs {
         fs::remove_file(path)?;
     }
     // The accepted commit and receipt are durable; retain failure candidates,
@@ -724,12 +894,13 @@ where
     println!(
         "Integrated {}: {head}; receipts {}. Primary checkout unchanged.",
         claimants.join(", "),
-        published.join(", ")
+        receipts.join(", ")
     );
     Ok(head)
 }
 
 fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> {
+    native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     let mut scopes = raw_scopes
         .iter()
@@ -808,12 +979,17 @@ enum ScopeChange {
     Shrink,
 }
 
+fn extend(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<()> {
+    update_scopes(root, claimant, raw_scopes, ScopeChange::Extend)
+}
+
 fn update_scopes(
     root: &Path,
     claimant: &str,
     raw_scopes: &[String],
     change: ScopeChange,
 ) -> Result<()> {
+    native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     let requested = raw_scopes
         .iter()
@@ -931,7 +1107,12 @@ fn changed_paths(root: &Path) -> Result<Vec<String>> {
         vec!["diff", "--no-renames", "--name-only", "-z"],
         vec!["ls-files", "--others", "--exclude-standard", "-z"],
     ] {
-        let out = Command::new("git").current_dir(root).args(args).output()?;
+        let out = Command::new("git")
+            .arg("--literal-pathspecs")
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .current_dir(root)
+            .args(args)
+            .output()?;
         if !out.status.success() {
             return Err(format!(
                 "cannot inspect changes: {}",
@@ -977,6 +1158,7 @@ fn claimed_changes(claim: &Claim) -> Result<Vec<String>> {
 /// Scope-guarded local commit, not a test/release gate. It never changes the
 /// repository's shared hook configuration or invokes its network-bound hooks.
 fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> Result<()> {
+    native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     if message.trim().is_empty() || message.contains('\0') {
         return Err("commit message must be nonempty and contain no NUL".into());
@@ -1033,6 +1215,8 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
     // NUL-delimited literal pathspecs preserve spaces and metacharacters and
     // avoid the Windows command-line length limit for large tasks.
     let mut add = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(&claim.worktree)
         .args([
             "--literal-pathspecs",
@@ -1159,6 +1343,25 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
+        Some("provenance-policy") if args.len() == 1 => {
+            println!("{}", serde_json::json!({"schema":"susi-native-provenance-policy-v1",
+                "policy_sha256":native_provenance::policy_digest(),"policy":native_provenance::POLICY}));
+        },
+        Some("verify-provenance") => {
+            let mut flags = std::collections::BTreeMap::new();
+            let mut rest = args[1..].iter();
+            while let Some(flag) = rest.next() {
+                if !["--root","--permit","--permit-sha256","--verifier-sha256","--policy-sha256","--head"].contains(&flag.as_str())
+                    || flags.insert(flag.as_str(), rest.next().ok_or("missing provenance flag value")?.as_str()).is_some() {
+                    return Err("unknown or duplicate provenance argument".into());
+                }
+            }
+            let get = |key| flags.get(key).copied().ok_or("missing required provenance argument");
+            let report = native_provenance::verify(Path::new(get("--root")?), Path::new(get("--permit")?),
+                &native_provenance::TrustPins {permit_sha256:get("--permit-sha256")?,
+                    verifier_sha256:get("--verifier-sha256")?,policy_sha256:get("--policy-sha256")?}, get("--head")?)?;
+            println!("{}",serde_json::to_string(&report)?);
+        },
         Some("start" | "extend" | "shrink") => {
             let claimant = args.get(1).ok_or("start requires an agent name")?;
             let mut scopes = Vec::new();
@@ -1593,6 +1796,100 @@ mod tests {
     }
 
     #[test]
+    fn combined_integration_keeps_all_claims_on_failure_and_publishes_all_receipts() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let left = worker(&repo, "left", "left.rs", "left");
+        // A dependent worker starts from the first worker's private source.
+        let right = worker(&left, "right", "right.rs", "right");
+        let left_source = git(&left, &["rev-parse", "HEAD"]).unwrap();
+        let right_source = git(&right, &["rev-parse", "HEAD"]).unwrap();
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            Err("deliberate gate failure".into())
+        })
+        .is_err());
+        assert!(integration_head(&repo).unwrap().is_none());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
+        assert!(integrate_many_with(&repo, &["left", "left"], |_, _| {
+            panic!("duplicate sources reached verification")
+        })
+        .is_err());
+        let head = integrate_many_with(&repo, &["left", "right"], |candidate, _| {
+            assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
+            assert_eq!(fs::read_to_string(candidate.join("right.rs"))?, "right");
+            Ok(vec!["fixture combined verification => exit code: 0".into()])
+        })
+        .unwrap();
+        for (name, source) in [("left", left_source), ("right", right_source)] {
+            let receipt = git(
+                &repo,
+                &[
+                    "cat-file",
+                    "blob",
+                    &format!("refs/susi/integration/receipts/{name}/{source}"),
+                ],
+            )
+            .unwrap();
+            assert!(receipt.contains(&format!("commit={head}")));
+            assert!(receipt.contains(&format!("source={source}")));
+        }
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn combined_integration_cannot_mutually_admit_unaccepted_bases() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        worker(&repo, "anchor", "anchor.rs", "anchor");
+        fs::write(repo.join("unowned.rs"), "not accepted").unwrap();
+        git(&repo, &["add", "unowned.rs"]).unwrap();
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "unowned base"],
+        )
+        .unwrap();
+        worker(&repo, "left", "left.rs", "left");
+        worker(&repo, "right", "right.rs", "right");
+        let accepted = integrate_with(&repo, &["anchor"], |_, _| {
+            Ok(vec!["fixture verification => exit code: 0".into()])
+        })
+        .unwrap();
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            panic!("unaccepted shared base reached verification")
+        })
+        .is_err());
+        assert_eq!(integration_head(&repo).unwrap(), Some(accepted));
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn combined_integration_rechecks_every_source_and_scope() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        worker(&repo, "left", "left.rs", "left");
+        let right = worker(&repo, "right", "right.rs", "right");
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            fs::write(right.join("right.rs"), "advanced")?;
+            commit(&right, "right", "advance during gate", None)?;
+            Ok(vec!["fixture verification => exit code: 0".into()])
+        })
+        .is_err());
+        assert!(integration_head(&repo).unwrap().is_none());
+        fs::write(right.join("outside.rs"), "unowned").unwrap();
+        git(&right, &["add", "outside.rs"]).unwrap();
+        git(
+            &right,
+            &["-c", "core.hooksPath=", "commit", "-qm", "outside"],
+        )
+        .unwrap();
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            panic!("unowned source reached verification")
+        })
+        .is_err());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
+    }
+
+    #[test]
     fn accepted_imports_do_not_expand_the_workers_reserved_scope() {
         let scratch = Scratch::new();
         let repo = scratch.repo();
@@ -1804,6 +2101,7 @@ mod tests {
                 "Cargo.lock".into(),
                 "deny.toml".into(),
                 "src".into(),
+                ".agents/tasks/T-FIXTURE-1.json".into(),
             ],
         )
         .unwrap();
@@ -1824,18 +2122,396 @@ mod tests {
             "#[test]\nfn actual_test() {\n    assert_eq!(2 + 2, 4);\n}\n",
         )
         .unwrap();
+        fs::create_dir_all(native_worker.join(".agents/tasks")).unwrap();
+        fs::write(native_worker.join(".agents/tasks/T-FIXTURE-1.json"),
+            serde_json::to_vec(&serde_json::json!({"id":"T-FIXTURE-1","native_worker":"native",
+                "status":"in_progress","scopes":["Cargo.toml","Cargo.lock","deny.toml","src",".agents/tasks/T-FIXTURE-1.json"],
+                "accept":{"cmd":["cargo","test","--offline","--locked"]}})).unwrap()).unwrap();
         commit(&native_worker, "native", "native gate fixture", None).unwrap();
-        let head = integrate_with(&repo, &["native"], verify_candidate).unwrap();
+        let second = start(
+            &repo,
+            "second",
+            &["tests".into(), ".agents/tasks/T-SECOND-1.json".into()],
+        )
+        .unwrap();
+        fs::create_dir_all(second.join("tests")).unwrap();
+        fs::create_dir_all(second.join(".agents/tasks")).unwrap();
+        fs::write(
+            second.join("tests/second.rs"),
+            "#[test]\nfn second_actual_test() {\n    assert_eq!(3 + 3, 6);\n}\n",
+        )
+        .unwrap();
+        fs::write(second.join(".agents/tasks/T-SECOND-1.json"),serde_json::to_vec(&serde_json::json!({
+            "id":"T-SECOND-1","native_worker":"second","status":"in_progress",
+            "scopes":["tests",".agents/tasks/T-SECOND-1.json"],"accept":{"cmd":["cargo","test","--offline","--locked"]}
+        })).unwrap()).unwrap();
+        commit(&second, "second", "second native gate fixture", None).unwrap();
+        let head = integrate_many_with(&repo, &["native", "second"], verify_candidate).unwrap();
         assert_eq!(integration_head(&repo).unwrap(), Some(head.clone()));
+        verify_real_native_provenance(&repo, &scratch.0, &head);
         let broken = worker(&repo, "broken", "src/lib.rs", "#[test]\nfn failing_test() {\n    let actual = std::hint::black_box(4);\n    assert_eq!(actual, 5);\n}\n");
-        assert!(integrate_with(&repo, &["broken"], verify_candidate).is_err());
+        extend(&broken, "broken", &[".agents/tasks/T-BROKEN-1.json".into()]).unwrap();
+        fs::write(
+            broken.join(".agents/tasks/T-BROKEN-1.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"id":"T-BROKEN-1","native_worker":"broken",
+                "status":"in_progress","scopes":["src/lib.rs",".agents/tasks/T-BROKEN-1.json"],
+                "accept":{"cmd":["cargo","test","--offline","--locked"]}}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        commit(&broken, "broken", "bind failing fixture acceptance", None).unwrap();
+        let failure = integrate_with(&repo, &["broken"], verify_candidate).unwrap_err();
+        eprintln!("failing fixture gate: {failure}");
         assert_eq!(integration_head(&repo).unwrap(), Some(head));
         assert!(broken.exists());
         let attempts = state(&repo).unwrap().join("attempts");
-        assert!(fs::read_dir(attempts).unwrap().any(|entry| {
-            fs::read_to_string(entry.unwrap().path().join("gate-3.log"))
-                .is_ok_and(|log| log.contains("test result: FAILED"))
-        }));
+        let failed_blob = fs::read_dir(attempts)
+            .unwrap()
+            .find_map(|entry| {
+                let path = entry.unwrap().path();
+                fs::read_to_string(path.join("gate-3.log"))
+                    .is_ok_and(|log| log.contains("test result: FAILED"))
+                    .then(|| {
+                        fs::read_to_string(path.join("gate-3.log.oid"))
+                            .unwrap()
+                            .trim()
+                            .to_owned()
+                    })
+            })
+            .expect("the genuine failing gate retains a content-addressed log");
+        git(&repo, &["gc", "--prune=now"]).unwrap();
+        assert!(git(&repo, &["cat-file", "blob", &failed_blob])
+            .unwrap()
+            .contains("test result: FAILED"));
+    }
+
+    fn verify_real_native_provenance(repo: &Path, scratch: &Path, head: &str) {
+        let base = git(repo, &["rev-parse", "HEAD"]).unwrap();
+        let base_tree = git(repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let accepted_tree = git(repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
+        let diagnostics =
+            b"test fixture: historical ownership incomplete; forward acceptance only\n";
+        let receipts: Vec<_> = git(
+            repo,
+            &[
+                "for-each-ref",
+                "--format=%(objectname)",
+                "refs/susi/provenance/receipts/",
+            ],
+        )
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+        assert_eq!(receipts.len(), 2);
+        let verifier = native_provenance::file_digest(&env::current_exe().unwrap()).unwrap();
+        let policy = native_provenance::policy_digest();
+        let permit = serde_json::json!({"schema":native_provenance::PERMIT_SCHEMA,
+            "verifier_sha256":verifier,"policy_sha256":policy,
+            "source":{"commit":head,"tree":accepted_tree},
+            "baseline":{"commit":base,"tree":base_tree,"historical_ownership":"incomplete",
+                "diagnostics_blob":native_provenance::store_blob(repo,diagnostics).unwrap(),
+                "diagnostics_sha256":native_provenance::digest(diagnostics)},"receipts":receipts});
+        let path = scratch.join("independent-permit.json");
+        let check = |value: &serde_json::Value, expected_head: &str| {
+            let bytes = serde_json::to_vec(value).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            native_provenance::verify(
+                repo,
+                &path,
+                &native_provenance::TrustPins {
+                    permit_sha256: &native_provenance::digest(&bytes),
+                    verifier_sha256: &verifier,
+                    policy_sha256: &policy,
+                },
+                expected_head,
+            )
+        };
+        let report = check(&permit, head).unwrap();
+        assert_eq!(report["verified"], true);
+        assert_eq!(report["historical_ownership"], "incomplete");
+        let failed_bytes = b"failed-attempt evidence not present in any accepted receipt\n";
+        let failed_blob = native_provenance::store_blob(repo, failed_bytes).unwrap();
+        assert_eq!(
+            native_provenance::store_blob(repo, failed_bytes).unwrap(),
+            failed_blob
+        );
+        let failed_reference = format!("refs/susi/evidence/objects/{failed_blob}");
+        let missing_target = "refs/susi/evidence/missing-fixture-target";
+        git(repo, &["symbolic-ref", &failed_reference, missing_target]).unwrap();
+        assert!(native_provenance::store_blob(repo, failed_bytes).is_err());
+        assert_eq!(
+            git(repo, &["symbolic-ref", "--quiet", &failed_reference]).unwrap(),
+            missing_target
+        );
+        git(repo, &["symbolic-ref", "--delete", &failed_reference]).unwrap();
+        assert_eq!(
+            native_provenance::store_blob(repo, failed_bytes).unwrap(),
+            failed_blob
+        );
+        git(repo, &["repack", "-ad"]).unwrap();
+        git(repo, &["gc", "--prune=now"]).unwrap();
+        assert_eq!(check(&permit, head).unwrap()["verified"], true);
+        assert_eq!(
+            git(repo, &["cat-file", "blob", &failed_blob]).unwrap(),
+            String::from_utf8_lossy(failed_bytes).trim()
+        );
+        let anchored: serde_json::Value =
+            serde_json::from_str(&git(repo, &["cat-file", "blob", &receipts[0]]).unwrap()).unwrap();
+        let claim_oid = anchored["claim"]["blob"].as_str().unwrap();
+        let claim_reference = format!("refs/susi/evidence/objects/{claim_oid}");
+        let claim_bytes = git(repo, &["cat-file", "blob", claim_oid]).unwrap() + "\n";
+        git(
+            repo,
+            &[
+                "update-ref",
+                "--no-deref",
+                "-d",
+                &claim_reference,
+                claim_oid,
+            ],
+        )
+        .unwrap();
+        assert!(check(&permit, head).is_err());
+        assert_eq!(
+            native_provenance::store_blob(repo, claim_bytes.as_bytes()).unwrap(),
+            claim_oid
+        );
+        git(
+            repo,
+            &[
+                "update-ref",
+                "--no-deref",
+                &claim_reference,
+                &failed_blob,
+                claim_oid,
+            ],
+        )
+        .unwrap();
+        assert!(native_provenance::store_blob(repo, claim_bytes.as_bytes()).is_err());
+        assert!(check(&permit, head).is_err());
+        git(
+            repo,
+            &[
+                "update-ref",
+                "--no-deref",
+                &claim_reference,
+                claim_oid,
+                &failed_blob,
+            ],
+        )
+        .unwrap();
+        assert_eq!(check(&permit, head).unwrap()["verified"], true);
+        // Candidate replacement refs cannot reinterpret independently pinned IDs.
+        git(repo, &["replace", head, &base]).unwrap();
+        assert_eq!(
+            check(&permit, head).unwrap()["source"]["tree"],
+            accepted_tree
+        );
+        let mut replaced_tree = permit.clone();
+        replaced_tree["source"]["tree"] = base_tree.clone().into();
+        assert!(check(&replaced_tree, head).is_err());
+        git(repo, &["replace", "-d", head]).unwrap();
+        let graft = repo.join(git(repo, &["rev-parse", "--git-path", "info/grafts"]).unwrap());
+        fs::create_dir_all(graft.parent().unwrap()).unwrap();
+        fs::write(&graft, format!("{head} {base}\n")).unwrap();
+        assert!(check(&permit, head).is_err());
+        fs::remove_file(graft).unwrap();
+        assert!(check(&permit, &base).is_err());
+        let original: serde_json::Value =
+            serde_json::from_str(&git(repo, &["cat-file", "blob", &receipts[0]]).unwrap()).unwrap();
+        let reject_receipt = |changed: serde_json::Value| {
+            let mut altered = permit.clone();
+            altered["receipts"][0] =
+                native_provenance::store_blob(repo, &serde_json::to_vec(&changed).unwrap())
+                    .unwrap()
+                    .into();
+            assert!(check(&altered, head).is_err());
+        };
+        let mut changed = original.clone();
+        changed["source"]["tree"] = base_tree.clone().into();
+        reject_receipt(changed);
+        let mut changed = original.clone();
+        changed["claim"]["scopes"] = serde_json::json!(["outside"]);
+        reject_receipt(changed);
+        let mut changed = original.clone();
+        changed["gates"][0]["exit_code"] = 1.into();
+        reject_receipt(changed);
+        let mut changed = original.clone();
+        changed["gates"][3]["passed"] = 0.into();
+        reject_receipt(changed);
+        let mut changed = original.clone();
+        changed["gates"][0]["log_sha256"] = "0".repeat(64).into();
+        reject_receipt(changed);
+        let mut changed = original.clone();
+        changed["gates"][3]["argv"]
+            .as_array_mut()
+            .unwrap()
+            .extend(["--exclude".into(), "susi-core".into()]);
+        changed["gate_plan"][3]["argv"] = changed["gates"][3]["argv"].clone();
+        reject_receipt(changed);
+        let mut changed = original.clone();
+        changed["gate_plan"].as_array_mut().unwrap().remove(1);
+        changed["gates"].as_array_mut().unwrap().remove(1);
+        reject_receipt(changed);
+        let mut duplicate = permit.clone();
+        duplicate["receipts"]
+            .as_array_mut()
+            .unwrap()
+            .push(receipts[0].clone().into());
+        assert!(check(&duplicate, head).is_err());
+        // A same-tree merge can hide an unrelated second parent: ancestry, not
+        // final net diff, must still reject its unowned source commit.
+        let rogue = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &base_tree,
+                "-p",
+                &base,
+            ],
+            b"unowned source\n",
+        )
+        .unwrap();
+        let hidden = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &accepted_tree,
+                "-p",
+                head,
+                "-p",
+                &rogue,
+            ],
+            b"same-tree uncovered second parent\n",
+        )
+        .unwrap();
+        let mut hidden_permit = permit.clone();
+        hidden_permit["source"]["commit"] = hidden.clone().into();
+        for (index, oid) in receipts.iter().enumerate() {
+            let mut record: serde_json::Value =
+                serde_json::from_str(&git(repo, &["cat-file", "blob", oid]).unwrap()).unwrap();
+            record["integration"]["commit"] = hidden.clone().into();
+            hidden_permit["receipts"][index] =
+                native_provenance::store_blob(repo, &serde_json::to_vec(&record).unwrap())
+                    .unwrap()
+                    .into();
+        }
+        assert!(check(&hidden_permit, &hidden).is_err());
+        // A source merge may not claim unrelated pre-reservation history whose
+        // out-of-scope edit was subsequently reverted to a clean net diff.
+        let outside_blob =
+            native_provenance::store_blob(repo, b"unowned historical edit\n").unwrap();
+        let outside_tree = git_input(
+            repo,
+            &["mktree"],
+            format!(
+                "{}\n100644 blob {outside_blob}\toutside.txt\n",
+                git(repo, &["ls-tree", &base]).unwrap()
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let outside_commit = git_input(
+            repo,
+            &["-c", "commit.gpgsign=false", "commit-tree", &outside_tree],
+            b"unrelated scope bypass\n",
+        )
+        .unwrap();
+        let reverted = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &base_tree,
+                "-p",
+                &outside_commit,
+            ],
+            b"hide unrelated edit\n",
+        )
+        .unwrap();
+        let original_source = original["source"]["commit"].as_str().unwrap();
+        let original_tree = original["source"]["tree"].as_str().unwrap();
+        let mixed_source = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                original_tree,
+                "-p",
+                original_source,
+                "-p",
+                &reverted,
+            ],
+            b"source with hidden pre-scope history\n",
+        )
+        .unwrap();
+        let mixed_head = git_input(
+            repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &accepted_tree,
+                "-p",
+                head,
+                "-p",
+                &mixed_source,
+            ],
+            b"integrated hidden pre-scope history\n",
+        )
+        .unwrap();
+        let mut mixed_permit = permit.clone();
+        mixed_permit["source"]["commit"] = mixed_head.clone().into();
+        for (index, oid) in receipts.iter().enumerate() {
+            let mut record: serde_json::Value =
+                serde_json::from_str(&git(repo, &["cat-file", "blob", oid]).unwrap()).unwrap();
+            record["integration"]["commit"] = mixed_head.clone().into();
+            if index == 0 {
+                record["source"]["commit"] = mixed_source.clone().into();
+            }
+            mixed_permit["receipts"][index] =
+                native_provenance::store_blob(repo, &serde_json::to_vec(&record).unwrap())
+                    .unwrap()
+                    .into();
+        }
+        assert!(check(&mixed_permit, &mixed_head).is_err());
+        let original_bytes = serde_json::to_vec(&permit).unwrap();
+        let original_digest = native_provenance::digest(&original_bytes);
+        fs::write(&path, b"forged permit").unwrap();
+        assert!(native_provenance::verify(
+            repo,
+            &path,
+            &native_provenance::TrustPins {
+                permit_sha256: &original_digest,
+                verifier_sha256: &verifier,
+                policy_sha256: &policy
+            },
+            head
+        )
+        .is_err());
+        let candidate_permit = repo.join("self-authorized.json");
+        fs::write(&candidate_permit, &original_bytes).unwrap();
+        assert!(native_provenance::verify(
+            repo,
+            &candidate_permit,
+            &native_provenance::TrustPins {
+                permit_sha256: &original_digest,
+                verifier_sha256: &verifier,
+                policy_sha256: &policy
+            },
+            head
+        )
+        .is_err());
+        fs::remove_file(candidate_permit).unwrap();
     }
 
     #[test]

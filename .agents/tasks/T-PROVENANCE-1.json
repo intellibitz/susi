@@ -1,0 +1,29 @@
+{
+  "id": "T-PROVENANCE-1",
+  "title": "Verify native task provenance with independently pinned forward adoption",
+  "native_worker": "provenance-complete",
+  "status": "in_progress",
+  "dependencies": [],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/native_provenance.rs",
+    "scripts/check-workflow-compliance.sh",
+    ".agents/tasks/T-PROVENANCE-1.json",
+    "xtask/src/native_test_counts.rs",
+    "xtask/src/native_json.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "acceptance": "Capture actual native reservations, namespaced task acceptance and exact-tree integration logs; verify independently pinned immutable permits, complete ancestry and scope coverage; reject forged, stale, failed, wrong-tree, unscoped and incomplete evidence. Preserve the eighteen historical workflow diagnostics; forward adoption is new acceptance and never reconstructed historical ownership.",
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e"
+}

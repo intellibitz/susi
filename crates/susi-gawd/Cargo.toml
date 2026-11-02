@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
+susi-build-policy = { workspace = true }
 susi-abi = { workspace = true, features = ["cell-server"] }
 susi-core = { workspace = true }
 susi-gawd-agents = { workspace = true }

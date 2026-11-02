@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools-v3/unsafe_ratchet",
+    "--measurement",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-final-complete.json",
+    "--baseline",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/baseline-final-v2.json",
+    "--receipt",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-final-ratchet-receipt.json"
+  ],
+  "exit": 0,
+  "seconds": 5.914206559999002,
+  "stdout": "unsafe-exposure ratchet clean: 479 completely measured package identities\n",
+  "stderr": ""
+}

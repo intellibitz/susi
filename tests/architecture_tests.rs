@@ -97,6 +97,7 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
+    ("susi-build-policy", 0),
     ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
@@ -115,8 +116,9 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
     ("susi-vendor-cloud", 0),
-    // No SUSI dependencies: the unsafe-exposure ratchet reads the tree only.
-    ("susi-unsafe-ratchet", 0),
+    // Measurement uses the rank-0 parser implementation, not a pure facade.
+    // Rank 1 is the lowest valid layer; all non-facade edges still point down.
+    ("susi-unsafe-ratchet", 1),
     ("susi-vendor-agents", 5),
     ("susi-vendor-models", 5),
     ("susi-vendor-web", 5),
@@ -640,6 +642,20 @@ fn layer_matrix_forbidden_edges() {
         ),
     ];
     let graph = workspace_graph();
+    // Raising the scanner above its parser must not admit rank-0 HTTP/SDK
+    // dependencies or arbitrary pure facades into offline evidence tooling.
+    let ratchet_allowed = [
+        "susi-vendor-syn",
+        "susi-vendor-serde",
+        "susi-vendor-serde-json",
+        "susi-vendor-sha2",
+    ];
+    for dependency in graph.get("susi-unsafe-ratchet").expect("unsafe ratchet") {
+        assert!(
+            ratchet_allowed.contains(&dependency.as_str()),
+            "susi-unsafe-ratchet must use only parser/serialization/hash dependencies, found {dependency}"
+        );
+    }
     for (crate_name, banned) in forbidden {
         let deps = graph
             .get(*crate_name)

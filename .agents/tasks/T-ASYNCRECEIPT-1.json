@@ -1,0 +1,54 @@
+{
+  "id": "T-ASYNCRECEIPT-1",
+  "title": "Observe deferred release before checking a cached workflow finish",
+  "status": "verified_pending_integration",
+  "dependencies": [
+    "T-NATIVE-1"
+  ],
+  "base_commit": "aff638d06825f0874231ff01b546f9128a534d04",
+  "scopes": [
+    "tests/parallel_workflow.rs",
+    ".agents/tasks/T-ASYNCRECEIPT-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "parallel_workflow"
+    ]
+  },
+  "acceptance": "The cached default asynchronous finish preserves the original successful publish, gate-cache-hit, unchanged gate log and claim-release assertions. Observe the actual deferred release using the existing bounded helper before inspecting the remote claim or deleting the fixture. Keep production behavior and synchronous wait-policy assertions unchanged. Run the full existing integration suite and repeated focused regression; exact combined-tree Cargo integration remains required.",
+  "failure": {
+    "candidate": "bd61318aa5e8701ff6226837ceaf83abb2269417",
+    "test": "a_gate_cache_hit_skips_the_scoped_suite",
+    "diagnostic": "the merged close releases the claim: refs/claims/T-WORKER-1",
+    "suite": { "passed": 22, "failed": 1, "ignored": 0 },
+    "full_workspace_exit": 101,
+    "full_workspace_elapsed_seconds": 655.277
+  },
+  "validation": {
+    "pinned_rustc": "1.99.0 b940084d7",
+    "target": "x86_64-unknown-linux-gnu",
+    "compile": { "exit": 0, "elapsed_seconds": 0.369961 },
+    "original_repetitions": {
+      "passed": 19, "failed": 1, "elapsed_seconds": 15.308178
+    },
+    "fixed_repetitions": {
+      "passed": 40, "failed": 0, "elapsed_seconds": 34.863456
+    },
+    "full_parallel_workflow_suite": {
+      "passed": 23, "failed": 0, "ignored": 0,
+      "exit": 0, "elapsed_seconds": 11.865198
+    },
+    "format": "cargo fmt --all --check passed using the repository edition 2021",
+    "method": "Pinned rustc --test compiled the repaired integration test against authenticated sysroot and genuine read-only dependencies and Susi executable from failed candidate bd61318. Workflow, fixture scripts, gawd, paths and serde-json facade source are unchanged from aff638d0. No application rebuild or shared target mutation. Exact combined-tree Cargo gate remains required.",
+    "test_artifact_sha256": "2be952247712d125e6512b5609647002e56da067e529bc0ba642473f79ee5941",
+    "evidence_directory": "/workspace/susi-rsa-repair-evidence/async-repair",
+    "production": "No qualification or promotion claimed. Existing full release gates remain required."
+  }
+}

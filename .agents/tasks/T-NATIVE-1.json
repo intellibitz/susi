@@ -1,0 +1,123 @@
+{
+  "id": "T-NATIVE-1",
+  "title": "Native Linux build and release qualification alongside Windows",
+  "status": "verified_pending_integration",
+  "dependencies": [
+    "T-CHROME-1"
+  ],
+  "scopes": [
+    "xtask",
+    "toolchain",
+    "crates/susi-build-policy",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gawd/src/repo_gate.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    "tests",
+    "scripts/ci-test-shards.sh",
+    "src/cli/workflow_cli.rs",
+    "vendor/unicode-ident"
+  ],
+  "acceptance": "Build authenticated Linux sysroot and execute consumer; enforce native TLS dynamic linkage with artifact evidence; preserve Windows gates; run affected Rust tests and clippy. Release only after complete integration and production qualification.",
+  "base_commit": "e6824c957b1c41e5c2611266da564f99bf620394",
+  "validation": {
+    "host": "x86_64-unknown-linux-gnu",
+    "rustc": "1.99.0 b940084d7",
+    "xtask_bins": {
+      "passed": 93,
+      "failed": 0,
+      "ignored": 1
+    },
+    "fmt": "passed",
+    "clippy": "passed, all xtask targets, warnings denied",
+    "cargo_deny_licenses": "passed offline/locked",
+    "native_sysroot_consumer": "passed, authenticated custom standard library, Unicode 16.0 ICU 76",
+    "native_debug_build": {
+      "exit": 0,
+      "elapsed_ms": 420637,
+      "artifact_bytes": 427960184
+    },
+    "version_smoke": "susi 0.21.41",
+    "elf_boundary": "passed on stripped debug candidate with actual LLD map; diagnostic only",
+    "thin_lto": "actual native rustc executable and link map passed",
+    "release": "not qualified or promoted",
+    "other_hosts": "Windows and aarch64 require native execution; macOS and musl fail closed",
+    "tooling_and_build_policy": {
+      "passed": 197,
+      "failed": 0,
+      "ignored": 1
+    },
+    "architecture": {
+      "passed": 36,
+      "failed": 0,
+      "compile_seconds": 1.025,
+      "test_seconds": 0.388,
+      "command": "pinned rustc --edition 2021 --test with CARGO_MANIFEST_DIR and genuine dependency artifacts"
+    },
+    "unix_fixture_recheck": {
+      "passed": 66,
+      "failed": 0,
+      "exit": 0,
+      "elapsed_seconds": 71.968,
+      "kind": "diagnostic candidate with repaired fixtures"
+    },
+    "native_leaf_rustc_tests": {
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "compile_seconds": 0.22,
+      "test_seconds": 0.004
+    },
+    "combined_integration_regressions": {
+      "passed": 24,
+      "failed": 0,
+      "test_seconds": 1.73,
+      "clippy": "passed"
+    },
+    "full_workspace": {
+      "passed": 4461,
+      "failed": 0,
+      "ignored": 17,
+      "exit": 0,
+      "elapsed_ms": 641041,
+      "candidate": "df33e076344718a0357b0817a1d9a0095b133fea"
+    },
+    "platform_adapter_recheck": [
+      {
+        "adapter": "idna-adapter",
+        "exit": 0,
+        "seconds": 0.148
+      },
+      {
+        "adapter": "unicode-ident",
+        "exit": 0,
+        "seconds": 18.131
+      },
+      {
+        "adapter": "htmlescape",
+        "exit": 0,
+        "seconds": 0.423
+      },
+      {
+        "adapter": "regex-syntax",
+        "exit": 0,
+        "seconds": 5.554
+      },
+      {
+        "adapter": "regex-syntax/os-unicode",
+        "exit": 0,
+        "seconds": 0.662
+      }
+    ],
+    "wait_policy_regression": {
+      "passed": 97,
+      "failed": 0,
+      "exit": 0,
+      "elapsed_seconds": 15.917,
+      "race_repetitions": 20,
+      "race_repetition_failures": 0,
+      "clippy": "full workspace passed on repaired diagnostic tree"
+    }
+  },
+  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix. Added combined native integration with independent scope guards, anchored dependency admission, unchanged full gates, source rechecks and atomic per-agent receipts. Cargo.lock chrome sysinfo delta deliberately joins the corresponding agent manifest only in the combined candidate. Full workspace passed; separate Unicode-identifier adapter exposed missing lib prefix on Unix procedural macro filenames. Corrected Linux/macOS output and cleanup names; all five standalone adapters passed diagnostics. Subsequent exact-tree run reproduced a wait-policy race: Rust deferred claim release despite SUSI_FINISH_WAIT=1. Matched shell environment/flag precedence in Rust, added deterministic policy tests, and corrected no-wait fixtures to await acknowledged worker completion before inspecting remote effects. Original waiting regression passed 20 consecutive runs."
+}

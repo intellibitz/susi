@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "/workspace/susi-release-gates-evidence/unsafe-complete/pinned-tools/unsafe_measure",
+    "--root",
+    "/workspace/susi-rsa-release-driver",
+    "--target",
+    "x86_64-unknown-linux-gnu",
+    "--features",
+    "default",
+    "--output",
+    "/workspace/susi-release-gates-evidence/unsafe-complete/candidate-complete.json"
+  ],
+  "exit": 0,
+  "seconds": 3.747706238998944,
+  "stdout": "complete crate-forbid measurement: 479 packages, 500 files\n",
+  "stderr": ""
+}

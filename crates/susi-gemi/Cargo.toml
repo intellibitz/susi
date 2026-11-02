@@ -28,8 +28,6 @@ sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 [features]
 default = []
-cuda = ["susi-vendor-candle/cuda", "susi-gemi-models/cuda"]
-mkl = ["susi-vendor-candle/mkl"]
 metal = ["susi-vendor-candle/metal", "susi-gemi-models/metal"]
 
 [lints]

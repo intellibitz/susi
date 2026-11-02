@@ -91,8 +91,9 @@ fn steps(body: &str) -> Vec<String> {
 
 #[test]
 fn a_source_install_tolerates_the_binary_rust_cache_restored() {
-    let mut checked = 0;
+    let mut workflows_checked = 0;
     for (name, text) in workflows() {
+        workflows_checked += 1;
         for (id, body) in jobs(&text) {
             if !body.contains("Swatinem/rust-cache") {
                 continue;
@@ -101,7 +102,6 @@ fn a_source_install_tolerates_the_binary_rust_cache_restored() {
                 if !step.contains("cargo install") {
                     continue;
                 }
-                checked += 1;
                 assert!(
                     step.contains("--force"),
                     "{name}: job `{id}` restores rust-cache (which restores ~/.cargo/bin) and \
@@ -114,7 +114,32 @@ fn a_source_install_tolerates_the_binary_rust_cache_restored() {
         }
     }
     assert!(
-        checked >= 1,
-        "expected the unsafe-ratchet job's cargo-geiger install to be checked"
+        workflows_checked >= 1,
+        "workflow installation guards must inspect actual workflows"
+    );
+}
+
+#[test]
+fn native_unsafe_ratchet_does_not_install_or_cache_retired_geiger() {
+    let workflow = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/test.yml"),
+    )
+    .unwrap();
+    let parsed = jobs(&workflow);
+    let (_, ratchet) = parsed
+        .iter()
+        .find(|(id, _)| id == "unsafe-ratchet")
+        .unwrap();
+    assert!(ratchet.contains(".github/workflows/unsafe-exposure-ratchet.sh"));
+    assert!(ratchet.contains("Swatinem/rust-cache@v2"));
+    assert!(ratchet.contains("cargo build --locked -p susi-unsafe-ratchet --bins"));
+    assert!(ratchet.contains("cargo metadata --locked --format-version 1 --filter-platform"));
+    assert!(ratchet.contains("refs/heads/main"));
+    assert!(!ratchet.contains("cargo-geiger"));
+    assert!(!ratchet.contains("cargo install"));
+    let (_, merge) = parsed.iter().find(|(id, _)| id == "merge").unwrap();
+    assert!(
+        merge.contains("unsafe-ratchet"),
+        "the required admission gate cannot be removed"
     );
 }

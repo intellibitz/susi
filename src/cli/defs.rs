@@ -224,7 +224,11 @@ pub(crate) enum Commands {
     /// Start GEMI REST server
     Gemi,
     /// Inspect workspace health report
-    Status,
+    Status {
+        /// Emit measured health and executable identity as one JSON object.
+        #[arg(long)]
+        json: bool,
+    },
     /// Leaf-service process table: supervised pids, live health, restart
     Services {
         #[command(subcommand)]
@@ -519,7 +523,7 @@ pub(crate) fn command_skips_composition(command: &Commands) -> bool {
             | Commands::Start
             | Commands::Stop
             | Commands::Restart
-            | Commands::Status
+            | Commands::Status { .. }
             | Commands::Audit {
                 action: Some(AuditCommands::Verify { .. } | AuditCommands::Query { .. }),
             }
@@ -570,7 +574,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Crown { .. }
         // Status is the substrate's own measured report — it must answer
         // even when the daemon is down (that's when an operator asks).
-        | Commands::Status
+        | Commands::Status { .. }
         | Commands::Services { .. }
         | Commands::Commits { .. }
         | Commands::Os { .. }

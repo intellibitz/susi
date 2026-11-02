@@ -112,64 +112,103 @@ impl Tensor {
     }
 }
 
-fn convert_slice<T: WithDType>(data: &[u8], shape: &[usize], device: &Device) -> Result<Tensor> {
-    let size_in_bytes = T::DTYPE.size_in_bytes();
-    let elem_count = data.len() / size_in_bytes;
-    if (data.as_ptr() as usize).is_multiple_of(size_in_bytes) {
-        // SAFETY This is safe because we just checked that this
-        // was correctly aligned.
-        let data: &[T] =
-            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const T, elem_count) };
-        Tensor::from_slice(data, shape, device)
-    } else {
-        // XXX: We need to specify `T` here, otherwise the compiler will infer u8 because of the following cast
-        // Making this vector too small to fit a full f16/f32/f64 weights, resulting in out-of-bounds access
-        let mut c: Vec<T> = Vec::with_capacity(elem_count);
-        // SAFETY: We just created c, so the allocated memory is necessarily
-        // contiguous and non overlapping with the view's data.
-        // We're downgrading the `c` pointer from T to u8, which removes alignment
-        // constraints.
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), c.as_mut_ptr() as *mut u8, data.len());
-            c.set_len(elem_count)
-        }
-        Tensor::from_slice(&c, shape, device)
-    }
+// These private implementations enumerate the numeric wire formats accepted
+// below. Explicit byte codecs avoid alignment assumptions, uninitialized typed
+// storage, and changing the allocation layout when serialized buffers drop.
+trait TensorBytes: Sized {
+    const WIDTH: usize;
+    fn read_le(bytes: &[u8]) -> Result<Self>;
+    fn append_le(self, bytes: &mut Vec<u8>);
 }
 
-fn convert_slice_with_cast<T: Sized + Copy, U: WithDType, F: Fn(T) -> Result<U>>(
+macro_rules! primitive_tensor_bytes {
+    ($($ty:ty),+ $(,)?) => { $(
+        impl TensorBytes for $ty {
+            const WIDTH: usize = std::mem::size_of::<Self>();
+
+            fn read_le(bytes: &[u8]) -> Result<Self> {
+                let bytes = bytes.try_into().map_err(|_| {
+                    Error::Msg("invalid tensor element byte width".to_string()).bt()
+                })?;
+                Ok(Self::from_le_bytes(bytes))
+            }
+
+            fn append_le(self, bytes: &mut Vec<u8>) {
+                bytes.extend_from_slice(&self.to_le_bytes());
+            }
+        }
+    )+ };
+}
+
+primitive_tensor_bytes!(u8, u16, u32, i16, i32, i64, f32, f64);
+
+macro_rules! float_tensor_bytes {
+    ($ty:ty, $bits:ty) => {
+        impl TensorBytes for $ty {
+            const WIDTH: usize = std::mem::size_of::<$bits>();
+
+            fn read_le(bytes: &[u8]) -> Result<Self> {
+                Ok(Self::from_bits(<$bits as TensorBytes>::read_le(bytes)?))
+            }
+
+            fn append_le(self, bytes: &mut Vec<u8>) {
+                self.to_bits().append_le(bytes);
+            }
+        }
+    };
+}
+
+float_tensor_bytes!(half::f16, u16);
+float_tensor_bytes!(half::bf16, u16);
+float_tensor_bytes!(float8::F8E4M3, u8);
+
+fn byte_element_count<T: TensorBytes>(data: &[u8], shape: &[usize]) -> Result<usize> {
+    let count = shape
+        .iter()
+        .try_fold(1usize, |count, &dim| count.checked_mul(dim))
+        .ok_or_else(|| Error::Msg("tensor shape element count overflow".to_string()).bt())?;
+    let expected_bytes = count
+        .checked_mul(T::WIDTH)
+        .ok_or_else(|| Error::Msg("tensor byte length overflow".to_string()).bt())?;
+    if data.len() != expected_bytes {
+        crate::bail!(
+            "tensor byte length mismatch for shape {shape:?}: expected {expected_bytes}, got {}",
+            data.len()
+        )
+    }
+    Ok(count)
+}
+
+fn convert_slice<T: WithDType + TensorBytes>(
+    data: &[u8],
+    shape: &[usize],
+    device: &Device,
+) -> Result<Tensor> {
+    let count = byte_element_count::<T>(data, shape)?;
+    let mut values = Vec::with_capacity(count);
+    // Safetensors numeric payloads are little-endian, including on big-endian
+    // hosts. Chunk decoding accepts any byte alignment without pointer casts.
+    for bytes in data.chunks_exact(T::WIDTH) {
+        values.push(T::read_le(bytes)?);
+    }
+    Tensor::from_vec(values, shape, device)
+}
+
+fn convert_slice_with_cast<T: TensorBytes, U: WithDType, F: Fn(T) -> Result<U>>(
     data: &[u8],
     shape: &[usize],
     device: &Device,
     conv: F,
 ) -> Result<Tensor> {
-    let size_in_bytes = std::mem::size_of::<T>();
-    let elem_count = data.len() / size_in_bytes;
-    if (data.as_ptr() as usize).is_multiple_of(size_in_bytes) {
-        // SAFETY This is safe because we just checked that this
-        // was correctly aligned.
-        let data: &[T] =
-            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const T, elem_count) };
-        let data = data.iter().map(|t| conv(*t)).collect::<Result<Vec<_>>>()?;
-        Tensor::from_vec(data, shape, device)
-    } else {
-        // XXX: We need to specify `T` here, otherwise the compiler will infer u8 because of the following cast
-        // Making this vector too small to fit a full f16/f32/f64 weights, resulting in out-of-bounds access
-        let mut c: Vec<T> = Vec::with_capacity(elem_count);
-        // SAFETY: We just created c, so the allocated memory is necessarily
-        // contiguous and non overlapping with the view's data.
-        // We're downgrading the `c` pointer from T to u8, which removes alignment
-        // constraints.
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), c.as_mut_ptr() as *mut u8, data.len());
-            c.set_len(elem_count)
-        }
-        let c = c.into_iter().map(conv).collect::<Result<Vec<_>>>()?;
-        Tensor::from_vec(c, shape, device)
+    let count = byte_element_count::<T>(data, shape)?;
+    let mut values = Vec::with_capacity(count);
+    for bytes in data.chunks_exact(T::WIDTH) {
+        values.push(conv(T::read_le(bytes)?)?);
     }
+    Tensor::from_vec(values, shape, device)
 }
 
-fn convert_with_cast_<T: Sized + Copy, U: WithDType, F: Fn(T) -> Result<U>>(
+fn convert_with_cast_<T: TensorBytes, U: WithDType, F: Fn(T) -> Result<U>>(
     view: &st::TensorView<'_>,
     device: &Device,
     conv: F,
@@ -177,22 +216,25 @@ fn convert_with_cast_<T: Sized + Copy, U: WithDType, F: Fn(T) -> Result<U>>(
     convert_slice_with_cast::<T, U, F>(view.data(), view.shape(), device, conv)
 }
 
-fn convert_<T: WithDType>(view: &st::TensorView<'_>, device: &Device) -> Result<Tensor> {
+fn convert_<T: WithDType + TensorBytes>(
+    view: &st::TensorView<'_>,
+    device: &Device,
+) -> Result<Tensor> {
     convert_slice::<T>(view.data(), view.shape(), device)
 }
 
-fn convert_back_<T: WithDType>(mut vs: Vec<T>) -> Vec<u8> {
-    let size_in_bytes = T::DTYPE.size_in_bytes();
-    let length = vs.len() * size_in_bytes;
-    let capacity = vs.capacity() * size_in_bytes;
-    let ptr = vs.as_mut_ptr() as *mut u8;
-    // Don't run the destructor for Vec<T>
-    std::mem::forget(vs);
-    // SAFETY:
-    //
-    // Every T is larger than u8, so there is no issue regarding alignment.
-    // This re-interpret the Vec<T> as a Vec<u8>.
-    unsafe { Vec::from_raw_parts(ptr, length, capacity) }
+fn convert_back_<T: WithDType + TensorBytes>(values: Vec<T>) -> Result<Vec<u8>> {
+    let length = values
+        .len()
+        .checked_mul(T::WIDTH)
+        .ok_or_else(|| Error::Msg("tensor byte length overflow".to_string()).bt())?;
+    // This allocation always belongs to Vec<u8>. The original Vec<T> retains
+    // its own allocation and alignment until it is dropped normally.
+    let mut bytes = Vec::with_capacity(length);
+    for value in values {
+        value.append_le(&mut bytes);
+    }
+    Ok(bytes)
 }
 
 pub trait Load {
@@ -389,16 +431,16 @@ fn convert_back(tensor: &Tensor) -> Result<Vec<u8>> {
     // TODO: This makes an unnecessary copy when the tensor is on the cpu.
     let tensor = tensor.flatten_all()?;
     match tensor.dtype() {
-        DType::U8 => Ok(convert_back_::<u8>(tensor.to_vec1()?)),
-        DType::U32 => Ok(convert_back_::<u32>(tensor.to_vec1()?)),
-        DType::I16 => Ok(convert_back_::<i16>(tensor.to_vec1()?)),
-        DType::I32 => Ok(convert_back_::<i32>(tensor.to_vec1()?)),
-        DType::I64 => Ok(convert_back_::<i64>(tensor.to_vec1()?)),
-        DType::F16 => Ok(convert_back_::<half::f16>(tensor.to_vec1()?)),
-        DType::BF16 => Ok(convert_back_::<half::bf16>(tensor.to_vec1()?)),
-        DType::F32 => Ok(convert_back_::<f32>(tensor.to_vec1()?)),
-        DType::F64 => Ok(convert_back_::<f64>(tensor.to_vec1()?)),
-        DType::F8E4M3 => Ok(convert_back_::<float8::F8E4M3>(tensor.to_vec1()?)),
+        DType::U8 => convert_back_::<u8>(tensor.to_vec1()?),
+        DType::U32 => convert_back_::<u32>(tensor.to_vec1()?),
+        DType::I16 => convert_back_::<i16>(tensor.to_vec1()?),
+        DType::I32 => convert_back_::<i32>(tensor.to_vec1()?),
+        DType::I64 => convert_back_::<i64>(tensor.to_vec1()?),
+        DType::F16 => convert_back_::<half::f16>(tensor.to_vec1()?),
+        DType::BF16 => convert_back_::<half::bf16>(tensor.to_vec1()?),
+        DType::F32 => convert_back_::<f32>(tensor.to_vec1()?),
+        DType::F64 => convert_back_::<f64>(tensor.to_vec1()?),
+        DType::F8E4M3 => convert_back_::<float8::F8E4M3>(tensor.to_vec1()?),
         DType::F6E2M3 | DType::F6E3M2 | DType::F4 | DType::F8E8M0 => {
             Err(Error::Msg("Internal error: dtype mismatch in storage".to_string()).bt())
         }
@@ -459,14 +501,11 @@ impl MmapedSafetensors {
         let file = memmap2::MmapOptions::new()
             .map(&file)
             .map_err(|e| Error::from(e).with_path(p))?;
-        let safetensors = MappedSafeTensors::try_new(
-            file,
-            |data| {
-                let st = safetensors::SafeTensors::deserialize(data)
-                    .map_err(|e| Error::from(e).with_path(p))?;
-                Ok::<_, Error>(st)
-            },
-        )?;
+        let safetensors = MappedSafeTensors::try_new(file, |data| {
+            let st = safetensors::SafeTensors::deserialize(data)
+                .map_err(|e| Error::from(e).with_path(p))?;
+            Ok::<_, Error>(st)
+        })?;
         Ok(Self {
             safetensors: vec![safetensors],
             routing: None,
@@ -489,14 +528,11 @@ impl MmapedSafetensors {
             let file = memmap2::MmapOptions::new()
                 .map(&file)
                 .map_err(|e| Error::from(e).with_path(p))?;
-            let data = MappedSafeTensors::try_new(
-                file,
-                |data| {
-                    let st = safetensors::SafeTensors::deserialize(data)
-                        .map_err(|e| Error::from(e).with_path(p))?;
-                    Ok::<_, Error>(st)
-                },
-            )?;
+            let data = MappedSafeTensors::try_new(file, |data| {
+                let st = safetensors::SafeTensors::deserialize(data)
+                    .map_err(|e| Error::from(e).with_path(p))?;
+                Ok::<_, Error>(st)
+            })?;
             for k in data.borrow_dependent().names() {
                 routing.insert(k.to_string(), index);
             }
@@ -568,13 +604,10 @@ pub struct BufferedSafetensors {
 impl BufferedSafetensors {
     /// Creates a wrapper around a binary buffer and deserialize the safetensors header.
     pub fn new(buffer: Vec<u8>) -> Result<Self> {
-        let safetensors = BufferedSafeTensorsCell::try_new(
-            buffer,
-            |data| {
-                let st = safetensors::SafeTensors::deserialize(data)?;
-                Ok::<_, Error>(st)
-            },
-        )?;
+        let safetensors = BufferedSafeTensorsCell::try_new(buffer, |data| {
+            let st = safetensors::SafeTensors::deserialize(data)?;
+            Ok::<_, Error>(st)
+        })?;
         Ok(Self { safetensors })
     }
 

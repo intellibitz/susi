@@ -55,7 +55,7 @@ const SCRIPTS: [&str; 15] = [
 /// cloud harness's own marker, the explicit word, a borrowed identity, the
 /// hooks' escape hatches, the queue transport's knobs, the fake proxy's own
 /// switch, and the `GIT_DIR` a calling hook exports.
-const SCRUBBED: [&str; 16] = [
+const SCRUBBED: [&str; 19] = [
     "SUSI_QUEUE_TRANSPORT",
     "SUSI_QUEUE_WAIT_SECS",
     "SUSI_QUEUE_POLL_MS",
@@ -72,6 +72,9 @@ const SCRUBBED: [&str; 16] = [
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_INDEX_FILE",
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "CARGO_BUILD_BUILD_DIR",
 ];
 
 struct World {
@@ -856,6 +859,21 @@ fn cloud_target_seed_unpacks_a_verified_snapshot_into_an_empty_target_only() {
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("skipped"), "{err}");
     assert!(!w.clone.join("target").exists());
+
+    // An explicitly selected output still prevents seeding the wrong target.
+    let external_target = w.root.join("external-target");
+    let (code, _, err) = w.script(
+        "scripts/cloud-target-seed.sh",
+        &[],
+        &[
+            ("SUSI_TARGET_SEED_URL", url.as_str()),
+            ("CARGO_TARGET_DIR", external_target.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("CARGO_TARGET_DIR"), "{err}");
+    assert!(!w.clone.join("target").exists());
+    assert!(!external_target.exists());
 
     // Seeded: the snapshot's units are in target/, and the markers say so.
     let (code, _, err) = w.script("scripts/cloud-target-seed.sh", &[], &envs);

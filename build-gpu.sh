@@ -1,8 +1,6 @@
 #!/usr/bin/env sh
-# SUSI GPU-aware dev build: `cargo xb --release` with the host's GPU backend
-# (cuda / metal) detected by xtask. Builds into target/ only — it never
-# installs. The local susi is updated from releases by
-# scripts/susi-release-sync.sh.
-
+# Compatibility entrypoint: CPU on Linux/Windows; optional Metal on macOS.
+# CUDA/MKL product backends are retired. Explicit retired features fail in Cargo.
+# This only builds; it does not install or qualify a release.
 set -eu
 exec cargo xb --release "$@"

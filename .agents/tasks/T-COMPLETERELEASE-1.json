@@ -1,0 +1,61 @@
+{
+  "id": "T-COMPLETERELEASE-1",
+  "title": "Require complete executed release gates and immutable admission evidence under policy v6",
+  "native_worker": "release-complete",
+  "status": "verified_pending_integration",
+  "dependencies": [
+    "T-PROVENANCE-1",
+    "T-UNSAFECOMPLETE-1",
+    "T-OPTIONALLICENSE-1"
+  ],
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "scopes": [
+    ".agents/tasks/t-completerelease-1.json",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/complete_release_gates.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release"
+    ]
+  },
+  "acceptance": "Run all unchanged dependency policy checks including all features with the pinned advisory snapshot, and independently pinned complete unsafe and authenticated provenance gates against the exact candidate. Bind raw logs, exact argv, actual outer test counts, native report contexts and external immutable authorization bytes in a mandatory manifest-v2 complete-release-gates/v1 digest. Reject historical partial v6/v5, incomplete/duplicate/failed/stale/substituted/ambiguous receipts and revoked authorization at admission without changing release refs. Preserve existing strict license, sysroot, native source/link, real inference, health, artifact and rollback checks.",
+  "validation": {
+    "commands": [
+      [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      [
+        "cargo",
+        "clippy",
+        "-p",
+        "xtask",
+        "--features",
+        "release-tooling",
+        "--bin",
+        "local-release",
+        "--tests",
+        "--offline",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    ],
+    "shared_development_dependencies": "Temporary read-only exact copies of provenance-owned native_test_counts.rs and native_json.rs are hash-recorded outside source; they are removed before this scoped commit and supplied by the provenance task at actual combined integration.",
+    "private_target": "/workspace/susi-release-complete-target",
+    "product_qualification": "Pending combined integration and two separate actual all-green policy-v6 packages; no promotion performed by this worker."
+  }
+}

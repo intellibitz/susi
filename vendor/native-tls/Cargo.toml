@@ -60,6 +60,21 @@ vendored = ["openssl/vendored"]
 name = "native_tls"
 path = "src/lib.rs"
 
+# DER encoding only; private operations remain in the installed OS provider.
+[dependencies.pkcs1]
+version = "0.7"
+features = ["pem", "alloc", "pkcs8"]
+
+[dependencies.pkcs8]
+version = "0.10"
+features = ["pem"]
+
+[dependencies.zeroize]
+version = "1"
+
+[dependencies.getrandom]
+version = "0.2"
+
 [dev-dependencies.tempfile]
 version = "3.0"
 
@@ -87,6 +102,9 @@ version = "0.1.28"
 [target.'cfg(target_vendor = "apple")'.dependencies.libc]
 version = "0.2.170"
 
+[target.'cfg(target_vendor = "apple")'.dependencies.core-foundation]
+version = "0.10"
+
 [target.'cfg(target_vendor = "apple")'.dependencies.security-framework]
 version = "3.5.1"
 
@@ -96,6 +114,3 @@ version = "2.15.0"
 [target.'cfg(target_os = "windows")'.dependencies.windows-sys]
 version = "0.61"
 features = ["Win32_Security_Cryptography"]
-
-[target.'cfg(target_os = "windows")'.dependencies.getrandom]
-version = "0.2"

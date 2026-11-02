@@ -1,0 +1,46 @@
+{
+  "schema": "susi/unsafe-review-coverage/v1",
+  "source_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "source_tree": "5eeb5d75b88340781e871d353a47039942ea2f53",
+  "sources": [
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-independent-review/component-reviews.json",
+      "sha256": "c2a97a8876cdd2fe1afd13c62d35a94f5d4ba08796dfec0b3f16f3406133dd97",
+      "components": 19
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-independent-review-supplement/component-reviews.json",
+      "sha256": "db539a2fa61ed858c4737cc113428e2b9bb823c39fbef5cf3f980a083a077d9a",
+      "components": 5
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-memory-os/component-reviews.json",
+      "sha256": "aca984b0f46a139ec1455d8653465adeda46f0cc2963b2e7441cc35fb886f693",
+      "components": 13
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-network-serde/component-reviews.json",
+      "sha256": "9b3e686ac20c6fb66e0c43f80ad33d449b811b5ba42f49c8891b26f7403fd1e3",
+      "components": 11
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-models-storage/component-reviews.json",
+      "sha256": "5777453d007d51a5858f554b63c0f44ae8fcb9f2d5138522cd1d3882b01552b9",
+      "components": 11
+    },
+    {
+      "path": "/workspace/susi-release-gates-evidence/unsafe-review-syntax-utilities/component-reviews.json",
+      "sha256": "5ffcf6ce2262a2cb8e7c9f4a22c9462d5f1405ca76d0e2bb3eeaf97da9051aba",
+      "components": 18
+    }
+  ],
+  "required_identities": 77,
+  "provided_identities": 77,
+  "reviewed_file_bindings_verified": 319,
+  "seconds": 0.040292853002029005,
+  "pending_treatment": [
+    "candle-core@0.11.1",
+    "candle-nn@0.11.1"
+  ],
+  "admission": "not-approved; requires repaired clean candidate, updated core review and NN export/route guard proof"
+}

@@ -109,6 +109,9 @@ use std::{error, fmt, io, result};
 )]
 mod imp;
 
+mod platform_rsa;
+pub use platform_rsa::RsaSigningKey;
+
 #[cfg(test)]
 mod test;
 

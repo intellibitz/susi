@@ -25,12 +25,20 @@ const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
+#[path = "../advisory_evidence.rs"]
+mod advisory_evidence;
+#[path = "../complete_release_gates.rs"]
+mod complete_release_gates;
+#[path = "../elf_imports.rs"]
+mod elf_imports;
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
 #[path = "../installed_delivery.rs"]
 mod installed_delivery;
 #[path = "../native_link.rs"]
 mod native_link;
+#[path = "../native_openssl.rs"]
+mod native_openssl;
 #[path = "../pe_imports.rs"]
 mod pe_imports;
 #[path = "../prepare_release.rs"]
@@ -43,8 +51,7 @@ mod sysroot_sources;
 mod trusted_sysroot;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
-#[path = "../vendor_regressions.rs"]
-mod vendor_regressions;
+use susi_build_policy as vendor_regressions;
 
 fn text(path: &Path) -> Result<&str> {
     path.to_str().ok_or_else(|| "path is not UTF-8".into())
@@ -140,6 +147,7 @@ struct Context {
     root: PathBuf,
     state: PathBuf,
     packages: PathBuf,
+    trust_registry: Option<PathBuf>,
 }
 impl Context {
     fn open(path: &Path) -> Result<Self> {
@@ -160,6 +168,7 @@ impl Context {
             root,
             state,
             packages,
+            trust_registry: env::var_os("SUSI_RELEASE_TRUST_REGISTRY").map(PathBuf::from),
         })
     }
 }
@@ -569,7 +578,17 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
         // select different features. Screen each context separately: unioning
         // `pure` from one context must never hide native code in another.
         for context in &feature_contexts {
-            native_source_check(package, context)?;
+            if name == "openssl-sys" && native_openssl::supported(host) {
+                native_openssl::admit(
+                    host,
+                    &version,
+                    context,
+                    Path::new(required(package, "manifest_path")?),
+                )?;
+                audit.push_str("OpenSSL Rust binding admitted provisionally: dynamic OS library and link-map proof required at artifact qualification.\n");
+            } else {
+                native_source_check(package, context)?;
+            }
         }
         let features: Vec<_> = feature_contexts
             .iter()
@@ -673,12 +692,31 @@ fn native_link_proof(binary: &Path, map: &Path) -> Result<String> {
     ))
 }
 
+struct GateContext<'a> {
+    candidate: &'a Path,
+    attempt: &'a Path,
+    host: &'a str,
+    compiler: &'a str,
+}
+
+struct GateRun {
+    proof: String,
+    sysroot: Option<trusted_sysroot::VerifiedSysroot>,
+    native: complete_release_gates::Native,
+    records: Vec<serde_json::Value>,
+}
+
 fn run_gates(
-    candidate: &Path,
-    attempt: &Path,
-    host: &str,
-    compiler: &str,
-) -> Result<(String, Option<trusted_sysroot::VerifiedSysroot>)> {
+    context: GateContext<'_>,
+    advisory_source: &advisory_evidence::Source,
+    complete_runner: &complete_release_gates::Runner,
+) -> Result<GateRun> {
+    let GateContext {
+        candidate,
+        attempt,
+        host,
+        compiler,
+    } = context;
     let target = candidate.join("target");
     let gates: &[&[&str]] = &[
         &["fmt", "--all", "--check"],
@@ -752,9 +790,29 @@ fn run_gates(
     }
     let adapters = vendor_regressions::commands(candidate, host, &target)?;
     gates.splice(4..4, adapters);
+    gates.insert(2, advisory_evidence::arguments(candidate, attempt, host)?);
+    gates.insert(
+        3,
+        complete_release_gates::all_features_args(candidate, attempt)?,
+    );
     let mut sysroot = None;
+    let mut advisory = None;
+    let mut native = None;
+    let mut complete_records = Vec::new();
     let mut proof = String::from(QUALIFICATION_POLICY);
     for (index, args) in gates.iter().enumerate() {
+        if index == 2 {
+            let snapshot =
+                advisory_evidence::Snapshot::prepare(candidate, attempt, advisory_source)?;
+            proof.push_str(&format!(
+                "advisory-evidence={}\n",
+                serde_json::to_string(&snapshot.evidence)?
+            ));
+            advisory = Some(snapshot);
+        }
+        if index == 4 {
+            native = Some(complete_runner.native(candidate, attempt, host)?);
+        }
         if sysroot.is_none()
             && matches!(
                 args.first().map(String::as_str),
@@ -769,25 +827,45 @@ fn run_gates(
         let log_path = attempt.join(format!("gate-{index}.log"));
         let log = fs::File::create(&log_path)?;
         let started = std::time::Instant::now();
-        let mut command = isolated_command(Path::new("cargo"), &attempt.join("gate-home"))?;
+        let scanner = if matches!(index, 2 | 3) {
+            advisory.as_ref()
+        } else {
+            None
+        };
+        let program = scanner.map_or_else(
+            || Path::new("cargo"),
+            |snapshot| snapshot.executable.as_path(),
+        );
+        let mut command = isolated_command(program, &attempt.join("gate-home"))?;
         if let Some(sysroot) = &sysroot {
             sysroot.apply(&mut command)?;
         }
+        if native_openssl::supported(host) {
+            elf_imports::configure_system_openssl(&mut command, host)?;
+        }
         let status = command
             .current_dir(candidate)
-            .args(args)
+            .args(if scanner.is_some() { &args[1..] } else { args })
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_BUILD_TARGET_DIR", &target)
             .env("CARGO_BUILD_BUILD_DIR", &target)
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;
+        // ExitStatus Display differs across OSes ("exit status" on Unix).
+        // Durable receipts use one explicit numeric wire representation.
+        let status_text = status
+            .code()
+            .map_or_else(|| status.to_string(), |code| format!("exit code: {code}"));
         proof.push_str(&format!(
-            "cargo {} => {status}; elapsed-ms={}\n",
+            "cargo {} => {status_text}; elapsed-ms={}\n",
             args.join(" "),
             started.elapsed().as_millis()
         ));
         fs::write(attempt.join("gates.txt"), &proof)?;
+        if let Some(snapshot) = scanner {
+            snapshot.recheck()?;
+        }
         if !status.success() {
             return Err(format!(
                 "release qualification failed: cargo {}; evidence {}",
@@ -803,7 +881,21 @@ fn run_gates(
             proof.push_str(&format!("workspace-tests-passed={passed}\n"));
             fs::write(attempt.join("gates.txt"), &proof)?;
         }
+        let mut record = complete_release_gates::record(
+            args,
+            status.code(),
+            started.elapsed().as_millis(),
+            &attempt.join(format!("gate-{index}.log")),
+            candidate,
+        )?;
+        if let Some(snapshot) = scanner {
+            record["tool_sha256"] = snapshot.evidence["cargo_deny_sha256"].clone();
+        }
+        complete_records.push(record);
     }
+    advisory
+        .ok_or("production advisory gate did not execute")?
+        .recheck()?;
     if let Some(sysroot) = &sysroot {
         sysroot.recheck()?;
         proof.push_str(&format!(
@@ -811,7 +903,12 @@ fn run_gates(
             serde_json::to_string(&sysroot.evidence)?
         ));
     }
-    Ok((proof, sysroot))
+    Ok(GateRun {
+        proof,
+        sysroot,
+        native: native.ok_or("required native gates did not execute")?,
+        records: complete_records,
+    })
 }
 
 const ARTIFACT_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
@@ -1188,16 +1285,28 @@ struct Manifest {
     sbom: String,
     notices: String,
     native_audit: String,
+    complete_gates: Option<String>,
 }
 impl Manifest {
     fn encode(&self) -> String {
-        format!("susi-local-release-v1\nsource={}\ntree={}\nartifact-sha256={}\nartifact-bytes={}\nhost={}\nintegration-receipt={}\nlock-sha256={}\ncompiler-sha256={}\ngates-sha256={}\nsbom-sha256={}\nnotices-sha256={}\nnative-audit-sha256={}\n", self.source,self.tree,self.artifact,self.bytes,self.host,self.integration,self.lock,self.compiler,self.gates,self.sbom,self.notices,self.native_audit)
+        let version = if self.complete_gates.is_some() {
+            "susi-local-release-v2"
+        } else {
+            "susi-local-release-v1"
+        };
+        let mut raw = format!("{version}\nsource={}\ntree={}\nartifact-sha256={}\nartifact-bytes={}\nhost={}\nintegration-receipt={}\nlock-sha256={}\ncompiler-sha256={}\ngates-sha256={}\nsbom-sha256={}\nnotices-sha256={}\nnative-audit-sha256={}\n", self.source,self.tree,self.artifact,self.bytes,self.host,self.integration,self.lock,self.compiler,self.gates,self.sbom,self.notices,self.native_audit);
+        if let Some(digest) = &self.complete_gates {
+            raw.push_str(&format!("complete-gates-sha256={digest}\n"));
+        }
+        raw
     }
     fn decode(raw: &str) -> Result<Self> {
         let mut lines = raw.lines();
-        if lines.next() != Some("susi-local-release-v1") {
-            return Err("invalid release manifest".into());
-        }
+        let complete = match lines.next() {
+            Some("susi-local-release-v1") => false,
+            Some("susi-local-release-v2") => true,
+            _ => return Err("invalid release manifest".into()),
+        };
         let mut values = BTreeMap::new();
         for line in lines {
             let (key, value) = line.split_once('=').ok_or("invalid manifest field")?;
@@ -1205,7 +1314,7 @@ impl Manifest {
                 return Err("duplicate manifest field".into());
             }
         }
-        if values.len() != 12 {
+        if values.len() != if complete { 13 } else { 12 } {
             return Err("unexpected manifest fields".into());
         }
         let get = |key| values.get(key).copied().ok_or("missing manifest field");
@@ -1222,6 +1331,11 @@ impl Manifest {
             sbom: get("sbom-sha256")?.into(),
             notices: get("notices-sha256")?.into(),
             native_audit: get("native-audit-sha256")?.into(),
+            complete_gates: if complete {
+                Some(get("complete-gates-sha256")?.into())
+            } else {
+                None
+            },
         };
         if ![&result.source, &result.tree, &result.integration]
             .iter()
@@ -1237,6 +1351,10 @@ impl Manifest {
             ]
             .iter()
             .all(|v| hex(v, &[64]))
+            || result
+                .complete_gates
+                .as_ref()
+                .is_some_and(|value| !hex(value, &[64]))
             || result.bytes == 0
             || !result
                 .host
@@ -1249,6 +1367,31 @@ impl Manifest {
     }
 }
 
+fn elf_boundary_proof(
+    executable: &Path,
+    map: &Path,
+    host: &str,
+    require_tls: bool,
+    retain_map: bool,
+) -> Result<String> {
+    if fs::metadata(executable)?.len() > 256 * 1024 * 1024
+        || fs::metadata(map)?.len()
+            > if retain_map {
+                256 * 1024 * 1024
+            } else {
+                512 * 1024 * 1024
+            }
+    {
+        return Err("ELF artifact or link map exceeds inspection budget".into());
+    }
+    let imports = elf_imports::inspect(&fs::read(executable)?)?;
+    elf_imports::validate_os_imports(&imports, host, require_tls)?;
+    let map_text = fs::read_to_string(map)?;
+    let inputs = elf_imports::validate_link_map(&map_text)?;
+    let record = serde_json::json!({"binary":executable.file_name().and_then(|s| s.to_str()),"target":host,"artifact_sha256":file_digest(executable)?,"map_sha256":file_digest(map)?,"interpreter":imports.interpreter,"needed":imports.needed,"link_inputs":inputs,"link_map":if retain_map { Some(map_text) } else { None }});
+    Ok(format!("ELF native boundary {record}\n"))
+}
+
 fn qualify(ctx: &Context) -> Result<String> {
     qualify_with(ctx, inference_acceptance)
 }
@@ -1256,6 +1399,20 @@ fn qualify(ctx: &Context) -> Result<String> {
 fn qualify_with(
     ctx: &Context,
     prove_inference: fn(&Path, &Path) -> Result<String>,
+) -> Result<String> {
+    qualify_with_advisories(
+        ctx,
+        prove_inference,
+        &advisory_evidence::Source::provisioned()?,
+        &complete_release_gates::Runner::provisioned(&ctx.root, ctx.trust_registry.as_deref())?,
+    )
+}
+
+fn qualify_with_advisories(
+    ctx: &Context,
+    prove_inference: fn(&Path, &Path) -> Result<String>,
+    advisory_source: &advisory_evidence::Source,
+    complete_runner: &complete_release_gates::Runner,
 ) -> Result<String> {
     let _lock = Lock::acquire(&ctx.state)?;
     // The caller may be a dirty primary checkout. Only the immutable integrated
@@ -1285,7 +1442,21 @@ fn qualify_with(
     )?;
     let (host, compiler) = compiler(&candidate)?;
     let (sbom, mut notices, native_audit) = inventory(&candidate, &attempt, &host)?;
-    let (mut proof, sysroot) = run_gates(&candidate, &attempt, &host, &compiler)?;
+    let GateRun {
+        mut proof,
+        sysroot,
+        native: native_gates,
+        records: complete_records,
+    } = run_gates(
+        GateContext {
+            candidate: &candidate,
+            attempt: &attempt,
+            host: &host,
+            compiler: &compiler,
+        },
+        advisory_source,
+        complete_runner,
+    )?;
     if let Some(sysroot) = &sysroot {
         notices.push_str("\n===== Original Rust standard-library upstream notices (including omitted upstream components) =====\n");
         notices.push_str(
@@ -1325,6 +1496,27 @@ fn qualify_with(
             proof.push_str(&native_link_proof(&executable, &map)?);
         }
     }
+    if native_openssl::supported(&host) && candidate.join("crates/susi-core/Cargo.toml").is_file() {
+        let profile = candidate.join("target").join(&host).join("release");
+        for name in [
+            "susi",
+            "xtask",
+            "local-workflow",
+            "local-release",
+            "ci-release-only",
+            "susi-dev",
+        ] {
+            let executable = profile.join(name);
+            let map = profile.join(format!("{name}.map"));
+            proof.push_str(&elf_boundary_proof(
+                &executable,
+                &map,
+                &host,
+                name == "susi",
+                true,
+            )?);
+        }
+    }
     proof.push_str(&smoke(&binary, &attempt)?);
     proof.push_str(&prove_inference(&binary, &attempt)?);
     if file_digest(&binary)? != before {
@@ -1335,7 +1527,7 @@ fn qualify_with(
         return Err("source advanced during release qualification".into());
     }
     integration_receipt(ctx, &head, &tree)?;
-    let manifest = Manifest {
+    let mut manifest = Manifest {
         source: head,
         tree,
         artifact: before,
@@ -1348,7 +1540,13 @@ fn qualify_with(
         sbom: digest(sbom.as_bytes()),
         notices: digest(notices.as_bytes()),
         native_audit: digest(native_audit.as_bytes()),
+        complete_gates: None,
     };
+    let complete =
+        complete_release_gates::finish(native_gates, complete_records, &attempt, &manifest)?;
+    let complete_bytes = serde_json::to_vec_pretty(&complete)?;
+    manifest.complete_gates = Some(digest(&complete_bytes));
+    fs::write(attempt.join("complete-gates.json"), &complete_bytes)?;
     let raw = manifest.encode();
     let id = digest(raw.as_bytes());
     let staging = ctx.packages.join(format!("staging-{stamp}"));
@@ -1359,6 +1557,9 @@ fn qualify_with(
     fs::write(staging.join("sbom.json"), &sbom)?;
     fs::write(staging.join("THIRD-PARTY-NOTICES.txt"), &notices)?;
     fs::write(staging.join("native-source-audit.txt"), &native_audit)?;
+    fs::write(staging.join("complete-gates.json"), &complete_bytes)?;
+    complete_release_gates::copy_evidence(&complete, &attempt, &staging)?;
+    complete_release_gates::validate_package(&staging, &manifest, ctx.trust_registry.as_deref())?;
     if file_digest(&staging.join(binary_name()))? != manifest.artifact {
         return Err("staged artifact digest mismatch".into());
     }
@@ -1369,6 +1570,7 @@ fn qualify_with(
         "sbom.json",
         "THIRD-PARTY-NOTICES.txt",
         "native-source-audit.txt",
+        "complete-gates.json",
     ] {
         let path = staging.join(file);
         let mut permissions = fs::metadata(&path)?.permissions();
@@ -1442,6 +1644,7 @@ fn checked_package(ctx: &Context, blob: &str) -> Result<(String, PathBuf)> {
                 .into(),
         );
     }
+    complete_release_gates::validate_package(&package, &manifest, ctx.trust_registry.as_deref())?;
     let binary = package.join(binary_name());
     if fs::symlink_metadata(&binary)?.file_type().is_symlink()
         || fs::metadata(&binary)?.len() != manifest.bytes
@@ -1691,6 +1894,13 @@ fn run(args: &[String]) -> Result<()> {
             println!("Authenticated source and reviewed replacement delta verified; artifacts remain unqualified.");
         },
         Some("record-gmcp") => gmcp_evidence::run(&ctx.root, &args[1..])?,
+        Some("check-elf") if args.len()==3 => {
+            let (host, _) = compiler(&ctx.root)?;
+            let proof = elf_boundary_proof(Path::new(&args[1]), Path::new(&args[2]), &host, true, false)?;
+            let evidence = ctx.state.join(format!("elf-check-{}.txt",stamp()?));
+            fs::write(&evidence, proof)?;
+            println!("Native ELF boundary passed; evidence {}. Diagnostic only: no release qualified or promoted.", evidence.display());
+        },
         Some("check-pe") if args.len()==2 => {
             let binary = Path::new(&args[1]);
             if fs::metadata(binary)?.len() > 256 * 1024 * 1024 { return Err("PE artifact exceeds inspection budget".into()); }
@@ -1733,7 +1943,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | export-qualified <release-id> <destination> | install-current | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-elf <candidate> <link-map> | check-inference <candidate> | promote <release-id> | rollback | status | export-qualified <release-id> <destination> | install-current | run [susi arguments]".into()),
     }
     Ok(())
 }
@@ -1756,6 +1966,25 @@ mod tests {
     // The production entry point always calls the real inference acceptance.
     fn qualify(ctx: &Context) -> Result<String> {
         qualify_with(ctx, |_, _| Ok("fixture-only inference boundary\n".into()))
+    }
+
+    fn qualify_with(
+        ctx: &Context,
+        prove_inference: fn(&Path, &Path) -> Result<String>,
+    ) -> Result<String> {
+        let source = advisory_evidence::fixture_source(
+            &ctx.state.join(format!("fixture-advisories-{}", stamp()?)),
+        );
+        qualify_with_advisories(
+            ctx,
+            prove_inference,
+            &source,
+            &complete_release_gates::Runner::fixture(
+                ctx.trust_registry
+                    .as_deref()
+                    .ok_or("missing fixture registry")?,
+            ),
+        )
     }
 
     #[test]
@@ -1805,7 +2034,7 @@ mod tests {
     #[test]
     fn failed_inference_cannot_publish_a_qualified_release() {
         let fixture = Fixture::new();
-        let ctx = Context::open(&fixture.root()).unwrap();
+        let ctx = fixture.context();
         let result = qualify_with(&ctx, |_, _| Err("inference acceptance rejected".into()));
         assert!(result
             .unwrap_err()
@@ -1901,6 +2130,13 @@ mod tests {
         fn root(&self) -> PathBuf {
             self.0.join("repo")
         }
+        fn context(&self) -> Context {
+            let mut ctx = Context::open(&self.root()).unwrap();
+            let registry = self.0.join("coordinator");
+            fs::create_dir_all(registry.join("permits")).unwrap();
+            ctx.trust_registry = Some(registry);
+            ctx
+        }
         fn revision(&self, version: &str, passes: bool) {
             let root = self.root();
             let expected = if passes { 4 } else { 5 };
@@ -1959,7 +2195,17 @@ mod tests {
         let attempt = fixture.0.join("format-first");
         fs::create_dir(&attempt).unwrap();
         let (host, compiler) = compiler(&root).unwrap();
-        let error = match run_gates(&root, &attempt, &host, &compiler) {
+        let source = advisory_evidence::fixture_source(&fixture.0.join("fixture-db"));
+        let error = match run_gates(
+            GateContext {
+                candidate: &root,
+                attempt: &attempt,
+                host: &host,
+                compiler: &compiler,
+            },
+            &source,
+            &complete_release_gates::Runner::fixture(&fixture.0.join("coordinator")),
+        ) {
             Ok(_) => panic!("malformed formatting must fail"),
             Err(error) => error.to_string(),
         };
@@ -1967,6 +2213,61 @@ mod tests {
         assert!(attempt.join("gate-0.log").is_file());
         assert!(!attempt.join("gate-1.log").exists());
         assert!(!root.join(".git/susi-product-sysroots").exists());
+    }
+
+    #[test]
+    fn advisory_rejection_precedes_compilation_and_retains_scanner_receipts() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        let manifest = root.join("Cargo.toml");
+        let mut cargo = fs::read_to_string(&manifest).unwrap();
+        cargo.push_str("\n[dependencies]\nautocfg = \"=1.5.1\"\n");
+        fs::write(&manifest, cargo).unwrap();
+        let lock = isolated_command(Path::new("cargo"), &fixture.0.join("lock-home"))
+            .unwrap()
+            .current_dir(&root)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap();
+        assert!(
+            lock.status.success(),
+            "{}",
+            String::from_utf8_lossy(&lock.stderr)
+        );
+        // Deliberately fabricated test-only advisory: no statement about autocfg's
+        // actual security status. It proves scanner rejection blocks compilation.
+        let source =
+            advisory_evidence::fixture_source_for(&fixture.0.join("fixture-db"), "autocfg");
+        let attempt = fixture.0.join("advisory-rejection");
+        fs::create_dir(&attempt).unwrap();
+        let (host, compiler) = compiler(&root).unwrap();
+        let error = match run_gates(
+            GateContext {
+                candidate: &root,
+                attempt: &attempt,
+                host: &host,
+                compiler: &compiler,
+            },
+            &source,
+            &complete_release_gates::Runner::fixture(&fixture.0.join("coordinator")),
+        ) {
+            Ok(_) => panic!("fixture vulnerability must block qualification"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("check advisories"), "{error}");
+        let log = fs::read_to_string(attempt.join("gate-2.log")).unwrap();
+        assert!(log.contains("RUSTSEC-2026-0001"), "{log}");
+        assert!(!attempt.join("gate-3.log").exists());
+        assert!(!root.join("target").exists());
+        let receipt: serde_json::Value =
+            serde_json::from_slice(&fs::read(attempt.join("advisory-receipt.json")).unwrap())
+                .unwrap();
+        assert!(receipt["cargo_deny_sha256"]
+            .as_str()
+            .is_some_and(|value| hex(value, &[64])));
+        let gates = fs::read_to_string(attempt.join("gates.txt")).unwrap();
+        assert!(gates.contains("advisory-evidence="));
+        assert!(gates.contains("exit code: 1"));
     }
     #[test]
     fn workspace_test_count_rejects_empty_cargo_suite_before_production_build() {
@@ -2094,6 +2395,7 @@ mod tests {
             sbom: "0".repeat(64),
             notices: "0".repeat(64),
             native_audit: "0".repeat(64),
+            complete_gates: None,
         };
         assert!(Manifest::decode(&manifest.encode()).is_ok());
         assert!(Manifest::decode(&(manifest.encode() + "source=duplicate\n")).is_err());
@@ -2200,7 +2502,7 @@ mod tests {
     #[test]
     fn real_qualification_promotion_rollback_and_failure_preserve_verified_release() {
         let fixture = Fixture::new();
-        let ctx = Context::open(&fixture.root()).unwrap();
+        let ctx = fixture.context();
         let first = qualify(&ctx).unwrap();
         // Model a correctly hashed historical receipt whose gates predate the
         // mandatory native runtime policy. Integrity alone must not admit it.
@@ -2347,9 +2649,89 @@ mod tests {
     }
 
     #[test]
+    fn partial_v6_and_tampered_complete_packages_cannot_change_release_selection() {
+        let fixture = Fixture::new();
+        let ctx = fixture.context();
+        let id = qualify(&ctx).unwrap();
+        let package = ctx.packages.join("objects").join(&id);
+        let manifest =
+            Manifest::decode(&fs::read_to_string(package.join("manifest.txt")).unwrap()).unwrap();
+        let mut partial = Manifest::decode(&manifest.encode()).unwrap();
+        partial.complete_gates = None;
+        let raw = partial.encode();
+        let partial_id = digest(raw.as_bytes());
+        let historical = ctx.packages.join("objects").join(&partial_id);
+        fs::create_dir(&historical).unwrap();
+        for name in [
+            binary_name(),
+            "gates.txt",
+            "sbom.json",
+            "THIRD-PARTY-NOTICES.txt",
+            "native-source-audit.txt",
+        ] {
+            fs::copy(package.join(name), historical.join(name)).unwrap();
+        }
+        fs::write(historical.join("manifest.txt"), &raw).unwrap();
+        let blob = git_input(&ctx.root, &["hash-object", "-w", "--stdin"], raw.as_bytes()).unwrap();
+        git(
+            &ctx.root,
+            &[
+                "update-ref",
+                &format!("refs/susi/releases/qualified/{partial_id}"),
+                &blob,
+            ],
+        )
+        .unwrap();
+        assert!(promote(&ctx, &partial_id)
+            .unwrap_err()
+            .to_string()
+            .contains("requalification"));
+        assert!(resolve(&ctx.root, CURRENT).unwrap().is_none());
+
+        let complete = complete_release_gates::test_read_receipt(&package).unwrap();
+        let log = package.join(complete["gates"][0]["log"].as_str().unwrap());
+        let original = fs::read(&log).unwrap();
+        #[cfg(windows)]
+        {
+            let mut permissions = fs::metadata(&log).unwrap().permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(&log, permissions).unwrap();
+        }
+        fs::remove_file(&log).unwrap();
+        fs::write(&log, b"substituted successful output").unwrap();
+        assert!(promote(&ctx, &id).is_err());
+        assert!(resolve(&ctx.root, CURRENT).unwrap().is_none());
+        fs::write(&log, original).unwrap();
+        let pin = complete["trust"]["permit_sha256"].as_str().unwrap();
+        let permit = ctx
+            .trust_registry
+            .as_ref()
+            .unwrap()
+            .join("permits")
+            .join(format!("{pin}.json"));
+        let authorized = fs::read(&permit).unwrap();
+        fs::remove_file(&permit).unwrap();
+        assert!(promote(&ctx, &id).is_err());
+        assert!(resolve(&ctx.root, CURRENT).unwrap().is_none());
+        fs::write(&permit, authorized).unwrap();
+        promote(&ctx, &id).unwrap();
+        assert_eq!(
+            resolve(&ctx.root, CURRENT).unwrap().as_deref(),
+            Some(
+                git(
+                    &ctx.root,
+                    &["rev-parse", &format!("refs/susi/releases/qualified/{id}")]
+                )
+                .unwrap()
+                .as_str()
+            )
+        );
+    }
+
+    #[test]
     fn qualification_uses_integrated_snapshot_and_preserves_dirty_primary() {
         let fixture = Fixture::new();
-        let ctx = Context::open(&fixture.root()).unwrap();
+        let ctx = fixture.context();
         fs::write(ctx.root.join("untracked"), "preserve").unwrap();
         let id = qualify_with(&ctx, |binary, attempt| {
             let mut output = binary.parent().unwrap().to_path_buf();
