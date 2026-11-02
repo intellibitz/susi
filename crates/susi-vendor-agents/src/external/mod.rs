@@ -1,58 +1,23 @@
-//! Durable management of external task executors. Provider output is evidence of
-//! execution, never proof that the requested code change is correct.
+//! Durable management of external task executors over Susi's standard protocol
+//! sockets (`Command`, `A2a`, `Acp`). Provider output is evidence of execution,
+//! never proof that the requested code change is correct.
 mod a2a;
 mod acp;
-mod aider;
-mod browser_use;
-mod byok;
 mod catalog;
 mod cloud;
-mod deerflow;
-mod gemini_cli;
 mod git_identity;
-mod openhands;
-mod openhands_server;
-mod openviking;
 mod process;
-mod swe_agent;
 
 pub use acp::{
     drive as acp_drive, Outcome as AcpOutcome, Permission as AcpPermission, Task as AcpTask,
 };
-pub use aider::{
-    doctor as aider_doctor, setup as aider_setup, status as aider_status,
-    AGENT_ID as AIDER_AGENT_ID,
-};
-pub use browser_use::{
-    doctor as browser_use_doctor, setup as browser_use_setup, status as browser_use_status,
-    AGENT_ID as BROWSER_USE_AGENT_ID,
-};
 pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
-pub use deerflow::{
-    doctor as deerflow_doctor, setup as deerflow_setup, status as deerflow_status,
-    AGENT_ID as DEERFLOW_AGENT_ID,
-};
-pub use gemini_cli::{
-    doctor as gemini_cli_doctor, setup as gemini_cli_setup, status as gemini_cli_status,
-    AGENT_ID as GEMINI_CLI_AGENT_ID,
-};
-pub use openhands::{
-    doctor as openhands_doctor, setup as openhands_setup, status as openhands_status,
-};
-pub use openviking::{
-    doctor as openviking_doctor, setup as openviking_setup, status as openviking_status,
-    AGENT_ID as OPENVIKING_AGENT_ID,
-};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
-pub use swe_agent::{
-    docker_present, doctor as swe_agent_doctor, setup as swe_agent_setup,
-    status as swe_agent_status, AGENT_ID as SWE_AGENT_ID,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -539,6 +504,15 @@ impl AgentManager {
             .is_some_and(|f| f.load(std::sync::atomic::Ordering::Acquire))
             || self.run_dir(id)?.join("cancel").try_exists()?)
     }
+}
+
+/// Generic container runtime probe (`docker info` bounded to 10s).
+pub fn docker_present() -> bool {
+    crate::susi_core::bounded_cmd::output_within(
+        std::process::Command::new("docker").arg("info"),
+        std::time::Duration::from_secs(10),
+    )
+    .is_ok_and(|o| o.status.success())
 }
 
 fn now() -> u64 {
