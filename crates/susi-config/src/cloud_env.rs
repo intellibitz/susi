@@ -33,7 +33,10 @@ pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
         if (value.starts_with('"') && value.ends_with('"'))
             || (value.starts_with('\'') && value.ends_with('\''))
         {
-            value = value[1..value.len().saturating_sub(1)].to_string();
+            value = value
+                .get(1..value.len() - 1)
+                .unwrap_or_default()
+                .to_string();
         }
         if value.is_empty() {
             continue;
@@ -72,4 +75,20 @@ pub fn cloud_env_overlay() -> Vec<(String, String)> {
         .into_iter()
         .filter(|(key, _)| std::env::var_os(key).is_none_or(|v| v.is_empty()))
         .collect()
+}
+
+#[cfg(test)]
+mod malformed_quote_tests {
+    use super::parse_env_file;
+
+    #[test]
+    fn lone_quote_is_empty_and_following_entries_survive() {
+        assert_eq!(
+            parse_env_file("FIRST='\nSECOND=\"\nTHIRD='valid'\nFOURTH=\"é\""),
+            [
+                ("THIRD".into(), "valid".into()),
+                ("FOURTH".into(), "é".into())
+            ]
+        );
+    }
 }
