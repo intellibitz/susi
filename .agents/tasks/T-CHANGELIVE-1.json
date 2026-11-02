@@ -1,7 +1,8 @@
 {
   "scope": [
     "docs/workflow-speed.md",
-    ".agents/tasks/T-CHANGELIVE-1.json"
+    ".agents/tasks/T-CHANGELIVE-1.json",
+    "config/extensions/default/cloud-vendors.json"
   ],
   "acceptance": "Measure elapsed time from real source change to observed changed behavior through installed production, with qualification, health and rollback gates preserved.",
   "id": "T-CHANGELIVE-1",
@@ -9,5 +10,22 @@
   "dependencies": [
     "launcher owner for installed production observation",
     "qualified combined tree"
-  ]
+  ],
+  "receipt": {
+    "binary": "C:\\Users\\user\\.susi\\bin\\susi.exe",
+    "binary_sha256": "4FAA9D3D504ED8996BB0F0BB1CAC02D38227DC24D3360F287256CE0EFFDB2765",
+    "catalog_sha256": "8b37b272b0c27b99f68239e1bf15c7d8f30c3a2feb79cb77a19e595bb16d03d4",
+    "baseline": "Key removal failed: MOONSHOTAI_API_KEY was not registered\r\n",
+    "home": "C:\\Users\\user\\AppData\\Local\\Temp\\susi-live-pack-7aa7705a-04e9-4366-a4ca-4166d1ed2111",
+    "rollback": "Key removal failed: MOONSHOTAI_API_KEY was not registered\r\n",
+    "phases": {
+      "seed_ms": 346,
+      "baseline_ms": 5164,
+      "edit_ms": 5251,
+      "packaged_ms": 5741,
+      "load_ms": 6062,
+      "observed_ms": 12532,
+      "rollback_ms": 17985
+    }
+  }
 }
