@@ -1397,7 +1397,16 @@ fn qualify_with(
     )?;
     // Completed candidates have no unique source: the immutable commit and
     // copied artifact remain. Git refuses cleanup if anything became dirty.
-    if let Err(error) = git(&ctx.root, &["worktree", "remove", text(&candidate)?]) {
+    if let Err(error) = git(
+        &ctx.root,
+        &[
+            "-c",
+            "core.longpaths=true",
+            "worktree",
+            "remove",
+            text(&candidate)?,
+        ],
+    ) {
         eprintln!(
             "qualified candidate retained at {}: {error}",
             candidate.display()
@@ -2342,7 +2351,26 @@ mod tests {
         let fixture = Fixture::new();
         let ctx = Context::open(&fixture.root()).unwrap();
         fs::write(ctx.root.join("untracked"), "preserve").unwrap();
-        let id = qualify(&ctx).unwrap();
+        let id = qualify_with(&ctx, |binary, attempt| {
+            let mut output = binary.parent().unwrap().to_path_buf();
+            for _ in 0..6 {
+                output.push("nested-windows-artifact-directory-with-a-long-name");
+            }
+            fs::create_dir_all(&output)?;
+            fs::write(output.join("probe"), "build output")?;
+            fs::write(
+                attempt.join("test-output-path"),
+                output.to_string_lossy().as_bytes(),
+            )?;
+            Ok("fixture-only inference boundary\n".into())
+        })
+        .unwrap();
+        let proof = fs::read_dir(&ctx.state)
+            .unwrap()
+            .map(|entry| entry.unwrap().path().join("test-output-path"))
+            .find(|path| path.is_file())
+            .unwrap();
+        assert!(!Path::new(&fs::read_to_string(proof).unwrap()).exists());
         assert!(hex(&id, &[64]));
         assert_eq!(
             fs::read_to_string(ctx.root.join("untracked")).unwrap(),
