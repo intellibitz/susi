@@ -1,3 +1,6 @@
+//! `scripts/check-workflow-compliance.sh` against real temp repos and the real
+//! `susi tasks` binary: a commit passes only if its `Task:` trailer names a
+//! task that is closed or held by a live claim.
 // Optional POSIX/hosted compatibility fixtures execute shell scripts.
 // Native Windows delivery is covered by the Rust coordinator, bootstrap,
 // installer and release suites; it must not require a POSIX userland.
@@ -8,10 +11,6 @@
     clippy::panic,
     clippy::unreachable
 )]
-
-//! `scripts/check-workflow-compliance.sh` against real temp repos and the real
-//! `susi tasks` binary: a commit passes only if its `Task:` trailer names a
-//! task that is closed or held by a live claim.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

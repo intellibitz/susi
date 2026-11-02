@@ -1,3 +1,4 @@
+//! Exercise finish against a local bare remote, simulating its merge automation.
 // These fixtures are POSIX shell: the fake `cargo`/`git`/`gh` tools are
 // `#!/bin/sh` scripts, `sh` runs `scripts/*.sh`, and the fixture relies on
 // `chmod` and symlinks. A native Windows host cannot reproduce that process
@@ -6,7 +7,6 @@
 #![allow(missing_docs)] // integration test crate (and an empty crate on Windows)
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test fixtures/assertions
-//! Exercise finish against a local bare remote, simulating its merge automation.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

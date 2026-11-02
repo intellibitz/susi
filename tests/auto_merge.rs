@@ -1,3 +1,6 @@
+//! `scripts/auto-merge-pr.sh` and `scripts/reconcile-prs.sh` through a fake
+//! `gh`: a green PR always merges, a refused one is explained once, and no PR
+//! is left waiting forever.
 // Optional POSIX/hosted compatibility fixtures execute shell scripts.
 // Native Windows delivery is covered by the Rust coordinator, bootstrap,
 // installer and release suites; it must not require a POSIX userland.
@@ -8,10 +11,6 @@
     clippy::panic,
     clippy::unreachable
 )]
-
-//! `scripts/auto-merge-pr.sh` and `scripts/reconcile-prs.sh` through a fake
-//! `gh`: a green PR always merges, a refused one is explained once, and no PR
-//! is left waiting forever.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

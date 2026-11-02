@@ -1,9 +1,3 @@
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! `scripts/check-release-tag.sh`: a release tag must be the workspace version
 //! and must be on `main`.
 //!
@@ -11,6 +5,11 @@
 //! script existed nothing checked that the tag named the version in `Cargo.toml`
 //! or that `main` contained the tagged commit — so a tag on a branch could
 //! publish code no one merged, under a version no one cut.
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![cfg(unix)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

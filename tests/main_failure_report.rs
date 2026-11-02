@@ -1,15 +1,14 @@
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! `scripts/report-main-failure.sh`, against a fake `gh`.
 //!
 //! A red `main` is a shared signal with no owner when agents merge in parallel:
 //! the failing commit is a merge commit, so nothing says whose work it carries.
 //! The script points the pull request at its own failure — exactly once, even if
 //! the job is retried — and stays silent when it cannot attribute the sha.
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![cfg(unix)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

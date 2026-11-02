@@ -1,15 +1,14 @@
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! The git hooks are the loop's first enforcement layer — the commit trailer,
 //! the primary-checkout refusal, sync-before-push — and nothing ever executed
 //! them: only their wiring was asserted (that `pre-commit` calls
 //! `workflow-guard commit`, and so on). A hook that silently stopped enforcing
 //! would have gone unnoticed until a raw `git commit` landed something
 //! malformed. These run the real scripts in real temporary repositories.
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![cfg(unix)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

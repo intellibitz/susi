@@ -1,9 +1,3 @@
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! `scripts/check-hermetic-tests.sh`: scoping, and whether the rule has teeth.
 //!
 //! Mandate 52 says no test touches `~/.susi`, an inherited `SUSI_HOME`, or the
@@ -11,6 +5,11 @@
 //! suite, which is why it was wired into nothing; it now takes cargo arguments
 //! so it can run for the crates a diff touched. A fake `cargo` lets both the
 //! scope and the leak assertion be checked without compiling anything.
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![cfg(unix)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -1,3 +1,5 @@
+//! `scripts/github-enforce.sh` through a fake `gh`, so the exact ruleset that
+//! would reach GitHub is checked: phases, no bypass actors, relax and status.
 // Optional POSIX/hosted compatibility fixtures execute shell scripts.
 // Native Windows delivery is covered by the Rust coordinator, bootstrap,
 // installer and release suites; it must not require a POSIX userland.
@@ -8,9 +10,6 @@
     clippy::panic,
     clippy::unreachable
 )]
-
-//! `scripts/github-enforce.sh` through a fake `gh`, so the exact ruleset that
-//! would reach GitHub is checked: phases, no bypass actors, relax and status.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
