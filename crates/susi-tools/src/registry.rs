@@ -548,12 +548,19 @@ impl ToolRegistry {
     /// Release a finished mission's minted tokens and gate. The refusal
     /// records stay — they are the audit trail, not live state.
     pub fn end_mission_authority(mission: &str) -> crate::susi_error::EaiResult<()> {
-        write_lock(mission_tokens()).remove(mission);
-        write_lock(mission_gates()).remove(mission);
+        let mut tokens = write_lock(mission_tokens());
         let mac = MacPolicy::global();
+        let mut failure = None;
         for (action, resource) in MISSION_TOKEN_BASELINE {
-            mac.revoke(mission, action, resource)?;
+            if let Err(error) = mac.revoke(mission, action, resource) {
+                failure.get_or_insert(error);
+            }
         }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        tokens.remove(mission);
+        write_lock(mission_gates()).remove(mission);
         Ok(())
     }
 }

@@ -53,7 +53,9 @@ fn vc_201_071_mastery_derived_from_mac_and_token() {
     let policy = MacPolicy::new(key, PrivacyMode::Balanced, false);
 
     // Granted action in policy
-    let token = policy.grant("worker-1", actions::PROCESS_EXEC, "/bin/echo", Some(3600));
+    let token = policy
+        .grant("worker-1", actions::PROCESS_EXEC, "/bin/echo", Some(3600))
+        .unwrap();
 
     // Valid derivation from MAC policy
     let mac_dec = LayerDecision::from_mac(&policy, "worker-1", actions::PROCESS_EXEC, "/bin/echo");

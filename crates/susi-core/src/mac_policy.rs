@@ -84,10 +84,8 @@ pub struct CapabilityToken {
 impl CapabilityToken {
     fn canonical_payload(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            self.subject,
-            self.action,
-            self.resource,
+            "{}|{}|{}",
+            grant_key(&self.subject, &self.action, &self.resource),
             self.issued_at,
             self.expires_at
                 .map(|e| e.to_string())
@@ -130,7 +128,21 @@ fn now_secs() -> u64 {
 }
 
 fn grant_key(subject: &str, action: &str, resource: &str) -> String {
-    format!("{subject}|{action}|{resource}")
+    if [subject, action, resource]
+        .iter()
+        .any(|field| field.contains('|'))
+    {
+        // Hex fields cannot contain either separator. The resulting key has
+        // zero pipes and cannot collide with the two-pipe legacy key.
+        format!(
+            "v2:{}:{}:{}",
+            hex::encode(subject),
+            hex::encode(action),
+            hex::encode(resource)
+        )
+    } else {
+        format!("{subject}|{action}|{resource}")
+    }
 }
 
 /// Process-wide MAC enforcer.
@@ -168,7 +180,7 @@ fn grant_paths(
         hash.update(field.as_bytes());
     }
     let current = dir.join(format!("v2-{}", hex::encode(hash.finalize())));
-    let legacy = enc(&grant_key(subject, action, resource));
+    let legacy = enc(&format!("{subject}|{action}|{resource}"));
     // Previous names were ASCII. Longer components cannot have existed on
     // the supported filesystems, and probing one would itself fail.
     let old = (legacy.len() <= 255).then(|| dir.join(legacy));
@@ -369,21 +381,12 @@ impl MacPolicy {
         self.state_dir.as_ref().map(|d| d.join("mac.grants"))
     }
 
-    /// Publish a grant or revoke it before exposing any change in memory.
-    /// Serialize migration with updates: a legacy-only record is atomically
-    /// moved, byte-for-byte, before its bounded replacement is committed.
-    fn persist_record(
-        &self,
-        subject: &str,
-        action: &str,
-        resource: &str,
-        token: Option<&CapabilityToken>,
-    ) -> std::io::Result<bool> {
+    fn locked_store(&self) -> std::io::Result<Option<(PathBuf, std::fs::File)>> {
         if let Some(error) = &self.persistence_error {
             return Err(std::io::Error::other(error.clone()));
         }
         let Some(dir) = self.grants_dir() else {
-            return Ok(false);
+            return Ok(None);
         };
         crate::susi_config::create_private_dir(&dir)?;
         let lock = std::fs::OpenOptions::new()
@@ -393,9 +396,31 @@ impl MacPolicy {
             .truncate(false)
             .open(dir.join(".records.lock"))?;
         lock.lock()?;
-        let (current, legacy) = grant_paths(&dir, subject, action, resource);
+        Ok(Some((dir, lock)))
+    }
+
+    /// Writers hold the shared lock while atomically moving a legacy-only
+    /// record to its bounded location. Its prior signed bytes are preserved.
+    fn migrate_record(
+        &self,
+        dir: &Path,
+        subject: &str,
+        action: &str,
+        resource: &str,
+    ) -> std::io::Result<PathBuf> {
+        let (current, legacy) = grant_paths(dir, subject, action, resource);
         if let Some(old) = legacy {
-            if old.try_exists()? {
+            let matches = match std::fs::read(&old) {
+                Ok(bytes) => serde_json::from_slice::<CapabilityToken>(&bytes).is_ok_and(|t| {
+                    t.subject == subject
+                        && t.action == action
+                        && t.resource == resource
+                        && self.verify(&t)
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => return Err(error),
+            };
+            if matches {
                 if current.try_exists()? {
                     std::fs::remove_file(old)?;
                 } else {
@@ -403,31 +428,50 @@ impl MacPolicy {
                 }
             }
         }
-        if let Some(token) = token {
-            let bytes = serde_json::to_vec(token).map_err(std::io::Error::other)?;
-            crate::susi_config::atomic_write_bytes(&current, &bytes)?;
-            return Ok(true);
-        }
-        let previous = match std::fs::read(&current) {
-            Ok(bytes) => Some(
-                serde_json::from_slice::<Option<CapabilityToken>>(&bytes)
-                    .map_err(std::io::Error::other)?,
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error),
+        Ok(current)
+    }
+
+    fn publish(&self, tokens: &[CapabilityToken]) -> std::io::Result<()> {
+        let Some((dir, _lock)) = self.locked_store()? else {
+            for token in tokens {
+                self.grants.insert(
+                    grant_key(&token.subject, &token.action, &token.resource),
+                    token.clone(),
+                );
+            }
+            return Ok(());
         };
-        let default = self
-            .grants
-            .contains_key(&grant_key(subject, action, resource));
-        let present = previous.as_ref().map_or(default, Option::is_some);
-        if present && subject == "susi" && matches!(resource, "*" | "app://*") {
-            // A new process seeds the same implicit defaults. A tombstone
-            // masks just this one binding until explicitly granted again.
-            crate::susi_config::atomic_write_bytes(&current, b"null")?;
-        } else if present && previous.is_some() {
-            std::fs::remove_file(current)?;
+        let mut changes = Vec::new();
+        for token in tokens {
+            let path = self.migrate_record(&dir, &token.subject, &token.action, &token.resource)?;
+            let before = match std::fs::read(&path) {
+                Ok(bytes) => Some(bytes),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e),
+            };
+            changes.push((
+                path,
+                before,
+                serde_json::to_vec(token).map_err(std::io::Error::other)?,
+            ));
         }
-        Ok(present)
+        for (i, (path, _, bytes)) in changes.iter().enumerate() {
+            if let Err(error) = crate::susi_config::atomic_write_bytes(path, bytes) {
+                for (written, before, _) in changes[..i].iter().rev() {
+                    let restored = match before {
+                        Some(original) => crate::susi_config::atomic_write_bytes(written, original),
+                        None => std::fs::remove_file(written),
+                    };
+                    if let Err(rollback) = restored {
+                        return Err(std::io::Error::other(format!(
+                            "grant publication failed ({error}); rollback failed ({rollback})"
+                        )));
+                    }
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     fn current_token(
@@ -509,6 +553,14 @@ impl MacPolicy {
     /// is returned: reporting a switch other processes never see would be a
     /// silent downgrade of the operator's intent.
     pub fn set_mode(&self, mode: PrivacyMode) -> std::io::Result<()> {
+        // A failed downgrade must not advertise a new local-only mode while
+        // a previous wildcard grant still permits the operation.
+        self.revoke("susi", actions::NETWORK_EGRESS, "*")
+            .map_err(std::io::Error::other)?;
+        self.revoke("susi", actions::CLOUD_INFERENCE, "*")
+            .map_err(std::io::Error::other)?;
+        self.revoke("susi", actions::PROCESS_EXEC, "*")
+            .map_err(std::io::Error::other)?;
         if let Some(dir) = self.state_dir.as_ref() {
             crate::susi_config::atomic_write_bytes(
                 &dir.join("privacy_mode"),
@@ -519,12 +571,6 @@ impl MacPolicy {
             *g = mode;
         }
         // Drop elevated grants so the new posture is authoritative.
-        self.revoke("susi", actions::NETWORK_EGRESS, "*")
-            .map_err(std::io::Error::other)?;
-        self.revoke("susi", actions::CLOUD_INFERENCE, "*")
-            .map_err(std::io::Error::other)?;
-        self.revoke("susi", actions::PROCESS_EXEC, "*")
-            .map_err(std::io::Error::other)?;
         self.mandatory_sandbox
             .store(matches!(mode, PrivacyMode::LocalOnly), Ordering::Relaxed);
         self.seed_defaults().map_err(std::io::Error::other)?;
@@ -586,8 +632,7 @@ impl MacPolicy {
                 == 0
     }
 
-    /// Issue and store a capability token.
-    pub fn grant(
+    fn issue_token(
         &self,
         subject: &str,
         action: &str,
@@ -601,8 +646,8 @@ impl MacPolicy {
             resource: resource.into(),
             issued_at: issued,
             expires_at: ttl_secs
-                .map(|t| {
-                    issued.checked_add(t).ok_or_else(|| {
+                .map(|s| {
+                    issued.checked_add(s).ok_or_else(|| {
                         EaiError::config("capability expiry exceeds timestamp range")
                     })
                 })
@@ -610,26 +655,55 @@ impl MacPolicy {
             signature: String::new(),
         };
         token.signature = self.sign(&token);
-        self.persist_record(subject, action, resource, Some(&token))
+        Ok(token)
+    }
+
+    /// Issue and store a capability token. An unwritable shared store never
+    /// turns a failed grant into a successful process-local permission.
+    pub fn grant(
+        &self,
+        subject: &str,
+        action: &str,
+        resource: &str,
+        ttl_secs: Option<u64>,
+    ) -> EaiResult<CapabilityToken> {
+        let token = self.issue_token(subject, action, resource, ttl_secs)?;
+        self.publish(std::slice::from_ref(&token))
             .map_err(|e| EaiError::io(format!("could not persist capability grant: {e}")))?;
-        if self.state_dir.is_none() {
-            self.grants
-                .insert(grant_key(subject, action, resource), token.clone());
-        }
         Ok(token)
     }
 
     pub fn revoke(&self, subject: &str, action: &str, resource: &str) -> EaiResult<bool> {
+        self.revoke_record(subject, action, resource)
+            .map_err(|e| EaiError::io(format!("could not revoke capability grant: {e}")))
+    }
+
+    fn revoke_record(&self, subject: &str, action: &str, resource: &str) -> std::io::Result<bool> {
         let key = grant_key(subject, action, resource);
-        let persisted = self
-            .persist_record(subject, action, resource, None)
-            .map_err(|e| EaiError::io(format!("could not revoke capability grant: {e}")))?;
-        let memory = self.grants.remove(&key).is_some();
-        Ok(if self.state_dir.is_some() {
-            persisted
-        } else {
-            memory
-        })
+        let Some((dir, _lock)) = self.locked_store()? else {
+            return Ok(self.grants.remove(&key).is_some());
+        };
+        let current = self.migrate_record(&dir, subject, action, resource)?;
+        let present = match std::fs::read(&current) {
+            Ok(bytes) => serde_json::from_slice::<Option<CapabilityToken>>(&bytes)
+                .map_err(std::io::Error::other)?
+                .is_some(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.grants.contains_key(&key)
+            }
+            Err(error) => return Err(error),
+        };
+        if present {
+            if subject == "susi" && matches!(resource, "*" | "app://*") {
+                // New consumers seed implicit host defaults. A tombstone masks
+                // this binding until it is explicitly granted again.
+                crate::susi_config::atomic_write_bytes(&current, b"null")?;
+            } else {
+                std::fs::remove_file(&current)?;
+            }
+        }
+        self.grants.remove(&key);
+        Ok(present)
     }
 
     pub fn grants_for(&self, subject: &str) -> Vec<CapabilityToken> {
@@ -641,11 +715,19 @@ impl MacPolicy {
 
     /// Explicit operator consent for network egress (and optionally cloud).
     pub fn consent_egress(&self, subject: &str, ttl_secs: u64) -> EaiResult<Vec<CapabilityToken>> {
-        let mut out = vec![self.grant(subject, actions::NETWORK_EGRESS, "*", Some(ttl_secs))?];
+        let mut tokens =
+            vec![self.issue_token(subject, actions::NETWORK_EGRESS, "*", Some(ttl_secs))?];
         if matches!(self.mode(), PrivacyMode::LocalOnly) {
-            out.push(self.grant(subject, actions::CLOUD_INFERENCE, "*", Some(ttl_secs))?);
+            tokens.push(self.issue_token(
+                subject,
+                actions::CLOUD_INFERENCE,
+                "*",
+                Some(ttl_secs),
+            )?);
         }
-        Ok(out)
+        self.publish(&tokens)
+            .map_err(|e| EaiError::io(format!("could not persist egress consent: {e}")))?;
+        Ok(tokens)
     }
 
     pub fn is_permitted(&self, subject: &str, action: &str, resource: &str) -> bool {
@@ -666,32 +748,25 @@ impl MacPolicy {
     }
 
     fn seed_defaults(&self) -> EaiResult<()> {
-        let subject = "susi";
-        // Always allow local read of workspace-scoped data.
-        self.grant(subject, actions::FILESYSTEM_READ, "*", None)?;
-        self.grant(subject, actions::FILESYSTEM_WRITE, "*", None)?;
-        self.grant(subject, actions::SANDBOX_EXEC, "*", None)?;
-        self.grant(subject, actions::TRANSMIT, "app://*", None)?;
-
-        match self.mode() {
-            PrivacyMode::Open => {
-                self.grant(subject, actions::PROCESS_EXEC, "*", None)?;
-                self.grant(subject, actions::NETWORK_EGRESS, "*", None)?;
-                self.grant(subject, actions::CLOUD_INFERENCE, "*", None)?;
-            }
-            PrivacyMode::Balanced => {
-                self.grant(subject, actions::PROCESS_EXEC, "*", None)?;
-                // Signed default egress for host substrate so zero-config MCP
-                // keeps working; revoke or switch to local_only to lock down.
-                self.grant(subject, actions::NETWORK_EGRESS, "*", None)?;
-                self.grant(subject, actions::CLOUD_INFERENCE, "*", None)?;
-            }
-            PrivacyMode::LocalOnly => {
-                // No host process.exec by default — sandbox only.
-                // No network / cloud without consent_egress.
-            }
+        let mut bindings = vec![
+            (actions::FILESYSTEM_READ, "*"),
+            (actions::FILESYSTEM_WRITE, "*"),
+            (actions::SANDBOX_EXEC, "*"),
+            (actions::TRANSMIT, "app://*"),
+        ];
+        if !matches!(self.mode(), PrivacyMode::LocalOnly) {
+            bindings.extend([
+                (actions::PROCESS_EXEC, "*"),
+                (actions::NETWORK_EGRESS, "*"),
+                (actions::CLOUD_INFERENCE, "*"),
+            ]);
         }
-        Ok(())
+        let tokens = bindings
+            .into_iter()
+            .map(|(action, resource)| self.issue_token("susi", action, resource, None))
+            .collect::<EaiResult<Vec<_>>>()?;
+        self.publish(&tokens)
+            .map_err(|e| EaiError::io(format!("could not store MAC defaults: {e}")))
     }
 
     /// Tools that send data off-host but whose names match none of the
@@ -841,6 +916,68 @@ mod tests {
             .unwrap();
         assert!(!p.is_permitted("agent-b", actions::NETWORK_EGRESS, "*"));
         assert!(expired.is_expired(now_secs()));
+    }
+
+    #[test]
+    fn live_wired_readers_follow_revocation_and_refuse_a_misfiled_token() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mac-live-grants-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let writer = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let reader = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let scope = format!("mcp://peers/{}/", "long-resource".repeat(30));
+        writer
+            .grant("worker", actions::PROCESS_EXEC, &scope, None)
+            .unwrap();
+        assert!(reader.is_permitted("worker", actions::PROCESS_EXEC, &scope));
+        // A correctly signed record from a different binding cannot supply this one.
+        let dir = root.join("mac.grants");
+        let (valid, _) = grant_paths(&dir, "worker", actions::PROCESS_EXEC, &scope);
+        let (wrong, _) = grant_paths(&dir, "different", actions::NETWORK_EGRESS, "*");
+        std::fs::copy(valid, wrong).unwrap();
+        assert!(!reader.is_permitted(
+            "different",
+            actions::NETWORK_EGRESS,
+            "https://example.invalid"
+        ));
+        assert!(writer
+            .revoke("worker", actions::PROCESS_EXEC, &scope)
+            .unwrap());
+        assert!(!reader.is_permitted("worker", actions::PROCESS_EXEC, &scope));
+        assert!(!writer
+            .revoke("worker", actions::PROCESS_EXEC, &scope)
+            .unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn blocked_consent_record_does_not_publish_the_other_capability() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mac-failed-consent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let writer = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let reader = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        let (blocked, _) = grant_paths(
+            &root.join("mac.grants"),
+            "agent",
+            actions::CLOUD_INFERENCE,
+            "*",
+        );
+        std::fs::create_dir_all(blocked).unwrap();
+        assert!(writer.consent_egress("agent", 60).is_err());
+        assert!(!writer.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
+        assert!(!reader.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1048,6 +1185,25 @@ mod tests {
         assert_eq!(
             MacPolicy::requirements_for_tool("semantic_search"),
             vec![(actions::FILESYSTEM_READ, "*")]
+        );
+    }
+
+    #[test]
+    fn a_signed_binding_with_a_delimiter_cannot_be_repartitioned() {
+        let policy = policy(PrivacyMode::LocalOnly);
+        let mut token = policy
+            .grant("mission|worker", "process.exec", "*", None)
+            .unwrap();
+        assert!(policy.verify(&token));
+        token.subject = "mission".into();
+        token.action = "worker|process.exec".into();
+        assert!(!policy.verify(&token));
+        let ambiguous = format!("mission|worker|process.exec|*|{}|none", token.issued_at);
+        token.signature = hex::encode(hmac_sha256(&policy.key, ambiguous.as_bytes()));
+        assert!(!policy.verify(&token));
+        assert_ne!(
+            grant_key("mission|worker", "process.exec", "*"),
+            grant_key("mission", "worker|process.exec", "*")
         );
     }
 
