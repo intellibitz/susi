@@ -10,5 +10,10 @@
     ]
   },
   "created_by": "CODEXLOCALINTEGRATIONLATENCY1102",
-  "created_unix": 1793603848
+  "created_unix": 1793603848,
+  "closed": {
+    "at_unix": 1793604793,
+    "commit": "4c446ebcf8b591e3ee2eb75fff9aea53fbe176d4",
+    "by": "CODEXLOCALINTEGRATIONLATENCY1102"
+  }
 }
