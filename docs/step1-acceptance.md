@@ -482,7 +482,36 @@ with 1.06 GB peak sampled memory. Logs are in
 `.artifacts/native-audit/step1-c-integration.log`,
 `production-c-qualification.log` and `production-c-promote-rollback.log`.
 
-Known limits, not waived: one download attempt still has a 60-second total
-budget, so completion relies on resumed retries, and the recovery ladder's
-citation rule can still reject a correct uncited local answer. Neither blocked
-this journey.
+Both limits found here are closed by release D below.
+
+## Production release D: slow downloads and tool-free recovery answers (2026-11-02)
+
+Release D (0.21.41, task T-STEP1D-1) closes both limits left open by C.
+Downloads keep the fixed 60-second total per transfer call, but only calls
+that add no resumable bytes spend the four-attempt budget, and progress
+refunds it. A download needing five cut-short calls now completes under a
+two-stall budget. In recovery, a local in-process rung on a mission that
+captured nothing to cite self-cites its inference receipt. Its answer then
+carries the same "No citations found" warning as the first attempt. Captured
+evidence must still be cited, cloud prose stays strict, and the strict gate
+itself is unchanged.
+
+| Gate | Result | Wall clock |
+| --- | --- | --- |
+| Combined integration, 14 commands | accepted `083e9d73`, receipt for `871a605d` | 1101 s |
+| Production qualification | release `7d343072…`, artifact SHA256 `50571b2b…8683` | 1466 s |
+| Clean 8 GiB VM, fresh user `SusiBTf3485fea`, uncached | passed; download about 40 s; both goals answered; zero forced cleanup | 139 s |
+| Promote D | current `7d343072…`; `run --version` 0.21.41 | 3.5 s |
+| Roll back to C | current C `b8bb0f99…`; `run --version` 0.21.40 | 2.5 s |
+| Re-promote D | current D, previous C; `run --version` 0.21.41 | 2.7 s |
+
+The VM journey did not reach the recovery ladder, so the recovery change is
+proven by unit tests, not by the journey. The first VM attempt did not run:
+the three-hour administrator cache had expired and the UAC prompts were
+unattended. It ran after fresh approval.
+
+### Releases E and F on Windows
+
+Release E (0.21.42) established verified installation through the Start Menu and ordinary PATH, including rollback to D and restoration of E. A standalone Windows task subsequently found that the Codex-hosted installer had written to a virtualized filesystem. Agents repaired the actual user installation and repeated the launch and rollback checks outside Codex. [Release E standalone evidence](../.agents/evidence/release42-standalone.json)
+
+Release F (0.21.43) is the current qualified Windows production release, with E retained for rollback. On the clean 8 GiB Windows guest, installation start to prompt was 8.718 seconds. The first correct local answer arrived at 56.899 seconds and the second at 58.875 seconds. The 44.301 seconds between the model download notice and the completion notice include transport, validation and publication. A limited Windows task verified PATH and Start Menu launches through F, E and restored F. All six pre-existing production processes survived. On the separate cache-seeded host, the first answer took 4.444 seconds and the repeated goal took 2.079 seconds. The cold first-answer speed target and byte-identical standard-library rebuilds remain open. [Release F production evidence](../.agents/evidence/release43-windows.json)
