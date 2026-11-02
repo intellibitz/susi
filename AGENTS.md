@@ -51,6 +51,19 @@ implementation statically linked into Susi. Preserve original attribution and
 bind any custom standard-library replacement to its source, builder, compiler,
 selected dependency graph and actual linked artifacts before production approval.
 
+## Open-core boundary
+
+Susi is the open, Apache-2.0 substrate and stays that way. This repository holds
+what an individual developer needs on one host: the runtime, CLI, daemon, public
+host protocols and the extension, Wasm and MCP/A2A surfaces others build on.
+Before adding a feature, ask who would buy it. Organisation-scale capabilities
+(multi-user administration, SSO/RBAC, fleet management across hosts, central
+spend governance, executive dashboards and turnkey vertical workflows) are built
+outside this repository on the public surfaces, not in it. Never commit
+proprietary code, licensing keys or non-public product plans here, and never
+admit a dependency whose license would bind software built on top of Susi.
+The Apache-2.0 license grants code rights, not rights to the Susi name or marks.
+
 ## Native local agent loop
 
 1. Inspect the actual repository, local integration head and existing changes.
