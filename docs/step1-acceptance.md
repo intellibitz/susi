@@ -482,7 +482,30 @@ with 1.06 GB peak sampled memory. Logs are in
 `.artifacts/native-audit/step1-c-integration.log`,
 `production-c-qualification.log` and `production-c-promote-rollback.log`.
 
-Known limits, not waived: one download attempt still has a 60-second total
-budget, so completion relies on resumed retries, and the recovery ladder's
-citation rule can still reject a correct uncited local answer. Neither blocked
-this journey.
+Both limits found here are closed by release D below.
+
+## Production release D: slow downloads and tool-free recovery answers (2026-11-02)
+
+Release D (0.21.41, task T-STEP1D-1) closes both limits left open by C.
+Downloads keep the fixed 60-second total per transfer call, but only calls
+that add no resumable bytes spend the four-attempt budget, and progress
+refunds it. A download needing five cut-short calls now completes under a
+two-stall budget. In recovery, a local in-process rung on a mission that
+captured nothing to cite self-cites its inference receipt. Its answer then
+carries the same "No citations found" warning as the first attempt. Captured
+evidence must still be cited, cloud prose stays strict, and the strict gate
+itself is unchanged.
+
+| Gate | Result | Wall clock |
+| --- | --- | --- |
+| Combined integration, 14 commands | accepted `083e9d73`, receipt for `871a605d` | 1101 s |
+| Production qualification | release `7d343072…`, artifact SHA256 `50571b2b…8683` | 1466 s |
+| Clean 8 GiB VM, fresh user `SusiBTf3485fea`, uncached | passed; download about 40 s; both goals answered; zero forced cleanup | 139 s |
+| Promote D | current `7d343072…`; `run --version` 0.21.41 | 3.5 s |
+| Roll back to C | current C `b8bb0f99…`; `run --version` 0.21.40 | 2.5 s |
+| Re-promote D | current D, previous C; `run --version` 0.21.41 | 2.7 s |
+
+The VM journey did not reach the recovery ladder, so the recovery change is
+proven by unit tests, not by the journey. The first VM attempt did not run:
+the three-hour administrator cache had expired and the UAC prompts were
+unattended. It ran after fresh approval.
