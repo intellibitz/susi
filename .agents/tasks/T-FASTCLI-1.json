@@ -5,14 +5,22 @@
   "deps": [],
   "scopes": [
     ".agents/tasks/t-fastcli-1.json",
+    ".github/workflows/test.yml",
+    "src/cli/status_cli.rs",
     "src/installed_channel.rs",
     "src/installed_channel/transaction.rs",
-    "src/cli/status_cli.rs",
     "tests"
   ],
   "size": "s",
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "installed_windows_entry"]
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "installed_windows_entry"
+    ]
   },
   "created_by": "FASTCLI",
   "created_unix": 1793658816
