@@ -89,15 +89,31 @@ impl ModelManager {
     #[allow(clippy::type_complexity)] // one-off function-local cache tuple; a named type would add no clarity
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<DynamicModelInfo> {
         static MODEL_SCAN_CACHE: std::sync::LazyLock<
-            parking_lot::RwLock<Option<(PathBuf, u64, std::time::Instant, Vec<DynamicModelInfo>)>>,
+            parking_lot::RwLock<
+                Option<(
+                    PathBuf,
+                    u64,
+                    Option<std::time::SystemTime>,
+                    std::time::Instant,
+                    Vec<DynamicModelInfo>,
+                )>,
+            >,
         > = std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
 
+        // Another process (the daemon, a second shell) can publish a model
+        // into the shared directory; that bumps no in-process generation,
+        // but the rename updates the directory's modification time.
+        let models_dir = Self::get_models_dir();
+        let models_stamp = fs::metadata(&models_dir)
+            .and_then(|meta| meta.modified())
+            .ok();
         {
             let cache = MODEL_SCAN_CACHE.read();
-            if let Some((ref cached_workspace, generation, ts, ref list)) = *cache {
+            if let Some((ref cached_workspace, generation, stamp, ts, ref list)) = *cache {
                 if cached_workspace == workspace
                     && generation
                         == MODEL_SCAN_GENERATION.load(std::sync::atomic::Ordering::Acquire)
+                    && stamp == models_stamp
                     && ts.elapsed().as_secs() < 60
                 {
                     return list.clone();
@@ -121,7 +137,6 @@ impl ModelManager {
         if workspace.is_dir() {
             Self::recursive_scan_model_dir(workspace, &mut discovered, &mut visited, 0, &rules);
         }
-        let models_dir = Self::get_models_dir();
         if models_dir.is_dir() && models_dir != workspace {
             Self::recursive_scan_model_dir(&models_dir, &mut discovered, &mut visited, 0, &rules);
         }
@@ -142,6 +157,7 @@ impl ModelManager {
             *cache = Some((
                 workspace.to_path_buf(),
                 MODEL_SCAN_GENERATION.load(std::sync::atomic::Ordering::Acquire),
+                models_stamp,
                 std::time::Instant::now(),
                 discovered.clone(),
             ));
@@ -363,5 +379,34 @@ impl ModelManager {
                 Self::recursive_scan_model_dir_for_paths(&sd, discovered_folders, visited, rules);
             }
         }
+    }
+}
+
+#[cfg(test)]
+// Test fixture setup must fail loudly; production retains denied panic-path lints.
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_published_by_another_process_is_seen_before_the_cache_expires() {
+        let workspace =
+            std::env::temp_dir().join(format!("susi-scan-fresh-workspace-{}", std::process::id()));
+        fs::create_dir_all(&workspace).unwrap();
+        let model =
+            ModelManager::get_models_dir().join(format!("scan-fresh-{}.gguf", std::process::id()));
+        let _ = fs::remove_file(&model);
+        let listed = |path: &Path| {
+            ModelManager::scan_system_for_local_models(&workspace)
+                .iter()
+                .any(|m| Path::new(m.model_id()) == path)
+        };
+        assert!(!listed(&model));
+        // A daemon's download lands without bumping this process's
+        // generation; only the shared directory changes.
+        fs::write(&model, vec![0u8; 1_000_001]).unwrap();
+        let seen = listed(&model);
+        let _ = fs::remove_file(&model);
+        assert!(seen, "a model published by another process stayed hidden");
     }
 }
