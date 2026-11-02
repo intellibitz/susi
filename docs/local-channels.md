@@ -8,6 +8,23 @@ qualified ID with `cargo local-release promote <id>`, launch it with
 `cargo local-release rollback`. Use `cargo local-release status` to inspect
 both release IDs. These commands work locally.
 
+For Windows user deployment, the agent invokes `cargo local-release install-current`
+after verified promotion or rollback. This command installs and checks the promoted
+ID for ordinary launches. For a clean machine, `cargo local-release export-qualified
+<id> <new-absolute-directory>` exports the admitted release and its qualified
+predecessor when available. The agent transfers the bundle and release IDs through
+its trusted connection and invokes the current bundle's `susi.exe install-release
+--id <id> --previous <previous-id>`. Omit the predecessor argument for the first
+qualified release. The target verifies the executable, evidence, notices and SBOM
+offline. The producer retains the full qualification log.
+
+The user can then open **Susi (local production)** or type `susi` in a new
+terminal. Both entry points use the same installed selector. Its atomic update
+selects an immutable executable for each new launch. Running processes continue
+from their original slot. Repeating an interrupted installation recovers its
+recorded transition. The agent can inspect the deployment with
+`susi install-release --status`.
+
 The legacy Windows helper `scripts/susi-local.ps1` supports the development
 channel only. Its default `Build` action installs the incremental development
 executable under `%LOCALAPPDATA%/SusiLocal/dev`. Whole-program LTO is disabled. Cargo

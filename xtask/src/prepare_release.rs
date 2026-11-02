@@ -71,12 +71,33 @@ fn next_patch(version: &str) -> Result<String> {
 type FileChange = (String, Vec<u8>, Vec<u8>);
 type VersionPlan = (String, String, Vec<FileChange>);
 
+fn version_input(root: &Path, relative: &str) -> Result<Vec<u8>> {
+    let mut path = root.to_path_buf();
+    for part in Path::new(relative).components() {
+        path.push(part);
+        let metadata = fs::symlink_metadata(&path)?;
+        let redirected = metadata.file_type().is_symlink();
+        #[cfg(windows)]
+        let redirected = {
+            use std::os::windows::fs::MetadataExt;
+            redirected || metadata.file_attributes() & 0x400 != 0
+        };
+        if redirected {
+            return Err(format!("redirected version input: {relative}").into());
+        }
+    }
+    Ok(fs::read(path)?)
+}
+
 fn plan(root: &Path) -> Result<VersionPlan> {
-    let old = package_value(&fs::read_to_string(root.join("Cargo.toml"))?, "version")?;
+    let old = package_value(
+        std::str::from_utf8(&version_input(root, "Cargo.toml")?)?,
+        "version",
+    )?;
     let next = next_patch(&old)?;
     let mut files = Vec::new();
     for (path, name) in MANIFESTS {
-        let bytes = fs::read(root.join(path))?;
+        let bytes = version_input(root, path)?;
         let text = std::str::from_utf8(&bytes)?;
         if package_value(text, "name")? != name || package_value(text, "version")? != old {
             return Err(format!("engine manifest is inconsistent: {path}").into());
@@ -97,16 +118,11 @@ fn plan(root: &Path) -> Result<VersionPlan> {
         files.push((path.into(), bytes, new.into_bytes()));
     }
     for (path, schema) in JSON {
-        let bytes = fs::read(root.join(path))?;
-        let mut json: serde_json::Value = serde_json::from_slice(&bytes)?;
-        if json["schema"] != schema || json["version"] != old {
-            return Err(format!("governance version/schema mismatch: {path}").into());
-        }
-        json["version"] = next.clone().into();
-        let new = (serde_json::to_string_pretty(&json)? + "\n").into_bytes();
+        let bytes = version_input(root, path)?;
+        let new = governance_version(&bytes, schema, &old, &next)?;
         files.push((path.into(), bytes, new));
     }
-    let bytes = fs::read(root.join("README.md"))?;
+    let bytes = version_input(root, "README.md")?;
     let text = std::str::from_utf8(&bytes)?;
     let badge = format!("https://img.shields.io/badge/version-v{old}-blue.svg");
     if text.matches(&badge).count() != 1 {
@@ -120,63 +136,106 @@ fn plan(root: &Path) -> Result<VersionPlan> {
         )
         .into_bytes();
     files.push(("README.md".into(), bytes, new));
-    let lock = fs::read(root.join("Cargo.lock"))?;
-    files.push(("Cargo.lock".into(), lock.clone(), lock));
+    let lock = version_input(root, "Cargo.lock")?;
+    let updated = next_lock(&lock, &old, &next)?;
+    files.push(("Cargo.lock".into(), lock, updated));
     Ok((old, next, files))
 }
 
-fn lock_invariants(before: &[u8], after: &[u8], old: &str, next: &str) -> Result<()> {
-    let old_text = std::str::from_utf8(before)?;
-    let new_text = std::str::from_utf8(after)?;
-    let field = |block: &str, key: &str| -> Option<String> {
-        block
-            .lines()
-            .find_map(|line| line.strip_prefix(&format!("{key} = \"")))
-            .and_then(|value| value.strip_suffix('"'))
-            .map(str::to_owned)
-    };
-    let mut remaining_before = Vec::new();
-    let mut remaining_after = Vec::new();
-    for (text, expected, remaining) in [
-        (old_text, old, &mut remaining_before),
-        (new_text, next, &mut remaining_after),
-    ] {
-        let blocks: Vec<_> = text.split("[[package]]").skip(1).collect();
-        for (_, name) in MANIFESTS {
-            let matches: Vec<_> = blocks
-                .iter()
-                .filter(|block| field(block, "name").as_deref() == Some(name))
-                .collect();
-            if matches.len() != 1
-                || field(matches[0], "version").as_deref() != Some(expected)
-                || field(matches[0], "source").is_some()
-            {
-                return Err(format!("engine lock entry mismatch: {name}").into());
-            }
+/// Use native JSON token offsets so the edit preserves all other bytes, including
+/// whitespace, escaping, key order, and historical versions with the same value.
+fn governance_version(bytes: &[u8], schema: &str, old: &str, next: &str) -> Result<Vec<u8>> {
+    let doc: serde_json::Value = serde_json::from_slice(bytes)?;
+    if doc["schema"] != schema || doc["version"] != old {
+        return Err("governance version/schema mismatch".into());
+    }
+    let mut rest = bytes
+        .trim_ascii_start()
+        .strip_prefix(b"{")
+        .ok_or("expected governance object")?;
+    let mut span = None;
+    loop {
+        rest = rest.trim_ascii_start();
+        if rest.starts_with(b"}") {
+            break;
         }
-        remaining.extend(
-            blocks
-                .into_iter()
-                .filter(|block| {
-                    !MANIFESTS
-                        .iter()
-                        .any(|(_, name)| field(block, "name").as_deref() == Some(name))
-                })
-                .map(|block| block.trim().to_owned()),
-        );
-        remaining.sort();
+        let mut keys = serde_json::Deserializer::from_slice(rest).into_iter::<String>();
+        let key = keys.next().transpose()?.ok_or("missing governance key")?;
+        rest = rest[keys.byte_offset()..]
+            .trim_ascii_start()
+            .strip_prefix(b":")
+            .ok_or("missing field separator")?
+            .trim_ascii_start();
+        let mut values =
+            serde_json::Deserializer::from_slice(rest).into_iter::<serde_json::Value>();
+        let value = values
+            .next()
+            .transpose()?
+            .ok_or("missing governance value")?;
+        let length = values.byte_offset();
+        if key == "version" {
+            if value != old || span.is_some() {
+                return Err("ambiguous governance version".into());
+            }
+            let start = bytes.len() - rest.len();
+            span = Some(start..start + length);
+        }
+        rest = rest[length..].trim_ascii_start();
+        if let Some(fields) = rest.strip_prefix(b",") {
+            rest = fields;
+        } else {
+            break;
+        }
     }
-    if remaining_before != remaining_after {
-        return Err("version preparation changed non-engine lock entries".into());
+    let span = span.ok_or("missing top-level governance version")?;
+    let mut result = bytes.to_vec();
+    result.splice(span, serde_json::to_vec(next)?);
+    Ok(result)
+}
+
+/// Change exactly the version field of each of the seven engine packages.
+fn next_lock(before: &[u8], old: &str, next: &str) -> Result<Vec<u8>> {
+    let text = std::str::from_utf8(before)?;
+    let mut blocks = text.split("[[package]]");
+    let mut updated = blocks.next().unwrap_or_default().to_owned();
+    let mut seen = std::collections::BTreeSet::new();
+    for block in blocks {
+        updated.push_str("[[package]]");
+        let name = block.lines().find_map(|line| {
+            line.strip_prefix("name = \"")
+                .and_then(|n| n.strip_suffix('"'))
+        });
+        if let Some(engine) = name.filter(|name| MANIFESTS.iter().any(|(_, engine)| engine == name))
+        {
+            let version = format!("version = \"{old}\"");
+            if !seen.insert(engine)
+                || block.lines().filter(|line| *line == version).count() != 1
+                || block.lines().any(|line| line.starts_with("source = "))
+            {
+                return Err(format!("engine lock entry mismatch: {engine}").into());
+            }
+            for line in block.split_inclusive('\n') {
+                if line.trim_end_matches(['\r', '\n']) == version {
+                    updated.push_str(&line.replacen(&version, &format!("version = \"{next}\""), 1));
+                } else {
+                    updated.push_str(line);
+                }
+            }
+        } else {
+            updated.push_str(block);
+        }
     }
-    Ok(())
+    if seen.len() != MANIFESTS.len() {
+        return Err("engine lock entries missing".into());
+    }
+    Ok(updated.into_bytes())
 }
 
 fn apply<F>(root: &Path, journal: &Path, update: F) -> Result<String>
 where
     F: FnOnce(&Path) -> Result<()>,
 {
-    let (old, next, files) = plan(root)?;
+    let (_, next, files) = plan(root)?;
     fs::create_dir(journal)?;
     for (index, (path, bytes, _)) in files.iter().enumerate() {
         for (name, content) in [
@@ -194,11 +253,13 @@ where
             fs::write(root.join(path), bytes)?;
         }
         update(root)?;
-        let lock = files
-            .iter()
-            .find(|(path, _, _)| path == "Cargo.lock")
-            .ok_or("lock snapshot missing")?;
-        lock_invariants(&lock.1, &fs::read(root.join("Cargo.lock"))?, &old, &next)?;
+        for (path, _, expected) in &files {
+            if fs::read(root.join(path))? != *expected {
+                return Err(
+                    format!("version preparation changed additional contents of {path}").into(),
+                );
+            }
+        }
         fs::write(
             journal.join("state"),
             "prepared; source changes need commit, integration and qualification\n",
@@ -239,21 +300,35 @@ fn scope_covers_version_path(path: &str, scope: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
-fn verify_version_base(
-    root: &Path,
-    promoted: &str,
-    head: &str,
-    files: &[FileChange],
-) -> Result<()> {
+fn verify_version_base(root: &Path, promoted: &str, head: &str, old: &str) -> Result<()> {
     if git(root, &["merge-base", promoted, head])? != promoted {
         return Err("version preparation requires a descendant of the promoted source".into());
     }
-    let mut args = vec!["diff", "--name-only", promoted, head, "--"];
-    args.extend(files.iter().map(|(path, _, _)| path.as_str()));
-    let changed = git(root, &args)?;
-    if !changed.is_empty() {
-        return Err(format!("version inputs changed since promotion: {changed}").into());
+    let read = |path: &str| git(root, &["show", &format!("{promoted}:{path}")]);
+    for (path, name) in MANIFESTS {
+        let manifest = read(path)?;
+        if package_value(&manifest, "name")? != name || package_value(&manifest, "version")? != old
+        {
+            return Err(format!(
+                "accepted engine version differs from its promoted predecessor: {path}"
+            )
+            .into());
+        }
     }
+    let next = next_patch(old)?;
+    for (path, schema) in JSON {
+        governance_version(read(path)?.as_bytes(), schema, old, &next)?;
+    }
+    if read("README.md")?
+        .matches(&format!(
+            "https://img.shields.io/badge/version-v{old}-blue.svg"
+        ))
+        .count()
+        != 1
+    {
+        return Err("promoted version badge does not match the accepted source".into());
+    }
+    next_lock(read("Cargo.lock")?.as_bytes(), old, &next)?;
     Ok(())
 }
 
@@ -309,7 +384,7 @@ pub(super) fn run(ctx: &Context) -> Result<()> {
     let manifest = Manifest::decode(&(git(&ctx.root, &["cat-file", "blob", &current])? + "\n"))?;
     let tree = git(&ctx.root, &["rev-parse", "HEAD^{tree}"])?;
     integration_receipt(ctx, &head, &tree)?;
-    verify_version_base(&ctx.root, &manifest.source, &head, &files)?;
+    verify_version_base(&ctx.root, &manifest.source, &head, &old)?;
     let attempt = ctx.state.join(format!("prepare-next-{}", stamp()?));
     let health = ctx.state.join(format!("prepare-health-{}", stamp()?));
     fs::create_dir(&health)?;
@@ -325,10 +400,19 @@ pub(super) fn run(ctx: &Context) -> Result<()> {
     let version = apply(&ctx.root, &attempt, |root| {
         let status = Command::new("cargo")
             .current_dir(root)
-            .args(["update", "--workspace", "--offline"])
+            .args([
+                "metadata",
+                "--offline",
+                "--locked",
+                "--format-version",
+                "1",
+                "--filter-platform",
+                &manifest.host,
+            ])
+            .stdout(std::process::Stdio::null())
             .status()?;
         if !status.success() {
-            return Err("offline workspace lock update failed".into());
+            return Err("offline verification of the exact versioned workspace lock failed".into());
         }
         Ok(())
     })?;
@@ -477,7 +561,25 @@ mod tests {
     }
 
     #[test]
-    fn version_preparation_accepts_descendants_only_with_unchanged_version_inputs() {
+    fn governance_edit_preserves_formatting_unknown_fields_and_historical_versions() {
+        let before=br#"{ "history" : [{"version":"0.21.38"}],  "schema":"susi/test", "ver\u0073ion" : "0\u002e21.38", "note" : "0.21.38" }
+"#;
+        let updated = governance_version(before, "susi/test", "0.21.38", "0.21.39").unwrap();
+        let expected = std::str::from_utf8(before)
+            .unwrap()
+            .replace(r#""0\u002e21.38""#, r#""0.21.39""#);
+        assert_eq!(updated, expected.as_bytes());
+        assert!(governance_version(
+            br#"{"schema":"susi/test","version":"0.21.38","version":"0.21.38"}"#,
+            "susi/test",
+            "0.21.38",
+            "0.21.39"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn version_preparation_preserves_accepted_changes_and_refuses_version_drift() {
         let root = fixture();
         git(&root, &["init", "-q"]).unwrap();
         git(&root, &["config", "user.name", "Fixture"]).unwrap();
@@ -498,19 +600,40 @@ mod tests {
             .unwrap();
             git(&root, &["rev-parse", "HEAD"]).unwrap()
         };
-        let (_, _, inputs) = plan(&root).unwrap();
+        let (old, _, _) = plan(&root).unwrap();
         let promoted = commit();
-        assert!(verify_version_base(&root, &promoted, &promoted, &inputs).is_ok());
+        assert!(verify_version_base(&root, &promoted, &promoted, &old).is_ok());
         fs::write(root.join("src/lib.rs"), "// unrelated accepted change\n").unwrap();
         let head = commit();
-        assert!(verify_version_base(&root, &promoted, &head, &inputs).is_ok());
-        assert!(verify_version_base(&root, &head, &promoted, &inputs).is_err());
-        fs::write(root.join("Cargo.lock"), "# changed dependency graph\n").unwrap();
+        assert!(verify_version_base(&root, &promoted, &head, &old).is_ok());
+        assert!(verify_version_base(&root, &head, &promoted, &old).is_err());
+        let lock = root.join("Cargo.lock");
+        let accepted = format!(
+            "# accepted dependency provenance\n{}",
+            fs::read_to_string(&lock).unwrap()
+        );
+        fs::write(&lock, &accepted).unwrap();
         let changed = commit();
-        assert!(verify_version_base(&root, &promoted, &changed, &inputs)
-            .unwrap_err()
-            .to_string()
-            .contains("Cargo.lock"));
+        assert!(verify_version_base(&root, &promoted, &changed, &old).is_ok());
+        assert!(verify_version_base(&root, &promoted, &changed, "0.21.99").is_err());
+        let journal = root
+            .parent()
+            .unwrap()
+            .join(format!("version-lock-{}", stamp().unwrap()));
+        assert!(apply(&root, &journal, |_| {
+            let text = fs::read_to_string(&lock)?;
+            fs::write(
+                &lock,
+                text.replacen(
+                    "name = \"susi\"",
+                    "name = \"susi\"\ndependencies = [\"injected\"]",
+                    1,
+                ),
+            )?;
+            Ok(())
+        })
+        .is_err());
+        assert_eq!(fs::read_to_string(lock).unwrap(), accepted);
     }
 
     #[test]

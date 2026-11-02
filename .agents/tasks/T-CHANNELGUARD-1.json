@@ -1,21 +1,36 @@
 {
   "id": "T-CHANNELGUARD-1",
-  "title": "Protect production selection and prepare the next version from accepted descendants",
-  "goal": "All production actions must fail before accessing channel state. Development status remains usable. The native release workflow is responsible for verified qualification, promotion, rollback and launch. Permit version preparation on a receipted integrated descendant of the verified promoted source only when all version input files match that source. Preserve qualification, version health, scope checks and failure recovery.",
-  "size": "s",
-  "deps": [],
+  "title": "Install and recover verified ordinary Windows launches and prepare a successor on accepted source",
+  "goal": "The native qualifier admits, exports and deploys the exact Windows release. Fresh users launch through PATH and Start Menu without project tools; the SHA-bound selector preserves a running image, recovers interruption, rejects tamper and supports a verified rollback. Prepare the next patch only on a clean, receipted descendant of the promoted release, preserving unrelated governance, manifests and locked dependencies. Reject legacy production commands before state access. Combined source acceptance includes the startup hook f44405a84, producer bridge 5a2f846d6, and the original locked dependency graph. The original UTF-16 Shell Link writer and its one reviewed Windows environment broadcast add no external dependency.",
+  "size": "l",
+  "deps": [
+    "T-BATCH1102-2",
+    "T-COUNT1102-1"
+  ],
   "scopes": [
     "scripts/susi-local.ps1",
     "docs/local-channels.md",
+    "xtask/src/prepare_release.rs",
+    "xtask/src/installed_delivery.rs",
+    "src/installed_channel.rs",
+    "src/installed_channel/",
+    "src/cli/defs.rs",
+    "src/cli/install_cli.rs",
+    "src/cli/mission_cli.rs",
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/channel_bindings.rs",
     ".agents/tasks/T-CHANNELGUARD-1.json",
-    "xtask/src/prepare_release.rs"
+    "crates/susi-harness/src/channel_bindings/",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/windows_environment.rs",
+    "tests/installed_windows_entry.rs"
   ],
   "accept": {
     "cmd": [
       "powershell",
       "-NoProfile",
       "-Command",
-      "$ErrorActionPreference='Stop'\n$fixture=Join-Path ([IO.Path]::GetTempPath()) ('susi-channel-guard-'+[Guid]::NewGuid().ToString('N'))\n$dev=Join-Path $fixture 'dev'\n$production=Join-Path $fixture 'production'\n[void][IO.Directory]::CreateDirectory($dev)\n[void][IO.Directory]::CreateDirectory($production)\n$record=Join-Path $production 'channel.json'\n[IO.File]::WriteAllText($record,'malformed sentinel that must never be read')\n$expected=(Get-FileHash -LiteralPath $record).Hash\nforeach($action in 'Build','Rollback','Run','Status'){\n    $reason=$null\n    try { & ./scripts/susi-local.ps1 -Channel production -Root $fixture -Action $action }\n    catch { $reason=$_.Exception.Message }\n    if($reason -notlike 'Production requires the native release workflow.*'){throw \"Production $action guard failed: $reason\"}\n}\nif((Get-FileHash -LiteralPath $record).Hash -ne $expected -or @(Get-ChildItem -LiteralPath $production -Force).Count -ne 1){throw 'Production fixture changed'}\n[IO.File]::WriteAllText((Join-Path $dev 'channel.json'),'{\"channel\":\"dev\",\"version\":\"fixture\"}')\n$status=& ./scripts/susi-local.ps1 -Channel dev -Root $fixture -Action Status | ConvertFrom-Json\nif($status.version -ne 'fixture'){throw 'Development status regression'}\n'5 channel checks passed'\n& cargo test --offline --locked -p xtask --features release-tooling --bin local-release prepare_release::tests\r\nif($LASTEXITCODE){exit $LASTEXITCODE}"
+      "$ErrorActionPreference='Stop'\n$fixture=Join-Path ([IO.Path]::GetTempPath()) ('susi-channel-guard-'+[Guid]::NewGuid().ToString('N'))\n$dev=Join-Path $fixture 'dev'\n$production=Join-Path $fixture 'production'\n[void][IO.Directory]::CreateDirectory($dev)\n[void][IO.Directory]::CreateDirectory($production)\n$record=Join-Path $production 'channel.json'\n[IO.File]::WriteAllText($record,'malformed sentinel that must never be read')\n$expected=(Get-FileHash -LiteralPath $record).Hash\nforeach($action in 'Build','Rollback','Run','Status'){\n    $reason=$null\n    try { & ./scripts/susi-local.ps1 -Channel production -Root $fixture -Action $action }\n    catch { $reason=$_.Exception.Message }\n    if($reason -notlike 'Production requires the native release workflow.*'){throw \"Production $action guard failed: $reason\"}\n}\nif((Get-FileHash -LiteralPath $record).Hash -ne $expected -or @(Get-ChildItem -LiteralPath $production -Force).Count -ne 1){throw 'Production fixture changed'}\n[IO.File]::WriteAllText((Join-Path $dev 'channel.json'),'{\"channel\":\"dev\",\"version\":\"fixture\"}')\n$status=& ./scripts/susi-local.ps1 -Channel dev -Root $fixture -Action Status | ConvertFrom-Json\nif($status.version -ne 'fixture'){throw 'Development status regression'}\n'5 channel checks passed'\n& cargo test --offline --locked -p xtask --features release-tooling --bin local-release prepare_release::tests\r\nif($LASTEXITCODE){exit $LASTEXITCODE}\n& cargo test --offline --locked -p susi-harness --lib native_shortcut_and_expandable_user_path_are_idempotent\nif($LASTEXITCODE){exit $LASTEXITCODE}\n& cargo test --offline --locked -p susi --bin susi qualified_ordinary_channel_preserves_live_images_recovers_and_rejects_tampering\nif($LASTEXITCODE){exit $LASTEXITCODE}\n& cargo test --offline --locked -p susi --test installed_windows_entry\nif($LASTEXITCODE){exit $LASTEXITCODE}"
     ]
   },
   "created_by": "CHANNELGUARD",
