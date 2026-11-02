@@ -19,13 +19,16 @@ mod compiler_env;
 mod workspace_test_count;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const QUALIFICATION_POLICY: &str = "susi-local-qualification-policy-v4\n";
+const QUALIFICATION_POLICY: &str =
+    include!("../../../src/installed_channel/qualification_policy.rs");
 const CURRENT: &str = "refs/susi/releases/current";
 const PREVIOUS: &str = "refs/susi/releases/previous";
 const INTEGRATED: &str = "refs/susi/integration/current";
 
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
+#[path = "../installed_delivery.rs"]
+mod installed_delivery;
 #[path = "../native_link.rs"]
 mod native_link;
 #[path = "../pe_imports.rs"]
@@ -1687,6 +1690,8 @@ fn run(args: &[String]) -> Result<()> {
         },
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
         Some("prepare-next") if args.len()==2 && args[1]=="patch" => prepare_release::run(&ctx)?,
+        Some("install-current") if args.len()==1 => installed_delivery::install_current(&ctx)?,
+        Some("export-qualified") if args.len()==3 => installed_delivery::export(&ctx,&args[1],Path::new(&args[2]))?,
         Some("check-inventory") if args.len()==1 => {
             let attempt = ctx.state.join(format!("inventory-check-{}",stamp()?));
             fs::create_dir(&attempt)?;
@@ -1719,7 +1724,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | run [susi arguments]".into()),
+        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-inference <candidate> | promote <release-id> | rollback | status | export-qualified <release-id> <destination> | install-current | run [susi arguments]".into()),
     }
     Ok(())
 }
