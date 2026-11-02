@@ -597,9 +597,14 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         evidence.push(result.clone());
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
         if !status.success() {
+            let failed_log = native_provenance::store_blob(candidate, &fs::read(&log_path)?)?;
+            fs::write(
+                attempt.join(format!("gate-{index}.log.oid")),
+                format!("{failed_log}\n"),
+            )?;
             return Err(format!(
-                "gate failed: {result}; logs retained at {}",
-                attempt.display()
+                "gate failed: {result}; log-blob={failed_log}; logs retained at {}",
+                attempt.display(),
             )
             .into());
         }
@@ -1895,10 +1900,24 @@ mod tests {
         assert_eq!(integration_head(&repo).unwrap(), Some(head));
         assert!(broken.exists());
         let attempts = state(&repo).unwrap().join("attempts");
-        assert!(fs::read_dir(attempts).unwrap().any(|entry| {
-            fs::read_to_string(entry.unwrap().path().join("gate-3.log"))
-                .is_ok_and(|log| log.contains("test result: FAILED"))
-        }));
+        let failed_blob = fs::read_dir(attempts)
+            .unwrap()
+            .find_map(|entry| {
+                let path = entry.unwrap().path();
+                fs::read_to_string(path.join("gate-3.log"))
+                    .is_ok_and(|log| log.contains("test result: FAILED"))
+                    .then(|| {
+                        fs::read_to_string(path.join("gate-3.log.oid"))
+                            .unwrap()
+                            .trim()
+                            .to_owned()
+                    })
+            })
+            .expect("the genuine failing gate retains a content-addressed log");
+        git(&repo, &["gc", "--prune=now"]).unwrap();
+        assert!(git(&repo, &["cat-file", "blob", &failed_blob])
+            .unwrap()
+            .contains("test result: FAILED"));
     }
 
     fn verify_real_native_provenance(repo: &Path, scratch: &Path, head: &str) {
@@ -1946,6 +1965,65 @@ mod tests {
         let report = check(&permit, head).unwrap();
         assert_eq!(report["verified"], true);
         assert_eq!(report["historical_ownership"], "incomplete");
+        let failed_bytes = b"failed-attempt evidence not present in any accepted receipt\n";
+        let failed_blob = native_provenance::store_blob(repo, failed_bytes).unwrap();
+        assert_eq!(
+            native_provenance::store_blob(repo, failed_bytes).unwrap(),
+            failed_blob
+        );
+        git(repo, &["repack", "-ad"]).unwrap();
+        git(repo, &["gc", "--prune=now"]).unwrap();
+        assert_eq!(check(&permit, head).unwrap()["verified"], true);
+        assert_eq!(
+            git(repo, &["cat-file", "blob", &failed_blob]).unwrap(),
+            String::from_utf8_lossy(failed_bytes).trim()
+        );
+        let anchored: serde_json::Value =
+            serde_json::from_str(&git(repo, &["cat-file", "blob", &receipts[0]]).unwrap()).unwrap();
+        let claim_oid = anchored["claim"]["blob"].as_str().unwrap();
+        let claim_reference = format!("refs/susi/evidence/objects/{claim_oid}");
+        let claim_bytes = git(repo, &["cat-file", "blob", claim_oid]).unwrap() + "\n";
+        git(
+            repo,
+            &[
+                "update-ref",
+                "--no-deref",
+                "-d",
+                &claim_reference,
+                claim_oid,
+            ],
+        )
+        .unwrap();
+        assert!(check(&permit, head).is_err());
+        assert_eq!(
+            native_provenance::store_blob(repo, claim_bytes.as_bytes()).unwrap(),
+            claim_oid
+        );
+        git(
+            repo,
+            &[
+                "update-ref",
+                "--no-deref",
+                &claim_reference,
+                &failed_blob,
+                claim_oid,
+            ],
+        )
+        .unwrap();
+        assert!(native_provenance::store_blob(repo, claim_bytes.as_bytes()).is_err());
+        assert!(check(&permit, head).is_err());
+        git(
+            repo,
+            &[
+                "update-ref",
+                "--no-deref",
+                &claim_reference,
+                claim_oid,
+                &failed_blob,
+            ],
+        )
+        .unwrap();
+        assert_eq!(check(&permit, head).unwrap()["verified"], true);
         // Candidate replacement refs cannot reinterpret independently pinned IDs.
         git(repo, &["replace", head, &base]).unwrap();
         assert_eq!(

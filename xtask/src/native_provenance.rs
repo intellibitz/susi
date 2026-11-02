@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 mod native_json;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-pub const POLICY: &str = "susi-native-provenance-policy-v1\nindependent-immutable-permit-and-coordinator\nforward-adoption-preserves-incomplete-historical-ownership\ncomplete-reservation-task-source-tree-ancestry-and-scope\nexact-gate-plan-success-and-nonempty-tests\ncontent-addressed-logs-and-claims\n";
+pub const POLICY: &str = "susi-native-provenance-policy-v1\nindependent-immutable-permit-and-coordinator\nforward-adoption-preserves-incomplete-historical-ownership\ncomplete-reservation-task-source-tree-ancestry-and-scope\nexact-gate-plan-success-and-nonempty-tests\ncontent-addressed-logs-and-claims\ngit-gc-rooted-immutable-evidence-objects\n";
 pub const RECEIPT_SCHEMA: &str = "susi-native-provenance-receipt-v1";
 pub const PERMIT_SCHEMA: &str = "susi-native-provenance-permit-v1";
 
@@ -137,12 +137,70 @@ pub fn store_blob(root: &Path, bytes: &[u8]) -> Result<String> {
     if !output.status.success() {
         return Err("cannot retain native evidence blob".into());
     }
-    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+    let object = String::from_utf8(output.stdout)?.trim().to_owned();
+    oid(&object)?;
+    // Git does not trace object IDs embedded in JSON. Every evidence object
+    // therefore has its own immutable direct ref, including failed attempts.
+    let reference = format!("refs/susi/evidence/objects/{object}");
+    let existing = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(symref)",
+            &reference,
+        ],
+    )?;
+    if !existing.is_empty() {
+        if existing != object {
+            return Err("conflicting or symbolic durable evidence reference".into());
+        }
+        return Ok(object);
+    }
+    let zero = "0".repeat(object.len());
+    if let Err(error) = git(
+        root,
+        &["update-ref", "--no-deref", &reference, &object, &zero],
+    ) {
+        // Concurrent writers may preserve identical immutable evidence. A
+        // different object or symbolic redirect never authorizes replacement.
+        if git(
+            root,
+            &[
+                "for-each-ref",
+                "--format=%(objectname) %(symref)",
+                &reference,
+            ],
+        )? != object
+        {
+            return Err(error);
+        }
+    }
+    Ok(object)
 }
 
 fn blob(root: &Path, object: &str) -> Result<Vec<u8>> {
     oid(object)?;
     git_bytes(root, &["cat-file", "blob", object])
+}
+
+fn evidence_blob(root: &Path, object: &str) -> Result<Vec<u8>> {
+    oid(object)?;
+    let reference = format!("refs/susi/evidence/objects/{object}");
+    if git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(symref)",
+            &reference,
+        ],
+    )? != object
+    {
+        return Err(format!(
+            "durable direct evidence reference missing or substituted: {reference}"
+        )
+        .into());
+    }
+    blob(root, object)
 }
 
 fn tree(root: &Path, commit: &str) -> Result<String> {
@@ -383,6 +441,7 @@ pub fn gate(root: &Path, execution: GateExecution<'_>) -> Result<Value> {
         log,
     } = execution;
     let bytes = fs::read(log)?;
+    let log_blob = store_blob(root, &bytes)?;
     let (passed, failed, ignored) = test_counts(&bytes, argv, root)?;
     if !status.success() || status.code() != Some(0) {
         return Err(format!("gate {id} did not exit successfully").into());
@@ -393,7 +452,7 @@ pub fn gate(root: &Path, execution: GateExecution<'_>) -> Result<Value> {
     Ok(
         json!({"id":id,"argv":argv,"cwd":root,"exit_code":0,"elapsed_ms":elapsed_ms,
         "passed":passed,"failed":failed,"ignored":ignored,
-        "log_blob":store_blob(root,&bytes)?,"log_sha256":digest(&bytes)}),
+        "log_blob":log_blob,"log_sha256":digest(&bytes)}),
     )
 }
 
@@ -476,7 +535,7 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
         {
             return Err("failed or malformed native gate".into());
         }
-        let log = blob(root, string(gate, "log_blob")?)?;
+        let log = evidence_blob(root, string(gate, "log_blob")?)?;
         if digest(&log) != string(gate, "log_sha256")? {
             return Err("native gate log digest mismatch".into());
         }
@@ -742,7 +801,7 @@ pub fn verify(root: &Path, permit_path: &Path, pins: &TrustPins<'_>, head: &str)
         return Err("forward adoption must preserve incomplete historical ownership".into());
     }
     ancestor(root, base, head)?;
-    let diagnostics = blob(root, string(baseline, "diagnostics_blob")?)?;
+    let diagnostics = evidence_blob(root, string(baseline, "diagnostics_blob")?)?;
     if diagnostics.is_empty() || digest(&diagnostics) != string(baseline, "diagnostics_sha256")? {
         return Err("historical diagnostic evidence missing or altered".into());
     }
@@ -758,7 +817,7 @@ pub fn verify(root: &Path, permit_path: &Path, pins: &TrustPins<'_>, head: &str)
     let mut identities = BTreeSet::new();
     let mut integration_tasks: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for object in &receipt_oids {
-        let record = native_json::from_slice(&blob(root, object)?)?;
+        let record = native_json::from_slice(&evidence_blob(root, object)?)?;
         let integrated = string(
             record.get("integration").ok_or("missing integration")?,
             "commit",
@@ -773,7 +832,7 @@ pub fn verify(root: &Path, permit_path: &Path, pins: &TrustPins<'_>, head: &str)
         }
     }
     for receipt_oid in &receipt_oids {
-        let receipt = native_json::from_slice(&blob(root, receipt_oid)?)?;
+        let receipt = native_json::from_slice(&evidence_blob(root, receipt_oid)?)?;
         if string(&receipt, "schema")? != RECEIPT_SCHEMA
             || string(&receipt, "coordinator_sha256")? != verifier_sha256
             || string(&receipt, "policy_sha256")? != policy_sha256
@@ -782,7 +841,7 @@ pub fn verify(root: &Path, permit_path: &Path, pins: &TrustPins<'_>, head: &str)
         }
         let worker = string(&receipt, "worker")?;
         let claim = receipt.get("claim").ok_or("missing actual claim")?;
-        let claim_data = blob(root, string(claim, "blob")?)?;
+        let claim_data = evidence_blob(root, string(claim, "blob")?)?;
         let claim_text = std::str::from_utf8(&claim_data)?;
         let fields: Vec<_> = claim_text.lines().collect();
         let held = strings(claim, "scopes")?;
