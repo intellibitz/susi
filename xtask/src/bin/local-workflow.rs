@@ -553,23 +553,63 @@ fn integrate_with<F>(root: &Path, claimant: &str, verify: F) -> Result<String>
 where
     F: FnOnce(&Path, &Path) -> Result<Vec<String>>,
 {
-    name(claimant)?;
+    integrate_many_with(root, &[claimant], verify)
+}
+
+fn integrate_many_with<F>(root: &Path, claimants: &[&str], verify: F) -> Result<String>
+where
+    F: FnOnce(&Path, &Path) -> Result<Vec<String>>,
+{
+    let claimant = *claimants
+        .first()
+        .ok_or("at least one claimant is required")?;
+    let mut unique = std::collections::BTreeSet::new();
+    for claimant in claimants {
+        name(claimant)?;
+        if !unique.insert(*claimant) {
+            return Err("duplicate integration claimant".into());
+        }
+    }
     let state = state(root)?;
     let _integration = Lock::acquire(&state.join("integration"))?;
-    let claim_path = state.join("claims").join(format!("{claimant}.claim"));
-    let (claim, source, claim_bytes) = {
+    let inputs = {
         let _claims = Lock::acquire(&state)?;
-        let claim = read_claim(&claim_path)?;
-        let source = check_source(root, &claim)?;
-        let bytes = fs::read(&claim_path)?;
-        (claim, source, bytes)
+        claimants
+            .iter()
+            .map(|claimant| {
+                let path = state.join("claims").join(format!("{claimant}.claim"));
+                let claim = read_claim(&path)?;
+                let source = check_source(root, &claim)?;
+                let bytes = fs::read(&path)?;
+                Ok((claim, source, path, bytes))
+            })
+            .collect::<Result<Vec<_>>>()?
     };
     let previous = integration_head(root)?;
-    let base = previous.clone().unwrap_or_else(|| claim.base.clone());
-    if !is_ancestor(root, &claim.base, &base)? {
-        return Err(
-            "integration history does not contain the claim base; reconcile explicitly".into(),
-        );
+    let base = previous.clone().unwrap_or_else(|| inputs[0].0.base.clone());
+    // Dependency chains must be rooted in accepted history. Two unaccepted
+    // workers cannot authorize each other's common, unowned starting commit.
+    let mut admitted = vec![false; inputs.len()];
+    loop {
+        let before = admitted.clone();
+        for (index, (claim, _, _, _)) in inputs.iter().enumerate() {
+            if is_ancestor(root, &claim.base, &base)? {
+                admitted[index] = true;
+            }
+            for (other, (_, source, _, _)) in inputs.iter().enumerate() {
+                if before[other] && is_ancestor(root, &claim.base, source)? {
+                    admitted[index] = true;
+                }
+            }
+        }
+        if admitted.iter().all(|value| *value) {
+            break;
+        }
+        if admitted == before {
+            return Err(
+                "integration history does not contain the claim base; reconcile explicitly".into(),
+            );
+        }
     }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -597,35 +637,43 @@ where
     )?;
     fs::write(
         attempt.join("inputs.txt"),
-        format!(
-            "claim-base={}\nsource={source}\nintegration-base={base}\n",
-            claim.base
-        ),
+        inputs
+            .iter()
+            .map(|(claim, source, _, _)| {
+                format!(
+                    "agent={}\nclaim-base={}\nsource={source}\nintegration-base={base}\n",
+                    claim.name, claim.base
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
     )?;
-    let merged = git(
-        &candidate,
-        &[
-            "-c",
-            "core.hooksPath=",
-            "-c",
-            "user.name=Susi Local Integration",
-            "-c",
-            "user.email=susi-local@localhost",
-            "-c",
-            "commit.gpgsign=false",
-            "merge",
-            "--no-ff",
-            "--no-edit",
-            &source,
-        ],
-    );
-    if let Err(error) = merged {
-        fs::write(attempt.join("status"), format!("merge failed: {error}\n"))?;
-        return Err(format!(
-            "merge failed; source and reservation retained; repair evidence at {}: {error}",
-            candidate.display()
-        )
-        .into());
+    for (_, source, _, _) in &inputs {
+        let merged = git(
+            &candidate,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "user.name=Susi Local Integration",
+                "-c",
+                "user.email=susi-local@localhost",
+                "-c",
+                "commit.gpgsign=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                source,
+            ],
+        );
+        if let Err(error) = merged {
+            fs::write(attempt.join("status"), format!("merge failed: {error}\n"))?;
+            return Err(format!(
+                "merge failed; source and reservation retained; repair evidence at {}: {error}",
+                candidate.display()
+            )
+            .into());
+        }
     }
     let head = git(&candidate, &["rev-parse", "HEAD"])?;
     let tree = git(&candidate, &["rev-parse", "HEAD^{tree}"])?;
@@ -652,22 +700,37 @@ where
         return Err("verification changed the candidate tree; refusing promotion".into());
     }
     let _claims = Lock::acquire(&state)?;
-    if fs::read(&claim_path)? != claim_bytes || check_source(root, &claim)? != source {
-        return Err(
-            "source or reservation changed during verification; retry against its new head".into(),
-        );
+    for (claim, source, path, bytes) in &inputs {
+        if fs::read(path)? != *bytes || check_source(root, claim)? != *source {
+            return Err(
+                "source or reservation changed during verification; retry against its new head"
+                    .into(),
+            );
+        }
     }
-    let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
-    let receipt_oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
-    let receipt_ref = format!("refs/susi/integration/receipts/{claimant}/{source}");
     let zero = "0".repeat(head.len());
-    let transaction = format!("start\nupdate {INTEGRATION_REF} {head} {}\ncreate {receipt_ref} {receipt_oid}\nprepare\ncommit\n", previous.as_deref().unwrap_or(&zero));
+    let mut transaction = format!(
+        "start\nupdate {INTEGRATION_REF} {head} {}\n",
+        previous.as_deref().unwrap_or(&zero)
+    );
+    let mut receipts = Vec::new();
+    for (claim, source, _, _) in &inputs {
+        let claimant = &claim.name;
+        let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
+        let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
+        let receipt_ref = format!("refs/susi/integration/receipts/{claimant}/{source}");
+        transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
+        receipts.push(receipt_ref);
+    }
+    transaction.push_str("prepare\ncommit\n");
     git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())?;
     fs::write(
         attempt.join("status"),
-        format!("accepted {head}\nreceipt {receipt_ref}\n"),
+        format!("accepted {head}\nreceipts {}\n", receipts.join(" ")),
     )?;
-    fs::remove_file(claim_path)?;
+    for (_, _, path, _) in &inputs {
+        fs::remove_file(path)?;
+    }
     // The accepted commit and receipt are durable; retain failure candidates,
     // but reclaim successful scratch builds without touching agent worktrees.
     if let Err(error) = git(
@@ -685,7 +748,11 @@ where
             candidate.display()
         );
     }
-    println!("Integrated {claimant}: {head}; receipt {receipt_ref}. Primary checkout unchanged.");
+    println!(
+        "Integrated {}: {head}; receipts {}. Primary checkout unchanged.",
+        claimants.join(", "),
+        receipts.join(", ")
+    );
     Ok(head)
 }
 
@@ -1011,13 +1078,16 @@ fn run(args: &[String]) -> Result<()> {
         }
         Some("release") if args.len() == 2 => release(&root, &args[1])?,
         Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2])?,
-        Some("integrate") if args.len() == 2 => { integrate_with(&root, &args[1], verify_candidate)?; },
+        Some("integrate") if args.len() >= 2 => {
+            if args.len() == 2 { integrate_with(&root, &args[1], verify_candidate)?; }
+            else { integrate_many_with(&root, &args[1..].iter().map(String::as_str).collect::<Vec<_>>(), verify_candidate)?; }
+        },
         Some("list") if args.len() == 1 => {
             let state = state(&root)?;
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> | integrate <name> | release <name>".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | list | commit <name> <message> | integrate <name> [name ...] | release <name>".into()),
     }
     Ok(())
 }
@@ -1300,6 +1370,100 @@ mod tests {
         assert!(receipt.contains(&format!("source={source}")));
         let third = start(&repo, "third", &["third.rs".into()]).unwrap();
         assert_eq!(git(&third, &["rev-parse", "HEAD"]).unwrap(), second);
+    }
+
+    #[test]
+    fn combined_integration_keeps_all_claims_on_failure_and_publishes_all_receipts() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let left = worker(&repo, "left", "left.rs", "left");
+        // A dependent worker starts from the first worker's private source.
+        let right = worker(&left, "right", "right.rs", "right");
+        let left_source = git(&left, &["rev-parse", "HEAD"]).unwrap();
+        let right_source = git(&right, &["rev-parse", "HEAD"]).unwrap();
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            Err("deliberate gate failure".into())
+        })
+        .is_err());
+        assert!(integration_head(&repo).unwrap().is_none());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
+        assert!(integrate_many_with(&repo, &["left", "left"], |_, _| {
+            panic!("duplicate sources reached verification")
+        })
+        .is_err());
+        let head = integrate_many_with(&repo, &["left", "right"], |candidate, _| {
+            assert_eq!(fs::read_to_string(candidate.join("left.rs"))?, "left");
+            assert_eq!(fs::read_to_string(candidate.join("right.rs"))?, "right");
+            Ok(vec!["fixture combined verification => exit code: 0".into()])
+        })
+        .unwrap();
+        for (name, source) in [("left", left_source), ("right", right_source)] {
+            let receipt = git(
+                &repo,
+                &[
+                    "cat-file",
+                    "blob",
+                    &format!("refs/susi/integration/receipts/{name}/{source}"),
+                ],
+            )
+            .unwrap();
+            assert!(receipt.contains(&format!("commit={head}")));
+            assert!(receipt.contains(&format!("source={source}")));
+        }
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn combined_integration_cannot_mutually_admit_unaccepted_bases() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        worker(&repo, "anchor", "anchor.rs", "anchor");
+        fs::write(repo.join("unowned.rs"), "not accepted").unwrap();
+        git(&repo, &["add", "unowned.rs"]).unwrap();
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "unowned base"],
+        )
+        .unwrap();
+        worker(&repo, "left", "left.rs", "left");
+        worker(&repo, "right", "right.rs", "right");
+        let accepted = integrate_with(&repo, "anchor", |_, _| {
+            Ok(vec!["fixture verification => exit code: 0".into()])
+        })
+        .unwrap();
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            panic!("unaccepted shared base reached verification")
+        })
+        .is_err());
+        assert_eq!(integration_head(&repo).unwrap(), Some(accepted));
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn combined_integration_rechecks_every_source_and_scope() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        worker(&repo, "left", "left.rs", "left");
+        let right = worker(&repo, "right", "right.rs", "right");
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            fs::write(right.join("right.rs"), "advanced")?;
+            commit(&right, "right", "advance during gate")?;
+            Ok(vec!["fixture verification => exit code: 0".into()])
+        })
+        .is_err());
+        assert!(integration_head(&repo).unwrap().is_none());
+        fs::write(right.join("outside.rs"), "unowned").unwrap();
+        git(&right, &["add", "outside.rs"]).unwrap();
+        git(
+            &right,
+            &["-c", "core.hooksPath=", "commit", "-qm", "outside"],
+        )
+        .unwrap();
+        assert!(integrate_many_with(&repo, &["left", "right"], |_, _| {
+            panic!("unowned source reached verification")
+        })
+        .is_err());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 2);
     }
 
     #[test]

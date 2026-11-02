@@ -2,7 +2,9 @@
   "id": "T-NATIVE-1",
   "title": "Native Linux build and release qualification alongside Windows",
   "status": "verified_pending_integration",
-  "dependencies": [],
+  "dependencies": [
+    "T-CHROME-1"
+  ],
   "scopes": [
     "xtask",
     "toolchain",
@@ -64,7 +66,13 @@
       "exit": 0,
       "compile_seconds": 0.22,
       "test_seconds": 0.004
+    },
+    "combined_integration_regressions": {
+      "passed": 24,
+      "failed": 0,
+      "test_seconds": 1.73,
+      "clippy": "passed"
     }
   },
-  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix."
+  "integration_findings": "Removed duplicated Unix lint attributes; replaced susi-gawd cross-crate source mount with a std-only Cargo dependency, preserved gate coverage and added CI shard membership. Corrected executable POSIX fixture, cleared inherited target overrides in cloud-seed fixture while retaining explicit override guard, restored actual shell calls in compatibility fallback tests. Full workspace clippy passed in attempt 1793611269295969643-87086; exact-tree integration pending fixture repairs and Chrome timeout fix. Added combined native integration with independent scope guards, anchored dependency admission, unchanged full gates, source rechecks and atomic per-agent receipts. Cargo.lock chrome sysinfo delta deliberately joins the corresponding agent manifest only in the combined candidate."
 }

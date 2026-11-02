@@ -43,3 +43,8 @@ Validation performed on GNU/Linux x86_64 is recorded in the task evidence;
 aarch64 and Windows execution must be validated on their native hosts. The full
 combined-tree integration, licenses, lint/tests, smoke/inference, promotion and
 rollback gates still govern every production release.
+
+Dependent agent changes can be integrated together with `cargo local-workflow
+integrate <name> [name ...]`. Each source retains its scope guard; the merged
+tree runs the full gates once, and all receipts are published in one Git
+transaction. Failed verification keeps every reservation and candidate.

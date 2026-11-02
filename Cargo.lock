@@ -4891,6 +4891,7 @@ name = "susi-vendor-chrome"
 version = "0.1.0"
 dependencies = [
  "susi-error",
+ "susi-vendor-sysinfo",
 ]
 
 [[package]]
