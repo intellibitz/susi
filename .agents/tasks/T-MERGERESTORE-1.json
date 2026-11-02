@@ -6,6 +6,7 @@
   "scopes": [
     ".agents/gmcp/evidence",
     ".agents/tasks/t-mergerestore-1.json",
+    "crates/susi-gemi-models/src/lib.rs",
     "crates/susi-gmcp/src/requirements_ledger.rs",
     "crates/susi-vendor-models/src/hf_discovery.rs",
     "src/cli/setup_cli.rs"
