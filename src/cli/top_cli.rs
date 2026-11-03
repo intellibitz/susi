@@ -333,37 +333,17 @@ fn sample_gpu() -> Option<GpuRow> {
     })
 }
 
-/// Sample host CPU and memory utilization.
+/// Sample host CPU and memory utilization on every OS through
+/// `susi_config::host_metrics`: CPU is the 1-minute load per logical CPU
+/// where the OS keeps a load average (Linux, macOS) and the sampled
+/// utilization on Windows. `None` when the OS reports no memory total, so
+/// the view never shows a made-up zero.
 fn sample_system_resources() -> Option<SystemResourceRow> {
-    let mut mem_total_mb = 0u64;
-    let mut mem_avail_mb = 0u64;
-
-    if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
-        for line in meminfo.lines() {
-            if let Some(rest) = line.strip_prefix("MemTotal:") {
-                let kb = rest.split_whitespace().next()?.parse::<u64>().ok()?;
-                mem_total_mb = kb / 1024;
-            } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
-                let kb = rest.split_whitespace().next()?.parse::<u64>().ok()?;
-                mem_avail_mb = kb / 1024;
-            }
-        }
-    }
-
-    let mem_used_mb = mem_total_mb.saturating_sub(mem_avail_mb);
-
-    // CPU load average over 1 minute
-    let mut cpu_util_pct = 0.0f32;
-    if let Ok(loadavg) = fs::read_to_string("/proc/loadavg") {
-        if let Some(first) = loadavg.split_whitespace().next() {
-            if let Ok(load1) = first.parse::<f32>() {
-                let num_cpus = std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(1) as f32;
-                cpu_util_pct = ((load1 / num_cpus) * 100.0).clamp(0.0, 100.0);
-            }
-        }
-    }
+    use susi_config::host_metrics;
+    let mem = host_metrics::memory()?;
+    let mem_total_mb = mem.total_bytes / (1024 * 1024);
+    let mem_used_mb = mem.used_bytes() / (1024 * 1024);
+    let cpu_util_pct = host_metrics::cpu_pressure_pct().unwrap_or(0.0);
 
     Some(SystemResourceRow {
         cpu_util_pct,

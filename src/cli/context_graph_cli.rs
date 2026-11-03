@@ -94,10 +94,17 @@ pub fn execute(action: Option<ContextGraphCommands>, workspace: &Path) -> Result
                 Some(workspace),
                 user.as_deref(),
             );
+            let unavailable: serde_json::Map<String, serde_json::Value> =
+                susi_daemon::context_adapters::unavailable_os_context()
+                    .into_iter()
+                    .map(|(source, reason)| (source.to_string(), reason.into()))
+                    .collect();
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "sampled": count,
+                    "os": std::env::consts::OS,
+                    "unavailable": unavailable,
                 }))?
             );
         }

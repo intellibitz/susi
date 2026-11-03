@@ -255,6 +255,11 @@ impl HardwareProfiler {
                     return trimmed.to_string();
                 }
             }
+        } else if cfg!(target_os = "macos") {
+            // machdep.cpu.brand_string, read through the sysinfo facade.
+            if let Some(brand) = susi_config::host_metrics::cpu_brand() {
+                return brand;
+            }
         }
         "Generic Hardware Substrate".to_string()
     }
@@ -266,6 +271,10 @@ impl HardwareProfiler {
                 if parts.len() >= 3 {
                     return format!("{}, {}, {}", parts[0], parts[1], parts[2]);
                 }
+            }
+        } else if cfg!(target_os = "macos") {
+            if let Some([one, five, fifteen]) = susi_config::host_metrics::load_average() {
+                return format!("{one:.2}, {five:.2}, {fifteen:.2}");
             }
         }
         "N/A".to_string()
@@ -281,6 +290,10 @@ impl HardwareProfiler {
                         return format!("up {} hours, {} minutes", hours, mins);
                     }
                 }
+            }
+        } else if cfg!(target_os = "macos") {
+            if let Some(secs) = susi_config::host_metrics::uptime_secs() {
+                return format!("up {} hours, {} minutes", secs / 3600, (secs % 3600) / 60);
             }
         }
         #[cfg(windows)]
@@ -591,6 +604,11 @@ impl HardwareProfiler {
         if let Some((total_phys, _, total_page)) = win32_hw::memory_status() {
             return (total_page.saturating_sub(total_phys) / (1024 * 1024 * 1024)) as usize;
         }
+        if cfg!(target_os = "macos") {
+            if let Some(mem) = susi_config::host_metrics::memory() {
+                return (mem.total_swap_bytes / (1024 * 1024 * 1024)) as usize;
+            }
+        }
         0
     }
 
@@ -621,7 +639,6 @@ impl HardwareProfiler {
         (cpus, gpu_info)
     }
 
-    #[allow(unsafe_code)]
     pub fn determine_total_ram_gb() -> usize {
         if cfg!(target_os = "linux") {
             if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
@@ -637,26 +654,9 @@ impl HardwareProfiler {
                 }
             }
         } else if cfg!(target_os = "macos") {
-            #[cfg(target_os = "macos")]
-            {
-                use std::ffi::CString;
-                if let Ok(c_name) = CString::new("hw.memsize") {
-                    let mut val: u64 = 0;
-                    let mut size = std::mem::size_of::<u64>();
-                    // SAFETY: `c_name` is NUL-terminated and `val`/`size` describe a live u64 buffer of the stated size.
-                    if unsafe {
-                        libc::sysctlbyname(
-                            c_name.as_ptr(),
-                            &mut val as *mut _ as *mut libc::c_void,
-                            &mut size,
-                            std::ptr::null_mut(),
-                            0,
-                        )
-                    } == 0
-                    {
-                        return (val / (1024 * 1024 * 1024)) as usize;
-                    }
-                }
+            // hw.memsize, read through the sysinfo facade (no FFI here).
+            if let Some(mem) = susi_config::host_metrics::memory() {
+                return (mem.total_bytes / (1024 * 1024 * 1024)) as usize;
             }
             return 16;
         } else if cfg!(target_os = "windows") {

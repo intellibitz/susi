@@ -17,6 +17,9 @@ getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrando
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
 x25519-dalek = { package = "susi-vendor-x25519-dalek", path = "../susi-vendor-x25519-dalek" }
 chacha20poly1305 = { package = "susi-vendor-chacha20poly1305", path = "../susi-vendor-chacha20poly1305" }
+# Host metrics and process inspection on every OS (host_metrics,
+# process_probe): the one portable source instead of Linux-only /proc reads.
+sysinfo = { package = "susi-vendor-sysinfo", path = "../susi-vendor-sysinfo" }
 
 # Process liveness and footprint (process_probe): Windows has no /proc, so a
 # lockfile holder's pid is asked about through the process object itself.

@@ -13,6 +13,9 @@ use susi_core::telemetry::TelemetrySnapshot;
 use tracing::{info, warn};
 
 const CPU_LOAD_THRESHOLD: f32 = 8.0;
+/// CPU-utilization stress threshold, used only where the OS keeps no load
+/// average (Windows): sustained near-saturation of every logical CPU.
+const CPU_UTIL_THRESHOLD_PCT: f32 = 95.0;
 const THERMAL_THRESHOLD_C: f32 = 85.0;
 
 // Synthetic diagnostic goals must never compete with the user's first goal.
@@ -128,7 +131,13 @@ impl SusiRuntimeAdmin {
             .max_temp_c()
             .is_some_and(|t| t > THERMAL_THRESHOLD_C);
         let power_stress = snapshot.critical_battery();
-        let load_stress = load_1m > CPU_LOAD_THRESHOLD;
+        // Windows keeps no load average; its CPU stress signal is the
+        // sampled utilization instead.
+        let load_stress = load_1m > CPU_LOAD_THRESHOLD
+            || (snapshot.load_avg_1m.is_none()
+                && snapshot
+                    .cpu_util_pct
+                    .is_some_and(|pct| pct > CPU_UTIL_THRESHOLD_PCT));
 
         if !(thermal_stress || power_stress || load_stress) {
             return None;
@@ -145,6 +154,7 @@ impl SusiRuntimeAdmin {
                 "power_stress": power_stress,
                 "load_stress": load_stress,
                 "load_avg_1m": load_1m,
+                "cpu_util_pct": snapshot.cpu_util_pct,
                 "max_temp_c": snapshot.max_temp_c(),
             }),
             ttl_ms: 60_000,
@@ -429,37 +439,16 @@ impl Maintenance {
             .collect()
     }
 
+    /// CPU pressure for the resource governor, 0-100: the 1-minute load per
+    /// logical CPU where the OS keeps a load average (Linux, macOS), the
+    /// utilization sampled since the previous tick on Windows.
     fn cpu_pct() -> f64 {
-        let cores = std::fs::read_to_string("/proc/cpuinfo")
-            .map(|t| t.lines().filter(|l| l.starts_with("processor")).count())
-            .unwrap_or(1)
-            .max(1);
-        let load = std::fs::read_to_string("/proc/loadavg")
-            .ok()
-            .and_then(|t| t.split_whitespace().next().map(str::to_string))
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(0.0);
-        (load / cores as f64 * 100.0).clamp(0.0, 100.0)
+        crate::susi_config::host_metrics::cpu_pressure_pct().map_or(0.0, f64::from)
     }
 
+    /// Physical memory in use, 0-100, on every OS (0 when unreported).
     fn mem_pct() -> f64 {
-        let Ok(text) = std::fs::read_to_string("/proc/meminfo") else {
-            return 0.0;
-        };
-        let kb = |key: &str| -> f64 {
-            text.lines()
-                .find(|l| l.starts_with(key))
-                .and_then(|l| l.split_whitespace().nth(1))
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.0)
-        };
-        let total = kb("MemTotal");
-        let avail = kb("MemAvailable");
-        if total <= 0.0 {
-            0.0
-        } else {
-            ((total - avail) / total * 100.0).clamp(0.0, 100.0)
-        }
+        crate::susi_config::host_metrics::memory().map_or(0.0, |mem| mem.used_pct())
     }
 
     /// One maintenance pass: governor gate → config hot-reload → due
@@ -759,14 +748,36 @@ mod tests {
     #[test]
     fn high_load_deposits_an_observation_pheromone() {
         let snapshot = TelemetrySnapshot {
-            thermal_zones: Vec::new(),
-            batteries: Vec::new(),
             load_avg_1m: Some(99.0),
+            ..TelemetrySnapshot::empty()
         };
         let pheromone = SusiRuntimeAdmin::stress_pheromone_from_snapshot(&snapshot).unwrap();
         assert_eq!(pheromone.topic, "hardware.stress");
         assert_eq!(pheromone.kind, PheromoneKind::Observation);
         assert_eq!(pheromone.payload["load_stress"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn saturated_cpu_without_a_load_average_is_load_stress() {
+        // Windows: no load average, so the sampled utilization decides.
+        let busy = TelemetrySnapshot {
+            cpu_util_pct: Some(99.0),
+            ..TelemetrySnapshot::empty()
+        };
+        let pheromone = SusiRuntimeAdmin::stress_pheromone_from_snapshot(&busy).unwrap();
+        assert_eq!(pheromone.payload["load_stress"], serde_json::json!(true));
+        let calm = TelemetrySnapshot {
+            cpu_util_pct: Some(40.0),
+            ..TelemetrySnapshot::empty()
+        };
+        assert!(SusiRuntimeAdmin::stress_pheromone_from_snapshot(&calm).is_none());
+        // Where a load average exists it stays the authority.
+        let loaded_os = TelemetrySnapshot {
+            load_avg_1m: Some(0.5),
+            cpu_util_pct: Some(99.0),
+            ..TelemetrySnapshot::empty()
+        };
+        assert!(SusiRuntimeAdmin::stress_pheromone_from_snapshot(&loaded_os).is_none());
     }
 
     #[test]
