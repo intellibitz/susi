@@ -415,7 +415,7 @@ fn capture_tool_read(
         .canonicalize()
         .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
     let captured_at = std::time::Instant::now();
-    let out = crate::susi_core::plane_bus::tools::execute_tool(tool, &arg, &workspace)
+    let out = crate::susi_core::plane_bus::tools::execute_autonomous_tool(tool, &arg, &workspace)
         .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?;
     if looks_like_tool_failure(&out) {
         return Err(crate::susi_error::EaiError::governance(format!(

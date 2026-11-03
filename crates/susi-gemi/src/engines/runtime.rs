@@ -21,11 +21,6 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::OnceLock;
 
-struct ModelProvisioningWait {
-    receiver: std::sync::mpsc::Receiver<EaiResult<crate::models::ModelProvisioningOutcome>>,
-    timeout: std::time::Duration,
-}
-
 /// Reflex tiers answer only when no specific model was requested. An
 /// OpenAI-style client names a model it picked from `/v1/models` (unknown
 /// names are a 400), and the streaming layer labels frames with the
@@ -503,30 +498,11 @@ impl GemiEngine {
         } else {
             prompt
         };
-        // Fleet Mandate: a fresh substrate with zero provisioned weights must
-        // not surface a bare failure for an otherwise-solvable intent - it
-        // must fetch a hardware-fit model and retry before giving up. Only
-        // engaged when no local GGUF actually exists yet (not on inference
-        // errors against an existing model, which a re-download can't fix).
-        let provision_needed =
-            requested_model.is_none() && !Self::has_usable_local_model(workspace);
-        if provision_needed {
-            if let Some(res) =
-                Self::provision_and_retry(prompt, workspace, callback, min_complexity)
-            {
-                ladder.record(
-                    LadderRung::Local,
-                    "provisioning-retry",
-                    StepOutcome::Selected,
-                    "fetched a hardware-fit model before executing the first local inference",
-                );
-                if ladder.step_downs() > 0 {
-                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
-                }
-                ladder.persist();
-                return res;
-            }
-        }
+        // CEO decision 2026-11-04 ("No, ask first"): core never downloads a
+        // model by itself. With no verified local model the local rung fails
+        // with the typed `NoLocalModelInstalled`, which names the install
+        // command and the starter's size; cloud routing above is unchanged.
+        let no_local_model = requested_model.is_none() && !Self::has_usable_local_model(workspace);
 
         let local_started = std::time::Instant::now();
         // The local engine's deltas are the live stream — tool-call markup
@@ -544,9 +520,9 @@ impl GemiEngine {
         // Drive the engine through the shared lifecycle contract: discover →
         // load → ready (health probe) → infer (VC-201-042). A failed probe
         // is a typed error here, the same outcome the bare call produced.
-        let result = if provision_needed {
-            Err(EaiError::inference(
-                "No local model became available during preparation",
+        let result = if no_local_model {
+            Err(EaiError::from(
+                crate::models::NoLocalModelInstalled::starter(),
             ))
         } else {
             crate::engines::native_lifecycle::infer_via_contract(
@@ -672,7 +648,14 @@ impl GemiEngine {
         }
 
         ladder.persist();
-        let final_msg = "[FAIL] SUSI-Tier2-Inference: Local model inference and power reasoning fallback both failed.".to_string();
+        // No model installed is not an inference failure: say what is
+        // missing and the one command that downloads it. The `[FAIL]` lead
+        // keeps every failure check (missions, /v1, run) treating it as one.
+        let final_msg = if no_local_model {
+            no_local_model_final_message(&ladder)
+        } else {
+            "[FAIL] SUSI-Tier2-Inference: Local model inference and power reasoning fallback both failed.".to_string()
+        };
         callback(final_msg.clone());
         final_msg
     }
@@ -854,6 +837,7 @@ impl GemiEngine {
         let t = text.trim_start();
         if t.contains("[FAIL]")
             || t.contains("[CAPABILITY_GAP]")
+            || t.contains(crate::models::NoLocalModelInstalled::TAG)
             || t.contains("[INFERENCE_FAILED]")
         {
             return true;
@@ -887,6 +871,23 @@ impl GemiEngine {
         let mut out = prose.trim().to_string();
         let mut executed = 0usize;
         for call in &calls {
+            // A model's reply never downloads a model: `scout_model` and the
+            // other download tools run only on the user's explicit request
+            // (CEO decision 2026-11-04, "No, ask first").
+            if crate::susi_core::plane_bus::tools::is_user_request_only(&call.name) {
+                let refusal =
+                    crate::susi_core::plane_bus::tools::user_request_only_refusal(&call.name);
+                callback(format!(
+                    "[SUSI TOOLS] `{}` was not run: {refusal}\n",
+                    call.name
+                ));
+                if !out.is_empty() {
+                    out.push_str("\n\n");
+                }
+                out.push_str(&format!("[TOOL {}]\n[Refused] {refusal}", call.name));
+                executed += 1;
+                continue;
+            }
             if !crate::susi_core::plane_bus::tools::exists(&call.name) {
                 callback(format!(
                     "[SUSI TOOLS] `{}` is not a registered tool — skipped\n",
@@ -894,7 +895,7 @@ impl GemiEngine {
                 ));
                 continue;
             }
-            let result = crate::susi_core::plane_bus::tools::execute_tool(
+            let result = crate::susi_core::plane_bus::tools::execute_autonomous_tool(
                 &call.name,
                 &call.arguments,
                 workspace,
@@ -1197,137 +1198,6 @@ impl GemiEngine {
         ModelManager::identify_best_suited_local_model(workspace, None).is_some()
     }
 
-    /// Kicks off hardware-optimal provisioning and blocks, polling for a
-    /// valid GGUF to land, up to `model_provisioning_wait_secs`. Progress goes to stderr separately
-    /// from answer tokens, including for non-streaming governed missions.
-    /// Returns `None` (never `Some("[FAIL]...")`) if provisioning didn't
-    /// finish in time, so the caller falls through to its next fallback
-    /// rather than treating a timeout as a completed retry.
-    fn provision_and_retry(
-        prompt: &str,
-        workspace: &Path,
-        callback: &dyn Fn(String),
-        min_complexity: Option<crate::models::intent::TaskComplexity>,
-    ) -> Option<String> {
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        if cfg
-            .settings
-            .get("auto_download_models")
-            .and_then(|v| v.as_bool())
-            == Some(false)
-        {
-            return None;
-        }
-        eprintln!(
-            "Susi is preparing a local AI model for your first goal. This requires a download."
-        );
-        let (sender, provisioning) = std::sync::mpsc::channel();
-        let provisioning_workspace = workspace.to_path_buf();
-        std::thread::spawn(move || {
-            let result = ModelManager::prepare_hardware_optimal_models(&provisioning_workspace);
-            let _ = sender.send(result);
-        });
-
-        let wait_secs = cfg.model_provisioning_wait_secs();
-        Self::retry_after_provisioning(
-            prompt,
-            workspace,
-            callback,
-            min_complexity,
-            ModelProvisioningWait {
-                receiver: provisioning,
-                timeout: std::time::Duration::from_secs(wait_secs),
-            },
-        )
-    }
-
-    fn retry_after_provisioning(
-        prompt: &str,
-        workspace: &Path,
-        callback: &dyn Fn(String),
-        min_complexity: Option<crate::models::intent::TaskComplexity>,
-        provisioning: ModelProvisioningWait,
-    ) -> Option<String> {
-        let started = std::time::Instant::now();
-        let Some(deadline) = started.checked_add(provisioning.timeout) else {
-            eprintln!("Susi could not start the model wait: the configured deadline is invalid.");
-            return None;
-        };
-        let poll_interval = std::time::Duration::from_millis(500);
-        let mut last_reported = started;
-
-        while std::time::Instant::now() < deadline {
-            if let Ok(result) = provisioning.receiver.try_recv() {
-                match result {
-                    Ok(outcome) => {
-                        if let Some(reason) = outcome.terminal_reason() {
-                            eprintln!("Susi could not prepare a local model: {reason}");
-                            return None;
-                        }
-                    }
-                    Err(error) => {
-                        eprintln!("Susi could not prepare a local model: {error}");
-                        return None;
-                    }
-                }
-            }
-            if Self::has_usable_local_model(workspace) {
-                eprintln!("Local model downloaded. Continuing your goal...");
-                let engine = LlamaCppEngine;
-                let selected = ModelManager::get_selected_model_for_request_with_min_complexity(
-                    prompt,
-                    None,
-                    min_complexity,
-                );
-                let result = crate::engines::native_lifecycle::infer_via_contract(
-                    std::sync::Arc::new(engine),
-                    crate::engines::native_lifecycle::EngineKind::Native,
-                    &crate::engines::native_lifecycle::ContractCall::new(
-                        prompt,
-                        callback,
-                        selected.as_deref(),
-                    ),
-                );
-                if let Err(error) = &result {
-                    eprintln!("The downloaded local model could not answer this goal: {error}");
-                }
-                if let Ok(res) = result {
-                    if !res.trim().is_empty() {
-                        return Some(match Self::verify_axiomatic_alignment(&res, workspace) {
-                            Ok(v) => v,
-                            Err(_) => res,
-                        });
-                    }
-                }
-                return None;
-            }
-
-            if last_reported.elapsed() >= std::time::Duration::from_secs(5) {
-                if let Some(progress) = ModelManager::download_controller_progress() {
-                    eprintln!(
-                        "Preparing local model: {:.0}% downloaded ({} seconds).",
-                        progress,
-                        started.elapsed().as_secs()
-                    );
-                } else {
-                    eprintln!(
-                        "Waiting for the local model download ({} seconds elapsed).",
-                        started.elapsed().as_secs()
-                    );
-                }
-                last_reported = std::time::Instant::now();
-            }
-
-            std::thread::sleep(poll_interval);
-        }
-
-        eprintln!(
-            "The local model was not ready within {} seconds. This goal has not completed.",
-            provisioning.timeout.as_secs()
-        );
-        None
-    }
-
     pub fn verify_axiomatic_alignment(reasoning: &str, _workspace: &Path) -> EaiResult<String> {
         // Fast Rust-Native Axiomatic Alignment Guard (<2ms Reflex Mandate)
         let risk_patterns = crate::susi_sandbox::manager::SusiConfig::load_global()
@@ -1413,52 +1283,22 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn terminal_model_preparation_does_not_wait_for_the_download_deadline() {
-        use crate::models::ModelProvisioningOutcome;
-        for outcome in [
-            ModelProvisioningOutcome::TooSmall,
-            ModelProvisioningOutcome::OfflineNoModel,
-            ModelProvisioningOutcome::DownloadsDisabled,
-        ] {
-            let (sender, receiver) = std::sync::mpsc::channel();
-            sender.send(Ok(outcome)).unwrap();
-            let started = std::time::Instant::now();
-            assert!(GemiEngine::retry_after_provisioning(
-                "Compute 17 + 25",
-                Path::new("unused-terminal-fixture"),
-                &|_| panic!("preparation cannot emit answer tokens"),
-                None,
-                ModelProvisioningWait {
-                    receiver,
-                    timeout: std::time::Duration::from_secs(120),
-                },
-            )
-            .is_none());
-            assert!(started.elapsed() < std::time::Duration::from_secs(1));
-        }
-        assert!(ModelProvisioningOutcome::Queued.terminal_reason().is_none());
-        assert!(ModelProvisioningOutcome::Active.terminal_reason().is_none());
-    }
-
-    #[test]
-    fn first_model_disabled_download_does_not_start_or_emit_answer_tokens() {
-        let _guard = crate::engines::env_test_lock();
-        let temporary_home = tempfile::tempdir().unwrap();
-        let mut env = susi_paths::test_env::EnvGuard::isolated();
-        env.set("HOME", temporary_home.path());
-        env.set("SUSI_HOME", temporary_home.path());
-        let home = susi_paths::SusiDirs::config_dir();
-        let mut cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        cfg.settings
-            .insert("auto_download_models".into(), serde_json::json!(false));
-        cfg.save(&home).unwrap();
-        assert!(GemiEngine::provision_and_retry(
-            "Compute 17 + 25",
-            &home,
-            &|_| panic!("provisioning is not answer content"),
-            None
-        )
-        .is_none());
+    fn a_missing_local_model_is_a_failure_that_names_the_download_command() {
+        let missing = crate::models::NoLocalModelInstalled::starter();
+        let text = missing.to_string();
+        assert!(GemiEngine::looks_like_error_text(&text));
+        assert!(
+            text.contains("`susi os manage model install starter`"),
+            "{text}"
+        );
+        assert!(text.contains("about 429 MB"), "{text}");
+        assert!(
+            text.contains("Cloud models work without a download"),
+            "{text}"
+        );
+        assert!(EaiError::from(missing)
+            .to_string()
+            .contains("[NO_LOCAL_MODEL]"));
     }
 
     #[test]
@@ -2148,6 +1988,95 @@ mod reflex_allowed_tests {
     }
 }
 
+/// The final answer when no verified local model is installed. A
+/// configured model that was tried and could not answer (a cloud outage,
+/// rate limit or expired key; a stopped local runner) is reported first, so
+/// the install hint never claims that cloud works right after it failed.
+/// With nothing configured, the bare typed `NoLocalModelInstalled` answers.
+fn no_local_model_final_message(ladder: &crate::engines::routing::RoutingLadder) -> String {
+    use crate::engines::routing::{LadderRung, StepOutcome};
+    let missing = crate::models::NoLocalModelInstalled::starter();
+    let tried: Vec<_> = ladder
+        .steps
+        .iter()
+        .filter(|step| step.rung != LadderRung::Local && step.outcome != StepOutcome::Selected)
+        .collect();
+    match tried.last() {
+        None => format!("[FAIL] {missing}\n"),
+        Some(last) => format!(
+            "[FAIL] The configured models could not answer ({} tried; last {} '{}': {}). \
+             No verified local model is installed either: to answer locally, run `{}` \
+             to download {} (about {} MB).\n",
+            tried.len(),
+            last.rung.label(),
+            last.candidate,
+            last.reason,
+            missing.install_command,
+            missing.model,
+            missing.size_mb()
+        ),
+    }
+}
+
+#[cfg(test)]
+mod no_local_model_message_tests {
+    use super::no_local_model_final_message;
+    use crate::engines::brain::TaskClass;
+    use crate::engines::routing::{LadderRung, RoutingLadder, StepOutcome};
+
+    #[test]
+    fn with_nothing_configured_the_typed_error_answers() {
+        let mut ladder = RoutingLadder::new(TaskClass::Chat);
+        ladder.record(
+            LadderRung::Local,
+            "starter",
+            StepOutcome::Failed,
+            "no local model",
+        );
+        let msg = no_local_model_final_message(&ladder);
+        assert!(msg.starts_with("[FAIL] [NO_LOCAL_MODEL]"), "{msg}");
+        assert!(
+            msg.contains("susi os manage model install starter"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("Cloud models work without a download."),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn a_failed_cloud_call_is_reported_before_the_install_hint() {
+        let mut ladder = RoutingLadder::new(TaskClass::Chat);
+        ladder.record(
+            LadderRung::Provider,
+            "openrouter",
+            StepOutcome::Failed,
+            "HTTP 429 rate limited",
+        );
+        ladder.record(
+            LadderRung::Local,
+            "starter",
+            StepOutcome::Failed,
+            "no local model",
+        );
+        let msg = no_local_model_final_message(&ladder);
+        assert!(
+            msg.starts_with("[FAIL] The configured models could not answer"),
+            "{msg}"
+        );
+        assert!(msg.contains("'openrouter': HTTP 429 rate limited"), "{msg}");
+        assert!(
+            msg.contains("susi os manage model install starter"),
+            "{msg}"
+        );
+        assert!(
+            !msg.contains("Cloud models work without a download"),
+            "{msg}"
+        );
+    }
+}
+
 #[cfg(test)]
 mod local_tool_fulfillment_tests {
     use super::GemiEngine;
@@ -2162,6 +2091,26 @@ mod local_tool_fulfillment_tests {
         let out = GemiEngine::fulfill_emitted_tool_calls(text, Path::new("."), &|_| {});
         assert_eq!(out, "Checking now.");
         assert!(!out.contains("<tool_call>"));
+    }
+
+    /// A model that emits a `scout_model` call never starts a download: the
+    /// call is refused before the tool bus, and the answer names the
+    /// commands that download a model on request.
+    #[test]
+    fn a_model_emitted_scout_model_call_is_refused_not_downloaded() {
+        let text = "Getting a model.\n<tool_call>{\"name\": \"scout_model\", \"arguments\": \"https://huggingface.co/x/y/resolve/main/m.gguf\"}</tool_call>";
+        let seen = std::cell::RefCell::new(String::new());
+        let out = GemiEngine::fulfill_emitted_tool_calls(text, Path::new("."), &|delta| {
+            seen.borrow_mut().push_str(&delta)
+        });
+        assert!(out.starts_with("Getting a model."), "{out}");
+        assert!(out.contains("[TOOL scout_model]\n[Refused]"), "{out}");
+        assert!(
+            out.contains("susi os manage model install starter"),
+            "{out}"
+        );
+        assert!(!out.contains("<tool_call>"), "{out}");
+        assert!(seen.borrow().contains("`scout_model` was not run"));
     }
 
     /// Plain output never enters the tools path.

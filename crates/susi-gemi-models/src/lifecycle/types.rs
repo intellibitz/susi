@@ -1,38 +1,114 @@
 //! Lifecycle verification / agent report types.
 use serde::{Deserialize, Serialize};
 
-/// Preparation status is control flow, not an inferred meaning of display text.
+/// Outcome of the explicit starter install (`STARTER_INSTALL_COMMAND`).
+/// Control flow, not an inferred meaning of display text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelProvisioningOutcome {
+    /// Another install of the starter is already running in this process.
     Active,
+    /// A verified local model was already installed; nothing was downloaded.
     Ready(String),
-    Queued,
-    DownloadsDisabled,
+    /// The starter was downloaded and verified by this request.
+    Installed(String),
     OfflineNoModel,
     TooSmall,
 }
 
 impl ModelProvisioningOutcome {
+    /// Why the request could not install a model, when it could not.
     pub fn terminal_reason(&self) -> Option<&'static str> {
         match self {
-            Self::DownloadsDisabled => Some("Automatic downloads disabled"),
             Self::OfflineNoModel => Some(
-                "No admitted local model is cached; network policy prevents automatic provisioning",
+                "No admitted local model is cached, and network policy blocks the starter download",
             ),
             Self::TooSmall => {
                 Some("Available RAM or disk cannot safely accommodate the small starter")
             }
-            Self::Active | Self::Ready(_) | Self::Queued => None,
+            Self::Active | Self::Ready(_) | Self::Installed(_) => None,
         }
     }
 
     pub fn summary(&self) -> String {
         match self {
-            Self::Active => "Automatic provisioning already active".into(),
+            Self::Active => "The starter model install is already running".into(),
             Self::Ready(model) => format!("Using verified cached local model {model}"),
-            Self::Queued => "Audited 0.5B starter queued; larger downloads require task evidence and resource admission".into(),
-            Self::DownloadsDisabled | Self::OfflineNoModel | Self::TooSmall => self.terminal_reason().unwrap_or_default().into(),
+            Self::Installed(model) => format!("Installed and verified local model {model}"),
+            Self::OfflineNoModel | Self::TooSmall => {
+                self.terminal_reason().unwrap_or_default().into()
+            }
         }
+    }
+}
+
+/// No verified local model is installed. Core never downloads one by itself
+/// (CEO decision 2026-11-04, "No, ask first"): a request that needs a local
+/// model gets this error, which names the one command that downloads the
+/// audited starter and its size. Cloud models need no download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoLocalModelInstalled {
+    /// The model the install command downloads.
+    pub model: String,
+    /// Its download size in bytes.
+    pub size_bytes: u64,
+    /// The exact command that downloads it.
+    pub install_command: &'static str,
+}
+
+impl NoLocalModelInstalled {
+    /// Leading tag, so callers that carry the error as text can detect it.
+    pub const TAG: &'static str = "[NO_LOCAL_MODEL]";
+
+    /// The audited starter the install command downloads.
+    #[must_use]
+    pub fn starter() -> Self {
+        let starter = crate::zc_first_model::audited_starter();
+        Self {
+            model: starter.id,
+            size_bytes: starter.size_bytes,
+            install_command: crate::zc_first_model::STARTER_INSTALL_COMMAND,
+        }
+    }
+
+    /// Decimal megabytes, rounded: what a download dialog shows.
+    #[must_use]
+    pub fn size_mb(&self) -> u64 {
+        self.size_bytes.saturating_add(500_000) / 1_000_000
+    }
+
+    /// One line for status surfaces: the command, the model and its size.
+    #[must_use]
+    pub fn install_hint(&self) -> String {
+        format!(
+            "run `{}` to download {} (about {} MB); cloud models work without a download",
+            self.install_command,
+            self.model,
+            self.size_mb()
+        )
+    }
+}
+
+impl std::fmt::Display for NoLocalModelInstalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} No verified local model is ready (a model file needs its tokenizer and \
+             license verified before it can answer), and Susi does not download one by itself. \
+             To answer locally, run `{}` to download {} (about {} MB). \
+             Cloud models work without a download.",
+            Self::TAG,
+            self.install_command,
+            self.model,
+            self.size_mb()
+        )
+    }
+}
+
+impl std::error::Error for NoLocalModelInstalled {}
+
+impl From<NoLocalModelInstalled> for crate::susi_error::EaiError {
+    fn from(missing: NoLocalModelInstalled) -> Self {
+        Self::inference(missing.to_string())
     }
 }
 

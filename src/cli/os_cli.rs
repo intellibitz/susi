@@ -186,7 +186,9 @@ pub enum OsModelAction {
     Doctor {
         name: Option<String>,
     },
-    /// Download a GGUF model from an HTTPS URL into SUSI-managed storage
+    /// Download a GGUF model from an HTTPS URL into SUSI-managed storage,
+    /// `starter`: the audited local starter model and its tokenizer, or
+    /// `embeddings`: the semantic-search embedding model
     Install {
         source: String,
     },
@@ -519,6 +521,42 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
             let action = match action {
                 OsModelAction::List => model_cli::ModelCommands::List,
                 OsModelAction::Doctor { name } => model_cli::ModelCommands::Doctor { model: name },
+                OsModelAction::Install { source }
+                    if source.trim().eq_ignore_ascii_case(
+                        susi_gemi::models::zc_first_model::STARTER_SOURCE,
+                    ) =>
+                {
+                    // The user's explicit request: the only path that
+                    // downloads the starter (core never does on its own).
+                    let starter = susi_gemi::models::NoLocalModelInstalled::starter();
+                    println!(
+                        "Installing {} and its tokenizer (a download of about {} MB unless already installed)...",
+                        starter.model,
+                        starter.size_mb()
+                    );
+                    let outcome = with_download_progress(|| {
+                        susi_gemi::models::ModelManager::install_starter_model_on_request(workspace)
+                    })?;
+                    if let Some(reason) = outcome.terminal_reason() {
+                        anyhow::bail!("{reason}");
+                    }
+                    println!("{}", outcome.summary());
+                    return Ok(());
+                }
+                OsModelAction::Install { source }
+                    if source
+                        .trim()
+                        .eq_ignore_ascii_case(susi_gmcp::embed_provider::INSTALL_SOURCE) =>
+                {
+                    // The user's explicit request: the only path that
+                    // downloads the semantic-search embedding model.
+                    println!(
+                        "Installing the BAAI/bge-small-en-v1.5 embedding model (a download unless already installed)..."
+                    );
+                    let installed = susi_gmcp::embed_provider::install_on_request()?;
+                    println!("{installed}");
+                    return Ok(());
+                }
                 OsModelAction::Install { source } => {
                     let installed =
                         susi_gemi::models::ModelManager::install_model_foreground(&source)
@@ -630,6 +668,68 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
             framework_cli::execute(action, workspace)
         }
     }
+}
+
+/// Run an explicit foreground model download and print its progress every
+/// ~5 s, so a long download never looks frozen. Progress comes from the
+/// record the transfer loop writes (`download_progress.json` in the data
+/// dir); a record older than this command is ignored.
+fn with_download_progress<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    let record = susi_paths::SusiDirs::data_dir().join("download_progress.json");
+    let started = std::time::SystemTime::now();
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(move || {
+            let out = work();
+            let _ = done_tx.send(());
+            out
+        });
+        let mut last_line = String::new();
+        while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+            done_rx.recv_timeout(std::time::Duration::from_secs(5))
+        {
+            if let Some(line) = download_progress_line(&record, started) {
+                if line != last_line {
+                    println!("{line}");
+                    last_line = line;
+                }
+            }
+        }
+        match worker.join() {
+            Ok(out) => out,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    })
+}
+
+/// `Downloading <model>: 37% (159 of 429 MB)` from a progress record written
+/// after `since`, or `None` when there is no fresh running download.
+fn download_progress_line(record: &Path, since: std::time::SystemTime) -> Option<String> {
+    let fresh = std::fs::metadata(record)
+        .and_then(|meta| meta.modified())
+        .is_ok_and(|modified| modified >= since);
+    if !fresh {
+        return None;
+    }
+    let progress: serde_json::Value = serde_json::from_slice(&std::fs::read(record).ok()?).ok()?;
+    if progress.get("status").and_then(serde_json::Value::as_str) != Some("RUNNING") {
+        return None;
+    }
+    let done = progress.get("bytes_downloaded")?.as_u64()?;
+    let total = progress.get("expected_bytes")?.as_u64()?;
+    let model = progress
+        .get("model_name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("model");
+    let mb = |bytes: u64| bytes.saturating_add(500_000) / 1_000_000;
+    Some(match done.saturating_mul(100).checked_div(total) {
+        Some(percent) => format!(
+            "Downloading {model}: {percent}% ({} of {} MB)",
+            mb(done),
+            mb(total)
+        ),
+        None => format!("Downloading {model}: {} MB so far", mb(done)),
+    })
 }
 
 fn uninstall_managed_model(name: &str) -> Result<()> {
@@ -1565,4 +1665,36 @@ fn load_verified_peers() -> Vec<PeerView> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod download_progress_tests {
+    use super::download_progress_line;
+
+    #[test]
+    fn a_fresh_running_record_prints_percent_and_megabytes() {
+        let dir = std::env::temp_dir().join(format!("susi-dl-progress-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("download_progress.json");
+        let before = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
+        std::fs::write(
+            &record,
+            r#"{"model_name":"qwen.gguf","bytes_downloaded":159000000,"expected_bytes":429000000,"status":"RUNNING"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            download_progress_line(&record, before).as_deref(),
+            Some("Downloading qwen.gguf: 37% (159 of 429 MB)")
+        );
+        // A record from before this command started is not this download.
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        assert_eq!(download_progress_line(&record, later), None);
+        std::fs::write(
+            &record,
+            r#"{"model_name":"qwen.gguf","bytes_downloaded":1,"expected_bytes":1,"status":"COMPLETED"}"#,
+        )
+        .unwrap();
+        assert_eq!(download_progress_line(&record, before), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
