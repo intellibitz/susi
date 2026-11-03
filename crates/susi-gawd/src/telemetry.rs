@@ -10,11 +10,12 @@
     )
 )]
 
-//! Prometheus and operational telemetry metrics for inference and financial governance.
+//! Prometheus and operational telemetry metrics for this host's own inference.
 //!
 //! Provides global thread-safe aggregation of token consumption, dollar costs (micros),
 //! request latency, and failure rates, and exports them in standard Prometheus exposition
-//! format for scraping by enterprise observability stacks (Prometheus, Datadog, Grafana).
+//! format so the developer can scrape them locally (Prometheus, Grafana). Organisation-wide
+//! chargeback and FinOps reporting are built outside this repository on this surface.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};

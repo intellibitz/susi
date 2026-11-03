@@ -2321,6 +2321,11 @@ fn enterprise_capabilities_live_in_commercial_apps() {
         "helm",
         "deploy/helm",
         "scripts/check-helm-chart.sh",
+        "crates/susi-config/src/fleet_rollout.rs",
+        "crates/susi-config/src/tests/vc_201_068.rs",
+        "crates/susi-config/src/tests/vc_201_068_mastery.rs",
+        "tests/vc_201_068_mastery.rs",
+        "crates/susi-server/src/gateway_keys.rs",
     ] {
         assert!(
             !root.join(rel).exists(),

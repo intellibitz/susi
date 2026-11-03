@@ -848,7 +848,7 @@
       "id": "VC-201-068",
       "mastery_target": "Apply a pinned configuration revision to selected canary nodes, verify health, then advance bounded waves; a failing wave pauses rollout and exposes rollback state per node.",
       "priority": "P1",
-      "progress": "DELIVERED: the pinned revision is enforced on apply, an unhealthy report pauses the rollout and empties pending, per-node rollback state is exposed, rollback requires verified health before resume, non-empty fleets require canary nodes, and FleetRolloutDriver advances staged waves to completion — verified by tests/vc_201_068_mastery.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-03, T-COMMERCIALSPLIT-1): staged multi-host configuration rollout is organisation-scale fleet administration in susi-commercial-apps (Fleet Command); the open substrate configures one host.",
       "type": "CONFIGURATION",
       "vector": "Roll configuration changes across a fleet in stages"
     },
@@ -900,7 +900,7 @@
       "id": "VC-201-072",
       "mastery_target": "Bind credentials to workspace, mission, capabilities, audience, and expiry; an agent cannot reuse a token for a different mission or broader tool scope and cancellation revokes eligible credentials.",
       "priority": "P0",
-      "progress": "DELIVERED: Gateway workload credentials bind to workspace, mission, capabilities, audience, and expiry; mission cancellation revokes eligible credentials. Verified by vc_201_072_mastery_binding_and_expiry and vc_201_072_mastery_cancellation_revokes_credentials in crates/susi-server/src/gateway_keys.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-03, T-COMMERCIALSPLIT-1): per-key gateway credentials with quotas, bindings and audit are team spend governance in susi-commercial-apps (Fleet Command); the open substrate keeps one bearer token per host.",
       "type": "GOVERNANCE",
       "vector": "Issue scoped expiring workload credentials"
     },
