@@ -541,6 +541,18 @@ pub(crate) fn command_uses_release_composition(command: &Commands) -> bool {
     )
 }
 
+/// Local reports that read only the host's own files (`keys` reads key
+/// presence and routing prefs): they need the plane
+/// handlers, not the CLI composition root, whose cloud-endpoint registration
+/// (a walk of the whole model catalog plus the credential scout) took 4.2 s
+/// of `susi review`'s 4.9 s.
+pub(crate) fn command_is_local_report(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Review | Commands::OsClean | Commands::Keys { .. }
+    )
+}
+
 /// Mandate 32: only ensure the daemon for commands that need the background
 /// substrate. Local-only admin/workspace ops must return without blocking on
 /// binary integrity checks or daemon restart.
