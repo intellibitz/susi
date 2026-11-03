@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 $env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
 $Scratch = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('susi-qualified-test-' + [guid]::NewGuid().ToString('N'))))
 $env:SUSI_HOME = $Scratch
+$env:PSModuleAnalysisCachePath = Join-Path $Scratch 'ModuleAnalysisCache'
 $BinDir = Join-Path $Scratch 'bin'
 [void][IO.Directory]::CreateDirectory($BinDir)
 $Bin = Join-Path $BinDir 'susi.exe'

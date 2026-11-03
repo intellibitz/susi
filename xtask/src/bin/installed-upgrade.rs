@@ -124,18 +124,24 @@ mod tests {
             .parent()
             .ok_or("missing repository root")?
             .to_owned();
-        assert!(Command::new("powershell.exe")
+        if let Some(home) = env::var_os("USERPROFILE") {
+            fs::create_dir_all(PathBuf::from(home).join("AppData/Local"))?;
+        }
+        let cache = env::temp_dir().join(format!("susi-ps-module-cache-{}", std::process::id()));
+        let status = Command::new("powershell.exe")
             .current_dir(root)
+            .env("PSModuleAnalysisCachePath", &cache)
             .args([
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                "scripts/test-qualified-upgrade.ps1"
+                "scripts/test-qualified-upgrade.ps1",
             ])
-            .status()?
-            .success());
+            .status()?;
+        let _ = fs::remove_file(cache);
+        assert!(status.success());
         Ok(())
     }
 }

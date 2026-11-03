@@ -1,0 +1,31 @@
+{
+  "id": "T-WINPSCACHE1104-1",
+  "title": "Prevent PowerShell ModuleAnalysisCache from polluting candidate checkout under isolated USERPROFILE",
+  "goal": "Pre-create AppData/Local in isolated verification homes and redirect PSModuleAnalysisCachePath during installed-upgrade tests so Windows PowerShell never writes Microsoft/Windows/PowerShell/ModuleAnalysisCache into the candidate working tree.",
+  "deps": [],
+  "scopes": [
+    "scripts/test-qualified-upgrade.ps1",
+    "xtask/src/bin/installed-upgrade.rs",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "size": "s",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "installed-upgrade"
+    ]
+  },
+  "created_by": "WINPSCACHE1104",
+  "created_unix": 1793748700,
+  "closed": {
+    "at_unix": 1793748760,
+    "commit": "354cf5077a11639daeaec249566e0a00cf831538",
+    "by": "WINPSCACHE1104"
+  }
+}

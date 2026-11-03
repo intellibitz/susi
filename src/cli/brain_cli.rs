@@ -68,6 +68,13 @@ pub enum BrainCommands {
     /// Show the measured capability matrix: every model's success rate,
     /// latency and cost per verified outcome at each task class
     Matrix,
+    /// Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and
+    /// Bayesian UCB1 exploration-exploitation indices across providers
+    Pareto {
+        /// Filter by specific task class (e.g. reflex, chat, code, reasoning, estate_ops)
+        #[arg(long)]
+        class: Option<String>,
+    },
     /// Show the measured prompt-cache hit rate and the estimated saving
     /// cache-first context assembly has realised so far
     Cache,
@@ -249,6 +256,49 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
         }
         BrainCommands::Matrix => {
             print_json(&serde_json::to_value(susi_gemi::capability_matrix::build())?)?;
+        }
+        BrainCommands::Pareto { class } => {
+            let store = brain::load();
+            let mut providers = store.providers();
+            if providers.is_empty() {
+                providers = susi_core::registry::CapabilityRegistry::global().list_providers();
+            }
+            let mut frontiers = serde_json::Map::new();
+            for c in TaskClass::ALL {
+                if let Some(target) = &class {
+                    if !c.label().eq_ignore_ascii_case(target) {
+                        continue;
+                    }
+                }
+                let candidates = store.pareto_frontier(&providers, c);
+                let optimal: Vec<String> = candidates
+                    .iter()
+                    .filter(|x| x.is_pareto_optimal)
+                    .map(|x| x.provider.clone())
+                    .collect();
+                let ucb1_leader = candidates
+                    .iter()
+                    .max_by(|a, b| {
+                        a.ucb1_index
+                            .partial_cmp(&b.ucb1_index)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|x| x.provider.clone());
+                let scores: Vec<f64> = candidates.iter().map(|x| x.score).collect();
+                frontiers.insert(
+                    c.label().to_string(),
+                    serde_json::json!({
+                        "pareto_frontier": optimal,
+                        "ucb1_leader": ucb1_leader,
+                        "shannon_entropy_bits": susi_gemi::brain_explain::routing_entropy_bits(&scores),
+                        "candidates": candidates,
+                    }),
+                );
+            }
+            print_json(&serde_json::json!({
+                "budget": Budget::from_env().label(),
+                "classes": frontiers,
+            }))?;
         }
         BrainCommands::Cache => {
             print_json(&serde_json::json!({
