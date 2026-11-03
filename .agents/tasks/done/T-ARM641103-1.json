@@ -19,5 +19,10 @@
     ]
   },
   "created_by": "ARM641103",
-  "created_unix": 1793721964
+  "created_unix": 1793721964,
+  "closed": {
+    "at_unix": 1793725485,
+    "commit": "33343c1bc792a7b043ddb635463fb5e6f71153fb",
+    "by": "ARM641103"
+  }
 }
