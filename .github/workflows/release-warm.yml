@@ -13,8 +13,10 @@ jobs:
   warm:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}
-    # An older Windows refresh must not hold the independent ARM cache back.
-    # A given platform still has at most one running warmer for this ref.
+    # One running warmer per platform for this ref. The linux-aarch64 warmer
+    # was removed with its release leg: the public core release is x86_64
+    # Windows and x86_64 Linux only (CEO decision 2026-11-03), and Linux x86_64
+    # restores no warmed dist target.
     concurrency:
       group: release-warm-${{ matrix.name }}-${{ github.ref }}
       cancel-in-progress: false
@@ -24,8 +26,6 @@ jobs:
         include:
           - os: windows-latest
             name: windows-x86_64
-          - os: ubuntu-24.04-arm
-            name: linux-aarch64
     timeout-minutes: 75
     env:
       SCCACHE_GHA_ENABLED: "false"

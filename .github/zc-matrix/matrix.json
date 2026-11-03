@@ -17,7 +17,7 @@
     },
     {
       "id": "macos-cpu",
-      "runner": "macos-latest",
+      "runner": "macos-15",
       "env": {"SUSI_PROFILE": "macos-cpu"},
       "expect": {
         "installer_plan": true,

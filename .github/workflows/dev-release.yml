@@ -49,18 +49,10 @@ jobs:
             name: linux-x86_64
             artifact: susi-linux-x86_64
             src: target/dist/susi
-          - os: ubuntu-24.04-arm
-            name: linux-aarch64
-            artifact: susi-linux-aarch64
-            src: target/dist/susi
-          # macos-x86_64 is not published: ort-sys (ONNX Runtime, via
-          # fastembed) no longer ships prebuilt binaries for
-          # x86_64-apple-darwin, so the build fails in the ort-sys build
-          # script. Re-add if the embedder gains a source-build path.
-          - os: macos-15
-            name: macos-aarch64
-            artifact: susi-macos-aarch64
-            src: target/dist/susi
+          # Release scope (CEO decision 2026-11-03): core publishes x86_64
+          # Windows and x86_64 Linux only. The linux-aarch64 and macos-aarch64
+          # dev builds were removed; ARM and macOS stay in the source and in
+          # free CI checks, and susi-commercial-apps builds those binaries.
     # Windows builds are not yet published here: the wasmtime backend is
     # license-clean on windows-msvc, so the backend blocker is gone — the
     # Windows release leg itself (runner, installer, validation) is still

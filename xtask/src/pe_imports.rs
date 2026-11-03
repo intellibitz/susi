@@ -19,6 +19,51 @@ fn u32_at(data: &[u8], at: usize) -> Result<u32> {
             .map_err(|_| "invalid PE dword")?,
     ))
 }
+/// COFF Machine of an x64 PE image (IMAGE_FILE_MACHINE_AMD64).
+pub(crate) const MACHINE_AMD64: u16 = 0x8664;
+/// COFF Machine of an ARM64 PE image (IMAGE_FILE_MACHINE_ARM64).
+pub(crate) const MACHINE_ARM64: u16 = 0xaa64;
+
+/// The COFF Machine a native executable of this tool's own target must carry.
+/// Evidence is produced only on a host equal to the target, so an image built
+/// here for another architecture is never admitted as native evidence.
+#[allow(dead_code)]
+pub(crate) const fn native_machine() -> Option<u16> {
+    if cfg!(target_arch = "x86_64") {
+        Some(MACHINE_AMD64)
+    } else if cfg!(target_arch = "aarch64") {
+        Some(MACHINE_ARM64)
+    } else {
+        None
+    }
+}
+
+/// The COFF Machine field of a PE image, after DOS and PE signature checks.
+#[allow(dead_code)]
+pub(crate) fn machine(data: &[u8]) -> Result<u16> {
+    if data.get(..2) != Some(b"MZ") {
+        return Err("invalid DOS image".into());
+    }
+    let pe = u32_at(data, 0x3c)? as usize;
+    if data.get(pe..pe.checked_add(4).ok_or("PE overflow")?) != Some(b"PE\0\0") {
+        return Err("invalid PE signature".into());
+    }
+    u16_at(data, pe + 4)
+}
+
+/// Refuse a PE image whose Machine is not this tool's native architecture.
+#[allow(dead_code)]
+pub(crate) fn require_native_machine(data: &[u8]) -> Result<u16> {
+    let expected = native_machine().ok_or("no native PE machine for this host")?;
+    let found = machine(data)?;
+    if found != expected {
+        return Err(format!(
+            "PE machine 0x{found:04x} is not the native 0x{expected:04x} architecture"
+        ));
+    }
+    Ok(found)
+}
+
 pub(crate) fn os_dll(name: &str) -> bool {
     name.ends_with(".dll")
         && (name.starts_with("api-ms-win-")
@@ -240,6 +285,32 @@ mod tests {
         let root = std::env::var_os("SystemRoot").unwrap();
         let bytes = std::fs::read(std::path::Path::new(&root).join("System32/where.exe")).unwrap();
         assert!(inspect(&bytes).is_ok(), "{:?}", inspect(&bytes));
+        // The host's own System32 image carries the host's native Machine.
+        assert_eq!(
+            require_native_machine(&bytes),
+            Ok(native_machine().unwrap())
+        );
+    }
+    #[test]
+    fn machine_field_is_read_and_foreign_architectures_are_refused() {
+        let mut bytes = fixture("kernel32.dll", false);
+        assert_eq!(machine(&bytes), Ok(0));
+        for (value, name) in [(MACHINE_AMD64, "x64"), (MACHINE_ARM64, "arm64")] {
+            bytes[68..70].copy_from_slice(&value.to_le_bytes());
+            assert_eq!(machine(&bytes), Ok(value), "{name}");
+            assert_eq!(
+                require_native_machine(&bytes).is_ok(),
+                native_machine() == Some(value),
+                "{name}"
+            );
+        }
+        bytes[68..70].copy_from_slice(&0x014c_u16.to_le_bytes());
+        assert!(
+            require_native_machine(&bytes).is_err(),
+            "i386 is never native"
+        );
+        assert!(machine(&bytes[..69]).is_err());
+        assert!(machine(b"MZ").is_err());
     }
     #[test]
     fn malformed_and_truncated_images_fail_closed() {

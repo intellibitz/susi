@@ -89,28 +89,32 @@ fn assert_native_runtime_graph(tree: &str) {
 
 #[test]
 fn windows_resolves_rust_runtime_and_native_tls() {
-    let tree = dep_tree("x86_64-pc-windows-msvc");
-    assert_native_runtime_graph(&tree);
-    let packages = packages(&tree);
-    for required in [
-        "native-tls",
-        "tokio-native-tls",
-        "schannel",
-        "windows-sys",
-        "rcgen",
-        "pkcs1",
-        "pkcs8",
-    ] {
-        assert!(
-            packages.contains(required),
-            "Windows lost {required}: {tree}"
-        );
-    }
-    for forbidden in ["openssl", "openssl-sys", "openssl-src"] {
-        assert!(
-            !packages.contains(forbidden),
-            "Windows must use Schannel, found {forbidden}: {tree}"
-        );
+    // Both native Windows MSVC targets (ARM64 per the CEO decision of
+    // 2026-11-03) resolve the same Rust runtime and Schannel TLS graph.
+    for target in ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
+        let tree = dep_tree(target);
+        assert_native_runtime_graph(&tree);
+        let packages = packages(&tree);
+        for required in [
+            "native-tls",
+            "tokio-native-tls",
+            "schannel",
+            "windows-sys",
+            "rcgen",
+            "pkcs1",
+            "pkcs8",
+        ] {
+            assert!(
+                packages.contains(required),
+                "{target} lost {required}: {tree}"
+            );
+        }
+        for forbidden in ["openssl", "openssl-sys", "openssl-src"] {
+            assert!(
+                !packages.contains(forbidden),
+                "{target} must use Schannel, found {forbidden}: {tree}"
+            );
+        }
     }
 }
 
@@ -178,6 +182,7 @@ fn all_supported_features_exclude_retired_accelerator_dependencies() {
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
         "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
         "x86_64-apple-darwin",
         "aarch64-apple-darwin",
     ] {
