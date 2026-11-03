@@ -1,0 +1,16 @@
+{
+  "id": "T-LADDERLIC-1",
+  "title": "Model-ladder license checks run concurrently",
+  "goal": "retain_admitted verified each ladder step's publisher license (bounded HF metadata lookups) one step after another. Steps are now admitted concurrently, with one lookup per repository at a time so steps sharing a tokenizer or base model still fetch it once. Measured on fresh isolated homes, debug build: audit 12.2 s -> 11.9 s (three paired runs).",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-ladderlic-1.json",
+    "crates/susi-vendor-models/src/hf_discovery.rs"
+  ],
+  "size": "s",
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-vendor-models", "--lib", "--", "hf_discovery"]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1793708000
+}
