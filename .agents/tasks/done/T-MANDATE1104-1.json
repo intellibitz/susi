@@ -19,5 +19,10 @@
                            ]
                },
     "created_by":  "MANDATE1104",
-    "created_unix":  1793738880
+    "created_unix":  1793738880,
+    "closed":  {
+                   "at_unix":  1793759432,
+                   "commit":  "b9efdf65235b5b5bf3bed5dc4bdc00d334879a1a",
+                   "by":  "MANDATE1104"
+               }
 }
