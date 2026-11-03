@@ -7,7 +7,10 @@ use std::path::Path;
 pub enum BrokerCommands {
     /// Grant a permission scope to an identity.
     Grant {
-        #[arg(short, long)]
+        // Long-only: `-g` belongs to `--grantee`, matching `check`, `revoke`
+        // and `list`. Sharing `-g` panicked clap's debug asserts.
+        /// Identity issuing the grant.
+        #[arg(long)]
         grantor: String,
         #[arg(short, long)]
         grantee: String,
@@ -76,7 +79,9 @@ pub enum BrokerCommands {
         from: String,
         #[arg(short, long)]
         to: String,
-        #[arg(short, long)]
+        // Long-only: `-t` belongs to `--to`; sharing it panicked clap.
+        /// Message topic.
+        #[arg(long)]
         topic: String,
         /// JSON payload string.
         #[arg(short, long)]
@@ -204,4 +209,57 @@ pub fn execute(action: Option<BrokerCommands>, workspace: &Path) -> Result<()> {
         None => bail!("broker subcommand required"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::defs::Cli;
+    use clap::{CommandFactory, Parser};
+
+    /// Builds the whole `susi` command tree with clap's debug assertions so
+    /// any duplicate short/long flag in any subcommand fails here instead of
+    /// panicking at runtime in debug builds.
+    #[test]
+    fn full_cli_tree_passes_clap_debug_asserts() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn broker_grant_and_send_keep_long_and_remaining_short_flags() {
+        for args in [
+            &[
+                "susi",
+                "broker",
+                "grant",
+                "--grantor",
+                "susi",
+                "--grantee",
+                "app",
+                "--resource",
+                "r",
+                "--action",
+                "a",
+            ][..],
+            &[
+                "susi",
+                "broker",
+                "grant",
+                "--grantor",
+                "susi",
+                "-g",
+                "app",
+                "-r",
+                "r",
+                "-a",
+                "a",
+                "-t",
+                "60",
+            ],
+            &[
+                "susi", "broker", "send", "-f", "a", "-t", "b", "--topic", "x", "-p", "{}",
+            ],
+        ] {
+            Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        }
+    }
 }

@@ -14,11 +14,19 @@
 //! Multi-word sentences (`susi fix the login bug`) and quoted sentences pass.
 use clap::Command;
 
+/// The subcommands susi defines. A tree clap has already built for parsing
+/// (`main` builds the tree once and reuses it here) also carries clap's
+/// generated `help` subcommand, which is never a susi command; skipping it
+/// keeps the guard's answers identical on a built and an unbuilt tree.
+pub(crate) fn susi_subcommands(cmd: &Command) -> impl Iterator<Item = &Command> {
+    cmd.get_subcommands().filter(|sub| sub.get_name() != "help")
+}
+
 /// Every command path below the top level whose final word is `word`
 /// (`release` → `admin release`), including visible aliases.
 pub(crate) fn nested_paths(root: &Command, word: &str) -> Vec<String> {
     fn walk(cmd: &Command, prefix: &str, word: &str, out: &mut Vec<String>) {
-        for sub in cmd.get_subcommands() {
+        for sub in susi_subcommands(cmd) {
             let path = if prefix.is_empty() {
                 sub.get_name().to_string()
             } else {
@@ -39,7 +47,7 @@ pub(crate) fn nested_paths(root: &Command, word: &str) -> Vec<String> {
 }
 
 fn is_top_level(root: &Command, word: &str) -> bool {
-    root.get_subcommands()
+    susi_subcommands(root)
         .any(|c| c.get_name() == word || c.get_visible_aliases().any(|a| a == word))
 }
 
@@ -188,5 +196,39 @@ mod tests {
     fn top_level_words_are_never_treated_as_nested() {
         // `status` is both a top-level command and nested under others.
         assert!(refuse(&root(), &args("status")).is_none());
+    }
+
+    /// `main` reuses the tree it parsed with; clap's generated `help`
+    /// subcommand must not change any answer.
+    #[test]
+    fn a_built_tree_answers_like_an_unbuilt_one() {
+        assert!(
+            root().find_subcommand("help").is_none(),
+            "susi defines no `help` command of its own"
+        );
+        // Built the way `main` builds it: parsing argv that names no
+        // subcommand builds the top level only.
+        let mut built = root();
+        assert!(built
+            .try_get_matches_from_mut(["susi", "fix", "it"])
+            .is_ok());
+        assert!(built.find_subcommand("help").is_some());
+        for intent in [
+            "release",
+            "scan",
+            "help",
+            "help-me",
+            "status",
+            "fix the login bug",
+            "release --help",
+            "chat",
+            "admin",
+        ] {
+            assert_eq!(
+                refuse(&built, &args(intent)),
+                refuse(&root(), &args(intent)),
+                "{intent}"
+            );
+        }
     }
 }

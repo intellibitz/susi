@@ -31,6 +31,46 @@ use susi_daemon::SusiDaemon;
 use susi_gmcp::server::GmcpServer;
 use susi_server::GemiServer;
 
+/// `susi audit query`: redacted action history from the workspace audit
+/// chain, as text lines or one JSON array.
+pub(crate) fn audit_query(
+    cwd: &std::path::Path,
+    query: &susi_sandbox::audit_chain::AuditQuery,
+    json: bool,
+) -> std::process::ExitCode {
+    let audit_file = cwd.join(".susi").join("audit.log");
+    match susi_sandbox::audit_chain::query_chain(&audit_file, query) {
+        Ok(records) if json => match serde_json::to_string_pretty(&records) {
+            Ok(output) => println!("{output}"),
+            Err(error) => {
+                eprintln!("Audit query serialization failed: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        },
+        Ok(records) => {
+            for record in records {
+                println!(
+                    "{} {} actor={} mission={} kind={} outcome={} cost_micros={}",
+                    record.ts,
+                    record.event_type,
+                    record.actor.as_deref().unwrap_or("-"),
+                    record.mission.as_deref().unwrap_or("-"),
+                    record.kind,
+                    record.outcome.as_deref().unwrap_or("-"),
+                    record
+                        .cost_micros
+                        .map_or_else(|| "-".to_string(), |cost| cost.to_string()),
+                );
+            }
+        }
+        Err(error) => {
+            eprintln!("Audit query failed: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+    std::process::ExitCode::SUCCESS
+}
+
 /// Run one post-boot command. Returns the process exit code (most commands
 /// exit SUCCESS; mission paths propagate the swarm report code).
 pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::ExitCode {
@@ -139,15 +179,12 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             GemiServer::start_http_server((*cwd).to_path_buf(), listeners, tls, require_tls_remote);
         }
         Commands::Status { json } => {
+            // `main::dispatch_local_report` answers this before substrate
+            // boot; the arm stays so the post-boot dispatch remains total.
             if json {
                 return status_cli::run_json(cwd, global_dir);
             }
-            let id_file = global_dir.join("identity.key");
-            if id_file.exists() {
-                if let Ok(id) = std::fs::read_to_string(id_file) {
-                    println!("[SUBSTRATE IDENTITY]: {}", id.trim());
-                }
-            }
+            status_cli::print_identity(global_dir);
             status_cli::run(cwd, global_dir);
         }
         Commands::SubstrateReport => {
@@ -278,6 +315,8 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     }
                 }
             }
+            // `main::dispatch_local_report` answers this before substrate
+            // boot; the arm stays so the post-boot dispatch remains total.
             Some(AuditCommands::Query {
                 actor,
                 mission,
@@ -286,7 +325,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 until,
                 json,
             }) => {
-                let audit_file = cwd.join(".susi").join("audit.log");
                 let query = susi_sandbox::audit_chain::AuditQuery {
                     actor,
                     mission,
@@ -294,35 +332,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     since,
                     until,
                 };
-                match susi_sandbox::audit_chain::query_chain(&audit_file, &query) {
-                    Ok(records) if json => match serde_json::to_string_pretty(&records) {
-                        Ok(output) => println!("{output}"),
-                        Err(error) => {
-                            eprintln!("Audit query serialization failed: {error}");
-                            std::process::exit(1);
-                        }
-                    },
-                    Ok(records) => {
-                        for record in records {
-                            println!(
-                                "{} {} actor={} mission={} kind={} outcome={} cost_micros={}",
-                                record.ts,
-                                record.event_type,
-                                record.actor.as_deref().unwrap_or("-"),
-                                record.mission.as_deref().unwrap_or("-"),
-                                record.kind,
-                                record.outcome.as_deref().unwrap_or("-"),
-                                record
-                                    .cost_micros
-                                    .map_or_else(|| "-".to_string(), |cost| cost.to_string()),
-                            );
-                        }
-                    }
-                    Err(error) => {
-                        eprintln!("Audit query failed: {error}");
-                        std::process::exit(1);
-                    }
-                }
+                return audit_query(cwd, &query, json);
             }
         },
         Commands::Keys { action } => keys_cli::run(action),
