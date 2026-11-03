@@ -1,20 +1,23 @@
 {
-    "id": "T-USPROI1104-1",
-    "title": "Tier-0 and Tier-S SOVA algorithmic arbitrage engine and quantified 4-lever ROI across Susi",
-    "goal": "Implement the Tier-0 Spectral-Margin Information-Theoretic Reflex Gate (SCIS) with lock-free zero-cost ROI accounting in susi-gemi, the Tier-S SOVA (Sovereign Optimal Value Arbitrage) Cache-Warm Bellman ECVO optimizer and exact 4-lever ROI decomposition in susi-harness, and runtime Crown/Substrate verification in susi.",
-    "size": "m",
-    "deps": [],
-    "accept": {
-        "cmd": [
-            "cargo",
-            "test",
-            "--offline",
-            "--locked",
-            "-p",
-            "susi-harness",
-            "--lib"
-        ]
-    },
-    "created_by": "USPROI1104",
-    "created_unix": 1793763800
+    "id":  "T-USPROI1104-1",
+    "title":  "Add Tier-0 SCIS spectral reflex gate, Tier-S SOVA Bellman ECVO arbitrage engine, and 4-lever quantified ROI decomposition",
+    "goal":  "",
+    "size":  "m",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-harness",
+                               "--lib",
+                               "roi"
+                           ]
+               },
+    "created_by":  "USPROI1104",
+    "created_unix":  1793766360
 }
