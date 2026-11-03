@@ -153,12 +153,12 @@ if ($Service -and -not $IsolatedInstall) {
     }
 }
 
-# Opening accepts a goal immediately; discovery must not delay the prompt.
-# Headless installs can opt out, without making a false claim of model readiness.
+# Core has no interactive prompt: it takes one-shot goals, and the conversation
+# lives in the Susi desktop app. Interactive installs show usage once; headless
+# installs can opt out, without making a false claim of model readiness.
 Write-Host "`nSusi is installed. No terminal restart is needed." -ForegroundColor Green
 if (-not $NoLaunch -and $env:NONINTERACTIVE -ne '1' -and $env:SUSI_NO_DAEMON -ne '1' -and [Environment]::UserInteractive) {
-    & $LauncherExePath shell
-    if ($LASTEXITCODE -ne 0) { throw "Susi opening failed (exit $LASTEXITCODE)." }
-} else {
-    Write-Host "Open Susi and give it a goal: $LauncherExePath" -ForegroundColor Gray
+    & $LauncherExePath --help
+    if ($LASTEXITCODE -ne 0) { throw "Susi usage check failed (exit $LASTEXITCODE)." }
 }
+Write-Host "Open Susi and give it a goal: $LauncherExePath `"<what you want done>`"" -ForegroundColor Gray

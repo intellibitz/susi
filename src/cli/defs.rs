@@ -73,8 +73,6 @@ pub(crate) enum Commands {
     Stop,
     /// Restart the global susi daemon (stop then start — never a mission)
     Restart,
-    /// Start persistent SUSI Pulse Shell
-    Shell,
     /// Initialize sandboxed .susi environment
     Install,
     /// Activate a qualified Windows release or restore the previous verified release

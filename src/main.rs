@@ -16,7 +16,7 @@
 //!
 //! Module map: `cli::defs` holds the clap surface; `cli::control_plane_cli`
 //! dispatches pre-boot commands; `cli::mission_cli` dispatches post-boot commands;
-//! `cli::plane_cli`/`cli::shell_cli`/`cli::keys_cli`/`cli::admin_cli` hold shared plumbing; the
+//! `cli::plane_cli`/`cli::mission_host`/`cli::keys_cli`/`cli::admin_cli` hold shared plumbing; the
 //! remaining `cli::*_cli` modules own per-domain subcommands.
 
 #![allow(missing_docs)] // binary crate: internal CLI modules are not public API
@@ -32,7 +32,7 @@ mod dev_instance;
 use cli::control_plane_cli::{dispatch, dispatch_mcp};
 use cli::defs::{command_requires_daemon, Cli};
 use cli::mission_cli::dispatch as dispatch_mission;
-use cli::shell_cli::{glass_box_callback, MissionHost, ShellSession};
+use cli::mission_host::{glass_box_callback, MissionHost};
 
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
@@ -118,6 +118,31 @@ fn read_stdin_bounded() -> io::Result<Option<String>> {
     } else {
         Some(trimmed.to_string())
     })
+}
+
+/// Bare `susi` has nothing to do: no command, no goal and stdin on a
+/// terminal. Core takes one-shot goals and has no interactive prompt.
+/// Redirected stdin is never bare; it carries (or closes) a piped goal.
+fn bare_terminal_invocation(has_command: bool, has_intent: bool, stdin_is_terminal: bool) -> bool {
+    !has_command && !has_intent && stdin_is_terminal
+}
+
+/// Usage for bare `susi`, plus where the conversation now lives.
+fn print_bare_usage() -> std::process::ExitCode {
+    let mut stdout = io::stdout();
+    let printed = write!(stdout, "{}", Cli::command().render_help())
+        .and_then(|()| {
+            writeln!(
+                stdout,
+                "\nGive Susi one goal: susi \"<what you want done>\" (or pipe it on stdin).\n\
+                 The interactive conversation lives in the Susi desktop app."
+            )
+        })
+        .and_then(|()| stdout.flush());
+    if printed.is_err() {
+        return std::process::ExitCode::FAILURE;
+    }
+    std::process::ExitCode::SUCCESS
 }
 
 fn get_home_dir() -> PathBuf {
@@ -223,7 +248,7 @@ fn run() -> std::process::ExitCode {
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
-    let mut cli = Cli::parse();
+    let cli = Cli::parse();
     if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
         return status;
     }
@@ -234,6 +259,16 @@ fn run() -> std::process::ExitCode {
     // or service composition can create another instance or start a daemon.
     if matches!(cli.command, Some(cli::defs::Commands::Install)) {
         return cli::install_cli::execute();
+    }
+    // Core has no interactive prompt (zero UI): bare `susi` on a terminal
+    // prints usage and exits before any instance or substrate work. The
+    // conversation lives in the Susi desktop app; piped stdin stays a goal.
+    if bare_terminal_invocation(
+        cli.command.is_some(),
+        !cli.intent.is_empty(),
+        io::stdin().is_terminal(),
+    ) {
+        return print_bare_usage();
     }
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
@@ -246,23 +281,6 @@ fn run() -> std::process::ExitCode {
     if env::var_os("CANDLE_NUM_THREADS").is_none() {
         env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
     }
-    // Opening the goal prompt must not wait for every optional framework,
-    // model or daemon to boot. Initialize in this process only after a goal
-    // arrives, then retain its model cache for the rest of the conversation.
-    let shell = if matches!(cli.command, Some(cli::defs::Commands::Shell))
-        || (cli.command.is_none() && cli.intent.is_empty() && io::stdin().is_terminal())
-    {
-        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let session = ShellSession::open(&cwd);
-        let Some(goal) = session.next_goal() else {
-            return std::process::ExitCode::SUCCESS;
-        };
-        cli.command = None;
-        cli.intent = vec![goal];
-        Some(session)
-    } else {
-        None
-    };
     // An empty pipe is not a mission. Read it before starting services or
     // probing catalogs; non-empty piped goals take the same real mission path.
     let piped_intent = if cli.command.is_none() && cli.intent.is_empty() {
@@ -282,7 +300,7 @@ fn run() -> std::process::ExitCode {
     };
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
-    if cli.command.is_none() && shell.is_none() {
+    if cli.command.is_none() {
         if let Some(hints) = cli::intent_guard::refuse(&Cli::command(), &cli.intent) {
             eprintln!(
                 "`{}` looks like a command, not a goal — refusing to run it as a mission.",
@@ -492,43 +510,22 @@ fn run() -> std::process::ExitCode {
         exit_code = dispatch_mission(command, &host);
     } else if !cli.intent.is_empty() {
         let ama = SusiMasterAgent::new();
-        let mut goal = cli.intent.join(" ");
-        loop {
-            match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
-                Ok(msg) => {
-                    info!("Natural intent ingested successfully: {}", msg);
-                }
-                Err(e) => {
-                    warn!(
-                        "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
-                        e
-                    );
-                }
+        let goal = cli.intent.join(" ");
+        match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
+            Ok(msg) => {
+                info!("Natural intent ingested successfully: {}", msg);
             }
-            exit_code = ama
-                .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
-                .exit_code();
-            let _ = io::stdout().flush();
-            let Some(session) = &shell else {
-                break;
-            };
-            session.finish_goal(exit_code);
-            let Some(next) = session.next_goal() else {
-                return std::process::ExitCode::SUCCESS;
-            };
-            goal = next;
-            // A later goal can need tools the first one did not. Admit them on
-            // demand through the same composition contract, preserving the model
-            // and tokenizer caches already owned by this process.
-            let catalogs = bare_goal_catalogs(&goal);
-            if !catalogs.is_empty() {
-                susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs);
-            }
-            if susi_core::manifold::IntentManifold::analyze(&goal).requires_swarm {
-                SusiDaemon::ensure_daemon_running(&cwd, &global_dir);
-                susi_daemon::ambient::start_ambient_indexer(&cwd);
+            Err(e) => {
+                warn!(
+                    "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
+                    e
+                );
             }
         }
+        exit_code = ama
+            .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
+            .exit_code();
+        let _ = io::stdout().flush();
     } else if let Some(input) = piped_intent {
         let ama = SusiMasterAgent::new();
         exit_code = ama
@@ -542,6 +539,32 @@ fn run() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::default_candle_threads;
+    use clap::CommandFactory;
+
+    #[test]
+    fn only_a_bare_terminal_invocation_prints_usage() {
+        assert!(super::bare_terminal_invocation(false, false, true));
+        assert!(
+            !super::bare_terminal_invocation(false, false, false),
+            "redirected stdin is a piped one-shot goal, never usage"
+        );
+        assert!(!super::bare_terminal_invocation(false, true, true));
+        assert!(!super::bare_terminal_invocation(true, false, true));
+    }
+
+    #[test]
+    fn bare_usage_lists_commands_but_no_interactive_shell() {
+        let help = super::Cli::command().render_help().to_string();
+        assert!(help.contains("Usage:"), "{help}");
+        assert!(help.contains("Commands:"), "{help}");
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("shell ")),
+            "{help}"
+        );
+        assert!(super::Cli::command().find_subcommand("shell").is_none());
+    }
 
     #[test]
     fn first_goal_admits_tools_and_models_without_optional_framework_probes() {

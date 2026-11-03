@@ -52,6 +52,32 @@ fn flag_shaped_input_is_refused_without_side_effects() {
 }
 
 #[test]
+fn retired_interactive_shell_is_refused_with_a_pointer() {
+    let (code, stderr, written) = run(&["shell"]);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("Susi desktop app"), "{stderr}");
+    assert!(stderr.contains("one-shot goals"), "{stderr}");
+    assert!(written.is_empty(), "{written:?}");
+}
+
+#[test]
+fn help_lists_no_interactive_shell_command() {
+    let out = Command::new(env!("CARGO_BIN_EXE_susi"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let help = String::from_utf8_lossy(&out.stdout);
+    assert!(help.contains("Usage:"), "{help}");
+    assert!(
+        !help
+            .lines()
+            .any(|line| line.trim_start().starts_with("shell ")),
+        "{help}"
+    );
+}
+
+#[test]
 fn nested_command_word_is_refused_with_a_hint() {
     let (code, stderr, written) = run(&["release"]);
     assert_eq!(code, 2, "{stderr}");

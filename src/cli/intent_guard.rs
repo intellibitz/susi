@@ -85,6 +85,10 @@ const RETIRED_APPLICATION_COMMANDS: &[(&str, &str)] = &[
     ("haystack", "`susi frameworks run haystack`"),
     ("eval", "`susi benchmark` measures a real completion"),
     ("mcp-scout", "`susi mcp` manages admitted servers"),
+    (
+        "shell",
+        "the interactive conversation lives in the Susi desktop app; the core CLI takes one-shot goals: `susi \"<what you want done>\"`",
+    ),
 ];
 
 pub(crate) fn refuse(root: &Command, intent: &[String]) -> Option<Vec<String>> {
@@ -173,6 +177,11 @@ mod tests {
             "{crew:?}"
         );
         assert!(refuse(&root(), &args("fix the login bug")).is_none());
+        let shell = refuse(&root(), &args("shell")).unwrap();
+        assert!(
+            shell.iter().any(|h| h.contains("Susi desktop app")),
+            "{shell:?}"
+        );
     }
 
     #[test]

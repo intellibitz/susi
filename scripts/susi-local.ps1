@@ -3,7 +3,7 @@ param(
     [ValidateSet('Build','Run','Rollback','Status')][string]$Action = 'Build',
     [ValidateSet('dev','production')][string]$Channel = 'dev',
     [string]$Root = (Join-Path $env:LOCALAPPDATA 'SusiLocal'),
-    [string[]]$SusiArgs = @('shell')
+    [string[]]$SusiArgs = @()
 )
 $ErrorActionPreference = 'Stop'
 if ($Channel -eq 'production') {

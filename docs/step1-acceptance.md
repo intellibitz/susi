@@ -47,9 +47,10 @@ Version, help and status do not establish model inference, daemon service
 health, an uncached installation or recovery of a running production service.
 The production qualifier additionally executes real first-goal prompts using
 the exact candidate under isolated runtime state with inherited provider
-credentials and endpoints removed. It runs arithmetic and prose prompts,
-requires successful tool-free mission traces, checks answer semantics, and
-requires two audited nonempty Rust Candle generations. The cached session
+credentials and endpoints removed. It runs arithmetic and prose prompts as
+successive one-shot piped goals sharing one session budget, requires
+successful tool-free mission traces, checks answer semantics, and requires
+two audited nonempty Rust Candle generations. The cached session
 budget is 60 seconds; uncached provisioning and inference have 600 seconds.
 Both use the same sampled memory/output ceilings. Actual output, traces,
 audits, model identities/digests and measurements are embedded in the

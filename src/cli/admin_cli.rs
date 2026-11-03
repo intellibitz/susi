@@ -2,7 +2,7 @@
 //! config hot-reload, and the admin-pulse commands.
 
 use super::defs::{AdminCommands, AuditEvidenceCommands};
-use super::shell_cli::MissionHost;
+use super::mission_host::MissionHost;
 
 use std::collections::BTreeMap;
 use std::fs;

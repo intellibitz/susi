@@ -1280,14 +1280,12 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     }
     command
         .current_dir(&workspace)
-        .arg("shell")
         .env("SUSI_PORT_OFFSET", ports.to_string())
         .env("RAYON_NUM_THREADS", "4")
         .env("CANDLE_NUM_THREADS", "4");
     if cached {
         command.env("SUSI_OFFLINE", "1").env("HF_HUB_OFFLINE", "1");
     }
-    let input = format!("{}\n{}\nquit\n", INFERENCE_PROMPTS[0], INFERENCE_PROMPTS[1]);
     let mut cleanup = Command::new(binary);
     cleanup.env_clear().current_dir(&workspace).arg("stop");
     for (key, value) in command.get_envs() {
@@ -1320,22 +1318,48 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
             }
         }
     }
-    let resources = measured_health(
-        command,
-        &scratch,
-        "inference",
-        std::time::Duration::from_secs(if cached { 60 } else { 600 }),
-        input.as_bytes(),
-    );
+    // Core has no interactive prompt: each prompt is a one-shot goal piped to
+    // the exact candidate under the same isolated runtime state, in order.
+    // Both prompts share the one session budget; each run gets what is left.
+    let budget = std::time::Duration::from_secs(if cached { 60 } else { 600 });
+    let session = std::time::Instant::now();
+    let resources = INFERENCE_PROMPTS
+        .iter()
+        .enumerate()
+        .map(|(index, prompt)| {
+            let mut goal = Command::new(binary);
+            goal.env_clear().current_dir(&workspace);
+            for (key, value) in command.get_envs() {
+                if let Some(value) = value {
+                    goal.env(key, value);
+                }
+            }
+            measured_health(
+                goal,
+                &scratch,
+                &format!("inference-{index}"),
+                budget.saturating_sub(session.elapsed()),
+                format!("{prompt}\n").as_bytes(),
+            )
+        })
+        .collect::<Result<Vec<_>>>();
     // Even rejected candidates may have started their own services. Use only
     // their isolated runtime and reserved ports; never the installed profile.
     let stopped = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
     let cleanup_resources = stopped?;
     reservation.confirm_stopped(&runtime)?;
-    let resources = resources?;
+    let resources = resources?
+        .iter()
+        .map(|report| serde_json::from_str::<serde_json::Value>(report))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     let traces = bounded_evidence(&workspace.join(".susi/mission_traces.jsonl"))?;
     let last = bounded_evidence(&workspace.join(".susi/last_mission_trace.json"))?;
-    let stdout = bounded_evidence(&scratch.join("inference.stdout"))?;
+    let mut stdout = String::new();
+    for index in 0..INFERENCE_PROMPTS.len() {
+        stdout.push_str(&bounded_evidence(
+            &scratch.join(format!("inference-{index}.stdout")),
+        )?);
+    }
     let mut audit = String::new();
     for entry in fs::read_dir(&runtime)? {
         let entry = entry?;
@@ -1365,12 +1389,12 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
         return Err("candidate changed during inference acceptance".into());
     }
     let evidence = serde_json::json!({
-        "schema":"susi-inference-acceptance-v1", "artifact_sha256":artifact_before,
+        "schema":"susi-inference-acceptance-v2", "artifact_sha256":artifact_before,
         "provisioning":if cached {"copied-cache-validated-by-candidate"} else {"uncached-native-install-and-public-model-download"},
         "provisioning_resources":provisioning,"models":models,
         "cleanup_resources":serde_json::from_str::<serde_json::Value>(&cleanup_resources)?,
         "private_installed_processes_remaining":0,
-        "prompts":INFERENCE_PROMPTS,"resources":serde_json::from_str::<serde_json::Value>(&resources)?,
+        "prompts":INFERENCE_PROMPTS,"resources":resources,
         "mission_traces_sha256":digest(traces.as_bytes()), "last_trace_sha256":digest(last.as_bytes()),
         "audit_sha256":digest(audit.as_bytes()), "stdout_sha256":digest(stdout.as_bytes()),
         // Keep the actual evidence inside the manifest-bound gates package,

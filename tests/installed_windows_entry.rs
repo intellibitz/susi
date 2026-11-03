@@ -29,8 +29,8 @@ fn fixture(root: &Path, name: &str) -> (String, PathBuf) {
 fn main(){{
  let args:Vec<_>=std::env::args().skip(1).collect();
  let exe=std::env::current_exe().unwrap();
- if args.as_slice()==["shell"]{{
-   std::fs::write(exe.with_extension("opened"),format!("{{}}\n{{}}\n{{}}", "{name}",args[0],std::env::current_dir().unwrap().display())).unwrap();
+ if args.is_empty(){{
+   std::fs::write(exe.with_extension("opened"),format!("{{}}\n{{}}\n{{}}", "{name}",args.len(),std::env::current_dir().unwrap().display())).unwrap();
    return;
  }}
  let data=std::io::stdin().lock().lines().next().unwrap().unwrap();
@@ -326,7 +326,16 @@ fn run_installed_entry(deep: bool) {
     fs::create_dir(&work).unwrap();
     let link = profile.join("Susi 启动.lnk");
     assert!(shell_link::legacy_local_target(b"unrecognized link").is_err());
-    fs::write(&link, shell_link::encode(&entry, &work).unwrap()).unwrap();
+    let encoded = shell_link::encode(&entry, &work).unwrap();
+    // The link opens bare `susi` (usage): no HasArguments flag, no "shell".
+    // Susi's retired encoding launched the removed `susi shell` REPL.
+    let flags = u32::from_le_bytes(encoded[20..24].try_into().unwrap());
+    assert_eq!(flags & 0x20, 0, "Start Menu link must carry no arguments");
+    let retired = shell_link::retired_shell_encoding(&entry, &work).unwrap();
+    let retired_flags = u32::from_le_bytes(retired[20..24].try_into().unwrap());
+    assert_eq!(retired_flags & 0x20, 0x20);
+    assert_ne!(encoded, retired);
+    fs::write(&link, encoded).unwrap();
     // Windows PowerShell supplies an independent ShellExecute test oracle. No
     // script executes in the installed entry point or in its native installer.
     let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
@@ -344,7 +353,7 @@ fn run_installed_entry(deep: bool) {
     let opened = fs::read_to_string(slot.join("susi.opened")).unwrap();
     let mut observed = opened.lines();
     assert_eq!(observed.next(), Some("A"));
-    assert_eq!(observed.next(), Some("shell"));
+    assert_eq!(observed.next(), Some("0"), "the link passed arguments");
     assert_eq!(
         Path::new(observed.next().unwrap()).canonicalize().unwrap(),
         work.canonicalize().unwrap()

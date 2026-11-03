@@ -576,15 +576,12 @@ if [ "$ISOLATED_INSTALL" = "0" ] && [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; th
     fi
 fi
 
-# 7. Finalize. A piped installer consumes stdin; the goal session needs the
-# controlling terminal instead. Never open a session in headless automation.
+# 7. Finalize. Core has no interactive prompt: it takes one-shot goals, and the
+# conversation lives in the Susi desktop app. Show usage once on a terminal;
+# never in headless automation. `--help` never reads the installer's stdin.
 export PATH="$GLOBAL_BIN_DIR:$PATH"
 echo "Susi is installed. No terminal restart is needed."
 if [ -t 1 ] && [ -z "${NONINTERACTIVE:-}" ] && [ -z "${SUSI_NO_DAEMON:-}" ] && [ -x "$GLOBAL_BIN_DIR/susi" ]; then
-    if [ -t 0 ]; then
-        exec "$GLOBAL_BIN_DIR/susi" shell
-    elif { true </dev/tty; } 2>/dev/null; then
-        exec "$GLOBAL_BIN_DIR/susi" shell </dev/tty
-    fi
+    "$GLOBAL_BIN_DIR/susi" --help
 fi
-printf 'Open Susi and give it a goal: %q shell\n' "$GLOBAL_BIN_DIR/susi"
+printf 'Open Susi and give it a goal: %q "<what you want done>"\n' "$GLOBAL_BIN_DIR/susi"
