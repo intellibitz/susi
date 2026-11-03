@@ -66,6 +66,7 @@
     ".agents/roadmap-verdicts/vc-201-078.json",
     ".agents/roadmap-verdicts/vc-201-097.json",
     ".agents/roadmap.json",
+    ".agents/tasks/done/t-claude-407.json",
     ".agents/tasks/done/t-codexadapterproof-1.json",
     ".agents/tasks/done/t-codexexactqualifiedupgrade-1.json",
     ".agents/tasks/done/t-codexlocalintegrationlatency1102-1.json",
