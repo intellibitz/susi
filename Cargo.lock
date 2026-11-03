@@ -4167,15 +4167,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-dsh-cell"
-version = "0.14.1"
-dependencies = [
- "susi-abi",
- "susi-vendor-serde-json",
- "susi-vendor-tokio",
-]
-
-[[package]]
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
@@ -4290,7 +4281,6 @@ dependencies = [
  "susi-vendor-candle",
  "susi-vendor-flume",
  "susi-vendor-hex",
- "susi-vendor-indicatif",
  "susi-vendor-jsonschema",
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
@@ -4691,13 +4681,6 @@ name = "susi-vendor-hyper-util"
 version = "0.1.0"
 dependencies = [
  "hyper-util",
-]
-
-[[package]]
-name = "susi-vendor-indicatif"
-version = "0.1.0"
-dependencies = [
- "indicatif",
 ]
 
 [[package]]

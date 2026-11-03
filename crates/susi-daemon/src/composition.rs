@@ -321,8 +321,8 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
 /// The four planes live in separate crates over one shared bus. Each
 /// `register` publishes a loopback endpoint under this process's bus
 /// directory, so a request from any plane resolves. Sibling binaries
-/// (`susi-gemi`, `susi-gmcp`, `susi-gawd`, `susi-dsh-cell`) are not part of
-/// the release image; spawning them left every topic unanswered.
+/// (`susi-gemi`, `susi-gmcp`, `susi-gawd`) are not part of the release
+/// image; spawning them left every topic unanswered.
 ///
 /// Then registers the configured cloud endpoints as providers. Both happen
 /// once per process: the CLI composition reached this twice (directly and

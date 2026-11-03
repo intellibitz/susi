@@ -286,8 +286,7 @@ Spend is bounded before an attempt, not discovered after the bill.
   is the authority.
 - A refused attempt is recorded as `budget_exhausted` and the task is left for a
   later run or a top-up. It is not retried into the wall.
-- The cockpit warns at four fifths of the cap and the panel's bar turns amber,
-  then red at nine tenths.
+- The harness API snapshot warns once spend reaches four fifths of the cap.
 
 A turn that makes calls but never writes is not progress either. The native
 worker is bounded twice, in process: `executor::MAX_TURNS` caps how many tool
@@ -331,12 +330,14 @@ The ladder is capped (`Policy::max_attempts`, default 4). A rejected attempt's
 worktree is reset to the task record before the next model runs, so a rejected
 attempt is never published and never leaks into the next one.
 
-## Cockpit
+## Harness API
 
-`susi harness cockpit` serves the panel and the API on loopback:
+`susi harness api` serves the harness JSON/SSE API on loopback (`cockpit` is a
+hidden deprecated alias). Core ships no UI: there is no page at `/`, only the
+routes below; any visual view of them lives in the commercial desktop.
 
 ```sh
-susi harness cockpit \
+susi harness api \
   --ledger out/ledger.jsonl \
   --events out/events.jsonl \
   --plan plan.json \
@@ -347,7 +348,7 @@ susi harness cockpit \
   --port 9181
 ```
 
-- `GET /` — the panel (add `?embed=1` for a frameless embed).
+- `GET /health` — liveness.
 - `GET /api/status` — one JSON snapshot: spend, budget, missions, workers,
   decisions, warnings, controls, recent events, the agent graph (`graph`),
   spend per graph role in the focused mission (`role_spend`), and that
@@ -360,22 +361,9 @@ susi harness cockpit \
   `abort`, `top_up`, `redirect`, `decide`. The command is validated, appended to
   the control log and answered. The supervisor reads the log before each batch
   and stops starting new work when the operator paused or aborted.
-
-The panel has no build step and no external assets, so any harness desktop can
-embed it in an iframe. This repository ships a DeepSeek Harness plugin at
-`deploy/dsh-cockpit` that registers **two** cockpit entries, because the two are
-different surfaces and both belong in the sidebar:
-
-| Sidebar entry | Embeds | URL default |
-|---|---|---|
-| CEO cockpit (external) | the standalone orchestration cockpit app — the former litellm/openclaw cockpit, split into its own application | `http://localhost:8080/` |
-| CEO cockpit (susi native) | susi's own panel, built entirely in-house and served by `susi harness cockpit` | `http://127.0.0.1:9181/?embed=1` |
-
-Each panel keeps its own URL in the browser, so repointing one never moves the
-other; the native panel also adopts a URL saved under the pre-split
-`susi.cockpit.url` key, so an operator's custom cockpit address survives the
-split. Install the plugin with the Harness plugin manager (`install_bundle`,
-target `deploy/dsh-cockpit`).
+  Writes pass core's `NetGuard`: once `api_auth_token` is seeded the request
+  needs `Authorization: Bearer <token>` (or a valid member signature), and
+  before seeding only loopback callers may write; anything else gets `401`.
 
 ## SUSI building SUSI
 
@@ -393,8 +381,8 @@ susi harness run plan.json --repo . --gateway http://127.0.0.1:9188 \
   --model deepseek-flash --workers gemini-flash --catalogue deploy/harness/prices.json \
   --budget-usd 0.50 --ledger out/ledger.jsonl --parallel 2
 
-# 4. Watch it
-susi harness cockpit --ledger out/ledger.jsonl --plan plan.json \
+# 4. Watch it (JSON/SSE API)
+susi harness api --ledger out/ledger.jsonl --plan plan.json \
   --controls out/control.jsonl --catalogue deploy/harness/prices.json \
   --budget-usd 0.50 --port 9181
 ```

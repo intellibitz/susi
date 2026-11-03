@@ -3,11 +3,10 @@
 use clap::Args;
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Duration;
-use susi_gemi::tui_top::{
+use susi_gemi::operator_report::{
     render_operator_state, BlockedWorkRow, ConfigStateRow, EvidenceStateRow, FederationStateRow,
     GpuRow, ProviderRow, QueueRow, SystemResourceRow, TopSnapshot, UnifiedOperatorState,
 };
@@ -17,14 +16,6 @@ pub struct TopArgs {
     /// Output the operator control surface state as JSON
     #[arg(long)]
     pub json: bool,
-
-    /// Watch and continuously refresh the dashboard
-    #[arg(long)]
-    pub watch: bool,
-
-    /// Refresh interval in seconds for watch mode
-    #[arg(long, default_value_t = 2)]
-    pub interval: u64,
 
     /// Filter to a specific state dimension: workload, resources, providers, config, federation, evidence
     #[arg(long)]
@@ -44,16 +35,6 @@ pub fn execute(args: TopArgs, cwd: &Path) -> ExitCode {
                 eprintln!("Failed to serialize operator state to JSON: {e}");
                 ExitCode::FAILURE
             }
-        }
-    } else if args.watch {
-        let interval = Duration::from_secs(args.interval.max(1));
-        loop {
-            let state = sample_operator_state(cwd);
-            // ANSI clear screen and home cursor
-            print!("\x1B[2J\x1B[1;1H");
-            print!("{}", render_operator_state(&state));
-            let _ = std::io::stdout().flush();
-            std::thread::sleep(interval);
         }
     } else {
         let state = sample_operator_state(cwd);

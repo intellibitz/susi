@@ -154,7 +154,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             }
             status_cli::run(cwd, global_dir);
         }
-        Commands::SovereignDashboard => {
+        Commands::SubstrateReport => {
             // Calls the compiled-constants report (`AlphaSelf::RULES`/
             // `COMPONENTS`, baked into the binary) directly, not
             // `solve_clean`'s generic swarm/LLM pipeline: this command's
@@ -255,7 +255,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         // Same deterministic audit as `susi admin audit`. This used to ask
         // the swarm to narrate a compliance audit, which a model answers
         // with unverified figures (the Mandate 2 failure recorded on
-        // SovereignDashboard below).
+        // SubstrateReport below).
         Commands::Audit { action } => match action {
             None => match susi_gawd::admin::SusiAdmin::audit_compliance(cwd, Some("push")) {
                 Ok(report) => println!("{}", report),

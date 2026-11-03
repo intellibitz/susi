@@ -1,4 +1,6 @@
 //! Headless render model for `susi top` (providers, GPU, queue, and unified operator control surface).
+//!
+//! Formerly `tui_top`. Output is plain text or JSON; core has no redraw loop.
 
 use serde::{Deserialize, Serialize};
 

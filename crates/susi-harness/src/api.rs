@@ -1,9 +1,9 @@
-//! The control surface every cockpit speaks.
+//! The control surface every operator client speaks.
 //!
-//! A cockpit — the harness panel, a browser, an agent shelling out to the CLI —
-//! sends a [`ControlCommand`] and receives a [`ControlAck`]. The command is the
-//! same JSON on every transport, which is what lets one panel serve DSH, a
-//! browser and an MCP client without a second implementation.
+//! A client — the commercial desktop, an agent shelling out to the CLI, an MCP
+//! client posting to the harness API — sends a [`ControlCommand`] and receives
+//! a [`ControlAck`]. The command is the same JSON on every transport, so no
+//! client needs a second implementation.
 
 use crate::money::MicroUsd;
 use serde::{Deserialize, Serialize};

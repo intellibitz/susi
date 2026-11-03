@@ -46,22 +46,19 @@ The author is the **supervisor** model. Each task names a worker model. Read the
 plan before running it: a task reserves scopes and declares an acceptance, and
 the run refuses a plan whose packages, scopes or acceptance do not resolve.
 
-## 3. Open the cockpit first
+## 3. Start the harness API first
 
 ```sh
-susi harness cockpit \
+susi harness api \
   --ledger out/ledger.jsonl --events out/events.jsonl \
   --plan plan.json --state supervisor-state.json \
   --controls out/control.jsonl \
   --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
 ```
 
-Open <http://127.0.0.1:9181/> for susi's own mission panel. In the DeepSeek
-Harness desktop the plugin (`deploy/dsh-cockpit`) adds **two** sidebar entries:
-**CEO cockpit (external)** embeds the standalone orchestration cockpit
-(`http://localhost:8080/` by default, the former litellm/openclaw cockpit) and
-**CEO cockpit (susi native)** embeds the panel started above. Repoint either
-URL in its panel if that cockpit runs elsewhere.
+It serves JSON and SSE only, with no page at `/`: `GET /api/status`,
+`GET /api/events`, `POST /api/command` and `GET /health` on
+`http://127.0.0.1:9181`. Any visual view of it lives in the commercial desktop.
 
 ## 4. Run the mission
 
@@ -110,8 +107,9 @@ the last operator commands.
 
 ## Cautions
 
-- The cockpit binds loopback only. Do not expose it: it accepts operator
-  commands without authentication, by design for a local desktop.
+- The harness API binds loopback by default. `POST /api/command` passes core's
+  `NetGuard`: with `api_auth_token` seeded it needs `Authorization: Bearer
+  <token>`; before seeding only loopback callers may write.
 - `top_up` records a provider balance event; it does not change the mission's
   hard cap. Raise `--budget-usd` to spend more.
 - The ledger is append-only. Never edit it by hand; a correction is a new entry

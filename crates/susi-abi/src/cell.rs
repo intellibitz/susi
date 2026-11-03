@@ -137,8 +137,6 @@ pub mod cell_ports {
     pub const GEMI: u16 = 19091;
     /// gawd planner cell.
     pub const GAWD: u16 = 19092;
-    /// DeepSeek-harness cell.
-    pub const DSH: u16 = 19093;
 }
 
 /// Listen address for a cell: `SUSI_CELL_ADDR` when it parses, else
@@ -214,12 +212,7 @@ mod tests {
 
     #[test]
     fn cell_ports_avoid_the_host_contract_and_leaf_services() {
-        for p in [
-            cell_ports::GMCP,
-            cell_ports::GEMI,
-            cell_ports::GAWD,
-            cell_ports::DSH,
-        ] {
+        for p in [cell_ports::GMCP, cell_ports::GEMI, cell_ports::GAWD] {
             assert!(
                 !(9090..=9094).contains(&p),
                 "{p} collides with the host contract"

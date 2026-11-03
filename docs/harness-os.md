@@ -22,7 +22,7 @@ recompiling it.
 | Processes | one agent turn per task ([`executor`](../crates/susi-harness/src/executor.rs)) | Isolated, budgeted unit of work |
 | IPC | [`event`](../crates/susi-harness/src/event.rs), [`control`](../crates/susi-harness/src/control.rs) | Typed messages, operator commands, journal |
 | Filesystem | [`adapter`](../crates/susi-harness/src/adapter.rs) | Worktree, claim, acceptance, finish |
-| Shell | [`cockpit`](../crates/susi-harness/src/cockpit.rs), [`api`](../crates/susi-harness/src/api.rs), `panel.html` | Status, control, spend, replay |
+| Shell | [`cockpit`](../crates/susi-harness/src/cockpit.rs), [`api`](../crates/susi-harness/src/api.rs) (JSON/SSE only) | Status, control, spend, replay |
 
 Four invariants hold the model together:
 

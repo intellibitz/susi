@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::process::Command;
-use susi_gemi::tui_top::UnifiedOperatorState;
+use susi_gemi::operator_report::UnifiedOperatorState;
 use susi_paths::test_env::isolate_home;
 
 fn run_susi_in_dir(args: &[&str], custom_cwd: Option<&std::path::Path>) -> (i32, String, String) {

@@ -5,7 +5,6 @@
 use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_error::{EaiError, EaiResult};
-use indicatif::{ProgressBar, ProgressStyle};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
@@ -457,14 +456,10 @@ impl InferenceHost {
             model_path.display()
         );
 
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner()),
-        );
-        pb.set_message("Loading weights...");
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        // Plain start/done log lines instead of a terminal spinner: core is a
+        // CLI plus a protocol socket and never redraws the terminal.
+        let load_started = std::time::Instant::now();
+        tracing::info!("loading weights: {}", model_path.display());
 
         // Parse the exact handle whose publisher receipt and bytes were admitted.
         let mut model_data = ModelManager::read_gguf_metadata(&mut file)
@@ -559,7 +554,11 @@ impl InferenceHost {
         .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
 
         tracing::debug!("- [Substrate Operation] Model substrate ready.");
-        pb.finish_and_clear();
+        tracing::info!(
+            "loaded weights: {} in {} ms",
+            model_path.display(),
+            load_started.elapsed().as_millis()
+        );
 
         Ok(ModelSubstrate {
             weights,

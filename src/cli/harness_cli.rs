@@ -1,4 +1,4 @@
-//! `susi harness`: author a plan, run a mission, read the cockpit — the
+//! `susi harness`: author a plan, run a mission, serve the harness API — the
 //! orchestration surfaces driven from the susi binary itself.
 //!
 //! The gateway stays the meter. These commands call the same library the
@@ -16,7 +16,7 @@ use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
 use susi_harness::balance::Budgets;
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
-use susi_harness::cockpit::{serve, Cockpit};
+use susi_harness::cockpit::{serve, Cockpit, CommandAuthContext, CommandAuthorizer};
 use susi_harness::executor::NativeWorker;
 use susi_harness::fleet::{self, gather_budgets, total_spent, Fleet};
 use susi_harness::money::MicroUsd;
@@ -134,7 +134,7 @@ pub enum HarnessCommands {
         daily_usd: String,
         #[arg(long, help = concat!("Ledger the gateway writes (spend authority) ", ledger_default!()))]
         ledger: Option<PathBuf>,
-        /// Control log the cockpit writes pause/resume/abort to
+        /// Control log the harness API writes pause/resume/abort to
         #[arg(long, default_value = "out/control.jsonl")]
         controls: PathBuf,
         /// Self-build lifecycle ledger the RSI scorecard reads
@@ -168,8 +168,12 @@ pub enum HarnessCommands {
         #[arg(long, default_value = "python")]
         python: PathBuf,
     },
-    /// Serve the CEO cockpit: spend, tasks, workers, warnings and controls
-    Cockpit {
+    /// Serve the harness JSON/SSE API: spend, tasks, workers, warnings and
+    /// operator commands
+    // `cockpit` is the pre-zero-UI name, kept as a hidden deprecated alias
+    // for one release (zero-UI plan A2).
+    #[command(alias = "cockpit")]
+    Api {
         /// Ledger the gateway writes
         #[arg(long)]
         ledger: PathBuf,
@@ -205,7 +209,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 9181)]
         port: u16,
     },
-    /// Print the cockpit snapshot for a ledger
+    /// Print the harness API snapshot for a ledger
     Status {
         /// Ledger the gateway wrote
         #[arg(long)]
@@ -328,7 +332,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&cockpit.snapshot())?);
             Ok(())
         }
-        HarnessCommands::Cockpit {
+        HarnessCommands::Api {
             ledger,
             events,
             state,
@@ -340,7 +344,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             mission,
             host,
             port,
-        } => serve_cockpit(
+        } => serve_api(
             ledger, events, state, plan, controls, catalogue, graph, budget_usd, mission, &host,
             port,
         ),
@@ -529,7 +533,7 @@ fn scorecard(
 }
 
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
-fn serve_cockpit(
+fn serve_api(
     ledger: PathBuf,
     events: Option<PathBuf>,
     state: Option<PathBuf>,
@@ -565,15 +569,48 @@ fn serve_cockpit(
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .context("build the cockpit runtime")?;
+        .context("build the harness API runtime")?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind((host, port))
             .await
             .with_context(|| format!("bind {host}:{port}"))?;
-        let address = listener.local_addr().context("cockpit address")?;
-        println!("susi cockpit listening on http://{address}");
-        serve(listener, cockpit).await.context("serve the cockpit")
+        let address = listener.local_addr().context("harness API address")?;
+        println!("susi harness API listening on http://{address} (GET /api/status, GET /api/events, POST /api/command; JSON/SSE only, no page at /)");
+        println!("POST /api/command requires Authorization: Bearer <api_auth_token> once the token is seeded; before that only loopback callers may write");
+        serve(listener, cockpit, net_guard_authorizer())
+            .await
+            .context("serve the harness API")
     })
+}
+
+/// Core's zero-trust admission for harness API writes, the same policy GMCP,
+/// GEMI and A2A apply: a valid member signature over the exact body, or the
+/// seeded `api_auth_token` bearer; before seeding, loopback callers only.
+fn net_guard_authorizer() -> CommandAuthorizer {
+    Arc::new(|context: &CommandAuthContext<'_>| {
+        admit_command(|name| context.header(name), context.peer, context.body)
+    })
+}
+
+fn admit_command<'a>(
+    header: impl Fn(&str) -> Option<&'a str>,
+    peer: std::net::IpAddr,
+    body: &[u8],
+) -> bool {
+    let signed = susi_core::net_guard::SignedRequest {
+        node: header("x-susi-node"),
+        ts_secs: header("x-susi-req-ts").and_then(|s| s.parse().ok()),
+        nonce: header("x-susi-req-nonce"),
+        sig: header("x-susi-req-sig"),
+    };
+    susi_core::net_guard::NetGuard::is_authorized(
+        header("authorization"),
+        peer,
+        &signed,
+        "POST",
+        "/api/command",
+        Some(body),
+    )
 }
 
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
@@ -1159,11 +1196,11 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn cockpit_parses_the_graph_bus() {
+    fn api_parses_the_graph_bus() {
         let cli = Cli::try_parse_from([
             "susi",
             "harness",
-            "cockpit",
+            "api",
             "--ledger",
             "out/ledger.jsonl",
             "--graph",
@@ -1174,11 +1211,41 @@ mod tests {
             panic!("expected the harness command");
         };
         match action {
-            HarnessCommands::Cockpit { graph, .. } => {
+            HarnessCommands::Api { graph, .. } => {
                 assert_eq!(graph, Some(PathBuf::from("out/bus.jsonl")));
             }
-            _ => panic!("expected harness cockpit"),
+            _ => panic!("expected harness api"),
         }
+    }
+
+    #[test]
+    fn a_remote_harness_command_without_a_token_is_refused() {
+        // Plan A2: NetGuard refuses a tokenless write from a non-loopback
+        // peer whether or not the host has seeded api_auth_token.
+        let remote = std::net::IpAddr::from([203, 0, 113, 7]);
+        assert!(!super::admit_command(|_| None, remote, b"{}"));
+        assert!(!super::admit_command(
+            |name| (name == "authorization").then_some("Bearer not-the-token"),
+            remote,
+            b"{}"
+        ));
+    }
+
+    #[test]
+    fn cockpit_stays_a_hidden_alias_of_api() {
+        let cli =
+            Cli::try_parse_from(["susi", "harness", "cockpit", "--ledger", "l.jsonl"]).unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        assert!(matches!(action, HarnessCommands::Api { .. }));
+        let mut command = <Cli as clap::CommandFactory>::command();
+        let harness = command
+            .find_subcommand_mut("harness")
+            .expect("harness subcommand");
+        let help = harness.render_long_help().to_string();
+        assert!(help.contains("api"), "{help}");
+        assert!(!help.contains("cockpit"), "{help}");
     }
 
     #[test]

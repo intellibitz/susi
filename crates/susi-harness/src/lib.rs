@@ -13,8 +13,8 @@
 //! SUSI's self-build harness.
 //!
 //! This crate is the contract between a durable **supervisor** and every
-//! cockpit that drives it (the DeepSeek Harness panel, a browser, an agent
-//! shelling out to the CLI, an MCP client). The supervisor loop and the
+//! client that drives it (the commercial desktop, an agent shelling out to the
+//! CLI, an MCP client). Core ships no UI: clients read the JSON/SSE API. The supervisor loop and the
 //! executor pool land in later phases; everything here is consumed by them.
 //!
 //! The split is deliberate:
@@ -28,8 +28,8 @@
 //!   already spent and the attempts already in flight all fit the mission cap.
 //! - [`policy`] ranks models by expected cost per accepted task (learned from
 //!   the ledger) and escalates on failure without retrying the same model.
-//! - [`cockpit`] is the read-only status surface: spend per mission and the
-//!   event feed, polled by the panel once a second.
+//! - [`cockpit`] is the harness API: spend per mission and the event feed as
+//!   JSON and SSE, plus the operator command endpoint. It serves no HTML.
 //! - [`usage`] turns a provider's own JSON into [`pricing::TokenUsage`],
 //!   including DeepSeek's and Gemini's cache-hit counts.
 //! - [`ledger`] is the append-only record of every attempt, priced at the rate
@@ -49,7 +49,7 @@
 //!   interrupted mission resumes instead of restarting.
 //! - [`validate`] checks a plan against the repository: package names resolve,
 //!   scopes live under an existing directory, acceptance is test-shaped.
-//! - [`api`] is the command surface every cockpit speaks.
+//! - [`api`] is the command surface every client speaks.
 //! - [`verify`] checks the registry's backend ids against each provider's live
 //!   model list, so an id retired upstream is reported before a call fails.
 //!
@@ -58,7 +58,7 @@
 //! - Money never uses floating point; a ledger total is an integer sum.
 //! - A price is recorded with the entry, so a later catalogue change cannot
 //!   rewrite history.
-//! - The event stream is append-only and ordered by `seq`; a cockpit only
+//! - The event stream is append-only and ordered by `seq`; a client only
 //!   renders it and never becomes a second source of truth.
 
 pub mod adapter;
@@ -83,7 +83,6 @@ pub mod lifecycle;
 pub mod mcp;
 pub mod mission_control;
 pub mod money;
-pub mod plugins;
 pub mod policy;
 pub mod pricing;
 pub mod providers;
