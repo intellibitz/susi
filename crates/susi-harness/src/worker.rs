@@ -15,6 +15,10 @@ use std::time::Instant;
 use susi_error::{EaiError, EaiResult};
 
 use crate::executor::{ExecutorConfig, RunOutcome};
+use crate::smart::{
+    classify_non_tool_turn, extract_reasoning_trace, worker_system_prompt, SmartAdvisor,
+    SmartParams, TurnDisposition,
+};
 
 /// Run an autonomous multi-turn agentic coding loop.
 ///
@@ -47,7 +51,7 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
     let mut messages = vec![
         json!({
             "role": "system",
-            "content": "You are SUSI's native autonomous coding worker. Complete the assigned task directly in the workspace. Use tools to view files, make surgical edits, and verify changes with cargo check or cargo test. Conclude with a clear summary when verification passes."
+            "content": worker_system_prompt()
         }),
         json!({
             "role": "user",
@@ -57,28 +61,35 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
 
     let mut turn = 0;
     let mut empty_streak = 0usize;
+    let mut continuation_streak = 0u32;
+    let mut reasoning_turns = 0u32;
+    let mut accumulated_text = String::new();
+    let mut advisor = SmartAdvisor::new();
+
     while turn < max_turns {
         turn += 1;
         if Instant::now() >= deadline {
             return Ok(RunOutcome::TimedOut);
         }
 
+        // Synthesize phase-aware full-budget reasoning and cache-affinity
+        // parameters (`max_tokens`, `reasoning_effort = "high"`, `thinking`,
+        // and `x-susi-cache-scope`). No `temperature` is sent because Kimi and
+        // Anthropic Messages reject non-default sampling parameters.
+        let phase = advisor.recommend_phase(turn - 1, continuation_streak);
+        let smart_params = SmartParams::for_turn(
+            &config.model,
+            &config.mission,
+            &config.task,
+            config.attempt,
+            phase,
+        );
         let mut request_body = json!({
             "model": config.model,
             "messages": messages,
             "tools": declarations,
-            "max_tokens": 8000
         });
-        // No `temperature`: Kimi rejects anything but 1 with HTTP 400, and the
-        // provider default is the only value every routed model accepts.
-        //
-        // Gemini 3.x spends its output budget on thinking first: at 4096 it
-        // burned the whole allowance and answered with an empty message, which
-        // read as a silent turn rather than a failure. Ask for low effort so the
-        // answer fits; other providers are untouched.
-        if config.model.starts_with("gemini") {
-            request_body["reasoning_effort"] = Value::from("low");
-        }
+        smart_params.apply_to_request(&mut request_body);
 
         let payload_bytes = serde_json::to_vec(&request_body)
             .map_err(|e| EaiError::internal(format!("serialize request: {e}")))?;
@@ -89,6 +100,7 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
             ("x-susi-mission", config.mission.as_str()),
             ("x-susi-task", config.task.as_str()),
             ("x-susi-attempt", attempt_str.as_str()),
+            ("x-susi-cache-scope", smart_params.cache_scope.as_str()),
         ];
 
         let mut resent = 0;
@@ -152,9 +164,16 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
         };
 
         let message = choice.get("message").cloned().unwrap_or_else(|| json!({}));
+        if !extract_reasoning_trace(&message).is_empty() {
+            reasoning_turns = reasoning_turns.saturating_add(1);
+        }
         append_transcript(
             &config.state_dir,
-            &json!({"turn": turn, "message": message}),
+            &json!({
+                "turn": turn,
+                "max_tokens": smart_params.max_tokens,
+                "message": message
+            }),
         );
         let tool_calls = message.get("tool_calls").and_then(Value::as_array);
 
@@ -163,6 +182,8 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
                 // Append assistant message with tool calls to conversation history
                 messages.push(message.clone());
                 empty_streak = 0;
+                continuation_streak = 0;
+                accumulated_text.clear();
 
                 for call_obj in calls {
                     let call_id = call_obj
@@ -178,7 +199,10 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
                         .and_then(Value::as_str)
                         .unwrap_or("{}");
 
-                    let output = tools.execute(&config.workspace, func_name, func_args, &[]);
+                    let mut output = tools.execute(&config.workspace, func_name, func_args, &[]);
+                    if let Some(nudge) = advisor.observe_tool_call(func_name, func_args, &output) {
+                        output.push_str(&nudge);
+                    }
                     messages.push(json!({
                         "role": "tool",
                         "tool_call_id": call_id,
@@ -189,48 +213,76 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
             }
         }
 
-        // Final text produced
-        let final_text = message
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        match classify_non_tool_turn(choice, continuation_streak) {
+            TurnDisposition::ContinueThinking {
+                reasoning,
+                partial_text,
+                continuation_prompt,
+            } => {
+                continuation_streak = continuation_streak.saturating_add(1);
+                if !partial_text.is_empty() {
+                    accumulated_text.push_str(&partial_text);
+                }
+                let mut assistant_turn = json!({
+                    "role": "assistant",
+                    "content": partial_text
+                });
+                if !reasoning.is_empty() {
+                    assistant_turn["reasoning_content"] = Value::from(reasoning);
+                }
+                messages.push(assistant_turn);
+                messages.push(json!({
+                    "role": "user",
+                    "content": continuation_prompt
+                }));
+                continue;
+            }
+            TurnDisposition::Conclude {
+                final_text: turn_text,
+                ..
+            } => {
+                let final_text = if accumulated_text.is_empty() {
+                    turn_text
+                } else {
+                    format!("{accumulated_text}{turn_text}")
+                };
+                let result_doc = json!({
+                    "ok": true,
+                    "final": final_text,
+                    "turns": turn,
+                    "reasoning_turns": reasoning_turns,
+                    "tool_errors": advisor.total_tool_errors(),
+                    "cache_scope": smart_params.cache_scope
+                });
+                let _ = fs::write(
+                    config.state_dir.join("result.json"),
+                    serde_json::to_string_pretty(&result_doc).unwrap_or_default(),
+                );
 
-        // A reply with neither tool calls nor prose is not a conclusion: the
-        // model produced no action at all. Nudge it and keep going (bounded by
-        // max_turns) instead of reporting success on an empty turn, which
-        // commits nothing and hides the failure from the ladder.
-        if final_text.trim().is_empty() {
-            empty_streak += 1;
-            if empty_streak >= 3 {
-                return Ok(RunOutcome::Failed {
-                    message: format!(
-                        "model produced no action for {empty_streak} consecutive turns"
-                    ),
+                return Ok(RunOutcome::Succeeded {
+                    final_text,
+                    reported_cost_usd: None,
                 });
             }
-            messages.push(json!({"role": "assistant", "content": ""}));
-            messages.push(json!({
-                "role": "user",
-                "content": "Your last reply contained neither a tool call nor a conclusion. Use a tool to make the change, run the acceptance command, then summarize the result."
-            }));
-            continue;
+            TurnDisposition::EmptyTurn => {
+                // A reply with neither tool calls, length-truncated thinking,
+                // nor prose is not a conclusion: nudge it and keep going
+                // (bounded by max_turns and 3 empty turns).
+                empty_streak += 1;
+                if empty_streak >= 3 {
+                    return Ok(RunOutcome::Failed {
+                        message: format!(
+                            "model produced no action for {empty_streak} consecutive turns"
+                        ),
+                    });
+                }
+                messages.push(json!({"role": "assistant", "content": ""}));
+                messages.push(json!({
+                    "role": "user",
+                    "content": "Your last reply contained neither a tool call nor a conclusion. Use a tool to make the change, run the acceptance command, then summarize the result."
+                }));
+            }
         }
-
-        let result_doc = json!({
-            "ok": true,
-            "final": final_text,
-            "turns": turn
-        });
-        let _ = fs::write(
-            config.state_dir.join("result.json"),
-            serde_json::to_string_pretty(&result_doc).unwrap_or_default(),
-        );
-
-        return Ok(RunOutcome::Succeeded {
-            final_text,
-            reported_cost_usd: None,
-        });
     }
 
     Ok(RunOutcome::Failed {
@@ -806,6 +858,119 @@ second"
             temp_state.join("transcript.jsonl").exists(),
             "the attempt must leave a transcript"
         );
+        let _ = fs::remove_dir_all(&temp_ws);
+        let _ = fs::remove_dir_all(&temp_state);
+    }
+
+    #[tokio::test]
+    async fn infinite_thinking_continues_across_length_turns_with_full_budget_reasoning() {
+        use axum::extract::Json as AxumJson;
+        use axum::http::HeaderMap;
+        use axum::routing::post;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let app = axum::Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, AxumJson(body): AxumJson<Value>| {
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    // Verify Full Budget Reasoning ("high", never "low") and Full Cache header
+                    assert_eq!(body["reasoning_effort"], "high");
+                    assert!(body["max_tokens"].as_u64().unwrap() >= 24_576);
+                    assert_eq!(
+                        headers
+                            .get("x-susi-cache-scope")
+                            .and_then(|v| v.to_str().ok()),
+                        Some("susi-cache:m-inf:t-inf:a1")
+                    );
+
+                    match n {
+                        // Three consecutive length-truncated reasoning turns (which would
+                        // have tripped the 3-empty-turn check without infinite thinking)
+                        0..=2 => AxumJson(json!({
+                            "choices": [{
+                                "finish_reason": "length",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "",
+                                    "reasoning_content": format!("Deep reasoning phase {n}...")
+                                }
+                            }]
+                        })),
+                        // Turn 3: partial prose truncated mid-sentence
+                        3 => AxumJson(json!({
+                            "choices": [{
+                                "finish_reason": "length",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "Completed deep analysis: ",
+                                    "reasoning_content": "Finalizing synthesis."
+                                }
+                            }]
+                        })),
+                        // Turn 4: seamless continuation of the final answer
+                        _ => AxumJson(json!({
+                            "choices": [{
+                                "finish_reason": "stop",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "all invariants verified."
+                                }
+                            }]
+                        })),
+                    }
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        let temp_ws =
+            std::env::temp_dir().join(format!("susi-worker-inf-ws-{}", std::process::id()));
+        let temp_state =
+            std::env::temp_dir().join(format!("susi-worker-inf-st-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_ws);
+        let _ = fs::create_dir_all(&temp_state);
+
+        let config = ExecutorConfig {
+            gateway_url: format!("http://{addr}"),
+            model: "gemini-pro".into(),
+            workspace: temp_ws.clone(),
+            state_dir: temp_state.clone(),
+            mission: "m-inf".into(),
+            task: "t-inf".into(),
+            attempt: 1,
+            timeout: std::time::Duration::from_secs(30),
+            prompt: "Solve complex invariant".into(),
+        };
+
+        let outcome = tokio::task::spawn_blocking(move || run_agent_loop(&config, 15))
+            .await
+            .unwrap()
+            .unwrap();
+
+        match outcome {
+            RunOutcome::Succeeded { final_text, .. } => {
+                assert_eq!(
+                    final_text,
+                    "Completed deep analysis: all invariants verified."
+                );
+            }
+            other => panic!("expected infinite thinking to succeed, got {other:?}"),
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        let result_doc: Value =
+            serde_json::from_str(&fs::read_to_string(temp_state.join("result.json")).unwrap())
+                .unwrap();
+        assert_eq!(result_doc["reasoning_turns"], 4);
+
         let _ = fs::remove_dir_all(&temp_ws);
         let _ = fs::remove_dir_all(&temp_state);
     }

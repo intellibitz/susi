@@ -1169,6 +1169,7 @@ fn registry_json() -> serde_json::Value {
                 "tools": model.capabilities.tools,
                 "streaming": model.capabilities.streaming,
                 "vision": model.capabilities.vision,
+                "cache": model.capabilities.cache,
             });
             records.push(record.clone());
             models.push(record);

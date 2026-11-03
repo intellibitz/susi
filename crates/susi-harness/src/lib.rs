@@ -90,6 +90,7 @@ pub mod queue;
 pub mod ratelimit;
 pub mod scheduler;
 pub mod secrets;
+pub mod smart;
 pub mod supervisor;
 pub mod tools;
 pub mod usage;
