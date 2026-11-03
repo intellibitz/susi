@@ -1,0 +1,19 @@
+{
+  "id": "T-ZEROUI1103-4",
+  "title": "Core starts nothing at boot: no engine wake, framework scan, version or cloud probes at daemon start; engines start only on a user request",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_boot_starts_nothing"
+    ]
+  },
+  "created_by": "ZEROUI1103",
+  "created_unix": 1793732455
+}
