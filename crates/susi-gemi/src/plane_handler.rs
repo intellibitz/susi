@@ -485,6 +485,40 @@ impl PlaneHandler for GemiPlaneHandler {
                     .map_err(|e| e.to_string())?;
                 Ok(json!({ "preferred": id, "message": message }))
             }
+            "gemi.brain.explain_masterpiece" => {
+                let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let explanation = crate::engines::brain::explain_masterpiece(prompt);
+                serde_json::to_value(explanation).map_err(|e| e.to_string())
+            }
+            "gemi.brain.pareto" => {
+                let class_str = payload
+                    .get("class")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("code");
+                let class = crate::engines::brain::TaskClass::ALL
+                    .into_iter()
+                    .find(|c| c.label().eq_ignore_ascii_case(class_str))
+                    .unwrap_or(crate::engines::brain::TaskClass::Code);
+                let store = crate::engines::brain::load();
+                let mut providers = store.providers();
+                if providers.is_empty() {
+                    providers = CapabilityRegistry::global().list_providers();
+                }
+                let frontier = store.pareto_frontier(&providers, class);
+                serde_json::to_value(frontier).map_err(|e| e.to_string())
+            }
+            "gemi.brain.consensus" => {
+                let votes: Vec<crate::consensus_mode::WeightedVote> = payload
+                    .get("votes")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                let min_conf = payload
+                    .get("min_confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.80);
+                let report = crate::consensus_mode::bayesian_consensus(&votes, min_conf);
+                serde_json::to_value(report).map_err(|e| e.to_string())
+            }
             other => Err(format!("gemi handler: unhandled topic '{other}'")),
         }
     }
@@ -554,5 +588,47 @@ mod tests {
             std::env::remove_var("SUSI_COOLDOWNS_FILE");
         }
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn masterpiece_brain_topics_handle_explain_pareto_and_consensus() {
+        let handler = GemiPlaneHandler;
+        let explain = handler
+            .handle(
+                "gemi.brain.explain_masterpiece",
+                json!({
+                    "prompt": "fix rust compiler error in cargo test",
+                    "candidates": ["local-qwen", "gemini-2.5-pro"]
+                }),
+            )
+            .expect("explain_masterpiece topic must succeed");
+        assert_eq!(
+            explain.get("task_class").and_then(|v| v.as_str()),
+            Some("code")
+        );
+        assert!(explain.get("pareto_frontier").is_some());
+
+        let pareto = handler
+            .handle("gemi.brain.pareto", json!({ "class": "code" }))
+            .expect("pareto topic must succeed");
+        assert!(pareto.is_array());
+
+        let consensus = handler
+            .handle(
+                "gemi.brain.consensus",
+                json!({
+                    "votes": [
+                        { "provider": "a", "answer": "42", "reliability": 0.95 },
+                        { "provider": "b", "answer": "**42**.", "reliability": 0.90 },
+                        { "provider": "c", "answer": "41", "reliability": 0.55 }
+                    ],
+                    "min_confidence": 0.80
+                }),
+            )
+            .expect("consensus topic must succeed");
+        assert_eq!(
+            consensus.get("agreed").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 }
