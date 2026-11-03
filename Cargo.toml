@@ -28,6 +28,7 @@ members = [
     "crates/susi-sandbox",
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
+    "crates/susi-conformance",
     "crates/susi-vendor-candle",
     "crates/susi-adapters-llm",
     "crates/susi-agents",

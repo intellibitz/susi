@@ -27,11 +27,32 @@ impl GmcpClient {
         wildcard_tools()
     }
 
+    /// Tools the swarm can call, without waiting on any external server.
+    ///
+    /// A fresh probe cache answers directly. Otherwise the last probe for the
+    /// current `mcp_config.json` (or, before any probe, one `server:*`
+    /// wildcard per server) answers now and a single background probe
+    /// refreshes the cache. Live probing spawns every configured server and
+    /// waited up to 12 s, which made the first MCP `tools/list` on a fresh
+    /// host take 10.3 s.
+    pub fn list_managed_tools() -> Vec<McpTool> {
+        if cfg!(test) {
+            return Self::list_external_tools();
+        }
+        if let Some(cached) = read_live_cache() {
+            return cached;
+        }
+        refresh_live_cache_in_background();
+        read_stale_live_cache().unwrap_or_else(wildcard_tools)
+    }
+
     /// Tools the swarm can call. Live `server:tool` names replace `server:*`
     /// for every server that answers `tools/list`. Unreachable servers stay
     /// as a wildcard so they remain visible. The probe is cached against
     /// `mcp_config.json`'s mtime so a tools/list does not respawn every server.
-    pub fn list_managed_tools() -> Vec<McpTool> {
+    /// Blocks on the probe; dispatch paths that must resolve a concrete
+    /// `server:tool` name use this.
+    pub fn list_managed_tools_blocking() -> Vec<McpTool> {
         if cfg!(test) {
             return Self::list_external_tools();
         }
@@ -514,6 +535,32 @@ fn read_live_cache() -> Option<Vec<McpTool>> {
         && now_secs().saturating_sub(cache.probed_at_secs) < LIVE_CACHE_TTL_SECS
         && !cache.tools.is_empty();
     fresh.then_some(cache.tools)
+}
+
+/// The last probe for the current `mcp_config.json`, however old.
+fn read_stale_live_cache() -> Option<Vec<McpTool>> {
+    let mtime = config_mtime_secs()?;
+    let content = fs::read_to_string(live_cache_path()).ok()?;
+    let cache: LiveToolCache = serde_json::from_str(&content).ok()?;
+    (cache.config_mtime_secs == mtime && !cache.tools.is_empty()).then_some(cache.tools)
+}
+
+/// At most one background probe per process at a time.
+fn refresh_live_cache_in_background() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static REFRESHING: AtomicBool = AtomicBool::new(false);
+    if REFRESHING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("mcp-probe-refresh".into())
+        .spawn(|| {
+            let _ = GmcpClient::list_managed_tools_blocking();
+            REFRESHING.store(false, Ordering::Release);
+        });
+    if spawned.is_err() {
+        REFRESHING.store(false, Ordering::Release);
+    }
 }
 
 fn write_live_cache(tools: &[McpTool]) -> std::io::Result<()> {

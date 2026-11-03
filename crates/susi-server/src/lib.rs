@@ -1456,15 +1456,17 @@ fn completion_id() -> String {
 
 /// OpenAI-facing model id: file stem for path-like internal ids,
 /// the id itself otherwise. `/v1/models` and completion labels share
-/// this so a client can echo `id` back into `model` verbatim.
+/// this so a client can echo `id` back into `model` verbatim. Both path
+/// separators count, so a Windows path (`C:\...\m.gguf`) never leaks the
+/// user's directory layout to API clients.
 fn model_display_id(id: &str) -> &str {
-    if id.contains('/') {
-        std::path::Path::new(id)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(id)
-    } else {
-        id
+    if !id.contains(['/', '\\']) {
+        return id;
+    }
+    let name = id.rsplit(['/', '\\']).next().unwrap_or(id);
+    match name.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => name,
     }
 }
 
@@ -2222,6 +2224,23 @@ mod tests {
     use super::*;
 
     mod vc_201_099_mastery;
+
+    #[test]
+    fn model_ids_never_expose_local_paths() {
+        for (internal, advertised) in [
+            (
+                r"C:\Users\a\models\qwen2.5-0.5b-instruct-q4_0.gguf",
+                "qwen2.5-0.5b-instruct-q4_0",
+            ),
+            ("/home/a/.susi/models/phi.gguf", "phi"),
+            (r"\\server\share\m.gguf", "m"),
+            ("catalog-deepseek-chat", "catalog-deepseek-chat"),
+            ("model", "model"),
+            ("/home/a/.hidden", ".hidden"),
+        ] {
+            assert_eq!(model_display_id(internal), advertised, "{internal}");
+        }
+    }
 
     #[test]
     fn placement_query_accepts_constraints_and_rejects_ambiguous_input() {

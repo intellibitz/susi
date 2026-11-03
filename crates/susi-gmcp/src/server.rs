@@ -384,6 +384,9 @@ async fn handle_request(
     );
     let mut result = if req.method() == Method::OPTIONS {
         response(StatusCode::NO_CONTENT, "")
+    } else if req.method() == Method::GET && req.uri().path() == "/health" {
+        // Liveness is public on every contract port (README, "Host contract").
+        response(StatusCode::OK, "ok")
     } else if !crate::susi_core::net_guard::NetGuard::is_authorized(
         req.headers()
             .get(hyper::header::AUTHORIZATION)
