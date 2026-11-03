@@ -1,0 +1,17 @@
+{
+  "id": "T-LAUNCHLEAK-1",
+  "title": "Installed launcher no longer leaks caller pipes into detached children",
+  "goal": "When the installed entry hands a command to another release slot (the dispatcher fallback), the release inherited the dispatcher's own stdio handles as extra inheritable handles, so a daemon it detached kept the caller's pipes open and a captured `susi start` blocked until the daemon exited. The fallback now spawns through spawn_without_inheriting_stdio. Measured by the new fixture test: 190 s before, 12.6 s after (debug build).",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-launchleak-1.json",
+    "src/installed_channel/transaction.rs",
+    "tests/installed_windows_entry.rs"
+  ],
+  "size": "s",
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "installed_windows_entry"]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1793700000
+}
