@@ -40,6 +40,10 @@ const DEPRECATED_TOP_LEVEL: &[(&str, &str)] = &[
         "api_auth_token",
         "bearer lives only in ~/.susi/api_token (0600); never persist it in config.json",
     ),
+    (
+        "mcp_registry_url",
+        "remote MCP registry refresh was removed (zero-UI plan A8); the key is ignored",
+    ),
 ];
 
 /// Kind of validation finding.

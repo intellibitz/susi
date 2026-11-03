@@ -342,10 +342,9 @@ impl ReflexSynthesizer {
                     .map(|n| format!(" Functional synthesis failed: {n}"))
                     .unwrap_or_default()
             ),
-            Err(e) => format!(
-                "[CAPABILITY_GAP] '{name}' unresolved: no registry match, no installable \
-                 package, and reflex synthesis failed ({e})."
-            ),
+            Err(e) => {
+                format!("[CAPABILITY_GAP] '{name}' unresolved: reflex synthesis failed ({e}).")
+            }
         }
     }
 

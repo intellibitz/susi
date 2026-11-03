@@ -1,7 +1,8 @@
 # Extension pack manifest schema
 
-Bundled example: [`config/extensions/default/manifest.json`](../config/extensions/default/manifest.json).  
-Host overrides: `~/.susi/extensions/<id>/manifest.json`.
+Core ships and seeds no pack. Installed packs live at
+`~/.susi/extensions/<id>/manifest.json` (written by the user or the
+commercial desktop, never by core).
 
 ## Required fields
 
@@ -22,12 +23,15 @@ Host overrides: `~/.susi/extensions/<id>/manifest.json`.
 | `requires` | string[] | Other pack ids that must load first |
 | `optional` | string[] | Soft dependencies |
 | `files` | object | Map of logical name → path relative to pack root |
+| `checksums` | object | Logical name → SHA-256 (raw hex or `sha256:` prefixed); verified on load |
+| `signatures` | object | Logical name → Ed25519 signature (hex, 64 bytes) over the raw file bytes |
+| `signer` | string | Ed25519 public key (hex, 32 bytes); required when `signatures` is set; pinned on first load |
 
 ## Rules
 
 - Unknown JSON keys are preserved (Mandate 35).
 - Paths in `files` must stay under the pack root unless `filesystem.read` is granted; absolute paths are always rejected.
-- Optional pack validation failure must not abort daemon seed.
+- Optional pack validation failure must not abort daemon startup.
 
 ## Validate before you ship
 

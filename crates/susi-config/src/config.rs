@@ -164,8 +164,9 @@ impl SusiConfig {
     /// could silently drift out of sync with it (as several of these already
     /// had: gmcp_http_port/gemi_port/udp_discovery_port were scrambled between
     /// their Rust literal and config.default.json, max_stdin_size_bytes was off
-    /// by 100x, reflex_training_threshold by 10x, and alpha_weights_url/
-    /// mcp_registry_url's Rust fallback was an empty string).
+    /// by 100x, reflex_training_threshold by 10x, and alpha_weights_url's
+    /// Rust fallback was an empty string, as was the since-removed remote
+    /// MCP registry URL's).
     fn get_or_bundled_default<T: for<'de> Deserialize<'de> + Default>(&self, key: &str) -> T {
         self.get(key)
             .unwrap_or_else(|| Self::bundled_defaults().get(key).unwrap_or_default())
@@ -350,9 +351,6 @@ impl SusiConfig {
     pub fn default_engine(&self) -> String {
         self.get_or_bundled_default("default_engine")
     }
-    pub fn mcp_registry_url(&self) -> String {
-        self.get_or_bundled_default("mcp_registry_url")
-    }
     pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
         self.get("bootstrap_mcp_servers").unwrap_or_default()
     }
@@ -417,12 +415,16 @@ impl SusiConfig {
         self.get_or_bundled_default("privacy")
     }
 
-    /// Leading external coding agents mounted as pluggable swarm peers.
+    /// External coding agents mounted as pluggable swarm peers.
     ///
-    /// `config.default.json` / host `config.json` may list CLI/HTTP/A2A peers and
-    /// optional managed overlays. **Managed** peers are also admitted from the
-    /// execution-agents + agent-engines catalogs (`peer_name`) so adding a
-    /// catalog entry does not require duplicating it under `external_peer_agents`.
+    /// Core lists none (`config.default.json` ships an empty array); host
+    /// `config.json` may list CLI/HTTP/A2A peers and optional managed overlays,
+    /// and the active extension pack may ship more in `external-peer-agents.json`.
+    /// **Managed** peers are also admitted from the active extension pack's
+    /// execution-agents + agent-engines catalogs (`peer_name`) and from the
+    /// adapter files under `~/.susi/execution-agents/` and
+    /// `~/.susi/agent-engines/`, so an installed entry does not require
+    /// duplicating it under `external_peer_agents`.
     pub fn external_peer_agents(&self) -> Vec<ExternalPeerAgentSpec> {
         let mut peers: Vec<ExternalPeerAgentSpec> =
             self.get_or_bundled_default("external_peer_agents");
@@ -444,6 +446,17 @@ impl SusiConfig {
         for default in defaults.into_iter().filter(|p| p.protocol == "managed") {
             if !peers.iter().any(|p| p.name == default.name) {
                 peers.push(default);
+            }
+        }
+        // CLI/HTTP/A2A peers an installed extension pack ships
+        // (`external-peer-agents.json`, a bare array of peer specs); the
+        // host's own `config.json` entries win on a name clash.
+        let pack_peers: Vec<ExternalPeerAgentSpec> =
+            super::extensions::load_json_or_bundled("external-peer-agents.json", "[]");
+        for pack_peer in pack_peers {
+            if !pack_peer.name.trim().is_empty() && !peers.iter().any(|p| p.name == pack_peer.name)
+            {
+                peers.push(pack_peer);
             }
         }
         for catalog_peer in managed_peers_from_catalogs() {
@@ -473,12 +486,6 @@ impl SusiConfig {
                 file.models
             })
             .clone()
-    }
-
-    /// Bundled leading MCP scout registry (~100 real packages). Remote scout
-    /// can refresh `global_mcp_registry.json`; not all are hot-plugged at once.
-    pub fn leading_mcp_registry_json() -> &'static str {
-        include_str!("../../../config/mcp.registry.default.json")
     }
 
     /// The explicitly configured ladder, or empty if none is set. This is a
@@ -641,41 +648,62 @@ fn peer_exact_legacy_match(a: &ExternalPeerAgentSpec, b: &ExternalPeerAgentSpec)
 /// Minimal catalog row used to admit managed swarm peers from extension packs.
 #[derive(Debug, Deserialize)]
 struct CatalogPeerHint {
+    #[serde(default)]
+    id: String,
     peer_name: String,
     name: String,
     #[serde(flatten, default)]
     _extra: HashMap<String, serde_json::Value>,
 }
 
+/// Managed peers from what the host installed: the active extension pack's
+/// `execution-agents.json` / `agent-engines.json` (core bundles neither, so
+/// with no pack the catalogs are empty), then the adapter files the host
+/// wrote under `<config_dir>/execution-agents/` and `<config_dir>/agent-engines/`
+/// (`<id>.json`, the peer name being the id), which `susi agents` /
+/// `susi frameworks` resolve the same way.
 fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
-    let mut out = Vec::new();
+    managed_peers_from(&susi_paths::SusiDirs::config_dir())
+}
+
+pub(crate) fn managed_peers_from(config_dir: &std::path::Path) -> Vec<ExternalPeerAgentSpec> {
+    let mut out: Vec<ExternalPeerAgentSpec> = Vec::new();
+    let mut push = |peer: &str, label: &str| {
+        let peer = peer.trim();
+        if peer.is_empty() || out.iter().any(|p| p.name == peer) {
+            return;
+        }
+        out.push(ExternalPeerAgentSpec {
+            name: peer.to_string(),
+            description: format!(
+                "{label} managed executor/framework; setup via susi agents / susi frameworks."
+            ),
+            protocol: "managed".into(),
+            ..Default::default()
+        });
+    };
     let catalogs = [
-        (
-            "execution-agents.json",
-            include_str!("../../../config/execution-agents.json"),
-        ),
-        (
-            "agent-engines.json",
-            include_str!("../../../config/agent-engines.json"),
-        ),
+        ("execution-agents.json", "execution-agents"),
+        ("agent-engines.json", "agent-engines"),
     ];
-    for (logical, bundled) in catalogs {
-        let entries: Vec<CatalogPeerHint> =
-            super::extensions::load_json_or_bundled(logical, bundled);
-        for entry in entries {
-            let peer = entry.peer_name.trim();
-            if peer.is_empty() {
+    let mut pack_ids: Vec<String> = Vec::new();
+    for (logical, _) in catalogs {
+        let entries: Vec<CatalogPeerHint> = super::extensions::load_json_or_bundled(logical, "[]");
+        for entry in &entries {
+            push(&entry.peer_name, &entry.name);
+            pack_ids.push(entry.id.trim().to_string());
+            pack_ids.push(entry.peer_name.trim().to_string());
+        }
+    }
+    // A host file named after a pack entry's id or peer name is that entry's
+    // per-id adapter override (`susi agents configure <id>` writes one), not
+    // a second peer: the same rule `catalog_with_host_dir` applies.
+    for (_, subdir) in catalogs {
+        for id in super::extensions::host_adapter_ids(&config_dir.join(subdir)) {
+            if pack_ids.iter().any(|p| !p.is_empty() && *p == id) {
                 continue;
             }
-            out.push(ExternalPeerAgentSpec {
-                name: peer.to_string(),
-                description: format!(
-                    "{} managed executor/framework; setup via susi agents / susi frameworks.",
-                    entry.name
-                ),
-                protocol: "managed".into(),
-                ..Default::default()
-            });
+            push(&id, &id);
         }
     }
     out

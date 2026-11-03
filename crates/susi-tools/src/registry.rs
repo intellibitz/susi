@@ -259,80 +259,33 @@ impl ToolRegistry {
                 Err(e) => format!("{}", e),
             }
         } else {
-            // Self-Healing Protocol: Attempt autonomous resolution
-            if let Ok(provisioned_res) = Self::resolve_capability_gap(name, workspace) {
-                if provisioned_res == "SUCCESS_CONFIGURED" {
-                    return format!("[RECOVERY] Capability '{}' was missing and autonomously provisioned. Please retry the mission.", name);
-                }
-            }
-            format!("[CAPABILITY_GAP] Tool '{}' missing from Meta-Substrate. Report to Substrate Swarm for native evolution.", name)
+            // A typed capability-gap error (an MCP tool error). Core never
+            // provisions a third-party package on its own (zero-UI plan A8);
+            // the first-party reflex synthesis still runs as the fallback.
+            let reflex = Self::resolve_capability_gap(name, workspace)
+                .unwrap_or_else(|e| format!("reflex synthesis unavailable: {e}"));
+            // One gap tag per message: the reflex report may carry its own.
+            let reflex = reflex.strip_prefix("[CAPABILITY_GAP] ").unwrap_or(&reflex);
+            format!(
+                "[CAPABILITY_GAP] Tool '{name}' missing from Meta-Substrate. Reflex fallback: {reflex} \
+                 Core does not provision third-party servers on its own; admit one explicitly \
+                 (`susi mcp-add`, `susi mcp enable`) or load an extension pack."
+            )
         }
     }
 
-    /// Autonomous Capability Resolution
+    /// Capability-gap resolution. Core never installs or launches a
+    /// third-party MCP server to close a gap (zero-UI plan A8): the only
+    /// autonomous fallback is first-party Wasm reflex synthesis, and the
+    /// caller reports the gap as a typed `[CAPABILITY_GAP]` tool error.
     pub fn resolve_capability_gap(name: &str, workspace: &Path) -> EaiResult<String> {
         let server_name = name.split(':').next().unwrap_or(name);
 
-        // Proactive Semantic Scout (Tier 1 Hardening)
-        // If the tool name isn't an exact match, we search for semantic overlaps in the registry
-        let registry = GmcpClient::fetch_global_registry();
-        if let Some(entry) = registry
-            .iter()
-            .find(|e| e.name == server_name || e.description.to_lowercase().contains(server_name))
-        {
-            return Ok(GmcpClient::auto_configure_server(
-                &entry.name,
-                &entry.package,
-            ));
-        }
-
-        let res = GmcpClient::provision_tool_package(server_name);
-        if res != "NOT_FOUND_IN_REGISTRY" {
-            return Ok(res);
-        }
-
-        // VC-200-002 (roadmap.json): last-resort autonomous hot-patch - delegated
+        // VC-200-002 (roadmap.json): first-party autonomous hot-patch - delegated
         // to the engine hooks (was a direct call to
         // gawd::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex; see
         // hooks.rs for why this crate can't depend on gawd directly).
         hooks().resolve_capability_gap(server_name, workspace)
-    }
-
-    /// Zero-Config Autonomous Tool Linking
-    pub fn auto_link_essential_mcp_servers() {
-        let registry = GmcpClient::fetch_global_registry();
-        let config_path = GmcpClient::get_config_path();
-
-        let config_exists = config_path.exists();
-        let mut essential_found = false;
-
-        if config_exists {
-            if let Ok(content) = std::fs::read_to_string(&config_path) {
-                if let Ok(config) = serde_json::from_str::<crate::config::McpConfig>(&content) {
-                    essential_found = !config.mcp_servers.is_empty();
-                }
-            }
-        }
-
-        if !essential_found {
-            if std::env::var("SUSI_VERBOSE").is_ok() {
-                eprintln!(
-                    "[GMCP] No external tools configured. Auto-linking essential substrates..."
-                );
-            }
-            let essentials = [
-                "brave_search",
-                "filesystem",
-                "google_search",
-                "github",
-                "google_maps",
-            ];
-            for e in essentials {
-                if let Some(entry) = registry.iter().find(|r| r.name == e) {
-                    let _res = GmcpClient::auto_configure_server(&entry.name, &entry.package);
-                }
-            }
-        }
     }
 }
 

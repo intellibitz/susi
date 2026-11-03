@@ -185,6 +185,39 @@ fn config_validate_dir_and_apply_fixes_heals_drift_and_strips_deprecated() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// An upgraded host's config still carries `mcp_registry_url` (heal-merge
+/// wrote it before A8 removed the remote registry refresh): it is a healable
+/// deprecation, not a blocking unknown key, and `apply_fixes` strips it.
+#[test]
+fn config_validate_retired_mcp_registry_url_is_deprecated_and_healed() {
+    let dir = scratch_dir("mcp_registry_url");
+    let mut settings = SusiConfig::heal_defaults().clone();
+    settings.insert(
+        "mcp_registry_url".into(),
+        DynamicValue::String("https://registry.example.invalid/mcp.json".into()),
+    );
+    write_config(&dir, settings);
+
+    let before = validate_dir(&dir).unwrap();
+    let issues: Vec<_> = before
+        .issues
+        .iter()
+        .filter(|i| i.path == "mcp_registry_url")
+        .collect();
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert_eq!(issues[0].kind, ConfigIssueKind::Deprecated);
+    assert!(!before.has_blocking(), "{:?}", before.issues);
+
+    let after = apply_fixes(&dir).unwrap();
+    assert!(!after.issues.iter().any(|i| i.path == "mcp_registry_url"));
+    let on_disk: SusiConfig =
+        serde_json::from_str(&fs::read_to_string(SusiConfig::get_config_path(&dir)).unwrap())
+            .unwrap();
+    assert!(!on_disk.settings.contains_key("mcp_registry_url"));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn config_validate_nested_unknown_under_known_object() {
     let mut settings = SusiConfig::heal_defaults().clone();

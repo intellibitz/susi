@@ -26,8 +26,8 @@ pub trait EngineHooks: Send + Sync {
     /// call site before this crate existed) - not this crate's own version.
     fn engine_version(&self) -> &'static str;
     fn hardware_snapshot(&self) -> HardwareSnapshot;
-    /// No registry match and no installable package exist for a requested
-    /// tool - last-resort autonomous hot-patch (was
+    /// A requested tool is missing - first-party autonomous hot-patch; core
+    /// never provisions a third-party package to close the gap (was
     /// `gawd::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex`).
     fn resolve_capability_gap(&self, name: &str, workspace: &Path) -> EaiResult<String>;
     /// Distributed resource sovereignty (was

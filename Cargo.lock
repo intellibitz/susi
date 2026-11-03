@@ -4474,7 +4474,6 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
- "susi-http-transport",
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
