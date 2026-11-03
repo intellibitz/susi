@@ -252,8 +252,54 @@ fn registered_http_requires_consent_before_a_request_can_carry_credentials() {
 
 #[test]
 fn mcp_setup_explains_only_the_selected_peers_requirements() {
+    // Core bundles no leading-MCP catalog (zero-UI plan A9): install an
+    // in-test synthetic extension pack that carries one, through the normal
+    // `susi extensions load` admission path, in an isolated home.
+    let scratch = std::env::temp_dir().join(format!(
+        "susi-mcp-setup-pack-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let home = scratch.join("home");
+    let cwd = scratch.join("cwd");
+    let pack = home.join("extensions").join("mcp-setup-test");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::create_dir_all(&cwd).unwrap();
+    let run = |args: &[&str]| {
+        let out = isolate_home(&mut Command::new(env!("CARGO_BIN_EXE_susi")), &home)
+            .env("SUSI_HOME", &home)
+            .args(args)
+            .current_dir(&cwd)
+            .output()
+            .unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    std::fs::write(
+        pack.join("manifest.json"),
+        r#"{"id":"mcp-setup-test","name":"MCP setup acceptance","version":"1.0.0","apiVersion":"1","capabilities":["catalog.mcp"],"permissions":[],"files":{"leading-mcp.json":"leading-mcp.json"}}"#,
+    )
+    .unwrap();
+    // Synthetic catalog: one peer with no credentials, one with its own
+    // token, and an unselected peer whose requirements must never leak.
+    std::fs::write(
+        pack.join("leading-mcp.json"),
+        r#"[{"id":"filesystem","name":"Filesystem","rank":1,"documentation":"https://example.invalid/filesystem","package":"@example/server-filesystem","runner":"npx","args":["-y","@example/server-filesystem","."],"env_keys":[]},
+            {"id":"github","name":"GitHub","rank":2,"documentation":"https://example.invalid/github","package":"ghcr.io/example/github-mcp-server","runner":"docker","args":["run","-i","--rm","ghcr.io/example/github-mcp-server"],"env_keys":["GITHUB_PERSONAL_ACCESS_TOKEN"]},
+            {"id":"sentry","name":"Sentry","rank":3,"documentation":"https://example.invalid/sentry","package":"@example/sentry-mcp","runner":"npx","args":["-y","@example/sentry-mcp"],"env_keys":["SENTRY_ACCESS_TOKEN"],"notes":"Install Node 20 or newer."}]"#,
+    )
+    .unwrap();
+    let (code, _, stderr) = run(&["extensions", "load", "mcp-setup-test"]);
+    assert_eq!(code, 0, "{stderr}");
+
     for id in ["filesystem", "github"] {
-        let (code, stdout, stderr) = run_susi(&["mcp", "setup", id]);
+        let (code, stdout, stderr) = run(&["mcp", "setup", id]);
         assert_eq!(code, 0, "{stderr}");
         let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
         let peer = &result["server"];
@@ -280,6 +326,16 @@ fn mcp_setup_explains_only_the_selected_peers_requirements() {
             "{text}"
         );
     }
+    // The catalog came from the pack: with it unloaded the peer is unknown.
+    let (code, _, stderr) = run(&["extensions", "unload", "mcp-setup-test"]);
+    assert_eq!(code, 0, "{stderr}");
+    let (code, _, stderr) = run(&["mcp", "setup", "filesystem"]);
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("unknown leading MCP filesystem"),
+        "{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&scratch);
 }
 
 #[test]
