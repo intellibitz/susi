@@ -465,14 +465,30 @@ mod tests {
                     Err(error) => panic!("loopback accept: {error}"),
                 }
             };
+            // A socket accepted from a non-blocking listener is itself
+            // non-blocking on Windows. Left that way, a read racing the
+            // client's request fails with WouldBlock, the fixture drops the
+            // connection and the client sees os error 10053 instead of the
+            // delayed response the test is about.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             stream
                 .set_write_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
-            let mut request = [0; 4096];
-            if stream.read(&mut request).is_err() || stopped.recv_timeout(header_delay).is_ok() {
+            // Read the whole request head before replying: closing a Windows
+            // socket with unread request bytes resets it before the client
+            // reads the response.
+            let mut request = Vec::new();
+            let mut bytes = [0; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                match stream.read(&mut bytes) {
+                    Ok(count) if count > 0 => request.extend_from_slice(&bytes[..count]),
+                    _ => return,
+                }
+            }
+            if stopped.recv_timeout(header_delay).is_ok() {
                 return;
             }
             if write!(

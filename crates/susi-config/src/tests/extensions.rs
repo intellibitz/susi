@@ -931,3 +931,27 @@ fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
     std::fs::remove_dir_all(&broken).ok();
     std::fs::remove_dir_all(&ok).ok();
 }
+
+#[test]
+fn pack_admission_probe_admits_a_signed_pack_and_cleans_up() {
+    let scratch = std::env::temp_dir().join(format!(
+        "susi_ext_probe_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let proof = pack_admission_probe(&scratch).expect("probe pack admitted");
+    assert!(proof.contains("crown-pack-probe"), "{proof}");
+    assert!(
+        !scratch.join("crown-pack-probe").exists(),
+        "probe pack is removed afterwards"
+    );
+    // A scratch root that cannot hold the pack is a failure, not a pass.
+    let missing = scratch.join("file-not-dir");
+    std::fs::write(&missing, b"x").unwrap();
+    assert!(pack_admission_probe(&missing).is_err());
+    let _ = std::fs::remove_dir_all(&scratch);
+}
