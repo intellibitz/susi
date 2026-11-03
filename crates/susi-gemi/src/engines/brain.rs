@@ -656,6 +656,129 @@ impl Store {
         crate::brain_explain::explain_route(&chosen, &candidates, &why)
     }
 
+    /// Compute the 3D Pareto frontier and Bayesian UCB1 / Wilson 95% lower-bound
+    /// telemetry for `providers` at `class`.
+    #[must_use]
+    pub fn pareto_frontier(
+        &self,
+        providers: &[String],
+        class: TaskClass,
+    ) -> Vec<crate::brain_explain::ExplainCandidate> {
+        let budget = Budget::from_env();
+        let ranked = self.rank_with_budget(providers, class, budget);
+        let total_samples: u32 = ranked.iter().map(|r| r.samples).sum();
+
+        let mut raw: Vec<(&Ranked, f64, f64, f64, f64)> = ranked
+            .iter()
+            .map(|r| {
+                let rec = self.records.get(&key(&r.provider, class));
+                let ok = rec.map_or(0, |x| x.ok);
+                let fail = rec.map_or(0, |x| x.fail);
+                let prior = class_prior(&r.provider, class);
+                let cost_pen = cost::penalty(cost::tier_of(&r.provider), class, budget);
+                let wilson = wilson_lower_bound_95(ok, fail, prior);
+                let ucb1 = ucb1_index(ok, fail, total_samples, prior, cost_pen);
+                let eff_cost = r
+                    .effective_cost_usd
+                    .unwrap_or_else(|| f64::from(cost::tier_of(&r.provider).steps()) * 0.01);
+                let lat = r.avg_latency_ms.map_or(1_000.0, f64::from);
+                (r, wilson, ucb1, eff_cost, lat)
+            })
+            .collect();
+
+        // Candidate A Pareto-dominates B iff both are compared on (meets_floor, !unfit,
+        // reliability/score >=, effective_cost <=, latency <=) and A is strictly better
+        // on at least one dimension.
+        let mut out = Vec::with_capacity(raw.len());
+        for (i, (r_i, wilson_i, ucb_i, cost_i, lat_i)) in raw.iter().enumerate() {
+            let mut dominated_by = Vec::new();
+            for (j, (r_j, wilson_j, _, cost_j, lat_j)) in raw.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                if r_j.unfit && !r_i.unfit {
+                    continue;
+                }
+                if !r_j.meets_floor && r_i.meets_floor {
+                    continue;
+                }
+                let eligibility_better =
+                    (r_j.meets_floor && !r_i.meets_floor) || (!r_j.unfit && r_i.unfit);
+                let rel_ge = wilson_j + 1e-6 >= *wilson_i;
+                let cost_le = *cost_j <= cost_i + 1e-9;
+                let lat_le = *lat_j <= lat_i + 1e-6;
+                let strictly_better = eligibility_better
+                    || (*wilson_j > wilson_i + 1e-5)
+                    || (*cost_j + 1e-9 < *cost_i)
+                    || (*lat_j + 1e-3 < *lat_i);
+                if (eligibility_better || (rel_ge && cost_le && lat_le)) && strictly_better {
+                    dominated_by.push(r_j.provider.clone());
+                }
+            }
+            out.push(crate::brain_explain::ExplainCandidate {
+                provider: r_i.provider.clone(),
+                score: f64::from(r_i.score),
+                wilson_lcb_95: *wilson_i,
+                ucb1_index: *ucb_i,
+                effective_cost_usd: r_i.effective_cost_usd,
+                avg_latency_ms: r_i.avg_latency_ms,
+                is_pareto_optimal: dominated_by.is_empty() && r_i.meets_floor && !r_i.unfit,
+                dominated_by,
+            });
+        }
+        let _ = &mut raw;
+        out
+    }
+
+    /// Full mathematical explanation including 3D Pareto frontier, Bayesian UCB1
+    /// exploration leader, Wilson 95% lower confidence bounds, and Shannon entropy.
+    #[must_use]
+    pub fn explain_masterpiece(
+        &self,
+        prompt: &str,
+    ) -> crate::brain_explain::MasterpieceExplanation {
+        let class = TaskClass::classify(prompt);
+        let mut providers = self.providers();
+        if providers.is_empty() {
+            providers = vec![
+                "gemini".into(),
+                "deepseek".into(),
+                "kimi".into(),
+                "anthropic".into(),
+                "openai".into(),
+                "local".into(),
+            ];
+        }
+        let base = self.explain(prompt);
+        let candidates = self.pareto_frontier(&providers, class);
+        let pareto_frontier: Vec<String> = candidates
+            .iter()
+            .filter(|c| c.is_pareto_optimal)
+            .map(|c| c.provider.clone())
+            .collect();
+        let ucb1_leader = candidates
+            .iter()
+            .max_by(|a, b| {
+                a.ucb1_index
+                    .partial_cmp(&b.ucb1_index)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|c| c.provider.clone());
+        let scores: Vec<f64> = candidates.iter().map(|c| c.score).collect();
+        let shannon_entropy_bits = crate::brain_explain::routing_entropy_bits(&scores);
+
+        crate::brain_explain::MasterpieceExplanation {
+            task_class: class.label().to_string(),
+            budget: Budget::from_env().label().to_string(),
+            chosen: base.chosen,
+            pareto_frontier,
+            ucb1_leader,
+            shannon_entropy_bits,
+            candidates,
+            reasons: base.reasons,
+        }
+    }
+
     /// Export evidence records as JSON entries for cross-host bundling.
     pub fn export_entries(&self) -> Vec<serde_json::Value> {
         self.records
@@ -810,6 +933,54 @@ fn persist(store: &Store) {
 pub fn explain(prompt: &str) -> crate::brain_explain::RoutingExplanation {
     let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
     guard.get_or_insert_with(load).explain(prompt)
+}
+
+/// Explain the routing decision with full 3D Pareto frontier, Bayesian UCB1
+/// exploration index, Wilson 95% lower confidence bounds, and Shannon entropy.
+pub fn explain_masterpiece(prompt: &str) -> crate::brain_explain::MasterpieceExplanation {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    guard.get_or_insert_with(load).explain_masterpiece(prompt)
+}
+
+/// Compute the 3D Pareto frontier for `providers` at `class` over persisted evidence.
+pub fn pareto_frontier(
+    providers: &[String],
+    class: TaskClass,
+) -> Vec<crate::brain_explain::ExplainCandidate> {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .get_or_insert_with(load)
+        .pareto_frontier(providers, class)
+}
+
+/// Exact 95% Wilson score lower confidence bound ($z = 1.95996$) blended with
+/// the conjugate Beta prior ($\alpha_0 = 2 p_0, \beta_0 = 2(1 - p_0)$).
+#[must_use]
+pub fn wilson_lower_bound_95(ok: u32, fail: u32, prior: f32) -> f64 {
+    const Z: f64 = 1.959_963_98;
+    const PRIOR_STRENGTH: f64 = 2.0;
+    let p0 = f64::from(prior.clamp(0.05, 0.95));
+    let n = f64::from(ok + fail) + PRIOR_STRENGTH;
+    let s = f64::from(ok) + PRIOR_STRENGTH * p0;
+    let phat = (s / n).clamp(0.0, 1.0);
+    let z2 = Z * Z;
+    let denom = 1.0 + z2 / n;
+    let center = phat + z2 / (2.0 * n);
+    let rad = Z * ((phat * (1.0 - phat) + z2 / (4.0 * n)) / n).sqrt();
+    ((center - rad) / denom).clamp(0.0, 1.0)
+}
+
+/// Bayesian UCB1 exploration-exploitation acquisition index:
+/// $\text{UCB}_1(i) = \hat{\mu}_i - \text{cost\_penalty}_i + c_{\text{ucb}} \sqrt{\frac{\ln(N_{\text{total}} + 2)}{n_i + 1}}$.
+#[must_use]
+pub fn ucb1_index(ok: u32, fail: u32, total_samples: u32, prior: f32, cost_penalty: f32) -> f64 {
+    const C_UCB: f64 = 0.25;
+    let n = f64::from(ok + fail);
+    let rate = (f64::from(ok) + 1.0) / (n + 2.0);
+    let w = n / (n + f64::from(HALF_WEIGHT_SAMPLES));
+    let mean = (1.0 - w) * f64::from(prior) + w * rate - f64::from(cost_penalty);
+    let bonus = C_UCB * ((f64::from(total_samples) + 2.0).ln() / (n + 1.0)).sqrt();
+    mean + bonus
 }
 
 /// Export current evidence as a portable BrainBundle.
@@ -1309,5 +1480,48 @@ mod tests {
         assert_eq!(s2.providers(), ["export-p1"]);
         let ranked = s2.rank(&["export-p1".into()], TaskClass::Reasoning);
         assert_eq!(ranked[0].samples, 2);
+    }
+
+    #[test]
+    fn pareto_frontier_and_ucb1_identify_non_dominated_and_under_explored_arms() {
+        let mut s = Store::default();
+        // Provider A: 20/20 successes, 100ms latency, low cost tier ("openai-gpt-4o-mini")
+        for _ in 0..20 {
+            s.record("openai-gpt-4o-mini", TaskClass::Code, true, 100);
+        }
+        // Provider B: 5/20 successes, 800ms latency, high cost tier ("anthropic-claude-opus-4")
+        for _ in 0..5 {
+            s.record("anthropic-claude-opus-4", TaskClass::Code, true, 800);
+        }
+        for _ in 0..15 {
+            s.record("anthropic-claude-opus-4", TaskClass::Code, false, 800);
+        }
+        // Provider C: untried candidate ("deepseek-coder") -> high UCB1 exploration bonus
+        let frontier = s.pareto_frontier(
+            &names(&[
+                "openai-gpt-4o-mini",
+                "anthropic-claude-opus-4",
+                "deepseek-coder",
+            ]),
+            TaskClass::Code,
+        );
+        let a = frontier
+            .iter()
+            .find(|c| c.provider == "openai-gpt-4o-mini")
+            .unwrap();
+        let b = frontier
+            .iter()
+            .find(|c| c.provider == "anthropic-claude-opus-4")
+            .unwrap();
+        assert!(a.is_pareto_optimal);
+        assert!(!b.is_pareto_optimal);
+        assert!(b.dominated_by.contains(&"openai-gpt-4o-mini".to_string()));
+        assert!(a.wilson_lcb_95 > b.wilson_lcb_95);
+
+        let master = s.explain_masterpiece("fn solve_matrix() -> f64");
+        assert_eq!(master.task_class, "code");
+        assert!(master
+            .pareto_frontier
+            .contains(&"openai-gpt-4o-mini".to_string()));
     }
 }
