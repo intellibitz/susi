@@ -761,14 +761,72 @@ impl GemiEngine {
                 ),
             );
         }
-        Self::try_providers(
-            crate::susi_core::registry::CapabilityRegistry::global(),
-            prompt,
-            workspace,
-            requested_model,
-            callback,
-            meta,
-        )
+        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        let (answer, mut ladder) =
+            Self::try_providers(registry, prompt, workspace, requested_model, callback, meta);
+        if answer.is_some() {
+            return (answer, ladder);
+        }
+        // Core starts no engine on its own, so an installed engine that is
+        // stopped has no registered provider. A user request (and only one:
+        // the on-demand guard) that nothing registered could serve starts
+        // it, admits its models and routes once more.
+        match Self::start_local_engine_for_request(registry) {
+            Ok(true) => {
+                let (answer, retry) = Self::try_providers(
+                    registry,
+                    prompt,
+                    workspace,
+                    requested_model,
+                    callback,
+                    meta,
+                );
+                ladder.steps.extend(retry.steps);
+                (answer, ladder)
+            }
+            Ok(false) => (answer, ladder),
+            Err(err) => {
+                eprintln!("[LOCAL ENGINE] {err}");
+                ladder.record(
+                    crate::engines::routing::LadderRung::Local,
+                    err.engine_id().unwrap_or("local-engine"),
+                    crate::engines::routing::StepOutcome::Failed,
+                    err.to_string(),
+                );
+                (answer, ladder)
+            }
+        }
+    }
+
+    /// Start an installed, stopped local engine for the user request on
+    /// this thread and admit its models. `Ok(false)`: nothing was started —
+    /// no [`OnDemandEngineStart`](crate::susi_core::provider::OnDemandEngineStart)
+    /// guard (unattended work), no startable engine installed, or one
+    /// already running.
+    fn start_local_engine_for_request(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+    ) -> Result<bool, susi_gemi_models::local_ecosystem::LocalEngineError> {
+        // Unit tests must never launch a real engine on the host.
+        if cfg!(test) || !crate::susi_core::provider::OnDemandEngineStart::allowed() {
+            return Ok(false);
+        }
+        let started = susi_gemi_models::local_ecosystem::ensure_startable_engine_running(
+            &susi_gemi_models::local_ecosystem::HostProbe,
+            std::time::Duration::from_secs(20),
+        )?;
+        let Some(id) = started else {
+            return Ok(false);
+        };
+        let Some(runtime) = Self::provider_runtime() else {
+            return Ok(false);
+        };
+        runtime.block_on(crate::engines::http_provider::auto_discover_local_engines(
+            registry,
+        ));
+        if std::env::var("SUSI_VERBOSE").is_ok() {
+            eprintln!("[LOCAL ENGINE] started {id} on demand for this request");
+        }
+        Ok(true)
     }
 
     /// True when a caller-requested model name substring-matches a

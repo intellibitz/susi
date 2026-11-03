@@ -220,6 +220,9 @@ pub fn execute(args: RunArgs, workspace: &Path) -> anyhow::Result<()> {
         }
     };
 
+    // The user asked for this inference: a local engine it needs may be
+    // started on demand (core starts none on its own).
+    let user_request = susi_core::provider::OnDemandEngineStart::allow();
     let response = GemiEngine::generate_reasoning_stream_deep_meta(
         &full_prompt,
         workspace,
@@ -227,6 +230,7 @@ pub fn execute(args: RunArgs, workspace: &Path) -> anyhow::Result<()> {
         model.as_deref(),
         &meta_callback,
     );
+    drop(user_request);
 
     // Engine adapters currently carry typed failures as marker text. A failed
     // goal must not become a successful process or a fabricated throughput row.
