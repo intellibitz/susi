@@ -1,0 +1,24 @@
+{
+  "id": "T-CHANGELIVE-1",
+  "title": "Verify MoonshotAI alias in the loaded provider catalog",
+  "goal": "Resolve MoonshotAI to the Kimi key without storing any credentials",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "moonshot_alias"
+    ]
+  },
+  "created_by": "CHANGELIVE",
+  "created_unix": 1793614109,
+  "closed": {
+    "at_unix": 1793708637,
+    "commit": "87b805c1ee12c41edd4c7344ed2aef604510ce53",
+    "by": "BOARDCLOSE1103"
+  }
+}

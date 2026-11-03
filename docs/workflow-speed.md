@@ -885,3 +885,45 @@ What stands between a Rust push and 60 s, and is a decision rather than a tweak:
   change the queue's contract and are the operator's call.
 - **A push refused as behind main** after a long gate costs a merge and a
   second push (24 s in #1200). The retry is right; the cost is the gate's length.
+
+## Extension change to live through installed production (2026-11-03)
+
+T-CHANGELIVE-1 asked for the elapsed time from a real source change to observed
+changed behavior through installed production, with rollback. The change is the
+MoonshotAI alias in `config/extensions/default/cloud-vendors.json`
+(`8b37b272…d03d4`), delivered to a running binary as an extension pack
+(`extensions seed` → pack → `extensions load` → observe `keys remove moonshotai`
+→ `extensions unload` → observe again), in an isolated home with every
+`*KEY*`/`*TOKEN*`/`*SECRET*` variable stripped, so no credential is read or
+stored. Timed on this machine against both installed binaries, cumulative ms
+from the first command:
+
+| phase | native production entry 0.21.43 (`f9e14ee5…bec8b`) | release lineage 0.21.47 (`28d6353d…175db`) |
+| --- | --- | --- |
+| seed | 351 | 134 |
+| baseline answer | 1 212 | 205 |
+| source edit packaged | 1 217 | 210 |
+| pack loaded | 1 420 | 280 |
+| changed behavior observed | 2 601 | 351 |
+| unloaded, baseline answer back | 3 699 | 467 |
+
+Three findings:
+
+- **The alias change itself has already reached production.** Both binaries
+  answer `MOONSHOT_API_KEY was not registered` for `moonshotai` before any pack
+  is loaded, so loading the committed catalog changes nothing observable
+  (`changed_behavior_observed: false`, identical runs at 2 344 ms and 427 ms).
+  The task's earlier receipts were taken when it had not: installed 0.21.38
+  never changed its answer, qualified 0.21.41 did at 12 894 ms.
+- **A change production does not have is observed in 2.6 s / 0.35 s and rolled
+  back in 3.7 s / 0.47 s.** The table's rows are a probe that renames Kimi's
+  canonical variable to `MOONSHOT_PROBE_VARIABLE` in the pack's catalog copy;
+  the observed answer names that variable, and the answer after unload is the
+  baseline again. The 0.21.43 entry spends ~1 s per `keys` call where 0.21.47
+  spends ~70 ms: the startup cost measured on 2026-11-03 (status 1.8 s vs 32 ms).
+- **This is the extension path, not the binary path.** Nothing here rebuilt,
+  qualified or promoted a binary; the health and rollback gates exercised are
+  the pack's own load/unload. A source change that needs a new executable still
+  pays the qualification and promotion loop, which prior evidence puts at
+  ~45 min of gates, so Step 1's 60 s criterion is met only for changes a pack
+  can carry.
