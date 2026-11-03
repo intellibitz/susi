@@ -318,9 +318,9 @@ source and in free CI checks so the Susi commercial suite can build its own
 |----------|--------------------|------------|----------------|
 | Windows x86_64 (MSVC) | `susi-windows-x86_64.exe` | `install.ps1` | qualified ([Step 1 acceptance](docs/step1-acceptance.md)) |
 | Linux x86_64 | `susi-linux-x86_64` | `install.sh` | yes |
-| Windows ARM64 (MSVC) | none | `install.ps1` refuses | native-host source checks on GitHub `windows-11-arm`; not qualified |
-| Linux ARM64 | none | `install.sh` refuses | source and dependency-graph checks (`tests/zc_matrix.rs`); no native CI leg |
-| macOS | none | `install.sh` refuses | zero-config matrix CI on `macos-latest` (`zc-matrix.yml`) |
+| Windows ARM64 (MSVC) | none | `install.ps1` refuses | native compile check per merge (`platform-check.yml`) and nightly native source checks (`windows-arm64.yml`) on GitHub `windows-11-arm`; not qualified |
+| Linux ARM64 | none | `install.sh` refuses | source and dependency-graph checks (`tests/zc_matrix.rs`); native compile check per merge (`platform-check.yml`) and nightly native tests (`nightly.yml`) on `ubuntu-24.04-arm` |
+| macOS | none | `install.sh` refuses | native compile check per merge (`platform-check.yml`) and nightly native tests with the zero-config journey (`nightly.yml`) on `macos-15` |
 
 ### Developing susi: agent-owned native delivery (Mandate 48)
 

@@ -12,11 +12,19 @@ name: Windows ARM64
 # two hours (not yet measured), and every Test run's completion is waited on
 # (the auto-merge.yml workflow_run backstop, scripts/reconcile-prs.sh,
 # scripts/release-await-tests.sh and main's queued post-merge suite). Nothing
-# waits on this run. It runs after a merge to main and on manual dispatch,
-# never on a branch push, so it is off the merge gate and NOT a required status
-# check (scripts/github-enforce.sh).
-# `continue-on-error` keeps a red ARM64 result visible on the job without
-# reddening the run.
+# waits on this run, and it is NOT a required status check
+# (scripts/github-enforce.sh).
+#
+# Nightly, not per change (CI platform policy, CEO decision 2026-11-03;
+# AGENTS.md): native ARM64 Windows tests run once a night through workflow_call
+# from nightly.yml (this workflow has no schedule of its own, so ARM64 runs once
+# per night), on manual dispatch, and through nightly.yml (which release.yml dispatches on each
+# release tag with the tag's commit). It never runs on a push. Per-change ARM64
+# Windows coverage is the compile-only `windows-11-arm` leg of
+# platform-check.yml. `ref` selects the commit to test; empty means the
+# triggering commit. A red result reddens the run (no `continue-on-error`): it
+# is nightly evidence, and on a tag it is part of the evidence
+# susi-commercial-apps' certified builds must require.
 #
 # Nothing is cached: the repository sits at its 10 GB cache quota (top of
 # test.yml), so any new entry, registry or target, would evict the required
@@ -24,15 +32,35 @@ name: Windows ARM64
 # allows for that. The windows-arm64-probe workflow records the runner facts
 # this job relies on.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to test (default: the dispatched ref)"
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to test (default: the caller's commit)"
+        required: false
+        default: ""
+        type: string
+      caller:
+        description: "The calling workflow, kept in the concurrency group"
+        required: false
+        default: ""
+        type: string
 
-# Merges land faster than this job runs. A running check is never cancelled
-# (latest-wins would cancel every run, as it did the main suite on 2026-10-28);
-# the merges that land meanwhile collapse into one pending run.
+# A running check is never cancelled (latest-wins cancelled every main suite
+# run on 2026-10-28); a second request for the same ref waits. The group names
+# this workflow (never the caller's `nightly-` group, so a call cannot wait on
+# itself), the ref, and the caller: inside a call github.ref is the caller's,
+# so nightly.yml's daily call on main would otherwise share the group of this
+# workflow's manual dispatch on main, queue behind it for up to two hours, and be
+# cancelled as the pending entry by any third request there.
 concurrency:
-  group: windows-arm64-${{ github.ref }}
+  group: windows-arm64-${{ github.ref }}-${{ inputs.ref || 'head' }}-${{ inputs.caller || 'standalone' }}
   cancel-in-progress: false
 
 permissions:
@@ -43,10 +71,11 @@ jobs:
     name: Windows ARM64 (native source checks)
     runs-on: windows-11-arm
     timeout-minutes: 120
-    continue-on-error: true
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

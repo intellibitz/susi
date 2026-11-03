@@ -1,0 +1,134 @@
+name: Nightly Native Platforms
+
+# Native tests on the non-release platforms (CI platform policy, CEO decision
+# 2026-11-03; AGENTS.md): macOS aarch64 and Linux aarch64 here, Windows aarch64
+# through windows-arm64.yml. Per change those platforms are only compiled
+# (platform-check.yml); their tests run once a day, on dispatch, and on every
+# release tag (release.yml `native-platforms` dispatches this workflow on the
+# tag ref with the tag's commit, as a run of its own so nothing in the release
+# run waits on it). Core publishes no asset for these platforms. A green run of
+# this workflow on a tag is the evidence susi-commercial-apps' "Susi Certified"
+# builds of that tag must require; core records it only as this workflow run
+# (cleanup-runs.yml prunes old runs) and does not enforce it downstream.
+#
+# Each native leg runs what core's per-change suite runs on x86_64, on one
+# runner: the zero-config lifecycle journey zc-matrix.yml runs, and the
+# workspace test suite the test.yml `test` shards run (every workspace member
+# is in a shard, scripts/ci-test-shards.sh, so one `--workspace` nextest run
+# covers them, plus the `leaf-all-features` shard's own feature set). The same
+# flake policy as main's shards: `--retries 2`, a test retried alone.
+#
+# Not a job in test.yml and not a required check: nothing waits on it. Results
+# are red when tests fail (no `continue-on-error`). Nothing is cached: the
+# repository sits at its 10 GB cache quota (top of test.yml), so every run
+# compiles cold; the timeout allows for that.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to test (default: the dispatched ref)"
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to test (default: the caller's commit)"
+        required: false
+        default: ""
+        type: string
+
+# A running suite is never cancelled; a second request for the same ref waits.
+concurrency:
+  group: nightly-${{ github.ref }}-${{ inputs.ref || 'head' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  native:
+    name: Native tests (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            profile: macos-cpu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            profile: linux-cpu
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Validate matrix definition
+        run: scripts/check-zc-matrix.sh
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # rust-toolchain.toml pins the compiler; these legs exist to prove the
+      # native host, so the selected compiler's host must be the leg's target.
+      - name: The pinned compiler is native to this runner
+        shell: bash
+        run: |
+          rustc -vV
+          rustc -vV | grep -qx "host: ${{ matrix.target }}"
+          rustc -vV | grep -qx 'release: 1.99.0'
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        # .cargo/fast-linker (the aarch64 Linux linker) wants clang.
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
+
+      - name: Install mold (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/ci-install-mold.sh
+
+      - name: Install wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146,cargo-deny
+
+      - name: Fresh-HOME lifecycle smoke (${{ matrix.profile }})
+        env:
+          SUSI_PROFILE: ${{ matrix.profile }}
+        run: cargo test --test zc_platform_installers --test vc_201_098_mastery --locked
+
+      # ort-sys fetches ONNX Runtime at build time with no retry of its own.
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        run: scripts/ci-prefetch-onnxruntime.sh
+
+      - name: Workspace tests (cargo nextest)
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: cargo nextest run --locked --retries 2 --workspace -E 'not binary(capability_gap_e2e)'
+
+      - name: Leaf services, all features (cargo nextest)
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: cargo nextest run --locked --retries 2 -p susi-leaf-services --all-features
+
+  windows-arm64:
+    name: Windows ARM64
+    uses: ./.github/workflows/windows-arm64.yml
+    with:
+      ref: ${{ inputs.ref }}
+      caller: nightly

@@ -218,8 +218,9 @@ Release scope (CEO decision 2026-11-03): the public core release is x86_64
 Windows and x86_64 Linux. ARM64 Windows (`aarch64-pc-windows-msvc`) source
 support exists: the runtime gate, OS-UCRT link layer, private sysroot contract
 and evidence gates accept it on a native ARM64 host only, and it is checked on
-GitHub `windows-11-arm` runners (the non-required `Windows ARM64` workflow,
-run after each merge to main, plus the manual `windows-arm64-probe` workflow)
+GitHub `windows-11-arm` runners (a native compile check after each merge to
+main in the non-required `Platform Check` workflow, the non-required nightly
+`Windows ARM64` native tests, plus the manual `windows-arm64-probe` workflow)
 so certified builds can be produced downstream by the Susi commercial suite. It is not a published
 core release and is not production-qualified by core: no ARM64 clean-guest,
 inference-budget or promotion evidence exists, and the aarch64 `__chkstk`

@@ -577,3 +577,29 @@ fn retired_cuda_artifacts_are_never_built_or_published() {
         }
     }
 }
+
+/// Core publishes x86_64 Windows and Linux only (CI platform policy, CEO
+/// decision 2026-11-03). The native macOS/ARM suite runs on the tagged commit
+/// as evidence for the commercial suite's certified builds, never as a gate on
+/// core's own publish or prune.
+#[test]
+fn native_platform_results_never_gate_a_publish() {
+    let release = read(".github/workflows/release.yml");
+    let jobs = jobs(&release);
+    let native = job(&jobs, "native-platforms");
+    assert_eq!(
+        value_of(&native.body, "needs").as_deref(),
+        Some("[verify-tag]")
+    );
+    assert!(native.body.contains("gh workflow run nightly.yml"));
+    assert!(
+        !native.body.contains("uses: ./.github/workflows/"),
+        "native-platforms must dispatch nightly.yml as its own run, not call it in-run"
+    );
+    for gated in ["publish", "publish-linux", "prune-old-releases"] {
+        assert!(
+            !job(&jobs, gated).body.contains("native-platforms"),
+            "`{gated}` waits on the native non-release platforms"
+        );
+    }
+}
