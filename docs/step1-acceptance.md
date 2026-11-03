@@ -214,19 +214,18 @@ that these private compiler-runtime exports are a stable Microsoft application
 contract**. Additional Windows versions require their own acceptance
 evidence.
 
-Release scope (CEO decision 2026-11-03): the public core release is x86_64
-Windows and x86_64 Linux. ARM64 Windows (`aarch64-pc-windows-msvc`) source
-support exists: the runtime gate, OS-UCRT link layer, private sysroot contract
-and evidence gates accept it on a native ARM64 host only, and it is checked on
-GitHub `windows-11-arm` runners (a native compile check after each merge to
-main in the non-required `Platform Check` workflow, the non-required nightly
-`Windows ARM64` native tests, plus the manual `windows-arm64-probe` workflow)
-so certified builds can be produced downstream by the Susi commercial suite. It is not a published
-core release and is not production-qualified by core: no ARM64 clean-guest,
-inference-budget or promotion evidence exists, and the aarch64 `__chkstk`
-source (`kernelbase.dll`) is a recorded hypothesis until the native ARM64
-checks confirm it. Every other Windows build target, and every cross build,
-fails configuration rather than silently substituting a different runtime.
+Release and CI scope (CEO decision 2026-11-03): the public core release and
+core CI run on vanilla x86_64 Windows and x86_64 Linux only. ARM64 Windows
+(`aarch64-pc-windows-msvc`) portable source support exists: the runtime gate,
+OS-UCRT link layer, private sysroot contract and evidence gates accept it on a
+native ARM64 host only so certified builds can be produced and qualified
+downstream in the `susi-commercial-apps` pipeline. It is not a published core
+release, has no core CI leg, and is not production-qualified by core: no ARM64
+clean-guest, inference-budget or promotion evidence exists, and the aarch64
+`__chkstk` source (`kernelbase.dll`) is a recorded hypothesis until native
+ARM64 checks in the commercial pipeline confirm it. Every other Windows build
+target, and every cross build, fails configuration rather than silently
+substituting a different runtime.
 
 Checked-in native tests generate the same import metadata, then compile and
 execute Rust fixtures proving panic payload recovery, destructor execution

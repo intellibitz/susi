@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 # Fresh-environment matrix contract: .github/zc-matrix/matrix.json defines
 # the per-OS lifecycle-smoke profiles (linux-cpu, macos-cpu, windows-cpu),
-# each with a runner and expected journey outcomes; the CI workflows run
-# the journey per profile on that OS family. Per the CI platform policy (CEO
-# decision 2026-11-03, AGENTS.md) the release platforms' profiles run per
-# change in zc-matrix.yml and macos-cpu runs nightly in nightly.yml.
+# each with a runner and expected journey outcomes. Per the CI platform policy
+# (CEO decision 2026-11-03, AGENTS.md), core CI runs only on vanilla x86_64
+# Linux and x86_64 Windows in zc-matrix.yml; macos-cpu stays in matrix.json as
+# portable metadata only and is never run in core CI.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MATRIX="$ROOT/.github/zc-matrix/matrix.json"
 WF="$ROOT/.github/workflows/zc-matrix.yml"
-NIGHTLY="$ROOT/.github/workflows/nightly.yml"
 
 [[ -f "$MATRIX" ]] || { echo "missing .github/zc-matrix/matrix.json" >&2; exit 1; }
 [[ -f "$WF" ]] || { echo "missing .github/workflows/zc-matrix.yml" >&2; exit 1; }
-[[ -f "$NIGHTLY" ]] || { echo "missing .github/workflows/nightly.yml" >&2; exit 1; }
 
 jq -e '
   (["linux-cpu", "macos-cpu", "windows-cpu"] - [.profiles[].id] | length == 0) and
@@ -23,7 +21,7 @@ jq -e '
 ' "$MATRIX" >/dev/null || { echo "invalid matrix definition in $MATRIX" >&2; exit 1; }
 echo "matrix definition: ok"
 
-# Each workflow must run the journey for the profiles of its tier.
+# zc-matrix.yml must run the journey only for core's x86_64 release platforms.
 check_workflow() {
   local wf=$1
   shift
@@ -37,9 +35,8 @@ check_workflow() {
   grep -q 'check-zc-matrix.sh' "$wf"
 }
 check_workflow "$WF" linux-cpu windows-cpu
-check_workflow "$NIGHTLY" macos-cpu
 if grep -q 'profile: macos-cpu' "$WF"; then
-  echo "$WF runs macos-cpu per change; it is a nightly profile (nightly.yml)" >&2
+  echo "$WF runs macos-cpu; core CI runs only on vanilla x86_64 Linux and Windows" >&2
   exit 1
 fi
 echo "check-zc-matrix: ok"

@@ -311,18 +311,19 @@ autostart and build behavior must not be treated as current acceptance evidence.
 
 ### Platforms
 
-Release scope (CEO decision 2026-11-03): the free public core release is
-published for x86_64 Windows and x86_64 Linux only. Other platforms stay in the
-source and in free CI checks so the Susi commercial suite can build its own
-"Susi Certified" binaries for them; core publishes no asset for them.
+Release and CI scope (CEO decision 2026-11-03): the free public core is built,
+tested in CI, and published for vanilla x86_64 Windows and x86_64 Linux only.
+Other platforms stay portable in the source so the Susi commercial suite can
+build and qualify its own "Susi Certified" binaries in the commercial pipeline;
+core runs no CI legs and publishes no assets for them.
 
 | Platform | Core release asset | Installers | Source support |
 |----------|--------------------|------------|----------------|
 | Windows x86_64 (MSVC) | `susi-windows-x86_64.exe` | `install.ps1` | qualified ([Step 1 acceptance](docs/step1-acceptance.md)) |
 | Linux x86_64 | `susi-linux-x86_64` | `install.sh` | yes |
-| Windows ARM64 (MSVC) | none | `install.ps1` refuses | native compile check per merge (`platform-check.yml`) and nightly native source checks (`windows-arm64.yml`) on GitHub `windows-11-arm`; not qualified |
-| Linux ARM64 | none | `install.sh` refuses | source and dependency-graph checks (`tests/zc_matrix.rs`); native compile check per merge (`platform-check.yml`) and nightly native tests (`nightly.yml`) on `ubuntu-24.04-arm` |
-| macOS | none | `install.sh` refuses | native compile check per merge (`platform-check.yml`) and nightly native tests with the zero-config journey (`nightly.yml`) on `macos-15` |
+| Windows ARM64 (MSVC) | none | `install.ps1` refuses | portable runtime/link-layer source and dependency-graph checks (`tests/zc_matrix.rs`); no core CI leg; not qualified by core |
+| Linux ARM64 | none | `install.sh` refuses | portable source and dependency-graph checks (`tests/zc_matrix.rs`); no core CI leg; qualified in `susi-commercial-apps` |
+| macOS | none | `install.sh` refuses | portable source and dependency-graph checks (`tests/zc_matrix.rs`); no core CI leg; qualified in `susi-commercial-apps` |
 
 ### Developing susi: agent-owned native delivery (Mandate 48)
 

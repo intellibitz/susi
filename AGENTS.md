@@ -247,30 +247,12 @@ chat, or agent memory.
 
 ## CI platform policy (CEO decision 2026-11-03)
 
-Core's GitHub CI is tiered by platform. Core runs its heavy suite after each
-merge to main (branch pushes run only the light gate), so "every change" means
-every merge to main.
+- **Susi core (`intellibitz/susi`) is free, open (Apache-2.0 forever), and ships only for vanilla Windows x86_64 and vanilla Linux x86_64** for budget reasons. Do not publish core release or download artifacts for macOS, ARM64 or any other platform (`dev-release.yml` publishes `linux-x86_64` only; `release.yml` publishes `windows-x86_64` and `linux-x86_64` only).
+- **Core CI runs only on vanilla Windows x86_64 and Linux x86_64** (CEO decision 2026-11-03, "cut it"): `test.yml` and `zc-matrix.yml` run on x86_64 Linux and Windows only, and `scripts/auto-merge-pr.sh` dispatches only `test.yml` after each bot merge. No macOS, ARM64 or other-platform compile checks, native tests, nightly runs or release legs run in core. Do not re-add them unless the CEO explicitly asks.
+- **Keep core source portable.** Do not delete code that already works on other platforms (including ARM64 Windows runtime/link-layer source support, `deny.toml` targets, and `tests/zc_matrix.rs` dependency-graph checks that run on x86_64). Portable code costs nothing; building and testing other platforms in core does.
+- **Commercial Apps (`intellibitz/susi-commercial-apps`) owns every-OS qualification at production release time** and must never depend on core CI evidence for macOS or ARM64.
 
-- **Every change:** native builds and tests on x86_64 Windows and x86_64 Linux
-  (`test.yml`), plus native compile checks of every other platform: macOS
-  aarch64, Linux aarch64 and Windows aarch64 (`platform-check.yml`). The merge
-  bot's GITHUB_TOKEN merges start no `push` workflow, so
-  `scripts/auto-merge-pr.sh` dispatches both on main after each merge;
-  `zc-matrix.yml` (x86_64 only) runs on a push to main, not on bot merges.
-- **Nightly:** native tests on macOS, ARM64 Windows and ARM64 Linux
-  (`nightly.yml`, which calls `windows-arm64.yml`).
-- **Release:** production builds only from a commit that passed the native
-  suite. Core publishes x86_64 Windows and x86_64 Linux only, never blocked by
-  macOS/ARM results; `release.yml` `native-platforms` dispatches `nightly.yml`
-  as its own run on the tag's commit. A green run of it on the tag is the
-  evidence the Susi Certified builds `susi-commercial-apps` makes from that tag
-  must require; core does not enforce that downstream, and the run is kept
-  only as long as `cleanup-runs.yml` keeps runs.
-- **Dev and debug builds:** no downloads for other platforms (`dev-release.yml`
-  publishes linux-x86_64 only).
-
-Agents must not add per-change native test legs for non-release platforms, or
-make a release publish wait on them; `xtask/tests/ci_workflow_perf.rs` pins this.
+Agents must not add macOS, ARM64 or other non-release platform build, test, nightly or release legs in core; `xtask/tests/ci_workflow_perf.rs` and `tests/release_workflow.rs` pin this.
 
 ## Local verification and evidence
 

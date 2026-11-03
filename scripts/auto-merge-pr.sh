@@ -124,9 +124,6 @@ merge_head() {
     fi
     # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
     gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
-    # The per-change compile check of the non-release platforms (CI platform
-    # policy, AGENTS.md) starts the same way. Fire and forget: nothing waits on it.
-    gh workflow run platform-check.yml --repo "$repo" --ref main || echo "note: could not dispatch the platform check" >&2
     # A merged version bump is the release (`susi admin release --cut` only
     # pushes the bump's branch): tag it and start release.yml on the tag. A
     # dispatch on a tag ref publishes; nobody waits for this or tags by hand.
