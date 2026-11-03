@@ -32,7 +32,7 @@ pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
 /// The CEO's contract, prepended to every coding task in a Susi checkout.
 /// Requirements are distinct from verified implementation status.
 pub const BRIEF: &str = "\
-[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-71; canonical rules in AGENTS.md]
+[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-72; canonical rules in AGENTS.md]
 The CEO never looks at code. Agents own authorized architecture, implementation, \
 testing, debugging, dependency replacement, integration and production qualification \
 end-to-end. Do not ask the CEO to inspect code or perform technical steps. \
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
         for needle in [
-            "Mandates 43-71",
+            "Mandates 43-72",
             "CEO never looks at code",
             "cargo local-workflow",
             "cargo local-build debug",

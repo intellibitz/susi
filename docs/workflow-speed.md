@@ -2,7 +2,7 @@
 
 This document preserves measurements and implementation history from the former
 shell/GitHub workflow. Its setup commands and operator instructions are historical,
-not the current agent contract. Follow `AGENTS.md` and Mandates 62–71 for native
+not the current agent contract. Follow `AGENTS.md` and Mandates 62–72 for native
 Rust, local development and agent-owned setup. Re-measure changes on the current
 source; old timings and git-source cache assumptions are not proof of current
 performance. Current verified status is in `docs/native-rust-direction.md`.

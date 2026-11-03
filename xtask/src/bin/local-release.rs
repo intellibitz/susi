@@ -954,12 +954,16 @@ fn run_gates(
         if native_openssl::supported(host) {
             elf_imports::configure_system_openssl(&mut command, host)?;
         }
+        let gate_target = args
+            .windows(2)
+            .find_map(|pair| (pair[0] == "--target-dir").then(|| PathBuf::from(&pair[1])))
+            .unwrap_or_else(|| target.clone());
         let status = command
             .current_dir(candidate)
             .args(if scanner.is_some() { &args[1..] } else { args })
-            .env("CARGO_TARGET_DIR", &target)
-            .env("CARGO_BUILD_TARGET_DIR", &target)
-            .env("CARGO_BUILD_BUILD_DIR", &target)
+            .env("CARGO_TARGET_DIR", &gate_target)
+            .env("CARGO_BUILD_TARGET_DIR", &gate_target)
+            .env("CARGO_BUILD_BUILD_DIR", &gate_target)
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .status()?;

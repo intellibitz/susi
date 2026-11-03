@@ -255,7 +255,7 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
             text, canonical,
             "{file} diverged from the canonical pointer"
         );
-        for required in ["AGENTS.md", "Mandates 62–71", "CEO never inspects code"] {
+        for required in ["AGENTS.md", "Mandates 62–72", "CEO never inspects code"] {
             assert!(text.contains(required), "{file} must carry {required}");
         }
         for forbidden in [

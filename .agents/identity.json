@@ -699,6 +699,11 @@
           "id": 71,
           "imperative": "The product proposition is Susi: AI that earns its next upgrade. Autonomous improvements must carry reproducible evidence linking the goal, prior baseline, candidate source/dependencies/toolchain, correctness tests, resource measurements and actual integrated artifact. Promote only demonstrated improvement without forbidden regressions and retain a verified rollback path. Persist and retrieve learning evidence durably; generating an embedding alone is not permanent memory. Models cannot certify their own success. The proposition is an engineering acceptance requirement, not an unsupported market-uniqueness or completed recursive-self-improvement claim.",
           "title": "Susi Earns Every Upgrade"
+        },
+        {
+          "id": 72,
+          "imperative": "Susi core is licensed Apache-2.0 and free forever. Official core releases and core CI run only on vanilla Windows x86_64 and vanilla Linux x86_64, for budget reasons; do not publish core release or download artifacts or add core build, test, nightly or release legs for macOS, ARM64 or other platforms. Keep core source portable and never delete cross-platform code that already works. Susi Commercial Apps is private, proprietary, licensed and paid, and must work on every OS (Windows, macOS and Linux on x86_64 and ARM64) at production release time, qualified in its own commercial pipeline without depending on core CI. Until a component is production-ready, develop, test and debug on Windows x86_64 and Linux x86_64 only. Never move commercial code into public Apache-2.0 core or the reverse.",
+          "title": "Platform Scope, Licensing and Budget"
         }
       ],
       "name": "THE DNA",
