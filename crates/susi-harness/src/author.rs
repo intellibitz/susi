@@ -67,28 +67,42 @@ pub fn prompt(request: &AuthorRequest) -> String {
 /// Returns `EaiError::network` when the call fails or the response carries no
 /// message, and `EaiError::config` when the answer is not a valid plan.
 pub fn author_plan(config: &AuthorConfig, request: &AuthorRequest) -> EaiResult<Plan> {
-    let body = json!({
+    let attempt = if request.retry_hint.is_some() { 2 } else { 1 };
+    let phase = if request.retry_hint.is_some() {
+        crate::smart::TurnPhase::ErrorRecovery
+    } else {
+        crate::smart::TurnPhase::InitialPlanning
+    };
+    let smart_params = crate::smart::SmartParams::for_turn(
+        &config.model,
+        "authoring",
+        &request.vector,
+        attempt,
+        phase,
+    );
+    let mut body = json!({
         "model": config.model,
-        "temperature": 0,
         "response_format": { "type": "json_object" },
         "messages": [
             { "role": "system", "content": AUTHOR_SYSTEM },
             { "role": "user", "content": prompt(request) }
         ]
     });
+    smart_params.apply_to_request(&mut body);
     let body = serde_json::to_string(&body)
         .map_err(|error| EaiError::network(format!("encode authoring request: {error}")))?;
     let url = format!(
         "{}/v1/chat/completions",
         config.gateway_url.trim_end_matches('/')
     );
-    let authorization = format!("Bearer susi:authoring:{}:1", request.vector);
+    let authorization = format!("Bearer susi:authoring:{}:{attempt}", request.vector);
     let call = susi_http_transport::http_call_with_body(
         "POST",
         &url,
         &[
             ("authorization", authorization.as_str()),
             ("content-type", "application/json"),
+            ("x-susi-cache-scope", smart_params.cache_scope.as_str()),
         ],
         Some(body.as_bytes()),
         config.timeout_secs,

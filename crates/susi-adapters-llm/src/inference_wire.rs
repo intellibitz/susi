@@ -89,11 +89,37 @@ pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
         return Some(Value::Object(retry));
     }
 
-    let limit = fields.get("max_tokens")?;
     let error: Value = serde_json::from_str(error_body).unwrap_or(Value::Null);
-    let unsupported = error.pointer("/error/code").and_then(Value::as_str)
-        == Some("unsupported_parameter")
-        && error.pointer("/error/param").and_then(Value::as_str) == Some("max_tokens");
+    let err_param = error.pointer("/error/param").and_then(Value::as_str);
+    let err_code = error.pointer("/error/code").and_then(Value::as_str);
+
+    // Strip unsupported reasoning / cache parameters when an OpenAI-compatible
+    // provider rejects them with HTTP 400 so full-budget reasoning and cache
+    // hints degrade gracefully on older or strict endpoints.
+    for candidate in [
+        "reasoning_effort",
+        "thinking",
+        "thinking_budget_tokens",
+        "prompt_cache_key",
+    ] {
+        let named_in_param = err_param == Some(candidate);
+        let named_in_body = error_body.contains(candidate)
+            && (err_code == Some("unsupported_parameter")
+                || err_code == Some("unknown_parameter")
+                || error_body.contains("unsupported")
+                || error_body.contains("not supported")
+                || error_body.contains("Unrecognized request argument")
+                || error_body.contains("Extra inputs are not permitted")
+                || error_body.contains("unknown field"));
+        if fields.contains_key(candidate) && (named_in_param || named_in_body) {
+            let mut retry = fields.clone();
+            retry.remove(candidate);
+            return Some(Value::Object(retry));
+        }
+    }
+
+    let limit = fields.get("max_tokens")?;
+    let unsupported = err_code == Some("unsupported_parameter") && err_param == Some("max_tokens");
     if !unsupported && !error_body.contains("max_completion_tokens") {
         return None;
     }
@@ -378,9 +404,20 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
         return Err("no user or assistant messages found in payload".to_string());
     }
 
+    // Multi-turn rolling cache breakpoints: Anthropic allows up to 4 cache
+    // breakpoints per request (1 on system, 1 on tools, and up to 2 on the
+    // conversation history). On multi-turn worker loops (`messages.len() > 1`),
+    // marking the latest two turns after `messages[0]` caches the growing
+    // conversation prefix so every subsequent turn reads the prior turns at
+    // the 90% cache-hit discount instead of re-billing the entire history.
+    apply_anthropic_rolling_cache(&mut messages);
+
+    let mut effective_max_tokens = max_tokens;
+    let thinking = anthropic_thinking(openai, &mut effective_max_tokens);
+
     let mut payload = json!({
         "model": model,
-        "max_tokens": max_tokens,
+        "max_tokens": effective_max_tokens,
         "messages": messages
     });
 
@@ -401,7 +438,67 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
         payload["tools"] = tools;
     }
 
+    if let Some(thinking) = thinking {
+        payload["thinking"] = thinking;
+    }
+
     Ok(payload)
+}
+
+/// Attach up to 2 rolling ephemeral cache breakpoints to the tail of a
+/// multi-turn Anthropic `messages` array (`idx > 0`), leaving single-turn
+/// payloads (`messages.len() == 1`) and `messages[0]` untouched while
+/// respecting Anthropic's 4-breakpoint ceiling (`1 system + 1 tools + 2 messages`).
+fn apply_anthropic_rolling_cache(messages: &mut [Value]) {
+    if messages.len() <= 1 {
+        return;
+    }
+    let len = messages.len();
+    let start = len.saturating_sub(2).max(1);
+    for msg in &mut messages[start..len] {
+        match msg.get_mut("content") {
+            Some(Value::Array(blocks)) => {
+                if let Some(last_block) = blocks.last_mut() {
+                    if last_block.is_object() {
+                        last_block["cache_control"] = json!({"type": "ephemeral"});
+                    }
+                }
+            }
+            Some(Value::String(text)) if !text.is_empty() => {
+                let text_owned = text.clone();
+                msg["content"] = json!([{
+                    "type": "text",
+                    "text": text_owned,
+                    "cache_control": {"type": "ephemeral"}
+                }]);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Translate explicit extended-thinking configuration (`thinking` object or
+/// `thinking_budget_tokens`) into Anthropic's `thinking: {"type": "enabled", "budget_tokens": N}`
+/// shape, ensuring `max_tokens > budget_tokens`.
+fn anthropic_thinking(openai: &Value, max_tokens: &mut u64) -> Option<Value> {
+    let budget = openai
+        .get("thinking_budget_tokens")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            let thinking = openai.get("thinking")?;
+            if thinking.get("type").and_then(Value::as_str) != Some("enabled") {
+                return None;
+            }
+            thinking.get("budget_tokens").and_then(Value::as_u64)
+        })?;
+    let budget_tokens = budget.max(1024);
+    if *max_tokens <= budget_tokens {
+        *max_tokens = budget_tokens.saturating_add(4096);
+    }
+    Some(json!({
+        "type": "enabled",
+        "budget_tokens": budget_tokens
+    }))
 }
 
 /// A message's text, whether it is a plain string or OpenAI content parts.
@@ -473,6 +570,7 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
     error_envelope(anthropic)?;
 
     let mut text = String::new();
+    let mut thinking = String::new();
     let mut tool_calls = Vec::new();
     for block in anthropic
         .get("content")
@@ -484,6 +582,14 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
             Some("text") => {
                 if let Some(chunk) = block.get("text").and_then(Value::as_str) {
                     text.push_str(chunk);
+                }
+            }
+            Some("thinking") => {
+                if let Some(thought) = block.get("thinking").and_then(Value::as_str) {
+                    if !thinking.is_empty() && !thought.is_empty() {
+                        thinking.push('\n');
+                    }
+                    thinking.push_str(thought);
                 }
             }
             Some("tool_use") => {
@@ -507,7 +613,6 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
                     "function": {"name": name, "arguments": arguments}
                 }));
             }
-            // `thinking` and unknown blocks carry no answer of their own.
             _ => {}
         }
     }
@@ -550,6 +655,9 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
         json!(text)
     };
     let mut message = json!({"role": "assistant", "content": content});
+    if !thinking.is_empty() {
+        message["reasoning_content"] = json!(thinking);
+    }
     if !tool_calls.is_empty() {
         message["tool_calls"] = json!(tool_calls);
     }
@@ -1368,5 +1476,104 @@ mod tests {
         )
         .unwrap();
         assert_eq!(retry_body["thinking"]["type"], "enabled");
+    }
+
+    #[test]
+    fn multi_turn_anthropic_messages_carry_rolling_cache_breakpoints_and_thinking() {
+        let openai_req = json!({
+            "model": "claude-opus-5-6",
+            "messages": [
+                {"role": "system", "content": "You are an Opus worker."},
+                {"role": "user", "content": "Inspect lib.rs"},
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "call_1", "type": "function",
+                     "function": {"name": "read_file", "arguments": "{\"path\":\"lib.rs\"}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "call_1", "content": "pub fn add() {}"},
+                {"role": "assistant", "content": "Now running tests", "tool_calls": [
+                    {"id": "call_2", "type": "function",
+                     "function": {"name": "run_command", "arguments": "{\"command\":\"cargo test\"}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "call_2", "content": "test result: ok"}
+            ],
+            "tools": [
+                {"type": "function", "function": {
+                    "name": "read_file",
+                    "description": "read a file",
+                    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}
+                }}
+            ],
+            "max_tokens": 2048,
+            "thinking_budget_tokens": 8192
+        });
+
+        let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
+        assert_eq!(
+            anthropic_req["system"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(
+            anthropic_req["tools"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        // Extended thinking budget is forwarded and max_tokens scaled above budget_tokens.
+        assert_eq!(anthropic_req["thinking"]["type"], "enabled");
+        assert_eq!(anthropic_req["thinking"]["budget_tokens"], 8192);
+        assert!(anthropic_req["max_tokens"].as_u64().unwrap() > 8192);
+
+        // Messages: [0: user, 1: assistant(call_1), 2: user(result_1), 3: assistant(call_2), 4: user(result_2)]
+        // Only the last 2 turns (3 and 4) carry cache_control so total breakpoints == 4.
+        let msgs = anthropic_req["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 5);
+        assert!(msgs[0].get("cache_control").is_none());
+        assert!(msgs[1]["content"][0].get("cache_control").is_none());
+        assert!(msgs[2]["content"][0].get("cache_control").is_none());
+        assert_eq!(
+            msgs[3]["content"][1]["cache_control"]["type"], "ephemeral",
+            "penultimate turn carries a rolling cache breakpoint"
+        );
+        assert_eq!(
+            msgs[4]["content"][0]["cache_control"]["type"], "ephemeral",
+            "latest turn carries a rolling cache breakpoint"
+        );
+
+        // Anthropic thinking blocks are preserved in reasoning_content on the OpenAI reply.
+        let anthropic_reply = json!({
+            "id": "msg_think",
+            "content": [
+                {"type": "thinking", "thinking": "Step 1: analyze invariants."},
+                {"type": "text", "text": "All invariants verified."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 50, "cache_read_input_tokens": 4000, "output_tokens": 120}
+        });
+        let openai_reply = anthropic_to_openai_chat(&anthropic_reply, "claude-opus-5-6").unwrap();
+        assert_eq!(
+            openai_reply["choices"][0]["message"]["reasoning_content"],
+            "Step 1: analyze invariants."
+        );
+        assert_eq!(
+            openai_reply["choices"][0]["message"]["content"],
+            "All invariants verified."
+        );
+    }
+
+    #[test]
+    fn token_param_retry_strips_unsupported_reasoning_or_cache_parameters() {
+        let req = json!({
+            "model": "custom-model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 16384,
+            "reasoning_effort": "high",
+            "prompt_cache_key": "susi:m1:t1"
+        });
+        let err_reasoning = r#"{"error":{"message":"Unsupported parameter: 'reasoning_effort' is not supported.","param":"reasoning_effort","code":"unsupported_parameter"}}"#;
+        let retry1 = token_param_retry(&req, err_reasoning).unwrap();
+        assert!(retry1.get("reasoning_effort").is_none());
+        assert_eq!(retry1["prompt_cache_key"], "susi:m1:t1");
+
+        let err_cache_key = r#"{"error":{"message":"Unrecognized request argument supplied: prompt_cache_key","type":"invalid_request_error"}}"#;
+        let retry2 = token_param_retry(&retry1, err_cache_key).unwrap();
+        assert!(retry2.get("prompt_cache_key").is_none());
     }
 }
