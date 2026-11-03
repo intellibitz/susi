@@ -103,6 +103,9 @@ impl GawdA2AExecutor {
         ra2a::types::AgentCard {
             name: "susi-gawd".to_string(),
             description: "SUSI GAWD: AI agent orchestrator and swarm supervisor".to_string(),
+            // The workspace package version, stamped at build time from the
+            // root Cargo.toml (`GEN_ENGINE_VERSION`) — the same version
+            // `susi --version` reports, never a hand-maintained literal.
             version: susi_gawd_agents::AlphaSelf::VERSION.to_string(),
             // Only JSONRPC is advertised: ra2a's axum REST router uses
             // path syntax axum rejects, so the HTTP+JSON binding is not
@@ -118,28 +121,7 @@ impl GawdA2AExecutor {
             provider: None,
             documentation_url: Some("https://github.com/intellibitz/susi".to_string()),
             capabilities: self.capabilities.as_capabilities(),
-            skills: vec![
-                ra2a::types::AgentSkill {
-                    id: "agent_orchestration".to_string(),
-                    name: "agent_orchestration".to_string(),
-                    description: "Orchestrate multi-agent missions and task delegation".to_string(),
-                    tags: vec!["orchestration".to_string(), "swarm".to_string()],
-                    examples: vec![],
-                    input_modes: vec!["text".to_string()],
-                    output_modes: vec!["text".to_string()],
-                    security_requirements: vec![],
-                },
-                ra2a::types::AgentSkill {
-                    id: "task_delegation".to_string(),
-                    name: "task_delegation".to_string(),
-                    description: "Delegate tasks to specialized agents".to_string(),
-                    tags: vec!["delegation".to_string(), "coordination".to_string()],
-                    examples: vec![],
-                    input_modes: vec!["text".to_string()],
-                    output_modes: vec!["text".to_string()],
-                    security_requirements: vec![],
-                },
-            ],
+            skills: Self::skills(),
             security_schemes: {
                 let mut m = std::collections::HashMap::new();
                 m.insert(
@@ -157,11 +139,81 @@ impl GawdA2AExecutor {
                     m
                 },
             }],
-            default_input_modes: vec!["text".to_string()],
-            default_output_modes: vec!["text".to_string()],
+            default_input_modes: vec!["text/plain".to_string()],
+            default_output_modes: vec!["text/plain".to_string()],
             signatures: vec![],
             icon_url: None,
         }
+    }
+}
+
+/// One advertised skill. Every skill is served by the same executor: a
+/// text part in, run as a GAWD mission, the evidence-gated answer out
+/// (`message/send`, or `message/stream` on `/stream`).
+fn skill(
+    id: &str,
+    description: &str,
+    tags: &[&str],
+    example: Option<&str>,
+) -> ra2a::types::AgentSkill {
+    ra2a::types::AgentSkill {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: description.to_string(),
+        tags: tags.iter().map(|t| (*t).to_string()).collect(),
+        examples: example.into_iter().map(str::to_string).collect(),
+        input_modes: vec!["text/plain".to_string()],
+        output_modes: vec!["text/plain".to_string()],
+        security_requirements: vec![],
+    }
+}
+
+impl GawdA2AExecutor {
+    /// Skills on the card: the per-capability entries (missions, agents,
+    /// frameworks, models) plus the two original orchestration skills,
+    /// kept so existing clients that match on their ids still find them.
+    /// The descriptions say what actually happens: every request is a
+    /// mission, and the capability names what the mission can reach.
+    #[must_use]
+    pub fn skills() -> Vec<ra2a::types::AgentSkill> {
+        vec![
+            skill(
+                "missions",
+                "Run a natural-language goal as a GAWD mission: planned, dispatched to tools and agents, and answered only with evidence-gated results.",
+                &["missions", "orchestration"],
+                Some("Summarize the open tasks in this workspace"),
+            ),
+            skill(
+                "agents",
+                "Missions that hand work to the external task executors installed on this host (the agents managed by `susi agents`; MCP tools `agents_list`, `agents_run`).",
+                &["agents", "delegation"],
+                Some("Use an installed coding agent to fix the failing test"),
+            ),
+            skill(
+                "frameworks",
+                "Missions that run through the agent frameworks/engines installed on this host, such as LangGraph or CrewAI (managed by `susi frameworks`; MCP tools `frameworks_list`, `frameworks_run`).",
+                &["frameworks", "engines"],
+                None,
+            ),
+            skill(
+                "models",
+                "Missions answered through GEMI model routing: local open-weight models and configured cloud providers, chosen by placement policy.",
+                &["models", "inference"],
+                None,
+            ),
+            skill(
+                "agent_orchestration",
+                "Orchestrate multi-agent missions and task delegation",
+                &["orchestration", "swarm"],
+                None,
+            ),
+            skill(
+                "task_delegation",
+                "Delegate tasks to specialized agents",
+                &["delegation", "coordination"],
+                None,
+            ),
+        ]
     }
 }
 

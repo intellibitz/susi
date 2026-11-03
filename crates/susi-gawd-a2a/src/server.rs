@@ -211,17 +211,61 @@ fn normalize_rpc_error(
     true
 }
 
+/// A2A 1.0 JSON-RPC method names (the gRPC method names, A2A 1.0 section
+/// 9.1) mapped to the slash names ra2a dispatches. The card advertises
+/// protocol version 1.0, so a 1.0 client's `SendMessage` must reach the same
+/// handler as `message/send`; the slash names stay accepted as legacy
+/// aliases for 0.3 clients.
+fn canonical_method(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "SendMessage" => "message/send",
+        "SendStreamingMessage" => "message/stream",
+        "GetTask" => "tasks/get",
+        "ListTasks" => "tasks/list",
+        "CancelTask" => "tasks/cancel",
+        "SubscribeToTask" => "tasks/resubscribe",
+        "CreateTaskPushNotificationConfig" => "tasks/pushNotificationConfig/create",
+        "GetTaskPushNotificationConfig" => "tasks/pushNotificationConfig/get",
+        "ListTaskPushNotificationConfigs" => "tasks/pushNotificationConfig/list",
+        "DeleteTaskPushNotificationConfig" => "tasks/pushNotificationConfig/delete",
+        "GetExtendedAgentCard" => "agent/getAuthenticatedExtendedCard",
+        _ => return None,
+    })
+}
+
+/// Rewrite a 1.0 method name in a JSON-RPC request body to ra2a's name.
+/// `None` when the body is not a request with a 1.0 method name (it is then
+/// forwarded byte-for-byte).
+fn rewrite_method(body: &[u8]) -> Option<Vec<u8>> {
+    let mut value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    let canonical = canonical_method(value.get("method")?.as_str()?)?;
+    value["method"] = canonical.into();
+    serde_json::to_vec(&value).ok()
+}
+
 async fn jsonrpc_error_codes(req: Request<Body>, next: Next) -> Result<Response, StatusCode> {
-    if req.method() != axum::http::Method::POST || req.uri().path() != "/" {
+    // `/stream` too: its error replies are plain JSON (only successful
+    // streams are SSE, and those pass through untouched below), and ra2a
+    // wraps them exactly like the `/` replies.
+    if req.method() != axum::http::Method::POST || !matches!(req.uri().path(), "/" | "/stream") {
         return Ok(next.run(req).await);
     }
-    let (parts, body) = req.into_parts();
+    let (mut parts, body) = req.into_parts();
     let bytes = to_bytes(body, MAX_AUTH_BODY_BYTES)
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
     let request_id = serde_json::from_slice::<serde_json::Value>(&bytes)
         .ok()
         .and_then(|v| v.get("id").cloned());
+    // Authorization already ran on the exact bytes (`auth_guard` is the
+    // outer layer), so the rewrite cannot affect a signature check.
+    let bytes = match rewrite_method(&bytes) {
+        Some(rewritten) => {
+            parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+            axum::body::Bytes::from(rewritten)
+        }
+        None => bytes,
+    };
     let response = next
         .run(Request::from_parts(parts, Body::from(bytes)))
         .await;
@@ -443,6 +487,94 @@ mod tests {
             "task completed: PING",
             "{reply}"
         );
+    }
+
+    /// The SSE route answers JSON-RPC errors with the standard codes too:
+    /// an unknown method on `/stream` is -32601 and a resubscribe to a task
+    /// that does not exist is A2A task-not-found (-32001), not a wrapped
+    /// internal error.
+    #[test]
+    fn stream_route_errors_carry_standard_codes() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let addr = runtime.block_on(async {
+            let card = crate::executor::GawdA2AExecutor::new().agent_card();
+            let handler = ra2a::server::DefaultRequestHandler::new(Shout, card.clone());
+            let app =
+                ra2a::server::a2a_router(ra2a::server::ServerState::new(Arc::new(handler), card))
+                    .layer(axum::middleware::from_fn(super::jsonrpc_error_codes));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move { axum::serve(listener, app).await });
+            addr
+        });
+        let call = |body: serde_json::Value| -> serde_json::Value {
+            let payload = serde_json::to_vec(&body).unwrap();
+            let reply = susi_http_transport::http_call_with_body(
+                "POST",
+                &format!("http://{addr}/stream"),
+                &[("Content-Type", "application/json")],
+                Some(&payload),
+                20,
+                0,
+            )
+            .unwrap();
+            serde_json::from_str(&reply.into_utf8(1_000_000).unwrap()).unwrap()
+        };
+        let unknown =
+            call(serde_json::json!({"jsonrpc":"2.0","id":5,"method":"x/unknown","params":{}}));
+        assert_eq!(unknown["error"]["code"], -32601, "{unknown}");
+        assert_eq!(unknown["id"], 5, "{unknown}");
+        let missing = call(serde_json::json!({"jsonrpc":"2.0","id":6,
+            "method":"tasks/resubscribe","params":{"id":"no-such-task"}}));
+        assert_eq!(missing["error"]["code"], -32001, "{missing}");
+        // The A2A 1.0 name reaches the same handler.
+        let subscribe = call(serde_json::json!({"jsonrpc":"2.0","id":7,
+            "method":"SubscribeToTask","params":{"id":"no-such-task"}}));
+        assert_eq!(subscribe["error"]["code"], -32001, "{subscribe}");
+        assert_eq!(subscribe["id"], 7, "{subscribe}");
+    }
+
+    /// The card claims A2A 1.0, so the 1.0 method names (`SendMessage`, ...)
+    /// dispatch like ra2a's slash names, which stay accepted as aliases.
+    #[test]
+    fn a2a_1_0_method_names_dispatch() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let addr = runtime.block_on(async {
+            let card = crate::executor::GawdA2AExecutor::new().agent_card();
+            let handler = ra2a::server::DefaultRequestHandler::new(Shout, card.clone());
+            let app =
+                ra2a::server::a2a_router(ra2a::server::ServerState::new(Arc::new(handler), card))
+                    .layer(axum::middleware::from_fn(super::jsonrpc_error_codes));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move { axum::serve(listener, app).await });
+            addr
+        });
+        let send = |method: &str| -> serde_json::Value {
+            let mut body = a2a_wire::message_send_request("ping");
+            body["method"] = method.into();
+            let payload = serde_json::to_vec(&body).unwrap();
+            let reply = susi_http_transport::http_call_with_body(
+                "POST",
+                &format!("http://{addr}/"),
+                &[("Content-Type", "application/json")],
+                Some(&payload),
+                20,
+                0,
+            )
+            .unwrap();
+            serde_json::from_str(&reply.into_utf8(1_000_000).unwrap()).unwrap()
+        };
+        for method in ["SendMessage", "message/send"] {
+            let reply = send(method);
+            assert_eq!(
+                a2a_wire::reply_summary(&reply).unwrap(),
+                "task completed: PING",
+                "{method}: {reply}"
+            );
+        }
+        let get = send("GetTask");
+        assert_ne!(get["error"]["code"], -32601, "GetTask must dispatch: {get}");
     }
 }
 
