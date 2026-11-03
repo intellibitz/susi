@@ -3,13 +3,59 @@
 
 use crate::engines::alpha::SusiAlphaModel;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock as Lazy;
 use susi_error::{eai_err as anyhow, EaiResult as Result};
 
 pub struct SusiPulse;
+
+/// Canonical frontier cloud reference cost avoided by one zero-cost local
+/// Tier-0 reflex (`TaskClass::Reflex` canonical shape: 512 input + 128 output
+/// tokens at frontier rates $15/M input + $75/M output = 7,680 + 9,600 =
+/// 17,280 micro-USD).
+pub const AVOIDED_FRONTIER_CALL_MICRO_USD: u64 = 17_280;
+/// Canonical token count avoided per local Tier-0 reflex (512 in + 128 out).
+pub const AVOIDED_FRONTIER_CALL_TOKENS: u64 = 640;
+/// Canonical round-trip cloud latency avoided per local Tier-0 reflex (ms).
+pub const AVOIDED_CLOUD_LATENCY_MS: u64 = 1_200;
+
+static TIER0_REQUESTS: AtomicU64 = AtomicU64::new(0);
+static TIER0_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static TIER0_NEURAL_HITS: AtomicU64 = AtomicU64::new(0);
+static TIER0_TIER1_HITS: AtomicU64 = AtomicU64::new(0);
+static TIER0_ESCALATIONS: AtomicU64 = AtomicU64::new(0);
+static TIER0_TOTAL_LATENCY_MICROS: AtomicU64 = AtomicU64::new(0);
+
+/// Lock-free Tier-0 ROI & Offload telemetry summary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tier0RoiSummary {
+    /// Total requests routed through `SusiPulse::reason`.
+    pub total_requests: u64,
+    /// Requests answered in `<100us` from the in-memory reflex cache.
+    pub sub_100us_cache_hits: u64,
+    /// Requests answered by the `SusiAlphaModel` neural reflex classifier.
+    pub neural_reflex_hits: u64,
+    /// Requests answered by the local Tier-1 generative reflex engine.
+    pub tier1_generative_hits: u64,
+    /// Requests that escalated past Tier 0/1 to deep reasoning.
+    pub deep_reasoning_escalations: u64,
+    /// Local offload rate in basis points (`0..=10_000`).
+    pub offload_rate_bps: u16,
+    /// Mean local resolution latency in microseconds.
+    pub mean_latency_micros: u64,
+    /// Total cloud tokens avoided by local reflex resolution.
+    pub avoided_tokens: u64,
+    /// Total cloud round-trip latency avoided in milliseconds.
+    pub avoided_latency_ms: u64,
+    /// Total frontier cloud spend avoided in integer micro-USD.
+    pub avoided_cloud_micro_usd: u64,
+    /// Suppressed reflex actions in the inspected workspace.
+    pub suppressed_actions: usize,
+}
 
 /// Reflex answers are keyed by workspace as well as prompt: a
 /// `list_directory` reflex embeds the workspace path, so a prompt-only key
@@ -125,6 +171,129 @@ impl SusiPulse {
         actions.sort();
         actions
     }
+
+    /// Lock-free Tier-0 ROI & Offload telemetry snapshot for `workspace`.
+    pub fn roi_summary(workspace: &Path) -> Tier0RoiSummary {
+        Self::roi_summary_from_counts(
+            TIER0_REQUESTS.load(Ordering::Relaxed),
+            TIER0_CACHE_HITS.load(Ordering::Relaxed),
+            TIER0_NEURAL_HITS.load(Ordering::Relaxed),
+            TIER0_TIER1_HITS.load(Ordering::Relaxed),
+            TIER0_ESCALATIONS.load(Ordering::Relaxed),
+            TIER0_TOTAL_LATENCY_MICROS.load(Ordering::Relaxed),
+            workspace_suppressed(workspace).len(),
+        )
+    }
+
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn roi_summary_from_counts(
+        total_requests: u64,
+        sub_100us_cache_hits: u64,
+        neural_reflex_hits: u64,
+        tier1_generative_hits: u64,
+        deep_reasoning_escalations: u64,
+        total_latency_micros: u64,
+        suppressed_actions: usize,
+    ) -> Tier0RoiSummary {
+        let local_hits = sub_100us_cache_hits
+            .saturating_add(neural_reflex_hits)
+            .saturating_add(tier1_generative_hits);
+        let offload_rate_bps = if total_requests == 0 {
+            0
+        } else {
+            let ratio = u128::from(local_hits.min(total_requests))
+                .saturating_mul(10_000)
+                .checked_div(u128::from(total_requests))
+                .unwrap_or(0);
+            u16::try_from(ratio.min(10_000)).unwrap_or(10_000)
+        };
+        let mean_latency_micros = total_latency_micros
+            .checked_div(total_requests)
+            .unwrap_or(0);
+        Tier0RoiSummary {
+            total_requests,
+            sub_100us_cache_hits,
+            neural_reflex_hits,
+            tier1_generative_hits,
+            deep_reasoning_escalations,
+            offload_rate_bps,
+            mean_latency_micros,
+            avoided_tokens: local_hits.saturating_mul(AVOIDED_FRONTIER_CALL_TOKENS),
+            avoided_latency_ms: local_hits.saturating_mul(AVOIDED_CLOUD_LATENCY_MS),
+            avoided_cloud_micro_usd: local_hits.saturating_mul(AVOIDED_FRONTIER_CALL_MICRO_USD),
+            suppressed_actions,
+        }
+    }
+
+    /// Spectral-Margin Information-Theoretic Reflex Gate (SCIS).
+    ///
+    /// Computes the information-theoretic diagnostic for a Tier-0 distribution:
+    /// - Top probability $p_{(1)}$ and runner-up probability $p_{(2)}$ over the
+    ///   active vocabulary.
+    /// - Spectral probability margin $\Delta p = p_{(1)} - p_{(2)}$.
+    /// - Normalized Shannon certainty $\mathcal{C}(p) = 1 - H(p) / \ln K \in [0, 1]$.
+    /// - Support-Coupled Information Score (SCIS):
+    ///   $$\text{SCIS} = (0.50\,p_{(1)} + 0.30\,\Delta p + 0.20\,\mathcal{C}(p)) \cdot s_{\cos}$$
+    #[must_use]
+    pub fn compute_spectral_prediction(
+        intents: &[String],
+        probabilities: &[f32],
+        support_cosine: Option<f32>,
+    ) -> Option<SpectralPrediction> {
+        let k = intents.len().min(probabilities.len());
+        if k == 0 {
+            return None;
+        }
+        let active_probs = &probabilities[..k];
+        let mut ranked: Vec<(usize, f32)> = active_probs.iter().copied().enumerate().collect();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let (top_idx, top_probability) = ranked[0];
+        let runner_up_probability = ranked.get(1).map_or(0.0, |(_, p)| *p);
+        let spectral_margin = (top_probability - runner_up_probability).max(0.0);
+
+        let shannon_certainty = if k <= 1 {
+            1.0
+        } else {
+            let entropy: f32 = active_probs
+                .iter()
+                .filter(|&&p| p > 1e-12)
+                .map(|&p| -p * p.ln())
+                .sum();
+            let max_entropy = (k as f32).ln();
+            (1.0 - (entropy / max_entropy)).clamp(0.0, 1.0)
+        };
+
+        let support_factor = support_cosine.unwrap_or(1.0).clamp(0.0, 1.0);
+        let scis_score =
+            (0.50 * top_probability + 0.30 * spectral_margin + 0.20 * shannon_certainty)
+                * support_factor;
+
+        let action = intents
+            .get(top_idx)
+            .map(|intent| format!("ACTION: {intent}"))?;
+
+        Some(SpectralPrediction {
+            action,
+            top_probability,
+            runner_up_probability,
+            spectral_margin,
+            shannon_certainty,
+            support_cosine,
+            scis_score,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpectralPrediction {
+    pub action: String,
+    pub top_probability: f32,
+    pub runner_up_probability: f32,
+    pub spectral_margin: f32,
+    pub shannon_certainty: f32,
+    pub support_cosine: Option<f32>,
+    pub scis_score: f32,
 }
 
 fn action_name(action: &str) -> Option<String> {
@@ -178,6 +347,12 @@ impl SusiPulse {
     /// escalate to deep reasoning instead of serving a canned apology as a
     /// solved reflex. Failures are never cached.
     pub fn reason(prompt: &str, workspace: &Path) -> Result<String> {
+        let start = std::time::Instant::now();
+        TIER0_REQUESTS.fetch_add(1, Ordering::Relaxed);
+        let record_latency = |start: std::time::Instant| {
+            let micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+            TIER0_TOTAL_LATENCY_MICROS.fetch_add(micros, Ordering::Relaxed);
+        };
         let prompt_trimmed = prompt.trim();
         let key: ReflexKey = (workspace.to_path_buf(), prompt_trimmed.to_string());
 
@@ -204,6 +379,8 @@ impl SusiPulse {
             let suppressed = action_name(&cached)
                 .is_some_and(|name| workspace_suppressed(workspace).contains(&name));
             if still_servable(&cached) && !suppressed {
+                TIER0_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                record_latency(start);
                 return Ok(cached);
             }
             REFLEX_CACHE.write().remove(&key);
@@ -224,6 +401,8 @@ impl SusiPulse {
                 let final_action = bind_workspace(neural_action, workspace);
 
                 cache_insert(&mut REFLEX_CACHE.write(), key, (final_action.clone(), None));
+                TIER0_NEURAL_HITS.fetch_add(1, Ordering::Relaxed);
+                record_latency(start);
                 return Ok(final_action);
             }
         }
@@ -240,9 +419,13 @@ impl SusiPulse {
                 key,
                 (answer.clone(), Some(expires)),
             );
+            TIER0_TIER1_HITS.fetch_add(1, Ordering::Relaxed);
+            record_latency(start);
             return Ok(answer);
         }
 
+        TIER0_ESCALATIONS.fetch_add(1, Ordering::Relaxed);
+        record_latency(start);
         Err(anyhow!("no reflex tier produced an answer"))
     }
 }
@@ -426,5 +609,39 @@ mod tests {
             Some("A".to_string())
         );
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn tier0_roi_summary_computes_exact_offload_and_avoided_cloud_spend() {
+        let summary = SusiPulse::roi_summary_from_counts(20, 10, 5, 1, 4, 800, 1);
+        assert_eq!(summary.total_requests, 20);
+        // 16 of 20 handled locally = 8000 bps (80.00%)
+        assert_eq!(summary.offload_rate_bps, 8_000);
+        assert_eq!(summary.mean_latency_micros, 40);
+        assert_eq!(summary.avoided_tokens, 16 * AVOIDED_FRONTIER_CALL_TOKENS);
+        assert_eq!(summary.avoided_latency_ms, 16 * AVOIDED_CLOUD_LATENCY_MS);
+        assert_eq!(
+            summary.avoided_cloud_micro_usd,
+            16 * AVOIDED_FRONTIER_CALL_MICRO_USD
+        );
+        assert_eq!(summary.suppressed_actions, 1);
+    }
+
+    #[test]
+    fn compute_spectral_prediction_computes_margin_shannon_certainty_and_scis() {
+        let intents = vec![
+            "status".to_string(),
+            "version".to_string(),
+            "read_file".to_string(),
+            "list_directory".to_string(),
+        ];
+        let probs = vec![0.75, 0.15, 0.05, 0.05];
+        let spectral = SusiPulse::compute_spectral_prediction(&intents, &probs, Some(0.9)).unwrap();
+        assert_eq!(spectral.action, "ACTION: status");
+        assert!((spectral.top_probability - 0.75).abs() < 1e-6);
+        assert!((spectral.runner_up_probability - 0.15).abs() < 1e-6);
+        assert!((spectral.spectral_margin - 0.60).abs() < 1e-6);
+        assert!((0.0..=1.0).contains(&spectral.shannon_certainty));
+        assert!((0.0..=1.0).contains(&spectral.scis_score));
     }
 }
