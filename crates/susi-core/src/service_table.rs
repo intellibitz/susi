@@ -517,9 +517,23 @@ impl ServiceStatus {
 pub fn status() -> Vec<ServiceStatus> {
     let table: BTreeMap<String, ServiceRecord> =
         load().into_iter().map(|r| (r.name.clone(), r)).collect();
+    // Probe every port at once: on Windows a connect to a port nobody holds
+    // is refused only after SYN retries, so each down service costs the full
+    // probe timeout and five in sequence made `susi services` take ~1.6 s.
+    let up: Vec<bool> = std::thread::scope(|scope| {
+        let probes: Vec<_> = LEAF_SERVICES
+            .iter()
+            .map(|svc| scope.spawn(move || probe(svc.port())))
+            .collect();
+        probes
+            .into_iter()
+            .map(|probe| probe.join().unwrap_or(false))
+            .collect()
+    });
     LEAF_SERVICES
         .iter()
-        .map(|svc| {
+        .zip(up)
+        .map(|(svc, up)| {
             let rec = table.get(svc.name);
             ServiceStatus {
                 name: svc.name.to_string(),
@@ -535,7 +549,7 @@ pub fn status() -> Vec<ServiceStatus> {
                 }),
                 restarts: rec.map(|r| r.restarts).unwrap_or(0),
                 started_at: rec.map(|r| r.started_at),
-                up: probe(svc.port()),
+                up,
                 external: rec.map(|r| r.external).unwrap_or(false),
                 stopped: rec.map(|r| r.stopped).unwrap_or(false),
             }
