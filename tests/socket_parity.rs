@@ -97,6 +97,7 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("extensions validate", &[Mcp("extensions_validate")]),
     ("extensions load", &[Mcp("extensions_load")]),
     ("extensions unload", &[Mcp("extensions_unload")]),
+    ("brain pareto", &[Mcp("brain_pareto")]),
 ];
 
 /// The plan's explicit exemptions (B3): no socket equivalent is needed. A

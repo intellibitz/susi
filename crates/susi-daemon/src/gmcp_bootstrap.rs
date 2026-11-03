@@ -672,6 +672,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::SystemPrimitive,
         adapt(CoreTools::extensions_unload),
     );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_pareto",
+        "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers",
+        MetaCategory::IntelligenceBridge,
+        adapt(CoreTools::brain_pareto),
+    );
 
     // No essential-MCP auto-link: core never configures or launches a
     // third-party MCP server on its own (zero-UI plan A8).

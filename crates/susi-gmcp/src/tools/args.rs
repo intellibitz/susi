@@ -191,6 +191,7 @@ pub fn core_tool_definitions() -> Vec<rmcp::model::Tool> {
         CoreTools::extensions_validate_tool_attr(),
         CoreTools::extensions_load_tool_attr(),
         CoreTools::extensions_unload_tool_attr(),
+        CoreTools::brain_pareto_tool_attr(),
     ]
 }
 
@@ -771,4 +772,11 @@ pub struct ExtensionPackId {
 pub struct ExtensionsValidate {
     /// Path to a pack directory containing `manifest.json` (absolute or workspace-relative).
     pub path: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainPareto {
+    /// Optional task class filter (e.g. reflex, chat, code, reasoning, estate_ops). Defaults to `code`.
+    pub class: Option<String>,
 }

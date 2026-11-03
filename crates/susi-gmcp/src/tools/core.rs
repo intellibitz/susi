@@ -2962,6 +2962,24 @@ impl CoreTools {
         }))
         .map_err(|e| EaiError::protocol(e.to_string()))
     }
+
+    #[tool(
+        name = "brain_pareto",
+        description = "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers",
+        input_schema = args::typed::<args::BrainPareto>()
+    )]
+    pub fn brain_pareto(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let class = arg
+            .get("class")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("code");
+        let resp = crate::susi_core::plane_bus::PlaneBus::global()
+            .request("gemi.brain.pareto", serde_json::json!({ "class": class }))
+            .map_err(EaiError::process)?;
+        serde_json::to_string_pretty(&resp).map_err(|e| EaiError::protocol(e.to_string()))
+    }
 }
 
 /// Drain one child pipe on its own thread, keeping at most 8 MiB. Output is

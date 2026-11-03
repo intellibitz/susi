@@ -96,6 +96,12 @@ pub fn get_tool_schema(server: &str, tool: &str) -> Value {
             },
             "required": ["id"]
         }),
+        "brain_pareto" => json!({
+            "type": "object",
+            "properties": {
+                "class": { "type": "string" }
+            }
+        }),
         "status" | "identity" | "list_models" | "os_sysinfo" | "ledger_verify"
         | "extensions_list" | "extensions_status" => json!({
             "type": "object"
@@ -193,6 +199,7 @@ fn dispatch_native(tool: &str, args: &Value, workspace: &Path) -> EaiResult<Stri
         "extensions_validate" => crate::tools::CoreTools::extensions_validate(args, workspace),
         "extensions_load" => crate::tools::CoreTools::extensions_load(args, workspace),
         "extensions_unload" => crate::tools::CoreTools::extensions_unload(args, workspace),
+        "brain_pareto" => crate::tools::CoreTools::brain_pareto(args, workspace),
         _ => {
             let out = ToolRegistry::execute_tool(tool, args, workspace);
             if is_tool_result_error(&out) {
