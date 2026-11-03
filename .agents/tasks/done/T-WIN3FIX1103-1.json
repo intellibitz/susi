@@ -23,5 +23,10 @@
     ]
   },
   "created_by": "WIN3FIX1103",
-  "created_unix": 1793736465
+  "created_unix": 1793736465,
+  "closed": {
+    "at_unix": 1793742300,
+    "commit": "6d1b5ae5871afc4c8a42aee03aaa15ee910a993b",
+    "by": "WIN3FIX1103"
+  }
 }

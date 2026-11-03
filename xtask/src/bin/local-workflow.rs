@@ -576,6 +576,10 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         if let Some(sysroot) = &sysroot {
             sysroot.apply(&mut command)?;
         }
+        let gate_target = args
+            .windows(2)
+            .find_map(|pair| (pair[0] == "--target-dir").then(|| PathBuf::from(&pair[1])))
+            .unwrap_or_else(|| target.clone());
         command
             .current_dir(candidate)
             .args(args)
@@ -589,9 +593,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("LOCALAPPDATA", home.join("localappdata"))
             .env("CARGO_HOME", &cargo_home)
             .env("RUSTUP_HOME", &rustup_home)
-            .env("CARGO_TARGET_DIR", &target)
-            .env("CARGO_BUILD_TARGET_DIR", &target)
-            .env("CARGO_BUILD_BUILD_DIR", &target)
+            .env("CARGO_TARGET_DIR", &gate_target)
+            .env("CARGO_BUILD_TARGET_DIR", &gate_target)
+            .env("CARGO_BUILD_BUILD_DIR", &gate_target)
             // Evidence logs are parsed; hosted CI exports CARGO_TERM_COLOR=always.
             .env("CARGO_TERM_COLOR", "never")
             // Host compiler wrappers may consult non-hermetic user-profile

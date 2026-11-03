@@ -1,0 +1,42 @@
+{
+  "id": "T-MANDATE72-1",
+  "title": "Add CEO Mandate 72 (Platform Scope, Licensing and Budget) to identity.json and align mandate count pins",
+  "goal": "Record CEO Mandate 72 in .agents/identity.json (pillars.dna.mandates), update AGENTS.md, CLAUDE.md, GEMINI.md, .github/copilot-instructions.md, README.md, .agents/README.md, docs/harness.md, docs/workflow-speed.md, crates/susi-core/src/self_build.rs, tests/agent_bootstrap.rs, and tests/architecture_tests.rs to pin Mandates 1..=72, and bind CARGO_BUILD_BUILD_DIR to per-gate --target-dir in xtask local-workflow and local-release.",
+  "deps": [],
+  "scopes": [
+    ".agents/README.md",
+    ".agents/identity.json",
+    ".github/copilot-instructions.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "crates/susi-core/src/self_build.rs",
+    "docs/harness.md",
+    "docs/workflow-speed.md",
+    "tests/agent_bootstrap.rs",
+    "tests/architecture_tests.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "size": "s",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "agent_bootstrap"
+    ]
+  },
+  "created_by": "MANDATE72",
+  "created_unix": 1793739600,
+  "closed": {
+    "at_unix": 1793742300,
+    "commit": "f019351481b93b29a445bf17ab97dde7837c7efd",
+    "by": "MANDATE72"
+  }
+}
