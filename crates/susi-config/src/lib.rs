@@ -37,6 +37,7 @@ pub mod env_profiles;
 pub mod explain;
 pub mod extensions;
 pub mod file_lock;
+pub mod host_metrics;
 mod json_util;
 pub mod key_rotation;
 pub mod key_scope;

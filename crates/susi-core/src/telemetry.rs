@@ -1,10 +1,15 @@
 //! Host telemetry types for adaptive optimization and self-monitoring.
 //!
-//! Domain types plus the one host sampler. Linux reads come from
-//! `/sys/class/thermal`, `/sys/class/power_supply`, and `/proc/loadavg`;
-//! other platforms return an empty snapshot.
+//! Domain types plus the one host sampler. Linux reads thermal zones from
+//! `/sys/class/thermal` and batteries from `/sys/class/power_supply`; load,
+//! CPU utilization and memory come from `susi_config::host_metrics` (the
+//! vendored `sysinfo` facade) on every OS, and macOS/Windows temperatures
+//! from the sensors that facade can read. A metric this OS cannot provide is
+//! named in [`TelemetrySnapshot::unavailable`] with the reason, never
+//! reported as an empty reading that looks like "nothing to report".
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// One thermal zone reading (typically millidegrees Celsius).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +34,25 @@ pub struct TelemetrySnapshot {
     pub thermal_zones: Vec<ThermalZone>,
     pub batteries: Vec<BatteryInfo>,
     pub load_avg_1m: Option<f32>,
+    /// Target OS the snapshot was taken on (`linux`, `windows`, `macos`).
+    #[serde(default)]
+    pub os: String,
+    /// Host-wide CPU utilization in percent, sampled since the previous
+    /// snapshot in this process (Windows has no load average, so this is
+    /// its CPU stress signal).
+    #[serde(default)]
+    pub cpu_util_pct: Option<f32>,
+    /// Installed physical memory in MiB.
+    #[serde(default)]
+    pub mem_total_mb: Option<u64>,
+    /// Memory available to new work in MiB.
+    #[serde(default)]
+    pub mem_available_mb: Option<u64>,
+    /// Metric name → why this OS cannot provide it. Present so an empty
+    /// `batteries` or a missing `load_avg_1m` is never mistaken for a real
+    /// "none" reading.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unavailable: BTreeMap<String, String>,
 }
 
 impl TelemetrySnapshot {
@@ -37,7 +61,21 @@ impl TelemetrySnapshot {
             thermal_zones: Vec::new(),
             batteries: Vec::new(),
             load_avg_1m: None,
+            os: std::env::consts::OS.to_string(),
+            cpu_util_pct: None,
+            mem_total_mb: None,
+            mem_available_mb: None,
+            unavailable: BTreeMap::new(),
         }
+    }
+
+    /// True when the snapshot carries at least one real reading.
+    pub fn has_readings(&self) -> bool {
+        !self.thermal_zones.is_empty()
+            || !self.batteries.is_empty()
+            || self.load_avg_1m.is_some()
+            || self.cpu_util_pct.is_some()
+            || self.mem_total_mb.is_some()
     }
 
     /// Highest thermal zone temperature in degrees Celsius, if any.
@@ -59,21 +97,76 @@ impl TelemetrySnapshot {
     }
 }
 
-/// Samples host telemetry directly from the kernel's `/sys` and `/proc`
-/// interfaces.
+/// Samples host telemetry: thermal zones and batteries from the kernel's
+/// `/sys` interfaces on Linux, sensors through `sysinfo` elsewhere, and
+/// load, CPU and memory through `susi_config::host_metrics` everywhere.
 pub fn sample() -> TelemetrySnapshot {
-    #[cfg(target_os = "linux")]
-    {
-        TelemetrySnapshot {
-            thermal_zones: read_thermal_zones(),
-            batteries: read_batteries(),
-            load_avg_1m: read_load_avg_1m(),
-        }
+    use crate::susi_config::host_metrics;
+    let os = std::env::consts::OS;
+    let mut missing: BTreeMap<String, String> = BTreeMap::new();
+    let mut unavailable = |metric: &str, reason: String| {
+        missing.insert(metric.to_string(), reason);
+    };
+    let thermal_zones = read_thermal_zones();
+    if thermal_zones.is_empty() {
+        unavailable(
+            "thermal_zones",
+            if cfg!(target_os = "linux") {
+                "no readable zone under /sys/class/thermal on this host".to_string()
+            } else {
+                format!("no temperature sensor is readable on {os} by this process")
+            },
+        );
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        TelemetrySnapshot::empty()
+    let batteries = read_batteries();
+    if !cfg!(target_os = "linux") {
+        unavailable(
+            "batteries",
+            format!("battery telemetry is Linux-only (/sys/class/power_supply); not read on {os}"),
+        );
     }
+    let load_avg_1m = host_metrics::load_average().map(|[one, _, _]| one as f32);
+    if let Some(reason) = host_metrics::load_average_unavailable() {
+        unavailable("load_avg_1m", reason.to_string());
+    }
+    let cpu_util_pct = host_metrics::cpu_util_pct();
+    if cpu_util_pct.is_none() {
+        unavailable("cpu_util_pct", format!("{os} reports no CPU utilization"));
+    }
+    let memory = host_metrics::memory();
+    if memory.is_none() {
+        unavailable("memory", format!("{os} reports no memory totals"));
+    }
+    TelemetrySnapshot {
+        thermal_zones,
+        batteries,
+        load_avg_1m,
+        os: os.to_string(),
+        cpu_util_pct,
+        mem_total_mb: memory.map(|m| m.total_bytes / (1024 * 1024)),
+        mem_available_mb: memory.map(|m| m.available_bytes / (1024 * 1024)),
+        unavailable: missing,
+    }
+}
+
+/// Temperatures through the `sysinfo` sensors where there is no
+/// `/sys/class/thermal` (macOS, Windows).
+#[cfg(not(target_os = "linux"))]
+fn read_thermal_zones() -> Vec<ThermalZone> {
+    crate::susi_config::host_metrics::temperature_sensors()
+        .into_iter()
+        .map(|(name, celsius)| ThermalZone {
+            name,
+            temp_mc: (f64::from(celsius) * 1000.0).round() as i64,
+        })
+        .collect()
+}
+
+/// Batteries are read from `/sys/class/power_supply` only; elsewhere the
+/// snapshot names them unavailable.
+#[cfg(not(target_os = "linux"))]
+fn read_batteries() -> Vec<BatteryInfo> {
+    Vec::new()
 }
 
 #[cfg(target_os = "linux")]
@@ -153,12 +246,4 @@ fn read_uevent_value(path: &std::path::Path, key: &str) -> Option<String> {
         }
     }
     None
-}
-
-#[cfg(target_os = "linux")]
-fn read_load_avg_1m() -> Option<f32> {
-    let text = std::fs::read_to_string("/proc/loadavg").ok()?;
-    text.split_whitespace()
-        .next()
-        .and_then(|s| s.parse::<f32>().ok())
 }

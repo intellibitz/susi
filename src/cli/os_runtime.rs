@@ -14,10 +14,15 @@
 //! `loaded` is authoritative: it comes from the daemon's inference cache via
 //! `GET /runtime/models` on the GEMI port. `open_by` is observed separately
 //! from `/proc/<pid>/maps` and `/proc/<pid>/fd` and only covers files a
-//! process still maps or holds open.
+//! process still maps or holds open. It is Linux-only, and the view says so
+//! (`open_by_observed`, `open_by_scope`) on every other OS.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+
+/// How far `open_by` reaches: it is read from `/proc/<pid>/maps` and
+/// `/proc/<pid>/fd`, so only Linux observes it.
+const OPEN_BY_SCOPE: &str = "linux-only";
 
 /// Runtimes identified by the basename of the executable (argv[0]).
 const RUNTIME_BINARIES: &[&str] = &[
@@ -433,6 +438,10 @@ pub(crate) fn view() -> serde_json::Value {
             "managed": managed,
             "external_in_use": external_models,
             "daemon_loaded": daemon_models,
+            // `open_by` comes from /proc maps and fds: Linux-only. Elsewhere
+            // the empty lists mean "not observed", not "not in use".
+            "open_by_observed": cfg!(target_os = "linux"),
+            "open_by_scope": OPEN_BY_SCOPE,
         },
         "gpu_mib_by_pid": gpu,
         "summary": {
@@ -444,7 +453,7 @@ pub(crate) fn view() -> serde_json::Value {
             "daemon_loaded_models": loaded_paths.len(),
             "managed_models_in_use": managed.iter().filter(|m| m["open_by"].as_array().is_some_and(|a| !a.is_empty())).count(),
         },
-        "note": "`loaded` comes from the daemon's inference cache; `mapped/open` is observed from /proc maps and fds and only covers files a process still maps or holds open",
+        "note": "`loaded` comes from the daemon's inference cache; `mapped/open` (`open_by`) is Linux-only: it is observed from /proc maps and fds and only covers files a process still maps or holds open",
     })
 }
 
@@ -514,6 +523,12 @@ pub(crate) fn print(json: bool) -> anyhow::Result<()> {
             } else {
                 String::new()
             },
+        );
+    }
+    if body["models"]["open_by_observed"] != true {
+        println!(
+            "  mapped/open residency: Linux-only (/proc maps and fds); not observed on {}",
+            std::env::consts::OS
         );
     }
     for m in models["external_in_use"].as_array().into_iter().flatten() {

@@ -5,13 +5,13 @@
 //! never capture keystrokes, passwords, or hidden UI content.
 
 use std::path::Path;
-// The samplers are Linux-only; the import gates with them so the no-op
-// builds on other platforms stay warning-free.
-#[cfg(target_os = "linux")]
 use susi_core::context_graph::ContextGraph;
 
 /// Sample one round of OS context and record it into the global context graph.
-/// Currently Linux-only; on other platforms it is a no-op.
+/// Linux records the active window (via `xdotool`) and the running process
+/// names; Windows and macOS record the running process names through the
+/// vendored `sysinfo` facade. What this OS cannot sample is listed by
+/// [`unavailable_os_context`]. Returns how many context records were written.
 pub fn sample_os_context_once(workspace: Option<&Path>, user: Option<&str>) -> usize {
     #[cfg(target_os = "linux")]
     {
@@ -19,9 +19,64 @@ pub fn sample_os_context_once(workspace: Option<&Path>, user: Option<&str>) -> u
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (workspace, user);
-        0
+        sample_portable_once(workspace, user)
     }
+}
+
+/// OS context adapters this platform cannot run, with the reason — so a
+/// sample that records fewer sources says why instead of looking empty.
+pub fn unavailable_os_context() -> Vec<(&'static str, String)> {
+    if cfg!(target_os = "linux") {
+        Vec::new()
+    } else {
+        vec![(
+            "active_window",
+            format!(
+                "active-window sampling is Linux-only (xdotool); not sampled on {}",
+                std::env::consts::OS
+            ),
+        )]
+    }
+}
+
+/// Windows/macOS: running process names (image basenames) through `sysinfo`,
+/// recorded as `<os>_proc` (`windows_proc`, `macos_proc`).
+#[cfg(not(target_os = "linux"))]
+fn sample_portable_once(workspace: Option<&Path>, user: Option<&str>) -> usize {
+    let processes = portable_process_names();
+    if processes.is_empty() {
+        return 0;
+    }
+    let payload = serde_json::json!({ "processes": processes });
+    ContextGraph::global().record_external_context(
+        &format!("{}_proc", std::env::consts::OS),
+        &format!("{} running processes", processes.len()),
+        &payload,
+        workspace,
+        user,
+    );
+    1
+}
+
+/// Sorted, de-duplicated process names, capped like the Linux sampler.
+#[cfg(not(target_os = "linux"))]
+fn portable_process_names() -> Vec<String> {
+    let mut names: Vec<String> = susi_core::susi_config::process_probe::processes(false)
+        .into_iter()
+        .map(|p| {
+            p.exe
+                .as_deref()
+                .and_then(|exe| exe.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or(p.name)
+        })
+        .filter(|name| !name.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    // Cap to keep payloads small.
+    names.truncate(128);
+    names
 }
 
 #[cfg(target_os = "linux")]
@@ -113,8 +168,11 @@ mod tests {
 
     #[cfg(not(target_os = "linux"))]
     #[test]
-    fn sample_os_context_is_no_op_on_non_linux() {
-        assert_eq!(sample_os_context_once(None, None), 0);
+    fn sample_os_context_records_processes_on_non_linux() {
+        assert!(!portable_process_names().is_empty());
+        assert_eq!(sample_os_context_once(None, None), 1);
+        let gaps = unavailable_os_context();
+        assert!(gaps.iter().any(|(source, _)| *source == "active_window"));
     }
 
     #[cfg(target_os = "linux")]
