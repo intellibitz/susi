@@ -19,5 +19,10 @@
     ]
   },
   "created_by": "HARNESSSMART1104",
-  "created_unix": 1793764800
+  "created_unix": 1793764800,
+  "closed": {
+    "commit": "928b9d1a0ce60b957bc4f2cdcf1432ae60b9aa27",
+    "by": "HARNESSSMART1104",
+    "at_unix": 1793767530
+  }
 }
