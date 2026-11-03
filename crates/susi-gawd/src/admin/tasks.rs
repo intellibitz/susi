@@ -956,8 +956,49 @@ pub(super) fn git_bin() -> &'static Path {
     })
 }
 
+/// A `Command` for [`git_bin`] with the PATH Git's own launcher would give it.
+///
+/// [`git_bin`] runs `<root>/<mingw>/bin/git.exe` directly to save the
+/// `<root>/cmd/git.exe` launcher's extra process, but that launcher also puts
+/// Git's mingw `bin` and `usr/bin` at the front of the child's PATH. Without
+/// them, Git for Windows 2.56.0 `fetch` died with an access violation when
+/// started from a process whose PATH held only `<root>/cmd` and System32
+/// (`workflow prune` under the native integration sandbox, 2026-11-03), and
+/// `prune` then refused with "cannot reach origin". The direct executable gets
+/// the launcher's PATH, so it behaves the same with and without Git Bash.
+pub(super) fn git_command() -> Command {
+    let mut command = Command::new(git_bin());
+    #[cfg(windows)]
+    if let Some(path) = git_child_path() {
+        command.env("PATH", path);
+    }
+    command
+}
+
+/// The PATH for a direct [`git_bin`] child: its own `bin`, Git's `usr/bin`,
+/// then the inherited PATH. `None` when `git` is resolved through PATH, where
+/// the launcher already does this.
+#[cfg(windows)]
+fn git_child_path() -> Option<std::ffi::OsString> {
+    static PATH: std::sync::OnceLock<Option<std::ffi::OsString>> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        let bin = git_bin().parent().filter(|dir| dir.is_dir())?;
+        let root = bin.parent()?.parent()?;
+        let mut dirs = vec![bin.to_path_buf(), root.join("usr").join("bin")];
+        dirs.retain(|dir| dir.is_dir());
+        if dirs.is_empty() {
+            return None;
+        }
+        if let Some(inherited) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&inherited));
+        }
+        std::env::join_paths(dirs).ok()
+    })
+    .clone()
+}
+
 fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
-    let out = Command::new(git_bin())
+    let out = git_command()
         .args(args)
         .current_dir(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -975,7 +1016,7 @@ fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
 /// Feed one plumbing command while draining its output. This keeps large batch
 /// reads from deadlocking on pipe capacity and shares the native Git path.
 fn git_input(ws: &Path, args: &[&str], input: Vec<u8>) -> EaiResult<Vec<u8>> {
-    let mut child = Command::new(git_bin())
+    let mut child = git_command()
         .args(args)
         .current_dir(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1184,7 +1225,7 @@ pub fn sync_queue(ws: &Path) -> EaiResult<()> {
 /// their verifications share one writer.
 fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
     let body = serde_json::to_string(value)?;
-    let mut child = Command::new(git_bin())
+    let mut child = git_command()
         .args(["hash-object", "-w", "--stdin"])
         .current_dir(ws)
         .stdin(std::process::Stdio::piped())
@@ -3897,7 +3938,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
             let run = |dir: &Path, args: &[&str]| {
-                let out = Command::new(git_bin())
+                let out = git_command()
                     .args(args)
                     .current_dir(dir)
                     .env("GIT_AUTHOR_NAME", "t")

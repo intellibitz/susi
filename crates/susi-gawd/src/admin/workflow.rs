@@ -496,7 +496,7 @@ pub fn ok(checks: &[Check]) -> bool {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new(tasks::git_bin())
+    let out = tasks::git_command()
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1423,7 +1423,7 @@ pub fn prune_worktrees(
             }
             Candidate::Reclaimable(wt, path) => {
                 if apply {
-                    let out = Command::new(tasks::git_bin())
+                    let out = tasks::git_command()
                         .args(["worktree", "remove", &wt.to_string_lossy()])
                         .current_dir(root)
                         .output();
@@ -1471,7 +1471,7 @@ mod tests {
     /// `git args` in `dir`, with a test identity and none of the caller's
     /// repository settings.
     fn git_ok(dir: &Path, args: &[&str]) {
-        let out = Command::new(tasks::git_bin())
+        let out = tasks::git_command()
             .args(args)
             .current_dir(dir)
             .env("GIT_AUTHOR_NAME", "t")
