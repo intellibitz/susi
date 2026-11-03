@@ -557,9 +557,37 @@ pub(crate) fn command_is_local_report(command: &Commands) -> bool {
 /// Mandate 32: only ensure the daemon for commands that need the background
 /// substrate. Local-only admin/workspace ops must return without blocking on
 /// binary integrity checks or daemon restart.
+///
+/// Every command is classified explicitly here, and
+/// `tests::every_command_has_a_pinned_daemon_and_catalog_classification`
+/// pins each one. The default is `false` (D-SP-1): a command added later
+/// starts without the daemon until it is classified as needing it.
 #[allow(clippy::wildcard_enum_match_arm)]
 pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
     match command {
+        // `start` brings the daemon up through this gate and then waits for
+        // its host contract (`control_plane_start`).
+        Commands::Start
+        // Substrate work: missions, the GEMI server, inference benchmarks,
+        // model selection/scouting/scanning and the substrate's own reports.
+        | Commands::Automate { .. }
+        | Commands::Gemi
+        | Commands::Benchmark
+        | Commands::DeepScan
+        | Commands::SelectModel { .. }
+        | Commands::ScoutModel { .. }
+        | Commands::VerifyDownloadAgent
+        | Commands::SubstrateReport
+        | Commands::BloatAudit
+        // Dispatched before this gate is consulted (`install`, `local`,
+        // `install-release` in `main::run`; `service-run` and `harness` in
+        // `control_plane_cli::dispatch`). Kept at the value they had before
+        // the default flipped.
+        | Commands::Install
+        | Commands::InstallRelease { .. }
+        | Commands::Local { .. }
+        | Commands::ServiceRun { .. }
+        | Commands::Harness { .. } => true,
         Commands::Agents { .. }
         | Commands::Frameworks { .. }
         | Commands::Models { .. }
@@ -613,7 +641,11 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         Commands::Admin { subcommand } => {
             matches!(subcommand, AdminCommands::Audit)
         }
-        _ => true,
+        // Every current variant is matched above; this arm is the default for
+        // a variant added later, which compiles to "no daemon" until it is
+        // classified (and the pinning test fails until it is pinned).
+        #[allow(unreachable_patterns)]
+        _ => false,
     }
 }
 
@@ -623,9 +655,12 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
 /// processes. Used by the Ecosystem control planes and by the CLI
 /// composition root (`susi_daemon::composition::wire_cli_substrate_priming`).
 ///
-/// A command not classified here primes every catalog, as all of them did
-/// before priming was split. Commands that never prime (`status`, `brain`,
-/// `run`, `mcp serve`, …) never ask.
+/// Every command is classified explicitly here, and
+/// `tests::every_command_has_a_pinned_daemon_and_catalog_classification`
+/// pins each one. Commands that never prime (`status`, `brain`, `run`,
+/// `mcp serve`, …) never ask; they keep `ALL`, the value every command had
+/// before priming was split. The default is `NONE` (D-SP-1): a command
+/// added later primes nothing until it is classified.
 #[allow(clippy::wildcard_enum_match_arm)]
 pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
     match command {
@@ -663,8 +698,58 @@ pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
         | Commands::BloatAudit
         | Commands::Clean
         | Commands::OsClean => Catalogs::NONE,
-        // Missions, the shell, gemi, install and the rest: everything.
-        _ => Catalogs::ALL,
+        // Missions, gemi, install and the rest: everything. Many of these
+        // dispatch before the composition root or skip it and so never ask;
+        // they keep the value they had before the default flipped.
+        Commands::Start
+        | Commands::Stop
+        | Commands::Restart
+        | Commands::Install
+        | Commands::InstallRelease { .. }
+        | Commands::Local { .. }
+        | Commands::Uninstall
+        | Commands::Extensions { .. }
+        | Commands::Setup { .. }
+        | Commands::Workflow { .. }
+        | Commands::Harness { .. }
+        | Commands::Tasks { .. }
+        | Commands::Brain { .. }
+        | Commands::Ecosystem { .. }
+        | Commands::Blackboard { .. }
+        | Commands::ContextGraph { .. }
+        | Commands::Broker { .. }
+        | Commands::Telemetry { .. }
+        | Commands::Patch { .. }
+        | Commands::Plan { .. }
+        | Commands::Privacy { .. }
+        | Commands::Intent { .. }
+        | Commands::Ambient { .. }
+        | Commands::Tx { .. }
+        | Commands::Gemi
+        | Commands::Status { .. }
+        | Commands::Services { .. }
+        | Commands::Commits { .. }
+        | Commands::Os { .. }
+        | Commands::Peers { .. }
+        | Commands::ServiceRun { .. }
+        | Commands::SubstrateReport
+        | Commands::OpenRouter { .. }
+        | Commands::DeepScan
+        | Commands::McpAdd { .. }
+        | Commands::VerifyDownloadAgent
+        | Commands::ScoutModel { .. }
+        | Commands::Benchmark
+        | Commands::Pulse { .. }
+        | Commands::Automate { .. }
+        | Commands::Admin { .. }
+        | Commands::Run(..)
+        | Commands::Top(..)
+        | Commands::DaemonStart { .. } => Catalogs::ALL,
+        // Every current variant is matched above; this arm is the default for
+        // a variant added later, which primes nothing until it is classified
+        // (and the pinning test fails until it is pinned).
+        #[allow(unreachable_patterns)]
+        _ => Catalogs::NONE,
     }
 }
 
@@ -905,8 +990,8 @@ mod tests {
         );
     }
 
-    /// `auto prime`, missions and every command not classified still prime
-    /// every catalog, as before priming was split.
+    /// `auto prime`, missions and the commands kept at their pre-split value
+    /// still prime every catalog, as before priming was split.
     #[test]
     fn auto_prime_missions_and_unclassified_commands_prime_everything() {
         assert_primes(
@@ -922,6 +1007,142 @@ mod tests {
                 &["susi", "uninstall"],
             ],
         );
+    }
+
+    /// D-SP-1: both predicates default to "nothing" (no daemon, no catalog)
+    /// for a command added later. So every current command is pinned here,
+    /// and the table must name exactly the subcommands clap knows, hidden
+    /// ones included: a new command fails this test until it is classified.
+    #[test]
+    fn every_command_has_a_pinned_daemon_and_catalog_classification() {
+        use Catalogs as C;
+        let crown = C::AGENTS.union(C::CODING_MODELS);
+        // (subcommand, argv after `susi`, requires the daemon, catalogs)
+        let pins: &[(&str, &[&str], bool, Catalogs)] = &[
+            ("agents", &["agents", "list"], false, C::NONE),
+            ("frameworks", &["frameworks", "list"], false, C::NONE),
+            ("start", &["start"], true, C::ALL),
+            ("stop", &["stop"], false, C::ALL),
+            ("restart", &["restart"], false, C::ALL),
+            ("install", &["install"], true, C::ALL),
+            (
+                "install-release",
+                &["install-release", "--status"],
+                true,
+                C::ALL,
+            ),
+            ("local", &["local", "build", "debug"], true, C::ALL),
+            ("uninstall", &["uninstall"], false, C::ALL),
+            ("mcp", &["mcp", "list"], false, C::LEADING_MCP),
+            ("extensions", &["extensions"], false, C::ALL),
+            ("auto", &["auto", "status"], false, C::NONE),
+            ("setup", &["setup"], false, C::ALL),
+            ("workflow", &["workflow", "sync"], false, C::ALL),
+            (
+                "harness",
+                &["harness", "status", "--ledger", "l"],
+                true,
+                C::ALL,
+            ),
+            ("tasks", &["tasks"], false, C::ALL),
+            ("brain", &["brain"], false, C::ALL),
+            ("ecosystem", &["ecosystem"], false, C::ALL),
+            ("blackboard", &["blackboard"], false, C::ALL),
+            ("context-graph", &["context-graph"], false, C::ALL),
+            ("broker", &["broker"], false, C::ALL),
+            ("telemetry", &["telemetry"], false, C::ALL),
+            ("patch", &["patch", "p.json"], false, C::ALL),
+            ("plan", &["plan", "goal"], false, C::ALL),
+            ("privacy", &["privacy"], false, C::ALL),
+            ("intent", &["intent"], false, C::ALL),
+            ("ambient", &["ambient"], false, C::ALL),
+            ("tx", &["tx"], false, C::ALL),
+            ("substrate", &["substrate", "status"], false, C::AGENTS),
+            ("crown", &["crown", "status"], false, crown),
+            ("gemi", &["gemi"], true, C::ALL),
+            ("status", &["status"], false, C::ALL),
+            ("services", &["services"], false, C::ALL),
+            ("commits", &["commits"], false, C::ALL),
+            ("os", &["os"], false, C::ALL),
+            ("peers", &["peers"], false, C::ALL),
+            ("service-run", &["service-run", "susi-paths"], true, C::ALL),
+            ("substrate-report", &["substrate-report"], true, C::ALL),
+            ("bloat-audit", &["bloat-audit"], true, C::NONE),
+            ("models", &["models"], false, C::CODING_MODELS),
+            ("openweight", &["openweight"], false, C::NONE),
+            ("frontier", &["frontier"], false, C::NONE),
+            ("openrouter", &["openrouter"], false, C::ALL),
+            ("keys", &["keys"], false, C::NONE),
+            (
+                "select-model",
+                &["select-model", "m"],
+                true,
+                C::CODING_MODELS,
+            ),
+            ("deep-scan", &["deep-scan"], true, C::ALL),
+            ("mcp-add", &["mcp-add", "n", "cmd"], false, C::ALL),
+            (
+                "verify-download-agent",
+                &["verify-download-agent"],
+                true,
+                C::ALL,
+            ),
+            ("scout-model", &["scout-model", "u"], true, C::ALL),
+            ("benchmark", &["benchmark"], true, C::ALL),
+            ("pulse", &["pulse", "x"], false, C::ALL),
+            ("automate", &["automate", "x"], true, C::ALL),
+            ("review", &["review"], false, C::NONE),
+            ("os-clean", &["os-clean"], false, C::NONE),
+            ("audit", &["audit"], false, C::NONE),
+            ("admin", &["admin", "lint"], false, C::ALL),
+            ("clean", &["clean"], false, C::NONE),
+            ("run", &["run", "hello"], false, C::ALL),
+            ("top", &["top"], false, C::ALL),
+            (
+                "daemon-start",
+                &["daemon-start", "--workspace", "x"],
+                false,
+                C::ALL,
+            ),
+        ];
+        let mut pinned: Vec<&str> = pins.iter().map(|pin| pin.0).collect();
+        pinned.sort_unstable();
+        let unique = pinned.len();
+        pinned.dedup();
+        assert_eq!(unique, pinned.len(), "a command is pinned twice");
+        let mut known: Vec<String> = Cli::command()
+            .get_subcommands()
+            .map(|sub| sub.get_name().to_string())
+            .collect();
+        known.sort_unstable();
+        assert_eq!(
+            pinned, known,
+            "pin every command's daemon and catalog classification"
+        );
+        for &(name, argv, daemon, expected) in pins {
+            let args: Vec<&str> = std::iter::once("susi")
+                .chain(argv.iter().copied())
+                .collect();
+            let matches = Cli::command()
+                .try_get_matches_from(&args)
+                .unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert_eq!(matches.subcommand_name(), Some(name), "{args:?}");
+            let command = Cli::try_parse_from(&args).unwrap().command.unwrap();
+            assert_eq!(
+                super::command_requires_daemon(&command),
+                daemon,
+                "daemon: {args:?}"
+            );
+            assert_eq!(command_catalogs(&command), expected, "catalogs: {args:?}");
+        }
+        // `admin` is classified per subcommand: only the compliance audit
+        // ensures the daemon.
+        let admin_audit = Cli::try_parse_from(["susi", "admin", "audit"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert!(super::command_requires_daemon(&admin_audit));
+        assert_eq!(command_catalogs(&admin_audit), C::ALL);
     }
 
     /// Lifecycle and status never run the CLI composition root: on a host

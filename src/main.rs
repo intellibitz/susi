@@ -38,7 +38,7 @@ use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
 use susi_gawd::ama::SusiMasterAgent;
 
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, FromArgMatches};
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
@@ -51,7 +51,7 @@ use tracing::{info, warn};
 /// Returns the sibling command names sharing the token's stem (handling
 /// singular→plural: `peer` → `peers`) when the stem names a command
 /// family — the caller refuses with a suggestion instead of dispatching.
-fn command_near_miss(intent: &[String]) -> Vec<String> {
+fn command_near_miss(tree: &clap::Command, intent: &[String]) -> Vec<String> {
     let Some(first) = intent.first() else {
         return Vec::new();
     };
@@ -65,8 +65,7 @@ fn command_near_miss(intent: &[String]) -> Vec<String> {
     // hyphenated command — `daemon` → `daemon-start`. Plain words stay
     // mission intent. Hyphenated tokens keep the looser stem match.
     let bare = !first.contains('-');
-    let mut matches: Vec<String> = Cli::command()
-        .get_subcommands()
+    let mut matches: Vec<String> = cli::intent_guard::susi_subcommands(tree)
         .flat_map(|c| {
             std::iter::once(c.get_name().to_string())
                 .chain(c.get_visible_aliases().map(str::to_string))
@@ -128,9 +127,9 @@ fn bare_terminal_invocation(has_command: bool, has_intent: bool, stdin_is_termin
 }
 
 /// Usage for bare `susi`, plus where the conversation now lives.
-fn print_bare_usage() -> std::process::ExitCode {
+fn print_bare_usage(tree: &mut clap::Command) -> std::process::ExitCode {
     let mut stdout = io::stdout();
-    let printed = write!(stdout, "{}", Cli::command().render_help())
+    let printed = write!(stdout, "{}", tree.render_help())
         .and_then(|()| {
             writeln!(
                 stdout,
@@ -143,6 +142,57 @@ fn print_bare_usage() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
     std::process::ExitCode::SUCCESS
+}
+
+/// Parse argv against `tree`. The clap tree is large; `main` builds it once
+/// and the same tree then serves the intent guard, the near-miss check and
+/// bare usage (D-SP-1), instead of rebuilding it for each. Errors, `--help`
+/// and `--version` exit exactly as `Cli::parse` would.
+fn parse_cli(tree: &mut clap::Command) -> Cli {
+    let mut matches = tree.get_matches_mut();
+    Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|error| error.format(tree).exit())
+}
+
+/// Read-only reports that answer from files and live process checks: `top`,
+/// `status` and `audit query`. They return before tracing, rayon, the kernel
+/// bootloader and the master agent (D-SP-1): none of those feeds their
+/// output, and an operator runs `status` exactly when something is slow.
+/// Returns `Ok(exit_code)` when handled; `Err(command)` hands it back.
+#[allow(clippy::result_large_err)] // Err is the whole unconsumed `Commands`, handed back by design
+fn dispatch_local_report(
+    command: Option<cli::defs::Commands>,
+) -> Result<std::process::ExitCode, Option<cli::defs::Commands>> {
+    use cli::defs::{AuditCommands, Commands};
+    let cwd = || env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    match command {
+        Some(Commands::Top(args)) => Ok(cli::top_cli::execute(args, &cwd())),
+        Some(Commands::Status { json }) => {
+            let global_dir = susi_paths::SusiDirs::config_dir();
+            let _ = std::fs::create_dir_all(&global_dir);
+            Ok(cli::status_cli::run_command(json, &cwd(), &global_dir))
+        }
+        Some(Commands::Audit {
+            action:
+                Some(AuditCommands::Query {
+                    actor,
+                    mission,
+                    kind,
+                    since,
+                    until,
+                    json,
+                }),
+        }) => {
+            let query = susi_sandbox::audit_chain::AuditQuery {
+                actor,
+                mission,
+                kind,
+                since,
+                until,
+            };
+            Ok(cli::mission_cli::audit_query(&cwd(), &query, json))
+        }
+        other => Err(other),
+    }
 }
 
 fn get_home_dir() -> PathBuf {
@@ -248,7 +298,8 @@ fn run() -> std::process::ExitCode {
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
-    let cli = Cli::parse();
+    let mut command_tree = Cli::command();
+    let cli = parse_cli(&mut command_tree);
     if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
         return status;
     }
@@ -268,7 +319,7 @@ fn run() -> std::process::ExitCode {
         !cli.intent.is_empty(),
         io::stdin().is_terminal(),
     ) {
-        return print_bare_usage();
+        return print_bare_usage(&mut command_tree);
     }
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
@@ -301,7 +352,7 @@ fn run() -> std::process::ExitCode {
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
     if cli.command.is_none() {
-        if let Some(hints) = cli::intent_guard::refuse(&Cli::command(), &cli.intent) {
+        if let Some(hints) = cli::intent_guard::refuse(&command_tree, &cli.intent) {
             eprintln!(
                 "`{}` looks like a command, not a goal — refusing to run it as a mission.",
                 cli.intent.join(" ")
@@ -312,7 +363,7 @@ fn run() -> std::process::ExitCode {
             eprintln!("to run it as a goal, quote it as a sentence: susi \"<what you want done>\"");
             return std::process::ExitCode::from(2);
         }
-        let near_misses = command_near_miss(&cli.intent);
+        let near_misses = command_near_miss(&command_tree, &cli.intent);
         if !near_misses.is_empty() {
             eprintln!(
                 "`{}` is not a susi command — refusing to ingest it as mission intent.",
@@ -340,10 +391,10 @@ fn run() -> std::process::ExitCode {
         Ok(code) => return code,
         Err(command) => command,
     };
-    if let Some(cli::defs::Commands::Top(args)) = command {
-        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        return cli::top_cli::execute(args, &cwd);
-    }
+    let command = match dispatch_local_report(command) {
+        Ok(code) => return code,
+        Err(command) => command,
+    };
 
     // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
     // See ARCHITECTURE.md and susi_daemon::composition. `mcp serve` skips

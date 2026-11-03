@@ -636,6 +636,23 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
     out
 }
 
+/// `susi status [--json]`: the human report (prefixed by the substrate
+/// identity when one exists) or the measured JSON object. It reads files and
+/// live process checks only, so `main` answers it before substrate boot.
+pub(crate) fn run_command(json: bool, cwd: &Path, global_dir: &Path) -> std::process::ExitCode {
+    if json {
+        return run_json(cwd, global_dir);
+    }
+    let id_file = global_dir.join("identity.key");
+    if id_file.exists() {
+        if let Ok(id) = std::fs::read_to_string(id_file) {
+            println!("[SUBSTRATE IDENTITY]: {}", id.trim());
+        }
+    }
+    run(cwd, global_dir);
+    std::process::ExitCode::SUCCESS
+}
+
 /// The `susi status` command body.
 pub(crate) fn run_json(cwd: &Path, global_dir: &Path) -> std::process::ExitCode {
     match measured_json(cwd, global_dir) {
@@ -654,6 +671,10 @@ fn measured_json(cwd: &Path, global_dir: &Path) -> std::io::Result<serde_json::V
     use sha2::{Digest, Sha256};
     use std::io::Read;
 
+    // The digest is always measured from the executable's bytes, never read
+    // from `binary.hash.cache` or asked of a service: release automation uses
+    // it to verify installed identity, and a cache keyed by mtime and size can
+    // report a stale digest for a same-size replacement (T-RELEASESTATUS-1).
     let executable = std::env::current_exe()?;
     let mut file = std::fs::File::open(&executable)?;
     let mut hash = Sha256::new();
