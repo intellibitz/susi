@@ -109,10 +109,12 @@ impl FileLock {
         const TICK: std::time::Duration = std::time::Duration::from_millis(100);
         let done = std::sync::atomic::AtomicBool::new(false);
         std::thread::scope(|scope| {
-            scope.spawn(|| {
+            let heartbeat = scope.spawn(|| {
                 let mut since = std::time::Instant::now();
                 while !done.load(std::sync::atomic::Ordering::Acquire) {
-                    std::thread::sleep(TICK);
+                    // Parked rather than slept: the finished holder unparks
+                    // it, so a short section is not held up by a full tick.
+                    std::thread::park_timeout(TICK);
                     if since.elapsed() >= HEARTBEAT {
                         self.refresh();
                         since = std::time::Instant::now();
@@ -121,6 +123,7 @@ impl FileLock {
             });
             let result = work();
             done.store(true, std::sync::atomic::Ordering::Release);
+            heartbeat.thread().unpark();
             result
         })
     }
