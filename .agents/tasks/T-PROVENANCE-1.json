@@ -2,7 +2,7 @@
   "id": "T-PROVENANCE-1",
   "title": "Verify native task provenance with independently pinned forward adoption",
   "native_worker": "provenance-complete",
-  "status": "in_progress",
+  "status": "completed",
   "dependencies": [],
   "scopes": [
     "xtask/src/bin/local-workflow.rs",
@@ -25,5 +25,16 @@
     ]
   },
   "acceptance": "Capture actual native reservations, namespaced task acceptance and exact-tree integration logs; verify independently pinned immutable permits, complete ancestry and scope coverage; reject forged, stale, failed, wrong-tree, unscoped and incomplete evidence. Preserve the eighteen historical workflow diagnostics; forward adoption is new acceptance and never reconstructed historical ownership.",
-  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e"
+  "base_commit": "cbf858241279f2ce22fdac95baf94bc22d2c4f9e",
+  "validation": {
+    "integrated_commits": [
+      "ef45493d3 Verify independently pinned native ownership and forward adoption evidence",
+      "82c6abdb3 Root native acceptance and failure evidence against Git garbage collection",
+      "76ba9b4d3 Reject dangling symbolic evidence references without replacing them"
+    ],
+    "integration_lineage": "all three carry Task: LOCAL-provenance-complete and are ancestors of origin/main (verified 2026-11-03 against 82962c94a, the 0.21.47 merge)",
+    "acceptance_rerun": "cargo test --offline --locked -p xtask --bin local-workflow on origin/main 82962c94a: 39 passed, 0 failed, 0 ignored; 127.18 s; exit 0 (2026-11-03)",
+    "native_worker": "provenance-complete no longer appears in `local-workflow list`; its reservation was released after integration",
+    "closed_by": "BOARDCLOSE1103 (board reconciliation, 2026-11-03)"
+  }
 }
