@@ -221,6 +221,30 @@ this for the panic-path lints.
 - No stubs: no `todo!()`, `unimplemented!()`, or dead `pub` surfaces left
   "for later".
 
+## Credentials come from KeePassXC
+
+KeePassXC is the password manager for the CEO and for every agent working on
+Susi, in this repository and in `intellibitz/susi-commercial-apps` alike. No
+credential lives in a repository file, a `.env` file, a shell profile, CI logs,
+chat, or agent memory.
+
+- Two vaults. The CEO's **Personal vault** is off limits to agents: never open
+  it and never ask for its passphrase. The **automation vault** under
+  `%USERPROFILE%\KeePassXC-AppLauncher` on the CEO's workstation is the agent
+  credential source; its unlock is bound to the CEO's Windows account, and the
+  launcher's `Usage.md` there is the reference. Entries live under
+  `App credentials/` (model API keys and `GH_TOKEN` forwarded into agent shells,
+  GPG and SSH signing identities, and the commercial release authority key).
+- Agents read it only through the launcher's `AgentVault.ps1` helpers
+  (`Read-AgentFields`, `Invoke-AgentKdbx`), and a value moves only through a
+  pipe or a child process's environment to its consumer, for example a GitHub
+  repository secret set from stdin. Never print, log, echo, write to a file,
+  paste in chat, or pass a value on a command line; report "set" and at most a
+  byte length, and clear variables afterwards.
+- New credentials are generated in-process, stored in the automation vault,
+  read back and compared, then exported. Rotation updates the vault entry
+  first, then every consumer, then restarts long-running agents.
+
 ## Local verification and evidence
 
 Use the pinned toolchain and committed lockfile. Scope checks to affected crates
