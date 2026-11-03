@@ -1,0 +1,29 @@
+{
+  "id": "T-RELEASE47-1",
+  "title": "Release Susi 0.21.47 as the installed Windows production release",
+  "goal": "Carry the current origin/main (0.21.46 plus the open-core split) through native integration and production qualification as 0.21.47, promote it over release F (0.21.43) with a verified rollback and restore, re-measure the installed entry point against the 0.21.43 baseline (version 92 ms, help 88 ms, status 1.8 s, one goal 11.7 s), and record the evidence.",
+  "deps": [],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/evidence/release47-windows.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/t-release47-1.json",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml",
+    "docs/step1-acceptance.md",
+    "readme.md"
+  ],
+  "size": "m",
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "architecture_tests"]
+  },
+  "created_by": "RELEASE47",
+  "created_unix": 1793691000
+}
