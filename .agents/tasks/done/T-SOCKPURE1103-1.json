@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "SOCKPURE1103",
-  "created_unix": 1793727226
+  "created_unix": 1793727226,
+  "closed": {
+    "at_unix": 1793736424,
+    "commit": "b955f47cb4a7627332fdcd3684b7fbde0f457439",
+    "by": "SOCKPURE1103"
+  }
 }
