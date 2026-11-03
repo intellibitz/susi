@@ -19,8 +19,6 @@ pub use susi_sandbox_client as susi_sandbox;
 pub use susi_core;
 
 pub mod anthropic_gateway;
-/// Gateway API keys with per-key quotas (VC-201-072).
-pub mod gateway_keys;
 pub mod prometheus_metrics;
 pub mod zc_bind_auto;
 
