@@ -226,9 +226,16 @@ impl Provider for HttpProvider {
         let api_key = self.api_key.clone();
         let protocol = self.protocol;
         let name = self.name.clone();
+        // Read on the caller's thread: only a user-initiated request entry
+        // point holds the guard; unattended callers (brain scout, estate
+        // loop, scheduled missions) never do.
+        let may_start = crate::susi_core::provider::OnDemandEngineStart::allowed();
 
         Box::pin(async move {
             refuse_off_host_under_local_only(&api_base)?;
+            // Core starts no engine on its own: a user request that needs
+            // the local engine behind `api_base` starts it if it is down.
+            ensure_local_engine(&api_base, may_start).await?;
             let provider = name.clone();
             let outcome_base = api_base.clone();
             let outcome_model = model.clone();
@@ -280,9 +287,11 @@ impl Provider for HttpProvider {
         let model = self.model.clone();
         let api_key = self.api_key.clone();
         let protocol = self.protocol;
+        let may_start = crate::susi_core::provider::OnDemandEngineStart::allowed();
 
         Box::pin(async move {
             refuse_off_host_under_local_only(&api_base)?;
+            ensure_local_engine(&api_base, may_start).await?;
             if protocol != InferenceProtocol::OpenAiChat
                 && protocol != InferenceProtocol::OpenAiCompletions
             {
@@ -388,6 +397,77 @@ fn refuse_off_host_under_local_only(api_base: &str) -> crate::susi_core::susi_er
         )));
     }
     Ok(())
+}
+
+/// The loopback socket of a local-engine base such as
+/// `http://localhost:11434/v1`; `None` for remote bases or bases without an
+/// explicit port.
+fn loopback_engine_socket(api_base: &str) -> Option<std::net::SocketAddr> {
+    let rest = api_base
+        .strip_prefix("http://")
+        .or_else(|| api_base.strip_prefix("https://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let (host, port) = authority.rsplit_once(':')?;
+    let port: u16 = port.parse().ok().filter(|p| *p != 0)?;
+    let ip = match host.to_ascii_lowercase().as_str() {
+        "localhost" | "127.0.0.1" => std::net::IpAddr::from([127, 0, 0, 1]),
+        "[::1]" => std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST),
+        _ => return None,
+    };
+    Some(std::net::SocketAddr::new(ip, port))
+}
+
+/// How long a request waits for a local engine it started on demand.
+const ON_DEMAND_ENGINE_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The loopback engine socket an on-demand start may target: `None` unless
+/// the caller holds the start permission and `api_base` is a local engine.
+fn on_demand_start_target(api_base: &str, may_start: bool) -> Option<std::net::SocketAddr> {
+    may_start
+        .then(|| loopback_engine_socket(api_base))
+        .flatten()
+}
+
+/// Start the local engine behind `api_base` when a user request needs it
+/// and it is not listening. `may_start` is the caller's
+/// [`OnDemandEngineStart`](crate::susi_core::provider::OnDemandEngineStart)
+/// permission: without it (unattended work) nothing is started and a closed
+/// port stays an ordinary transport error. Remote bases, listening ports and
+/// ports no known engine serves pass straight through. An engine that is
+/// installed but cannot be started (or is not installed) is a typed error
+/// naming the explicit `susi ecosystem start <id>` command.
+async fn ensure_local_engine(
+    api_base: &str,
+    may_start: bool,
+) -> crate::susi_core::susi_error::EaiResult<()> {
+    let Some(socket) = on_demand_start_target(api_base, may_start) else {
+        return Ok(());
+    };
+    // Unit tests must never launch a real engine on the host: they see the
+    // attempt as an error instead.
+    if cfg!(test) {
+        return Err(crate::susi_core::susi_error::EaiError::process(format!(
+            "on-demand engine start attempted for {socket}"
+        )));
+    }
+    tokio::task::spawn_blocking(move || {
+        if std::net::TcpStream::connect_timeout(&socket, std::time::Duration::from_millis(150))
+            .is_ok()
+        {
+            return Ok(());
+        }
+        susi_gemi_models::local_ecosystem::ensure_running_on_port(
+            socket.port(),
+            &susi_gemi_models::local_ecosystem::HostProbe,
+            ON_DEMAND_ENGINE_WAIT,
+        )
+        .map(|_| ())
+        .map_err(|e| crate::susi_core::susi_error::EaiError::process(e.to_string()))
+    })
+    .await
+    .map_err(|e| {
+        crate::susi_core::susi_error::EaiError::process(format!("local engine start: {e}"))
+    })?
 }
 
 /// Register every configured `inference_endpoints` entry that can be admitted:
@@ -976,6 +1056,72 @@ pub async fn auto_discover_local_engines(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_loopback_bases_with_a_port_are_local_engines() {
+        use super::loopback_engine_socket as socket;
+        assert_eq!(
+            socket("http://localhost:11434/v1").map(|s| s.to_string()),
+            Some("127.0.0.1:11434".into())
+        );
+        assert_eq!(socket("http://[::1]:8080/v1").map(|s| s.port()), Some(8080));
+        assert_eq!(socket("https://api.openai.com/v1"), None);
+        assert_eq!(socket("http://localhost/v1"), None);
+        assert_eq!(socket("http://10.0.0.5:11434/v1"), None);
+    }
+
+    #[test]
+    fn only_a_guarded_call_targets_an_engine_start() {
+        // No guard (brain scout, estate loop, scheduled missions): a
+        // loopback engine base is never a start target.
+        use super::on_demand_start_target as target;
+        assert_eq!(target("http://localhost:11434/v1", false), None);
+        assert_eq!(
+            target("http://localhost:11434/v1", true).map(|s| s.port()),
+            Some(11434)
+        );
+        assert_eq!(target("https://api.openai.com/v1", true), None);
+    }
+
+    #[test]
+    fn generate_attempts_an_engine_start_only_under_the_guard() {
+        // A loopback base whose port nothing listens on. Without the guard
+        // `generate` fails as a plain transport error and never attempts a
+        // start; under the guard it does (seen as an error in unit tests).
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .map(|a| a.port())
+            .unwrap();
+        let provider = HttpProvider {
+            name: "unattended-probe".into(),
+            api_base: format!("http://127.0.0.1:{port}/v1"),
+            model: "m".into(),
+            api_key: String::new(),
+            protocol: InferenceProtocol::OpenAiChat,
+        };
+        use crate::susi_core::provider::{OnDemandEngineStart, Provider};
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert!(!OnDemandEngineStart::allowed());
+        let unattended = rt
+            .block_on(provider.generate("hi"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            !unattended.contains("on-demand engine start attempted"),
+            "{unattended}"
+        );
+        let requested = {
+            let _user_request = OnDemandEngineStart::allow();
+            provider.generate("hi")
+        };
+        let requested = rt.block_on(requested).unwrap_err().to_string();
+        assert!(
+            requested.contains("on-demand engine start attempted"),
+            "{requested}"
+        );
+    }
 
     use super::*;
     use crate::susi_core::registry::CapabilityRegistry;

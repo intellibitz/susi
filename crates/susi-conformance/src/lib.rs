@@ -3,13 +3,18 @@
 //! Products that plug into Susi hard-code the five contract ports (README,
 //! "Host contract"). This suite checks a running host the way such a product
 //! sees it: liveness without credentials, bearer authentication on every HTTP
-//! port, the MCP Streamable HTTP handshake, A2A discovery and JSON-RPC errors,
-//! and the GEMI model list. Every check records its own wall-clock latency.
+//! port, the MCP Streamable HTTP handshake, A2A discovery and JSON-RPC errors
+//! (on `/` and the SSE route `/stream`), UDP discovery on 9092, the GEMI model
+//! list, and, when asked, a streamed GEMI completion and MCP over stdio
+//! (`susi mcp serve`). Every check records its own wall-clock latency.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod http;
 
 use serde_json::{json, Value};
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// Contract ports before `port_offset` is applied.
@@ -18,7 +23,10 @@ pub mod ports {
     pub const MCP: u16 = 9090;
     /// GEMI HTTP (inference, models).
     pub const GEMI: u16 = 9091;
-    /// GMCP HTTP alias (streamable / SSE).
+    /// A2A UDP discovery: answers cluster-key signed pings only.
+    pub const UDP_DISCOVERY: u16 = 9092;
+    /// GMCP HTTP alias (streamable / SSE). A permanent alias of 9090:
+    /// deployed clients hard-code it.
     pub const MCP_ALIAS: u16 = 9093;
     /// A2A HTTP (JSON-RPC, agent card).
     pub const A2A: u16 = 9094;
@@ -40,6 +48,18 @@ pub struct Target {
     pub token: Option<String>,
     /// Per-request timeout.
     pub timeout: Duration,
+}
+
+/// Checks that do more than read the host, so they run only when asked.
+#[derive(Debug, Clone, Default)]
+pub struct Optional {
+    /// `susi` binary for the MCP stdio check (`<bin> mcp serve`). The child
+    /// inherits this process's environment, so `SUSI_HOME` selects the
+    /// instance; it is always stopped before the check returns.
+    pub susi_bin: Option<PathBuf>,
+    /// Run the GEMI SSE check: one streamed, 1-token, local-only
+    /// (`susi.allow_cloud: false`) chat completion. Costs a local inference.
+    pub inference: bool,
 }
 
 /// Outcome of one contract check.
@@ -200,25 +220,34 @@ fn health(target: &Target, base: u16) -> Check {
 
 /// A protected request without a token must be refused with 401.
 fn auth_required(target: &Target, base: u16, method: &str, path: &str) -> Check {
-    timed(format!("auth.required@{}", target.port(base)), || {
-        let body = (method == "POST").then(|| json!({"jsonrpc":"2.0","id":1,"method":"ping"}));
-        match target.call(
-            base,
-            Call {
-                method,
-                path,
-                auth: false,
-                headers: &[],
-                body: body.as_ref(),
-            },
-        ) {
-            Ok(r) => verdict(
-                r.status == 401,
-                format!("{method} {path} without token -> {}", r.status),
-            ),
-            Err(e) => (Outcome::Fail, e),
-        }
-    })
+    auth_required_as(target, base, method, path, "")
+}
+
+/// [`auth_required`] with `suffix` appended to the check id, so a second
+/// route on the same port (`/stream`) gets its own id.
+fn auth_required_as(target: &Target, base: u16, method: &str, path: &str, suffix: &str) -> Check {
+    timed(
+        format!("auth.required@{}{suffix}", target.port(base)),
+        || {
+            let body = (method == "POST").then(|| json!({"jsonrpc":"2.0","id":1,"method":"ping"}));
+            match target.call(
+                base,
+                Call {
+                    method,
+                    path,
+                    auth: false,
+                    headers: &[],
+                    body: body.as_ref(),
+                },
+            ) {
+                Ok(r) => verdict(
+                    r.status == 401,
+                    format!("{method} {path} without token -> {}", r.status),
+                ),
+                Err(e) => (Outcome::Fail, e),
+            }
+        },
+    )
 }
 
 fn needs_token(target: &Target, id: &str) -> Option<Check> {
@@ -406,6 +435,417 @@ fn a2a_unknown(target: &Target) -> Check {
     })
 }
 
+/// The A2A SSE route (`POST /stream`) dispatches the streaming JSON-RPC
+/// methods: an unknown method is `-32601`, and subscribing to a task that
+/// does not exist is A2A task-not-found (`-32001`), both under the A2A 1.0
+/// name `SubscribeToTask` and the legacy 0.3 alias `tasks/resubscribe`.
+/// None of them starts a task.
+fn a2a_stream(target: &Target) -> Check {
+    let id = format!("a2a.stream@{}", target.port(ports::A2A));
+    if let Some(skip) = needs_token(target, &id) {
+        return skip;
+    }
+    timed(id, || {
+        let accept = [("Accept", "text/event-stream, application/json")];
+        let code = |request: &Value| -> Result<(u16, Option<i64>), String> {
+            let r = target.call(ports::A2A, Call::post("/stream", true, &accept, request))?;
+            let payload = rpc_payload(&r).unwrap_or(Value::Null);
+            Ok((r.status, payload["error"]["code"].as_i64()))
+        };
+        let unknown =
+            json!({"jsonrpc":"2.0","id":8,"method":"susi/conformance-unknown-method","params":{}});
+        let missing = |id: i64, method: &str| {
+            json!({"jsonrpc":"2.0","id":id,"method":method,
+                "params":{"id":"susi-conformance-no-such-task"}})
+        };
+        match (
+            code(&unknown),
+            code(&missing(9, "SubscribeToTask")),
+            code(&missing(10, "tasks/resubscribe")),
+        ) {
+            (Ok((s1, c1)), Ok((s2, c2)), Ok((s3, c3))) => verdict(
+                c1 == Some(-32601) && c2 == Some(-32001) && c3 == Some(-32001),
+                format!(
+                    "unknown method -> {s1} code {c1:?} (want -32601); SubscribeToTask missing task -> {s2} code {c2:?}, legacy tasks/resubscribe -> {s3} code {c3:?} (want -32001)"
+                ),
+            ),
+            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => (Outcome::Fail, e),
+        }
+    })
+}
+
+/// What one unauthenticated datagram to the discovery port drew back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UdpProbe {
+    /// No reply within the timeout and no ICMP port-unreachable.
+    Silent,
+    /// The port answered an unauthenticated datagram (first bytes).
+    Answered(String),
+    /// ICMP port-unreachable: nothing is bound there.
+    Unreachable,
+    /// Local socket error.
+    Error(String),
+}
+
+/// Send `payload` to `host:port` from a connected UDP socket and classify
+/// the result. A connected socket surfaces ICMP port-unreachable as
+/// `ConnectionReset` (Windows) or `ConnectionRefused` (Unix), which is how
+/// silence is told apart from an unbound port.
+#[must_use]
+pub fn udp_probe(host: &str, port: u16, payload: &[u8], timeout: Duration) -> UdpProbe {
+    udp_probe_all(host, port, &[payload], timeout)
+        .pop()
+        .unwrap_or_else(|| UdpProbe::Error("no probe sent".into()))
+}
+
+/// [`udp_probe`] for several payloads at once: one connected socket per
+/// payload, every datagram sent first, then each socket read against one
+/// shared deadline. A silent port therefore costs one `timeout`, not one per
+/// payload. Results are in `payloads` order.
+#[must_use]
+pub fn udp_probe_all(
+    host: &str,
+    port: u16,
+    payloads: &[&[u8]],
+    timeout: Duration,
+) -> Vec<UdpProbe> {
+    use std::io::ErrorKind;
+    use std::net::{ToSocketAddrs, UdpSocket};
+    let unreachable = |kind: ErrorKind| {
+        matches!(
+            kind,
+            ErrorKind::ConnectionReset | ErrorKind::ConnectionRefused
+        )
+    };
+    let Some(addr) = (host, port)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut a| a.next())
+    else {
+        let error = UdpProbe::Error(format!("no address for {host}:{port}"));
+        return vec![error; payloads.len()];
+    };
+    let local = if addr.is_ipv4() {
+        "0.0.0.0:0"
+    } else {
+        "[::]:0"
+    };
+    let sent: Vec<Result<UdpSocket, UdpProbe>> = payloads
+        .iter()
+        .map(|payload| {
+            let socket =
+                UdpSocket::bind(local).map_err(|e| UdpProbe::Error(format!("bind: {e}")))?;
+            socket
+                .connect(addr)
+                .map_err(|e| UdpProbe::Error(format!("connect {addr}: {e}")))?;
+            match socket.send(payload) {
+                Ok(_) => Ok(socket),
+                Err(e) if unreachable(e.kind()) => Err(UdpProbe::Unreachable),
+                Err(e) => Err(UdpProbe::Error(format!("send: {e}"))),
+            }
+        })
+        .collect();
+    let deadline = Instant::now() + timeout;
+    let mut buf = [0u8; 4096];
+    sent.into_iter()
+        .map(|socket| {
+            let socket = match socket {
+                Ok(socket) => socket,
+                Err(probe) => return probe,
+            };
+            // A zero read timeout is an error; a spent deadline still polls
+            // once for a reply or a queued port-unreachable.
+            let left = deadline
+                .saturating_duration_since(Instant::now())
+                .max(Duration::from_millis(1));
+            if let Err(e) = socket.set_read_timeout(Some(left)) {
+                return UdpProbe::Error(format!("set timeout: {e}"));
+            }
+            match socket.recv(&mut buf) {
+                Ok(n) => UdpProbe::Answered(
+                    String::from_utf8_lossy(&buf[..n])
+                        .chars()
+                        .take(40)
+                        .collect(),
+                ),
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                    UdpProbe::Silent
+                }
+                Err(e) if unreachable(e.kind()) => UdpProbe::Unreachable,
+                Err(e) => UdpProbe::Error(format!("recv: {e}")),
+            }
+        })
+        .collect()
+}
+
+/// Unauthenticated datagrams the discovery port must never answer: the
+/// retired LAN and bare peer dialects, and a signed ping with a forged MAC.
+pub const UNAUTHENTICATED_PINGS: [&str; 3] = [
+    "SUSI_LAN_PING",
+    "SUSI_PING",
+    "SUSI_PING_SIG:susi-conformance:CORE:0:0000000000000000:00:forged",
+];
+
+/// UDP 9092 is bound and answers only cluster-key signed pings. The suite
+/// holds no cluster key, so it checks the other half of that contract: every
+/// unauthenticated datagram draws silence, and the port is not unbound.
+/// Silence across a network cannot prove the port is bound (a firewall can
+/// drop the ICMP reply), so a non-loopback host gets a warning, not a pass.
+fn udp_discovery(target: &Target) -> Check {
+    let port = target.port(ports::UDP_DISCOVERY);
+    timed(format!("udp.discovery@{port}"), || {
+        // One shared silence window for all pings (see `udp_probe_all`), so
+        // the check fits a tight `--max-ms` budget even with a long timeout.
+        let wait = target.timeout.min(Duration::from_millis(500));
+        let payloads = UNAUTHENTICATED_PINGS.map(str::as_bytes);
+        let probes = udp_probe_all(&target.host, port, &payloads, wait);
+        for (ping, probe) in UNAUTHENTICATED_PINGS.iter().zip(probes) {
+            match probe {
+                UdpProbe::Silent => {}
+                UdpProbe::Answered(reply) => {
+                    return (
+                        Outcome::Fail,
+                        format!("unauthenticated {ping:?} was answered: {reply:?}"),
+                    )
+                }
+                UdpProbe::Unreachable => {
+                    return (
+                        Outcome::Fail,
+                        format!("nothing bound on udp {port} (ICMP port unreachable)"),
+                    )
+                }
+                UdpProbe::Error(e) => return (Outcome::Fail, e),
+            }
+        }
+        let loopback = target.host == "localhost"
+            || target
+                .host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
+        let detail = format!(
+            "{} unauthenticated pings drew no reply; signed pings only",
+            UNAUTHENTICATED_PINGS.len()
+        );
+        if loopback {
+            (Outcome::Pass, detail)
+        } else {
+            (
+                Outcome::Warn,
+                format!("{detail} (remote host: silence cannot prove the port is bound)"),
+            )
+        }
+    })
+}
+
+/// Opt-in GEMI SSE check: `stream: true` on `/v1/chat/completions` answers
+/// `text/event-stream` with `data:` chunks and a final `data: [DONE]`. The
+/// request is local-only and 1 token. A host with no local inference target
+/// answers `503` "request prohibits cloud inference ..." instead, which is a
+/// warning: SSE was not exercised. Any other non-SSE reply fails.
+fn gemi_stream(target: &Target, optional: &Optional) -> Check {
+    let id = format!("gemi.stream@{}", target.port(ports::GEMI));
+    if !optional.inference {
+        return Check {
+            id,
+            outcome: Outcome::Skip,
+            millis: 0,
+            detail: "opt-in: --inference runs one local, 1-token streamed completion".into(),
+        };
+    }
+    if let Some(skip) = needs_token(target, &id) {
+        return skip;
+    }
+    timed(id, || {
+        let request = json!({"stream": true, "max_tokens": 1,
+            "messages": [{"role": "user", "content": "Reply with one word."}],
+            "susi": {"allow_cloud": false}});
+        let accept = [("Accept", "text/event-stream")];
+        let r = match target.call(
+            ports::GEMI,
+            Call::post("/v1/chat/completions", true, &accept, &request),
+        ) {
+            Ok(r) => r,
+            Err(e) => return (Outcome::Fail, e),
+        };
+        let content_type = r.header("content-type").unwrap_or("").to_string();
+        if r.status == 200 && content_type.starts_with("text/event-stream") {
+            let text = r.text();
+            let chunks = text
+                .lines()
+                .filter_map(|l| l.strip_prefix("data:"))
+                .map(str::trim)
+                .filter(|d| serde_json::from_str::<Value>(d).is_ok())
+                .count();
+            let done = text.lines().any(|l| l.trim() == "data: [DONE]");
+            return verdict(
+                chunks > 0 && done,
+                format!("SSE: {chunks} JSON chunks, [DONE] {done}"),
+            );
+        }
+        gemi_stream_fallback(r.status, &content_type, &r.body)
+    })
+}
+
+/// Classify a non-SSE reply to the streamed completion. Only the documented
+/// "no local inference target" answer (`503`, placement reason starting
+/// `request prohibits cloud inference`) is a warning; every other error is a
+/// streaming regression and fails.
+fn gemi_stream_fallback(status: u16, content_type: &str, body: &[u8]) -> (Outcome, String) {
+    let message = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_string));
+    match message {
+        Some(m) if status == 503 && m.starts_with("request prohibits cloud inference") => (
+            Outcome::Warn,
+            format!("status {status}: {m} (no local inference target; SSE not exercised)"),
+        ),
+        Some(m) => (
+            Outcome::Fail,
+            format!("status {status} content-type {content_type:?}: {m}"),
+        ),
+        None => (
+            Outcome::Fail,
+            format!("status {status} content-type {content_type:?}"),
+        ),
+    }
+}
+
+/// Read newline-delimited JSON-RPC from `lines` until the response with
+/// `id` arrives or `timeout` passes. MCP stdio reserves stdout for MCP
+/// messages, so any non-empty line that is not a JSON-RPC 2.0 object (a
+/// banner, a log line) is an error, reported with its first 80 chars.
+fn stdio_response(
+    lines: &std::sync::mpsc::Receiver<String>,
+    id: i64,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let line = lines
+            .recv_timeout(left)
+            .map_err(|_| format!("no response to request {id} on stdout"))?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<Value>(line) {
+            Ok(value) if value.get("jsonrpc").and_then(Value::as_str) == Some("2.0") => {
+                if value["id"].as_i64() == Some(id) {
+                    return Ok(value);
+                }
+            }
+            _ => {
+                let head: String = line.chars().take(80).collect();
+                return Err(format!(
+                    "stdout carried a non-MCP line (stdio must carry only JSON-RPC): {head:?}"
+                ));
+            }
+        }
+    }
+}
+
+/// One MCP stdio session: `initialize`, `notifications/initialized`,
+/// `tools/list`. Returns `(negotiated revision, server name, tool count)`.
+fn stdio_session(
+    stdin: &mut impl Write,
+    lines: &std::sync::mpsc::Receiver<String>,
+    first: Duration,
+    timeout: Duration,
+) -> Result<(String, String, Option<usize>), String> {
+    let mut send = |value: Value| {
+        writeln!(stdin, "{value}")
+            .and_then(|()| stdin.flush())
+            .map_err(|e| format!("write to stdin: {e}"))
+    };
+    send(
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion": MCP_SESSION, "capabilities": {},
+        "clientInfo": {"name":"susi-conformance","version": env!("CARGO_PKG_VERSION")}}}),
+    )?;
+    let init = stdio_response(lines, 1, first)?;
+    let negotiated = init["result"]["protocolVersion"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let server = init["result"]["serverInfo"]["name"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    send(json!({"jsonrpc":"2.0","method":"notifications/initialized"}))?;
+    send(json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}))?;
+    let list = stdio_response(lines, 2, timeout)?;
+    Ok((
+        negotiated,
+        server,
+        list["result"]["tools"].as_array().map(Vec::len),
+    ))
+}
+
+/// Opt-in MCP stdio check: `<susi_bin> mcp serve` speaks newline-delimited
+/// JSON-RPC at the session revision. The child is stopped before the check
+/// returns, whatever the outcome.
+fn mcp_stdio(target: &Target, optional: &Optional) -> Check {
+    let id = "mcp.stdio".to_string();
+    let Some(bin) = optional.susi_bin.as_ref() else {
+        return Check {
+            id,
+            outcome: Outcome::Skip,
+            millis: 0,
+            detail: "opt-in: --susi-bin PATH runs `PATH mcp serve`".into(),
+        };
+    };
+    timed(id, || {
+        let mut child = match Command::new(bin)
+            .args(["mcp", "serve"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(e) => return (Outcome::Fail, format!("spawn {}: {e}", bin.display())),
+        };
+        let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return (Outcome::Fail, "child pipes unavailable".into());
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        // Process start can include substrate boot; the first reply gets
+        // at least 15 s.
+        let first = target.timeout.max(Duration::from_secs(15));
+        let outcome = stdio_session(&mut stdin, &rx, first, target.timeout);
+        // Closing stdin ends the session; stop the child either way.
+        drop(stdin);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && matches!(child.try_wait(), Ok(None)) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+        match outcome {
+            Ok((negotiated, server, tools)) => verdict(
+                !negotiated.is_empty() && !server.is_empty() && tools.is_some(),
+                format!(
+                    "server {server:?} negotiated {negotiated:?}, {} tools",
+                    tools.unwrap_or(0)
+                ),
+            ),
+            Err(e) => (Outcome::Fail, e),
+        }
+    })
+}
+
 /// True for ids that disclose a local filesystem location.
 #[must_use]
 pub fn is_local_path(id: &str) -> bool {
@@ -453,9 +893,16 @@ fn gemi_models(target: &Target) -> Check {
     })
 }
 
-/// Run every contract check against `target`, in a stable order.
+/// Run every contract check against `target`, in a stable order. The
+/// opt-in checks (GEMI SSE, MCP stdio) report `skip`; see [`run_with`].
 #[must_use]
 pub fn run(target: &Target) -> Vec<Check> {
+    run_with(target, &Optional::default())
+}
+
+/// [`run`] plus the opt-in checks `optional` enables.
+#[must_use]
+pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     let mut checks = Vec::new();
     for base in [ports::MCP, ports::GEMI, ports::MCP_ALIAS, ports::A2A] {
         checks.push(health(target, base));
@@ -464,6 +911,13 @@ pub fn run(target: &Target) -> Vec<Check> {
     checks.push(auth_required(target, ports::GEMI, "GET", "/v1/models"));
     checks.push(auth_required(target, ports::MCP_ALIAS, "POST", "/mcp"));
     checks.push(auth_required(target, ports::A2A, "POST", "/"));
+    checks.push(auth_required_as(
+        target,
+        ports::A2A,
+        "POST",
+        "/stream",
+        "/stream",
+    ));
     checks.push(mcp_discover(target, ports::MCP));
     checks.push(mcp_discover(target, ports::MCP_ALIAS));
     checks.push(mcp_tools(target));
@@ -471,7 +925,11 @@ pub fn run(target: &Target) -> Vec<Check> {
     checks.push(mcp_session(target));
     checks.push(a2a_card(target));
     checks.push(a2a_unknown(target));
+    checks.push(a2a_stream(target));
+    checks.push(udp_discovery(target));
     checks.push(gemi_models(target));
+    checks.push(gemi_stream(target, optional));
+    checks.push(mcp_stdio(target, optional));
     checks
 }
 
@@ -561,6 +1019,155 @@ mod tests {
     }
 
     #[test]
+    fn udp_probe_tells_silence_from_answers_and_unbound_ports() {
+        use std::net::UdpSocket;
+        let wait = Duration::from_millis(300);
+        // Bound and silent: the contract for unauthenticated pings.
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        assert_eq!(
+            udp_probe("127.0.0.1", port, b"SUSI_PING", wait),
+            UdpProbe::Silent
+        );
+        // A responder that answers anything violates it.
+        let echo = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let echo_port = echo.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            if let Ok((n, src)) = echo.recv_from(&mut buf) {
+                let _ = echo.send_to(&buf[..n], src);
+            }
+        });
+        assert_eq!(
+            udp_probe("127.0.0.1", echo_port, b"SUSI_LAN_PING", wait),
+            UdpProbe::Answered("SUSI_LAN_PING".into())
+        );
+        // Nothing bound: ICMP port-unreachable, never mistaken for silence.
+        let gone = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let gone_port = gone.local_addr().unwrap().port();
+        drop(gone);
+        assert_eq!(
+            udp_probe("127.0.0.1", gone_port, b"SUSI_PING", wait),
+            UdpProbe::Unreachable
+        );
+        drop(silent);
+    }
+
+    #[test]
+    fn opt_in_checks_skip_unless_enabled() {
+        let checks = run(&Target {
+            host: "127.0.0.1".into(),
+            port_offset: 50_000,
+            token: None,
+            timeout: Duration::from_millis(200),
+        });
+        for id in ["gemi.stream@59091", "mcp.stdio"] {
+            let check = checks.iter().find(|c| c.id == id).unwrap();
+            assert_eq!(check.outcome, Outcome::Skip, "{id}");
+            assert!(check.detail.starts_with("opt-in"), "{id}");
+        }
+    }
+
+    /// A UDP port known to be free: bound, then released. Ports at a fixed
+    /// offset can sit in the OS ephemeral range and be held by anything.
+    fn free_udp_port() -> u16 {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn udp_discovery_fails_when_nothing_is_bound() {
+        let port = free_udp_port();
+        assert!(port >= ports::UDP_DISCOVERY, "ephemeral port {port}");
+        let check = udp_discovery(&Target {
+            host: "127.0.0.1".into(),
+            port_offset: port - ports::UDP_DISCOVERY,
+            token: None,
+            timeout: Duration::from_millis(200),
+        });
+        assert_eq!(check.outcome, Outcome::Fail, "{}", check.detail);
+    }
+
+    /// A correct daemon stays silent, so the check must cost one silence
+    /// window, not one per ping: CI runs `--timeout-ms 30000 --max-ms 2000`.
+    #[test]
+    fn udp_discovery_fits_the_ci_latency_budget() {
+        let silent = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        assert!(port >= ports::UDP_DISCOVERY, "ephemeral port {port}");
+        let mut checks = vec![udp_discovery(&Target {
+            host: "127.0.0.1".into(),
+            port_offset: port - ports::UDP_DISCOVERY,
+            token: None,
+            timeout: Duration::from_secs(30),
+        })];
+        enforce_latency_budget(&mut checks, 2_000);
+        assert_eq!(checks[0].outcome, Outcome::Pass, "{}", checks[0].detail);
+        assert!(checks[0].millis < 2_000, "{} ms", checks[0].millis);
+        drop(silent);
+    }
+
+    #[test]
+    fn check_ids_are_unique() {
+        let checks = run_with(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: 50_000,
+                token: Some("unused".into()),
+                timeout: Duration::from_millis(200),
+            },
+            &Optional::default(),
+        );
+        let mut ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"auth.required@59094/stream"), "{ids:?}");
+        ids.sort_unstable();
+        let before = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), before, "duplicate check ids");
+    }
+
+    #[test]
+    fn gemi_stream_warns_only_without_a_local_target() {
+        let error = |m: &str| json!({"error": {"message": m}}).to_string().into_bytes();
+        let (outcome, _) = gemi_stream_fallback(
+            503,
+            "application/json",
+            &error("request prohibits cloud inference and no ready local model is available"),
+        );
+        assert_eq!(outcome, Outcome::Warn);
+        for (status, message) in [
+            (500, "stream failed"),
+            (400, "stream not supported"),
+            (503, "overloaded"),
+        ] {
+            let (outcome, detail) =
+                gemi_stream_fallback(status, "application/json", &error(message));
+            assert_eq!(outcome, Outcome::Fail, "{status}: {detail}");
+        }
+        assert_eq!(
+            gemi_stream_fallback(200, "text/plain", b"hi").0,
+            Outcome::Fail
+        );
+    }
+
+    #[test]
+    fn stdio_rejects_non_mcp_stdout_lines() {
+        let reply = json!({"jsonrpc":"2.0","id":1,"result":{}}).to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(String::new()).unwrap();
+        tx.send(json!({"jsonrpc":"2.0","method":"notifications/message"}).to_string())
+            .unwrap();
+        tx.send(reply.clone()).unwrap();
+        assert!(stdio_response(&rx, 1, Duration::from_millis(200)).is_ok());
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send("[SUSI] bootloader: kernel loaded".to_string())
+            .unwrap();
+        tx.send(reply).unwrap();
+        let err = stdio_response(&rx, 1, Duration::from_millis(200)).unwrap_err();
+        assert!(err.contains("bootloader"), "{err}");
+    }
+
+    #[test]
     fn unreachable_host_fails_closed_and_skips_without_token() {
         // Contract ports shifted far above anything a test host serves.
         let checks = run(&Target {
@@ -571,6 +1178,11 @@ mod tests {
         });
         assert!(!conformant(&checks));
         assert!(checks.iter().any(|c| c.outcome == Outcome::Skip));
-        assert!(checks.iter().all(|c| c.outcome != Outcome::Pass));
+        // UDP silence on a port in the ephemeral range is not proof of
+        // absence (any process may hold it); the TCP checks are.
+        assert!(checks
+            .iter()
+            .filter(|c| !c.id.starts_with("udp."))
+            .all(|c| c.outcome != Outcome::Pass));
     }
 }

@@ -1,6 +1,10 @@
 //! Mandatory native startup qualification against actual Cargo-built runtime libraries.
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![cfg(all(windows, target_arch = "x86_64", target_env = "msvc"))]
+#![cfg(all(
+    windows,
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    target_env = "msvc"
+))]
 
 use sha2::{Digest, Sha256};
 use std::{
@@ -8,6 +12,15 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     time::{Duration, Instant},
+};
+
+/// The native Windows target this qualification runs on. Host equals target
+/// (the runtime build script refuses cross builds), so the test's own
+/// architecture names the runtime it qualifies.
+const TARGET: &str = if cfg!(target_arch = "aarch64") {
+    "aarch64-pc-windows-msvc"
+} else {
+    "x86_64-pc-windows-msvc"
 };
 
 fn digest(path: &Path) -> String {
@@ -38,7 +51,7 @@ fn handoff(
     }
 }
 fn archive_identity(sysroot: &Path) -> serde_json::Value {
-    let directory = sysroot.join("lib/rustlib/x86_64-pc-windows-msvc/lib");
+    let directory = sysroot.join("lib/rustlib").join(TARGET).join("lib");
     let mut archives = Vec::new();
     for entry in fs::read_dir(directory).unwrap() {
         let entry = entry.unwrap();
@@ -53,6 +66,11 @@ fn archive_identity(sysroot: &Path) -> serde_json::Value {
         archives.push(serde_json::json!({"filename":entry.file_name().to_str().unwrap(),"sha256":digest(&entry.path())}));
     }
     archives.sort_by_key(|v| v["filename"].as_str().unwrap().to_owned());
+    // The reviewed count is x86_64 product evidence. The stock 1.99.0 x86_64
+    // and aarch64 MSVC std components ship identically named archive sets
+    // (checked 2026-11-03), so the same count is expected for an ARM64 product
+    // sysroot. That is a hypothesis until an ARM64 product sysroot is built on
+    // a native ARM64 host; this assertion is what would refute it.
     assert_eq!(
         archives.len(),
         20,
@@ -247,7 +265,7 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
                 "--offline",
                 "--locked",
                 "--target",
-                "x86_64-pc-windows-msvc",
+                TARGET,
                 "--message-format=json-render-diagnostics",
                 "--target-dir",
             ])
@@ -255,7 +273,7 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_BUILD_TARGET_DIR", &target)
             .env("CARGO_BUILD_BUILD_DIR", &target)
-            .env("CARGO_BUILD_TARGET", "x86_64-pc-windows-msvc");
+            .env("CARGO_BUILD_TARGET", TARGET);
         if release {
             command.arg("--release");
         }

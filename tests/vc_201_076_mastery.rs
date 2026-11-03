@@ -167,15 +167,17 @@ fn vc_201_076_mastery() {
         let reloaded_unsigned = load_pack("unsigned_ext").expect("re-admitted unsigned pack loads");
         assert!(reloaded_unsigned.loaded && !reloaded_unsigned.quarantined);
 
-        // 3. Tampered default seeded files are prevented from being served
-        let default_root = seed_default_pack().expect("default pack seeded");
-        let target = default_root.join("cloud-vendors.json");
-        std::fs::write(&target, b"{\"vendors\":[{\"id\":\"tampered-vendor\"}]}")
-            .expect("tamper cloud-vendors.json");
-        seed_default_pack().expect("reseed does not overwrite operator bytes");
+        // 3. A tampered file of the active installed pack is not served
+        // (core seeds no default pack; `unsigned_ext` is the active one).
         assert!(
-            pack_file("cloud-vendors.json").is_none(),
-            "tampered default file must not be served"
+            pack_file("data.json").is_some(),
+            "the admitted active pack file is served"
+        );
+        std::fs::write(unsigned_root.join("data.json"), b"tampered-again")
+            .expect("tamper data.json again");
+        assert!(
+            pack_file("data.json").is_none(),
+            "a tampered active pack file must not be served"
         );
 
         // 4. Quarantine state and trusted digests persist in state.json

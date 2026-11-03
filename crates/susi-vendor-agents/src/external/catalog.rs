@@ -39,10 +39,11 @@ impl CatalogKind {
         }
     }
 
-    fn bundled(self) -> &'static str {
+    /// Logical file name of this catalog inside an extension pack.
+    pub fn pack_file(self) -> &'static str {
         match self {
-            Self::Execution => include_str!("../../../../config/execution-agents.json"),
-            Self::Framework => include_str!("../../../../config/agent-engines.json"),
+            Self::Execution => "execution-agents.json",
+            Self::Framework => "agent-engines.json",
         }
     }
 }
@@ -82,15 +83,44 @@ pub struct AgentDefinition {
     pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
+/// The installed catalog. Core bundles no vendor agents (zero-UI plan A9):
+/// entries come from the active extension pack's `execution-agents.json` /
+/// `agent-engines.json`, then from adapter files the host (or the commercial
+/// desktop) wrote as `<config_dir>/<execution-agents|agent-engines>/<id>.json`
+/// for ids the pack does not define. With neither, the catalog is empty.
 pub fn catalog(kind: CatalogKind) -> Result<Vec<AgentDefinition>> {
-    let name = match kind {
-        CatalogKind::Execution => "execution-agents.json",
-        CatalogKind::Framework => "agent-engines.json",
-    };
-    Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
-        name,
-        kind.bundled(),
-    ))
+    catalog_with_host_dir(
+        kind,
+        &susi_paths::SusiDirs::config_dir().join(kind.config_subdir()),
+    )
+}
+
+/// [`catalog`] reading host adapter files from `host_dir`.
+pub fn catalog_with_host_dir(kind: CatalogKind, host_dir: &Path) -> Result<Vec<AgentDefinition>> {
+    let mut entries: Vec<AgentDefinition> =
+        crate::susi_sandbox::extensions::load_json_or_bundled(kind.pack_file(), "[]");
+    for id in crate::susi_sandbox::extensions::host_adapter_ids(host_dir) {
+        if entries.iter().any(|a| a.id == id || a.peer_name == id) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(host_dir.join(format!("{id}.json"))) else {
+            continue;
+        };
+        let Ok(adapter) = serde_json::from_slice::<Adapter>(&bytes) else {
+            continue;
+        };
+        entries.push(AgentDefinition {
+            id: id.clone(),
+            name: id.clone(),
+            peer_name: id,
+            // Host-written adapters rank after every pack entry.
+            rank: u8::MAX,
+            documentation: String::new(),
+            adapter,
+            extra: std::collections::HashMap::new(),
+        });
+    }
+    Ok(entries)
 }
 
 pub fn definition(kind: CatalogKind, id: &str) -> Result<AgentDefinition> {

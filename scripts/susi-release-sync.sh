@@ -151,13 +151,14 @@ release_repo_slug() {
 
 # The published asset for this host when the build would carry no accelerator;
 # empty when the host has no published leg, or when SUSI_RELEASE_BUILD=1.
+# The public core release publishes x86_64 Windows and x86_64 Linux only (CEO
+# decision 2026-11-03); every other host builds from source, and certified
+# ARM/macOS binaries come from the Susi commercial suite, not this release.
 release_asset_name() {
     [ -z "${SUSI_RELEASE_BUILD:-}" ] || return 0
     case "$(uname -s)/$(uname -m)" in
         MINGW*/x86_64 | MSYS*/x86_64 | CYGWIN*/x86_64) printf 'susi-windows-x86_64.exe' ;;
         Linux/x86_64) printf 'susi-linux-x86_64' ;;
-        Linux/aarch64) printf 'susi-linux-aarch64' ;;
-        Darwin/arm64) printf 'susi-macos-aarch64' ;;
         *) ;;
     esac
 }

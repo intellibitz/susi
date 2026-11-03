@@ -34,19 +34,37 @@ fn with_temp_home<F: FnOnce()>(f: F) {
     let _ = std::fs::remove_dir_all(tmp);
 }
 
+/// A synthetic pack manifest built inside the test (core bundles none): it
+/// maps catalogs through `../../` and declares `filesystem.read`, the shape
+/// the old bundled default pack had.
+fn synthetic_manifest() -> ExtensionManifest {
+    serde_json::from_value(serde_json::json!({
+        "id": "acme",
+        "name": "Acme Pack",
+        "version": "0.1.0",
+        "apiVersion": "1",
+        "capabilities": ["catalog.cloud_vendors", "catalog.mcp"],
+        "permissions": ["filesystem.read"],
+        "files": {
+            "cloud-vendors.json": "cloud-vendors.json",
+            "leading-mcp.json": "../../shared/leading-mcp.json"
+        }
+    }))
+    .expect("synthetic manifest")
+}
+
 #[test]
-fn bundled_manifest_is_default_pack() {
-    let m = bundled_manifest();
-    assert_eq!(m.id, "default");
+fn synthetic_pack_manifest_validates() {
+    let m = synthetic_manifest();
+    assert_eq!(m.id, "acme");
     assert!(m.files.contains_key("cloud-vendors.json"));
-    assert!(m.files.contains_key("coding-models.json"));
     assert!(validate_manifest(&m).is_ok());
     assert_eq!(m.api_version.chars().next(), Some('1'));
 }
 
 #[test]
 fn validate_manifest_rejects_incompatible_api_major() {
-    let mut m = bundled_manifest();
+    let mut m = synthetic_manifest();
     m.api_version = "2.0.0".into();
     assert!(validate_manifest(&m).is_err());
 }
@@ -96,19 +114,157 @@ fn load_json_or_bundled_uses_bundled_when_no_host_file() {
     });
 }
 
+/// Zero-UI plan A9: core seeds no pack. A fresh host keeps no extensions
+/// directory at all, and every reader serves compiled defaults.
 #[test]
-fn ensure_seeds_default_pack_and_state() {
+fn a_fresh_host_seeds_no_pack_and_writes_nothing() {
     with_temp_home(|| {
-        let pack = ensure_extensions_substrate().expect("seed");
+        let pack = ensure_extensions_substrate().expect("substrate");
         assert_eq!(pack.id, "default");
-        assert!(pack.root.join("manifest.json").is_file());
-        assert!(pack.root.join("cloud-vendors.json").is_file());
-        assert!(pack.root.join("coding-models.json").is_file());
-        assert!(state_path().is_file());
-        let listed = list_packs();
-        assert!(listed
+        assert!(!pack.root.exists(), "no default pack directory is seeded");
+        assert!(!extensions_root().exists(), "no extensions root is created");
+        assert!(!state_path().exists());
+        assert!(list_packs().is_empty());
+        assert_eq!(active_pack().id, "default");
+        assert!(pack_file("cloud-vendors.json").is_none());
+        // The launchable catalogs core no longer ships read as empty.
+        let mcp: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[]");
+        assert!(mcp.is_empty());
+        // Compiled cloud-vendor aliases stay (NP-04).
+        assert!(load_cloud_vendors().iter().any(|v| v.id == "openai"));
+        assert!(!extensions_root().exists(), "reads write nothing");
+    });
+}
+
+/// With no pack installed the managed-peer catalogs are empty, and the
+/// adapter files the host (or the commercial desktop) writes under
+/// `execution-agents/` and `agent-engines/` are admitted as managed peers.
+#[test]
+fn managed_peers_work_with_an_empty_catalog_and_pick_up_host_adapters() {
+    with_temp_home(|| {
+        assert!(crate::SusiConfig::default()
+            .external_peer_agents()
+            .is_empty());
+        let dir = extensions_root()
+            .parent()
+            .unwrap()
+            .join("managed-peers-fixture");
+        assert!(crate::config::managed_peers_from(&dir).is_empty());
+        std::fs::create_dir_all(dir.join("execution-agents")).unwrap();
+        std::fs::create_dir_all(dir.join("agent-engines")).unwrap();
+        std::fs::write(
+            dir.join("execution-agents").join("acme-coder.json"),
+            r#"{"kind":"command","program":"acme","args":["{prompt}"]}"#,
+        )
+        .unwrap();
+        // Bookkeeping, not an adapter.
+        std::fs::write(dir.join("execution-agents").join("ready.json"), "[]").unwrap();
+        std::fs::write(
+            dir.join("agent-engines").join("acme-flow.json"),
+            r#"{"kind":"a2a","url":"https://agents.example.invalid"}"#,
+        )
+        .unwrap();
+        let peers = crate::config::managed_peers_from(&dir);
+        let names: Vec<_> = peers.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["acme-coder", "acme-flow"]);
+        assert!(peers.iter().all(|p| p.protocol == "managed"));
+
+        // A pack entry plus a same-id host file (the per-id adapter override
+        // `susi agents configure acme-coder` writes) is one peer, not two.
+        let pack = extensions_root().join("peers");
+        private_dir(&pack).unwrap();
+        write_private_file(
+            &pack.join("manifest.json"),
+            r#"{"id":"peers","name":"Peers","version":"0.0.1",
+                "files":{"execution-agents.json":"execution-agents.json"}}"#,
+        )
+        .unwrap();
+        write_private_file(
+            &pack.join("execution-agents.json"),
+            r#"[{"id":"acme-coder","peer_name":"AcmeCoderAgent","name":"Acme Coder"}]"#,
+        )
+        .unwrap();
+        load_pack("peers").unwrap();
+        let peers = crate::config::managed_peers_from(&dir);
+        let names: Vec<_> = peers.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["AcmeCoderAgent", "acme-flow"]);
+        unload_pack("peers").unwrap();
+    });
+}
+
+/// CLI/HTTP/A2A peers ship in a pack as `external-peer-agents.json` (a bare
+/// array of peer specs): admitted while the pack is loaded, gone after
+/// unload.
+#[test]
+fn pack_external_peer_agents_are_admitted_while_loaded() {
+    with_temp_home(|| {
+        let names = || -> Vec<String> {
+            crate::SusiConfig::default()
+                .external_peer_agents()
+                .into_iter()
+                .map(|p| p.name)
+                .collect()
+        };
+        assert!(names().is_empty());
+        let pack = extensions_root().join("cli-peers");
+        private_dir(&pack).unwrap();
+        write_private_file(
+            &pack.join("manifest.json"),
+            r#"{"id":"cli-peers","name":"CLI peers","version":"0.0.1",
+                "files":{"external-peer-agents.json":"external-peer-agents.json"}}"#,
+        )
+        .unwrap();
+        write_private_file(
+            &pack.join("external-peer-agents.json"),
+            r#"[{"name":"AcmeCliAgent","protocol":"cli","detect_bins":["acme"],"args":["{goal}"]}]"#,
+        )
+        .unwrap();
+        load_pack("cli-peers").unwrap();
+        assert_eq!(names(), ["AcmeCliAgent"]);
+        unload_pack("cli-peers").unwrap();
+        assert!(names().is_empty());
+    });
+}
+
+/// `default` means compiled defaults, also on an upgraded host that still
+/// holds a legacy `extensions/default/` an earlier core seeded: unloading it
+/// stops serving its files, and unloading the active pack never activates
+/// another installed pack in its place.
+#[test]
+fn unload_falls_back_to_compiled_defaults_only() {
+    with_temp_home(|| {
+        let legacy = extensions_root().join("default");
+        private_dir(&legacy).unwrap();
+        write_private_file(
+            &legacy.join("manifest.json"),
+            r#"{"id":"default","name":"Legacy default","version":"0.0.1",
+                "files":{"leading-mcp.json":"leading-mcp.json"}}"#,
+        )
+        .unwrap();
+        write_private_file(&legacy.join("leading-mcp.json"), r#"[{"id":"legacy"}]"#).unwrap();
+        invalidate_extension_caches();
+        let rows: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[]");
+        assert_eq!(rows.len(), 1, "an upgraded host serves its legacy pack");
+
+        unload_pack("default").unwrap();
+        assert!(pack_file("leading-mcp.json").is_none());
+        let rows: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[]");
+        assert!(rows.is_empty(), "unloaded: compiled defaults");
+        assert!(list_packs()
             .iter()
-            .any(|p| p.id == "default" && p.active && p.loaded));
+            .any(|p| p.id == "default" && !p.active && !p.loaded));
+
+        // Unloading the active pack does not activate another installed one.
+        create_pack("aaa-old").unwrap();
+        create_pack("zzz-new").unwrap();
+        load_pack("zzz-new").unwrap();
+        unload_pack("zzz-new").unwrap();
+        assert_eq!(active_pack().id, "default");
+        assert!(pack_file("leading-mcp.json").is_none());
+
+        // An explicit load re-admits the legacy pack.
+        load_pack("default").unwrap();
+        assert!(pack_file("leading-mcp.json").is_some());
     });
 }
 
@@ -170,7 +326,7 @@ fn create_pack_writes_manifest_shell() {
 
 #[test]
 fn validate_manifest_rejects_unknown_permission() {
-    let mut m = bundled_manifest();
+    let mut m = synthetic_manifest();
     m.permissions = vec!["kernel.root".into()];
     let err = validate_manifest(&m).expect_err("unknown permission must fail");
     assert!(err.contains("unknown permission"), "{err}");
@@ -178,7 +334,7 @@ fn validate_manifest_rejects_unknown_permission() {
 
 #[test]
 fn validate_manifest_rejects_escaping_files_without_permission() {
-    let mut m = bundled_manifest();
+    let mut m = synthetic_manifest();
     m.permissions = Vec::new();
     m.files
         .insert("evil.json".into(), "../../outside.json".into());
@@ -188,19 +344,19 @@ fn validate_manifest_rejects_escaping_files_without_permission() {
 
 #[test]
 fn validate_manifest_allows_escaping_files_with_filesystem_read() {
-    // The bundled default pack maps catalogs via `../../` and declares
-    // filesystem.read — it must keep validating.
-    let m = bundled_manifest();
+    // A pack that maps catalogs via `../../` and declares filesystem.read
+    // must keep validating.
+    let m = synthetic_manifest();
     assert!(
         m.files.values().any(|v| v.starts_with("../")),
-        "bundled manifest uses parent-relative files"
+        "synthetic manifest uses parent-relative files"
     );
     assert!(validate_manifest(&m).is_ok());
 }
 
 #[test]
 fn validate_manifest_rejects_absolute_file_paths_even_with_permission() {
-    let mut m = bundled_manifest();
+    let mut m = synthetic_manifest();
     // A Unix path is not absolute to Windows path resolution, so the fixture
     // must be platform-appropriate for the rejection to be the thing tested.
     let absolute = if cfg!(windows) {
@@ -451,11 +607,10 @@ fn decisions() -> usize {
 #[test]
 fn a_settled_substrate_is_not_rewritten() {
     with_temp_home(|| {
+        create_pack("mine").unwrap();
         ensure_extensions_substrate().unwrap();
-        let digests = extensions_root()
-            .join("default")
-            .join(".bundled-digests.json");
-        let before = (modified(&state_path()), modified(&digests));
+        let manifest = extensions_root().join("mine").join("manifest.json");
+        let before = (modified(&state_path()), modified(&manifest));
         // Past the filesystem's clock granularity, so a rewrite would show.
         std::thread::sleep(std::time::Duration::from_millis(30));
         // The full decision, not the remembered answer.
@@ -463,7 +618,7 @@ fn a_settled_substrate_is_not_rewritten() {
         let decided = decisions();
         ensure_extensions_substrate().unwrap();
         assert_eq!(decisions(), decided + 1, "the substrate was decided again");
-        assert_eq!((modified(&state_path()), modified(&digests)), before);
+        assert_eq!((modified(&state_path()), modified(&manifest)), before);
     });
 }
 
@@ -472,9 +627,17 @@ fn a_settled_substrate_is_not_rewritten() {
 #[test]
 fn a_standing_quarantine_is_not_rewritten_by_every_read() {
     with_temp_home(|| {
-        ensure_extensions_substrate().unwrap();
-        // An operator edit the pack's checksums do not cover.
-        let tampered = extensions_root().join("default").join("leading-mcp.json");
+        // A synthetic installed pack, admitted, then edited after admission.
+        let root = extensions_root().join("acme");
+        private_dir(&root).unwrap();
+        write_private_file(
+            &root.join("manifest.json"),
+            r#"{"id":"acme","name":"Acme","version":"1","files":{"leading-mcp.json":"leading-mcp.json"}}"#,
+        )
+        .unwrap();
+        write_private_file(&root.join("leading-mcp.json"), "[2]").unwrap();
+        load_pack("acme").unwrap();
+        let tampered = root.join("leading-mcp.json");
         std::fs::write(&tampered, "[]").unwrap();
         let first: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[1]");
         assert_eq!(
@@ -485,13 +648,18 @@ fn a_standing_quarantine_is_not_rewritten_by_every_read() {
         // The second read records the standing quarantine in place of the
         // first read's reason; from then on the state is settled.
         let _: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[1]");
-        let recorded = std::fs::read_to_string(state_path()).unwrap();
+        let state = state_path();
+        let recorded = std::fs::read_to_string(&state).unwrap();
         assert!(recorded.contains("quarantined"), "{recorded}");
-        let before = modified(&state_path());
+        let before = modified(&state);
         std::thread::sleep(std::time::Duration::from_millis(30));
         let _: Vec<serde_json::Value> = load_json_or_bundled("leading-mcp.json", "[1]");
-        assert_eq!(modified(&state_path()), before);
-        assert_eq!(std::fs::read_to_string(state_path()).unwrap(), recorded);
+        assert_eq!(
+            std::fs::read_to_string(&state).unwrap(),
+            recorded,
+            "a standing quarantine is not re-recorded"
+        );
+        assert_eq!(modified(&state), before);
     });
 }
 
@@ -675,9 +843,9 @@ fn a_decision_that_warns_is_taken_on_every_call() {
 #[test]
 fn damaged_state_is_never_rewritten_or_reset() {
     with_temp_home(|| {
-        ensure_extensions_substrate().unwrap();
+        private_dir(&extensions_root()).unwrap();
         std::fs::write(state_path(), "{\"active\":\"my-pack\",\"unloaded\":[").unwrap();
-        // Zero-config startup falls back to the default pack in memory…
+        // Zero-config startup falls back to compiled defaults in memory…
         let pack = ensure_extensions_substrate().unwrap();
         assert_eq!(pack.id, "default");
         // …without overwriting the operator's damaged state.
@@ -762,4 +930,28 @@ fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
         .starts_with("invalid manifest"));
     std::fs::remove_dir_all(&broken).ok();
     std::fs::remove_dir_all(&ok).ok();
+}
+
+#[test]
+fn pack_admission_probe_admits_a_signed_pack_and_cleans_up() {
+    let scratch = std::env::temp_dir().join(format!(
+        "susi_ext_probe_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let proof = pack_admission_probe(&scratch).expect("probe pack admitted");
+    assert!(proof.contains("crown-pack-probe"), "{proof}");
+    assert!(
+        !scratch.join("crown-pack-probe").exists(),
+        "probe pack is removed afterwards"
+    );
+    // A scratch root that cannot hold the pack is a failure, not a pass.
+    let missing = scratch.join("file-not-dir");
+    std::fs::write(&missing, b"x").unwrap();
+    assert!(pack_admission_probe(&missing).is_err());
+    let _ = std::fs::remove_dir_all(&scratch);
 }

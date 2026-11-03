@@ -102,10 +102,9 @@ impl SetupPlan {
         let registered = std::fs::read_to_string(home.join("cloud.env"))
             .map(|text| crate::cloud_env::parse_env_file(&text))
             .unwrap_or_default();
-        let vendors: Vec<crate::extensions::CloudVendorEntry> = serde_json::from_str(include_str!(
-            "../../../config/extensions/default/cloud-vendors.json"
-        ))
-        .unwrap_or_default();
+        // Core's compiled aliases, not the active pack: `detect` reads
+        // `home` and must not touch (or rewrite) the host's pack state.
+        let vendors = crate::extensions::compiled_cloud_vendors();
         let names = vendors.iter().flat_map(|vendor| {
             std::iter::once(&vendor.api_key_env).chain(vendor.api_key_env_alts.iter())
         });

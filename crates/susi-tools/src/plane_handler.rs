@@ -41,10 +41,6 @@ impl PlaneHandler for ToolsPlaneHandler {
                     Ok(json!({ "text": text }))
                 }
             }
-            topics::TOOLS_AUTO_LINK => {
-                ToolRegistry::auto_link_essential_mcp_servers();
-                Ok(json!({ "ok": true }))
-            }
             topics::TOOLS_LIST => {
                 let tools = ToolRegistry::list_tools();
                 serde_json::to_value(tools).map_err(|e| e.to_string())

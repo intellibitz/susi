@@ -295,25 +295,60 @@ impl SusiDaemon {
         })
     }
 
-    /// True when UDP discovery answers a LAN ping (daemon owns the port).
+    /// True when UDP discovery answers an authenticated probe (daemon owns
+    /// the port). The probe is a cluster-key signed ping; only a responder
+    /// holding the same `cluster.key` can echo our nonce in a signed pong,
+    /// so a foreign process squatting on the port never reads as ready.
+    /// Unsigned pings get no answer (the legacy unauthenticated dialect was
+    /// removed).
+    ///
+    /// Without a usable `cluster.key` (malformed, or not creatable) the
+    /// daemon still serves the host contract in unsigned mode, so readiness
+    /// falls back to a key-independent bound-port test (`udp_port_bound`):
+    /// cluster-membership key material never gates single-host start. The
+    /// missing key is reported once per process, and not re-read after.
     pub fn host_contract_udp_ready() -> bool {
+        static KEY_UNUSABLE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let target = std::net::SocketAddr::from(([127, 0, 0, 1], cfg.udp_discovery_port()));
+        let wait = Duration::from_millis(300);
+        // Zero bloom and no checksum: the probe registers nothing, and a
+        // loopback sender is never admitted as a peer (self-edge guard).
+        let signed = if KEY_UNUSABLE.get().is_some() {
+            None
+        } else {
+            crate::susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000")
+        };
+        let Some((ping, nonce)) = signed else {
+            KEY_UNUSABLE.get_or_init(|| {
+                eprintln!(
+                    "[SUSI Daemon] UDP discovery probe: no usable cluster.key (unsigned mode);                      readiness falls back to a bound-port check"
+                );
+            });
+            return udp_port_bound(target, wait);
+        };
         let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
             return false;
         };
-        let _ = sock.set_read_timeout(Some(Duration::from_millis(300)));
-        let target = std::net::SocketAddr::from(([127, 0, 0, 1], cfg.udp_discovery_port()));
-        if sock.send_to(b"SUSI_LAN_PING", target).is_err() {
+        let _ = sock.set_read_timeout(Some(wait));
+        if sock.send_to(ping.as_bytes(), target).is_err() {
             return false;
         }
-        let mut buf = [0u8; 256];
-        match sock.recv_from(&mut buf) {
-            Ok((n, _)) => {
-                let msg = String::from_utf8_lossy(&buf[..n]);
-                msg.contains("SUSI_LAN_PONG")
+        // 4 KiB: a signed pong carrying a gossip roster runs past 1 KiB.
+        let mut buf = [0u8; 4096];
+        let deadline = Instant::now() + wait;
+        while Instant::now() < deadline {
+            match sock.recv_from(&mut buf) {
+                Ok((n, _)) => {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if crate::susi_config::cluster_key::verify_signed_pong(&msg, &nonce).is_some() {
+                        return true;
+                    }
+                }
+                Err(_) => return false,
             }
-            Err(_) => false,
         }
+        false
     }
 
     /// Full host contract: the four TCP surfaces + UDP discovery, at
@@ -1226,8 +1261,7 @@ impl SusiDaemon {
                 Some(move || {
                     let started = Instant::now();
                     // Never ahead of the contract providers: discovery
-                    // prunes and re-registers providers, and MCP discovery
-                    // reads the config the essential-MCP auto-link writes.
+                    // prunes and re-registers providers.
                     let _ =
                         crate::service_supervision::Supervisor::global().join(CONTRACT_PROVIDERS);
                     // run_daemon_loop is sync (invoked from CLI `daemon-start`);
@@ -1563,15 +1597,15 @@ impl SusiDaemon {
             5,
             None,
             move || {
-                // The pong announces the effective GMCP port — a non-canonical
-                // instance (port_offset) still advertises the right port.
+                // Only signed pings are answered; the pong carries the
+                // responder's attested identity and roster, no port.
                 let socket = udp_socket.try_clone().ok();
                 Some(move || {
                     let Some(socket) = socket else {
                         eprintln!("[UDP] socket lost; discovery worker exiting");
                         return;
                     };
-                    Self::start_udp_discovery_server(socket, gmcp_port);
+                    Self::start_udp_discovery_server(socket);
                 })
             },
         );
@@ -1898,7 +1932,7 @@ impl SusiDaemon {
             .unwrap_or(false)
     }
 
-    fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
+    fn start_udp_discovery_server(socket: std::net::UdpSocket) {
         // Mandate 42: `local_addr()` failing here would only degrade a log
         // message, not the actual listener below - a graceful fallback is
         // the right scope of fix, not restructuring this function to
@@ -1916,11 +1950,16 @@ impl SusiDaemon {
         // silently truncate and fail signature verification.
         let mut buf = [0u8; 4096];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
+            // Only the signed dialects (`SUSI_PING_SIG`, `SUSI_PING_SIG2`)
+            // are answered; anything else is dropped before the key loads.
+            if !buf[..amt].starts_with(b"SUSI_PING_SIG") {
+                continue;
+            }
             let msg = String::from_utf8_lossy(&buf[..amt]);
             // Cluster-key handshake (VC-200-001): answer a signed ping with a
             // signed pong echoing the requester's nonce. Only peers that hold
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
-            // host still gets legacy discovery but never roster admission.
+            // host gets no answer at all (the legacy unsigned dialect is gone).
             if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce, wants_v2)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
@@ -2040,19 +2079,10 @@ impl SusiDaemon {
                 }
                 continue;
             }
-            // Own the host-contract UDP surface: answer both LAN and peer dialects.
-            if msg.contains("SUSI_LAN_PING") || msg.starts_with("SUSI_PING") {
-                let pong = if msg.contains("SUSI_LAN_PING") {
-                    format!(
-                        "SUSI_LAN_PONG:{}:{}",
-                        crate::susi_config::cluster_key::wire_node_id(),
-                        gmcp_port
-                    )
-                } else {
-                    "SUSI_PONG:daemon:0:".to_string()
-                };
-                let _ = socket.send_to(pong.as_bytes(), src);
-            }
+            // A ping that fails verification gets no reply, like the
+            // retired unauthenticated `SUSI_LAN_PING` / bare `SUSI_PING`
+            // dialects: answering unsigned datagrams disclosed our node id
+            // and GMCP port to any LAN host and made 9092 a reflector.
         }
     }
 
@@ -2392,6 +2422,30 @@ impl SusiDaemon {
     }
 }
 
+/// Key-independent UDP readiness: `target` is bound when a datagram from a
+/// connected loopback socket draws no ICMP port-unreachable within `wait`.
+/// A connected socket surfaces port-unreachable as `ConnectionReset`
+/// (Windows) or `ConnectionRefused` (Unix); silence (the daemon drops
+/// unsigned datagrams) or any reply means something owns the port. This
+/// cannot tell the daemon from a squatter, which only the signed probe can.
+fn udp_port_bound(target: std::net::SocketAddr, wait: Duration) -> bool {
+    use std::io::ErrorKind;
+    let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
+        return false;
+    };
+    if sock.connect(target).is_err() || sock.set_read_timeout(Some(wait)).is_err() {
+        return false;
+    }
+    if sock.send(b"SUSI_READY_PROBE").is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 64];
+    match sock.recv(&mut buf) {
+        Ok(_) => true,
+        Err(e) => matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2552,6 +2606,49 @@ mod tests {
             !ready,
             "wait_for_host_contract must return false when nothing owns the host-contract ports"
         );
+    }
+
+    /// B7: the legacy unauthenticated discovery dialects get silence. Only
+    /// unsigned datagrams are sent, so the prefix gate drops each one before
+    /// `cluster.key` is ever read or created.
+    #[test]
+    fn udp_discovery_never_answers_unsigned_pings() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+        std::thread::spawn(move || SusiDaemon::start_udp_discovery_server(server));
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .unwrap();
+        let mut buf = [0u8; 512];
+        for probe in [
+            "SUSI_LAN_PING",
+            "SUSI_PING",
+            "SUSI_PING:CORE:0:0000000000000000",
+            "hello",
+        ] {
+            client.send_to(probe.as_bytes(), addr).unwrap();
+            let reply = client.recv_from(&mut buf);
+            assert!(
+                reply.is_err(),
+                "{probe:?} must get no reply, got {:?}",
+                reply.map(|(n, _)| String::from_utf8_lossy(&buf[..n]).into_owned())
+            );
+        }
+    }
+
+    /// Unsigned-mode readiness: a bound, silent port is ready; a port with
+    /// nothing bound (ICMP port-unreachable) is not.
+    #[test]
+    fn udp_port_bound_tells_bound_from_unbound() {
+        let wait = Duration::from_millis(300);
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(super::udp_port_bound(silent.local_addr().unwrap(), wait));
+        let gone = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let gone_addr = gone.local_addr().unwrap();
+        drop(gone);
+        assert!(!super::udp_port_bound(gone_addr, wait));
+        drop(silent);
     }
 
     #[test]

@@ -78,7 +78,9 @@ fn controlled(command: &mut Command) -> &mut Command {
 }
 
 fn native_host() -> &'static str {
-    if cfg!(windows) {
+    if cfg!(all(windows, target_arch = "aarch64")) {
+        "aarch64-pc-windows-msvc"
+    } else if cfg!(windows) {
         "x86_64-pc-windows-msvc"
     } else {
         "linux"

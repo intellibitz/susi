@@ -113,6 +113,48 @@ mod tests {
         assert!(card.capabilities.streaming.unwrap_or(false));
     }
 
+    /// B6: one skill per capability the mission executor reaches, each
+    /// with a description and text modes, and no duplicate ids.
+    #[test]
+    fn agent_card_publishes_per_capability_skills() {
+        let card = GawdA2AExecutor::new().agent_card();
+        for id in ["missions", "agents", "frameworks", "models"] {
+            let skill = card
+                .skills
+                .iter()
+                .find(|s| s.id == id)
+                .unwrap_or_else(|| panic!("skill {id} missing"));
+            assert!(!skill.description.is_empty(), "{id}");
+            assert_eq!(skill.input_modes, ["text/plain"], "{id}");
+            assert_eq!(skill.output_modes, ["text/plain"], "{id}");
+        }
+        let mut ids: Vec<&str> = card.skills.iter().map(|s| s.id.as_str()).collect();
+        ids.sort_unstable();
+        let before = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), before, "duplicate skill ids");
+    }
+
+    /// B6: the card reports the real package version — the `[package]`
+    /// version of the workspace Cargo.toml — not a stale literal.
+    #[test]
+    fn agent_card_reports_the_package_version() {
+        let manifest = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml"),
+        )
+        .unwrap();
+        let package = manifest
+            .split("\n[")
+            .find(|section| section.starts_with("package]"))
+            .expect("root [package] section");
+        let version = package
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("version = \""))
+            .and_then(|rest| rest.split('"').next())
+            .expect("root package version");
+        assert_eq!(GawdA2AExecutor::new().agent_card().version, version);
+    }
+
     #[test]
     fn execute_emits_completed_task_with_agent_message() {
         let executor = GawdA2AExecutor::with_runner(Arc::new(|intent: &str| {

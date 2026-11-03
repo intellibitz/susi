@@ -8,8 +8,8 @@
 //! See `ARCHITECTURE.md` at the repo root.
 
 use std::path::Path;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Production swarm-host surface: orchestrator and watchdog. Wired once from
@@ -55,7 +55,9 @@ static OS_TICK_STARTED: OnceLock<()> = OnceLock::new();
 
 struct HostControlPlanes {
     policy: crate::security::CapabilityPolicy,
-    cloud: Mutex<Vec<susi_vendor_cloud::CloudInventory>>,
+    // No operator-CLI inventory: core runs no cloud CLI (`kubectl`,
+    // `docker`, `aws`, `gcloud`, `az`) on its own; `susi os provision
+    // probe` probes on request.
     ticks: AtomicU64,
 }
 
@@ -164,7 +166,6 @@ fn activate_host_control_planes(_workspace: &Path) {
         );
         HostControlPlanes {
             policy,
-            cloud: Mutex::new(susi_vendor_cloud::probe_all()),
             ticks: AtomicU64::new(0),
         }
     });
@@ -200,17 +201,13 @@ fn tick_host_control_planes() {
     let Some(os) = DAEMON_OS.get() else {
         return;
     };
-    let n = host.ticks.fetch_add(1, Ordering::Relaxed);
+    host.ticks.fetch_add(1, Ordering::Relaxed);
     let _ = crate::auto_discovery::reap_exited_cells();
     let port = gossip_port();
     os.gossip.fanout_to_cluster(port);
-    // Tick contract: PATH version-probe only. `susi os provision list|apply`
-    // hits live cloud APIs; never from this 30s loop. Re-probing spawns five
-    // subprocesses, so the inventory refreshes every 20 ticks (~10 min).
-    if n > 0 && n % 20 == 0 {
-        let mut cloud = host.cloud.lock().unwrap_or_else(|e| e.into_inner());
-        *cloud = susi_vendor_cloud::probe_all();
-    }
+    // Tick contract: no cloud CLI is run from this 30s loop (core starts
+    // nothing on its own). `susi os provision probe` runs the version probe
+    // and `susi os provision list|apply` the live APIs, each on request.
     persist_os_planes_report();
 }
 
@@ -231,20 +228,6 @@ fn os_planes_json() -> serde_json::Value {
         p.nat
             .generate_external_multiaddr(susi_paths::ports::effective(susi_paths::ports::A2A_HTTP))
             .ok()
-    });
-    let cloud = host.and_then(|h| {
-        h.cloud.lock().ok().map(|inv| {
-            inv.iter()
-                .map(|c| {
-                    serde_json::json!({
-                        "kind": c.kind,
-                        "tool": c.tool,
-                        "available": c.available,
-                        "summary": c.summary,
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
     });
     let swarm_udp: Vec<serde_json::Value> = susi_paths::ports::SWARM_UDP
         .iter()
@@ -272,8 +255,10 @@ fn os_planes_json() -> serde_json::Value {
         "driven": host.is_some(),
         "ticks": host.map(|h| h.ticks.load(Ordering::Relaxed)),
         "host_grants": host.map(|h| h.policy.grants().len()),
-        "cloud": cloud,
-        "provision_tick_contract": "probe_all_only",
+        // Never probed by the daemon (core starts nothing on its own).
+        "cloud": serde_json::Value::Null,
+        "cloud_probe": "not probed; run `susi os provision probe`",
+        "provision_tick_contract": "explicit_probe_only",
         "swarm_udp": swarm_udp,
         // The in-process supervision surface: every registered worker's
         // liveness and restart count, readable via `susi os`.
@@ -391,9 +376,8 @@ pub fn wire_cli_substrate(substrate: &Path) {
 }
 
 /// [`wire_cli_substrate`] that primes only `catalogs` — the ones the
-/// command's output or work reads. Priming still runs last, after the
-/// essential MCP servers are linked, and against the substrate home (never
-/// the cwd), exactly where the full prime runs. An empty set primes nothing
+/// command's output or work reads. Priming still runs last, against the
+/// substrate home (never the cwd), exactly where the full prime runs. An empty set primes nothing
 /// and leaves no `cli: prime catalogs` phase.
 pub fn wire_cli_substrate_priming(substrate: &Path, catalogs: crate::discovery_pipeline::Catalogs) {
     use crate::boot_trace::phase;
@@ -415,16 +399,12 @@ pub fn wire_cli_substrate_priming(substrate: &Path, catalogs: crate::discovery_p
 /// nothing more. An MCP client waits on the handshake while this runs
 /// (Mandate 32): catalog priming probed every launcher and held the first
 /// answer ~26 s on a fresh home, and the ambient indexer's commits competed
-/// with the session for CPU. The daemon, `susi auto prime`, missions,
-/// in-process `mcp call` and the MCP-reading commands (`mcp list`, `status`,
-/// `doctor`, `setup`, `disable`) still prime leading MCP; every other command
-/// primes only the catalogs its output or work reads
-/// (`defs::command_catalogs`), so on a host where none of those has run,
-/// `mcp serve` sees only the servers enabled explicitly.
+/// with the session for CPU. Every command primes only the catalogs its
+/// output or work reads (`defs::command_catalogs`), and no prime enables an
+/// MCP server: `mcp serve` sees only the servers enabled explicitly.
 pub fn wire_mcp_serve_substrate(substrate: &Path) {
     use crate::boot_trace::phase;
     phase("mcp-serve: engine hooks", wire_engine_hooks);
-    let _ = crate::susi_sandbox::extensions::ensure_extensions_substrate();
     let _ = std::fs::create_dir_all(substrate);
     phase("mcp-serve: context graph", || {
         susi_core::context_graph::ContextGraph::init_global_storage(
@@ -432,13 +412,11 @@ pub fn wire_mcp_serve_substrate(substrate: &Path) {
         )
     });
     crate::privacy::wire_mac_policy(substrate);
-    // The registry boots on first use and links the essential MCP servers
-    // on a one-shot thread (`gmcp_bootstrap`). Settle both before the first
-    // line is read: a session that answered sooner saw its `tools/list`
-    // grow under it once the link landed.
-    phase("mcp-serve: tool registry + mcp auto-link", || {
+    // The registry boots on first use (`gmcp_bootstrap`). Settle it before
+    // the first line is read so a session's `tools/list` does not grow
+    // under it.
+    phase("mcp-serve: tool registry", || {
         let _ = susi_tools::ToolRegistry::global();
-        let _ = crate::service_supervision::Supervisor::global().join("mcp-auto-link");
     });
 }
 

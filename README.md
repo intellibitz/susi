@@ -6,7 +6,7 @@
 
 susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
 
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers (Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools, …) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
+> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / Candle fallback); install + optional API keys still apply.
 
 ## One operating layer, two AI ecosystems
 
@@ -190,12 +190,14 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    Local agent messaging (`ipc_send`) is authorized by the default
    `app://*` transmit grant; the broker still checks per-sender dispatch grants.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
-   Admitting or auto-configuring an MCP server refuses a damaged or unreadable
-   `mcp_config.json` instead of rewriting it as only the server being added;
-   `susi mcp` and auto-enable share that reader, and a damaged disabled-list
-   stops auto-enable instead of re-admitting servers the user turned off.
+   Core never enables, configures or launches a third-party MCP server on its
+   own: a server runs only after an explicit `susi mcp-add` / `susi mcp enable`
+   (servers an earlier core enabled on its own stay in `mcp_config.json` until
+   removed; `susi mcp list` shows them and `susi mcp disable <id>` removes them).
+   Admitting an MCP server refuses a damaged or unreadable `mcp_config.json`
+   instead of rewriting it as only the server being added.
    A damaged extension-pack `state.json` is never rewritten: startup runs on
-   the default pack and load/unload refuse until the operator repairs it.
+   compiled defaults and load/unload refuse until the operator repairs it.
 10. **Sandbox** — Wasmtime for Wasm; Docker `sandbox_exec` when available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
     checked before any write, and write, spawn, or test failure rolls back
@@ -281,7 +283,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Configuration | every key in the bundled `config.default.json` is read by code (orphan keys such as `beacon_interval_secs` were removed) |
 | Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists (whole words), dedupes only exact repeats, redacts credentials, and writes the ledger atomically |
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
-| Daemon feature surface | live swarm-host components are wired from `composition`. The daemon loop constructs host OS planes and drives them: per-peer HMAC gossip UDP 9095 (HMAC-sealed `gossip_caps.json`; sealing/ingress fail closed when no MAC key exists), egress-gated STUN with honest DNS/timeout errors (skipped while `mac_policy` blocks external egress unless `SUSI_TURN_*` is configured), TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (`SUSI_TURN_USER`/`SUSI_TURN_PASS`, or `SUSI_TURN_RELAY`), cloud CLI **version-probe** refreshed every 20th tick, and `os_planes.json` for `susi os`. `susi os provision probe\|list\|apply` is the explicit list/apply surface. Deleted cell-OS sketches are not resurrected; `live_planes` maps those needs onto policy/task/sandbox/checkpoint. Unwired daemon-module ratchet is 0. |
+| Daemon feature surface | live swarm-host components are wired from `composition`. The daemon loop constructs host OS planes and drives them: per-peer HMAC gossip UDP 9095 (HMAC-sealed `gossip_caps.json`; sealing/ingress fail closed when no MAC key exists), egress-gated STUN with honest DNS/timeout errors (skipped while `mac_policy` blocks external egress unless `SUSI_TURN_*` is configured), TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (`SUSI_TURN_USER`/`SUSI_TURN_PASS`, or `SUSI_TURN_RELAY`), no cloud CLI run at boot or on the tick (core starts nothing on its own; `susi os provision probe` version-probes on request), and `os_planes.json` for `susi os`. `susi os provision probe\|list\|apply` is the explicit list/apply surface. Deleted cell-OS sketches are not resurrected; `live_planes` maps those needs onto policy/task/sandbox/checkpoint. Unwired daemon-module ratchet is 0. |
 | Shared foundation | shared code is reached through Cargo edges that point down the leaf order (`paths → error → config → core/sandbox → services → daemon`, enforced by an architecture test). `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`, `susi-core`, `susi-abi`, `susi-http-transport` (the one crate that declares `ureq`, caps response bodies, and exposes HTTP status; callers use `http_call` and never name `ureq::Agent`), `susi-vendor-candle` (Candle + tokenizers) and `susi-adapters-llm` (wire shapes + `post_json` over transport) are single crates — no crate except `susi-http-transport` and the `susi-vendor-*`/`susi-adapters-*` crates declares `reqwest` or `ureq` (an allow-list test, so new crates are covered automatically); `susi-gemi-models` declares neither `reqwest` nor `tokenizers`. Remaining cross-crate `#[path]` mounts are counted by a ratchet that only decreases (159 → 0) |
 | Vendor crates | every third-party SDK lives in its own `susi-vendor-*` crate that exposes SUSI-shaped calls and no vendor types: `susi-vendor-candle` (Candle/tokenizers), `susi-vendor-wasmtime` (Wasmi/bounded WASI + metered cells), `susi-vendor-mcp` (rmcp MCP client + its reqwest transport), `susi-vendor-mcp-server` (rmcp MCP server + `#[tool]`; GMCP never declares `rmcp`), `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs — no cloud SDKs), `susi-vendor-tantivy` (full-text `DocIndex`), `susi-vendor-fastembed` (one process-wide embedding model; cached load failures feed provider health), `susi-vendor-chrome` (headless Chrome page capture), `susi-vendor-syn` (Rust AST: validity, bloat metrics, outline); the A2A SDK (`ra2a`) is confined to its own plane crate, `susi-gawd-a2a`. Beyond SDKs, every remaining third-party crate is owned by a pure re-export facade (`susi-vendor-serde`, `susi-vendor-tokio`, `susi-vendor-hyper`, … — 48 crates), so susi-* crates declare **zero** third-party dependencies in any dep section while `use serde::…`-style paths compile unchanged (`susi_crates_declare_zero_external_dependencies` ratchet) |
 | One loopback client | the paths, config, sandbox, native and error-event clients share `susi_paths::loopback` (std-only bounded request / status / body / bearer / instance-offset port; response cap 16 MiB) instead of five hand-rolled HTTP/1.0 clients; every leaf-service client now honours the instance port offset, so a dev instance never reaches the release instance's services |
@@ -306,6 +308,21 @@ qualification, promotion and rollback have separate evidence gates.
 Legacy `install.sh` and `install.ps1` remain compatibility artifacts. They are
 not the mandated development or installation path and their historical download,
 autostart and build behavior must not be treated as current acceptance evidence.
+
+### Platforms
+
+Release scope (CEO decision 2026-11-03): the free public core release is
+published for x86_64 Windows and x86_64 Linux only. Other platforms stay in the
+source and in free CI checks so the Susi commercial suite can build its own
+"Susi Certified" binaries for them; core publishes no asset for them.
+
+| Platform | Core release asset | Installers | Source support |
+|----------|--------------------|------------|----------------|
+| Windows x86_64 (MSVC) | `susi-windows-x86_64.exe` | `install.ps1` | qualified ([Step 1 acceptance](docs/step1-acceptance.md)) |
+| Linux x86_64 | `susi-linux-x86_64` | `install.sh` | yes |
+| Windows ARM64 (MSVC) | none | `install.ps1` refuses | native compile check per merge (`platform-check.yml`) and nightly native source checks (`windows-arm64.yml`) on GitHub `windows-11-arm`; not qualified |
+| Linux ARM64 | none | `install.sh` refuses | source and dependency-graph checks (`tests/zc_matrix.rs`); native compile check per merge (`platform-check.yml`) and nightly native tests (`nightly.yml`) on `ubuntu-24.04-arm` |
+| macOS | none | `install.sh` refuses | native compile check per merge (`platform-check.yml`) and nightly native tests with the zero-config journey (`nightly.yml`) on `macos-15` |
 
 ### Developing susi: agent-owned native delivery (Mandate 48)
 
@@ -414,7 +431,7 @@ susi keys models fireworks    # the models a vendor serves right now
 
 # Local AI ecosystem: what is installed, what is running, what the hardware can host
 susi ecosystem scan           # hardware, engines (Ollama, llama.cpp, vLLM, …), GPU backends
-susi ecosystem start ollama   # only engines that need no model choice
+susi ecosystem start ollama   # only engines that need no model choice; core never starts one at boot
 
 # The brain: which model susi trusts for which kind of work, and why
 susi brain
@@ -429,8 +446,8 @@ cargo local-build debug
 susi automate "refactor the auth module and verify with tests"
 
 # Open-admit any MCP server (stdio or HTTP URL)
-susi mcp list
-susi mcp enable filesystem
+susi mcp list                      # catalog of the installed extension pack (empty without one)
+susi extensions load <pack>        # then: susi mcp enable <id>
 susi mcp-add remote-http http://127.0.0.1:3100/mcp
 
 # Point external MCP / HTTP clients at the host contract
@@ -511,7 +528,7 @@ susi is hardware-aware at startup and manages the AI you already run.
 
 ## Bring-your-own-key agents and open agent standards
 
-susi drives external autonomous agents with the keys you registered (`susi keys set <vendor>`); nothing is provisioned for you. Execution-catalog entries (`config/execution-agents.json`), run through the managed-agent manager:
+susi drives external autonomous agents with the keys you registered (`susi keys set <vendor>`); nothing is provisioned for you. Core bundles no agent catalog: execution-catalog entries come from an installed extension pack (`execution-agents.json`) or an adapter file under `~/.susi/execution-agents/<id>.json`, and run through the managed-agent manager. Typical entries a pack provides:
 
 | Entry | Transport | Notes |
 |---|---|---|
@@ -565,17 +582,17 @@ cooled providers; `susi brain classify "<prompt>"` shows how a prompt is routed;
 
 ## Extension packs
 
-Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — cloud env aliases, curated catalog pointers, ranks — live in **extension packs**. Zero-config lifecycle:
+Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — launchable catalogs (MCP servers, agent adapters), cloud env alias overrides, ranks — live in **extension packs**, which core never ships or seeds; the user or the commercial desktop installs them. Lifecycle:
 
-- **Auto-seed** — first run creates `~/.susi/extensions/default/` from the bundled pack (never overwrites host edits)
-- **Auto-load** — packs with `manifest.json` under `~/.susi/extensions/<id>/` are discovered and marked loaded; `state.json` tracks active id
-- **CLI** — `susi extensions` / `susi ext` (`list`, `status`, `seed`, `create <id>`, `load <id>`, `unload <id>`)
-- Bundled source: `config/extensions/default/`; manifest schema: [`docs/extension-pack.md`](docs/extension-pack.md)
+- **Install** — a pack is `~/.susi/extensions/<id>/` with a `manifest.json` (core writes none on its own)
+- **Discover / load** — installed packs are discovered and marked loaded; `susi extensions load <id>` verifies checksums/signatures and activates one; `state.json` tracks the active id
+- **CLI** — `susi extensions` / `susi ext` (`list`, `status`, `create <id>`, `load <id>`, `unload <id>`, `validate <dir>`)
+- Manifest schema: [`docs/extension-pack.md`](docs/extension-pack.md)
 - Force active pack: `SUSI_EXTENSION_PACK=<id>`
 
-Catalog loaders still embed bundled JSON via `include_str!` for offline boot; host pack files win when present. See [`config/README.md`](config/README.md) for which file is authoritative (bootstrap MCP ≠ leading MCP ≠ scout registry).
+Model catalogs and cloud-vendor aliases are compiled defaults (offline boot); the active pack's files win when present. Launchable catalogs have no compiled default: with no pack they are empty. See [`config/README.md`](config/README.md) for which file is authoritative (bootstrap MCP ≠ leading MCP ≠ scout registry).
 
-Editorial catalog **views** stay separate JSON files under `config/` (not one mega-catalog): `coding-models.json`, `frontier-models.json`, `open-weight-models.json`, `openrouter-models.json`, `leading-mcp.json`, `execution-agents.json`, `agent-engines.json`, plus `models.catalog.default.json` for the broader ladder. Host overrides live under `~/.susi/{coding-models,frontier-models,open-weight,leading-mcp}/` and preserve unknown keys on configure (Mandate 35).
+Editorial model catalog **views** stay separate JSON files under `config/` (not one mega-catalog): `coding-models.json`, `frontier-models.json`, `open-weight-models.json`, `openrouter-models.json`, plus `models.catalog.default.json` for the broader ladder. Host overrides live under `~/.susi/{coding-models,frontier-models,open-weight,leading-mcp}/` and preserve unknown keys on configure (Mandate 35).
 
 ---
 

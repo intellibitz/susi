@@ -1,15 +1,18 @@
 //! Extension pack control plane (list/create/load/unload/status/validate).
+//!
+//! Core ships and seeds no pack: packs are installed under
+//! `~/.susi/extensions/<id>/` by the user or the commercial desktop, and this
+//! plane lists, verifies, activates and deactivates them.
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Subcommand;
 use susi_sandbox::extensions::{
-    active_pack, create_pack, ensure_extensions_substrate, list_packs, load_pack, unload_pack,
-    validate_pack_dir,
+    active_pack, create_pack, list_packs, load_pack, unload_pack, validate_pack_dir,
 };
 
 #[derive(Debug, Subcommand)]
 pub enum ExtensionCommands {
-    /// Seed substrate + list packs (default when bare `susi extensions`)
+    /// List installed packs (default when bare `susi extensions`)
     List,
     /// Show active pack and substrate root
     Status,
@@ -17,10 +20,8 @@ pub enum ExtensionCommands {
     Create { id: String },
     /// Load (activate) a pack
     Load { id: String },
-    /// Unload a pack (keeps files; falls back to default)
+    /// Unload a pack (keeps files; falls back to compiled defaults)
     Unload { id: String },
-    /// Ensure default pack is seeded and print its path
-    Seed,
     /// Check a pack directory against the host's admission rules (for pack
     /// authors; reads and changes no host state)
     Validate { path: std::path::PathBuf },
@@ -29,11 +30,10 @@ pub enum ExtensionCommands {
 pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {
     match action.unwrap_or(ExtensionCommands::List) {
         ExtensionCommands::List => {
-            let _ = ensure_extensions_substrate().map_err(|e| anyhow::anyhow!(e))?;
             print_json(&list_packs())?;
         }
         ExtensionCommands::Status => {
-            let pack = ensure_extensions_substrate().map_err(|e| anyhow::anyhow!(e))?;
+            let pack = active_pack();
             print_json(&serde_json::json!({
                 "active": pack.id,
                 "root": pack.root,
@@ -68,17 +68,6 @@ pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {
                 "permissions": manifest.permissions,
                 "signed": manifest.signer.is_some(),
                 "artifacts_sha256": artifacts,
-            }))?;
-        }
-        ExtensionCommands::Seed => {
-            let pack = ensure_extensions_substrate().map_err(|e| anyhow::anyhow!(e))?;
-            if pack.id.is_empty() {
-                bail!("failed to seed extension substrate");
-            }
-            print_json(&serde_json::json!({
-                "seeded": true,
-                "active": pack.id,
-                "root": pack.root,
             }))?;
         }
     }

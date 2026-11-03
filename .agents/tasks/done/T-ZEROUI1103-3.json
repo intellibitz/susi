@@ -1,0 +1,24 @@
+{
+  "id": "T-ZEROUI1103-3",
+  "title": "Zero-UI core batch 3: core never auto-launches third-party servers and ships no launchable vendor plugin catalogs (plan A8, A9 core side)",
+  "goal": "CEO directive 2026-11-03: all plugins live in susi-commercial-apps; core is a pure socket",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "ZEROUI1103",
+  "created_unix": 1793724882,
+  "closed": {
+    "at_unix": 1793727054,
+    "commit": "57550e995c9ce1416d8b1282933a1ed2140f68e7",
+    "by": "ZEROUI1103"
+  }
+}

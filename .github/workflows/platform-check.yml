@@ -1,0 +1,107 @@
+name: Platform Check
+
+# Per-change compile coverage of the non-release platforms (CI platform policy,
+# CEO decision 2026-11-03; AGENTS.md). Core's own releases are x86_64 Windows
+# and x86_64 Linux, which test.yml builds and tests natively. Every other
+# platform the source supports is compiled here on a native runner after every
+# merge to main: macOS aarch64, Linux aarch64 and Windows aarch64. Compile only
+# (`cargo check --workspace --all-targets`): their native tests run nightly
+# (nightly.yml), never per change, so this workflow must not grow test legs.
+#
+# Its own workflow, not a job in test.yml: every Test run's completion is waited
+# on (the auto-merge.yml workflow_run backstop, scripts/reconcile-prs.sh,
+# scripts/release-await-tests.sh and main's queued post-merge suite), and
+# nothing waits on this run. It runs after a merge to main (core runs its heavy
+# suite post-merge; a branch push runs only the light gate) and on manual
+# dispatch, never on a branch push, so it is off the merge gate and NOT a
+# required status check (scripts/github-enforce.sh). The merge bot merges with
+# GITHUB_TOKEN, whose pushes start no workflow, so scripts/auto-merge-pr.sh
+# merge_head dispatches this workflow on main after every merge it makes (next
+# to its test.yml dispatch); the `push` trigger covers merges a user makes. A
+# red leg reddens the run: no `continue-on-error`.
+#
+# Not watched by main-failure.yml: that workflow comments "the full suite
+# failed" on the pull request whose merge commit is the red sha, keyed by sha
+# alone. A compile failure here would be reported as a suite failure, a second
+# red workflow on the same sha would be swallowed by the first comment's marker,
+# and the queued runs below collapse several merges into one head, so the
+# comment would often name the wrong pull request. A red run stays visible as
+# this workflow's red status on main's head commit and in the Actions tab.
+#
+# Nothing is cached: the repository sits at its 10 GB cache quota (top of
+# test.yml), so any new entry would evict the required jobs' caches. Every run
+# compiles the dependency graph cold; the timeout allows for that.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Merges land faster than this job runs. A running check is never cancelled
+# (latest-wins would cancel every run, as it did the main suite on 2026-10-28);
+# the merges that land meanwhile collapse into one pending run.
+concurrency:
+  group: platform-check-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: Compile check (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # rust-toolchain.toml pins the compiler; a native check means the host
+      # rustup selects for this checkout is the leg's target.
+      - name: The pinned compiler is native to this runner
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          rustc -vV
+          rustc -vV | grep -qx "host: ${{ matrix.target }}"
+          rustc -vV | grep -qx 'release: 1.99.0'
+
+      - name: The pinned compiler is native to this runner (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $identity = rustc -vV
+          $identity | ForEach-Object { Write-Host $_ }
+          if (-not ($identity -contains 'host: ${{ matrix.target }}')) { throw 'rustc is not the native ${{ matrix.target }} compiler' }
+          if (-not ($identity -contains 'release: 1.99.0')) { throw 'rustc is not the pinned 1.99.0 release' }
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        # .cargo/fast-linker (the aarch64 Linux linker) wants clang; build
+        # scripts and proc macros link even under `cargo check`.
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
+
+      - name: Install mold (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/ci-install-mold.sh
+
+      - name: Compile the workspace, all targets
+        run: cargo check --workspace --all-targets --locked

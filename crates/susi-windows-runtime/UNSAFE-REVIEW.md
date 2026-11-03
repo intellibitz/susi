@@ -11,8 +11,8 @@ The reviewed surface after expanding the eight sentinel declarations is:
 
 | Boundary | Items | Safety obligation |
 | --- | ---: | --- |
-| Foreign declaration blocks | 3 | Two Windows system imports, two OS UCRT imports, and the pinned compiler-generated C main match the qualified x64 calling convention. |
-| Function bodies | 5 | `atexit` forwards a lifetime-valid callback; `boundary_failure` terminates through the OS; `image` reads loader-validated PE headers; `visit` bounds and aligns every callback slot; `susi_pe_entry` runs exactly once and retains Rust main/runtime initialization. |
+| Foreign declaration blocks | 3 | Two Windows system imports, two OS UCRT imports, and the pinned compiler-generated C main match the target's system calling convention (qualified on x64; on ARM64 `extern "system"` is the C convention). |
+| Function bodies | 5 | `atexit` forwards a lifetime-valid callback; `boundary_failure` terminates through the OS; `image` reads loader-validated PE headers and refuses a COFF Machine other than the build architecture; `visit` bounds and aligns every callback slot; `susi_pe_entry` runs exactly once and retains Rust main/runtime initialization. |
 | `Sync` implementation | 1 | Immutable loader metadata contains pointers; only the loader writes the separately declared TLS index before application entry. |
 | Exported-symbol and section statics | 16 | Unique ABI names, writable TLS markers/index, read-only callback sentinels/directory, and the fail-closed Rust exception descriptor identity have the qualified PE layout. |
 
@@ -43,3 +43,35 @@ bounded-range tests, negative ABI/RTTI cases, and twelve real lifecycle cases
 against both unwind and fat-LTO panic-abort builds. Rust `.rlib` linkage with
 `use susi_windows_runtime as _;` passes the same lifecycle qualification. Linux
 metadata compilation verifies the empty non-Windows crate remains buildable.
+
+## Re-review 2026-11-03: Windows ARM64 source support
+
+CEO decision 2026-11-03 keeps ARM64 Windows support in core source, checked on
+GitHub `windows-11-arm` runners, without a public ARM64 release. The reviewed
+files changed as follows; the guard digests in `unsafe-review.json` are re-bound
+to the new sources.
+
+- `src/lib.rs`: the compile-time gate is an explicit allow-list of `x86_64` and
+  `aarch64` with MSVC, and `platform.rs` is compiled for both. No unsafe change.
+- `build.rs`: host must still equal target, now from the same allow-list, and the
+  rustc `host:` line must equal the target as well (OSN-22). No unsafe code.
+- `src/platform.rs`: `image()` also reads the COFF Machine field (NT headers + 4)
+  inside its existing unsafe block, next to the signature, magic and image size
+  it already read from the same loader-validated headers, and exits through the
+  existing `boundary_failure()` unless it is `0x8664` (x86_64) or `0xAA64`
+  (aarch64). SAFETY comments now name the target's system ABI and the PE32+ TLS
+  directory shared by x64 and ARM64 instead of x64 only.
+
+No unsafe block, unsafe function, unsafe implementation, foreign declaration,
+exported symbol, link section or ABI layout was added or changed. For x86_64 the
+unsafe semantics are unchanged: a loader-mapped x64 image always carries
+Machine `0x8664`, so the added in-bounds read cannot change an accepted image's
+path, and every refusal is the pre-existing fail-closed exit.
+
+Re-measured on native x64 Windows with the same isolated-package Geiger method
+(which reproduced the previous 2 / 45 / 1 counts for the previous sources): **2
+unsafe functions, 48 unsafe expressions and 1 unsafe implementation** in used
+code, zero unused. The three added expressions are the one Machine read. The
+aarch64 build is reviewed, not executed: the review host is x64 and cannot run
+ARM64 code. ARM64 is not qualified until a native ARM64 host passes the same
+lifecycle and OS-UCRT fixtures.

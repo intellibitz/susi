@@ -1,13 +1,21 @@
 //! Extension packs: vendor opinions outside protocol-generic core.
 //!
-//! Zero-config lifecycle:
-//! - **Create/seed** — `ensure_extensions_substrate` materializes
-//!   `~/.susi/extensions/default/` from the bundled pack on first use.
+//! Core ships no pack and seeds none (zero-UI plan A9). Launchable vendor
+//! catalogs (leading MCP servers, the MCP scout registry, execution agents,
+//! agent engines) live in packs that the host or the commercial desktop
+//! installs; core only reads them. Lifecycle:
+//! - **Install** — a pack is a directory `~/.susi/extensions/<id>/` holding a
+//!   `manifest.json` and the files it maps; core never writes one on its own
+//!   (`create_pack` writes an empty shell only when asked).
 //! - **Load** — packs under `~/.susi/extensions/<id>/` are discovered and
-//!   marked loaded in `state.json` (default pack always loaded after seed).
-//! - **Unload** — deactivate a pack (keeps files); falls back to `default`.
+//!   marked loaded in `state.json`; `load_pack` verifies integrity (checksums,
+//!   Ed25519 signatures, pinned digests) and activates one.
+//! - **Unload** — deactivate a pack (keeps files); with no active pack every
+//!   reader falls back to core's compiled defaults (empty for the launchable
+//!   catalogs).
 //!
-//! Host overrides still win per-file. `SUSI_EXTENSION_PACK` forces the active id.
+//! The active pack's files win per-file. `SUSI_EXTENSION_PACK` forces the
+//! active id.
 
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
@@ -31,6 +39,9 @@ pub struct PackStatus {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// The pack is installed: its `manifest.json` is present on the host.
+    /// (The field keeps its historical name for output compatibility; core
+    /// no longer seeds any pack.)
     pub seeded: bool,
     pub loaded: bool,
     pub active: bool,
@@ -128,8 +139,8 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
 ];
 
 /// True when `rel` resolves outside the pack root: absolute paths always
-/// escape; a `..` that climbs above the root escapes (e.g. the bundled default
-/// pack's `../../coding-models.json`, which is permitted only because it
+/// escape; a `..` that climbs above the root escapes (e.g.
+/// `../shared/coding-models.json`, which is permitted only when the pack
 /// declares `filesystem.read`).
 fn path_escapes_pack_root(rel: &str) -> bool {
     let path = Path::new(rel);
@@ -293,7 +304,8 @@ impl Default for ExtensionsState {
     fn default() -> Self {
         Self {
             active: DEFAULT_PACK_ID.to_string(),
-            loaded: vec![DEFAULT_PACK_ID.to_string()],
+            // Nothing is installed until the host installs a pack.
+            loaded: Vec::new(),
             unloaded: Vec::new(),
             trusted_digests: BTreeMap::new(),
             trusted_signers: BTreeMap::new(),
@@ -303,7 +315,8 @@ impl Default for ExtensionsState {
     }
 }
 
-/// One cloud vendor entry from pack `cloud-vendors.json`.
+/// One cloud vendor entry from `cloud-vendors.json` (core's compiled
+/// `config/cloud-vendors.json`, or the active pack's override).
 #[derive(Debug, Clone, Deserialize)]
 pub struct CloudVendorEntry {
     pub id: String,
@@ -342,19 +355,12 @@ impl CloudVendorEntry {
     }
 }
 
+/// Pack id used when no installed pack is active: every reader then serves
+/// core's compiled defaults. Core never creates a pack directory for it.
 const DEFAULT_PACK_ID: &str = "default";
-const BUNDLED_MANIFEST: &str = include_str!("../../../config/extensions/default/manifest.json");
-pub(crate) const BUNDLED_CLOUD_VENDORS: &str =
-    include_str!("../../../config/extensions/default/cloud-vendors.json");
-const BUNDLED_CODING_MODELS: &str = include_str!("../../../config/coding-models.json");
-const BUNDLED_EXECUTION_AGENTS: &str = include_str!("../../../config/execution-agents.json");
-const BUNDLED_AGENT_ENGINES: &str = include_str!("../../../config/agent-engines.json");
-const BUNDLED_LEADING_MCP: &str = include_str!("../../../config/leading-mcp.json");
-const BUNDLED_MODELS_CATALOG: &str = include_str!("../../../config/models.catalog.default.json");
-const BUNDLED_CONFIG_DEFAULT: &str = include_str!("../../../config/config.default.json");
-const BUNDLED_OPENROUTER_MODELS: &str = include_str!("../../../config/openrouter-models.json");
-const BUNDLED_OPEN_WEIGHT_MODELS: &str = include_str!("../../../config/open-weight-models.json");
-const BUNDLED_FRONTIER_MODELS: &str = include_str!("../../../config/frontier-models.json");
+/// Compiled cloud-vendor aliases (NP-04: core's key resolver depends on
+/// them). Plain compiled defaults, not a pack.
+pub(crate) const BUNDLED_CLOUD_VENDORS: &str = include_str!("../../../config/cloud-vendors.json");
 
 static CACHE_GEN: AtomicU64 = AtomicU64::new(0);
 static CLOUD_VENDOR_CACHE: Mutex<Option<(u64, Vec<CloudVendorEntry>)>> = Mutex::new(None);
@@ -422,69 +428,6 @@ fn read_state() -> Result<ExtensionsState, String> {
 fn write_state(state: &ExtensionsState) -> Result<(), String> {
     let text = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
     write_private_file_if_changed(&state_path(), &format!("{text}\n"))
-}
-
-/// Host manifest for seeded packs: all files live next to the manifest (no `../../`).
-fn host_seed_manifest() -> ExtensionManifest {
-    let mut files = BTreeMap::new();
-    for name in [
-        "cloud-vendors.json",
-        "coding-models.json",
-        "execution-agents.json",
-        "agent-engines.json",
-        "leading-mcp.json",
-        "models.catalog.default.json",
-        "config.default.json",
-        "openrouter-models.json",
-        "open-weight-models.json",
-        "frontier-models.json",
-    ] {
-        files.insert(name.to_string(), name.to_string());
-    }
-    let checksums = files
-        .keys()
-        .filter_map(|name| {
-            bundled_bytes_for(name)
-                .map(|contents| (name.clone(), sha256_digest(contents.as_bytes())))
-        })
-        .collect();
-    ExtensionManifest {
-        id: DEFAULT_PACK_ID.to_string(),
-        name: "SUSI Default Extension Pack".into(),
-        version: "0.1.0".into(),
-        api_version: default_api_version(),
-        description: "Auto-seeded vendor opinions. Edit files here or drop additional packs under ~/.susi/extensions/<id>/.".into(),
-        capabilities: vec![
-            "catalog.cloud_vendors".into(),
-            "catalog.coding_models".into(),
-            "catalog.mcp".into(),
-        ],
-        requires: Vec::new(),
-        optional: Vec::new(),
-        permissions: vec!["filesystem.read".into()],
-        files,
-        checksums,
-        signatures: BTreeMap::new(),
-        signer: None,
-        extra: HashMap::new(),
-    }
-}
-
-fn bundled_bytes_for(name: &str) -> Option<&'static str> {
-    match name {
-        "manifest.json" => Some(BUNDLED_MANIFEST),
-        "cloud-vendors.json" => Some(BUNDLED_CLOUD_VENDORS),
-        "coding-models.json" => Some(BUNDLED_CODING_MODELS),
-        "execution-agents.json" => Some(BUNDLED_EXECUTION_AGENTS),
-        "agent-engines.json" => Some(BUNDLED_AGENT_ENGINES),
-        "leading-mcp.json" => Some(BUNDLED_LEADING_MCP),
-        "models.catalog.default.json" => Some(BUNDLED_MODELS_CATALOG),
-        "config.default.json" => Some(BUNDLED_CONFIG_DEFAULT),
-        "openrouter-models.json" => Some(BUNDLED_OPENROUTER_MODELS),
-        "open-weight-models.json" => Some(BUNDLED_OPEN_WEIGHT_MODELS),
-        "frontier-models.json" => Some(BUNDLED_FRONTIER_MODELS),
-        _ => None,
-    }
 }
 
 fn sha256_digest(bytes: &[u8]) -> String {
@@ -637,66 +580,6 @@ fn normalize_checksum(value: &str) -> String {
     format!("sha256:{}", hex_value.to_ascii_lowercase())
 }
 
-/// Seed the default pack onto the host. Missing files are created from
-/// the bundled catalog. Existing files are preserved as operator-owned bytes;
-/// integrity admission decides whether changed files may be served.
-pub fn seed_default_pack() -> Result<PathBuf, String> {
-    use sha2::{Digest, Sha256};
-    let root = extensions_root().join(DEFAULT_PACK_ID);
-    if root.exists() {
-        validate_pack_root(DEFAULT_PACK_ID)?;
-    }
-    private_dir(&root)?;
-    let host_manifest = host_seed_manifest();
-    let digests_path = root.join(".bundled-digests.json");
-    let mut next = BTreeMap::new();
-    let digest_of = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
-
-    let sync_file = |name: &str,
-                     dest: &Path,
-                     bundled: &str,
-                     next: &mut BTreeMap<String, String>|
-     -> Result<(), String> {
-        let bundled_digest = digest_of(bundled.as_bytes());
-        if !dest.is_file() {
-            write_private_file(dest, bundled)?;
-            next.insert(name.to_string(), bundled_digest);
-            return Ok(());
-        }
-        let Ok(current) = std::fs::read_to_string(dest) else {
-            next.insert(name.to_string(), bundled_digest);
-            return Ok(());
-        };
-        let current_digest = digest_of(current.as_bytes());
-        // Existing bytes are operator-owned once they differ from the
-        // bundled source. Never rewrite them based on a mutable digest ledger:
-        // doing so would turn a tamper into a trusted replacement on the next
-        // substrate start. Integrity admission below decides whether the pack
-        // may be served.
-        next.insert(name.to_string(), current_digest);
-        Ok(())
-    };
-
-    let manifest_text =
-        serde_json::to_string_pretty(&host_manifest).map_err(|e| e.to_string())? + "\n";
-    sync_file(
-        "manifest.json",
-        &root.join("manifest.json"),
-        &manifest_text,
-        &mut next,
-    )?;
-
-    for name in host_manifest.files.keys() {
-        let Some(bytes) = bundled_bytes_for(name) else {
-            continue;
-        };
-        sync_file(name, &root.join(name), bytes, &mut next)?;
-    }
-    let digests_json = serde_json::to_string_pretty(&next).map_err(|e| e.to_string())?;
-    write_private_file_if_changed(&digests_path, &format!("{digests_json}\n"))?;
-    Ok(root)
-}
-
 /// The last [`ensure_extensions_substrate`] answer, with the
 /// [`substrate_stamp`] it was decided under.
 static ENSURE_MEMO: Mutex<Option<(String, ExtensionPack)>> = Mutex::new(None);
@@ -713,8 +596,8 @@ const STAMP_RACY_WINDOW: std::time::Duration = std::time::Duration::from_secs(2)
 /// a link, as the decision reads it) of every entry in the root and in each
 /// directory directly under it — so a file replaced by another of the same
 /// size with its mtime restored still changes the stamp.
-/// The default pack's files, each pack's `manifest.json` and the state file
-/// all sit at that depth, so while the stamp is unchanged a fresh decision
+/// Each pack's `manifest.json` and files and the state file all sit at that
+/// depth, so while the stamp is unchanged a fresh decision
 /// reads the same bytes, picks the same pack and writes nothing. `None` when
 /// a directory cannot be listed, or an entry was modified less than
 /// [`STAMP_RACY_WINDOW`] before `now` (or after it): its size and time may
@@ -772,7 +655,10 @@ fn substrate_stamp(now: std::time::SystemTime) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-/// Zero-config entry: create extensions root, seed default, ensure state, return active pack.
+/// Zero-config entry: discover installed packs, settle state, return the
+/// active pack. Never seeds a pack and never creates the extensions root:
+/// with nothing installed it answers the `default` id (compiled defaults)
+/// and writes nothing.
 ///
 /// Every catalog read comes through here, several times per read, so the
 /// answer is remembered for as long as [`substrate_stamp`] — everything the
@@ -799,15 +685,10 @@ pub(crate) fn ensure_extensions_substrate_at(
             // stay owner-only, and on Unix the files it writes stay 0600
             // (a chmod changes neither size nor mtime, so the stamp misses it).
             private_dir(&extensions_root())?;
-            private_dir(&extensions_root().join(DEFAULT_PACK_ID))?;
             #[cfg(unix)]
-            for file in [
-                state_path(),
-                extensions_root()
-                    .join(DEFAULT_PACK_ID)
-                    .join(".bundled-digests.json"),
-            ] {
+            {
                 use std::os::unix::fs::PermissionsExt;
+                let file = state_path();
                 if std::fs::metadata(&file).is_ok_and(|m| m.permissions().mode() & 0o777 != 0o600) {
                     let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
                 }
@@ -838,25 +719,26 @@ thread_local! {
 fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
     #[cfg(test)]
     ENSURE_DECISIONS.with(|n| n.set(n.get() + 1));
+    let compiled_defaults = || ExtensionPack {
+        id: DEFAULT_PACK_ID.to_string(),
+        root: extensions_root().join(DEFAULT_PACK_ID),
+    };
+    // Nothing installed: compiled defaults, and nothing written. Core never
+    // creates the extensions root on its own (zero-UI plan A9).
+    if !extensions_root().is_dir() {
+        return Ok((compiled_defaults(), false));
+    }
     private_dir(&extensions_root())?;
-    seed_default_pack()?;
     let mut state = match read_state() {
         Ok(state) => state,
         Err(e) => {
             // Zero-config must not brick on it, and must not overwrite it:
-            // run on the seeded default pack until the operator repairs it.
-            eprintln!("[extensions] {e}; using the default pack without rewriting state");
-            let pack = ExtensionPack {
-                id: DEFAULT_PACK_ID.to_string(),
-                root: extensions_root().join(DEFAULT_PACK_ID),
-            };
-            return Ok((pack, false));
+            // run on compiled defaults until the operator repairs it.
+            eprintln!("[extensions] {e}; using compiled defaults without rewriting state");
+            return Ok((compiled_defaults(), false));
         }
     };
     let mut quiet = true;
-    if !state.loaded.iter().any(|id| id == DEFAULT_PACK_ID) {
-        state.loaded.push(DEFAULT_PACK_ID.to_string());
-    }
     // Discover other pack dirs and auto-load them (zero-config), unless unloaded.
     if let Ok(entries) = std::fs::read_dir(extensions_root()) {
         for entry in entries.flatten() {
@@ -946,7 +828,7 @@ pub fn list_packs() -> Vec<PackStatus> {
             version: manifest.version,
             seeded: root.join("manifest.json").is_file(),
             loaded: state.loaded.iter().any(|x| x == id),
-            active: state.active == id,
+            active: state.active == id && !unloaded_pack(&state, id),
             quarantined: state
                 .quarantined
                 .get(id)
@@ -976,18 +858,13 @@ pub fn list_packs() -> Vec<PackStatus> {
 }
 
 /// Create a minimal pack shell under `~/.susi/extensions/<id>/` (idempotent).
-/// Does not activate; call [`load_pack`] to make it active.
+/// Only on an explicit request; does not activate — call [`load_pack`] to
+/// make it active.
 pub fn create_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
     validate_pack_id(id)?;
     ensure_extensions_substrate()?;
-    if id == DEFAULT_PACK_ID {
-        seed_default_pack()?;
-        return list_packs()
-            .into_iter()
-            .find(|p| p.id == DEFAULT_PACK_ID)
-            .ok_or_else(|| "default pack has no valid manifest".into());
-    }
+    private_dir(&extensions_root())?;
     let root = extensions_root().join(id);
     // Creation must never follow an existing pack directory redirect.
     if root.exists() {
@@ -1022,18 +899,16 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
         .ok_or_else(|| format!("pack `{id}` has an invalid manifest"))
 }
 
-/// Load (activate + mark loaded) a pack. Seeds `default` if needed.
+/// Load (activate + mark loaded) an installed pack after verifying its
+/// integrity. Core never seeds a pack; the host installs it first.
 pub fn load_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
     validate_pack_id(id)?;
     ensure_extensions_substrate()?;
-    if id == DEFAULT_PACK_ID {
-        seed_default_pack()?;
-    }
     let root = extensions_root().join(id);
     if !root.join("manifest.json").is_file() {
         return Err(format!(
-            "pack `{id}` not found under {} — drop a manifest.json there or use `default`",
+            "pack `{id}` not found under {} — install the pack directory (with its manifest.json) there first",
             extensions_root().display()
         ));
     }
@@ -1095,8 +970,11 @@ pub fn readmit_pack(id: &str) -> Result<PackStatus, String> {
     load_pack(id)
 }
 
-/// Unload a pack (deactivate; files kept). Cannot unload the last remaining pack —
-/// falls back to seeded `default` still loaded.
+/// Unload a pack (deactivate; files kept). When the unloaded pack was
+/// active, readers fall back to core's compiled defaults (the `default` id);
+/// no other installed pack is activated in its place. Unloading `default`
+/// itself also stops serving a legacy `extensions/default/` directory an
+/// earlier core seeded.
 pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
     validate_pack_id(id)?;
@@ -1106,20 +984,12 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
     if !state.unloaded.iter().any(|x| x == id) {
         state.unloaded.push(id.to_string());
     }
-    if state.loaded.is_empty() {
-        seed_default_pack()?;
-        state.loaded.push(DEFAULT_PACK_ID.to_string());
-        state.unloaded.retain(|x| x != DEFAULT_PACK_ID);
-    }
     if state.active == id {
-        state.active = state
-            .loaded
-            .iter()
-            .find(|x| x.as_str() == DEFAULT_PACK_ID)
-            .cloned()
-            .unwrap_or_else(|| state.loaded[0].clone());
+        state.active = default_pack_id();
     }
-    write_state(&state)?;
+    if extensions_root().is_dir() {
+        write_state(&state)?;
+    }
     invalidate_extension_caches();
     Ok(PackStatus {
         id: id.to_string(),
@@ -1133,7 +1003,8 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
     })
 }
 
-/// Resolve the active pack (auto-seeds substrate first).
+/// Resolve the active pack (`default` with nothing installed: compiled
+/// defaults).
 pub fn active_pack() -> ExtensionPack {
     match ensure_extensions_substrate() {
         Ok(pack) => pack,
@@ -1149,9 +1020,19 @@ pub fn pack_file(name: &str) -> Option<PathBuf> {
     verified_pack_file(name).map(|(path, _)| path)
 }
 
+/// An explicitly unloaded pack that nothing re-admitted since (`load`, or
+/// the `SUSI_EXTENSION_PACK` override, puts it back in `loaded`): its files
+/// are never served, even while its id is the active one.
+fn unloaded_pack(state: &ExtensionsState, id: &str) -> bool {
+    state.unloaded.iter().any(|x| x == id) && !state.loaded.iter().any(|x| x == id)
+}
+
 fn verified_pack_file(name: &str) -> Option<(PathBuf, String)> {
     let pack = active_pack();
     let mut state = read_state().ok()?;
+    if unloaded_pack(&state, &pack.id) {
+        return None;
+    }
     let manifest = manifest_for(&pack.id).ok()?;
     let digests = match verify_pack_integrity(&pack.root, &manifest, &state) {
         Ok(digests) => digests,
@@ -1183,7 +1064,9 @@ pub(crate) fn resolve_pack_path(
     .ok()
 }
 
-/// Load JSON from the host pack file when present; otherwise parse `bundled`.
+/// Load JSON from the active pack's file when present and verified;
+/// otherwise parse `bundled` (core's compiled default — `"[]"` for the
+/// launchable vendor catalogs core no longer ships).
 #[allow(clippy::panic)]
 pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &str) -> T {
     if let Some((path, expected)) = verified_pack_file(pack_relative) {
@@ -1205,15 +1088,6 @@ pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &
     serde_json::from_str(bundled).unwrap_or_else(|e| {
         panic!("bundled extension pack file `{pack_relative}` must be valid JSON: {e}")
     })
-}
-
-/// Bundled default-pack manifest (compile-time source tree layout).
-#[allow(clippy::expect_used)]
-pub fn bundled_manifest() -> ExtensionManifest {
-    // Mandate 42: safe - BUNDLED_MANIFEST is compiled in via include_str!,
-    // see the comment on load_json_or_bundled above.
-    serde_json::from_str(BUNDLED_MANIFEST)
-        .expect("bundled config/extensions/default/manifest.json must be valid JSON")
 }
 
 fn validate_pack_root(id: &str) -> Result<PathBuf, String> {
@@ -1261,6 +1135,88 @@ pub fn validate_pack_dir(
     Ok((manifest, digests))
 }
 
+/// Crown `pluggable` proof (Mandate 62): a pack built outside this binary
+/// is admitted by the host's own manifest, checksum and Ed25519 signature
+/// rules without a rebuild, and a tampered one is refused. Builds a signed
+/// synthetic pack under `scratch` (never the host's extensions root, whose
+/// trust state it neither reads nor changes) and removes it afterwards.
+/// Returns what was admitted, or why the loader failed.
+pub fn pack_admission_probe(scratch: &Path) -> Result<String, String> {
+    let root = scratch.join("crown-pack-probe");
+    let result = pack_admission_probe_at(&root);
+    let _ = std::fs::remove_dir_all(&root);
+    result
+}
+
+fn pack_admission_probe_at(root: &Path) -> Result<String, String> {
+    use ed25519_dalek::Signer;
+    const CATALOG: &str = "cloud-vendors.json";
+    let _ = std::fs::remove_dir_all(root);
+    std::fs::create_dir_all(root).map_err(|e| format!("cannot create probe pack: {e}"))?;
+    let catalog =
+        br#"[{"id":"crown-probe","aliases":["crown-probe"],"api_key_env":"SUSI_CROWN_PROBE_KEY"}]"#;
+    let write = |name: &str, bytes: &[u8]| {
+        std::fs::write(root.join(name), bytes).map_err(|e| format!("cannot write {name}: {e}"))
+    };
+    write(CATALOG, catalog)?;
+    // A fixed probe key: this signs throwaway bytes, it is no identity.
+    let key = ed25519_dalek::SigningKey::from_bytes(&[0x5a; 32]);
+    let manifest = |checksum: &str| {
+        serde_json::json!({
+            "id": "crown-pack-probe",
+            "name": "Crown pack admission probe",
+            "version": "1.0.0",
+            "apiVersion": HOST_PACK_API_MAJOR.to_string(),
+            "capabilities": ["catalog.cloud_vendors"],
+            "permissions": [],
+            "files": { CATALOG: CATALOG },
+            "checksums": { CATALOG: checksum },
+            "signatures": { CATALOG: hex::encode(key.sign(catalog).to_bytes()) },
+            "signer": hex::encode(key.verifying_key().to_bytes()),
+        })
+        .to_string()
+    };
+    let digest = sha256_digest(catalog);
+    write("manifest.json", manifest(&digest).as_bytes())?;
+    let (admitted, digests) =
+        validate_pack_dir(root).map_err(|e| format!("valid signed pack refused: {e}"))?;
+    if digests.get(CATALOG) != Some(&digest) || !digests.contains_key("manifest.json") {
+        return Err("admission did not pin the pack's artifact digests".into());
+    }
+    // Parse the bytes the admission rules just accepted on disk, not the
+    // in-memory constant, so a pack the reader cannot use fails the probe.
+    let admitted_bytes = std::fs::read(root.join(CATALOG))
+        .map_err(|e| format!("admitted catalog unreadable: {e}"))?;
+    let vendors: Vec<CloudVendorEntry> = serde_json::from_slice(&admitted_bytes)
+        .map_err(|e| format!("admitted catalog unreadable: {e}"))?;
+    if vendors.first().map(|v| v.id.as_str()) != Some("crown-probe") {
+        return Err("admitted catalog did not parse into its reader type".into());
+    }
+    // A wrong checksum binding over the signed bytes must be refused.
+    write(
+        "manifest.json",
+        manifest(&sha256_digest(b"other bytes")).as_bytes(),
+    )?;
+    if validate_pack_dir(root).is_ok() {
+        return Err("pack with a mismatched checksum was admitted".into());
+    }
+    // Bytes changed after signing must be refused by the signature alone:
+    // the checksum is re-bound to the tampered bytes.
+    let tampered: &[u8] = b"[]";
+    write(CATALOG, tampered)?;
+    write(
+        "manifest.json",
+        manifest(&sha256_digest(tampered)).as_bytes(),
+    )?;
+    if validate_pack_dir(root).is_ok() {
+        return Err("pack whose signed file was tampered with was admitted".into());
+    }
+    Ok(format!(
+        "signed pack `{}` v{} passed the runtime admission rules without a rebuild (manifest, checksum, Ed25519 signature; validated, not installed); mismatched checksum and tampered file refused",
+        admitted.id, admitted.version
+    ))
+}
+
 pub fn manifest_for(pack_id: &str) -> Result<ExtensionManifest, String> {
     let root = validate_pack_root(pack_id)?;
     let file = declared_path(&root, "manifest.json", false)?;
@@ -1278,10 +1234,48 @@ pub fn manifest_for(pack_id: &str) -> Result<ExtensionManifest, String> {
     Ok(manifest)
 }
 
-/// Cloud vendors from the active pack (host override or bundled default).
+/// Ids of the agent adapter files the host (or the commercial desktop) wrote
+/// into `dir` — `<config_dir>/execution-agents/` or
+/// `<config_dir>/agent-engines/`: `<id>.json` holding a JSON object with a
+/// string `kind` (the adapter tag). Bookkeeping files such
+/// as `ready.json` (an array) and dotfiles are not adapters.
+pub fn host_adapter_ids(dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let id = path
+                .file_name()?
+                .to_str()?
+                .strip_suffix(".json")?
+                .to_string();
+            if id.is_empty() || id.starts_with('.') || !path.is_file() {
+                return None;
+            }
+            let value: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+            value.get("kind")?.as_str()?;
+            Some(id)
+        })
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Core's compiled cloud-vendor aliases (`config/cloud-vendors.json`), with
+/// no pack lookup: for readers that must not touch the host's pack state.
+pub fn compiled_cloud_vendors() -> Vec<CloudVendorEntry> {
+    serde_json::from_str(BUNDLED_CLOUD_VENDORS).unwrap_or_default()
+}
+
+/// Cloud vendors from the active pack (host override) or core's compiled
+/// `config/cloud-vendors.json`.
 pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
     // Third-party files and their pinned identities may change externally.
-    // Only the bundled pack uses the process-wide vendor cache.
+    // Only the `default` id (compiled defaults) uses the process-wide cache.
     if active_pack().id != DEFAULT_PACK_ID {
         return load_json_or_bundled("cloud-vendors.json", BUNDLED_CLOUD_VENDORS);
     }

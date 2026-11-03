@@ -1,0 +1,181 @@
+name: Windows ARM64 runner probe
+
+# Manual, read-only probe of GitHub's hosted `windows-11-arm` image (ARM64
+# feasibility study, plan step 1; CEO decision 2026-11-03: ARM64 Windows source
+# support is checked on these runners so the commercial suite can build its own
+# certified binaries; core publishes no ARM64 release). It turns the study's
+# hypotheses into recorded facts before more work depends on them:
+#
+# - the compiler identity rustup selects for this checkout (`rustc -vV`; the
+#   runtime gate requires `host: aarch64-pc-windows-msvc`, release 1.99.0 and
+#   the pinned commit);
+# - whether Visual Studio has the ARM64 MSVC tools component and which
+#   librarian (`lib.exe`) directories exist;
+# - the OS `ucrtbase.dll`, `kernelbase.dll` and `ntdll.dll` exports, above all
+#   whether ARM64 `kernelbase.dll` exports `__chkstk` (the OS-UCRT link layer's
+#   current choice for aarch64 is a hypothesis until this says so);
+# - Hyper-V availability and free disk space.
+#
+# It builds nothing, changes no repository state and is not a required check.
+# Every probe records its own failure instead of stopping the run, and the
+# whole record is uploaded as the `windows-arm64-probe` artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe windows-11-arm
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Record the runner facts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $out = Join-Path $env:RUNNER_TEMP 'windows-arm64-probe'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          function Log([string]$Message) {
+            $line = "$((Get-Date).ToUniversalTime().ToString('o')) $Message"
+            Write-Host $line
+            Add-Content -Path (Join-Path $out 'probe.log') -Value $line
+          }
+          # One probe = one file; a failing probe writes its error and the run goes on.
+          function Probe([string]$Name, [scriptblock]$Body) {
+            $file = Join-Path $out "$Name.txt"
+            Log "probe ${Name}: start"
+            try {
+              & $Body *>&1 | Out-String -Width 4096 | Set-Content -Path $file
+              Log "probe ${Name}: done"
+            } catch {
+              "PROBE FAILED: $($_.Exception.Message)" | Set-Content -Path $file
+              Log "probe ${Name}: FAILED $($_.Exception.Message)"
+            }
+          }
+
+          Probe 'architecture' {
+            "RuntimeInformation.OSArchitecture=$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
+            "RuntimeInformation.ProcessArchitecture=$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)"
+            "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+            "PROCESSOR_ARCHITEW6432=$env:PROCESSOR_ARCHITEW6432"
+            "PROCESSOR_IDENTIFIER=$env:PROCESSOR_IDENTIFIER"
+            "NUMBER_OF_PROCESSORS=$env:NUMBER_OF_PROCESSORS"
+            [System.Environment]::OSVersion | Format-List | Out-String
+            Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture, TotalVisibleMemorySize | Format-List | Out-String
+          }
+
+          # rustup resolves rust-toolchain.toml (1.99.0) for this checkout.
+          Probe 'rustc' {
+            Get-Command rustup, rustc, cargo -ErrorAction SilentlyContinue | Format-Table Name, Source -AutoSize | Out-String
+            rustup --version
+            rustup show
+            rustc -vV
+            cargo -V
+          }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          Probe 'visual-studio' {
+            "vswhere=$vswhere exists=$(Test-Path $vswhere)"
+            '--- all products'
+            & $vswhere -all -products * -format text
+            '--- with Microsoft.VisualStudio.Component.VC.Tools.ARM64'
+            & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+            '--- with Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+            & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            foreach ($relative in 'bin/Hostarm64/arm64/lib.exe', 'bin/Hostx64/arm64/lib.exe', 'bin/Hostx64/x64/lib.exe', 'bin/Hostarm64/arm64/link.exe', 'bin/Hostarm64/arm64/dumpbin.exe') {
+              "--- find VC/Tools/MSVC/*/$relative"
+              & $vswhere -latest -products * -find "VC/Tools/MSVC/*/$relative"
+            }
+            '--- MSVC lib directories'
+            & $vswhere -latest -products * -find 'VC/Tools/MSVC/*/lib/*' | Where-Object { Test-Path $_ -PathType Container }
+            '--- Windows SDK library architectures'
+            Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Lib" -ErrorAction SilentlyContinue | ForEach-Object {
+              $_.FullName
+              Get-ChildItem (Join-Path $_.FullName 'ucrt'), (Join-Path $_.FullName 'um') -Directory -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.FullName)" }
+            }
+          }
+
+          # Prefer a native ARM64-hosted dumpbin; an x64-hosted one runs emulated
+          # and still reads the ARM64(X) export tables.
+          $dumpbin = @(
+            & $vswhere -latest -products * -find 'VC/Tools/MSVC/*/bin/Hostarm64/arm64/dumpbin.exe'
+            & $vswhere -latest -products * -find 'VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe'
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          Log "dumpbin=$dumpbin"
+          foreach ($dll in 'ucrtbase.dll', 'kernelbase.dll', 'ntdll.dll') {
+            Probe "exports-$dll" {
+              $path = Join-Path $env:SystemRoot "System32\$dll"
+              "path=$path"
+              "sha256=$((Get-FileHash $path -Algorithm SHA256).Hash)"
+              if ($dumpbin) {
+                "dumpbin=$dumpbin"
+                & $dumpbin /nologo /headers $path | Select-String -Pattern 'machine' | ForEach-Object { $_.Line.Trim() }
+                & $dumpbin /nologo /exports $path
+              } else {
+                'dumpbin unavailable: no MSVC dumpbin.exe found by vswhere'
+              }
+            }
+          }
+
+          # The export a native ARM64 process actually resolves, independent of
+          # dumpbin. Only meaningful when this pwsh process itself is ARM64: an
+          # emulated x64 process sees the x64 (EC) view of ARM64X system DLLs.
+          Probe 'chkstk-resolution' {
+            $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+            "process_architecture=$arch"
+            if ("$arch" -ne 'Arm64') { 'NOT NATIVE ARM64: the results below are not ARM64 evidence' }
+            foreach ($dll in 'kernelbase.dll', 'ntdll.dll', 'ucrtbase.dll') {
+              $handle = [System.Runtime.InteropServices.NativeLibrary]::Load($dll)
+              foreach ($name in '__chkstk', '_crt_atexit', '_cexit', '__C_specific_handler', '__CxxFrameHandler3', '_CxxThrowException', '__current_exception', '__current_exception_context', '__std_type_info_destroy_list', 'memcmp', 'memmove', 'memset', 'memcpy') {
+                $address = [IntPtr]::Zero
+                $found = [System.Runtime.InteropServices.NativeLibrary]::TryGetExport($handle, $name, [ref]$address)
+                "$dll!$name exported=$found"
+              }
+            }
+          }
+
+          Probe 'hyper-v' {
+            Get-CimInstance Win32_ComputerSystem | Select-Object HypervisorPresent, Model, Manufacturer | Format-List | Out-String
+            Get-CimInstance Win32_Processor | Select-Object Name, VirtualizationFirmwareEnabled, SecondLevelAddressTranslationExtensions, VMMonitorModeExtensions | Format-List | Out-String
+            foreach ($feature in 'Microsoft-Hyper-V-All', 'Microsoft-Hyper-V', 'VirtualMachinePlatform', 'HypervisorPlatform') {
+              try {
+                Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction Stop | Select-Object FeatureName, State | Format-List | Out-String
+              } catch {
+                "${feature}: query failed: $($_.Exception.Message)"
+              }
+            }
+            "Get-VM available=$([bool](Get-Command Get-VM -ErrorAction SilentlyContinue))"
+          }
+
+          Probe 'disk' {
+            Get-PSDrive -PSProvider FileSystem | Select-Object Name, Root, @{n='UsedGB';e={[math]::Round($_.Used / 1GB, 2)}}, @{n='FreeGB';e={[math]::Round($_.Free / 1GB, 2)}} | Format-Table -AutoSize | Out-String
+            "workspace=$env:GITHUB_WORKSPACE runner_temp=$env:RUNNER_TEMP"
+          }
+
+          # A short human summary of the questions the study asked.
+          $summary = Join-Path $out 'summary.txt'
+          $kernelbase = Get-Content (Join-Path $out 'exports-kernelbase.dll.txt') -Raw -ErrorAction SilentlyContinue
+          $ntdll = Get-Content (Join-Path $out 'exports-ntdll.dll.txt') -Raw -ErrorAction SilentlyContinue
+          @(
+            "rustc host line: $((Select-String -Path (Join-Path $out 'rustc.txt') -Pattern '^host:' -ErrorAction SilentlyContinue | Select-Object -First 1).Line)"
+            "ARM64 VS tools component: $([bool](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath))"
+            "dumpbin used: $dumpbin"
+            "kernelbase.dll exports __chkstk (dumpbin): $([bool]($kernelbase -match '\s__chkstk(\s|$)'))"
+            "ntdll.dll exports __chkstk (dumpbin): $([bool]($ntdll -match '\s__chkstk(\s|$)'))"
+          ) | Set-Content -Path $summary
+          Get-Content $summary | ForEach-Object { Log "summary: $_" }
+          exit 0
+
+      - name: Upload the probe record
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-probe
+          path: ${{ runner.temp }}/windows-arm64-probe
+          if-no-files-found: error
+          retention-days: 30

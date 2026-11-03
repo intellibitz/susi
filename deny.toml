@@ -14,6 +14,9 @@ targets = [
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
+    # Windows on ARM64: built and evidenced natively on GitHub windows-11-arm
+    # (CEO decision 2026-11-03); licenses must cover its graph before it ships.
+    "aarch64-pc-windows-msvc",
 ]
 [advisories]
 ignore = [

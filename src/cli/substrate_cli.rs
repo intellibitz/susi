@@ -108,14 +108,13 @@ fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
 }
 
 /// What `substrate status` primes: its `pluggable.agents` count is the agent
-/// capabilities the execution-agent and framework scans register. Leading
-/// MCP auto-enable and coding-model auto-prefer feed nothing it prints.
+/// capabilities the execution-agent and framework scans register.
+/// Coding-model auto-prefer feeds nothing it prints.
 pub(crate) const PRIMED: Catalogs = Catalogs::AGENTS;
 
 pub fn execute(action: Option<SubstrateCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(SubstrateCommands::Status) {
         SubstrateCommands::Status => {
-            let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             // `docker info` takes ~0.7 s even when Docker is down: run it

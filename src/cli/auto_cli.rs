@@ -12,7 +12,13 @@ struct AutoStatus {
     leading_mcp_ready_not_enabled: Vec<String>,
     preferred_coding_model: Option<String>,
     agents_ready: usize,
-    frameworks_ready: usize,
+    /// `None` (JSON null) when no framework readiness probe has run.
+    frameworks_ready: Option<usize>,
+    /// `probed`, or `not probed` until a framework readiness scan has
+    /// recorded `agent-engines/ready.json`: core never probes framework
+    /// adapters on its own (`susi auto prime` and `susi substrate status`
+    /// record one on request; `susi frameworks doctor` reports live).
+    frameworks_probe: &'static str,
     last_auto_prime: Option<serde_json::Value>,
     last_blackboard: Option<serde_json::Value>,
 }
@@ -20,11 +26,12 @@ struct AutoStatus {
 #[derive(Debug, Subcommand)]
 pub enum AutoCommands {
     /// Show zero-config auto substrate readiness (default). A snapshot of
-    /// what the last prime wrote: refreshed only by the daemon, `auto prime`
-    /// and commands that prime every catalog (missions, in-process
-    /// `mcp call`); other commands prime only what they read.
+    /// what the last prime wrote: the full report is refreshed only by
+    /// `auto prime` and commands that prime every catalog (missions,
+    /// in-process `mcp call`); the daemon and other commands prime only
+    /// what they read, and the daemon never probes agent frameworks.
     Status,
-    /// Re-run auto-prime now (packs/MCP/models/peers)
+    /// Re-run auto-prime now (models/installed peers; never enables MCP)
     Prime,
 }
 
@@ -35,7 +42,6 @@ fn load_json_file(path: &Path) -> Option<serde_json::Value> {
 }
 
 fn collect_status(workspace: &Path) -> Result<AutoStatus> {
-    let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     let packs = serde_json::to_value(susi_sandbox::extensions::list_packs())?;
 
     let mut enabled = Vec::new();
@@ -82,8 +88,12 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
             .join("agent-engines")
             .join("ready.json"),
     )
-    .and_then(|v| v.as_array().map(|a| a.len()))
-    .unwrap_or(0);
+    .and_then(|v| v.as_array().map(|a| a.len()));
+    let frameworks_probe = if frameworks_ready.is_some() {
+        "probed"
+    } else {
+        "not probed"
+    };
 
     let last_auto_prime =
         load_json_file(&susi_paths::SusiDirs::config_dir().join("last_auto_prime.json"));
@@ -96,6 +106,7 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
         preferred_coding_model: preferred,
         agents_ready,
         frameworks_ready,
+        frameworks_probe,
         last_auto_prime,
         last_blackboard: last_blackboard.map(|b| {
             serde_json::json!({
@@ -113,14 +124,13 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
             print_json(&status)?;
             if status.last_auto_prime.is_none() {
                 eprintln!(
-                    "hint: no full prime recorded yet; `susi auto prime` (or the daemon) refreshes this snapshot"
+                    "hint: no full prime recorded yet; `susi auto prime` refreshes this snapshot"
                 );
             }
         }
         AutoCommands::Prime => {
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
-            let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             let report = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
             print_json(&report)?;
         }

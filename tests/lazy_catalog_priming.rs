@@ -11,10 +11,10 @@
 //! phase (`prime: <catalog>`), so `SUSI_BOOT_TRACE=1` shows exactly which
 //! catalogs a run primed; the files each step writes confirm it.
 //!
-//! These launch the real binary, so the cases that prime the agent scans or
-//! leading MCP (`auto prime`, `substrate status`, `crown status`, `mcp list`,
-//! an in-process `mcp call`) run the host's real Python import and launcher
-//! probes. The suite takes about 45-50 s on a Windows dev host; the time
+//! These launch the real binary, so the cases that prime the agent scans
+//! (`auto prime`, `substrate status`, `crown status`, an in-process
+//! `mcp call`) run the host's real adapter preflights (PATH lookups). No
+//! prime enables an MCP server (zero-UI plan A8): there is no MCP phase. The suite takes about 45-50 s on a Windows dev host; the time
 //! varies with the tooling installed (python, npx, docker), the results do
 //! not: assertions check only `prime: …` phases, files and pins. Future
 //! tests should check those phases, not `last_auto_prime.json`, which only
@@ -25,11 +25,12 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use susi_paths::test_env::isolate_home;
 
+/// The retired phase: core never auto-enables a leading MCP server.
 const LEADING_MCP: &str = "prime: leading mcp";
 const CODING_MODELS: &str = "prime: coding models";
 const EXECUTION_AGENTS: &str = "prime: execution agents";
 const FRAMEWORKS: &str = "prime: frameworks";
-const EVERY_CATALOG: [&str; 4] = [LEADING_MCP, CODING_MODELS, EXECUTION_AGENTS, FRAMEWORKS];
+const EVERY_CATALOG: [&str; 3] = [CODING_MODELS, EXECUTION_AGENTS, FRAMEWORKS];
 
 struct Run {
     code: i32,
@@ -273,13 +274,16 @@ fn models_list_primes_only_coding_models() {
     assert!(!run.wrote("ready.json"), "{}", run.context());
 }
 
-/// `mcp list` prints the enabled set that MCP auto-enable writes, so it
-/// primes leading MCP — and only that.
+/// `mcp list` prints only what the user enabled explicitly: core never
+/// auto-enables an MCP server (zero-UI plan A8), so it primes nothing and
+/// writes no MCP config.
 #[test]
-fn mcp_list_primes_only_leading_mcp() {
+fn mcp_list_primes_nothing_and_enables_no_server() {
     let run = run(&["mcp", "list"]);
     assert_eq!(run.code, 0, "{}", run.context());
-    assert_eq!(run.primed(), vec![LEADING_MCP], "{}", run.context());
+    assert!(run.primed().is_empty(), "{}", run.context());
+    assert!(!run.traced(LEADING_MCP), "{}", run.context());
+    assert!(!run.wrote("mcp_config.json"), "{}", run.context());
     assert!(!run.wrote("last_auto_prime.json"), "{}", run.context());
     assert!(!run.wrote("ready.json"), "{}", run.context());
 }
@@ -312,12 +316,15 @@ fn auto_prime_still_primes_every_catalog() {
     let report: serde_json::Value = serde_json::from_str(&run.stdout)
         .unwrap_or_else(|e| panic!("auto prime must print its report: {e}\n{}", run.context()));
     assert_eq!(report["kind"], "auto_prime", "{}", run.context());
-    for key in [
-        "mcp_enabled",
-        "preferred_coding_model",
-        "agents_ready",
-        "frameworks_ready",
-    ] {
+    // Deprecated, always empty: no prime enables an MCP server (A8).
+    assert_eq!(
+        report["mcp_enabled"],
+        serde_json::json!([]),
+        "{}",
+        run.context()
+    );
+    assert!(!run.wrote("mcp_config.json"), "{}", run.context());
+    for key in ["preferred_coding_model", "agents_ready", "frameworks_ready"] {
         assert!(report.get(key).is_some(), "{key}\n{}", run.context());
     }
 }

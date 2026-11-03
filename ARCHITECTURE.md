@@ -97,7 +97,7 @@ never consume an unterminated source tail.
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation, `ast_analyze` and complete crate-forbid measurement | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)`, `crate_forbids_unsafe_checked` | syn | workspace crates | no | no | no |
 | `susi-unsafe-ratchet` | Offline source-bound unsafe declaration measurement and reviewed inventory admission | `measurement`, `inventory`, native `unsafe_measure` / `unsafe_ratchet` commands | `susi-vendor-syn`; serialization and digest facades `susi-vendor-{serde,serde-json,sha2}` | every other workspace crate, including HTTP/SDK facades and feature planes | no | measurements, reviewed baselines and receipts | source files and local Cargo/Git/compiler inspection; no network |
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; std `Command` | workspace crates | Chrome/Chromium | no | no |
-| `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK). Tick = `probe_all`; list/apply only via `susi os provision` | `probe_all`, `list_nodes`, `apply_manifest`, `CloudKind::parse` | std `Command` | `susi-daemon`, root CLI | kubectl/docker/aws/gcloud/az | no | no |
+| `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK). No boot or tick probe; `probe_all` and list/apply only via `susi os provision` | `probe_all`, `list_nodes`, `apply_manifest`, `CloudKind::parse` | std `Command` | `susi-daemon`, root CLI | kubectl/docker/aws/gcloud/az | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: per-peer HMAC gossip 9095 + sealed (fail-closed without a MAC key) `gossip_caps.json`, egress-gated STUN / TURN MESSAGE-INTEGRITY, live OS-plane ticks (cloud **version-probe** only), `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-vendor-cloud` + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
@@ -301,26 +301,32 @@ Exactly two process-entry assembly paths:
    `src/main.rs`) then command dispatch against cwd workspace. Lifecycle and
    status commands (`start`, `stop`, `restart`, `status`, `daemon-start`) skip
    it. Catalog priming is per command: `defs::command_catalogs` names the
-   catalogs (leading MCP, coding models, execution agents, frameworks) whose
+   catalogs (coding models, execution agents, frameworks — never an MCP
+   auto-enable: core enables or launches no MCP server on its own) whose
    state the command's output or work reads, and only those are primed, fresh,
    in that process (`discovery_pipeline::prime_selected_catalogs`; each step is
    a `prime: …` boot-trace phase). Missions and unclassified commands prime
    all of them; only a full prime writes `last_auto_prime.json`. So the
-   `susi auto status` snapshot (enabled MCP, preferred model, the two
-   `ready.json` counts, `last_auto_prime`) is refreshed only by the daemon,
-   `susi auto prime` and full-prime commands; a command that primes a subset
+   `susi auto status` snapshot (preferred model, the two `ready.json`
+   counts, `last_auto_prime`) is refreshed only by `susi auto prime` and
+   full-prime commands (the daemon refreshes the coding-model and
+   execution-agent files; `frameworks_probe` reads `not probed` until a
+   framework scan has run); a command that primes a subset
    refreshes only that subset's files, and one that primes nothing refreshes
-   none. `mcp configure`/`mcp reset` no longer run after an MCP auto-enable,
-   so a server that is ready but not yet enabled is saved to
-   `mcp_config.json` by the next full prime with its overridden definition
-   (before, the catalog-default launcher was saved first and stuck).
+   none. An MCP server reaches `mcp_config.json` only through an explicit
+   `susi mcp-add` / `susi mcp enable`.
    Commands that pin a model by writing `selected_model_override.txt` without
    writing `preferred_coding_model.txt` (`select-model`, `frontier prefer`,
    `openweight prefer`) prime coding models first: auto-prefer then finds a
    ready preferred model on every later prime and keeps the pin instead of
    `prefer()`-ing over it. Mandate 44's "on daemon and CLI boot, auto-prime"
-   is met this way: the daemon primes every catalog at boot and on
-   rediscovery (the full snapshot), and CLI composition primes the catalogs
+   is met this way: the daemon primes coding models and execution agents at
+   boot and on rediscovery (`Catalogs::BOOT`: never the agent frameworks, and
+   core starts nothing on its own at boot — a local engine starts only for
+   a user request (`susi run`, a `susi <goal>` mission, a `/v1` completion)
+   whose local endpoint is down or that nothing registered could serve, or
+   on `susi ecosystem start <id>`; enforced by
+   `tests/core_boot_starts_nothing.rs`), and CLI composition primes the catalogs
    the command reads (all of them for missions, `auto prime` and unclassified
    commands).
    Only two
@@ -1358,9 +1364,9 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 327 | Root CLI could not call vendor-cloud | `susi-vendor-cloud` on the root package |
 | 328 | Kind strings were unparsed | `CloudKind::parse` (k8s/kubectl aliases) |
 | 329 | Tick vs CLI contract undocumented | tick = `probe_all` only; list/apply never unsolicited |
-| 330 | `os_planes.json` omitted the contract | `provision_tick_contract: probe_all_only` |
+| 330 | `os_planes.json` omitted the contract | `provision_tick_contract: probe_all_only` (superseded 2026-11-03: `explicit_probe_only`) |
 | 331 | Apply on docker/aws would need a silent API | still kubectl-only explicit error |
-| 332 | Probe JSON had no tick note | `tick_contract: probe_all_only` in probe JSON |
+| 332 | Probe JSON had no tick note | `tick_contract: probe_all_only` in probe JSON (superseded 2026-11-03: `explicit_probe_only`) |
 | 333 | 9095 vs `ports::ALL` still a comment only | `SWARM_UDP` published; ALL stays the 5-tuple |
 | 334 | Why 9095 is outside ALL was implicit | external clients hard-code 9090–9094; 9092 is A2A UDP |
 | 335 | Offset still applies to gossip | `SusiConfig::gossip_port` / `ports::effective` |
