@@ -35,6 +35,7 @@ fn main() -> ExitCode {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0u16);
     let mut token_file = default_token_file();
+    let mut explicit_token = false;
     let mut timeout_ms = 5_000u64;
     let mut json = false;
     let mut args = std::env::args().skip(1);
@@ -47,7 +48,10 @@ fn main() -> ExitCode {
                     .map(|n| port_offset = n)
                     .map_err(|_| format!("invalid port offset {v:?}"))
             }),
-            "--token-file" => value("--token-file").map(|v| token_file = Some(PathBuf::from(v))),
+            "--token-file" => value("--token-file").map(|v| {
+                token_file = Some(PathBuf::from(v));
+                explicit_token = true;
+            }),
             "--timeout-ms" => value("--timeout-ms").and_then(|v| {
                 v.parse()
                     .map(|n| timeout_ms = n)
@@ -65,9 +69,18 @@ fn main() -> ExitCode {
         }
     }
     let token = token_file
+        .as_ref()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty());
+    // A token the caller named must exist: otherwise every authenticated
+    // check would be skipped and an unusable setup would read as conformant.
+    if explicit_token && token.is_none() {
+        let path = token_file
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        return usage(&format!("no bearer token in {path}"));
+    }
     let target = Target {
         host,
         port_offset,

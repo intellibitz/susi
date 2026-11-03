@@ -10,7 +10,7 @@ cargo run -p susi-conformance -- [--host 127.0.0.1] [--port-offset N] [--token-f
 ```
 
 The token defaults to `$SUSI_HOME/api_token`, else `~/.susi/api_token`. The
-port offset defaults to `SUSI_PORT_OFFSET`. Exit status: `0` conformant
+port offset defaults to `SUSI_PORT_OFFSET`. An explicit `--token-file` that holds no token is a usage error, so a broken setup cannot pass by skipping every authenticated check. Exit status: `0` conformant
 (warnings allowed), `1` a check failed, `2` bad usage. `--json` prints one
 machine-readable report.
 
