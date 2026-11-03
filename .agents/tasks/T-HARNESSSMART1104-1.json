@@ -1,0 +1,20 @@
+{
+  "id": "T-HARNESSSMART1104-1",
+  "title": "Susi Harness full cache on, full budget reasoning on, infinite thinking, and Astra/Opus AI smartness",
+  "goal": "Implement multi-turn prompt caching across providers, full-budget reasoning parameters and infinite thinking continuation across turns, adaptive Astra/Opus worker smartness with self-healing loop/error recovery, and cache/reasoning telemetry in Cockpit.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSSMART1104",
+  "created_unix": 1793760850
+}
