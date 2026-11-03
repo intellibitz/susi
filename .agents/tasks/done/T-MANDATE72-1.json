@@ -33,5 +33,10 @@
     ]
   },
   "created_by": "MANDATE72",
-  "created_unix": 1793739600
+  "created_unix": 1793739600,
+  "closed": {
+    "at_unix": 1793742300,
+    "commit": "f019351481b93b29a445bf17ab97dde7837c7efd",
+    "by": "MANDATE72"
+  }
 }
