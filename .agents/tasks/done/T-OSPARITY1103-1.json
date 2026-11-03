@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "OSPARITY1103",
-  "created_unix": 1793734832
+  "created_unix": 1793734832,
+  "closed": {
+    "at_unix": 1793736515,
+    "commit": "90f9d988d768884195c20bdcb35aeba045cb2e6f",
+    "by": "OSPARITY1103"
+  }
 }

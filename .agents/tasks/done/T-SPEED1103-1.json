@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "SPEED1103",
-  "created_unix": 1793727229
+  "created_unix": 1793727229,
+  "closed": {
+    "at_unix": 1793736720,
+    "commit": "50843af9ccfc80dd271d4e9948c2d20a21d56e2c",
+    "by": "SPEED1103"
+  }
 }

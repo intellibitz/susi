@@ -189,7 +189,14 @@ impl Snapshot {
         // The standard RustSec URL's cargo-deny cache name is intentionally fixed;
         // an incompatible cargo-deny version fails instead of fetching another DB.
         let output = Command::new("git")
-            .args(["clone", "--no-hardlinks", "--no-checkout", "--"])
+            .args([
+                "-c",
+                "core.autocrlf=false",
+                "clone",
+                "--no-hardlinks",
+                "--no-checkout",
+                "--",
+            ])
             .arg(&source.path)
             .arg(&database)
             .output()?;
@@ -201,6 +208,8 @@ impl Snapshot {
             &[
                 "-c",
                 "core.hooksPath=",
+                "-c",
+                "core.autocrlf=false",
                 "checkout",
                 "--detach",
                 &source.revision,
@@ -304,6 +313,7 @@ pub fn fixture_source(directory: &Path) -> Source {
 pub fn fixture_source_for(directory: &Path, package: &str) -> Source {
     fs::create_dir(directory).unwrap();
     super::git(directory, &["init", "-q"]).unwrap();
+    super::git(directory, &["config", "core.autocrlf", "false"]).unwrap();
     super::git(directory, &["remote", "add", "origin", DATABASE_URL]).unwrap();
     let collection = directory.join("crates").join(package);
     fs::create_dir_all(&collection).unwrap();
@@ -349,16 +359,16 @@ mod tests {
     fn database_pin_rejects_missing_wrong_dirty_stale_and_future_inputs() {
         let path = scratch();
         let mut source = fixture_source(&path.join("db"));
-        assert!(validate_source(&source, now().unwrap()).is_ok());
+        let (_, committed_at) = validate_source(&source, now().unwrap()).unwrap();
         super::super::git(
             &source.path,
             &["remote", "set-url", "origin", "https://example.invalid/db"],
         )
         .unwrap();
-        assert!(validate_source(&source, now().unwrap()).is_err());
+        assert!(validate_source(&source, committed_at).is_err());
         super::super::git(&source.path, &["remote", "set-url", "origin", DATABASE_URL]).unwrap();
-        assert!(validate_source(&source, now().unwrap() + MAX_AGE_SECONDS + 1).is_err());
-        assert!(validate_source(&source, now().unwrap() - CLOCK_SKEW_SECONDS - 1).is_err());
+        assert!(validate_source(&source, committed_at + MAX_AGE_SECONDS + 1).is_err());
+        assert!(validate_source(&source, committed_at - CLOCK_SKEW_SECONDS - 1).is_err());
         let revision = source.revision.clone();
         source.revision = "0".repeat(40);
         assert!(validate_source(&source, now().unwrap()).is_err());

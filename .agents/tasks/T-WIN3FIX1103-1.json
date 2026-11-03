@@ -1,0 +1,27 @@
+{
+  "id": "T-WIN3FIX1103-1",
+  "title": "Validate Windows CNG RSA private components and fix xtask clock-skew and gate-index tests",
+  "goal": "Fix the remaining three pre-existing Windows test failures blocking 0.21.47 native integration and Windows origin/main: (1) Windows CNG BCryptImportKeyPair ignores d during import and reconstructs it from p and q, so corrupting private field 0 was accepted by platform_rsa_rejects_malformed_non_rsa_and_corrupt_private_keys; add pure-std 4096-bit Zeroizing component validation and reserve private_blob capacity upfront; (2) anchor database_pin_rejects_missing_wrong_dirty_stale_and_future_inputs to the recorded commit timestamp so git.exe invocation latency on Windows cannot push now() past the clock-skew check; (3) update workspace_test_count_rejects_empty_cargo_suite_before_production_build from gate-4.log to gate-6.log after the two advisory/all-features gates shifted indices.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/baseline/unsafe-default.json",
+    ".agents/tasks/t-win3fix1103-1.json",
+    "vendor/native-tls/src/platform_rsa_windows.rs",
+    "xtask/src/advisory_evidence.rs",
+    "xtask/src/bin/local-release.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-tokio-rustls",
+      "--lib"
+    ]
+  },
+  "created_by": "WIN3FIX1103",
+  "created_unix": 1793736465
+}
