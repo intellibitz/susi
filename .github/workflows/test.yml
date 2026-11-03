@@ -1171,6 +1171,30 @@ jobs:
       - name: Build the binary and run the release e2e checks
         run: cargo test --locked --test release_e2e_checks
 
+      # The host contract products build on (README "Host contract"): start an
+      # isolated host from the same debug build and require susi-conformance
+      # to pass against it. Called directly (no installed launcher), so the
+      # daemon does not hold this step's output pipe open.
+      - name: Host contract conformance (isolated host)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          # Separate builds: `--bin susi` would also filter out the suite's binary.
+          cargo build --locked -p susi --bin susi
+          cargo build --locked -p susi-conformance
+          $home_dir = Join-Path $env:RUNNER_TEMP 'susi-conformance-home'
+          New-Item -ItemType Directory -Force $home_dir | Out-Null
+          $env:SUSI_HOME = $home_dir
+          $env:SUSI_PORT_OFFSET = '300'
+          & ./target/debug/susi.exe start
+          try {
+            & ./target/debug/susi-conformance.exe --port-offset 300 --token-file (Join-Path $home_dir 'api_token') --timeout-ms 30000
+          } finally {
+            $PSNativeCommandUseErrorActionPreference = $false
+            & ./target/debug/susi.exe stop
+          }
+
   # The merge bot retests a head it resynced by dispatching this workflow
   # (a token-made push starts nothing). That run's completion raises no
   # workflow_run either: GitHub starts no workflow from an event a
