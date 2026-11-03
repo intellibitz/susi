@@ -1,9 +1,10 @@
-//! Extension pack control plane (list/create/load/unload/status).
+//! Extension pack control plane (list/create/load/unload/status/validate).
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use susi_sandbox::extensions::{
     active_pack, create_pack, ensure_extensions_substrate, list_packs, load_pack, unload_pack,
+    validate_pack_dir,
 };
 
 #[derive(Debug, Subcommand)]
@@ -20,6 +21,9 @@ pub enum ExtensionCommands {
     Unload { id: String },
     /// Ensure default pack is seeded and print its path
     Seed,
+    /// Check a pack directory against the host's admission rules (for pack
+    /// authors; reads and changes no host state)
+    Validate { path: std::path::PathBuf },
 }
 
 pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {
@@ -52,6 +56,18 @@ pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {
             print_json(&serde_json::json!({
                 "unloaded": status.id,
                 "active": active_pack().id,
+            }))?;
+        }
+        ExtensionCommands::Validate { path } => {
+            let (manifest, artifacts) = validate_pack_dir(&path).map_err(|e| anyhow::anyhow!(e))?;
+            print_json(&serde_json::json!({
+                "valid": true,
+                "id": manifest.id,
+                "version": manifest.version,
+                "apiVersion": manifest.api_version,
+                "permissions": manifest.permissions,
+                "signed": manifest.signer.is_some(),
+                "artifacts_sha256": artifacts,
             }))?;
         }
         ExtensionCommands::Seed => {

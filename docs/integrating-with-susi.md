@@ -66,7 +66,9 @@ from that list back as `model`.
 Extension packs add capabilities, catalogs and routing without changing
 Susi. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
 in `~/.susi/extensions/<id>/`, declare an `apiVersion` whose major must match
-the host's, and run only with the permissions they declare.
+the host's, and run only with the permissions they declare. Check a pack before you ship it with
+`susi extensions validate <pack-dir>`: it applies the host's admission rules
+and changes nothing on the host.
 
 ## Verify your integration
 
