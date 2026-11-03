@@ -1,0 +1,19 @@
+{
+  "id": "T-ZEROUI1103-2",
+  "title": "Zero-UI core batch 2: remove the interactive susi shell (bare susi prints usage, one-shot goals stay) and redefine the Mandate 62 plugin-update proof as a commercial-hosted pack admitted over the socket",
+  "goal": "CEO decisions G1 and G3, 2026-11-03",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "ZEROUI1103",
+  "created_unix": 1793716266
+}
