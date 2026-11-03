@@ -1,0 +1,23 @@
+{
+    "id":  "T-MANDATE1104-1",
+    "title":  "Enforce CEO platform scope, licensing and budget mandate in core CI and rules",
+    "goal":  "Remove core macOS and ARM64 CI workflows (platform-check.yml, nightly.yml, windows-arm64.yml, windows-arm64-probe.yml), remove release.yml native-platforms dispatch, remove auto-merge-pr.sh platform-check dispatch, remove nightly.yml check from check-zc-matrix.sh, and align AGENTS.md and CI workflow tests so core CI runs only on vanilla Windows x86_64 and Linux x86_64 while keeping source portable.",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--test",
+                               "ci_workflow_perf"
+                           ]
+               },
+    "created_by":  "MANDATE1104",
+    "created_unix":  1793738880
+}

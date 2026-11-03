@@ -578,28 +578,32 @@ fn retired_cuda_artifacts_are_never_built_or_published() {
     }
 }
 
-/// Core publishes x86_64 Windows and Linux only (CI platform policy, CEO
-/// decision 2026-11-03). The native macOS/ARM suite runs on the tagged commit
-/// as evidence for the commercial suite's certified builds, never as a gate on
-/// core's own publish or prune.
+/// Core publishes and runs CI for x86_64 Windows and Linux only (CI platform
+/// policy, CEO decision 2026-11-03, "cut it"). Release workflows must not run
+/// or dispatch macOS/ARM suites.
 #[test]
 fn native_platform_results_never_gate_a_publish() {
     let release = read(".github/workflows/release.yml");
     let jobs = jobs(&release);
-    let native = job(&jobs, "native-platforms");
-    assert_eq!(
-        value_of(&native.body, "needs").as_deref(),
-        Some("[verify-tag]")
-    );
-    assert!(native.body.contains("gh workflow run nightly.yml"));
     assert!(
-        !native.body.contains("uses: ./.github/workflows/"),
-        "native-platforms must dispatch nightly.yml as its own run, not call it in-run"
+        jobs.iter().all(|j| j.id != "native-platforms"),
+        "release.yml must not have a native-platforms job"
     );
+    for forbidden in [
+        "nightly.yml",
+        "platform-check.yml",
+        "windows-arm64.yml",
+        "uses: ./.github/workflows/",
+    ] {
+        assert!(
+            !release.contains(forbidden),
+            "release.yml references `{forbidden}`: core CI is x86_64 Windows and Linux only"
+        );
+    }
     for gated in ["publish", "publish-linux", "prune-old-releases"] {
         assert!(
             !job(&jobs, gated).body.contains("native-platforms"),
-            "`{gated}` waits on the native non-release platforms"
+            "`{gated}` references native-platforms"
         );
     }
 }

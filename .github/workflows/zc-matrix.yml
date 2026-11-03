@@ -3,9 +3,9 @@
 # support remain explicit matrix data rather than being inferred from the
 # runner's hardware.
 #
-# CI platform policy (CEO decision 2026-11-03; AGENTS.md): on a push to main
-# this runs only on core's release platforms, x86_64 Linux and x86_64 Windows.
-# The macos-cpu profile runs natively in nightly.yml, never here: do not add a
+# CI platform policy (CEO decision 2026-11-03; AGENTS.md): core CI runs only on
+# vanilla x86_64 Linux and x86_64 Windows. The macos-cpu profile stays in
+# matrix.json as portable metadata only and never runs in core CI: do not add a
 # macOS (or any other non-release) leg back to this matrix.
 name: Zero-Config Matrix
 

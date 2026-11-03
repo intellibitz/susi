@@ -34,13 +34,14 @@ name: Release Binaries
 # save a target or thousands of sccache objects that later tags cannot read.
 #
 # Release scope (CEO budget call, 2026-11-03, binding): the free public core is
-# released only for x86_64 Windows and x86_64 Linux. ARM (Linux and Windows)
-# and macOS support stays in the source and in free CI checks so
-# susi-commercial-apps can build its own "Susi Certified" binaries for them;
-# core never publishes those assets. The former linux-aarch64 and
-# macos-aarch64 legs and their publishers were removed for that reason. The
-# shared build steps below are kept byte-for-byte for the two released legs;
-# their `linux-aarch64` cache-targets clause no longer matches any leg.
+# released and tested in CI only for vanilla x86_64 Windows and x86_64 Linux.
+# ARM (Linux and Windows) and macOS support stays portable in the source so
+# susi-commercial-apps can build and qualify its own "Susi Certified" binaries
+# in the commercial pipeline; core never runs macOS/ARM CI or publishes those
+# assets. The former linux-aarch64 and macos-aarch64 legs and their publishers
+# were removed for that reason. The shared build steps below are kept
+# byte-for-byte for the two released legs; their `linux-aarch64` cache-targets
+# clause no longer matches any leg.
 on:
   push:
     tags:
@@ -476,32 +477,6 @@ jobs:
       RELEASE_HARNESS: release-harness-linux-x86_64
       RELEASE_HARNESS_READY: ${{ needs.build-linux.outputs.harness_ready }}
     steps: *publisher-steps
-
-  # Native tests of the non-release platforms (macOS aarch64, Linux aarch64,
-  # Windows aarch64) on exactly the tagged commit, through nightly.yml (CI
-  # platform policy, CEO decision 2026-11-03; AGENTS.md). Core publishes no
-  # asset for them, so this job needs only verify-tag and no publish or prune
-  # job needs it: a red Mac/ARM result never blocks core's x86_64 release. It
-  # dispatches nightly.yml as a run of its own on the tag ref rather than
-  # calling it in this run, so this run's conclusion, its re-runs and a same-tag
-  # re-dispatch (the `release-` group above) never wait hours on Mac/ARM legs.
-  # The success of that Nightly run on the tag is the evidence
-  # susi-commercial-apps' "Susi Certified" builds of that tag must require.
-  # A branch dispatch (a dry run) skips it.
-  native-platforms:
-    name: Start the native non-release suite on the tagged commit
-    needs: [verify-tag]
-    if: needs.verify-tag.outputs.tag != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write # dispatch nightly.yml on the tag
-    steps:
-      - name: Dispatch nightly.yml on the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.verify-tag.outputs.tag }}
-        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f ref="$GITHUB_SHA"
 
   # Retention: keep rolling `dev` (other workflow) + newest 2 semver Releases.
   # Older GitHub Release *objects* (and their ~700MB assets) are deleted;
