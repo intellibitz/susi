@@ -304,3 +304,9 @@ codegen-units = 1
 # Dependencies stay at default opt-level = 0 in dev/test builds so LLVM does
 # not spend 1500s+ optimizing 500+ crates with -O3 during local/CI test runs.
 debug = "line-tables-only"
+
+# The one exception: `susi status --json` measures the executable's SHA-256
+# on every call (T-RELEASESTATUS-1). Unoptimized, that costs seconds on a
+# 100+ MB debug binary; sha2 alone is small and quick to optimize (D-SP-1).
+[profile.dev.package.sha2]
+opt-level = 3

@@ -44,7 +44,7 @@ tools-rich = []
 
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
-tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio", features = ["test-util"] }
 
 [target."cfg(windows)".dependencies]
 winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }

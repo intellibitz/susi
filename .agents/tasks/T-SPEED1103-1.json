@@ -1,0 +1,19 @@
+{
+  "id": "T-SPEED1103-1",
+  "title": "CLI speed: early dispatch, explicit command classification, startup-time gate, clap flag clash fixes (plan D-SP-1, D-SP-2)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--bin",
+      "susi"
+    ]
+  },
+  "created_by": "SPEED1103",
+  "created_unix": 1793727229
+}
