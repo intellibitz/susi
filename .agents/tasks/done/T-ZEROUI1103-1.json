@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ZEROUI1103",
-  "created_unix": 1793714153
+  "created_unix": 1793714153,
+  "closed": {
+    "at_unix": 1793716327,
+    "commit": "b4038be60a0efe2ff25b74d8f149e27efff5cd31",
+    "by": "ZEROUI1103"
+  }
 }
