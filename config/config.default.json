@@ -8,7 +8,7 @@
   "cloud_scout_timeout_secs": 8,
   "model_provisioning_wait_secs": 120,
   "capability_rediscovery_secs": 60,
-  "auto_download_models": true,
+  "auto_download_models": false,
   "default_model": "susi-alpha",
   "discoverable_assets": [
     {

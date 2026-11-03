@@ -4629,6 +4629,7 @@ dependencies = [
  "susi-core",
  "susi-error",
  "susi-http-transport",
+ "susi-paths",
  "susi-vendor-candle",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",

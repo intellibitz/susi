@@ -56,9 +56,12 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
         key: "alpha_weights_url",
         derivation: SettingDerivation::Constant,
     },
+    // Deprecated, no effect: core never downloads a model by itself (CEO
+    // decision 2026-11-04). Kept, defaulting to `false`, so existing host
+    // `config.json` files still load.
     SettingEntry {
         key: "auto_download_models",
-        derivation: SettingDerivation::Detection,
+        derivation: SettingDerivation::Constant,
     },
     SettingEntry {
         key: "axiomatic_risk_patterns",

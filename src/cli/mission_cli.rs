@@ -338,7 +338,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Keys { action } => keys_cli::run(action),
         Commands::Admin { subcommand } => admin_cli::run(subcommand, host),
         Commands::VerifyDownloadAgent => {
-            match susi_gemi::models::ModelManager::verify_and_provision_model_ladder(cwd) {
+            match susi_gemi::models::ModelManager::verify_model_ladder(cwd) {
                 Ok(report) => {
                     println!("=== SUSI Model Download Agent & Network Verification Report ===");
                     println!("- Network Status: {}", report.network_status);
@@ -372,6 +372,11 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     } else {
                         println!(
                             "\nINCOMPLETE: one or more provisioning steps are not COMPLETED_VERIFIED."
+                        );
+                        // Verification only: Susi never downloads by itself.
+                        println!(
+                            "No download was started. To install the local starter model, {}.",
+                            susi_gemi::models::NoLocalModelInstalled::starter().install_hint()
                         );
                         std::process::exit(1);
                     }
