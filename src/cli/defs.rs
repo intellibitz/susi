@@ -1033,7 +1033,7 @@ mod tests {
             ),
             ("local", &["local", "build", "debug"], true, C::ALL),
             ("uninstall", &["uninstall"], false, C::ALL),
-            ("mcp", &["mcp", "list"], false, C::LEADING_MCP),
+            ("mcp", &["mcp", "list"], false, C::NONE),
             ("extensions", &["extensions"], false, C::ALL),
             ("auto", &["auto", "status"], false, C::NONE),
             ("setup", &["setup"], false, C::ALL),
