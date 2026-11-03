@@ -1,50 +1,81 @@
 [
   {
-    "id": "cerebras",
-    "name": "Cerebras",
-    "base_url": "https://api.cerebras.ai/v1",
-    "key_env": "CEREBRAS_API_KEY",
-    "models_path": "/models",
-    "dialect": "chat-completions"
+    "id": "openai",
+    "aliases": ["openai"],
+    "api_key_env": "OPENAI_API_KEY"
   },
   {
-    "id": "sambanova",
-    "name": "SambaNova",
-    "base_url": "https://api.sambanova.ai/v1",
-    "key_env": "SAMBANOVA_API_KEY",
-    "models_path": "/models",
-    "dialect": "chat-completions"
+    "id": "anthropic",
+    "aliases": ["anthropic", "claude"],
+    "api_key_env": "ANTHROPIC_API_KEY"
   },
   {
-    "id": "nim",
-    "name": "NVIDIA NIM",
-    "base_url": "https://integrate.api.nvidia.com/v1",
-    "key_env": "NVIDIA_API_KEY",
-    "models_path": "/models",
-    "dialect": "chat-completions"
+    "id": "gemini",
+    "aliases": ["gemini", "google", "googlegemini"],
+    "api_key_env": "GEMINI_API_KEY",
+    "api_key_env_alts": ["GOOGLE_API_KEY"]
   },
   {
-    "id": "hyperbolic",
-    "name": "Hyperbolic",
-    "base_url": "https://api.hyperbolic.xyz/v1",
-    "key_env": "HYPERBOLIC_API_KEY",
-    "models_path": "/models",
-    "dialect": "chat-completions"
+    "id": "deepseek",
+    "aliases": ["deepseek"],
+    "api_key_env": "DEEPSEEK_API_KEY"
   },
   {
-    "id": "perplexity",
-    "name": "Perplexity",
-    "base_url": "https://api.perplexity.ai",
-    "key_env": "PERPLEXITY_API_KEY",
-    "models_path": "/models",
-    "dialect": "chat-completions"
+    "id": "kimi",
+    "aliases": ["kimi", "moonshot", "moonshotai"],
+    "api_key_env": "MOONSHOT_API_KEY",
+    "api_key_env_alts": ["KIMI_API_KEY"]
   },
   {
-    "id": "cohere",
-    "name": "Cohere",
-    "base_url": "https://api.cohere.com/compatibility/v1",
-    "key_env": "COHERE_API_KEY",
-    "models_path": "/models",
-    "dialect": "chat-completions"
+    "id": "minimax",
+    "aliases": ["minimax"],
+    "api_key_env": "MINIMAX_API_KEY"
+  },
+  {
+    "id": "qwen",
+    "aliases": ["qwen", "dashscope", "alibaba"],
+    "api_key_env": "DASHSCOPE_API_KEY",
+    "api_key_env_alts": ["QWEN_API_KEY"]
+  },
+  {
+    "id": "zhipu",
+    "aliases": ["zhipu", "glm", "bigmodel"],
+    "api_key_env": "ZHIPU_API_KEY",
+    "api_key_env_alts": ["BIGMODEL_API_KEY"]
+  },
+  {
+    "id": "openrouter",
+    "aliases": ["openrouter", "or", "router"],
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  {
+    "id": "mistral",
+    "aliases": ["mistral"],
+    "api_key_env": "MISTRAL_API_KEY"
+  },
+  {
+    "id": "groq",
+    "aliases": ["groq"],
+    "api_key_env": "GROQ_API_KEY"
+  },
+  {
+    "id": "together",
+    "aliases": ["together"],
+    "api_key_env": "TOGETHER_API_KEY"
+  },
+  {
+    "id": "fireworks",
+    "aliases": ["fireworks"],
+    "api_key_env": "FIREWORKS_API_KEY"
+  },
+  {
+    "id": "xai",
+    "aliases": ["xai", "grok", "x.ai"],
+    "api_key_env": "XAI_API_KEY"
+  },
+  {
+    "id": "deepinfra",
+    "aliases": ["deepinfra"],
+    "api_key_env": "DEEPINFRA_API_KEY"
   }
 ]

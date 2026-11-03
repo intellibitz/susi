@@ -1,4 +1,9 @@
 //! Durable management of the top MCP tool servers agents call.
+//!
+//! Core bundles no server catalog (zero-UI plan A9): the catalog is the
+//! active extension pack's `leading-mcp.json`, empty when none is installed.
+//! Core never enables a server on its own (A8) — `enable` runs only on an
+//! explicit `susi mcp enable` / `tools.leading.enable` request.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -58,10 +63,12 @@ impl LeadingMcpManager {
         Self { config, workspace }
     }
 
+    /// The installed catalog: the active extension pack's `leading-mcp.json`
+    /// (empty with no pack installed).
     pub fn catalog() -> Result<Vec<LeadingMcpDefinition>> {
         Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
             "leading-mcp.json",
-            include_str!("../../../config/leading-mcp.json"),
+            "[]",
         ))
     }
 
@@ -69,7 +76,12 @@ impl LeadingMcpManager {
         Self::catalog()?
             .into_iter()
             .find(|m| m.id == id || m.name.eq_ignore_ascii_case(id))
-            .with_context(|| format!("unknown leading MCP {id}; use `susi mcp list`"))
+            .with_context(|| {
+                format!(
+                "unknown leading MCP {id}; use `susi mcp list` (catalogs come from an installed \
+                 extension pack), or admit any server explicitly with `susi mcp-add`"
+            )
+            })
     }
 
     pub fn effective(&self, id: &str) -> Result<LeadingMcpDefinition> {
@@ -149,65 +161,68 @@ impl LeadingMcpManager {
         Ok(srv)
     }
 
+    /// Remove a server from `mcp_config.json`. A configured server with no
+    /// catalog entry (admitted with `susi mcp-add`, or enabled by an earlier
+    /// core whose catalog is gone) is removed by its exact id too, so every
+    /// configured server stays removable.
     pub fn disable(&self, id: &str) -> Result<bool> {
-        let def = Self::definition(id)?;
+        let def_id = match Self::definition(id) {
+            Ok(def) => def.id,
+            Err(e) => {
+                if !load_mcp_config()?.mcp_servers.contains_key(id) {
+                    return Err(e);
+                }
+                id.to_string()
+            }
+        };
         let mut config = load_mcp_config()?;
-        let removed = config.mcp_servers.remove(&def.id).is_some();
+        let removed = config.mcp_servers.remove(&def_id).is_some();
         if removed {
             save_mcp_config(&config)?;
         }
-        // Persist unload so zero-config auto-enable does not immediately re-admit.
-        mark_user_disabled(&self.config, &def.id)?;
+        // Persist the user's choice (`user_disabled.json`).
+        mark_user_disabled(&self.config, &def_id)?;
         Ok(removed)
     }
 
-    /// Zero-config: enable every leading MCP whose launcher + env keys are ready,
-    /// unless the user previously `disable`d it.
-    pub fn auto_enable_ready(&self) -> Result<Vec<String>> {
-        let disabled = load_user_disabled(&self.config)?;
-        let mut enabled = Vec::new();
-        let mut catalog = Self::catalog()?;
-        catalog.sort_by_key(|m| m.rank);
-        for def in catalog {
-            if disabled.iter().any(|id| id == &def.id) {
-                continue;
-            }
-            if self.is_enabled(&def.id).unwrap_or(false) {
-                continue;
-            }
-            if self.preflight(&def.id).is_err() {
-                continue;
-            }
-            match self.enable(&def.id) {
-                Ok(_) => {
-                    enabled.push(def.id.clone());
-                    if std::env::var("SUSI_VERBOSE").is_ok() {
-                        eprintln!("[AUTO] Enabled leading MCP `{}`", def.id);
-                    }
-                }
-                Err(e) => {
-                    if std::env::var("SUSI_VERBOSE").is_ok() {
-                        eprintln!("[AUTO] Skip MCP `{}`: {e}", def.id);
-                    }
-                }
-            }
-        }
-        Ok(enabled)
-    }
-
+    /// One row per catalog entry, then one per server configured in
+    /// `mcp_config.json` without a catalog entry (`"catalog": false`), so
+    /// every server core would launch on a tool listing is visible.
     pub fn status(&self) -> Result<Vec<serde_json::Value>> {
         let preferred = Self::catalog()?;
         let mut rows = Vec::new();
+        let catalog_ids: Vec<String> = preferred.iter().map(|d| d.id.clone()).collect();
         for def in preferred {
             let effective = self.effective(&def.id).unwrap_or(def.clone());
             let readiness = self.preflight(&def.id);
             rows.push(serde_json::json!({
                 "mcp": effective,
+                "catalog": true,
                 "enabled": self.is_enabled(&def.id).unwrap_or(false),
                 "prerequisites_present": readiness.is_ok(),
                 "detail": match readiness { Ok(s) => s, Err(e) => e.to_string() },
                 "config": self.enabled_config(&def.id).ok().flatten(),
             }));
+        }
+        if let Ok(config) = load_mcp_config() {
+            let mut extra: Vec<_> = config
+                .mcp_servers
+                .into_iter()
+                .filter(|(id, _)| !catalog_ids.contains(id))
+                .collect();
+            extra.sort_by(|a, b| a.0.cmp(&b.0));
+            for (id, cfg) in extra {
+                rows.push(serde_json::json!({
+                    "mcp": { "id": id },
+                    "catalog": false,
+                    "enabled": true,
+                    "prerequisites_present": serde_json::Value::Null,
+                    "detail": format!(
+                        "configured in mcp_config.json without a catalog entry (admitted with `susi mcp-add`, or enabled by an earlier core); `susi mcp disable {id}` removes it"
+                    ),
+                    "config": cfg,
+                }));
+            }
         }
         Ok(rows)
     }
@@ -497,28 +512,34 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A synthetic pack-format catalog row (the shape commercial packs ship
+    /// in `leading-mcp.json`); core bundles no real one.
+    fn synthetic_definition() -> LeadingMcpDefinition {
+        serde_json::from_value(serde_json::json!({
+            "id": "acme-files",
+            "name": "Acme Files MCP",
+            "rank": 1,
+            "documentation": "https://example.invalid/acme-files",
+            "package": "@example/acme-files-mcp",
+            "runner": "npx",
+            "args": ["-y", "@example/acme-files-mcp", "{workspace}"],
+            "env_keys": ["ACME_TOKEN"],
+            "category": "fs"
+        }))
+        .expect("synthetic leading-mcp row")
+    }
+
     #[test]
-    fn twenty_two_ranked_leading_mcp_servers() {
-        // Prefer the bundled catalog so a stale ~/.susi/extensions override
-        // cannot flake CI / local developer machines.
-        let catalog: Vec<LeadingMcpDefinition> =
-            serde_json::from_str(include_str!("../../../config/leading-mcp.json"))
-                .expect("bundled leading-mcp.json");
-        assert_eq!(catalog.len(), 22);
-        for (i, m) in catalog.iter().enumerate() {
-            assert_eq!(m.rank as usize, i + 1);
-            m.validate().unwrap();
-        }
-        assert_eq!(catalog[0].id, "filesystem");
-        assert_eq!(catalog[1].package, "ghcr.io/github/github-mcp-server");
-        assert_eq!(catalog[2].id, "context7");
-        assert_eq!(catalog[3].package, "@playwright/mcp");
-        assert_eq!(catalog[4].package, "@sentry/mcp-server");
-        assert_eq!(catalog[5].package, "chrome-devtools-mcp");
-        // Public loader still resolves names (may be host-overridden).
-        assert!(LeadingMcpManager::definition("filesystem").is_ok());
-        assert!(LeadingMcpManager::definition("brave-search").is_ok());
-        assert!(LeadingMcpManager::definition("bash").is_ok());
+    fn pack_catalog_rows_parse_and_validate() {
+        let def = synthetic_definition();
+        def.validate().unwrap();
+        assert_eq!(def.id, "acme-files");
+        let mut bad = def.clone();
+        bad.runner = String::new();
+        assert!(bad.validate().is_err());
+        let mut bad = def;
+        bad.env_keys = vec!["NOT-A-NAME".into()];
+        assert!(bad.validate().is_err());
     }
 
     #[test]
@@ -566,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn enable_disable_round_trip() {
+    fn override_store_round_trip() {
         let root = std::env::temp_dir().join(format!(
             "susi-leading-mcp-{}",
             std::time::SystemTime::now()
@@ -575,28 +596,115 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
-        // Point mcp_config at an isolated path by temporarily overriding HOME/XDG if needed:
-        // exercise expand + override store without touching the user's real mcp_config.
-        let manager = LeadingMcpManager::with_config(root.clone(), root.join("overrides"));
-        let updated = manager
-            .configure(
-                "filesystem",
-                &LeadingMcpOverride {
-                    runner: Some("npx".into()),
-                    args: Some(vec![
-                        "-y".into(),
-                        "@modelcontextprotocol/server-filesystem".into(),
-                        "{workspace}".into(),
-                    ]),
-                    env_keys: Some(vec![]),
-                    package: None,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        assert_eq!(updated.id, "filesystem");
-        assert_eq!(manager.reset("filesystem").unwrap().id, "filesystem");
+        // Exercise the per-id override store on a synthetic pack row without
+        // touching the user's real catalog or mcp_config.
+        let overrides = root.join("overrides");
+        let def = synthetic_definition();
+        let over = LeadingMcpOverride {
+            runner: Some("uvx".into()),
+            args: Some(vec!["acme-files-mcp".into()]),
+            env_keys: Some(vec![]),
+            package: None,
+            ..Default::default()
+        };
+        crate::susi_config::write_json_override(&overrides, &def.id, &over).unwrap();
+        let stored: LeadingMcpOverride =
+            serde_json::from_slice(&fs::read(overrides.join("acme-files.json")).unwrap()).unwrap();
+        assert_eq!(stored.runner.as_deref(), Some("uvx"));
+        crate::susi_config::clear_json_override(&overrides, &def.id).unwrap();
+        assert!(!overrides.join("acme-files.json").exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    /// The explicit admission path from an installed pack: with a synthetic
+    /// pack's one-row `leading-mcp.json` loaded, nothing is enabled on its
+    /// own; `configure` / `reset` touch only the per-id override; `enable`
+    /// writes exactly that server and `disable` removes it. A configured
+    /// server with no catalog entry is listed and removable too.
+    #[test]
+    fn manager_admits_a_pack_row_only_on_explicit_request() {
+        let Some(dir) = crate::private_config_fixture() else {
+            return;
+        };
+        let bin = dir.join("acme-runner");
+        fs::write(&bin, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let pack = dir.join("extensions").join("acme");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("manifest.json"),
+            serde_json::json!({
+                "id": "acme", "name": "Acme", "version": "0.0.1",
+                "files": { "leading-mcp.json": "leading-mcp.json" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut row = serde_json::to_value(synthetic_definition()).unwrap();
+        row["runner"] = serde_json::json!(bin.display().to_string());
+        row["env_keys"] = serde_json::json!([]);
+        fs::write(
+            pack.join("leading-mcp.json"),
+            serde_json::json!([row]).to_string(),
+        )
+        .unwrap();
+        crate::susi_sandbox::extensions::load_pack("acme").unwrap();
+
+        let ws = dir.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        let ws = ws.canonicalize().unwrap();
+        let overrides = dir.join("leading-mcp");
+        let manager = LeadingMcpManager::with_config(ws.clone(), overrides.clone());
+        let mcp_config = GmcpClient::get_config_path();
+        assert!(!manager.is_enabled("acme-files").unwrap());
+        assert!(!mcp_config.exists(), "nothing is admitted on its own");
+
+        let over = LeadingMcpOverride {
+            args: Some(vec!["--stdio".into()]),
+            ..Default::default()
+        };
+        assert_eq!(
+            manager.configure("acme-files", &over).unwrap().args,
+            ["--stdio"]
+        );
+        assert!(overrides.join("acme-files.json").is_file());
+        assert_eq!(manager.effective("acme-files").unwrap().args, ["--stdio"]);
+        assert!(!mcp_config.exists(), "configure enables nothing");
+        let reset = manager.reset("acme-files").unwrap();
+        assert_eq!(reset.args, ["-y", "@example/acme-files-mcp", "{workspace}"]);
+        assert!(!overrides.join("acme-files.json").exists());
+
+        let srv = manager.enable("acme-files").unwrap();
+        assert_eq!(srv.command, bin.display().to_string());
+        assert_eq!(srv.args.last().unwrap(), &ws.display().to_string());
+        let cfg = GmcpClient::read_mcp_config(&mcp_config).unwrap();
+        assert_eq!(cfg.mcp_servers.len(), 1);
+        assert!(cfg.mcp_servers.contains_key("acme-files"));
+
+        assert!(manager.disable("acme-files").unwrap());
+        assert!(GmcpClient::read_mcp_config(&mcp_config)
+            .unwrap()
+            .mcp_servers
+            .is_empty());
+        assert!(load_user_disabled(&overrides)
+            .unwrap()
+            .contains(&"acme-files".to_string()));
+
+        let admitted = GmcpClient::admit_mcp_server("legacy", &bin.display().to_string(), &[]);
+        assert_eq!(admitted, "SUCCESS_ADMITTED");
+        let rows = manager.status().unwrap();
+        assert!(
+            rows.iter().any(|r| r["mcp"]["id"] == "legacy"
+                && r["catalog"] == false
+                && r["enabled"] == true),
+            "{rows:?}"
+        );
+        assert!(manager.disable("legacy").unwrap());
+        assert!(manager.disable("not-configured").is_err());
     }
 
     #[test]

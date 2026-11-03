@@ -435,6 +435,55 @@ pub fn register_external_peer_factories(
     }
 }
 
+/// Resolve a recruited external-executor profile that has no registered
+/// factory. Core bundles no vendor peers (zero-UI A9), so the factory table
+/// only holds peers the host installed when it was built; this re-reads the
+/// host's peers so a pack or adapter installed afterwards still resolves.
+/// Otherwise the peer is not installed and the agent fails fast with
+/// `[UNAVAILABLE]`: it never prompts a model in the vendor's name.
+pub fn installed_or_unavailable_peer(name: &str) -> Arc<dyn GawdAgent> {
+    let spec = SusiConfig::load_global()
+        .unwrap_or_default()
+        .external_peer_agents()
+        .into_iter()
+        .find(|s| s.name == name);
+    match spec {
+        Some(spec) => Arc::new(ExternalPeerAgent { spec }),
+        None => Arc::new(UninstalledPeerAgent {
+            name: name.to_string(),
+        }),
+    }
+}
+
+/// An external-executor profile whose peer is not installed on this host.
+pub struct UninstalledPeerAgent {
+    pub name: String,
+}
+
+impl GawdAgent for UninstalledPeerAgent {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn rank(&self) -> f32 {
+        0.0
+    }
+
+    fn execute(
+        &self,
+        _goal: &str,
+        _workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
+        let msg = format!(
+            "[UNAVAILABLE] {}: not installed. Install its extension pack (`susi extensions load <pack>`) or an adapter under <config_dir>/execution-agents/ to plug it into susi.",
+            self.name
+        );
+        blackboard.insert(self.name.clone(), msg.clone());
+        Err(EaiError::governance(msg))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,54 +643,83 @@ mod tests {
         assert!(err.to_string().contains("api_base"));
     }
 
+    /// Zero-UI plan A9: core's compiled defaults list no vendor peers; they
+    /// come from installed extension packs and host adapter files.
     #[test]
-    fn bundled_peers_are_curated_leading_agents() {
-        let specs = SusiConfig::default().external_peer_agents();
-        assert!(
-            specs.len() >= 10,
-            "expected at least 10 curated peer agents, got {}",
-            specs.len()
-        );
-        let names: Vec<_> = specs.iter().map(|s| s.name.as_str()).collect();
-        for expected in [
-            "CodexAgent",
-            "OpenHandsAgent",
-            "GeminiCliAgent",
-            "AiderAgent",
-            "SweAgent",
-            "BrowserUseAgent",
-            "OpenVikingAgent",
-            "DeerFlowAgent",
-            "RooCodeAgent",
-            "ClineAgent",
-            "QwenAgent",
-            "LangGraphEngine",
-            "OpenAIAgentsEngine",
-            "AutoGenEngine",
-            "CrewAIEngine",
-            "QwenAgentEngine",
-            "SemanticKernelEngine",
-            "OpenHandsRuntimeEngine",
-            "LangChainEngine",
-            "PydanticAIEngine",
-            "LlamaIndexEngine",
-            "SmolAgentsEngine",
-            "TemporalEngine",
-            "E2bEngine",
-            "HaystackEngine",
-        ] {
-            assert!(names.contains(&expected), "missing {expected} in {names:?}");
-        }
+    fn compiled_defaults_list_no_vendor_peers() {
+        let defaults: serde_json::Value =
+            serde_json::from_str(include_str!("../../../config/config.default.json")).unwrap();
+        assert_eq!(defaults["external_peer_agents"], serde_json::json!([]));
     }
 
+    /// Peers the host installed register through
+    /// `register_external_peer_factories` and instantiate by name: a host
+    /// adapter file (`execution-agents/acme.json`) and a synthetic pack row
+    /// (`AcmePackAgent`). A vendor name core no longer bundles has no
+    /// factory, and an external profile without one fails fast as
+    /// `[UNAVAILABLE]` instead of becoming a model-prompted persona.
     #[test]
-    fn peer_factories_instantiate() {
-        let agent = crate::agents::instantiate_native_agent("CodexAgent")
-            .expect("CodexAgent factory must register");
-        assert_eq!(agent.name(), "CodexAgent");
-        let agent = crate::agents::instantiate_native_agent("OpenHandsAgent")
-            .expect("OpenHandsAgent factory must register");
-        assert_eq!(agent.name(), "OpenHandsAgent");
+    fn installed_peers_register_and_uninstalled_ones_fail_fast() {
+        let _env_lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!(
+            "susi_peer_factories_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(home.join("execution-agents")).unwrap();
+        std::fs::write(
+            home.join("execution-agents").join("acme.json"),
+            r#"{"kind":"command","program":"acme","args":["{prompt}"]}"#,
+        )
+        .unwrap();
+        let pack = home.join("extensions").join("peers");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("manifest.json"),
+            r#"{"id":"peers","name":"Peers","version":"0.0.1",
+                "files":{"execution-agents.json":"execution-agents.json"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pack.join("execution-agents.json"),
+            r#"[{"id":"acme-pack","peer_name":"AcmePackAgent","name":"Acme Pack"}]"#,
+        )
+        .unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("SUSI_HOME", &home);
+        env.remove("SUSI_EXTENSION_PACK");
+        crate::susi_sandbox::extensions::invalidate_extension_caches();
+        crate::susi_sandbox::extensions::load_pack("peers").unwrap();
+
+        let registry = crate::susi_core::registry::DynamicServiceRegistry::new();
+        register_external_peer_factories(&registry);
+        for name in ["acme", "AcmePackAgent"] {
+            let agent = registry
+                .instantiate::<Arc<dyn GawdAgent>>(name)
+                .unwrap_or_else(|| panic!("{name} factory must register"));
+            assert_eq!(agent.name(), name);
+        }
+        assert!(registry
+            .instantiate::<Arc<dyn GawdAgent>>("CodexAgent")
+            .is_none());
+
+        let agent = installed_or_unavailable_peer("ZzNotInstalledAgent");
+        let blackboard: MissionBlackboard =
+            Arc::new(crate::agents::HighDensityContextStore::new(16));
+        let err = agent
+            .execute("use zznotinstalled to fix it", &home, &blackboard)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("[UNAVAILABLE] ZzNotInstalledAgent"), "{err}");
+
+        drop(env);
+        crate::susi_sandbox::extensions::invalidate_extension_caches();
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
