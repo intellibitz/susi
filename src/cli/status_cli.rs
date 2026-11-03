@@ -636,21 +636,16 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
     out
 }
 
-/// `susi status [--json]`: the human report (prefixed by the substrate
-/// identity when one exists) or the measured JSON object. It reads files and
-/// live process checks only, so `main` answers it before substrate boot.
-pub(crate) fn run_command(json: bool, cwd: &Path, global_dir: &Path) -> std::process::ExitCode {
-    if json {
-        return run_json(cwd, global_dir);
-    }
+/// Print the `[SUBSTRATE IDENTITY]` line that prefixes the human `susi
+/// status` report, when the substrate has an identity on disk. It reads one
+/// file only, so `main` can answer `status` before substrate boot.
+pub(crate) fn print_identity(global_dir: &Path) {
     let id_file = global_dir.join("identity.key");
     if id_file.exists() {
         if let Ok(id) = std::fs::read_to_string(id_file) {
             println!("[SUBSTRATE IDENTITY]: {}", id.trim());
         }
     }
-    run(cwd, global_dir);
-    std::process::ExitCode::SUCCESS
 }
 
 /// The `susi status` command body.

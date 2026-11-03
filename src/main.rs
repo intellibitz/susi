@@ -169,7 +169,12 @@ fn dispatch_local_report(
         Some(Commands::Status { json }) => {
             let global_dir = susi_paths::SusiDirs::config_dir();
             let _ = std::fs::create_dir_all(&global_dir);
-            Ok(cli::status_cli::run_command(json, &cwd(), &global_dir))
+            if json {
+                return Ok(cli::status_cli::run_json(&cwd(), &global_dir));
+            }
+            cli::status_cli::print_identity(&global_dir);
+            cli::status_cli::run(&cwd(), &global_dir);
+            Ok(std::process::ExitCode::SUCCESS)
         }
         Some(Commands::Audit {
             action:

@@ -181,7 +181,11 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Status { json } => {
             // `main::dispatch_local_report` answers this before substrate
             // boot; the arm stays so the post-boot dispatch remains total.
-            return status_cli::run_command(json, cwd, global_dir);
+            if json {
+                return status_cli::run_json(cwd, global_dir);
+            }
+            status_cli::print_identity(global_dir);
+            status_cli::run(cwd, global_dir);
         }
         Commands::SubstrateReport => {
             // Calls the compiled-constants report (`AlphaSelf::RULES`/
