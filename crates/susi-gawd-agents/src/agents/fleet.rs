@@ -87,6 +87,10 @@ pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
 pub fn instantiate_agent(profile: &AgentProfile) -> Arc<dyn GawdAgent> {
     if let Some(agent) = instantiate_native_agent(&profile.name) {
         agent
+    } else if profile.categories.iter().any(|c| c == "external") {
+        // An external executor with no factory is a peer this host has not
+        // installed: never stand in for it with a model-prompted persona.
+        crate::external_peers::installed_or_unavailable_peer(&profile.name)
     } else {
         Arc::new(DynamicAgent {
             agent_name: profile.name.clone(),

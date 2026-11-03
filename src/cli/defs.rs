@@ -719,19 +719,13 @@ pub(crate) fn open_weight_catalogs(
     }
 }
 
-/// `susi mcp …`: the subcommands whose output reads the enabled set that
-/// leading MCP auto-enable writes prime it; the rest prime nothing.
-/// `disable` reports whether it removed an entry, which an auto-enable just
-/// before decides. `serve` primes nothing (its client waits on the
-/// handshake).
+/// `susi mcp …`: nothing primes an MCP catalog — core never enables a
+/// server on its own (zero-UI plan A8), so list/status/doctor/setup/disable
+/// read only what the user enabled. `serve` primes nothing (its client
+/// waits on the handshake).
 pub(crate) fn mcp_catalogs(action: Option<&mcp_cli::McpCommands>) -> Catalogs {
     use mcp_cli::McpCommands as M;
     match action {
-        Some(M::List)
-        | Some(M::Status)
-        | Some(M::Doctor { .. })
-        | Some(M::Setup { .. })
-        | Some(M::Disable { .. }) => Catalogs::LEADING_MCP,
         // A network peer reads nothing primed here. Any other target goes
         // through `call_tool_direct`, which dispatches in process whenever
         // the server is a native alias (`susi`, `native`, `gmcp`, `local`,
@@ -741,7 +735,12 @@ pub(crate) fn mcp_catalogs(action: Option<&mcp_cli::McpCommands>) -> Catalogs {
         // native is only known at dispatch, so every non-network call
         // primes everything, as missions do.
         Some(M::Call { addr, .. }) if !mcp_cli::is_network_endpoint(addr) => Catalogs::ALL,
-        Some(M::Call { .. })
+        Some(M::List)
+        | Some(M::Status)
+        | Some(M::Doctor { .. })
+        | Some(M::Setup { .. })
+        | Some(M::Disable { .. })
+        | Some(M::Call { .. })
         | Some(M::Tools { .. })
         | Some(M::Ledger { .. })
         | Some(M::Enable { .. })
@@ -847,11 +846,12 @@ mod tests {
         );
     }
 
-    /// Commands that print or use the enabled MCP set prime only MCP.
+    /// Commands that print or use the enabled MCP set prime nothing: core
+    /// never enables an MCP server on its own (zero-UI plan A8).
     #[test]
-    fn enabled_mcp_readers_prime_only_leading_mcp() {
+    fn enabled_mcp_readers_prime_nothing() {
         assert_primes(
-            Catalogs::LEADING_MCP,
+            Catalogs::NONE,
             &[
                 &["susi", "mcp", "list"],
                 &["susi", "mcp", "status"],

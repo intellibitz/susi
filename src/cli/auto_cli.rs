@@ -24,7 +24,7 @@ pub enum AutoCommands {
     /// and commands that prime every catalog (missions, in-process
     /// `mcp call`); other commands prime only what they read.
     Status,
-    /// Re-run auto-prime now (packs/MCP/models/peers)
+    /// Re-run auto-prime now (models/installed peers; never enables MCP)
     Prime,
 }
 
@@ -35,7 +35,6 @@ fn load_json_file(path: &Path) -> Option<serde_json::Value> {
 }
 
 fn collect_status(workspace: &Path) -> Result<AutoStatus> {
-    let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     let packs = serde_json::to_value(susi_sandbox::extensions::list_packs())?;
 
     let mut enabled = Vec::new();
@@ -120,7 +119,6 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
         AutoCommands::Prime => {
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
-            let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             let report = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
             print_json(&report)?;
         }

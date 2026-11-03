@@ -914,18 +914,49 @@ fn architecture_md_exists() {
     );
 }
 
+/// BT-01 as sequenced in zero-UI plan A9: core ships no extension pack, so
+/// the manifest schema the host admits is checked on a fixture created inside
+/// the test, through the host's own author-side admission check.
 #[test]
-fn default_extension_manifest_declares_api_version() {
-    let path = workspace_root().join("config/extensions/default/manifest.json");
-    let text = std::fs::read_to_string(&path).expect("manifest");
-    let v: serde_json::Value = serde_json::from_str(&text).expect("json");
-    assert_eq!(v["id"], "default");
-    assert!(
-        v.get("apiVersion").is_some() || v.get("api_version").is_some(),
-        "default pack must declare apiVersion"
-    );
-    assert!(v.get("permissions").is_some());
-    assert!(v.get("capabilities").is_some());
+fn extension_pack_manifest_schema_on_an_in_test_fixture() {
+    let dir = std::env::temp_dir().join(format!(
+        "susi_arch_pack_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = |api: &str| {
+        serde_json::json!({
+            "id": "acme-pack",
+            "name": "Acme",
+            "version": "1.0.0",
+            "apiVersion": api,
+            "capabilities": ["catalog.cloud_vendors"],
+            "permissions": [],
+            "files": {"cloud-vendors.json": "cloud-vendors.json"},
+        })
+        .to_string()
+    };
+    std::fs::write(dir.join("manifest.json"), manifest("1")).unwrap();
+    std::fs::write(
+        dir.join("cloud-vendors.json"),
+        r#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#,
+    )
+    .unwrap();
+    let (admitted, digests) =
+        susi_sandbox::extensions::validate_pack_dir(&dir).expect("fixture pack is admissible");
+    assert_eq!(admitted.id, "acme-pack");
+    assert_eq!(admitted.api_version, "1");
+    assert!(digests.contains_key("manifest.json"));
+    assert!(digests.contains_key("cloud-vendors.json"));
+    std::fs::write(dir.join("manifest.json"), manifest("2")).unwrap();
+    let err = susi_sandbox::extensions::validate_pack_dir(&dir)
+        .expect_err("an incompatible apiVersion major is refused");
+    assert!(err.contains("incompatible"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -2544,9 +2575,10 @@ fn ui_and_plugins_live_in_commercial_apps() {
         "deploy/harness/plugins.example.json",
         "crates/susi-harness/src/plugins.rs",
         "crates/susi-dsh-cell",
-        // TODO(zero-ui plan A9): add "config/extensions" and
-        // "config/cloud-vendors.json" once the launchable plugin content
-        // moves to susi-commercial-apps and the embedded paths are rewired.
+        // A9: the bundled default extension pack. (`config/cloud-vendors.json`
+        // is not listed: it is now core's compiled vendor-alias default, which
+        // the key resolver depends on — plan NP-04.)
+        "config/extensions",
     ] {
         assert!(
             !root.join(rel).exists(),
@@ -2566,6 +2598,149 @@ fn ui_and_plugins_live_in_commercial_apps() {
         !harness_lib.contains("pub mod plugins;"),
         "the harness plugin manifest module must not return"
     );
+}
+
+/// Every first-party, non-test Rust source in core (`src/` and `crates/`;
+/// third-party `vendor/` is not ours).
+fn first_party_non_test_sources() -> Vec<(String, String)> {
+    let root = workspace_root();
+    let mut paths = Vec::new();
+    rust_files(&root.join("src"), &mut paths);
+    rust_files(&root.join("crates"), &mut paths);
+    let mut out = Vec::new();
+    for path in paths {
+        let rel = zero_ui_rel(&path);
+        if rel
+            .split('/')
+            .any(|part| part == "tests" || part == "benches")
+            || rel.ends_with("/tests.rs")
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        out.push((rel, non_test(&text).to_string()));
+    }
+    out
+}
+
+/// A8: core never launches third-party code on its own. No boot-time
+/// leading-MCP auto-enable, no essential-MCP auto-link (nor its plane-bus
+/// topic), no registry-driven provisioning inside capability-gap
+/// resolution, and no remote MCP registry refresh. Admission is explicit
+/// only: `susi mcp-add`, `susi mcp add/enable`, `susi extensions load` — the
+/// user or the commercial desktop asks, core admits. Scope is A8's: MCP
+/// servers and packages. The daemon's boot-time wake of an installed local
+/// inference engine (`try_awaken_local_engines`) is not covered here.
+#[test]
+fn core_never_autolaunches_third_party_servers() {
+    let banned = [
+        "auto_enable_ready",
+        "auto_link_essential",
+        "auto_configure_server",
+        "provision_tool_package",
+        "tools.registry.auto_link",
+        "mcp_registry_url",
+    ];
+    let mut offenders = Vec::new();
+    for (rel, code) in first_party_non_test_sources() {
+        for name in banned {
+            // `susi-gmcp`'s `auto_configure_server` is an inert stub behind
+            // the explicit `mcp_configure` tool: it launches and writes
+            // nothing, and its source is bound to the recorded VC-203 GMCP
+            // evidence digest, so it is left as is.
+            if name == "auto_configure_server" && rel.starts_with("crates/susi-gmcp/src/") {
+                continue;
+            }
+            // The retired key is listed only so upgraded configs heal it away.
+            if name == "mcp_registry_url" && rel == "crates/susi-config/src/validate.rs" {
+                continue;
+            }
+            if code.contains(name) {
+                offenders.push(format!("{rel}: {name}"));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "core must not launch or provision third-party servers on its own:\n{}",
+        offenders.join("\n")
+    );
+    let defaults: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_root().join("config/config.default.json"))
+            .expect("read config.default.json"),
+    )
+    .expect("config.default.json is JSON");
+    assert!(
+        defaults.get("mcp_registry_url").is_none(),
+        "no remote MCP registry URL: core never refreshes a registry on its own"
+    );
+}
+
+/// A9: core bundles no launchable vendor catalog. The leading-MCP list, the
+/// MCP scout registry, and the execution-agent / agent-engine catalogs ship
+/// in extension packs (susi-commercial-apps), never as compiled defaults,
+/// and core's `config.default.json` lists no vendor peers or bootstrap MCP
+/// servers. Model catalogs, prices and cloud-vendor aliases stay (NP-04,
+/// NP-18, NP-19).
+#[test]
+fn core_bundles_no_launchable_vendor_catalogs() {
+    let root = workspace_root();
+    let banned = [
+        "leading-mcp",
+        "mcp.registry",
+        "execution-agents",
+        "agent-engines",
+    ];
+    let mut paths = Vec::new();
+    rust_files(&root.join("src"), &mut paths);
+    rust_files(&root.join("crates"), &mut paths);
+    rust_files(&root.join("tests"), &mut paths);
+    let mut offenders = Vec::new();
+    for path in paths {
+        let rel = zero_ui_rel(&path);
+        if rel == "tests/architecture_tests.rs" {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (i, _) in text.match_indices("include_str!") {
+            let arg = text[i..].split(')').next().unwrap_or_default();
+            if let Some(name) = banned.iter().find(|name| arg.contains(*name)) {
+                offenders.push(format!("{rel}: include_str! of {name}"));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "launchable vendor catalogs belong in extension packs, not core:\n{}",
+        offenders.join("\n")
+    );
+    for rel in [
+        "config/leading-mcp.json",
+        "config/mcp.registry.default.json",
+        "config/execution-agents.json",
+        "config/agent-engines.json",
+    ] {
+        assert!(
+            !root.join(rel).exists(),
+            "{rel} is a launchable vendor catalog; it ships in an extension pack"
+        );
+    }
+    let defaults: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("config/config.default.json"))
+            .expect("read config.default.json"),
+    )
+    .expect("config.default.json is JSON");
+    for key in ["external_peer_agents", "bootstrap_mcp_servers"] {
+        assert_eq!(
+            defaults[key],
+            serde_json::json!([]),
+            "config.default.json `{key}` must list no vendor entries"
+        );
+    }
 }
 
 /// BT-07: the CLI has no UI subcommands: nothing in `src/` clears and redraws

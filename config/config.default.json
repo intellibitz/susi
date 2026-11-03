@@ -159,88 +159,7 @@
     "failure_cooldown_secs": 300
   },
   "max_stdin_size_bytes": 104857600,
-  "bootstrap_mcp_servers": [
-    {
-      "category": "fs",
-      "description": "Sandboxed filesystem read/write for autonomous agents",
-      "latency_ms": 20,
-      "name": "filesystem",
-      "package": "@modelcontextprotocol/server-filesystem",
-      "trust_score": 0.95
-    },
-    {
-      "category": "exec",
-      "description": "Host shell / command execution for scripts and tests",
-      "latency_ms": 40,
-      "name": "bash",
-      "package": "mcp-server-commands",
-      "trust_score": 0.85
-    },
-    {
-      "category": "browser",
-      "description": "Playwright headless browser for UI interaction (pair with chrome-devtools)",
-      "latency_ms": 80,
-      "name": "browser",
-      "package": "@playwright/mcp",
-      "trust_score": 0.92
-    },
-    {
-      "category": "browser",
-      "description": "Chrome DevTools live inspection for agent debugging",
-      "latency_ms": 80,
-      "name": "chrome-devtools",
-      "package": "chrome-devtools-mcp",
-      "trust_score": 0.92
-    },
-    {
-      "category": "docs",
-      "description": "Context7 version-specific library documentation",
-      "latency_ms": 60,
-      "name": "context7",
-      "package": "@upstash/context7-mcp",
-      "trust_score": 0.92
-    },
-    {
-      "category": "vcs",
-      "description": "GitHub official MCP (issues, PRs, repo search)",
-      "latency_ms": 80,
-      "name": "github",
-      "package": "ghcr.io/github/github-mcp-server",
-      "trust_score": 0.95
-    },
-    {
-      "category": "observability",
-      "description": "Sentry error logs for diagnose-and-patch workflows",
-      "latency_ms": 80,
-      "name": "sentry",
-      "package": "@sentry/mcp-server",
-      "trust_score": 0.9
-    },
-    {
-      "category": "search",
-      "description": "Brave Search live web querying",
-      "latency_ms": 80,
-      "name": "brave-search",
-      "package": "@brave/brave-search-mcp-server",
-      "trust_score": 0.9
-    },
-    {
-      "category": "database",
-      "description": "Postgres MCP (official @modelcontextprotocol/server-postgres)",
-      "latency_ms": 10,
-      "name": "postgres",
-      "package": "@modelcontextprotocol/server-postgres",
-      "trust_score": 0.95
-    },
-    {
-      "category": "vcs",
-      "description": "Git MCP for local repository operations",
-      "latency_ms": 30,
-      "name": "git",
-      "package": "mcp-server-git",
-      "trust_score": 0.92
-    }
-  ],
+  "bootstrap_mcp_servers": [],
   "intent_classify": {
     "query_exact": [
       "identity",
@@ -473,7 +392,6 @@
     "mandatory_sandbox_for_exec": false,
     "require_egress_consent": true
   },
-  "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
   "reflex_training_threshold": 50,
   "gmcp_port": 9090,
   "local_scan_paths": [],
@@ -557,52 +475,6 @@
     "prefer_cloud_when_cpu_only": true,
     "ask_when_multiple_clouds": true
   },
-  "external_peer_agents": [
-    {
-      "name": "GooseAgent",
-      "description": "Block Goose agent CLI (pluggable when driver on PATH / configured).",
-      "detect_bins": [
-        "goose"
-      ],
-      "command": "goose",
-      "args": [
-        "run",
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null,
-      "protocol": "cli"
-    },
-    {
-      "name": "AmazonQAgent",
-      "description": "Amazon Q Developer CLI (pluggable when driver on PATH / configured).",
-      "detect_bins": [
-        "q"
-      ],
-      "command": "q",
-      "args": [
-        "chat",
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null,
-      "protocol": "cli"
-    },
-    {
-      "name": "ContinueAgent",
-      "description": "Continue.dev CLI peer (pluggable when driver on PATH / configured).",
-      "detect_bins": [
-        "cn",
-        "continue"
-      ],
-      "command": "cn",
-      "args": [
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null,
-      "protocol": "cli"
-    }
-  ],
-  "external_peer_agents_note": "Managed peers (protocol=managed) are derived at runtime from execution-agents.json + agent-engines.json peer_name fields. Only non-managed CLI/HTTP/A2A peers need listing here."
+  "external_peer_agents": [],
+  "external_peer_agents_note": "Core lists no vendor peers. Managed peers (protocol=managed) are derived at runtime from the active extension pack's execution-agents.json + agent-engines.json peer_name fields and from adapter files under ~/.susi/execution-agents/ and ~/.susi/agent-engines/. List only your own non-managed CLI/HTTP/A2A peers here."
 }

@@ -301,19 +301,18 @@ Exactly two process-entry assembly paths:
    `src/main.rs`) then command dispatch against cwd workspace. Lifecycle and
    status commands (`start`, `stop`, `restart`, `status`, `daemon-start`) skip
    it. Catalog priming is per command: `defs::command_catalogs` names the
-   catalogs (leading MCP, coding models, execution agents, frameworks) whose
+   catalogs (coding models, execution agents, frameworks — never an MCP
+   auto-enable: core enables or launches no MCP server on its own) whose
    state the command's output or work reads, and only those are primed, fresh,
    in that process (`discovery_pipeline::prime_selected_catalogs`; each step is
    a `prime: …` boot-trace phase). Missions and unclassified commands prime
    all of them; only a full prime writes `last_auto_prime.json`. So the
-   `susi auto status` snapshot (enabled MCP, preferred model, the two
-   `ready.json` counts, `last_auto_prime`) is refreshed only by the daemon,
+   `susi auto status` snapshot (preferred model, the two `ready.json`
+   counts, `last_auto_prime`) is refreshed only by the daemon,
    `susi auto prime` and full-prime commands; a command that primes a subset
    refreshes only that subset's files, and one that primes nothing refreshes
-   none. `mcp configure`/`mcp reset` no longer run after an MCP auto-enable,
-   so a server that is ready but not yet enabled is saved to
-   `mcp_config.json` by the next full prime with its overridden definition
-   (before, the catalog-default launcher was saved first and stuck).
+   none. An MCP server reaches `mcp_config.json` only through an explicit
+   `susi mcp-add` / `susi mcp enable`.
    Commands that pin a model by writing `selected_model_override.txt` without
    writing `preferred_coding_model.txt` (`select-model`, `frontier prefer`,
    `openweight prefer`) prime coding models first: auto-prefer then finds a

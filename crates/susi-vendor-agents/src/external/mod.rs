@@ -11,7 +11,10 @@ mod process;
 pub use acp::{
     drive as acp_drive, Outcome as AcpOutcome, Permission as AcpPermission, Task as AcpTask,
 };
-pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
+pub use catalog::{
+    catalog, catalog_with_host_dir, definition, resolve_managed, Adapter, AgentDefinition,
+    CatalogKind,
+};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
@@ -64,6 +67,8 @@ pub struct AgentManager {
     config: PathBuf,
     shutdown: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     poll_interval: std::time::Duration,
+    /// A fixed catalog in place of the installed one ([`Self::with_catalog`]).
+    fixed_catalog: Option<Vec<AgentDefinition>>,
 }
 
 fn should_probe_readiness(adapter: &Adapter, verbose: bool) -> bool {
@@ -108,7 +113,39 @@ impl AgentManager {
             config,
             shutdown: None,
             poll_interval: std::time::Duration::from_secs(3),
+            fixed_catalog: None,
         })
+    }
+
+    /// Serve `entries` as this manager's catalog instead of the installed one
+    /// (the active pack plus the host adapter files in this manager's config
+    /// dir). For embedders and tests with their own catalog.
+    pub fn with_catalog(mut self, entries: Vec<AgentDefinition>) -> Self {
+        self.fixed_catalog = Some(entries);
+        self
+    }
+
+    /// This manager's catalog: the fixed one, else the installed one — the
+    /// active extension pack's entries, then host adapter files in this
+    /// manager's config dir ([`catalog_with_host_dir`]).
+    pub fn entries(&self) -> Result<Vec<AgentDefinition>> {
+        match &self.fixed_catalog {
+            Some(entries) => Ok(entries.clone()),
+            None => catalog_with_host_dir(self.kind, &self.config),
+        }
+    }
+
+    fn lookup(&self, id: &str) -> Result<AgentDefinition> {
+        self.entries()?
+            .into_iter()
+            .find(|a| a.id == id || a.peer_name == id)
+            .with_context(|| {
+                format!(
+                    "unknown {} {id}; use {} (catalogs come from an installed extension pack)",
+                    self.kind.label(),
+                    self.kind.list_hint()
+                )
+            })
     }
 
     pub fn kind(&self) -> CatalogKind {
@@ -132,7 +169,7 @@ impl AgentManager {
     }
 
     pub fn adapter(&self, id: &str) -> Result<Adapter> {
-        let def = definition(self.kind, id)?;
+        let def = self.lookup(id)?;
         let path = self.config.join(format!("{}.json", def.id));
         let adapter = match fs::read(&path) {
             Ok(bytes) => {
@@ -147,7 +184,7 @@ impl AgentManager {
 
     /// Overrides are host configuration, never executable instructions auto-loaded from a repo.
     pub fn configure(&self, id: &str, adapter: &Adapter) -> Result<()> {
-        let def = definition(self.kind, id)?;
+        let def = self.lookup(id)?;
         adapter.validate()?;
         crate::susi_config::create_private_dir(&self.config)?;
         crate::susi_config::atomic_write_json_pretty(
@@ -158,14 +195,14 @@ impl AgentManager {
     }
 
     pub fn reset(&self, id: &str) -> Result<()> {
-        let def = definition(self.kind, id)?;
+        let def = self.lookup(id)?;
         Ok(crate::susi_config::remove_file_if_present(
             &self.config.join(format!("{}.json", def.id)),
         )?)
     }
 
     pub fn prepare(&self, agent: &str, prompt: &str) -> Result<RunRecord> {
-        let def = definition(self.kind, agent)?;
+        let def = self.lookup(agent)?;
         let adapter = self.adapter(&def.id)?;
         self.prepare_adapter(&def.id, prompt, adapter)
     }
@@ -176,7 +213,7 @@ impl AgentManager {
         prompt: &str,
         adapter: Adapter,
     ) -> Result<RunRecord> {
-        definition(self.kind, agent)?;
+        self.lookup(agent)?;
         if prompt.trim().is_empty() {
             bail!("task prompt must not be empty");
         }
@@ -325,9 +362,9 @@ impl AgentManager {
         Ok(ready)
     }
 
-    /// Scan entries in rank order and register each ready capability. Python
-    /// entries without usable configuration are skipped unless verbose
-    /// diagnostics are requested; the remaining imports are probed together.
+    /// Scan entries in rank order and register each ready capability.
+    /// Readiness is each adapter's local preflight only (PATH lookups and
+    /// env checks): the scan spawns no process.
     fn scan_ready(
         &self,
         register: &mut dyn FnMut(crate::susi_core::registry::AgentCapability),
@@ -341,7 +378,7 @@ impl AgentManager {
         verbose: bool,
     ) -> Result<Vec<serde_json::Value>> {
         let mut ready = Vec::new();
-        let mut catalog = catalog(self.kind)?;
+        let mut catalog = self.entries()?;
         catalog.sort_by_key(|a| a.rank);
         let defs: Vec<_> = catalog
             .into_iter()

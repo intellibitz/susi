@@ -276,7 +276,7 @@ impl Supervisor {
 
     /// Join a supervised worker's current thread — the daemon uses it to
     /// wait out the leaf-service monitor during graceful shutdown, and to
-    /// settle the essential-MCP auto-link before discovery.
+    /// settle the contract providers before discovery.
     ///
     /// The registry lock is released before the join: the joined worker (or
     /// anything it calls) may heartbeat or spawn a supervised worker, and
