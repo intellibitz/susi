@@ -1135,6 +1135,88 @@ pub fn validate_pack_dir(
     Ok((manifest, digests))
 }
 
+/// Crown `pluggable` proof (Mandate 62): a pack built outside this binary
+/// is admitted by the host's own manifest, checksum and Ed25519 signature
+/// rules without a rebuild, and a tampered one is refused. Builds a signed
+/// synthetic pack under `scratch` (never the host's extensions root, whose
+/// trust state it neither reads nor changes) and removes it afterwards.
+/// Returns what was admitted, or why the loader failed.
+pub fn pack_admission_probe(scratch: &Path) -> Result<String, String> {
+    let root = scratch.join("crown-pack-probe");
+    let result = pack_admission_probe_at(&root);
+    let _ = std::fs::remove_dir_all(&root);
+    result
+}
+
+fn pack_admission_probe_at(root: &Path) -> Result<String, String> {
+    use ed25519_dalek::Signer;
+    const CATALOG: &str = "cloud-vendors.json";
+    let _ = std::fs::remove_dir_all(root);
+    std::fs::create_dir_all(root).map_err(|e| format!("cannot create probe pack: {e}"))?;
+    let catalog =
+        br#"[{"id":"crown-probe","aliases":["crown-probe"],"api_key_env":"SUSI_CROWN_PROBE_KEY"}]"#;
+    let write = |name: &str, bytes: &[u8]| {
+        std::fs::write(root.join(name), bytes).map_err(|e| format!("cannot write {name}: {e}"))
+    };
+    write(CATALOG, catalog)?;
+    // A fixed probe key: this signs throwaway bytes, it is no identity.
+    let key = ed25519_dalek::SigningKey::from_bytes(&[0x5a; 32]);
+    let manifest = |checksum: &str| {
+        serde_json::json!({
+            "id": "crown-pack-probe",
+            "name": "Crown pack admission probe",
+            "version": "1.0.0",
+            "apiVersion": HOST_PACK_API_MAJOR.to_string(),
+            "capabilities": ["catalog.cloud_vendors"],
+            "permissions": [],
+            "files": { CATALOG: CATALOG },
+            "checksums": { CATALOG: checksum },
+            "signatures": { CATALOG: hex::encode(key.sign(catalog).to_bytes()) },
+            "signer": hex::encode(key.verifying_key().to_bytes()),
+        })
+        .to_string()
+    };
+    let digest = sha256_digest(catalog);
+    write("manifest.json", manifest(&digest).as_bytes())?;
+    let (admitted, digests) =
+        validate_pack_dir(root).map_err(|e| format!("valid signed pack refused: {e}"))?;
+    if digests.get(CATALOG) != Some(&digest) || !digests.contains_key("manifest.json") {
+        return Err("admission did not pin the pack's artifact digests".into());
+    }
+    // Parse the bytes the admission rules just accepted on disk, not the
+    // in-memory constant, so a pack the reader cannot use fails the probe.
+    let admitted_bytes = std::fs::read(root.join(CATALOG))
+        .map_err(|e| format!("admitted catalog unreadable: {e}"))?;
+    let vendors: Vec<CloudVendorEntry> = serde_json::from_slice(&admitted_bytes)
+        .map_err(|e| format!("admitted catalog unreadable: {e}"))?;
+    if vendors.first().map(|v| v.id.as_str()) != Some("crown-probe") {
+        return Err("admitted catalog did not parse into its reader type".into());
+    }
+    // A wrong checksum binding over the signed bytes must be refused.
+    write(
+        "manifest.json",
+        manifest(&sha256_digest(b"other bytes")).as_bytes(),
+    )?;
+    if validate_pack_dir(root).is_ok() {
+        return Err("pack with a mismatched checksum was admitted".into());
+    }
+    // Bytes changed after signing must be refused by the signature alone:
+    // the checksum is re-bound to the tampered bytes.
+    let tampered: &[u8] = b"[]";
+    write(CATALOG, tampered)?;
+    write(
+        "manifest.json",
+        manifest(&sha256_digest(tampered)).as_bytes(),
+    )?;
+    if validate_pack_dir(root).is_ok() {
+        return Err("pack whose signed file was tampered with was admitted".into());
+    }
+    Ok(format!(
+        "signed pack `{}` v{} passed the runtime admission rules without a rebuild (manifest, checksum, Ed25519 signature; validated, not installed); mismatched checksum and tampered file refused",
+        admitted.id, admitted.version
+    ))
+}
+
 pub fn manifest_for(pack_id: &str) -> Result<ExtensionManifest, String> {
     let root = validate_pack_root(pack_id)?;
     let file = declared_path(&root, "manifest.json", false)?;

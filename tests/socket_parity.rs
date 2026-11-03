@@ -311,7 +311,6 @@ const KNOWN_GAPS: &[(&str, u8, &[&str])] = &[
     ("extensions unload", 11, &["extensions_unload"]),
     // 13. Not assigned to a B4 group yet
     ("extensions create", 13, &[]),
-    ("extensions seed", 13, &[]),
     ("auto status", 13, &[]),
     ("auto prime", 13, &[]),
     ("deep-scan", 13, &[]),
