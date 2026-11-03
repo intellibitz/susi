@@ -49,7 +49,7 @@ already schedules unattended source rewrites.
 
 The drift audit (`evolution.rs`) suggests reflex candidates; it does not
 write code. That describes current implementation, not a required human step.
-Mandates 62–71 require agents to complete authorized self-development and prove
+Mandates 62–72 require agents to complete authorized self-development and prove
 each upgrade locally; missing orchestration is engineering work, not completed RSI.
 
 ---
@@ -342,7 +342,7 @@ digests, followed by atomic promotion, health verification and tested rollback.
 The strict dependency license gate passes with the replacement implementations;
 future dependency changes must pass the same unchanged policy.
 
-### Building susi: the workflow (Mandates 49–71)
+### Building susi: the workflow (Mandates 49–72)
 
 Read [`AGENTS.md`](AGENTS.md), the canonical instructions for every agent.
 The native local workflow has no GitHub account, Actions, pull-request or remote

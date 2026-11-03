@@ -54,7 +54,7 @@ a new `EV-*` entry noting the correction).
 
 ## CEO mandates
 
-Mandates 62–71 record the agent-only, Rust-only, native Windows, isolated parallel,
-local development, release, license, bloat, zero-configuration and evidence-earned
-upgrade requirements. Requirements are not statements of current compliance.
+Mandates 62–72 record the agent-only, Rust-only, native Windows, isolated parallel,
+local development, release, license, bloat, zero-configuration, evidence-earned
+upgrade and platform-scope/licensing/budget requirements. Requirements are not statements of current compliance.
 Keep missing implementations open and preserve failed acceptance evidence.

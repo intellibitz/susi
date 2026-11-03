@@ -16,7 +16,7 @@ declaring Step 1 complete or moving its unfinished obligations into later steps.
 **Mandate 62 execution criteria.** The CEO sets the aspiration. The workflow and harness are the foundation through which agents build, test, operate and improve Susi for CEOs, in successive groups of 100 steps. Step 1 stays open until measured user response meets declared millisecond budgets and a genuine source change reaches the verified live executable in under 60 seconds. Record cold and warm build, test, startup, goal acknowledgment, first useful output and completion separately. Time the complete local delivery loop from change ready through tests, merge, promotion and observation of changed product behavior. Record inputs, repetitions, failures and rollback. Prefer simple stable public protocols and independently installable third-party plugins. Publish conformance tests for permissions, discovery, errors and compatibility. Prove a plugin update by showing that a pack hosted by susi-commercial-apps is admitted over the socket without rebuilding Susi; preserve user capabilities, and measure removed source, dependency reach, executable size and wall-clock cost before claiming bloat reduction. Agents own isolated parallel delivery, continue committing and pushing verified work, and wrap up scoped changes at 10% weekly allowance remaining. Source publication never substitutes for production qualification.
 
 The constitution is `.agents/identity.json`, compiled into the runtime. Mandates
-62–71 express the CEO's ten requirements; revised Mandates 43–54 and 61 remove
+62–72 express the CEO's eleven requirements; revised Mandates 43–54 and 61 remove
 conflicting historical shell/GitHub/human-engineering prerequisites. Existing
 scripts, remote workflows and installed binaries can still implement the old
 behavior: treat that as migration work, not as authority to disregard the CEO.
@@ -35,6 +35,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 69 | Zero bloat through justified capabilities and measured size, memory, latency and build budgets. |
 | 70 | Zero required user-written configuration; discovery, defaults and repair are agents' responsibility. |
 | 71 | **Susi: AI that earns its next upgrade.** Promote demonstrated improvement, with durable evidence and rollback. |
+| 72 | **Platform scope, licensing and budget:** Susi core is Apache-2.0 and free forever, with releases and CI on vanilla Windows x86_64 and Linux x86_64 only (portable source kept); Susi Commercial Apps is private/paid and qualifies every OS at production release. |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and

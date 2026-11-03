@@ -2279,7 +2279,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=71).collect::<Vec<_>>(),
+        (1..=72).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2293,6 +2293,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (69, "measured justification"),
         (70, "without user-written config"),
         (71, "earns its next upgrade"),
+        (72, "vanilla Windows x86_64 and vanilla Linux x86_64"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
