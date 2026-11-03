@@ -136,7 +136,7 @@ self-improvement claims require persisted and retrievable outcome evidence.
 
 - **`unsafe` is forbidden or denied in every crate.**
   - `#![forbid(unsafe_code)]`: susi-abi, susi-adapters-llm, susi-core,
-    susi-dsh-cell, susi-error, susi-gawd, susi-gawd-agents, susi-gmcp,
+    susi-error, susi-gawd, susi-gawd-agents, susi-gmcp,
     susi-http-transport, susi-leaf-services, susi-native-client, susi-paths,
     susi-sandbox, susi-sandbox-client, susi-server, susi-universal-cell,
     susi-vendor-agents, susi-vendor-candle, susi-vendor-chrome,

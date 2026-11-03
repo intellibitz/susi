@@ -129,7 +129,7 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: workflow_cli::WorkflowCommands,
     },
-    /// Harness orchestration: author a plan, run a mission, read the cockpit
+    /// Harness orchestration: author a plan, run a mission, serve the harness API
     Harness {
         #[command(subcommand)]
         action: harness_cli::HarnessCommands,
@@ -265,7 +265,10 @@ pub(crate) enum Commands {
         port: Option<u16>,
     },
     /// Report on autonomous invisible work performed by the substrate
-    SovereignDashboard,
+    // Renamed from `sovereign-dashboard` (zero-UI plan A6); the old name
+    // stays a hidden alias so existing scripts keep working.
+    #[command(name = "substrate-report", alias = "sovereign-dashboard")]
+    SubstrateReport,
     /// Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
     #[command(name = "bloat-audit")]
     BloatAudit,
@@ -915,6 +918,7 @@ mod tests {
                 &["susi", "automate", "x"],
                 &["susi", "install"],
                 &["susi", "gemi"],
+                &["susi", "substrate-report"],
                 &["susi", "sovereign-dashboard"],
                 &["susi", "deep-scan"],
                 &["susi", "uninstall"],

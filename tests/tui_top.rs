@@ -11,7 +11,7 @@
     )
 )]
 
-use susi_gemi::tui_top::{render_frame, GpuRow, ProviderRow, QueueRow, TopSnapshot};
+use susi_gemi::operator_report::{render_frame, GpuRow, ProviderRow, QueueRow, TopSnapshot};
 
 #[test]
 fn tui_top_renders_providers_gpu_and_queue() {

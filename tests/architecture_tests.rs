@@ -132,7 +132,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-gawd-agents", 6),
     ("susi-gmcp", 5),
     ("susi-server", 5),
-    ("susi-dsh-cell", 5),
     ("susi-universal-cell", 5),
     ("susi-gawd-swarm", 7),
     ("susi-gemi", 7),
@@ -167,7 +166,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-http-body-util",
     "susi-vendor-hyper",
     "susi-vendor-hyper-util",
-    "susi-vendor-indicatif",
     "susi-vendor-jsonschema",
     "susi-vendor-libc",
     "susi-vendor-md-5",
@@ -2338,4 +2336,282 @@ fn enterprise_capabilities_live_in_commercial_apps() {
         handler.contains("MULTI_TENANT_COMMERCIAL") && !handler.contains("tenant_isolation"),
         "tenant-scoped plane requests must fail closed in the open substrate"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Zero-UI boundary (CEO directive): core is a pure Rust CLI plus a standards
+// protocol socket. It ships no GUI/TUI, no web assets, serves no HTML and
+// carries no plugin content; every UI and plugin lives in
+// susi-commercial-apps. Plan: susi-commercial-apps docs/zero-ui-migration-plan.md
+// (items A1-A7).
+// ---------------------------------------------------------------------------
+
+/// Directories a zero-UI scan never descends into: build output, patched
+/// upstream sources (`vendor/`), and tool/agent metadata (hidden dirs other
+/// than the project's own CI, hook and cargo configuration).
+fn zero_ui_skips_dir(name: &str) -> bool {
+    matches!(name, "target" | "out" | "vendor" | "node_modules")
+        || (name.starts_with('.') && !matches!(name, ".github" | ".githooks" | ".cargo"))
+}
+
+fn zero_ui_walk(dir: &std::path::Path, skip_vendor_facades: bool, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if zero_ui_skips_dir(&name) || (skip_vendor_facades && name.starts_with("susi-vendor-"))
+            {
+                continue;
+            }
+            zero_ui_walk(&path, skip_vendor_facades, out);
+        } else {
+            out.push(path);
+        }
+    }
+}
+
+fn zero_ui_rel(path: &std::path::Path) -> String {
+    path.strip_prefix(workspace_root())
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// BT-05: no GUI or TUI toolkit (nor a terminal spinner) is declared by any
+/// first-party manifest, the `susi-vendor-*` facades included (they are where
+/// a third-party dependency would enter). `vendor/` holds patched upstream
+/// sources and is not scanned.
+#[test]
+fn core_declares_no_gui_or_tui_crates() {
+    const BANNED: &[&str] = &[
+        "ratatui",
+        "crossterm",
+        "termion",
+        "egui",
+        "eframe",
+        "iced",
+        "tauri",
+        "gtk",
+        "winit",
+        "slint",
+        "dioxus",
+        "indicatif",
+    ];
+    let mut files = Vec::new();
+    zero_ui_walk(&workspace_root(), false, &mut files);
+    let manifests: Vec<PathBuf> = files
+        .into_iter()
+        .filter(|path| path.file_name().is_some_and(|name| name == "Cargo.toml"))
+        .collect();
+    assert!(
+        manifests.len() > 10,
+        "manifest walk found too few Cargo.toml files"
+    );
+    let mut offenders = Vec::new();
+    for manifest in &manifests {
+        let text = std::fs::read_to_string(manifest).expect("read Cargo.toml");
+        let mut in_deps = false;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                let header = trimmed.trim_matches(|c| c == '[' || c == ']');
+                in_deps = header.ends_with("dependencies");
+                // `[dependencies.<name>]` table form.
+                if let Some((_, name)) = header.split_once("dependencies.") {
+                    if BANNED.contains(&name.trim()) {
+                        offenders.push(format!("{}: {trimmed}", zero_ui_rel(manifest)));
+                    }
+                }
+                continue;
+            }
+            if !in_deps || trimmed.starts_with('#') {
+                continue;
+            }
+            let key = trimmed
+                .split(['=', ' ', '.'])
+                .next()
+                .unwrap_or_default()
+                .trim_matches('"');
+            let package = trimmed
+                .split("package")
+                .nth(1)
+                .and_then(|rest| rest.split('"').nth(1))
+                .unwrap_or_default();
+            if BANNED.contains(&key) || BANNED.contains(&package) {
+                offenders.push(format!("{}: {trimmed}", zero_ui_rel(manifest)));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "core has zero UI: GUI/TUI/spinner crates belong in susi-commercial-apps:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// BT-03: no web or front-end asset ships in core. `target/`, `out/`,
+/// `vendor/`, tool/agent metadata (`.git/`, `.claude/`, `.agents/`, ...) and
+/// the `susi-vendor-*` facade crates are not scanned. No test-fixture
+/// exception is granted: no `tests/fixtures` UI asset exists, so none is
+/// tolerated.
+#[test]
+fn core_ships_zero_ui_assets() {
+    const UI_EXTENSIONS: &[&str] = &[
+        "html", "htm", "css", "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte",
+    ];
+    let mut files = Vec::new();
+    zero_ui_walk(&workspace_root(), true, &mut files);
+    assert!(files.len() > 100, "asset walk found too few files");
+    let offenders: Vec<String> = files
+        .iter()
+        .filter(|path| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| UI_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+        })
+        .map(|path| zero_ui_rel(path))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "core ships zero UI assets; move these to susi-commercial-apps:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// BT-04: no first-party, non-test Rust source serves HTML: no `text/html`
+/// content type, no axum `Html` response and no HTML document literal.
+/// Test modules (`#[cfg(test)]` onward), `tests/` trees and the
+/// `susi-vendor-*` facades are not scanned. The launchd plist in
+/// `susi-gawd/src/cross_platform_service.rs` carries an XML `<!DOCTYPE plist`,
+/// which is not an HTML document and does not match the ban, so no allow-list
+/// entry is needed.
+#[test]
+fn core_serves_no_html() {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    for dir in ["src", "crates", "xtask"] {
+        zero_ui_walk(&root.join(dir), true, &mut files);
+    }
+    let mut offenders = Vec::new();
+    for path in files
+        .iter()
+        .filter(|path| path.extension().is_some_and(|ext| ext == "rs"))
+    {
+        let rel = zero_ui_rel(path);
+        if rel.split('/').any(|part| part == "tests") || rel.ends_with("/tests.rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let code = non_test(&text);
+        let lower = code.to_ascii_lowercase();
+        let html_type = code.match_indices("Html").any(|(i, _)| {
+            let before_ok = i == 0 || !is_ident_byte(code.as_bytes()[i - 1]);
+            let after = code.as_bytes().get(i + "Html".len()).copied();
+            before_ok && matches!(after, Some(b'(' | b'<' | b';' | b','))
+        });
+        if lower.contains("text/html") || lower.contains("<!doctype html") || html_type {
+            offenders.push(rel);
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "core serves no HTML (JSON/SSE/MCP/A2A only); offending sources:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// BT-02: the UI and plugin content removed from core must not return; it
+/// lives in susi-commercial-apps (or, for the DeepSeek Harness plugin, is
+/// retired in favour of a native commercial desktop view).
+#[test]
+fn ui_and_plugins_live_in_commercial_apps() {
+    let root = workspace_root();
+    for rel in [
+        // A2: the HTML cockpit panel and its standalone server binary.
+        "crates/susi-harness/src/panel.html",
+        "crates/susi-harness/src/bin/harness-cockpit.rs",
+        // A3: the DeepSeek Harness plugin and its asset test.
+        "deploy/dsh-cockpit",
+        "tests/cockpit_plugin.rs",
+        // A4: the terminal spinner facade.
+        "crates/susi-vendor-indicatif",
+        // A7: dead or vendor-specific plugin code.
+        "deploy/harness/plugins.example.json",
+        "crates/susi-harness/src/plugins.rs",
+        "crates/susi-dsh-cell",
+        // TODO(zero-ui plan A9): add "config/extensions" and
+        // "config/cloud-vendors.json" once the launchable plugin content
+        // moves to susi-commercial-apps and the embedded paths are rewired.
+    ] {
+        assert!(
+            !root.join(rel).exists(),
+            "UI and plugin content belongs in susi-commercial-apps, not core: {rel}"
+        );
+    }
+    let root_toml = std::fs::read_to_string(root.join("Cargo.toml")).expect("root Cargo.toml");
+    for member in ["crates/susi-dsh-cell", "crates/susi-vendor-indicatif"] {
+        assert!(
+            !root_toml.contains(&format!("\"{member}\"")),
+            "{member} must not be a workspace member"
+        );
+    }
+    let harness_lib = std::fs::read_to_string(root.join("crates/susi-harness/src/lib.rs"))
+        .expect("read susi-harness lib.rs");
+    assert!(
+        !harness_lib.contains("pub mod plugins;"),
+        "the harness plugin manifest module must not return"
+    );
+}
+
+/// BT-07: the CLI has no UI subcommands: nothing in `src/` clears and redraws
+/// the terminal, `top` has no watch loop, and no visible command help names a
+/// dashboard or a cockpit (hidden aliases such as `sovereign-dashboard` and
+/// `harness cockpit` live in `#[command(alias = ...)]`, not in doc comments).
+#[test]
+fn core_cli_has_no_ui_subcommands() {
+    let root = workspace_root();
+    let mut sources = Vec::new();
+    rust_files(&root.join("src"), &mut sources);
+    assert!(!sources.is_empty(), "no Rust sources under src/");
+    for path in &sources {
+        let text = std::fs::read_to_string(path).expect("read src file");
+        for escape in [
+            "\\x1B[2J",
+            "\\x1b[2J",
+            "\\u{1b}[2J",
+            "\\u{1B}[2J",
+            "\\033[2J",
+        ] {
+            assert!(
+                !text.contains(escape),
+                "{}: clear-screen escape {escape}; core prints, it never redraws",
+                zero_ui_rel(path)
+            );
+        }
+    }
+    let top = std::fs::read_to_string(root.join("src/cli/top_cli.rs")).expect("read top_cli.rs");
+    assert!(
+        !top.contains("pub watch") && !top.contains("pub interval"),
+        "`susi top` has no watch loop; a live view lives in the commercial desktop"
+    );
+    for rel in ["src/cli/defs.rs", "src/cli/harness_cli.rs"] {
+        let text = std::fs::read_to_string(root.join(rel)).expect("read CLI defs");
+        for (number, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            let lower = trimmed.to_ascii_lowercase();
+            let visible_help = trimmed.starts_with("///")
+                || lower.contains("visible_alias")
+                || lower.contains("about =");
+            assert!(
+                !(visible_help && (lower.contains("dashboard") || lower.contains("cockpit"))),
+                "{rel}:{}: visible command help names a dashboard/cockpit: {trimmed}",
+                number + 1
+            );
+        }
+    }
 }

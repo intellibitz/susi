@@ -71,7 +71,6 @@ never consume an unterminated source tail.
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmtime, feature planes | no | no | loopback HTTP |
 | `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Docker (bollard) integration for the `:18083` leaf service (HTTP shell in `susi-leaf-services`); re-exports the client's helpers | `execute_in_docker`, re-exported `SandboxManager`, `manager` | `susi-error`, `susi-config`, `susi-sandbox-client`; bollard, tokio (time) | feature crates | Docker optional | config files | yes |
-| `susi-dsh-cell` | Swarm cell binary wrapping the DeepSeek Harness CLI (`dsh --prompt`) as `inference`/`dsh` capabilities on the shared `susi-abi` cell loop; every syscall requires `SUSI_CELL_TOKEN` | binary only | `susi-abi` (`cell-server`); tokio | workspace crates | no | no | yes (spawns `dsh`) |
 | `susi-universal-cell` | Swarm cell binary that serves any ecosystem plugin described by a JSON manifest (role → `SwarmRole`, capabilities, command) on the shared cell loop; spawned by daemon auto-discovery for executable plugins | binary only | `susi-abi` (`cell-server`); serde, tokio | workspace crates | no | no | yes (spawns the plugin) |
 | `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
@@ -195,7 +194,7 @@ rank-2 crate; `susi-core` re-exports `inference_wire` so existing
 remount a hard failure.
 
 One copy per *process*, not per crate: the daemon and each cell binary
-(`susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`,
+(`susi-gawd`, `susi-gemi`, `susi-gmcp`,
 `susi-universal-cell`) run in their own address spaces, so
 `PlaneBus::global()` / `CapabilityRegistry::global()` statics are still
 per-process. `plane_bus` is therefore backed by

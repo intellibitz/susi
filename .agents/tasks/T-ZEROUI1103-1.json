@@ -1,0 +1,19 @@
+{
+  "id": "T-ZEROUI1103-1",
+  "title": "Zero-UI core batch 1: remove HTML cockpit panel, DeepSeek Harness plugin, top --watch redraw, spinner, dsh cell and dead plugin code; lock with zero-UI ratchet tests",
+  "goal": "CEO directive 2026-11-03: core is a pure CLI plus standards socket with zero UI and no plugin content; UI moves to susi-commercial-apps",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "ZEROUI1103",
+  "created_unix": 1793714153
+}

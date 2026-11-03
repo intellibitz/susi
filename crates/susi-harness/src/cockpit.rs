@@ -1,16 +1,21 @@
-//! The cockpit.
+//! The harness API.
 //!
-//! A status and control surface over what the harness already writes: the
+//! A status and control API over what the harness already writes: the
 //! ledger (spend per mission and per model), the supervisor's state (which
 //! tasks landed), the event feed (what happened) and the control log (what the
 //! operator asked). It recomputes on every request, so there is no second
-//! source of truth to drift; the panel receives a snapshot over SSE once a
-//! second, with a slow HTTP poll as a fallback.
+//! source of truth to drift; a client receives a snapshot over SSE once a
+//! second, or polls the JSON snapshot.
 //!
-//! The panel is a plain HTML page with no build step and no external assets, so
-//! any harness desktop can embed it in an iframe. [`router`] is the whole
-//! contract: `GET /` (panel), `GET /api/status` (snapshot), `GET /api/events`
-//! (SSE) and `POST /api/command` (operator control).
+//! Core ships no UI: this module serves JSON and SSE only, never HTML. Any
+//! visual view of it lives in the commercial desktop. [`router`] is the whole
+//! contract: `GET /api/status` (snapshot), `GET /api/events` (SSE),
+//! `POST /api/command` (operator control) and `GET /health`.
+//!
+//! Operator writes are authenticated: every `POST /api/command` passes the
+//! host-injected [`CommandAuthorizer`] first and is refused with `401` when it
+//! says no. The susi binary injects core's `NetGuard` (bearer token, or a
+//! signed member request), so this crate needs no edge to susi-core.
 
 use crate::api::{ControlAck, ControlCommand};
 use crate::budget::Budget;
@@ -21,14 +26,18 @@ use crate::ledger::{LedgerEntry, Outcome};
 use crate::mission_control::{GraphView, Replay, ReplayEvent};
 use crate::money::MicroUsd;
 use crate::pricing::ModelPrice;
-use axum::extract::State;
+use axum::body::{to_bytes, Body};
+use axum::extract::{ConnectInfo, Request, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::middleware::Next;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
-use axum::response::Html;
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -556,18 +565,52 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&text).ok()
 }
 
-/// Build the cockpit router.
-pub fn router(cockpit: Arc<Cockpit>) -> Router {
+/// What the admission policy sees for one operator write
+/// (`POST /api/command`): the TCP peer, the request headers and the exact
+/// buffered body, so a host can verify a bearer or a body-bound signature.
+pub struct CommandAuthContext<'a> {
+    /// Source address of the connection. When the server was not started with
+    /// connect info it is the unspecified address, which is never loopback,
+    /// so a loopback-only policy fails closed.
+    pub peer: IpAddr,
+    headers: &'a HeaderMap,
+    /// The request body bytes the command handler will parse.
+    pub body: &'a [u8],
+}
+
+impl CommandAuthContext<'_> {
+    /// A request header as text, by case-insensitive name.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).and_then(|value| value.to_str().ok())
+    }
+}
+
+/// Admission policy the host injects for `POST /api/command`; `true` admits
+/// the write. The susi binary passes core's `NetGuard`.
+pub type CommandAuthorizer = Arc<dyn for<'a> Fn(&CommandAuthContext<'a>) -> bool + Send + Sync>;
+
+/// Largest command body the guard buffers; operator commands are tiny.
+const MAX_COMMAND_BODY_BYTES: usize = 64 * 1024;
+
+/// Build the harness API router (JSON and SSE only; no HTML route). Every
+/// `POST /api/command` must pass `authorize` or is refused with `401`.
+pub fn router(cockpit: Arc<Cockpit>, authorize: CommandAuthorizer) -> Router {
     Router::new()
-        .route("/", get(index))
         .route("/api/status", get(status))
         .route("/api/events", get(events))
-        .route("/api/command", post(command))
+        .route(
+            "/api/command",
+            post(command).layer(axum::middleware::from_fn_with_state(
+                authorize,
+                command_guard,
+            )),
+        )
         .route("/health", get(health))
         .with_state(cockpit)
 }
 
-/// Serve the cockpit on an already-bound listener.
+/// Serve the harness API on an already-bound listener, with the peer address
+/// available to `authorize`.
 ///
 /// # Errors
 ///
@@ -575,12 +618,57 @@ pub fn router(cockpit: Arc<Cockpit>) -> Router {
 pub async fn serve(
     listener: tokio::net::TcpListener,
     cockpit: Arc<Cockpit>,
+    authorize: CommandAuthorizer,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router(cockpit)).await
+    axum::serve(
+        listener,
+        router(cockpit, authorize).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
 }
 
-async fn index() -> Html<&'static str> {
-    Html(include_str!("panel.html"))
+/// RFC 9110 15.5.2: a 401 carries a challenge naming the scheme to retry with.
+fn unauthorized() -> Response {
+    let mut response = Response::new(Body::from(
+        r#"{"error":"POST /api/command requires Authorization: Bearer <api token>"}"#,
+    ));
+    *response.status_mut() = StatusCode::UNAUTHORIZED;
+    response.headers_mut().insert(
+        axum::http::header::WWW_AUTHENTICATE,
+        HeaderValue::from_static("Bearer realm=\"susi-harness\""),
+    );
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    response
+}
+
+async fn command_guard(
+    State(authorize): State<CommandAuthorizer>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |info| info.0.ip());
+    let (parts, body) = request.into_parts();
+    let Ok(bytes) = to_bytes(body, MAX_COMMAND_BODY_BYTES).await else {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
+        return response;
+    };
+    let context = CommandAuthContext {
+        peer,
+        headers: &parts.headers,
+        body: &bytes,
+    };
+    if !(authorize)(&context) {
+        return unauthorized();
+    }
+    next.run(Request::from_parts(parts, Body::from(bytes)))
+        .await
 }
 
 async fn health() -> &'static str {
@@ -591,13 +679,14 @@ async fn status(State(cockpit): State<Arc<Cockpit>>) -> Json<Snapshot> {
     Json(cockpit.snapshot())
 }
 
+// Reached only after `command_guard` admitted the request (see `router`).
 async fn command(
     State(cockpit): State<Arc<Cockpit>>,
     Json(command): Json<ControlCommand>,
 ) -> Json<ControlAck> {
     let Some(path) = &cockpit.controls_path else {
         return Json(ControlAck::refused(
-            "the cockpit is read-only: start it with --controls <log>",
+            "the harness API is read-only: start it with --controls <log>",
         ));
     };
     let mission = command.mission_id().map(str::to_string);
@@ -917,13 +1006,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_router_serves_status_and_the_panel() {
+    async fn the_router_serves_status_and_no_html_panel() {
         let dir = tempfile::tempdir().unwrap();
         let cockpit = Arc::new(cockpit(dir.path()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address: SocketAddr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, super::router(cockpit)).await;
+            let _ = super::serve(listener, cockpit, deny_writes()).await;
         });
 
         let status = get_text(address, "/api/status").await;
@@ -931,8 +1020,98 @@ mod tests {
         assert!(status.contains("350"));
         assert!(status.contains("\"workers\""));
 
-        let panel = get_text(address, "/").await;
-        assert!(panel.contains("susi cockpit"));
+        // Core ships no UI: the root path is not a route any more.
+        let root = tokio::task::spawn_blocking(move || {
+            let url = format!("http://{address}/");
+            susi_http_transport::http_call("GET", &url, &[], 5, 0).unwrap()
+        })
+        .await
+        .unwrap();
+        assert_eq!(root.status, 404);
+    }
+
+    /// A writer policy that admits only `Authorization: Bearer <token>`.
+    fn bearer(token: &'static str) -> CommandAuthorizer {
+        Arc::new(move |context: &CommandAuthContext<'_>| {
+            context.header("authorization") == Some(format!("Bearer {token}").as_str())
+        })
+    }
+
+    fn deny_writes() -> CommandAuthorizer {
+        Arc::new(|_: &CommandAuthContext<'_>| false)
+    }
+
+    async fn post_command(address: SocketAddr, body: &str, authorization: Option<&str>) -> String {
+        let auth = authorization
+            .map(|value| format!("Authorization: {value}\r\n"))
+            .unwrap_or_default();
+        let request = format!(
+            "POST /api/command HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Write};
+            let mut stream = std::net::TcpStream::connect(address).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                .unwrap();
+            stream.write_all(request.as_bytes()).unwrap();
+            let mut collected = Vec::new();
+            let _ = stream.read_to_end(&mut collected);
+            String::from_utf8_lossy(&collected).into_owned()
+        })
+        .await
+        .unwrap()
+    }
+
+    /// Plan A2: an operator write without the API token is refused with 401
+    /// and never reaches the control log.
+    #[tokio::test]
+    async fn a_command_without_a_token_is_refused_with_401() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cockpit = cockpit(dir.path());
+        let controls = dir.path().join("controls.jsonl");
+        cockpit.controls_path = Some(controls.clone());
+        let cockpit = Arc::new(cockpit);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = super::serve(listener, cockpit, bearer("test-token")).await;
+        });
+        let body = r#"{"command":"pause","mission_id":"m-1"}"#;
+        for authorization in [None, Some("Bearer wrong-token"), Some("test-token")] {
+            let response = post_command(address, body, authorization).await;
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+            assert!(
+                response
+                    .to_ascii_lowercase()
+                    .contains("www-authenticate: bearer"),
+                "{response}"
+            );
+        }
+        assert!(control::read_records(&controls).is_empty());
+    }
+
+    /// Without connect info the peer is unknown and treated as non-loopback,
+    /// so a loopback-only policy fails closed rather than open.
+    #[tokio::test]
+    async fn an_unknown_peer_is_not_treated_as_loopback() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cockpit = cockpit(dir.path());
+        let controls = dir.path().join("controls.jsonl");
+        cockpit.controls_path = Some(controls.clone());
+        let cockpit = Arc::new(cockpit);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        let loopback_only: CommandAuthorizer =
+            Arc::new(|context: &CommandAuthContext<'_>| context.peer.is_loopback());
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, super::router(cockpit, loopback_only)).await;
+        });
+        let body = r#"{"command":"pause","mission_id":"m-1"}"#;
+        let response = post_command(address, body, None).await;
+        assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+        assert!(control::read_records(&controls).is_empty());
     }
 
     #[tokio::test]
@@ -945,26 +1124,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address: SocketAddr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, super::router(cockpit)).await;
+            let _ = super::serve(listener, cockpit, bearer("test-token")).await;
         });
         let body = r#"{"command":"pause","mission_id":"m-1"}"#;
-        let request = format!(
-            "POST /api/command HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        let response = tokio::task::spawn_blocking(move || {
-            use std::io::{Read, Write};
-            let mut stream = std::net::TcpStream::connect(address).unwrap();
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
-                .unwrap();
-            stream.write_all(request.as_bytes()).unwrap();
-            let mut collected = Vec::new();
-            let _ = stream.read_to_end(&mut collected);
-            String::from_utf8_lossy(&collected).into_owned()
-        })
-        .await
-        .unwrap();
+        let response = post_command(address, body, Some("Bearer test-token")).await;
         assert!(response.contains("\"accepted\":true"), "{response}");
         let records = control::read_records(&controls);
         assert_eq!(records.len(), 1);
@@ -978,7 +1141,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address: SocketAddr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, super::router(cockpit)).await;
+            let _ = super::serve(listener, cockpit, deny_writes()).await;
         });
 
         let text = tokio::task::spawn_blocking(move || {

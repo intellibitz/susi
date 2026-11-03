@@ -1,5 +1,5 @@
 //! Swarm-cell TCP server shared by every cell binary (`susi-gawd`,
-//! `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`, `susi-universal-cell`).
+//! `susi-gemi`, `susi-gmcp`, `susi-universal-cell`).
 //! Compiled only with the `cell-server` feature (needs tokio). Type-only
 //! consumers of this crate leave that feature off.
 //!
