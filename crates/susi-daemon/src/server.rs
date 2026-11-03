@@ -295,25 +295,60 @@ impl SusiDaemon {
         })
     }
 
-    /// True when UDP discovery answers a LAN ping (daemon owns the port).
+    /// True when UDP discovery answers an authenticated probe (daemon owns
+    /// the port). The probe is a cluster-key signed ping; only a responder
+    /// holding the same `cluster.key` can echo our nonce in a signed pong,
+    /// so a foreign process squatting on the port never reads as ready.
+    /// Unsigned pings get no answer (the legacy unauthenticated dialect was
+    /// removed).
+    ///
+    /// Without a usable `cluster.key` (malformed, or not creatable) the
+    /// daemon still serves the host contract in unsigned mode, so readiness
+    /// falls back to a key-independent bound-port test (`udp_port_bound`):
+    /// cluster-membership key material never gates single-host start. The
+    /// missing key is reported once per process, and not re-read after.
     pub fn host_contract_udp_ready() -> bool {
+        static KEY_UNUSABLE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let target = std::net::SocketAddr::from(([127, 0, 0, 1], cfg.udp_discovery_port()));
+        let wait = Duration::from_millis(300);
+        // Zero bloom and no checksum: the probe registers nothing, and a
+        // loopback sender is never admitted as a peer (self-edge guard).
+        let signed = if KEY_UNUSABLE.get().is_some() {
+            None
+        } else {
+            crate::susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000")
+        };
+        let Some((ping, nonce)) = signed else {
+            KEY_UNUSABLE.get_or_init(|| {
+                eprintln!(
+                    "[SUSI Daemon] UDP discovery probe: no usable cluster.key (unsigned mode);                      readiness falls back to a bound-port check"
+                );
+            });
+            return udp_port_bound(target, wait);
+        };
         let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
             return false;
         };
-        let _ = sock.set_read_timeout(Some(Duration::from_millis(300)));
-        let target = std::net::SocketAddr::from(([127, 0, 0, 1], cfg.udp_discovery_port()));
-        if sock.send_to(b"SUSI_LAN_PING", target).is_err() {
+        let _ = sock.set_read_timeout(Some(wait));
+        if sock.send_to(ping.as_bytes(), target).is_err() {
             return false;
         }
-        let mut buf = [0u8; 256];
-        match sock.recv_from(&mut buf) {
-            Ok((n, _)) => {
-                let msg = String::from_utf8_lossy(&buf[..n]);
-                msg.contains("SUSI_LAN_PONG")
+        // 4 KiB: a signed pong carrying a gossip roster runs past 1 KiB.
+        let mut buf = [0u8; 4096];
+        let deadline = Instant::now() + wait;
+        while Instant::now() < deadline {
+            match sock.recv_from(&mut buf) {
+                Ok((n, _)) => {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if crate::susi_config::cluster_key::verify_signed_pong(&msg, &nonce).is_some() {
+                        return true;
+                    }
+                }
+                Err(_) => return false,
             }
-            Err(_) => false,
         }
+        false
     }
 
     /// Full host contract: the four TCP surfaces + UDP discovery, at
@@ -513,31 +548,7 @@ impl SusiDaemon {
     /// non-LISTENING row never counts.
     #[cfg(any(windows, test))]
     fn parse_netstat_listeners(stdout: &[u8], ports: &[u16]) -> Vec<u32> {
-        let text = String::from_utf8_lossy(stdout);
-        let mut pids = Vec::new();
-        for line in text.lines() {
-            let cols: Vec<&str> = line.split_whitespace().collect();
-            // Proto  Local Address  Foreign Address  State  PID
-            if cols.len() < 5
-                || !cols[0].eq_ignore_ascii_case("tcp")
-                || !cols[3].eq_ignore_ascii_case("LISTENING")
-            {
-                continue;
-            }
-            let Some((_addr, port)) = cols[1].rsplit_once(':') else {
-                continue;
-            };
-            let Ok(port) = port.parse::<u16>() else {
-                continue;
-            };
-            let Ok(pid) = cols[4].parse::<u32>() else {
-                continue;
-            };
-            if pid != 0 && ports.contains(&port) && !pids.contains(&pid) {
-                pids.push(pid);
-            }
-        }
-        pids
+        susi_core::service_table::parse_netstat_owners(stdout, ports, false)
     }
 
     /// Pids listening on `ports`, when the OS can name them.
@@ -576,15 +587,11 @@ impl SusiDaemon {
                 .and_then(|out| Self::tasklist_image_name(&out.stdout, pid))
                 .is_some_and(|image| image.to_ascii_lowercase().starts_with("susi"))
         }
-        #[cfg(all(unix, not(target_os = "linux")))]
+        #[cfg(unix)]
         {
-            let _ = pid;
-            false
-        }
-        #[cfg(target_os = "linux")]
-        {
-            fs::read_link(format!("/proc/{pid}/exe"))
-                .ok()
+            // Linux: the kernel's /proc/<pid>/exe link; macOS and other
+            // unixes: the executable sysinfo reports.
+            crate::susi_config::process_probe::exe_path(pid)
                 .and_then(|exe| {
                     exe.file_name()
                         .map(|name| name.to_string_lossy().into_owned())
@@ -1590,15 +1597,15 @@ impl SusiDaemon {
             5,
             None,
             move || {
-                // The pong announces the effective GMCP port — a non-canonical
-                // instance (port_offset) still advertises the right port.
+                // Only signed pings are answered; the pong carries the
+                // responder's attested identity and roster, no port.
                 let socket = udp_socket.try_clone().ok();
                 Some(move || {
                     let Some(socket) = socket else {
                         eprintln!("[UDP] socket lost; discovery worker exiting");
                         return;
                     };
-                    Self::start_udp_discovery_server(socket, gmcp_port);
+                    Self::start_udp_discovery_server(socket);
                 })
             },
         );
@@ -1751,19 +1758,79 @@ impl SusiDaemon {
     }
 
     /// Aggressive Port Reclaim: Interrogates the process holding a port and evicts it if it's a susi instance.
+    ///
+    /// Owners come from [`port_owner_candidates`](Self::port_owner_candidates)
+    /// on every OS. Each one must pass
+    /// [`is_trusted_susi_process`](Self::is_trusted_susi_process) — exe
+    /// identity, this instance's `SUSI_HOME`, and the binary-hash trust
+    /// anchor — before it is killed; one that fails is reported, never killed.
     #[allow(unsafe_code)]
     fn attempt_port_reclaim(port: u16, global_dir: &Path) -> bool {
+        let own_pid = std::process::id();
+        let mut reclaimed = false;
+        for pid in Self::port_owner_candidates(port) {
+            if pid <= 1 || pid == own_pid {
+                continue;
+            }
+            let Ok(signed_pid) = i32::try_from(pid) else {
+                continue;
+            };
+            if Self::is_trusted_susi_process(signed_pid, global_dir) {
+                eprintln!(
+                    "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
+                    pid, port
+                );
+                #[cfg(unix)]
+                // SAFETY: kill on a pid verified above to be a stale susi process holding our port; no memory is shared.
+                unsafe {
+                    libc::kill(signed_pid, libc::SIGKILL);
+                }
+                #[cfg(windows)]
+                {
+                    let mut kill = Command::new("taskkill");
+                    kill.args(["/PID", &pid.to_string(), "/F"]);
+                    let _ =
+                        susi_core::bounded_cmd::output_within(&mut kill, Duration::from_secs(10));
+                }
+                reclaimed = true;
+            } else {
+                eprintln!(
+                    "[SusiDaemon] Port {} held by non-susi PID {} — will not evict",
+                    port, pid
+                );
+            }
+        }
+        if reclaimed {
+            thread::sleep(Duration::from_millis(250));
+        }
+        reclaimed
+    }
+
+    /// Pids bound to `port` (TCP listeners and UDP binds) as this OS can
+    /// name them: `fuser`/`ss` on Linux; `lsof` TCP listeners on macOS and
+    /// other unixes (UDP owners are not looked up there, since `lsof -iUDP`
+    /// also matches clients sending to the port); `netstat -ano` TCP
+    /// `LISTENING` and UDP rows on Windows. Candidates only — the caller
+    /// applies the trust check.
+    fn port_owner_candidates(port: u16) -> Vec<u32> {
+        let mut pids: Vec<u32> = Vec::new();
         #[cfg(unix)]
         {
-            let mut reclaimed = false;
-            let scripts = [
-                format!("fuser {}/tcp 2>/dev/null", port),
-                format!("fuser {}/udp 2>/dev/null", port),
-                format!(
-                    "ss -lptn 'sport = :{}' 2>/dev/null | sed -n 's/.*pid=\\([0-9]\\+\\).*/\\1/p'",
+            let scripts = if cfg!(target_os = "linux") {
+                vec![
+                    format!("fuser {}/tcp 2>/dev/null", port),
+                    format!("fuser {}/udp 2>/dev/null", port),
+                    format!(
+                        "ss -lptn 'sport = :{}' 2>/dev/null | sed -n 's/.*pid=\\([0-9]\\+\\).*/\\1/p'",
+                        port
+                    ),
+                ]
+            } else {
+                vec![format!(
+                    "lsof -nP -t -iTCP:{} -sTCP:LISTEN 2>/dev/null",
                     port
-                ),
-            ];
+                )]
+            };
             for script in scripts {
                 let output = Command::new("sh").arg("-c").arg(&script).output();
                 let Ok(out) = output else {
@@ -1771,43 +1838,47 @@ impl SusiDaemon {
                 };
                 let pid_str = String::from_utf8_lossy(&out.stdout);
                 for token in pid_str.split(|c: char| !c.is_ascii_digit()) {
-                    if token.is_empty() {
-                        continue;
-                    }
-                    let Ok(pid) = token.parse::<i32>() else {
-                        continue;
-                    };
-                    if pid <= 1 {
-                        continue;
-                    }
-                    if Self::is_trusted_susi_process(pid, global_dir) {
-                        eprintln!(
-                            "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
-                            pid, port
-                        );
-                        // SAFETY: kill on a pid verified above to be a stale susi process holding our port; no memory is shared.
-                        unsafe {
-                            libc::kill(pid, libc::SIGKILL);
-                        }
-                        reclaimed = true;
-                    } else {
-                        eprintln!(
-                            "[SusiDaemon] Port {} held by non-susi PID {} — will not evict",
-                            port, pid
-                        );
+                    if let Ok(pid) = token.parse::<u32>()
+                        && !pids.contains(&pid)
+                    {
+                        pids.push(pid);
                     }
                 }
             }
-            if reclaimed {
-                thread::sleep(Duration::from_millis(250));
-            }
-            reclaimed
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
-            let _ = (port, global_dir);
-            false
+            let mut netstat = Command::new("netstat");
+            netstat.arg("-ano");
+            if let Ok(out) =
+                susi_core::bounded_cmd::output_within(&mut netstat, Duration::from_secs(10))
+            {
+                pids = susi_core::service_table::parse_netstat_owners(&out.stdout, &[port], true);
+            }
         }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = port;
+        }
+        pids
+    }
+
+    /// Whether `name` is the file name of the `susi` binary itself.
+    fn is_susi_binary_name(name: &str) -> bool {
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("susi.exe")
+        } else {
+            name == "susi"
+        }
+    }
+
+    /// Whether `exe` looks like a SUSI binary (`susi`, `susi.exe`, a
+    /// `susi-*` leaf), ignoring Linux's ` (deleted)` marker so a stale
+    /// orphan from a replaced build is still recognised as ours.
+    fn is_susi_image(exe: Option<&Path>) -> bool {
+        exe.and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().to_ascii_lowercase())
+            .is_some_and(|name| name.trim_end_matches(" (deleted)").starts_with("susi"))
     }
 
     /// Confirms `pid` is genuinely running a trusted susi binary before the
@@ -1821,18 +1892,23 @@ impl SusiDaemon {
     /// its SHA-256 is compared against this host's trusted `binary.hash`
     /// (the same file `verify_binary_integrity` maintains) — this fails
     /// closed (no eviction) if that trust anchor hasn't been established yet.
-    #[cfg(unix)]
+    ///
+    /// Windows and macOS take the exe path the OS records for the process
+    /// (through `sysinfo`); a running image cannot be replaced in place on
+    /// Windows, and every other check is the same. A replaced Linux binary's
+    /// ` (deleted)` link never matches the name check, so it fails closed.
     fn is_trusted_susi_process(pid: i32, global_dir: &Path) -> bool {
-        let exe_path = match fs::read_link(format!("/proc/{}/exe", pid)) {
-            Ok(p) => p,
-            Err(_) => return false,
+        let Ok(pid_u32) = u32::try_from(pid) else {
+            return false;
+        };
+        let Some(exe_path) = crate::susi_config::process_probe::exe_path(pid_u32) else {
+            return false;
         };
 
         let name_ok = exe_path
             .file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n == "susi")
-            .unwrap_or(false);
+            .is_some_and(Self::is_susi_binary_name);
         if !name_ok {
             return false;
         }
@@ -1842,7 +1918,6 @@ impl SusiDaemon {
         // it to claim its port would kill a live independent node. Only
         // processes whose environ places them in THIS instance are ours to
         // reclaim.
-        #[cfg(target_os = "linux")]
         if !Self::daemon_in_this_instance(pid) {
             return false;
         }
@@ -1857,7 +1932,7 @@ impl SusiDaemon {
             .unwrap_or(false)
     }
 
-    fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
+    fn start_udp_discovery_server(socket: std::net::UdpSocket) {
         // Mandate 42: `local_addr()` failing here would only degrade a log
         // message, not the actual listener below - a graceful fallback is
         // the right scope of fix, not restructuring this function to
@@ -1875,11 +1950,16 @@ impl SusiDaemon {
         // silently truncate and fail signature verification.
         let mut buf = [0u8; 4096];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
+            // Only the signed dialects (`SUSI_PING_SIG`, `SUSI_PING_SIG2`)
+            // are answered; anything else is dropped before the key loads.
+            if !buf[..amt].starts_with(b"SUSI_PING_SIG") {
+                continue;
+            }
             let msg = String::from_utf8_lossy(&buf[..amt]);
             // Cluster-key handshake (VC-200-001): answer a signed ping with a
             // signed pong echoing the requester's nonce. Only peers that hold
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
-            // host still gets legacy discovery but never roster admission.
+            // host gets no answer at all (the legacy unsigned dialect is gone).
             if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce, wants_v2)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
@@ -1999,19 +2079,10 @@ impl SusiDaemon {
                 }
                 continue;
             }
-            // Own the host-contract UDP surface: answer both LAN and peer dialects.
-            if msg.contains("SUSI_LAN_PING") || msg.starts_with("SUSI_PING") {
-                let pong = if msg.contains("SUSI_LAN_PING") {
-                    format!(
-                        "SUSI_LAN_PONG:{}:{}",
-                        crate::susi_config::cluster_key::wire_node_id(),
-                        gmcp_port
-                    )
-                } else {
-                    "SUSI_PONG:daemon:0:".to_string()
-                };
-                let _ = socket.send_to(pong.as_bytes(), src);
-            }
+            // A ping that fails verification gets no reply, like the
+            // retired unauthenticated `SUSI_LAN_PING` / bare `SUSI_PING`
+            // dialects: answering unsigned datagrams disclosed our node id
+            // and GMCP port to any LAN host and made 9092 a reflector.
         }
     }
 
@@ -2042,7 +2113,6 @@ impl SusiDaemon {
     /// The isolated instance root `SUSI_HOME` names, when it names one —
     /// matching `SusiDirs::instance_root`'s absolute-path requirement so unit
     /// naming, env propagation, and path resolution never disagree.
-    #[cfg(target_os = "linux")]
     fn instance_home() -> Option<PathBuf> {
         std::env::var_os("SUSI_HOME")
             .map(PathBuf::from)
@@ -2109,10 +2179,6 @@ impl SusiDaemon {
 
     #[allow(unsafe_code)]
     fn stop_daemons(global_dir: &Path, scoped_to_instance: bool) -> StopOutcome {
-        // Instance scoping only applies to the Linux systemd/proc sweeps below.
-        #[cfg(not(target_os = "linux"))]
-        let _ = scoped_to_instance;
-
         // 1. The systemd transient unit spawned by ensure_daemon_running's
         // systemd-run path (Linux only; no-op everywhere else). Scoped stop
         // targets only this instance's unit; uninstall sweeps every
@@ -2148,38 +2214,27 @@ impl SusiDaemon {
         }
 
         // 3. Orphan sweep: surviving `daemon-start` processes for this user,
-        // lock file or not. Scoped stop keeps only the candidates whose
-        // environment places them in this instance — a sibling's daemon has
-        // a different SUSI_HOME, the primary's has none.
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(entries) = fs::read_dir("/proc") {
-                for entry in entries.flatten() {
-                    let name = entry.file_name();
-                    let Some(name) = name.to_str() else { continue };
-                    let Ok(pid) = name.parse::<u32>() else {
-                        continue;
-                    };
-                    if pid == own_pid {
-                        continue;
-                    }
-                    let Ok(cmdline) = fs::read(entry.path().join("cmdline")) else {
-                        continue;
-                    };
-                    // cmdline is NUL-separated argv.
-                    let is_daemon = cmdline.split(|b| *b == 0).any(|arg| arg == b"daemon-start");
-                    if is_daemon
-                        && (!scoped_to_instance || Self::daemon_in_this_instance(pid as i32))
-                        && !pids.contains(&pid)
-                    {
-                        pids.push(pid);
-                    }
-                }
+        // lock file or not, on every OS (process exe and argv through
+        // sysinfo). A candidate must run a SUSI image and carry
+        // `daemon-start` in its argv; scoped stop keeps only the candidates
+        // whose environment places them in this instance — a sibling's
+        // daemon has a different SUSI_HOME, the primary's has none — and an
+        // unreadable environment never matches.
+        for process in crate::susi_config::process_probe::processes(true) {
+            let pid = process.pid;
+            if pid == own_pid || pids.contains(&pid) {
+                continue;
+            }
+            let is_daemon = process.cmd.iter().any(|arg| arg == "daemon-start");
+            if is_daemon
+                && Self::is_susi_image(process.exe.as_deref())
+                && (!scoped_to_instance || Self::daemon_in_this_instance(pid as i32))
+            {
+                pids.push(pid);
             }
         }
 
-        // 4. Whoever still listens on a contract port and is a SUSI process.
-        // This is the orphan case on Windows, where there is no /proc sweep:
+        // 4. Whoever still listens on a contract port and is a SUSI process:
         // the lock is gone (or names a dead pid) while a leaf/daemon child
         // keeps 919x bound. A foreign process on the port is never killed.
         for pid in Self::susi_port_holders(&Self::host_contract_tcp_ports()) {
@@ -2338,22 +2393,21 @@ impl SusiDaemon {
     }
 
     /// Whether a `daemon-start` pid belongs to this instance, by comparing
-    /// the `SUSI_HOME` recorded in its `/proc/<pid>/environ` against ours.
+    /// the `SUSI_HOME` in its environment (`/proc/<pid>/environ` on Linux,
+    /// read through sysinfo elsewhere) against ours.
     /// A daemon with no `SUSI_HOME` is the primary instance; one with a
     /// different root is a sibling and must survive `susi stop`.
     /// Unreadable environ (permission, pid reused) answers false — the
     /// scoped sweep errs toward leaving a foreign process alive.
-    #[cfg(target_os = "linux")]
     fn daemon_in_this_instance(pid: i32) -> bool {
-        use std::os::unix::ffi::OsStrExt;
-        let Ok(environ) = fs::read(format!("/proc/{pid}/environ")) else {
+        let Ok(pid) = u32::try_from(pid) else {
             return false;
         };
-        let theirs = environ.split(|b| *b == 0).find_map(|kv| {
-            kv.strip_prefix(b"SUSI_HOME=")
-                .map(std::ffi::OsStr::from_bytes)
-                .map(PathBuf::from)
-        });
+        let Some(theirs) = crate::susi_config::process_probe::environment_var(pid, "SUSI_HOME")
+        else {
+            return false;
+        };
+        let theirs = theirs.map(PathBuf::from);
         match (Self::instance_home(), theirs) {
             (Some(mine), Some(t)) => {
                 // Compare canonicalized when both roots exist on disk (a
@@ -2365,6 +2419,30 @@ impl SusiDaemon {
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,
         }
+    }
+}
+
+/// Key-independent UDP readiness: `target` is bound when a datagram from a
+/// connected loopback socket draws no ICMP port-unreachable within `wait`.
+/// A connected socket surfaces port-unreachable as `ConnectionReset`
+/// (Windows) or `ConnectionRefused` (Unix); silence (the daemon drops
+/// unsigned datagrams) or any reply means something owns the port. This
+/// cannot tell the daemon from a squatter, which only the signed probe can.
+fn udp_port_bound(target: std::net::SocketAddr, wait: Duration) -> bool {
+    use std::io::ErrorKind;
+    let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
+        return false;
+    };
+    if sock.connect(target).is_err() || sock.set_read_timeout(Some(wait)).is_err() {
+        return false;
+    }
+    if sock.send(b"SUSI_READY_PROBE").is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 64];
+    match sock.recv(&mut buf) {
+        Ok(_) => true,
+        Err(e) => matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut),
     }
 }
 
@@ -2528,6 +2606,49 @@ mod tests {
             !ready,
             "wait_for_host_contract must return false when nothing owns the host-contract ports"
         );
+    }
+
+    /// B7: the legacy unauthenticated discovery dialects get silence. Only
+    /// unsigned datagrams are sent, so the prefix gate drops each one before
+    /// `cluster.key` is ever read or created.
+    #[test]
+    fn udp_discovery_never_answers_unsigned_pings() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+        std::thread::spawn(move || SusiDaemon::start_udp_discovery_server(server));
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .unwrap();
+        let mut buf = [0u8; 512];
+        for probe in [
+            "SUSI_LAN_PING",
+            "SUSI_PING",
+            "SUSI_PING:CORE:0:0000000000000000",
+            "hello",
+        ] {
+            client.send_to(probe.as_bytes(), addr).unwrap();
+            let reply = client.recv_from(&mut buf);
+            assert!(
+                reply.is_err(),
+                "{probe:?} must get no reply, got {:?}",
+                reply.map(|(n, _)| String::from_utf8_lossy(&buf[..n]).into_owned())
+            );
+        }
+    }
+
+    /// Unsigned-mode readiness: a bound, silent port is ready; a port with
+    /// nothing bound (ICMP port-unreachable) is not.
+    #[test]
+    fn udp_port_bound_tells_bound_from_unbound() {
+        let wait = Duration::from_millis(300);
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(super::udp_port_bound(silent.local_addr().unwrap(), wait));
+        let gone = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let gone_addr = gone.local_addr().unwrap();
+        drop(gone);
+        assert!(!super::udp_port_bound(gone_addr, wait));
+        drop(silent);
     }
 
     #[test]
@@ -2968,7 +3089,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&global_dir);
     }
 
-    #[cfg(unix)]
     #[test]
     fn test_is_trusted_susi_process_fails_closed_without_hash_file() {
         let global_dir =
@@ -2983,9 +3103,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&global_dir);
     }
 
-    #[cfg(unix)]
+    /// Serializes the tests whose children outlive a pipe another test is
+    /// timing. Windows children inherit every inheritable handle in the
+    /// process, so a long-lived child started while a pipe test runs holds
+    /// that test's pipe open and reads as the leak the pipe tests guard
+    /// against.
+    static CHILD_PIPE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn child_pipe_guard() -> std::sync::MutexGuard<'static, ()> {
+        CHILD_PIPE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn test_is_trusted_susi_process_matches_only_the_trusted_hash() {
+        let _serial = child_pipe_guard();
         let base = std::env::temp_dir().join(format!("susi_trust_test_{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let global_dir = base.join("global");
@@ -2996,7 +3127,7 @@ mod tests {
         // Copy OUR OWN test binary, not /bin/sleep: on some runner images
         // sleep is a dispatch-style binary that exits as soon as argv[0] is
         // not a recognised command, leaving /proc/{pid}/exe gone.
-        let fake_bin = base.join("susi");
+        let fake_bin = base.join(if cfg!(windows) { "susi.exe" } else { "susi" });
         std::fs::copy(std::env::current_exe().unwrap(), &fake_bin).unwrap();
         #[cfg(unix)]
         {
@@ -3008,6 +3139,12 @@ mod tests {
 
         // Run the helper test, which blocks on stdin: the child stays alive
         // until we close the pipe, so the assertions always see a live process.
+        // A just-copied binary can be briefly busy on unix (ETXTBSY);
+        // Windows has no such state.
+        #[cfg(unix)]
+        let text_busy = Some(libc::ETXTBSY);
+        #[cfg(not(unix))]
+        let text_busy: Option<i32> = None;
         let mut child = {
             let mut attempt = 0;
             loop {
@@ -3021,7 +3158,9 @@ mod tests {
                     .spawn()
                 {
                     Ok(c) => break c,
-                    Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && attempt < 20 => {
+                    Err(e)
+                        if text_busy.is_some() && e.raw_os_error() == text_busy && attempt < 20 =>
+                    {
                         attempt += 1;
                         thread::sleep(Duration::from_millis(25));
                     }
@@ -3043,7 +3182,7 @@ mod tests {
         std::fs::write(SusiDaemon::get_hash_file(&global_dir), &real_hash).unwrap();
         // Diagnose which check fails when the assertion trips: the /proc exe
         // target (name gate), its hash (hash gate), and the instance env.
-        let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
+        let exe = crate::susi_config::process_probe::exe_path(pid as u32);
         let exe_hash = exe.as_ref().and_then(|p| {
             crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(p).ok()
         });
@@ -3114,6 +3253,7 @@ mod tests {
 
     #[test]
     fn spawn_without_inheriting_stdio_preserves_shell_output_and_status() {
+        let _serial = child_pipe_guard();
         for exit in ["0", "7"] {
             let started = Instant::now();
             let out = Command::new(std::env::current_exe().unwrap())
@@ -3150,6 +3290,7 @@ mod tests {
     /// (`Command::output()`, release smoke checks, shell pipes) waiting for EOF.
     #[test]
     fn spawn_without_inheriting_stdio_closes_parent_pipes_while_child_lives() {
+        let _serial = child_pipe_guard();
         let exe = std::env::current_exe().unwrap();
         let started = Instant::now();
         let out = Command::new(&exe)

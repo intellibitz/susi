@@ -372,8 +372,10 @@ pub fn pid_alive(pid: u32) -> bool {
 /// Identify the pid holding a localhost TCP port, when the OS lets us.
 /// Linux: the socket inode comes from `/proc/net/tcp{,6}` (local_address
 /// port match, state LISTEN), then `/proc/*/fd` is scanned for the
-/// `socket:[inode]` symlink. `None` on other platforms or when the
-/// holder is unreadable — callers must tolerate an unknown owner.
+/// `socket:[inode]` symlink. Windows: the LISTENING row of
+/// `netstat -ano -p tcp`. macOS and other unixes: `lsof` restricted to
+/// TCP listeners. `None` when the holder is unreadable — callers must
+/// tolerate an unknown owner.
 #[cfg(target_os = "linux")]
 pub fn pid_for_port(port: u16) -> Option<u32> {
     let hex_port = format!("{port:04X}");
@@ -436,10 +438,78 @@ pub fn pid_for_port(port: u16) -> Option<u32> {
     None
 }
 
-/// No `/proc` on non-Linux platforms — the owner of a port is unknown.
-#[cfg(not(target_os = "linux"))]
+/// Windows: the owner of the LISTENING row for `port` in `netstat -ano`.
+#[cfg(windows)]
+pub fn pid_for_port(port: u16) -> Option<u32> {
+    let mut cmd = std::process::Command::new("netstat");
+    cmd.args(["-ano", "-p", "tcp"]);
+    let out = crate::bounded_cmd::output_within(&mut cmd, PORT_OWNER_TIMEOUT).ok()?;
+    parse_netstat_owners(&out.stdout, &[port], false)
+        .into_iter()
+        .next()
+}
+
+/// macOS and other unixes: `lsof -t` limited to TCP listeners on `port`
+/// (a client connected *to* the port is not its owner).
+#[cfg(all(unix, not(target_os = "linux")))]
+pub fn pid_for_port(port: u16) -> Option<u32> {
+    let mut cmd = std::process::Command::new("lsof");
+    cmd.args(["-nP", "-t", &format!("-iTCP:{port}"), "-sTCP:LISTEN"]);
+    let out = crate::bounded_cmd::output_within(&mut cmd, PORT_OWNER_TIMEOUT).ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|line| line.trim().parse::<u32>().ok().filter(|pid| *pid != 0))
+}
+
+/// No port-owner source on this platform.
+#[cfg(not(any(unix, windows)))]
 pub fn pid_for_port(_port: u16) -> Option<u32> {
     None
+}
+
+/// Bound on one port-owner lookup (`netstat`, `lsof`).
+#[cfg(any(windows, all(unix, not(target_os = "linux"))))]
+const PORT_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Parse Windows `netstat -ano` output for the pids that own `ports`: TCP
+/// rows in `LISTENING` state (`Proto Local Foreign State PID`), and, when
+/// `include_udp`, UDP rows (`Proto Local Foreign PID`; UDP has no state).
+/// The local address column ends `:port`; a matching foreign address never
+/// counts, and pid 0 (the idle process) is never an owner.
+pub fn parse_netstat_owners(stdout: &[u8], ports: &[u16], include_udp: bool) -> Vec<u32> {
+    let text = String::from_utf8_lossy(stdout);
+    let mut pids = Vec::new();
+    for line in text.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        let pid_col = match cols.first() {
+            Some(proto) if proto.eq_ignore_ascii_case("tcp") => {
+                if cols.len() < 5 || !cols[3].eq_ignore_ascii_case("LISTENING") {
+                    continue;
+                }
+                4
+            }
+            Some(proto) if include_udp && proto.eq_ignore_ascii_case("udp") => {
+                if cols.len() < 4 {
+                    continue;
+                }
+                3
+            }
+            Some(_) | None => continue,
+        };
+        let Some((_addr, port)) = cols[1].rsplit_once(':') else {
+            continue;
+        };
+        let Ok(port) = port.parse::<u16>() else {
+            continue;
+        };
+        let Ok(pid) = cols[pid_col].parse::<u32>() else {
+            continue;
+        };
+        if pid != 0 && ports.contains(&port) && !pids.contains(&pid) {
+            pids.push(pid);
+        }
+    }
+    pids
 }
 
 /// Resident set size of `pid` in KiB — the footprint column for service
@@ -636,12 +706,61 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let found = pid_for_port(port);
-        #[cfg(target_os = "linux")]
+        // Linux and macOS always name the owner of our own listener.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(found, Some(std::process::id()));
-        #[cfg(not(target_os = "linux"))]
+        // Windows names it whenever the host's TCP table shows the socket
+        // with its owner. A process in an isolated network compartment
+        // (some sandboxes) sees its listener missing from `netstat`, or
+        // every listener with owner 0; then no owner may be invented.
+        #[cfg(windows)]
+        {
+            let table = std::process::Command::new("netstat")
+                .args(["-ano", "-p", "tcp"])
+                .output()
+                .unwrap();
+            let suffix = format!(":{port}");
+            let owner_visible = String::from_utf8_lossy(&table.stdout).lines().any(|l| {
+                let cols: Vec<&str> = l.split_whitespace().collect();
+                cols.len() >= 5 && cols[1].ends_with(&suffix) && cols[4] != "0"
+            });
+            if owner_visible {
+                assert_eq!(found, Some(std::process::id()));
+            } else {
+                eprintln!("netstat hides this listener's owner here; asserting no invented owner");
+                assert!(found.is_none());
+            }
+        }
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         assert!(found.is_none());
         // An unbound high port must not produce a bogus owner.
         assert!(pid_for_port(1).is_none() || probe(1));
+    }
+
+    #[test]
+    fn netstat_owners_read_tcp_listeners_and_optionally_udp() {
+        let sample = b"
+Active Connections
+
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:9090           0.0.0.0:0              LISTENING       4242
+  TCP    127.0.0.1:50000        127.0.0.1:9090         ESTABLISHED     777
+  TCP    [::]:9093              [::]:0                 LISTENING       4243
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       0
+  UDP    0.0.0.0:9092           *:*                                    4244
+  UDP    [::]:5353              *:*                                    99
+";
+        assert_eq!(
+            parse_netstat_owners(sample, &[9090, 9093, 9092], false),
+            vec![4242, 4243]
+        );
+        assert_eq!(
+            parse_netstat_owners(sample, &[9090, 9092], true),
+            vec![4242, 4244]
+        );
+        // A client whose *foreign* port matches is never an owner, and the
+        // idle process (pid 0) never is either.
+        assert!(parse_netstat_owners(sample, &[50001, 135], true).is_empty());
     }
 
     #[test]
