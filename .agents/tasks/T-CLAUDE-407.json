@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-407",
+  "title": "Document KeePassXC as the credential source for the CEO and agents",
+  "goal": "AGENTS.md tells every agent that KeePassXC is the password manager in both Susi repositories: the Personal vault is off limits, the automation vault is the agent credential source, values move only through pipes and are never printed.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1793694758
+}
