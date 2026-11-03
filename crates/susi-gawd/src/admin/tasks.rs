@@ -967,11 +967,15 @@ pub(super) fn git_bin() -> &'static Path {
 /// `prune` then refused with "cannot reach origin". The direct executable gets
 /// the launcher's PATH, so it behaves the same with and without Git Bash.
 pub(super) fn git_command() -> Command {
-    let mut command = Command::new(git_bin());
+    let command = Command::new(git_bin());
     #[cfg(windows)]
-    if let Some(path) = git_child_path() {
-        command.env("PATH", path);
-    }
+    let command = {
+        let mut command = command;
+        if let Some(path) = git_child_path() {
+            command.env("PATH", path);
+        }
+        command
+    };
     command
 }
 
