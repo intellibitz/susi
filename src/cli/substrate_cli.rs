@@ -38,7 +38,7 @@ fn count_wasm_reflexes() -> usize {
         .count()
 }
 
-fn collect(workspace: &Path) -> serde_json::Value {
+fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
     let registry = susi_core::registry::CapabilityRegistry::global();
     let mut providers = registry.list_providers();
     providers.sort();
@@ -47,6 +47,10 @@ fn collect(workspace: &Path) -> serde_json::Value {
     let mut agents = registry.list_agents();
     agents.sort();
 
+    // One probe pass: `host_contract_ready` would repeat the TCP probes, and
+    // each refused loopback port costs its full timeout on Windows.
+    let tcp_ready = SusiDaemon::host_contract_tcp_ready();
+    let udp_ready = SusiDaemon::host_contract_udp_ready();
     let packs = susi_sandbox::extensions::list_packs();
     let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
@@ -63,7 +67,7 @@ fn collect(workspace: &Path) -> serde_json::Value {
         "sandbox": {
             "wasmtime_entry": "WasmHost::execute_untrusted_wasm",
             "wasmtime_isolates": "plugins and reflexes (not host-native agents)",
-            "docker_sandbox_exec": docker_available(),
+            "docker_sandbox_exec": docker_sandbox_exec,
             "docker_tool": "sandbox_exec",
         },
         "governance_first": {
@@ -80,9 +84,9 @@ fn collect(workspace: &Path) -> serde_json::Value {
                 "a2a_http": cfg.a2a_http_port(),
                 "offset": cfg.port_offset(),
             },
-            "ready": SusiDaemon::host_contract_ready(),
-            "tcp_ready": SusiDaemon::host_contract_tcp_ready(),
-            "udp_ready": SusiDaemon::host_contract_udp_ready(),
+            "ready": tcp_ready && udp_ready,
+            "tcp_ready": tcp_ready,
+            "udp_ready": udp_ready,
             "endpoints": SusiDaemon::host_contract_endpoints_report(),
         },
         "reflexes": {
@@ -114,10 +118,14 @@ pub fn execute(action: Option<SubstrateCommands>, workspace: &Path) -> Result<()
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
+            // `docker info` takes ~0.7 s even when Docker is down: run it
+            // while the catalogs prime instead of after them.
+            let docker = std::thread::spawn(docker_available);
             let _ = susi_daemon::boot_trace::phase("substrate: prime catalogs", || {
                 susi_daemon::discovery_pipeline::prime_selected_catalogs(&substrate, PRIMED)
             });
-            print_json(&collect(workspace))?;
+            let docker_sandbox_exec = docker.join().unwrap_or(false);
+            print_json(&collect(workspace, docker_sandbox_exec))?;
         }
     }
     Ok(())
