@@ -38,9 +38,15 @@ fn each_verified_platform_can_publish_first_without_waiting_for_siblings() {
     let platforms = [
         ("build", "publish", "windows-x86_64"),
         ("build-linux", "publish-linux", "linux-x86_64"),
-        ("build-arm", "publish-arm", "linux-aarch64"),
-        ("build-macos", "publish-macos", "macos-aarch64"),
     ];
+    // Release scope (CEO decision 2026-11-03): the public core publishes only
+    // x86_64 Windows and x86_64 Linux. ARM and macOS legs must not return.
+    for retired in ["build-arm", "publish-arm", "build-macos", "publish-macos"] {
+        assert!(
+            !jobs.contains_key(retired),
+            "{retired} is outside the release scope"
+        );
+    }
     for (builder, publisher, artifact) in platforms {
         let build = &jobs[builder];
         let publish = &jobs[publisher];

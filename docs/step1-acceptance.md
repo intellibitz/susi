@@ -211,9 +211,21 @@ and every compiler-required export present. Actual ABI behavior has currently
 been tested on Windows version `10.0.26300` (build 26300) and a clean
 Windows 11 Pro `10.0.26200` guest, not on every Windows 10/11 release. This is an explicit tested capability boundary, **not a claim
 that these private compiler-runtime exports are a stable Microsoft application
-contract**. Additional Windows versions and architectures require their own
-acceptance evidence. Other Windows build targets fail configuration rather
-than silently substituting a different runtime.
+contract**. Additional Windows versions require their own acceptance
+evidence.
+
+Release scope (CEO decision 2026-11-03): the public core release is x86_64
+Windows and x86_64 Linux. ARM64 Windows (`aarch64-pc-windows-msvc`) source
+support exists: the runtime gate, OS-UCRT link layer, private sysroot contract
+and evidence gates accept it on a native ARM64 host only, and it is checked on
+GitHub `windows-11-arm` runners (the non-required `Windows ARM64` workflow,
+run after each merge to main, plus the manual `windows-arm64-probe` workflow)
+so certified builds can be produced downstream by the Susi commercial suite. It is not a published
+core release and is not production-qualified by core: no ARM64 clean-guest,
+inference-budget or promotion evidence exists, and the aarch64 `__chkstk`
+source (`kernelbase.dll`) is a recorded hypothesis until the native ARM64
+checks confirm it. Every other Windows build target, and every cross build,
+fails configuration rather than silently substituting a different runtime.
 
 Checked-in native tests generate the same import metadata, then compile and
 execute Rust fixtures proving panic payload recovery, destructor execution

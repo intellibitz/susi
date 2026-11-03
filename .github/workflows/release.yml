@@ -32,8 +32,15 @@ name: Release Binaries
 # cross-crate inlining (operator's call, 2026-10-31). The Windows leg restores a
 # dependency-only dist target from release-warm.yml on main; tag runs never
 # save a target or thousands of sccache objects that later tags cannot read.
-# Linux ARM64 also restores a main-branch dist cache; its size and savings
-# should be monitored against the repository cache quota.
+#
+# Release scope (CEO budget call, 2026-11-03, binding): the free public core is
+# released only for x86_64 Windows and x86_64 Linux. ARM (Linux and Windows)
+# and macOS support stays in the source and in free CI checks so
+# susi-commercial-apps can build its own "Susi Certified" binaries for them;
+# core never publishes those assets. The former linux-aarch64 and
+# macos-aarch64 legs and their publishers were removed for that reason. The
+# shared build steps below are kept byte-for-byte for the two released legs;
+# their `linux-aarch64` cache-targets clause no longer matches any leg.
 on:
   push:
     tags:
@@ -419,51 +426,6 @@ jobs:
             harness_src: target/dist/susi-harness
     steps: *release-steps
 
-  # Separate jobs let each optional platform publish without waiting for its
-  # sibling. They share the same artifact checks as the first-class platforms.
-  build-arm:
-    name: Build ${{ matrix.name }}
-    needs: [verify-tag]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 75
-    outputs:
-      engine_ready: ${{ steps.engine_upload.outcome }}
-      harness_ready: ${{ steps.harness_upload.outcome }}
-    env: *release-build-env
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04-arm
-            name: linux-aarch64
-            artifact: susi-linux-aarch64
-            src: target/dist/susi
-            harness: susi-harness-linux-aarch64
-            harness_src: target/dist/susi-harness
-    steps: *release-steps
-
-  # macos-x86_64 is not published: ort-sys does not ship its binary.
-  build-macos:
-    name: Build ${{ matrix.name }}
-    needs: [verify-tag]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 75
-    outputs:
-      engine_ready: ${{ steps.engine_upload.outcome }}
-      harness_ready: ${{ steps.harness_upload.outcome }}
-    env: *release-build-env
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            name: macos-aarch64
-            artifact: susi-macos-aarch64
-            src: target/dist/susi
-            harness: susi-harness-macos-aarch64
-            harness_src: target/dist/susi-harness
-    steps: *release-steps
-
   # Accelerator releases require a Rust-only, license-qualified artifact.
   # Every publisher waits only for the tagged suite and its own verified
   # artifact. A shared queued concurrency group serializes release creation and
@@ -515,32 +477,6 @@ jobs:
       RELEASE_HARNESS_READY: ${{ needs.build-linux.outputs.harness_ready }}
     steps: *publisher-steps
 
-  publish-arm:
-    name: Publish Linux ARM64 assets
-    needs: [verify-tag, tests, build-arm]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-arm.result == 'success' && needs.build-arm.outputs.engine_ready == 'success'"
-    concurrency: *publisher-concurrency
-    env:
-      RELEASE_ENGINE: release-linux-aarch64
-      RELEASE_HARNESS: release-harness-linux-aarch64
-      RELEASE_HARNESS_READY: ${{ needs.build-arm.outputs.harness_ready }}
-    steps: *publisher-steps
-
-  publish-macos:
-    name: Publish macOS ARM64 assets
-    needs: [verify-tag, tests, build-macos]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: "!cancelled() && needs.verify-tag.outputs.tag != '' && needs.tests.result == 'success' && needs.build-macos.result == 'success' && needs.build-macos.outputs.engine_ready == 'success'"
-    concurrency: *publisher-concurrency
-    env:
-      RELEASE_ENGINE: release-macos-aarch64
-      RELEASE_HARNESS: release-harness-macos-aarch64
-      RELEASE_HARNESS_READY: ${{ needs.build-macos.outputs.harness_ready }}
-    steps: *publisher-steps
-
   # Retention: keep rolling `dev` (other workflow) + newest 2 semver Releases.
   # Older GitHub Release *objects* (and their ~700MB assets) are deleted;
   # git tags are never removed so history stays intact.
@@ -549,9 +485,9 @@ jobs:
     needs: [verify-tag, build, build-linux, publish, publish-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The Tier-1 build job builds the Linux x86_64 binary; non-Tier-1 artifacts
-    # (macOS, ARM64) are non-blocking, so prune runs as long as Tier-1
-    # succeeded and `publish` attached the assets.
+    # The two released platforms (Windows and Linux x86_64) are the only legs;
+    # prune runs as long as both succeeded and their publishers attached the
+    # assets.
     if: "!cancelled() && needs.build.result == 'success' && needs.build-linux.result == 'success' && needs.publish.result == 'success' && needs.publish-linux.result == 'success' && needs.verify-tag.outputs.tag != ''"
     steps:
       - name: Checkout Source

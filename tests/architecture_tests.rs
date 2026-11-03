@@ -1926,11 +1926,22 @@ fn release_sync_downloads_the_published_binary_and_falls_back_to_a_build() {
         "SUSI_RELEASE_BUILD",
         "susi-windows-x86_64.exe",
         "susi-linux-x86_64",
-        "susi-macos-aarch64",
     ] {
         assert!(
             script.contains(needle),
             "susi-release-sync.sh lacks {needle:?}"
+        );
+    }
+    // The public core release publishes x86_64 Windows and x86_64 Linux only
+    // (CEO decision 2026-11-03): no other host may expect a published asset.
+    for retired in [
+        "susi-macos-aarch64",
+        "susi-linux-aarch64",
+        "susi-windows-aarch64",
+    ] {
+        assert!(
+            !script.contains(retired),
+            "susi-release-sync.sh still downloads {retired:?}"
         );
     }
     let flow = script

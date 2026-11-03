@@ -137,31 +137,29 @@ fn steps(body: &str) -> Vec<String> {
 }
 
 /// A moving runner shipped a CPU binary requiring GLIBC_2.43, which could
-/// not even report its version on Ubuntu 24.04. Keep both Linux CPU artifacts
+/// not even report its version on Ubuntu 24.04. Keep the Linux CPU artifact
 /// on the supported runtime ABI floor instead of the newest runner image.
 #[test]
 fn linux_cpu_release_keeps_the_supported_runtime_baseline() {
     let text = read(".github/workflows/release.yml");
     let jobs = jobs(&text);
-    for (id, baseline) in [
-        ("build-linux", "ubuntu-24.04"),
-        ("build-arm", "ubuntu-24.04-arm"),
-    ] {
-        let body = &job(&jobs, id).body;
-        assert_eq!(
-            value_of(body, "runs-on").as_deref(),
-            Some("${{ matrix.os }}")
-        );
-        let runners: Vec<_> = body
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix("- os: "))
-            .collect();
-        assert_eq!(
-            runners,
-            [baseline],
-            "{id} changed the supported runtime baseline"
-        );
-    }
+    // build-arm (linux-aarch64) was removed: the public core release is x86_64
+    // Windows and x86_64 Linux only (CEO decision 2026-11-03).
+    assert!(!jobs.iter().any(|job| job.id == "build-arm"));
+    let body = &job(&jobs, "build-linux").body;
+    assert_eq!(
+        value_of(body, "runs-on").as_deref(),
+        Some("${{ matrix.os }}")
+    );
+    let runners: Vec<_> = body
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("- os: "))
+        .collect();
+    assert_eq!(
+        runners,
+        ["ubuntu-24.04"],
+        "build-linux changed the supported runtime baseline"
+    );
 }
 
 #[test]
@@ -200,7 +198,7 @@ fn every_engine_artifact_passes_its_own_checks_before_upload() {
     assert!(upload.contains("steps.portable_e2e.outcome == 'success'"));
     let windows = find("Verify the Windows artifact answers offline");
     assert!(windows.contains("runner.os == 'Windows'"));
-    for publisher in ["publish", "publish-linux", "publish-arm", "publish-macos"] {
+    for publisher in ["publish", "publish-linux"] {
         assert!(job(&jobs, publisher)
             .body
             .contains("needs.tests.result == 'success'"));

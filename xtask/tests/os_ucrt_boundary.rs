@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![cfg(all(windows, target_arch = "x86_64"))]
+#![cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
 #[allow(dead_code)]
 #[path = "../bootstrap/os_ucrt.rs"]
 mod os_ucrt;
@@ -66,9 +66,11 @@ fn native_os_boundary_preserves_unwind_abort_and_missing_capability_failure() {
         String::from_utf8_lossy(&driver.stderr)
     );
     for name in ["unwind", "abort"] {
-        let imports =
-            pe_imports::inspect(&fs::read(root.join(format!("{name}.exe"))).unwrap()).unwrap();
+        let bytes = fs::read(root.join(format!("{name}.exe"))).unwrap();
+        let imports = pe_imports::inspect(&bytes).unwrap();
         assert!(imports.iter().any(|name| name == "import:ucrtbase.dll"));
+        // Fixtures are built and run natively: AMD64 on x64, ARM64 on aarch64.
+        pe_imports::require_native_machine(&bytes).unwrap();
     }
     fs::remove_dir_all(root).unwrap();
 }

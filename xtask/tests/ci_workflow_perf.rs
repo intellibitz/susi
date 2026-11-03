@@ -1289,12 +1289,7 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
     let tests = job(&jobs, "tests");
     assert!(tests.body.contains("scripts/release-await-tests.sh"));
     assert!(tests.body.contains("actions: write"));
-    for (builder, publisher) in [
-        ("build", "publish"),
-        ("build-linux", "publish-linux"),
-        ("build-arm", "publish-arm"),
-        ("build-macos", "publish-macos"),
-    ] {
+    for (builder, publisher) in [("build", "publish"), ("build-linux", "publish-linux")] {
         let build = job(&jobs, builder);
         assert!(build.body.contains("needs: [verify-tag]"), "{builder}");
         assert!(
@@ -2444,9 +2439,7 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     for setting in [
         "runs-on: ${{ matrix.os }}",
         "os: windows-latest",
-        "os: ubuntu-24.04-arm",
         "name: windows-x86_64",
-        "name: linux-aarch64",
         "SCCACHE_GHA_ENABLED: \"false\"",
         "RUSTC_WRAPPER: sccache",
         "RUSTC_WORKSPACE_WRAPPER: sccache",
@@ -2460,6 +2453,13 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     }
     assert!(warmer.body.contains("scripts/ci-system-deps.sh"));
     assert!(warmer.body.contains("scripts/ci-install-mold.sh"));
+    // The public core release is x86_64 Windows and x86_64 Linux only (CEO
+    // decision 2026-11-03): no ARM or macOS warmer.
+    for retired in ["ubuntu-24.04-arm", "linux-aarch64", "macos"] {
+        assert!(!warmer.body.contains(retired), "warmer warms {retired}");
+    }
+    // The shared release steps stay byte-for-byte for the released legs; their
+    // inert linux-aarch64 cache clause is kept with them.
     assert!(build.body.contains("matrix.name == 'linux-aarch64'"));
     for setting in [
         "SCCACHE_GHA_ENABLED: \"false\"",

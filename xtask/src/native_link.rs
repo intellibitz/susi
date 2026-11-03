@@ -22,6 +22,9 @@ pub(crate) fn entry_address(bytes: &[u8]) -> io::Result<u64> {
     if pe > bytes.len().saturating_sub(64) || bytes.get(pe..pe + 4) != Some(b"PE\0\0") {
         return Err(invalid("invalid PE header"));
     }
+    // The entry evidence names a native executable: its COFF Machine must be
+    // this host's architecture (AMD64 on x64, ARM64 on aarch64).
+    super::pe_imports::require_native_machine(bytes).map_err(invalid)?;
     let optional = pe + 24;
     if bytes.get(optional..optional + 2) != Some(&[0x0b, 0x02]) {
         return Err(invalid("native Rust entry requires PE32+"));
@@ -194,6 +197,29 @@ mod tests {
             256 * 1024 * 1024
         )
         .is_err());
+    }
+    #[test]
+    fn entry_requires_the_native_pe_machine() {
+        let mut image = vec![0u8; 512];
+        image[..2].copy_from_slice(b"MZ");
+        image[0x3c..0x40].copy_from_slice(&64_u32.to_le_bytes());
+        image[64..68].copy_from_slice(b"PE\0\0");
+        image[88..90].copy_from_slice(&0x20b_u16.to_le_bytes());
+        image[88 + 16..88 + 20].copy_from_slice(&0x1020_u32.to_le_bytes());
+        image[88 + 24..88 + 32].copy_from_slice(&0x1_4000_0000_u64.to_le_bytes());
+        let native = super::super::pe_imports::native_machine().unwrap();
+        image[68..70].copy_from_slice(&native.to_le_bytes());
+        assert_eq!(entry_address(&image).unwrap(), 0x1_4000_1020);
+        for foreign in [
+            super::super::pe_imports::MACHINE_AMD64,
+            super::super::pe_imports::MACHINE_ARM64,
+            0x014c,
+        ] {
+            if foreign != native {
+                image[68..70].copy_from_slice(&foreign.to_le_bytes());
+                assert!(entry_address(&image).is_err(), "0x{foreign:04x}");
+            }
+        }
     }
     #[test]
     fn map_requires_matching_entry_and_no_foreign_crt_members() {
