@@ -2,9 +2,7 @@
 //! local inference engines, MCP servers, catalogs, and periodic rediscovery.
 //! Swarm Cell spawning lives in [`crate::auto_discovery`].
 
-use std::net::TcpStream;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use susi_gemi::models::resource_inventory::{ProbeInputs, ResourceInventory};
@@ -53,10 +51,17 @@ fn ensure_candle_fallback(registry: &CapabilityRegistry) {
 
 /// Universal Autonomous Substrate Bootstrapper
 /// Implements Pillar 8 (Autonomous Provisioning) by triggering zero-config
-/// capability discovery across the local system — models, installed agent
-/// adapters and local engines are primed when host prerequisites are
-/// already present. No extension pack is seeded and no MCP server is
-/// enabled or launched here (zero-UI plan A8/A9).
+/// capability discovery across the local system — models and installed
+/// execution-agent adapters are primed when host prerequisites are already
+/// present, and local engines that are already running are admitted.
+///
+/// Core starts nothing on its own here (CEO decision 2026-11-03): no local
+/// engine is launched (a request that needs one starts it on demand, or the
+/// user runs `susi ecosystem start <id>`), no agent-framework readiness
+/// scan runs (`susi frameworks doctor`, `susi auto prime` and the status
+/// commands probe on request), and the host scan spawns no third-party
+/// `--version`. No extension pack is seeded and no MCP server is enabled
+/// or launched here (zero-UI plan A8/A9).
 pub async fn bootstrap_zero_config_substrate() {
     let registry = CapabilityRegistry::global();
     let substrate = susi_paths::SusiDirs::substrate_home();
@@ -70,11 +75,11 @@ pub async fn bootstrap_zero_config_substrate() {
 
     use crate::boot_trace::{finished, phase};
 
-    // 0b. Prefer coding models / admit ready installed peers.
-    phase("bootstrap: prime catalogs", || prime_catalogs(&substrate));
-
-    // 0c. Awaken local inference daemons already installed on PATH.
-    phase("bootstrap: awaken local engines", try_awaken_local_engines);
+    // 0b. Prefer coding models / admit ready installed peers. Agent
+    // frameworks are probed only on request ([`Catalogs::BOOT`]).
+    phase("bootstrap: prime catalogs", || {
+        boot_prime_catalogs(&substrate)
+    });
 
     // Drop HTTP providers that went unhealthy since the last pass so a killed
     // Ollama/vLLM does not keep winning routing. Candle is permanent fallback.
@@ -82,7 +87,8 @@ pub async fn bootstrap_zero_config_substrate() {
     prune_unhealthy_providers(registry).await;
     finished("bootstrap: prune unhealthy providers", started);
 
-    // 0d. Hardware + installed local-AI ecosystem inventory (read-only scan).
+    // 0d. Hardware + installed local-AI ecosystem inventory (read-only scan:
+    // detection only, no engine `--version` is run).
     let started = std::time::Instant::now();
     let _ = tokio::task::spawn_blocking(local_ecosystem_report).await;
     finished("bootstrap: local ecosystem report", started);
@@ -136,17 +142,58 @@ pub async fn bootstrap_zero_config_substrate() {
 /// Hardware profile plus every installed local-AI engine, runtime and model
 /// store, with the GPU backends they could use. Persisted to
 /// `~/.susi/local_ecosystem.json` so `susi ecosystem` and the UI see what the
-/// last startup found. Detection only: nothing is started or configured.
+/// last startup found. Detection only: nothing is started or configured, and
+/// no engine binary is run (versions are left unrecorded) — this is the
+/// unattended scan the daemon runs at boot and on its maintenance cadence.
 pub fn local_ecosystem_report() -> serde_json::Value {
     local_ecosystem_report_at(&susi_paths::SusiDirs::config_dir())
+}
+
+/// [`local_ecosystem_report`] on the user's explicit request (`susi
+/// ecosystem scan`): the same scan, plus each installed engine's
+/// `--version`.
+pub fn local_ecosystem_scan_report() -> serde_json::Value {
+    local_ecosystem_report_with(
+        &susi_paths::SusiDirs::config_dir(),
+        &susi_gemi::models::local_ecosystem::HostProbe,
+    )
 }
 
 /// Build and persist the production local-host report at an explicit location.
 /// Keeping the destination injectable lets the production composition path be
 /// exercised hermetically without writing into the caller's SUSI instance.
 pub fn local_ecosystem_report_at(config_dir: &Path) -> serde_json::Value {
-    let eco =
-        susi_gemi::models::local_ecosystem::scan(&susi_gemi::models::local_ecosystem::HostProbe);
+    // Detection only, but the versions an explicit `susi ecosystem scan`
+    // recorded survive for binaries whose path is unchanged.
+    let probe = susi_gemi::models::local_ecosystem::DetectOnlyProbe::with_recorded_versions(
+        recorded_engine_versions(config_dir),
+    );
+    local_ecosystem_report_with(config_dir, &probe)
+}
+
+/// `binary → version` from the last persisted `local_ecosystem.json`.
+fn recorded_engine_versions(
+    config_dir: &Path,
+) -> std::collections::BTreeMap<std::path::PathBuf, String> {
+    std::fs::read_to_string(config_dir.join("local_ecosystem.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|report| report.get("engines").and_then(|e| e.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|engine| {
+            let binary = engine.get("binary")?.as_str()?;
+            let version = engine.get("version")?.as_str()?;
+            Some((std::path::PathBuf::from(binary), version.to_string()))
+        })
+        .collect()
+}
+
+fn local_ecosystem_report_with(
+    config_dir: &Path,
+    probe: &dyn susi_gemi::models::local_ecosystem::Probe,
+) -> serde_json::Value {
+    let eco = susi_gemi::models::local_ecosystem::scan(probe);
     let profile = susi_gemi::models::hardware::HardwareProfiler::get_profile();
     let models_dir = susi_gemi::models::ModelManager::get_models_dir();
     let models = std::env::current_dir()
@@ -208,6 +255,40 @@ pub fn local_ecosystem_report_at(config_dir: &Path) -> serde_json::Value {
         eprintln!("[BOOTSTRAP] Local AI ecosystem: {found:?}");
     }
     report
+}
+
+#[cfg(test)]
+mod recorded_version_tests {
+    #[test]
+    fn an_unattended_scan_keeps_the_versions_an_explicit_scan_recorded() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-eco-versions-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("local_ecosystem.json"),
+            serde_json::json!({
+                "engines": [
+                    { "id": "ollama", "binary": "/opt/bin/ollama", "version": "0.9.1" },
+                    { "id": "vllm", "binary": null, "version": null }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let recorded = super::recorded_engine_versions(&dir);
+        assert_eq!(
+            recorded
+                .get(std::path::Path::new("/opt/bin/ollama"))
+                .map(String::as_str),
+            Some("0.9.1")
+        );
+        assert_eq!(recorded.len(), 1);
+        assert!(super::recorded_engine_versions(&dir.join("missing")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
@@ -304,8 +385,8 @@ impl Catalogs {
         execution_agents: false,
         frameworks: false,
     };
-    /// Every catalog: what the daemon, `susi auto prime` and every command
-    /// not yet classified prime.
+    /// Every catalog: what `susi auto prime` and every command not yet
+    /// classified prime. The daemon primes [`Self::BOOT`].
     pub const ALL: Self = Self {
         coding_models: true,
         execution_agents: true,
@@ -321,6 +402,15 @@ impl Catalogs {
         execution_agents: true,
         frameworks: true,
         ..Self::NONE
+    };
+    /// What the daemon's unattended bootstrap primes: coding models and
+    /// execution agents. Never the agent frameworks: core probes installed
+    /// framework adapters only when the user asks (`susi frameworks doctor`,
+    /// `susi auto prime`, `susi substrate status`, `susi crown status`).
+    pub const BOOT: Self = Self {
+        coding_models: true,
+        execution_agents: true,
+        frameworks: false,
     };
 
     /// Both sets' catalogs.
@@ -367,6 +457,11 @@ pub const PRIME_PHASE_FRAMEWORKS: &str = "prime: frameworks";
 /// Persists a glass-box report under `~/.susi/last_auto_prime.json`.
 pub fn prime_catalogs(substrate: &Path) -> serde_json::Value {
     prime_selected_catalogs(substrate, Catalogs::ALL)
+}
+
+/// The daemon bootstrap's prime: [`Catalogs::BOOT`], never the frameworks.
+fn boot_prime_catalogs(substrate: &Path) -> serde_json::Value {
+    prime_selected_catalogs(substrate, Catalogs::BOOT)
 }
 
 /// Prime only `catalogs`, each one fresh and as its own boot-trace phase
@@ -521,6 +616,15 @@ mod catalog_selection_tests {
     }
 
     #[test]
+    fn boot_never_primes_the_frameworks() {
+        assert!(!Catalogs::BOOT.is_all());
+        assert_eq!(
+            Catalogs::BOOT.phases(),
+            vec![PRIME_PHASE_CODING_MODELS, PRIME_PHASE_EXECUTION_AGENTS]
+        );
+    }
+
+    #[test]
     fn all_is_the_union_of_every_catalog() {
         let all = Catalogs::CODING_MODELS.union(Catalogs::AGENTS);
         assert_eq!(all, Catalogs::ALL);
@@ -528,85 +632,6 @@ mod catalog_selection_tests {
         assert!(!Catalogs::CODING_MODELS.is_all());
         assert_eq!(Catalogs::NONE.union(Catalogs::NONE), Catalogs::NONE);
     }
-}
-
-/// If a well-known local engine binary is on PATH but its API port is closed,
-/// start the daemon once (best-effort; never blocks bootstrap on failure).
-fn try_awaken_local_engines() {
-    static AWOKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if AWOKEN.swap(true, std::sync::atomic::Ordering::AcqRel) {
-        return;
-    }
-    if cfg!(test) {
-        return;
-    }
-    // Ollama: `ollama serve` when binary present and :11434 is closed.
-    if port_closed("127.0.0.1:11434") && binary_on_path("ollama") {
-        let spawned = Command::new("ollama")
-            .arg("serve")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-        // The daemon parents this child for its whole life: reap it when it
-        // exits, or it lingers as a zombie. A supervised one-shot, like
-        // every other background helper.
-        if let Ok(child) = spawned {
-            let mut child = Some(child);
-            crate::service_supervision::Supervisor::global().spawn_oneshot(
-                "reap:ollama",
-                0,
-                move || {
-                    child.take().map(|mut child| {
-                        move || {
-                            let _ = child.wait();
-                        }
-                    })
-                },
-            );
-        }
-        if std::env::var("SUSI_VERBOSE").is_ok() {
-            eprintln!("[BOOTSTRAP] Awakened local engine: ollama serve");
-        }
-        // Brief settle so the subsequent /models probe can succeed this pass.
-        std::thread::sleep(Duration::from_millis(400));
-    }
-}
-
-fn port_closed(addr: &str) -> bool {
-    let Ok(sock) = addr.parse() else {
-        return true;
-    };
-    TcpStream::connect_timeout(&sock, Duration::from_millis(150)).is_err()
-}
-
-fn binary_on_path(name: &str) -> bool {
-    let Ok(path) = std::env::var("PATH") else {
-        return false;
-    };
-    for dir in std::env::split_paths(&path) {
-        if !dir.is_absolute() {
-            continue;
-        }
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if candidate
-                    .metadata()
-                    .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
-                {
-                    return true;
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 async fn prune_unhealthy_providers(registry: &CapabilityRegistry) {

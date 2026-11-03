@@ -1333,6 +1333,9 @@ fn build_streaming_response(
         Some(placement_value(placement_id, placement_target)),
         move |callback, meta| {
             let _permit = permit;
+            // A `/v1` completion request: a local engine it needs may be
+            // started on demand (core starts none on its own).
+            let _user_request = susi_core::provider::OnDemandEngineStart::allow();
             gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
                 &prompt,
                 &workspace,

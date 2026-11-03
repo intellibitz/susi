@@ -1,7 +1,8 @@
 //! `susi-conformance`: check a running Susi host against the host contract.
 //!
 //! ```text
-//! susi-conformance [--host 127.0.0.1] [--port-offset N] [--token-file PATH] [--max-ms N] [--json]
+//! susi-conformance [--host 127.0.0.1] [--port-offset N] [--token-file PATH] [--max-ms N]
+//!                  [--susi-bin PATH] [--inference] [--json]
 //! ```
 //!
 //! The token defaults to `$SUSI_HOME/api_token`, else `~/.susi/api_token`.
@@ -10,7 +11,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
-use susi_conformance::{conformant, enforce_latency_budget, run, Target};
+use susi_conformance::{conformant, enforce_latency_budget, run_with, Optional, Target};
 
 fn default_token_file() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("SUSI_HOME") {
@@ -23,7 +24,7 @@ fn default_token_file() -> Option<PathBuf> {
 fn usage(error: &str) -> ExitCode {
     eprintln!("susi-conformance: {error}");
     eprintln!(
-        "usage: susi-conformance [--host HOST] [--port-offset N] [--token-file PATH] [--timeout-ms N] [--max-ms N] [--json]"
+        "usage: susi-conformance [--host HOST] [--port-offset N] [--token-file PATH] [--timeout-ms N] [--max-ms N] [--susi-bin PATH] [--inference] [--json]"
     );
     ExitCode::from(2)
 }
@@ -39,6 +40,7 @@ fn main() -> ExitCode {
     let mut timeout_ms = 5_000u64;
     let mut json = false;
     let mut max_ms: Option<u128> = None;
+    let mut optional = Optional::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
@@ -63,6 +65,11 @@ fn main() -> ExitCode {
                     .map(|n| max_ms = Some(n))
                     .map_err(|_| format!("invalid latency budget {v:?}"))
             }),
+            "--susi-bin" => value("--susi-bin").map(|v| optional.susi_bin = Some(PathBuf::from(v))),
+            "--inference" => {
+                optional.inference = true;
+                Ok(())
+            }
             "--json" => {
                 json = true;
                 Ok(())
@@ -93,7 +100,7 @@ fn main() -> ExitCode {
         token,
         timeout: Duration::from_millis(timeout_ms),
     };
-    let mut checks = run(&target);
+    let mut checks = run_with(&target, &optional);
     if let Some(budget) = max_ms {
         enforce_latency_budget(&mut checks, budget);
     }

@@ -2643,7 +2643,7 @@ fn first_party_non_test_sources() -> Vec<(String, String)> {
 /// only: `susi mcp-add`, `susi mcp add/enable`, `susi extensions load` — the
 /// user or the commercial desktop asks, core admits. Scope is A8's: MCP
 /// servers and packages. The daemon's boot-time wake of an installed local
-/// inference engine (`try_awaken_local_engines`) is not covered here.
+/// inference engine was removed; `tests/core_boot_starts_nothing.rs` guards it.
 #[test]
 fn core_never_autolaunches_third_party_servers() {
     let banned = [

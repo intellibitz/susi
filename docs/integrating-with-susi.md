@@ -15,7 +15,7 @@ individually.
 |---|---|---|
 | 9090 | MCP Streamable HTTP, `POST /mcp` | Tools, resources, prompts |
 | 9091 | OpenAI-compatible HTTP | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models` |
-| 9092 | A2A UDP discovery | Finding agents on the network |
+| 9092 | UDP discovery, cluster members only | Answers cluster-key signed pings between Susi members; unsigned pings get no reply. Products discover the host through `/.well-known/agent-card.json` on 9094 (see [host-contract-conformance.md](host-contract-conformance.md)). |
 | 9093 | MCP alias of 9090 | Clients that need a second MCP endpoint |
 | 9094 | A2A HTTP | `/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json` |
 
@@ -80,7 +80,7 @@ cargo run -p susi-conformance -- --port-offset <N> --token-file <home>/api_token
 ```
 
 It checks health, auth, both MCP revisions, A2A discovery and error codes,
-and the model list, and reports the latency of each check. See
+A2A `/stream` error codes, UDP discovery, and the model list, and reports the latency of each check. See
 [host-contract-conformance.md](host-contract-conformance.md).
 
 To test against a host without touching the one you use every day, give it

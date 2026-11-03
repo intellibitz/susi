@@ -260,7 +260,7 @@ fn explain(id: &str, dir: Option<PathBuf>) -> Result<()> {
 pub fn execute(action: Option<EcosystemCommands>) -> Result<()> {
     match action.unwrap_or(EcosystemCommands::Scan) {
         EcosystemCommands::Scan => {
-            print_json(&susi_daemon::discovery_pipeline::local_ecosystem_report())?
+            print_json(&susi_daemon::discovery_pipeline::local_ecosystem_scan_report())?
         }
         EcosystemCommands::Status => {
             let path = susi_paths::SusiDirs::config_dir().join("local_ecosystem.json");
