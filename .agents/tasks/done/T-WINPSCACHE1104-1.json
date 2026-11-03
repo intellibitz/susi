@@ -22,5 +22,10 @@
     ]
   },
   "created_by": "WINPSCACHE1104",
-  "created_unix": 1793748700
+  "created_unix": 1793748700,
+  "closed": {
+    "at_unix": 1793748760,
+    "commit": "354cf5077a11639daeaec249566e0a00cf831538",
+    "by": "WINPSCACHE1104"
+  }
 }
