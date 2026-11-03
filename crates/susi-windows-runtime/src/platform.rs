@@ -1,8 +1,15 @@
 //! Safety boundary: loader-validated PE image, compiler-owned linker sections,
-//! x64 C/system calling conventions, and explicitly qualified OS imports.
+//! the target's (x64 or ARM64) C/system calling conventions, and explicitly
+//! qualified OS imports. On ARM64 `extern "system"` is the C convention.
 use core::{ffi::c_void, mem::size_of, ptr};
 
-// SAFETY: these declarations match the qualified Windows x64 system ABI.
+/// COFF Machine of this executable: IMAGE_FILE_MACHINE_AMD64 or _ARM64.
+#[cfg(target_arch = "x86_64")]
+const IMAGE_MACHINE: u16 = 0x8664;
+#[cfg(target_arch = "aarch64")]
+const IMAGE_MACHINE: u16 = 0xaa64;
+
+// SAFETY: these declarations match the target's Windows system ABI.
 #[allow(unsafe_code)]
 #[link(name = "kernel32")]
 extern "system" {
@@ -86,7 +93,8 @@ unsafe impl Sync for TlsDirectory {}
 #[used]
 #[no_mangle]
 #[link_section = ".rdata$T"]
-// SAFETY: the unique PE TLS directory has the exact x64 loader structure and
+// SAFETY: the unique PE TLS directory has the exact PE32+ (IMAGE_TLS_DIRECTORY64)
+// loader structure, shared by x64 and ARM64, and
 // points only to this executable's compiler-owned TLS/callback/index storage.
 #[allow(unsafe_code)]
 pub static _tls_used: TlsDirectory = TlsDirectory {
@@ -145,14 +153,15 @@ fn image() -> (usize, usize) {
         boundary_failure();
     };
     // SAFETY: e_lfanew names the already loader-validated NT headers.
-    let (signature, magic, size) = unsafe {
+    let (signature, machine, magic, size) = unsafe {
         (
             ptr::with_exposed_provenance::<u32>(pe).read_unaligned(),
+            ptr::with_exposed_provenance::<u16>(pe + 4).read_unaligned(),
             ptr::with_exposed_provenance::<u16>(pe + 24).read_unaligned(),
             ptr::with_exposed_provenance::<u32>(pe + 24 + 56).read_unaligned(),
         )
     };
-    if signature != 0x4550 || magic != 0x20b || size < 4096 {
+    if signature != 0x4550 || machine != IMAGE_MACHINE || magic != 0x20b || size < 4096 {
         boundary_failure();
     }
     (base, size as usize)
@@ -248,7 +257,7 @@ pub unsafe extern "system" fn susi_pe_entry() -> ! {
         ptr::addr_of!(INIT_END) as usize,
         false,
     );
-    // SAFETY: pinned x64 rustc emits C main(int,char**). Windows std ignores
+    // SAFETY: pinned rustc emits C main(int,char**). Windows std ignores
     // these inputs and obtains arguments from GetCommandLineW. This single call
     // retains Rust lang_start, panic processing, std initialization and cleanup.
     let code = unsafe { compiler_main(0, ptr::null()) };

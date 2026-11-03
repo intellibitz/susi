@@ -4,7 +4,18 @@ This crate supplies original Apache-2.0 Rust implementation and PE metadata.
 It is not a wrapper that relicenses or embeds Microsoft CRT startup objects.
 The qualified platform is native `x86_64-pc-windows-msvc` with Rust 1.99.0,
 commit `b940084d7eb6a299eb4bfeb8e34901bc051e7ac4`. `build.rs` rejects another
-Windows compiler identity or cross-compilation until it is requalified.
+Windows compiler identity or cross-compilation until it is requalified; the
+compiler's own `host:` line must equal the target, so the same release and
+commit built for another host is not accepted.
+
+The compile-time allow-list is explicit: `x86_64` and `aarch64` with MSVC.
+Every other Windows target fails to compile. ARM64 (`aarch64-pc-windows-msvc`)
+is admitted only on a native ARM64 host so that host can produce its own
+evidence: core checks it on GitHub `windows-11-arm` runners for downstream
+certified builds (CEO decision 2026-11-03). It is not a published core release
+and is **not qualified**: no ARM64 result in this README is claimed until those
+native runs pass. At startup `image()` also refuses a PE image whose COFF
+Machine is not the build architecture (`0x8664` on x64, `0xAA64` on ARM64).
 
 The entry point calls the **compiler-generated C `main(int, char**)`** exactly
 once. It does not call a private Rust runtime API or replace Rust `main` with
@@ -53,6 +64,8 @@ object for diagnostics) and use:
   retaining a separate CRT section or suppressing a warning
 - OS-UCRT import metadata plus `ucrt.lib` import metadata
 - import metadata for OS `kernelbase.dll`'s qualified `__chkstk` export
+  (x64; on ARM64 the same export is a hypothesis recorded in
+  `xtask/bootstrap/os_ucrt.rs` that the native ARM64 checks must confirm)
 
 An import archive is not evidence that implementation was excluded: inspect the
 actual final link map and PE imports. Microsoft `exe_main`, `__scrt_*`, `msvcrt`

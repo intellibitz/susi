@@ -26,7 +26,7 @@ pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
     pub env: Option<HashMap<String, String>>,
-    // Mandate 35: mcp_config.json is read, mutated (auto_configure_server),
+    // Mandate 35: mcp_config.json is read, mutated (admit_mcp_server, enable),
     // and rewritten whole - without this, a field a user hand-added ahead
     // of susi support for it (e.g. a future `cwd` or `transport`) would be
     // silently deleted on the next write-back rather than round-tripped.

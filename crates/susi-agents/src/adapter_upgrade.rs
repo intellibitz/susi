@@ -53,7 +53,22 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let manager = AgentManager::new(&dir).unwrap();
+        // A synthetic catalog and a temp config dir: core bundles no vendor
+        // catalog, and the test must not write the host's adapter overrides.
+        let codex: susi_vendor_agents::external::AgentDefinition =
+            serde_json::from_value(serde_json::json!({
+                "id": "codex", "name": "Codex", "peer_name": "CodexAgent", "rank": 1,
+                "documentation": "https://example.invalid",
+                "adapter": {"kind": "command", "program": "codex", "args": ["{prompt}"]},
+            }))
+            .unwrap();
+        let manager = AgentManager::with_config(
+            &dir,
+            susi_vendor_agents::external::CatalogKind::Execution,
+            dir.join("cfg"),
+        )
+        .unwrap()
+        .with_catalog(vec![codex]);
 
         let valid = Adapter::Command {
             program: "echo".into(),

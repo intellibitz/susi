@@ -164,10 +164,6 @@ mod tests {
             raw["allow_origin"].as_str().unwrap()
         );
         assert_eq!(
-            default.mcp_registry_url(),
-            raw["mcp_registry_url"].as_str().unwrap()
-        );
-        assert_eq!(
             default.alpha_weights_url(),
             raw["alpha_weights_url"].as_str().unwrap()
         );
@@ -552,23 +548,20 @@ mod tests {
     }
 
     #[test]
-    fn leading_catalogs_meet_trustworthy_floors() {
-        // external_peer_agents() -> load_json_or_bundled -> ensure_extensions_substrate()
-        // performs a read-modify-write on the extensions state.json, whose path
-        // derives from HOME; serialize against tests that swap HOME so it
-        // cannot clobber their temp-root state.
-        let _guard = crate::env_test_lock();
-        let peers = SusiConfig::default().external_peer_agents();
-        assert!(peers.len() >= 20, "agents {}", peers.len());
+    fn core_defaults_list_no_vendor_peers_but_keep_inference_endpoints() {
+        // Zero-UI plan A9: launchable vendor peers ship in extension packs,
+        // never in core's compiled defaults. Inference endpoints stay.
+        let raw: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../config/config.default.json")).unwrap();
+        assert_eq!(raw["external_peer_agents"], serde_json::json!([]));
+        assert_eq!(raw["bootstrap_mcp_servers"], serde_json::json!([]));
+        assert!(raw.get("mcp_registry_url").is_none());
         let engines = SusiConfig::default().inference_endpoints().endpoints;
         assert!(
             (12..=24).contains(&engines.len()),
             "engines {}",
             engines.len()
         );
-        let mcp: Vec<serde_json::Value> =
-            serde_json::from_str(SusiConfig::leading_mcp_registry_json()).unwrap();
-        assert!((50..=120).contains(&mcp.len()), "mcp {}", mcp.len());
     }
 
     /// Regression for the scratch-dir class: every test scratch dir must be

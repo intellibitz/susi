@@ -32,11 +32,9 @@ pub(crate) fn apply_plane_prep(prep: PlanePrep) {
 }
 
 /// Prime `catalogs` for a control-plane command. A command that reads no
-/// catalog primes nothing, but still gets the extension pack seeded, as
-/// every prime always did.
+/// catalog primes nothing (and no extension pack is ever seeded).
 fn prime_plane_catalogs(substrate: &Path, catalogs: Catalogs) {
     if catalogs.is_empty() {
-        let _ = susi_sandbox::extensions::ensure_extensions_substrate();
         return;
     }
     let _ = susi_daemon::boot_trace::phase("plane: prime catalogs", || {

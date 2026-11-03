@@ -126,6 +126,7 @@ fn installer_unix_step1_rejects_relative_home_before_writes() {
 trap 'rm -rf "$scratch"' EXIT
 cd "$scratch" || exit 1
 export HOME="$scratch" SUSI_HOME=relative-install-home
+uname() {{ if [ "$1" = '-s' ]; then echo Linux; else echo x86_64; fi; }}
 (
 {INSTALLER}
 )
@@ -136,6 +137,43 @@ test "$status" -ne 0 && test ! -e relative-install-home
     let output = run_bash(&script);
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("SUSI_HOME must be an absolute"));
+}
+
+/// Release scope (CEO decision 2026-11-03): the free core release is x86_64
+/// Windows and x86_64 Linux only. macOS and non-x86_64 Linux are refused with
+/// the commercial-suite message before any write, download or build.
+#[test]
+fn installer_refuses_platforms_outside_the_public_release_scope_before_writes() {
+    for (system, machine, needle) in [
+        ("Darwin", "arm64", "this is macOS"),
+        ("Darwin", "x86_64", "this is macOS"),
+        ("Linux", "aarch64", "this is aarch64 Linux"),
+        ("Linux", "armv7l", "this is armv7l Linux"),
+    ] {
+        let script = format!(
+            r#"scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" SUSI_HOME="$scratch/install" NONINTERACTIVE=1
+uname() {{ if [ "$1" = '-s' ]; then echo {system}; else echo {machine}; fi; }}
+curl() {{ echo curl-called >>"$scratch/calls"; return 1; }}
+cargo() {{ echo cargo-called >>"$scratch/calls"; return 1; }}
+(
+{INSTALLER}
+)
+status=$?
+test "$status" -ne 0 && test ! -e "$SUSI_HOME" && test ! -e "$scratch/calls"
+"#
+        );
+        let output = run_bash(&script);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{system}/{machine}: {stderr}");
+        assert!(stderr.contains(needle), "{system}/{machine}: {stderr}");
+        assert!(
+            stderr.contains("x86_64 Windows and x86_64 Linux only")
+                && stderr.contains("Susi commercial suite"),
+            "{system}/{machine}: {stderr}"
+        );
+    }
 }
 
 #[test]

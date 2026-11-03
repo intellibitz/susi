@@ -124,8 +124,10 @@ fn vc_202_010_mastery_no_unsupervised_thread_spawn_remains() {
         bare.is_empty(),
         "every production worker spawns through the supervision registry: {bare:?}"
     );
+    // 7 since zero-UI plan A8 retired the essential-MCP auto-link worker
+    // (`gmcp_bootstrap`) and the joins that settled it.
     assert!(
-        registered >= 8,
+        registered >= 7,
         "the daemon's worker modules register with the supervisor: {registered} files"
     );
 }

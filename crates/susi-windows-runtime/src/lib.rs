@@ -1,4 +1,7 @@
-//! Original Rust startup for the qualified x64 Windows compiler/OS boundary.
+//! Original Rust startup for the native Windows MSVC compiler/OS boundary.
+//! The allow-list is explicit: x86_64 (qualified) and aarch64 (admitted only so
+//! a native ARM64 host can produce its own acceptance evidence; not qualified
+//! until that evidence exists). Every other Windows target fails to compile.
 //!
 //! This crate retains the compiler-generated C `main` and Rust runtime setup.
 //! It provides PE TLS metadata and executable-local initializer/terminator
@@ -8,10 +11,22 @@
 #![deny(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-#[cfg(all(windows, not(all(target_arch = "x86_64", target_env = "msvc"))))]
-compile_error!("susi-windows-runtime requires separately qualified x64 Windows ABI");
+#[cfg(all(
+    windows,
+    not(all(
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        target_env = "msvc"
+    ))
+))]
+compile_error!(
+    "susi-windows-runtime requires a separately qualified x86_64 or aarch64 Windows MSVC ABI"
+);
 
-#[cfg(all(windows, target_arch = "x86_64", not(test)))]
+#[cfg(all(
+    windows,
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(test)
+))]
 mod platform;
 
 /// A malformed executable initializer range is rejected before reading slots.
@@ -26,7 +41,10 @@ enum RangeError {
 /// PE sections are loader-owned mapped memory, not a Rust allocation spanning
 /// the separately emitted marker statics. Keep all traversal arithmetic checked
 /// and integral; platform code obtains exposed-provenance pointers per slot.
-#[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
+#[cfg_attr(
+    not(all(windows, any(target_arch = "x86_64", target_arch = "aarch64"))),
+    allow(dead_code)
+)]
 fn table_slots(
     base: usize,
     image_size: usize,

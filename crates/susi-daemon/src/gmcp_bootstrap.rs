@@ -638,9 +638,6 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         adapt(CoreTools::tx_abort),
     );
 
-    // Zero-Config Auto-Link: Ensure essential MCP tools are mapped (Non-Blocking Mandate)
-    // Supervised one-shot: a panic retries once, a clean return retires it.
-    crate::service_supervision::Supervisor::global().spawn_oneshot("mcp-auto-link", 1, || {
-        Some(ToolRegistry::auto_link_essential_mcp_servers)
-    });
+    // No essential-MCP auto-link: core never configures or launches a
+    // third-party MCP server on its own (zero-UI plan A8).
 }

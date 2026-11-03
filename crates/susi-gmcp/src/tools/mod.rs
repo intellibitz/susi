@@ -1,6 +1,7 @@
 //! GMCP Universal Meta MCP Tool Registry
 //! Pure Rust implementation for Dynamic MCP Server Proxying, Meta Tool Routing & Wasm Reflexes
 
+pub mod args;
 mod core;
 mod helpers;
 #[cfg(feature = "tools-rich")]
