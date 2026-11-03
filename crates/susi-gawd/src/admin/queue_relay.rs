@@ -37,7 +37,7 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// A ref the transaction expects on the remote: `(name, sha)`; the empty sha
@@ -430,7 +430,7 @@ fn request_document(
 /// The blob's exact bytes: the relay re-hashes them, and the sha it lands
 /// must be the one this side verifies.
 fn blob_content(ws: &Path, sha: &str) -> EaiResult<String> {
-    let out = Command::new(super::tasks::git_bin())
+    let out = super::tasks::git_command()
         .args(["cat-file", "blob", sha])
         .current_dir(ws)
         .output()?;
@@ -463,7 +463,7 @@ fn commit_tree(ws: &Path, tree: &str, parent: &str, message: &str, who: &str) ->
         .filter(|e| !e.is_empty())
         .unwrap_or_else(|| format!("{}@localhost", who.to_ascii_lowercase()));
     // A request is consumed, never kept: no signature to fail on.
-    let mut child = Command::new(super::tasks::git_bin())
+    let mut child = super::tasks::git_command()
         .args([
             "-c",
             "commit.gpgsign=false",
@@ -555,7 +555,7 @@ fn summary(updates: &[Update]) -> String {
 }
 
 fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
-    let out = Command::new(super::tasks::git_bin())
+    let out = super::tasks::git_command()
         .args(args)
         .current_dir(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -620,7 +620,7 @@ mod tests {
     }
 
     fn blob(ws: &Path, text: &str) -> String {
-        let mut child = Command::new(super::super::tasks::git_bin())
+        let mut child = super::super::tasks::git_command()
             .args(["hash-object", "-w", "--stdin"])
             .current_dir(ws)
             .stdin(Stdio::piped())
