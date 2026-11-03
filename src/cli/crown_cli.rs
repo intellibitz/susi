@@ -11,7 +11,7 @@ use susi_daemon::discovery_pipeline::Catalogs;
 use susi_daemon::SusiDaemon;
 use susi_paths::ports;
 
-/// What `crown verify|status` primes: the `pluggable` check counts the agent
+/// What `crown verify|status` primes: the `pluggable` check reports the agent
 /// capabilities the execution-agent and framework scans register, and the
 /// `provision` check reads the selected model that coding-model auto-prefer
 /// can write. No check reads the enabled MCP set.
@@ -440,13 +440,28 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     out.push(governance_check(&scratch));
 
     // --- Pluggable ---
-    let registry = susi_core::registry::CapabilityRegistry::global();
-    let caps = registry.list_all_capabilities().len();
+    // Core ships no pack (zero-UI plan A9), so the proof is the generic
+    // mechanism (Mandate 62): the extension substrate resolves (compiled
+    // defaults with nothing installed) and a pack built outside this binary
+    // is admitted through the manifest/checksum/signature path without a
+    // rebuild, while a tampered one is refused. Mounted capabilities depend
+    // on which packs the host installed, so they are reported, not gated.
+    let caps = susi_core::registry::CapabilityRegistry::global()
+        .list_all_capabilities()
+        .len();
+    let admission = susi_sandbox::extensions::pack_admission_probe(&scratch);
     out.push(check(
         "pluggable",
         true,
-        caps > 0,
-        format!("CapabilityRegistry list_all_capabilities ({caps} mounted this process)"),
+        pack.is_ok() && admission.is_ok(),
+        match (&pack, &admission) {
+            (Ok(p), Ok(proof)) => format!(
+                "extension substrate resolves (active `{}`); {proof}; {caps} capabilities mounted this process",
+                p.id
+            ),
+            (Err(e), _) => format!("extension substrate unresolved: {e}"),
+            (_, Err(e)) => format!("pack admission broken: {e}"),
+        },
     ));
 
     // --- Sandbox (Wasmer critical; Docker host-gated) ---
