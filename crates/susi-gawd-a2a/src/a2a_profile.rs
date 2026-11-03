@@ -11,11 +11,18 @@ pub struct A2aProfile {
 }
 
 impl A2aProfile {
+    /// What `serve` actually answers: the JSON-RPC binding (`/` and SSE
+    /// `/stream`) at the protocol version the agent card advertises
+    /// (`ra2a::PROTOCOL_VERSION`), including the 1.0 method names
+    /// (`SendMessage`, `SubscribeToTask`, ...; `server::canonical_method`)
+    /// beside the 0.3 slash names kept as legacy aliases. The HTTP+JSON
+    /// (REST) binding is not mounted (see `server::serve`) and 0.2 is not
+    /// spoken, so neither is claimed.
     #[must_use]
     pub fn default_profile() -> Self {
         Self {
-            versions: vec!["0.2".into(), "0.3".into()],
-            dialects: vec!["json-rpc".into(), "http+json".into()],
+            versions: vec![ra2a::PROTOCOL_VERSION.into()],
+            dialects: vec!["json-rpc".into()],
             selected_version: None,
             selected_dialect: None,
         }
@@ -61,14 +68,44 @@ mod eco_a2a_versions_tests {
     #[test]
     fn eco_a2a_versions_client_selects_dialect() {
         let mut p = A2aProfile::default_profile();
-        p.select("0.3", "json-rpc").unwrap();
-        assert_eq!(p.selected_version.as_deref(), Some("0.3"));
+        p.select(ra2a::PROTOCOL_VERSION, "json-rpc").unwrap();
+        assert_eq!(p.selected_version.as_deref(), Some(ra2a::PROTOCOL_VERSION));
+        // Only what is served may be selected.
+        assert!(p.select("0.2", "json-rpc").is_err());
+        assert!(p.select(ra2a::PROTOCOL_VERSION, "http+json").is_err());
+        assert_eq!(p.selected_dialect.as_deref(), Some("json-rpc"));
         let v02 = load_fixture("a2a-0.2.json");
         assert!(v02["relations"]
             .as_array()
             .unwrap()
             .iter()
             .any(|r| r["kind"] == "supersedes" || r["kind"] == "version-of"));
+    }
+}
+
+#[cfg(test)]
+mod honesty_tests {
+    use super::A2aProfile;
+    use crate::executor::GawdA2AExecutor;
+
+    /// B6: the profile claims exactly what the served agent card advertises —
+    /// one JSON-RPC interface at one protocol version, no REST dialect.
+    #[test]
+    fn profile_matches_the_served_agent_card() {
+        let profile = A2aProfile::default_profile();
+        let card = GawdA2AExecutor::new().agent_card();
+        let mut card_versions: Vec<String> = card
+            .supported_interfaces
+            .iter()
+            .map(|i| i.protocol_version.clone())
+            .collect();
+        card_versions.dedup();
+        assert_eq!(profile.versions, card_versions);
+        assert_eq!(profile.dialects, ["json-rpc"]);
+        assert!(card
+            .supported_interfaces
+            .iter()
+            .all(|i| i.protocol_binding.0.contains("JSONRPC")));
     }
 }
 
