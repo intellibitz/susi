@@ -1,0 +1,98 @@
+# Integrating with Susi
+
+Susi is an Apache-2.0 AI OS substrate for a single owner on one host. Products
+build on it from the outside, through public protocols on a fixed set of ports.
+They never fork it. This guide lists those surfaces and how to verify an
+integration against them.
+
+## The host contract
+
+A running host serves five contract ports. They move together by
+`port_offset` (config) or `SUSI_PORT_OFFSET` (environment), and never
+individually.
+
+| Port | Protocol | Use it for |
+|---|---|---|
+| 9090 | MCP Streamable HTTP, `POST /mcp` | Tools, resources, prompts |
+| 9091 | OpenAI-compatible HTTP | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models` |
+| 9092 | A2A UDP discovery | Finding agents on the network |
+| 9093 | MCP alias of 9090 | Clients that need a second MCP endpoint |
+| 9094 | A2A HTTP | `/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json` |
+
+## Authentication
+
+Every HTTP contract request needs `Authorization: Bearer <token>`. The token
+is the content of `api_token` in the host's home: `$SUSI_HOME/api_token`, by
+default `~/.susi/api_token`. A missing or wrong token gets `401`. Three
+requests are public:
+
+- `GET /health` on 9090, 9091, 9093 and 9094, for supervisors and load
+  balancers.
+- `GET /.well-known/agent-card.json` on 9094, for A2A discovery.
+- CORS preflight (`OPTIONS`).
+
+## MCP (9090, 9093)
+
+Both MCP revisions are served on `/mcp`:
+
+- **2026-07-28 (current).** Stateless requests. Send `MCP-Protocol-Version:
+  2026-07-28` and an `Mcp-Method: <method>` header, and put
+  `io.modelcontextprotocol/protocolVersion` in `params._meta`. Start with
+  `server/discover`.
+- **2025-06-18 (session).** Call `initialize`, keep the returned
+  `Mcp-Session-Id`, send `notifications/initialized`, then send requests on
+  that session with `MCP-Protocol-Version: 2025-06-18`.
+
+Send `Accept: application/json, text/event-stream`, because replies may arrive
+as SSE. An unknown method returns JSON-RPC `-32601`. `tools/list` is paginated
+and answers without waiting for external MCP servers, which are listed as
+`server:*` until a background probe resolves their tool names.
+
+## A2A (9094)
+
+Fetch the agent card from `/.well-known/agent-card.json`, then call JSON-RPC
+on `/` with the bearer token. Errors use the standard JSON-RPC codes: `-32601`
+for an unknown method and `-32602` for invalid params.
+
+## OpenAI-compatible inference (9091)
+
+Point an OpenAI client at `http://127.0.0.1:9091/v1` with the bearer token as
+its API key. `/v1/models` lists local models by file stem (never a local
+path), configured providers, and the aliases `susi` and `auto`. Echo an `id`
+from that list back as `model`.
+
+## Extensions
+
+Extension packs add capabilities, catalogs and routing without changing
+Susi. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
+in `~/.susi/extensions/<id>/`, declare an `apiVersion` whose major must match
+the host's, and run only with the permissions they declare.
+
+## Verify your integration
+
+Run the black-box conformance suite against the host you target, locally or
+in your CI:
+
+```text
+cargo run -p susi-conformance -- --port-offset <N> --token-file <home>/api_token
+```
+
+It checks health, auth, both MCP revisions, A2A discovery and error codes,
+and the model list, and reports the latency of each check. See
+[host-contract-conformance.md](host-contract-conformance.md).
+
+To test against a host without touching the one you use every day, give it
+its own home and offset:
+
+```text
+SUSI_HOME=/tmp/susi-it SUSI_PORT_OFFSET=700 susi start
+SUSI_HOME=/tmp/susi-it SUSI_PORT_OFFSET=700 susi stop
+```
+
+## What stays outside this repository
+
+Susi keeps single-host developer capabilities. Organisation-scale features,
+such as multi-tenant isolation, SSO/RBAC, fleet management, central spend
+governance and packaged Kubernetes deployment, are built outside it on these
+same public surfaces (see "Open-core boundary" in `AGENTS.md`). A request
+that names a tenant fails closed on the open substrate.
