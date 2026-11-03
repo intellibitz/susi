@@ -2,26 +2,23 @@
   "id": "T-COMMERCIALSPLIT-1",
   "title": "Move remaining organisation-scale capabilities to susi-commercial-apps",
   "goal": "Deep scan of the Apache-2.0 substrate against the open-core buyer test. Two self-contained units fail it and move to Fleet Command in susi-commercial-apps: staged multi-host configuration rollout (VC-201-068) and per-key gateway credentials with quotas, bindings and audit (VC-201-072). Nothing else in core depended on either. The architecture boundary test now keeps both out, the roadmap verdicts record the move, and the inference telemetry module no longer describes itself as enterprise financial governance.",
-  "deps": [],
-  "scopes": [
-    ".agents/roadmap-verdicts/vc-201-068.json",
-    ".agents/roadmap-verdicts/vc-201-072.json",
-    ".agents/roadmap.json",
-    ".agents/tasks/t-commercialsplit-1.json",
-    "crates/susi-config/src/fleet_rollout.rs",
-    "crates/susi-config/src/lib.rs",
-    "crates/susi-config/src/tests/vc_201_068.rs",
-    "crates/susi-config/src/tests/vc_201_068_mastery.rs",
-    "crates/susi-gawd/src/telemetry.rs",
-    "crates/susi-server/src/gateway_keys.rs",
-    "crates/susi-server/src/lib.rs",
-    "tests/architecture_tests.rs",
-    "tests/vc_201_068_mastery.rs"
-  ],
   "size": "m",
+  "deps": [],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "architecture_tests"]
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
   },
   "created_by": "COMMERCIALSPLIT",
-  "created_unix": 1793689364
+  "created_unix": 1793689364,
+  "closed": {
+    "at_unix": 1793690786,
+    "commit": "3c60cf55491c808d968a8e983d775423756af959",
+    "by": "COMMERCIALSPLIT1103"
+  }
 }
