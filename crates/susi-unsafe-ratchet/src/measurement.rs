@@ -90,6 +90,33 @@ pub fn file_sha256(path: &Path) -> Result<String, String> {
     Ok(sha256(&bytes))
 }
 
+/// Canonicalize `path` in the spelling `cargo metadata` reports.
+///
+/// On Windows `canonicalize` returns a verbatim `\\?\C:\...` path while Cargo
+/// reports `C:\...`, so comparing the two spellings rejected every real
+/// Windows source root ("metadata workspace root does not match source root").
+/// The verbatim local-disk prefix is dropped only when the plain spelling
+/// canonicalizes back to exactly the same path; anything else (UNC, long or
+/// otherwise unrepresentable paths) keeps the verbatim form.
+fn canonical(path: &Path) -> Result<PathBuf, String> {
+    let path = path.canonicalize().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        if let Some(Component::Prefix(prefix)) = path.components().next() {
+            if let Prefix::VerbatimDisk(_) = prefix.kind() {
+                if let Some(plain) = path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+                    let plain = PathBuf::from(plain);
+                    if plain.canonicalize().ok().as_ref() == Some(&path) {
+                        return Ok(plain);
+                    }
+                }
+            }
+        }
+    }
+    Ok(path)
+}
+
 pub fn contained_file(directory: &Path, relative: &str) -> Result<PathBuf, String> {
     let directory = directory.canonicalize().map_err(|e| e.to_string())?;
     let path = directory
@@ -661,7 +688,7 @@ pub fn scan(root: &Path, target: &str, features: &str) -> Result<Measurement, St
     if features != "default" {
         return Err("only the explicit default feature selection is supported".into());
     }
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let root = canonical(root)?;
     let compiler = command(&root, "rustc", &["-vV"])?;
     let host = compiler
         .lines()
@@ -692,10 +719,7 @@ pub fn scan(root: &Path, target: &str, features: &str) -> Result<Measurement, St
     let expected = expected_packages(&metadata, &root, &selection_tree)?;
     let mut packages = Vec::new();
     for package in &expected {
-        let directory = package
-            .directory
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
+        let directory = canonical(&package.directory)?;
         if (package.first_party || package.identity.source.starts_with("path:"))
             && !directory.starts_with(&root)
         {
