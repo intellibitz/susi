@@ -573,7 +573,7 @@ impl CoreTools {
 
     #[tool(
         name = "os_ps",
-        description = "List host processes (pid, name, RSS) read from /proc, sorted by memory; args: {limit?: N, filter?: substring}",
+        description = "List host processes (pid, name, RSS; threads excluded) on Linux, Windows and macOS, sorted by memory; args: {limit?: N, filter?: substring}",
         input_schema = args::typed::<args::OsPs>()
     )]
     pub fn os_ps(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -589,7 +589,7 @@ impl CoreTools {
 
     #[tool(
         name = "os_sysinfo",
-        description = "Host summary from /proc: kernel, uptime, load average, memory totals, cpu count",
+        description = "Host summary on Linux, Windows and macOS: kernel, uptime, load average, memory totals, cpu count, OS version, cpu utilization; a metric the OS does not keep reads unavailable",
         input_schema = args::no_args()
     )]
     pub fn os_sysinfo(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {

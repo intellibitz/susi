@@ -9,10 +9,7 @@ pub use susi_core::telemetry::sample;
 /// Sample host telemetry and optionally record it into the context graph.
 pub fn sample_and_record(workspace: Option<&Path>) -> TelemetrySnapshot {
     let snapshot = sample();
-    if !snapshot.thermal_zones.is_empty()
-        || !snapshot.batteries.is_empty()
-        || snapshot.load_avg_1m.is_some()
-    {
+    if snapshot.has_readings() {
         ContextGraph::global().record_telemetry(&snapshot, workspace);
     }
     snapshot

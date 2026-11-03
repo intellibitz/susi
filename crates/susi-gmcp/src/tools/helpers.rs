@@ -247,41 +247,27 @@ pub(super) fn tool_string_arg(arg: &serde_json::Value, keys: &[&str]) -> EaiResu
     )))
 }
 
-/// `os_ps` backend: walk /proc, return `pid, comm, VmRSS kB` rows sorted by
-/// memory descending, capped at `limit`. Linux-only — other platforms get a
-/// clear unsupported error rather than an empty table.
+/// `os_ps` backend: list processes (threads excluded) through the vendored
+/// sysinfo facade on every OS and return `pid, name, RSS kB` rows sorted by
+/// memory descending, capped at `limit`. The name column is `comm` on Linux
+/// and the image name on Windows and macOS. A host that reports no processes
+/// gets an explicit error naming the OS rather than an empty table.
 pub(super) fn os_ps_proc(limit: usize, filter: &str) -> EaiResult<String> {
-    if !cfg!(target_os = "linux") {
-        return Err(EaiError::protocol("os_ps requires /proc (Linux)"));
+    // Every OS through the vendored sysinfo facade (D-OS-1); the name column
+    // is `comm` on Linux and the image name on Windows and macOS.
+    use crate::susi_config::process_probe;
+    let all = process_probe::processes(false);
+    if all.is_empty() {
+        return Err(EaiError::protocol(format!(
+            "os_ps: this OS ({}) reports no processes",
+            std::env::consts::OS
+        )));
     }
-    let mut rows: Vec<(u32, String, u64)> = Vec::new();
-    let entries =
-        fs::read_dir("/proc").map_err(|e| EaiError::filesystem(format!("read /proc: {e}")))?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let Ok(pid) = name.parse::<u32>() else {
-            continue;
-        };
-        let dir = entry.path();
-        let comm = fs::read_to_string(dir.join("comm"))
-            .map(|s| s.trim().to_string())
-            .unwrap_or_default();
-        if !filter.is_empty() && !comm.contains(filter) {
-            continue;
-        }
-        let rss_kb = fs::read_to_string(dir.join("status"))
-            .ok()
-            .and_then(|s| {
-                s.lines()
-                    .find(|l| l.starts_with("VmRSS:"))
-                    .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
-            })
-            .unwrap_or(0);
-        rows.push((pid, comm, rss_kb));
-    }
+    let mut rows: Vec<(u32, String, u64)> = all
+        .into_iter()
+        .filter(|p| filter.is_empty() || p.name.contains(filter))
+        .map(|p| (p.pid, p.name, p.rss_kb))
+        .collect();
     rows.sort_by_key(|r| std::cmp::Reverse(r.2));
     rows.truncate(limit);
     let mut out = String::from("PID\tNAME\tRSS_KB\n");
@@ -291,47 +277,69 @@ pub(super) fn os_ps_proc(limit: usize, filter: &str) -> EaiResult<String> {
     Ok(out)
 }
 
-/// `os_sysinfo` backend: kernel, uptime, loadavg, meminfo, cpu count.
-/// Linux-only for the same reason as `os_ps_proc`.
+/// `os_sysinfo` backend: kernel, uptime, loadavg, meminfo, cpu count, read
+/// through the vendored sysinfo facade on every OS. The first six lines keep
+/// their historical order; `os:` and `cpu_util:` are appended after `cpus:`.
+/// On Linux `loadavg:` stays the raw `/proc/loadavg` record; elsewhere it is
+/// the three averages. `MemTotal:`/`MemAvailable:` are rendered as
+/// `<key>: <n> kB` (the meminfo value without its column padding). `cpus:` is
+/// the logical CPU count available to this process (`available_parallelism`,
+/// so affinity and cgroup limits apply, and it can be below the number of
+/// processors the OS reports, e.g. `/proc/cpuinfo` on Linux). A metric the
+/// OS does not keep reads
+/// `unavailable ...` instead of a made-up zero.
 pub(super) fn os_sysinfo_proc() -> EaiResult<String> {
-    if !cfg!(target_os = "linux") {
-        return Err(EaiError::protocol("os_sysinfo requires /proc (Linux)"));
-    }
-    let read = |p: &str| -> String {
-        fs::read_to_string(p)
+    // Every OS through the vendored sysinfo facade (D-OS-1). A metric the OS
+    // does not keep is named as unavailable, never printed as a zero.
+    use crate::susi_config::host_metrics;
+    let kernel = host_metrics::kernel_name();
+    let release = host_metrics::kernel_version().unwrap_or_else(|| "?".into());
+    let os = host_metrics::long_os_version().unwrap_or_else(|| "?".into());
+    let uptime = host_metrics::uptime_secs()
+        .map_or_else(|| "unavailable on this OS".to_string(), |s| format!("{s}s"));
+    // Linux keeps the full /proc/loadavg record (averages, runnable/total
+    // tasks, last pid) so the line stays byte-compatible with the
+    // pre-sysinfo output; other OSes print the three averages.
+    let raw_loadavg = if cfg!(target_os = "linux") {
+        fs::read_to_string("/proc/loadavg")
+            .ok()
             .map(|s| s.trim().to_string())
-            .unwrap_or_else(|_| "?".into())
+            .filter(|s| !s.is_empty())
+    } else {
+        None
     };
-    let kernel = read("/proc/sys/kernel/ostype");
-    let release = read("/proc/sys/kernel/osrelease");
-    let uptime_secs: f64 = read("/proc/uptime")
-        .split_whitespace()
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-    let loadavg = read("/proc/loadavg");
-    let meminfo = read("/proc/meminfo");
-    let mem_line = |key: &str| -> String {
-        meminfo
-            .lines()
-            .find(|l| l.starts_with(key))
-            .unwrap_or("?")
-            .to_string()
+    let loadavg = match (raw_loadavg, host_metrics::load_average()) {
+        (Some(raw), _) => raw,
+        (None, Some([one, five, fifteen])) => format!("{one:.2} {five:.2} {fifteen:.2}"),
+        (None, None) => format!(
+            "unavailable ({})",
+            host_metrics::load_average_unavailable().unwrap_or("not reported")
+        ),
     };
-    let cpus = read("/proc/cpuinfo")
-        .lines()
-        .filter(|l| l.starts_with("processor"))
-        .count();
+    let (mem_total, mem_avail) = match host_metrics::memory() {
+        Some(mem) => (
+            format!("MemTotal: {} kB", mem.total_bytes / 1024),
+            format!("MemAvailable: {} kB", mem.available_bytes / 1024),
+        ),
+        None => (
+            "MemTotal: unavailable on this OS".to_string(),
+            "MemAvailable: unavailable on this OS".to_string(),
+        ),
+    };
+    let cpu_util = host_metrics::cpu_util_pct().map_or_else(
+        || "unavailable on this OS".to_string(),
+        |p| format!("{p:.1}%"),
+    );
+    let cpus = host_metrics::cpu_count();
     Ok(format!(
         "kernel: {kernel} {release}\n\
-         uptime: {:.0}s\n\
+         uptime: {uptime}\n\
          loadavg: {loadavg}\n\
-         {}\n\
-         {}\n\
-         cpus: {cpus}",
-        uptime_secs,
-        mem_line("MemTotal:"),
-        mem_line("MemAvailable:")
+         {mem_total}\n\
+         {mem_avail}\n\
+         cpus: {cpus}\n\
+         os: {os}\n\
+         cpu_util: {cpu_util}"
     ))
 }
 
@@ -470,7 +478,6 @@ mod confine_tests {
         assert!(super::secure_external_url("http://8.8.8.8/").is_ok());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn proc_readers_return_real_tables() {
         let ps = super::os_ps_proc(5, "").unwrap();

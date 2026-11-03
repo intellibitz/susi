@@ -1,0 +1,19 @@
+{
+  "id": "T-OSPARITY1103-1",
+  "title": "Windows and Linux parity: sysinfo instead of /proc, Windows telemetry, cross-OS port reclaim (plan D-OS-1..3)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config"
+    ]
+  },
+  "created_by": "OSPARITY1103",
+  "created_unix": 1793734832
+}
