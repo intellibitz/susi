@@ -21,8 +21,11 @@ fn hex(data: &[u8]) -> String {
 }
 
 fn fixture(root: &Path, name: &str) -> (String, PathBuf) {
-    let source = root.join(format!("{name}.rs"));
-    fs::write(&source,format!(r#"use std::io::BufRead;
+    release(
+        root,
+        name,
+        &format!(
+            r#"use std::io::BufRead;
 fn main(){{
  let args:Vec<_>=std::env::args().skip(1).collect();
  let exe=std::env::current_exe().unwrap();
@@ -34,7 +37,15 @@ fn main(){{
  println!("{{}}|{{}}|{{}}|{{}}","{name}",args[0],data,std::env::var("SUSI_HOME").unwrap());
  eprintln!("stderr-{name}");
  std::process::exit(37);
-}}"#)).unwrap();
+}}"#
+        ),
+    )
+}
+
+/// Admit compiled `program` as release slot `name`, with fixture evidence.
+fn release(root: &Path, name: &str, program: &str) -> (String, PathBuf) {
+    let source = root.join(format!("{name}.rs"));
+    fs::write(&source, program).unwrap();
     let exe = root.join(format!("{name}.exe"));
     assert!(Command::new("rustc")
         .arg(&source)
@@ -129,6 +140,75 @@ fn entry_that_is_the_current_release_runs_in_place() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    fs::remove_dir_all(profile).unwrap();
+}
+
+/// A release that detaches a background child the way `susi start` starts the
+/// daemon: its own standard handles stop being inheritable first. Through the
+/// dispatcher the caller's pipes must still close when the release exits, not
+/// when the detached child does.
+#[test]
+fn dispatched_release_does_not_leak_caller_pipes_into_detached_children() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let profile = std::env::temp_dir().join(format!("susi-detach-{stamp}"));
+    let root = profile.join("AppData/Local/SusiLocal/production");
+    let entry = root.join("entry/susi.exe");
+    fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_susi"), &entry).unwrap();
+    let (id, slot) = release(
+        &root,
+        "D",
+        r#"use std::os::windows::io::AsRawHandle;
+#[link(name = "kernel32")]
+extern "system" { fn SetHandleInformation(h: *mut std::ffi::c_void, mask: u32, flags: u32) -> i32; }
+fn main() {
+    if std::env::args().nth(1).as_deref() == Some("linger") {
+        let pid = std::env::current_exe().unwrap().with_extension("pid");
+        std::fs::write(pid, std::process::id().to_string()).unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(180));
+        return;
+    }
+    for h in [std::io::stdin().as_raw_handle(), std::io::stdout().as_raw_handle(), std::io::stderr().as_raw_handle()] {
+        unsafe { SetHandleInformation(h as _, 1, 0) };
+    }
+    std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("linger")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    println!("detached");
+}"#,
+    );
+    select(&root, &id, None);
+    let started = Instant::now();
+    let out = command(&entry, &profile)
+        .arg("start")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let elapsed = started.elapsed();
+    // The detached child outlives the release by minutes; the launcher's own
+    // checks take seconds (more in a debug build), never that long.
+    let pid = fs::read_to_string(slot.join("susi.pid")).unwrap();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/PID", pid.trim()])
+        .output();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8(out.stdout).unwrap().trim(), "detached");
+    assert!(
+        elapsed < Duration::from_secs(90),
+        "caller pipes stayed open {elapsed:?} until the detached child exited"
+    );
+    std::thread::sleep(Duration::from_millis(500));
     fs::remove_dir_all(profile).unwrap();
 }
 

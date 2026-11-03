@@ -166,7 +166,12 @@ pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
         }
         command.env("SUSI_HOME", home);
     }
-    let mut child = command.args(env::args_os().skip(1)).spawn()?;
+    // The release still gets this caller's console or pipes as its own stdio,
+    // but not the dispatcher's originals as extra inheritable handles: a
+    // daemon it detaches would otherwise keep `$(susi start)` pipes open.
+    let mut child = susi_daemon::server::SusiDaemon::spawn_without_inheriting_stdio(
+        command.args(env::args_os().skip(1)),
+    )?;
     drop(pinned);
     Ok(child.wait()?)
 }
