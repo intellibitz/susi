@@ -51,8 +51,8 @@ jobs:
             src: target/dist/susi
           # Release scope (CEO decision 2026-11-03): core publishes x86_64
           # Windows and x86_64 Linux only. The linux-aarch64 and macos-aarch64
-          # dev builds were removed; ARM and macOS stay in the source and in
-          # free CI checks, and susi-commercial-apps builds those binaries.
+          # dev builds were removed; ARM and macOS stay portable in the source,
+          # and susi-commercial-apps builds and qualifies those binaries.
     # Windows builds are not yet published here: the wasmtime backend is
     # license-clean on windows-msvc, so the backend blocker is gone — the
     # Windows release leg itself (runner, installer, validation) is still
