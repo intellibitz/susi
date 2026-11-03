@@ -24,5 +24,10 @@
     ]
   },
   "created_by": "EXTPARITY1104",
-  "created_unix": 1793746080
+  "created_unix": 1793746080,
+  "closed": {
+    "commit": "efe9b8c67",
+    "by": "EXTPARITY1104",
+    "at_unix": 1793768850
+  }
 }
