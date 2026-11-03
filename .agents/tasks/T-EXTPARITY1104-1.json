@@ -1,0 +1,28 @@
+{
+  "id": "T-EXTPARITY1104-1",
+  "title": "Core Socket Parity Group 11: Extensions MCP tools and commercial pack socket admission",
+  "goal": "Implement extensions_list, extensions_status, extensions_validate, extensions_load, and extensions_unload over MCP, burn down Group 11 in tests/socket_parity.rs from 5 to 0 (MAX_KNOWN_GAPS 160 to 155), and verify commercial-default pack admission over the GMCP socket without rebuilding Susi (Mandate 62).",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-EXTPARITY1104-1.json",
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/src/tools/core.rs",
+    "crates/susi-gmcp/src/direct_call.rs",
+    "crates/susi-gmcp/tests/tool_input_schemas.rs",
+    "crates/susi-daemon/src/gmcp_bootstrap.rs",
+    "tests/socket_parity.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "socket_parity"
+    ]
+  },
+  "created_by": "EXTPARITY1104",
+  "created_unix": 1793746080
+}

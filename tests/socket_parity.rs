@@ -92,6 +92,11 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("models list", &[Mcp("coding_models_list")]),
     ("models prefer", &[Mcp("coding_models_prefer")]),
     ("run", &[Route("POST", "/v1/chat/completions")]),
+    ("extensions list", &[Mcp("extensions_list")]),
+    ("extensions status", &[Mcp("extensions_status")]),
+    ("extensions validate", &[Mcp("extensions_validate")]),
+    ("extensions load", &[Mcp("extensions_load")]),
+    ("extensions unload", &[Mcp("extensions_unload")]),
 ];
 
 /// The plan's explicit exemptions (B3): no socket equivalent is needed. A
@@ -140,7 +145,7 @@ const GROUPS: &[(u8, &str, usize)] = &[
     (8, "Context and IPC (PSP-29)", 11),
     (9, "OS (PSP-30)", 20),
     (10, "Lifecycle (PSP-19)", 0),
-    (11, "Extensions (PSP-20, corrected)", 5),
+    (11, "Extensions (PSP-20, corrected)", 0),
     (12, "9091 replacements (PSP-04 prerequisite)", 0),
     (13, "Not assigned to a B4 group yet", 10),
     (14, "Proposed exemption: process entry points or socket clients (needs a plan decision)", 8),
@@ -149,7 +154,7 @@ const GROUPS: &[(u8, &str, usize)] = &[
 
 /// Ratchet on the whole allow-list: it only shrinks. Lower this with every
 /// gap closed; never raise it to park a new command.
-const MAX_KNOWN_GAPS: usize = 160;
+const MAX_KNOWN_GAPS: usize = 155;
 
 /// Commands with no socket surface yet: (command, B4 group, the MCP tool(s)
 /// the plan names for it — empty when the plan names none). When every
@@ -303,12 +308,6 @@ const KNOWN_GAPS: &[(&str, u8, &[&str])] = &[
     ("peers unban", 9, &[]),
     ("peers rekey", 9, &[]),
     ("peers status", 9, &[]),
-    // 11. Extensions
-    ("extensions list", 11, &["extensions_list"]),
-    ("extensions status", 11, &["extensions_status"]),
-    ("extensions validate", 11, &["extensions_validate"]),
-    ("extensions load", 11, &["extensions_load"]),
-    ("extensions unload", 11, &["extensions_unload"]),
     // 13. Not assigned to a B4 group yet
     ("extensions create", 13, &[]),
     ("auto status", 13, &[]),

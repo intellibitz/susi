@@ -2877,6 +2877,91 @@ impl CoreTools {
             req_path.display()
         ))
     }
+
+    #[tool(
+        name = "extensions_list",
+        description = "List installed and discoverable extension packs and their load/active/quarantine state",
+        input_schema = args::no_args()
+    )]
+    pub fn extensions_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let packs = crate::susi_config::extensions::list_packs();
+        serde_json::to_string_pretty(&packs).map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "extensions_status",
+        description = "Report the active extension pack and all discoverable extension packs",
+        input_schema = args::no_args()
+    )]
+    pub fn extensions_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let pack = crate::susi_config::extensions::active_pack();
+        let packs = crate::susi_config::extensions::list_packs();
+        serde_json::to_string_pretty(&serde_json::json!({
+            "active": pack.id,
+            "root": pack.root,
+            "packs": packs,
+        }))
+        .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "extensions_validate",
+        description = "Validate a pack directory against the host's manifest, path containment, signature and SHA-256 checksum rules without mutating host state",
+        input_schema = args::typed::<args::ExtensionsValidate>()
+    )]
+    pub fn extensions_validate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let raw = tool_string_arg(arg, &["path", "dir", "root"])?;
+        let path = if Path::new(&raw).is_absolute() {
+            std::path::PathBuf::from(&raw)
+        } else {
+            workspace.join(&raw)
+        };
+        let (manifest, artifacts) =
+            crate::susi_config::extensions::validate_pack_dir(&path).map_err(EaiError::protocol)?;
+        serde_json::to_string_pretty(&serde_json::json!({
+            "valid": true,
+            "id": manifest.id,
+            "version": manifest.version,
+            "apiVersion": manifest.api_version,
+            "permissions": manifest.permissions,
+            "signed": manifest.signer.is_some(),
+            "artifacts_sha256": artifacts,
+        }))
+        .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "extensions_load",
+        description = "Load and activate an installed extension pack after verifying its manifest, signatures and SHA-256 checksums",
+        input_schema = args::typed::<args::ExtensionPackId>()
+    )]
+    pub fn extensions_load(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let id = tool_string_arg(arg, &["id", "pack", "name"])?;
+        let status = crate::susi_config::extensions::load_pack(&id).map_err(EaiError::protocol)?;
+        let active = crate::susi_config::extensions::active_pack().id;
+        serde_json::to_string_pretty(&serde_json::json!({
+            "loaded": status,
+            "active": active,
+        }))
+        .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "extensions_unload",
+        description = "Unload and deactivate an extension pack while preserving its files on disk",
+        input_schema = args::typed::<args::ExtensionPackId>()
+    )]
+    pub fn extensions_unload(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let id = tool_string_arg(arg, &["id", "pack", "name"])?;
+        let status =
+            crate::susi_config::extensions::unload_pack(&id).map_err(EaiError::protocol)?;
+        let active = crate::susi_config::extensions::active_pack().id;
+        serde_json::to_string_pretty(&serde_json::json!({
+            "unloaded": status.id,
+            "active": active,
+        }))
+        .map_err(|e| EaiError::protocol(e.to_string()))
+    }
 }
 
 /// Drain one child pipe on its own thread, keeping at most 8 MiB. Output is
@@ -3269,7 +3354,7 @@ mod os_tools_wired_tests {
     /// shared env lock for the returned guard's lifetime — `cluster_key()`
     /// resolves through XDG env vars and other tests seal/verify against
     /// it, so the mutation must be exclusive for the whole test.
-    fn isolate_config() -> (
+    pub(super) fn isolate_config() -> (
         std::sync::MutexGuard<'static, ()>,
         susi_paths::test_env::EnvGuard,
         PathBuf,
@@ -3697,5 +3782,285 @@ mod core_io_tests {
         assert!(CoreTools::agents_list(&json!({}), &ws).is_ok());
         assert!(CoreTools::agents_tasks(&json!({}), &ws).is_ok());
         let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn extensions_tools_admit_commercial_default_pack_over_mcp_wire() {
+        use crate::protocol::GmcpService;
+        use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+        use rmcp::ServiceExt;
+        use sha2::{Digest, Sha256};
+        use std::sync::Arc;
+        use susi_vendor_mcp_server as rmcp;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        struct ExtensionRouter(PathBuf);
+        impl PlaneHandler for ExtensionRouter {
+            fn handle(
+                &self,
+                topic: &str,
+                payload: serde_json::Value,
+            ) -> Result<serde_json::Value, String> {
+                match topic {
+                    topics::TOOLS_LIST => Ok(json!([
+                        {"name": "extensions_list", "description": "list"},
+                        {"name": "extensions_status", "description": "status"},
+                        {"name": "extensions_validate", "description": "validate"},
+                        {"name": "extensions_load", "description": "load"},
+                        {"name": "extensions_unload", "description": "unload"},
+                        {"name": "agents_list", "description": "agents"},
+                        {"name": "frameworks_list", "description": "frameworks"},
+                    ])),
+                    topics::TOOLS_EXISTS => Ok(json!({"exists": true})),
+                    topics::TOOLS_EXECUTE => {
+                        let name = payload["name"].as_str().unwrap_or("");
+                        let args = &payload["args"];
+                        let out = match name {
+                            "extensions_list" => CoreTools::extensions_list(args, &self.0),
+                            "extensions_status" => CoreTools::extensions_status(args, &self.0),
+                            "extensions_validate" => CoreTools::extensions_validate(args, &self.0),
+                            "extensions_load" => CoreTools::extensions_load(args, &self.0),
+                            "extensions_unload" => CoreTools::extensions_unload(args, &self.0),
+                            "agents_list" => CoreTools::agents_list(args, &self.0),
+                            "frameworks_list" => CoreTools::frameworks_list(args, &self.0),
+                            other => return Err(format!("unexpected tool {other}")),
+                        }
+                        .map_err(|e| e.to_string())?;
+                        Ok(json!({"text": out}))
+                    }
+                    other => Err(format!("unexpected topic {other}")),
+                }
+            }
+        }
+
+        let (_lock, mut env, dir) = super::os_tools_wired_tests::isolate_config();
+        env.set("SUSI_HOME", &dir);
+        env.set("SUSI_XDG", "0");
+        env.remove("SUSI_EXTENSION_PACK");
+        crate::susi_config::extensions::invalidate_extension_caches();
+
+        let ws = dir.join("workspace");
+        std::fs::create_dir_all(&ws).unwrap();
+
+        // Install a full `commercial-default` pack under `<config_dir>/extensions/commercial-default`
+        // matching `susi-commercial-apps/crates/susi-ecosystem-hub/packs/commercial-default`.
+        let pack_root = susi_paths::SusiDirs::config_dir()
+            .join("extensions")
+            .join("commercial-default");
+        std::fs::create_dir_all(&pack_root).unwrap();
+
+        let files: &[(&str, &str)] = &[
+            (
+                "leading-mcp.json",
+                r#"[{"id":"filesystem","name":"Filesystem MCP","rank":1,"documentation":"https://modelcontextprotocol.io","package":"@modelcontextprotocol/server-filesystem","runner":"npx","args":["-y","@modelcontextprotocol/server-filesystem","{workspace}"],"env_keys":[],"category":"fs","notes":"Bedrock server"}]"#,
+            ),
+            (
+                "mcp-registry.json",
+                r#"[{"id":"filesystem","name":"Filesystem MCP","package":"@modelcontextprotocol/server-filesystem"}]"#,
+            ),
+            (
+                "execution-agents.json",
+                r#"[{"id":"codex","name":"Codex Agent","peer_name":"CodexAgent","rank":1,"documentation":"https://developers.openai.com/codex/cli","adapter":{"kind":"command","program":"codex","args":["exec","--","{prompt}"]}}]"#,
+            ),
+            (
+                "agent-engines.json",
+                r#"[{"id":"langgraph","name":"LangGraph","peer_name":"LangGraphEngine","rank":1,"documentation":"https://langchain-ai.github.io/langgraph/","adapter":{"kind":"command","program":"langgraph","args":["run","--","{prompt}"]}}]"#,
+            ),
+            ("external-peer-agents.json", "[]"),
+            ("bootstrap-mcp-servers.json", "[]"),
+        ];
+
+        let mut file_map = serde_json::Map::new();
+        let mut checksums = serde_json::Map::new();
+        for (name, body) in files {
+            std::fs::write(pack_root.join(name), body.as_bytes()).unwrap();
+            let digest = format!("sha256:{}", hex::encode(Sha256::digest(body.as_bytes())));
+            file_map.insert((*name).to_string(), json!(name));
+            checksums.insert((*name).to_string(), json!(digest));
+        }
+
+        let manifest = json!({
+            "api_version": "1",
+            "id": "commercial-default",
+            "name": "Susi Commercial Default Vendor Catalogs",
+            "version": "1.1.0",
+            "description": "Launchable third-party vendor catalogs for Susi",
+            "publisher": "IntelliBitz Susi Commercial",
+            "capabilities": [
+                "catalog.mcp",
+                "catalog.mcp_registry",
+                "catalog.execution_agents",
+                "catalog.agent_engines"
+            ],
+            "permissions": [],
+            "requires": [],
+            "optional": [],
+            "files": file_map,
+            "checksums": checksums,
+            "signatures": {}
+        });
+        std::fs::write(
+            pack_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let router = Arc::new(ExtensionRouter(ws.clone()));
+        PlaneBus::global().register(topics::TOOLS_LIST, router.clone());
+        PlaneBus::global().register(topics::TOOLS_EXISTS, router.clone());
+        PlaneBus::global().register(topics::TOOLS_EXECUTE, router);
+
+        let rt = CoreTools::shared_runtime().unwrap();
+        rt.block_on(async {
+            let (client, server) = tokio::io::duplex(1 << 20);
+            let service_ws = ws.clone();
+            tokio::spawn(async move {
+                let running = GmcpService::new(service_ws).serve(server).await.unwrap();
+                let _ = running.waiting().await;
+            });
+            let mut wire = BufReader::new(client);
+            let mut rpc =
+                async |id: i64, method: &str, params: serde_json::Value| -> serde_json::Value {
+                    let msg =
+                        json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+                    wire.get_mut()
+                        .write_all(format!("{msg}\n").as_bytes())
+                        .await
+                        .unwrap();
+                    let mut line = String::new();
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        wire.read_line(&mut line),
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap();
+                    serde_json::from_str(&line).unwrap()
+                };
+
+            let init = rpc(
+                1,
+                "initialize",
+                json!({
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "commercial-pack-test", "version": "1.0"}
+                }),
+            )
+            .await;
+            assert_eq!(init["result"]["protocolVersion"], "2025-11-25");
+
+            // 1. Validate `commercial-default` over the MCP socket.
+            let validated = rpc(
+                2,
+                "tools/call",
+                json!({
+                    "name": "extensions_validate",
+                    "arguments": { "path": pack_root.to_string_lossy() }
+                }),
+            )
+            .await;
+            assert_ne!(validated["result"]["isError"], json!(true), "{validated}");
+            let validated_json: serde_json::Value =
+                serde_json::from_str(validated["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(validated_json["valid"], json!(true));
+            assert_eq!(validated_json["id"], json!("commercial-default"));
+            assert_eq!(validated_json["version"], json!("1.1.0"));
+            assert!(validated_json["artifacts_sha256"]["manifest.json"]
+                .as_str()
+                .unwrap()
+                .starts_with("sha256:"));
+            assert!(validated_json["artifacts_sha256"]["leading-mcp.json"]
+                .as_str()
+                .unwrap()
+                .starts_with("sha256:"));
+
+            // 2. Load `commercial-default` over the MCP socket.
+            let loaded = rpc(
+                3,
+                "tools/call",
+                json!({
+                    "name": "extensions_load",
+                    "arguments": { "id": "commercial-default" }
+                }),
+            )
+            .await;
+            assert_ne!(loaded["result"]["isError"], json!(true), "{loaded}");
+            let loaded_json: serde_json::Value =
+                serde_json::from_str(loaded["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(loaded_json["active"], json!("commercial-default"));
+            assert_eq!(loaded_json["loaded"]["id"], json!("commercial-default"));
+            assert_eq!(loaded_json["loaded"]["loaded"], json!(true));
+            assert_eq!(loaded_json["loaded"]["active"], json!(true));
+            assert_eq!(loaded_json["loaded"]["quarantined"], json!(false));
+
+            // 3. Verify `extensions_status` and `extensions_list` over the MCP socket.
+            let status = rpc(
+                4,
+                "tools/call",
+                json!({
+                    "name": "extensions_status",
+                    "arguments": {}
+                }),
+            )
+            .await;
+            let status_json: serde_json::Value =
+                serde_json::from_str(status["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(status_json["active"], json!("commercial-default"));
+
+            let listed = rpc(
+                5,
+                "tools/call",
+                json!({
+                    "name": "extensions_list",
+                    "arguments": {}
+                }),
+            )
+            .await;
+            let listed_json: serde_json::Value =
+                serde_json::from_str(listed["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert!(listed_json
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["id"] == "commercial-default"
+                    && p["active"] == true
+                    && p["loaded"] == true));
+
+            // 4. Mandate 62 proof: the admitted pack's catalogs are immediately served over the
+            //    socket without rebuilding Susi.
+            let loaded_mcp: Vec<serde_json::Value> =
+                crate::susi_config::extensions::load_json_or_bundled("leading-mcp.json", "[]");
+            assert_eq!(loaded_mcp.len(), 1);
+            assert_eq!(loaded_mcp[0]["id"], json!("filesystem"));
+
+            // 5. Unload `commercial-default` over the MCP socket and verify fallback to `default`.
+            let unloaded = rpc(
+                6,
+                "tools/call",
+                json!({
+                    "name": "extensions_unload",
+                    "arguments": { "id": "commercial-default" }
+                }),
+            )
+            .await;
+            assert_ne!(unloaded["result"]["isError"], json!(true), "{unloaded}");
+            let unloaded_json: serde_json::Value =
+                serde_json::from_str(unloaded["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(unloaded_json["unloaded"], json!("commercial-default"));
+            assert_eq!(unloaded_json["active"], json!("default"));
+
+            let after_unload_mcp: Vec<serde_json::Value> =
+                crate::susi_config::extensions::load_json_or_bundled("leading-mcp.json", "[]");
+            assert!(after_unload_mcp.is_empty());
+        });
+
+        crate::susi_config::extensions::invalidate_extension_caches();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

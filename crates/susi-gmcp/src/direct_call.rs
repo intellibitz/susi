@@ -82,7 +82,22 @@ pub fn get_tool_schema(server: &str, tool: &str) -> Value {
                 "limit": { "type": "integer" }
             }
         }),
-        "status" | "identity" | "list_models" | "os_sysinfo" | "ledger_verify" => json!({
+        "extensions_validate" => json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            },
+            "required": ["path"]
+        }),
+        "extensions_load" | "extensions_unload" => json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" }
+            },
+            "required": ["id"]
+        }),
+        "status" | "identity" | "list_models" | "os_sysinfo" | "ledger_verify"
+        | "extensions_list" | "extensions_status" => json!({
             "type": "object"
         }),
         _ => json!({
@@ -173,6 +188,11 @@ fn dispatch_native(tool: &str, args: &Value, workspace: &Path) -> EaiResult<Stri
         "sovereign_dashboard" => crate::tools::CoreTools::sovereign_dashboard(args, workspace),
         "os_ps" => crate::tools::CoreTools::os_ps(args, workspace),
         "os_sysinfo" => crate::tools::CoreTools::os_sysinfo(args, workspace),
+        "extensions_list" => crate::tools::CoreTools::extensions_list(args, workspace),
+        "extensions_status" => crate::tools::CoreTools::extensions_status(args, workspace),
+        "extensions_validate" => crate::tools::CoreTools::extensions_validate(args, workspace),
+        "extensions_load" => crate::tools::CoreTools::extensions_load(args, workspace),
+        "extensions_unload" => crate::tools::CoreTools::extensions_unload(args, workspace),
         _ => {
             let out = ToolRegistry::execute_tool(tool, args, workspace);
             if is_tool_result_error(&out) {

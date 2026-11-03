@@ -637,6 +637,41 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::WorkspaceIo,
         adapt(CoreTools::tx_abort),
     );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "extensions_list",
+        "List installed and discoverable extension packs and their load/active/quarantine state",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::extensions_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "extensions_status",
+        "Report the active extension pack and all discoverable extension packs",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::extensions_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "extensions_validate",
+        "Validate a pack directory against the host's manifest, path containment, signature and SHA-256 checksum rules without mutating host state",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::extensions_validate),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "extensions_load",
+        "Load and activate an installed extension pack after verifying its manifest, signatures and SHA-256 checksums",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::extensions_load),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "extensions_unload",
+        "Unload and deactivate an extension pack while preserving its files on disk",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::extensions_unload),
+    );
 
     // No essential-MCP auto-link: core never configures or launches a
     // third-party MCP server on its own (zero-UI plan A8).
