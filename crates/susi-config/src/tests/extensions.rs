@@ -693,3 +693,73 @@ fn damaged_state_is_never_rewritten_or_reset() {
         );
     });
 }
+
+fn author_pack(
+    name: &str,
+    manifest: &serde_json::Value,
+    files: &[(&str, &str)],
+) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "susi_ext_author_{name}_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
+    for (rel, body) in files {
+        std::fs::write(root.join(rel), body).unwrap();
+    }
+    root
+}
+
+#[test]
+fn validate_pack_dir_applies_host_admission_rules_to_author_packs() {
+    use sha2::{Digest, Sha256};
+    let body = r#"{"vendors":[]}"#;
+    let digest: String = Sha256::digest(body.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let base = serde_json::json!({
+        "id": "acme-pack", "name": "Acme", "version": "1.0.0", "apiVersion": "1",
+        "capabilities": [], "permissions": [],
+        "files": {"cloud-vendors.json": "cloud-vendors.json"},
+        "checksums": {"cloud-vendors.json": digest},
+    });
+    let ok = author_pack("ok", &base, &[("cloud-vendors.json", body)]);
+    let (manifest, artifacts) = validate_pack_dir(&ok).unwrap();
+    assert_eq!(manifest.id, "acme-pack");
+    assert_eq!(artifacts["cloud-vendors.json"], format!("sha256:{digest}"));
+    assert!(artifacts.contains_key("manifest.json"));
+
+    let mut tampered = author_pack("tampered", &base, &[("cloud-vendors.json", "{}")]);
+    assert!(validate_pack_dir(&tampered)
+        .unwrap_err()
+        .contains("checksum mismatch"));
+    std::fs::remove_dir_all(&tampered).ok();
+
+    let mut unknown = base.clone();
+    unknown["permissions"] = serde_json::json!(["root.everything"]);
+    tampered = author_pack("perm", &unknown, &[("cloud-vendors.json", body)]);
+    assert!(validate_pack_dir(&tampered)
+        .unwrap_err()
+        .contains("unknown permission"));
+    std::fs::remove_dir_all(&tampered).ok();
+
+    let mut escape = base.clone();
+    escape["files"] = serde_json::json!({"cloud-vendors.json": "../outside.json"});
+    escape["checksums"] = serde_json::json!({});
+    tampered = author_pack("escape", &escape, &[]);
+    assert!(validate_pack_dir(&tampered).is_err());
+    std::fs::remove_dir_all(&tampered).ok();
+
+    let broken = author_pack("broken", &serde_json::json!({"id": 7}), &[]);
+    assert!(validate_pack_dir(&broken)
+        .unwrap_err()
+        .starts_with("invalid manifest"));
+    std::fs::remove_dir_all(&broken).ok();
+    std::fs::remove_dir_all(&ok).ok();
+}

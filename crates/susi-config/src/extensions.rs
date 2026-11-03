@@ -1231,6 +1231,36 @@ fn validate_pack_root(id: &str) -> Result<PathBuf, String> {
 }
 
 /// Read and validate the manifest actually present under this pack identity.
+/// Author-side admission check for a pack directory anywhere on disk: the
+/// host's own manifest validation, path containment, signature and checksum
+/// rules, without reading or changing host trust state. Returns the manifest
+/// and the SHA-256 of every artifact the host would pin on `load`.
+pub fn validate_pack_dir(
+    root: &Path,
+) -> Result<(ExtensionManifest, BTreeMap<String, String>), String> {
+    let file = declared_path(root, "manifest.json", false)?;
+    let bytes = std::fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+    let manifest: ExtensionManifest =
+        serde_json::from_slice(&bytes).map_err(|e| format!("invalid manifest: {e}"))?;
+    validate_manifest(&manifest)?;
+    let digests = artifact_digests(root, &manifest)?;
+    for (logical, expected) in &manifest.checksums {
+        let actual = digests.get(logical).ok_or_else(|| {
+            format!(
+                "pack `{}` checksum target `{logical}` is missing",
+                manifest.id
+            )
+        })?;
+        if actual != &normalize_checksum(expected) {
+            return Err(format!(
+                "pack `{}` checksum mismatch for `{logical}`",
+                manifest.id
+            ));
+        }
+    }
+    Ok((manifest, digests))
+}
+
 pub fn manifest_for(pack_id: &str) -> Result<ExtensionManifest, String> {
     let root = validate_pack_root(pack_id)?;
     let file = declared_path(&root, "manifest.json", false)?;
