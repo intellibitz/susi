@@ -210,6 +210,7 @@ impl PlatformRsaKey {
             return Err(invalid("multi-prime RSA identities are unsupported"));
         }
         let blob = private_blob(&private)?;
+        validate_private_components(&private)?;
         Ok(Self {
             key: Mutex::new(Key::import(&blob)?),
         })
@@ -377,6 +378,146 @@ fn push_fixed(blob: &mut Vec<u8>, bytes: &[u8], width: usize) -> io::Result<()> 
     Ok(())
 }
 
+const LIMBS: usize = MAX_KEY_BYTES / 8;
+type Limbs = [u64; LIMBS];
+type Wide = [u64; LIMBS * 2];
+const ZERO: Limbs = [0u64; LIMBS];
+
+fn cmp_limbs(a: &Limbs, b: &Limbs) -> std::cmp::Ordering {
+    a.iter().rev().cmp(b.iter().rev())
+}
+
+fn integer(bytes: &[u8]) -> io::Result<Zeroizing<Limbs>> {
+    let mut fixed = Zeroizing::new([0u8; MAX_KEY_BYTES]);
+    let first = fixed
+        .len()
+        .checked_sub(bytes.len())
+        .ok_or_else(|| invalid("oversized RSA integer"))?;
+    fixed[first..].copy_from_slice(bytes);
+    let mut out = Zeroizing::new(ZERO);
+    for (limb, chunk) in out.iter_mut().zip(fixed.rchunks_exact(8)) {
+        let word: [u8; 8] = chunk
+            .try_into()
+            .map_err(|_| invalid("invalid RSA integer limb"))?;
+        *limb = u64::from_be_bytes(word);
+    }
+    Ok(out)
+}
+
+fn sub_one(a: &Limbs) -> Zeroizing<Limbs> {
+    let mut out = Zeroizing::new(*a);
+    for limb in out.iter_mut() {
+        let (next, borrow) = limb.overflowing_sub(1);
+        *limb = next;
+        if !borrow {
+            break;
+        }
+    }
+    out
+}
+
+fn mul_wide(a: &Limbs, b: &Limbs) -> Zeroizing<Wide> {
+    let mut out = Zeroizing::new([0u64; LIMBS * 2]);
+    for i in 0..LIMBS {
+        let mut carry = 0u128;
+        for j in 0..LIMBS {
+            let prod = u128::from(a[i]) * u128::from(b[j]) + u128::from(out[i + j]) + carry;
+            out[i + j] = prod as u64;
+            carry = prod >> 64;
+        }
+        out[i + LIMBS] = carry as u64;
+    }
+    out
+}
+
+fn rem_wide(dividend: &Wide, divisor: &Limbs) -> io::Result<Zeroizing<Limbs>> {
+    if *divisor == ZERO {
+        return Err(invalid("zero RSA divisor"));
+    }
+    let Some(top_limb) = dividend.iter().rposition(|&limb| limb != 0) else {
+        return Ok(Zeroizing::new(ZERO));
+    };
+    let mut rem = Zeroizing::new([0u64; LIMBS + 1]);
+    for word in (0..=top_limb).rev() {
+        let value = dividend[word];
+        for shift in (0..64).rev() {
+            let mut carry = (value >> shift) & 1;
+            for limb in rem.iter_mut() {
+                let next = (*limb << 1) | carry;
+                carry = *limb >> 63;
+                *limb = next;
+            }
+            if rem[LIMBS] != 0
+                || rem[..LIMBS].iter().rev().cmp(divisor.iter().rev()) != std::cmp::Ordering::Less
+            {
+                let mut borrow = 0u64;
+                for (r, &d) in rem[..LIMBS].iter_mut().zip(divisor.iter()) {
+                    let (diff1, b1) = r.overflowing_sub(d);
+                    let (diff2, b2) = diff1.overflowing_sub(borrow);
+                    *r = diff2;
+                    borrow = u64::from(b1 || b2);
+                }
+                rem[LIMBS] = rem[LIMBS].wrapping_sub(borrow);
+            }
+        }
+    }
+    let mut out = Zeroizing::new(ZERO);
+    out.copy_from_slice(&rem[..LIMBS]);
+    Ok(out)
+}
+
+fn product_is_one(a: &Limbs, b: &Limbs, modulus: &Limbs) -> io::Result<bool> {
+    let mut one = ZERO;
+    one[0] = 1;
+    let wide = mul_wide(a, b);
+    let reduced = rem_wide(&wide, modulus)?;
+    Ok(*reduced == one)
+}
+
+// CNG can reconstruct ignored CRT fields during import. Check the supplied
+// PKCS#1 integers before it does. In particular a valid d can be reduced
+// modulo either phi(n) or lambda(n), so equality with an exported d is not
+// a validity test. Only installed CNG performs signing and key generation.
+fn validate_private_components(private: &pkcs1::RsaPrivateKey<'_>) -> io::Result<()> {
+    let mut one = ZERO;
+    one[0] = 1;
+    let n = integer(private.modulus.as_bytes())?;
+    let e = integer(private.public_exponent.as_bytes())?;
+    let d = integer(private.private_exponent.as_bytes())?;
+    let p = integer(private.prime1.as_bytes())?;
+    let q = integer(private.prime2.as_bytes())?;
+    let dp = integer(private.exponent1.as_bytes())?;
+    let dq = integer(private.exponent2.as_bytes())?;
+    let coefficient = integer(private.coefficient.as_bytes())?;
+    if cmp_limbs(&p, &one) != std::cmp::Ordering::Greater
+        || cmp_limbs(&q, &one) != std::cmp::Ordering::Greater
+        || *p == *q
+        || *d == ZERO
+        || cmp_limbs(&d, &n) != std::cmp::Ordering::Less
+        || cmp_limbs(&coefficient, &p) != std::cmp::Ordering::Less
+    {
+        return Err(invalid("invalid RSA private components"));
+    }
+    let product = mul_wide(&p, &q);
+    let pm = sub_one(&p);
+    let qm = sub_one(&q);
+    let mut d_wide = Zeroizing::new([0u64; LIMBS * 2]);
+    d_wide[..LIMBS].copy_from_slice(&*d);
+    let d_mod_p = rem_wide(&d_wide, &pm)?;
+    let d_mod_q = rem_wide(&d_wide, &qm)?;
+    if product[..LIMBS] != n[..]
+        || product[LIMBS..] != ZERO[..]
+        || *dp != *d_mod_p
+        || *dq != *d_mod_q
+        || !product_is_one(&e, &dp, &pm)?
+        || !product_is_one(&e, &dq, &qm)?
+        || !product_is_one(&q, &coefficient, &p)?
+    {
+        return Err(invalid("inconsistent RSA private components"));
+    }
+    Ok(())
+}
+
 fn private_blob(private: &pkcs1::RsaPrivateKey<'_>) -> io::Result<Zeroizing<Vec<u8>>> {
     let modulus = private.modulus.as_bytes();
     let first = modulus
@@ -402,7 +543,11 @@ fn private_blob(private: &pkcs1::RsaPrivateKey<'_>) -> io::Result<Zeroizing<Vec<
     if p_len == 0 || q_len == 0 || p_len > modulus.len() || q_len > modulus.len() {
         return Err(invalid("invalid RSA prime widths"));
     }
-    let mut blob = Zeroizing::new(Vec::new());
+    // All component widths above are bounded by the 512-byte modulus.
+    // Reserve the entire blob before writing secrets so no old allocation
+    // containing private components can escape Zeroizing on reallocation.
+    let capacity = HEADER_BYTES + exponent.len() + 2 * modulus.len() + 3 * p_len + 2 * q_len;
+    let mut blob = Zeroizing::new(Vec::with_capacity(capacity));
     for value in [
         BCRYPT_RSAFULLPRIVATE_MAGIC,
         byte_count(bit_length)?,

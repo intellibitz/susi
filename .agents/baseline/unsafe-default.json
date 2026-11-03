@@ -4238,7 +4238,7 @@
   "candidate_source_commit": "7cfb5df2829ede4312c34332a7c1971d9b62f250",
   "base_measurement_sha256": "3b30db0327fc56ee2ee41cfa0c079ef38f2e02f466a1543d1f636cbea2569f23",
   "candidate_measurement_sha256": "45d63a90a5c7f0bb19e165f8b50e870bd41a48ed7e23db93283be6a8b67ace84",
-  "review_sha256": "787be118bcb2cf9a5989b2bea693c58adeb3ce34e866a06f8de51067e670a06c",
+  "review_sha256": "a08df9799396199109e0aab0cef0596ba8b1fdec6383208b47ce93fc40e58d7d",
   "review": {
     "schema": "susi/unsafe-component-review/v1",
     "reviewer": "/root/async_receipt_repair accepting exact scoped independent source reviews after repaired Candle core and guarded NN retention; source guards/features are enforced; no whole-library or future-source approval",
@@ -4902,7 +4902,7 @@
           },
           {
             "path": "src/platform_rsa_windows.rs",
-            "sha256": "5562bb3da3125b025bcfcd46f5350a88d716910dc65f1d62ed6038e91c662f50"
+            "sha256": "500cf83fbba92f482a9a2859fb596678ea2e4949c27e5db4a9a7af16bd3a4c50"
           },
           {
             "path": "src/platform_rsa_macos.rs",

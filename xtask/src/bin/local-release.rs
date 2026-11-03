@@ -2621,7 +2621,7 @@ mod tests {
             Err(error) => error.to_string(),
         };
         assert!(error.contains("executed no passing Rust tests"), "{error}");
-        assert!(!attempt.join("gate-4.log").exists());
+        assert!(!attempt.join("gate-6.log").exists());
     }
     #[test]
     fn selected_product_feature_proof_rejects_missing_or_ambiguous_features() {
