@@ -1,0 +1,19 @@
+{
+  "id": "T-SOCKPURE1103-1",
+  "title": "Standards-socket purity: conformance coverage, honest A2A card, close unauthenticated discovery ping (plan B1 core, B6, B7)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-conformance"
+    ]
+  },
+  "created_by": "SOCKPURE1103",
+  "created_unix": 1793727226
+}

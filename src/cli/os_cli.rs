@@ -64,9 +64,9 @@ pub enum OsCommands {
         #[command(subcommand)]
         resource: OsManageCommands,
     },
-    /// Explicit cloud/local host provision. The 30s OS tick only
-    /// version-probes operator CLIs (`probe_all`); list/apply never run
-    /// unsolicited — that is the OS contract, not a silent cloud API.
+    /// Explicit cloud/local host provision. The 30s OS tick runs no
+    /// operator CLI; probe/list/apply run only on request — that is the OS
+    /// contract, not a silent cloud API.
     Provision {
         #[command(subcommand)]
         action: OsProvisionAction,
@@ -111,7 +111,7 @@ pub enum OsCapabilitiesAction {
 
 #[derive(Debug, Subcommand)]
 pub enum OsProvisionAction {
-    /// PATH version-probe of kubectl/docker/aws/gcloud/az (same as the 30s tick)
+    /// PATH version-probe of kubectl/docker/aws/gcloud/az (on request only)
     Probe {
         #[arg(long)]
         json: bool,
@@ -374,7 +374,7 @@ fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
-                        "tick_contract": "probe_all_only",
+                        "tick_contract": "explicit_probe_only",
                         "inventory": inv.iter().map(|c| serde_json::json!({
                             "kind": c.kind,
                             "tool": c.tool,
