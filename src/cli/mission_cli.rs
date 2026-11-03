@@ -8,10 +8,10 @@ use super::control_plane_cli::{control_plane_start, control_plane_stop};
 use super::defs::{AuditCommands, Commands};
 use super::keys_cli;
 use super::mcp_cli;
+use super::mission_host::MissionHost;
 use super::os_cli;
 use super::peers_cli;
 use super::services_cli;
-use super::shell_cli::{glass_box_callback, run_shell, MissionHost};
 use super::status_cli;
 
 // env/PathBuf/Command serve the uninstall path's linux/macos service
@@ -91,10 +91,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             SusiDaemon::ensure_daemon_running(cwd, global_dir);
             control_plane_start(cwd, global_dir);
         }
-        Commands::Shell => run_shell(cwd, |goal| {
-            ama.solve_stream_report(goal, cwd, SUSI_VERSION, &glass_box_callback)
-                .exit_code()
-        }),
         Commands::Install => return super::install_cli::execute(),
         command @ Commands::InstallRelease { .. } => {
             return super::install_cli::installed_channel::manage(&command);

@@ -9,7 +9,7 @@ $nonce = 'local-proof-' + [Guid]::NewGuid().ToString('N')
 [IO.File]::WriteAllText((Join-Path $scratch 'proof.txt'), $nonce)
 $start = New-Object Diagnostics.ProcessStartInfo
 $start.FileName = $Binary
-$start.Arguments = 'shell'
+$start.Arguments = ''
 $start.WorkingDirectory = $scratch
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
@@ -57,9 +57,9 @@ try {
     } finally { [Console]::InputEncoding = $inputEncoding }
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
+    # Core has no interactive prompt: the goal is one-shot piped stdin.
     $goal = 'Read proof.txt and return its exact contents.'
     $process.StandardInput.WriteLine($goal)
-    $process.StandardInput.WriteLine('exit')
     $process.StandardInput.Close()
     if (!$process.WaitForExit(60000)) {
         & taskkill /PID $process.Id /T /F 2>$null | Out-Null

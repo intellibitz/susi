@@ -205,7 +205,10 @@ fn register_at(root: &Path, programs: &Path, key: &Key) -> io::Result<bool> {
             .ok_or_else(|| io::Error::other("invalid entry path"))?,
     );
     if old.as_deref() != Some(&desired) {
-        if let Some(bytes) = old {
+        // Susi's own earlier link (it launched the retired `susi shell`) is
+        // regenerable, so it is replaced without a legacy backup.
+        let retired = shell_link::retired_shell_encoding(&entry.join("susi.exe"), &work)?;
+        if let Some(bytes) = old.filter(|bytes| *bytes != retired) {
             retain_legacy(root, &bytes)?;
         }
         let pending = programs.join(".susi-production-link-pending.tmp");
@@ -335,6 +338,44 @@ mod tests {
             fs::read(programs.join("Susi (local production).lnk")).unwrap(),
             shell_link::encode(&root.join("entry/susi.exe"), &root.join("workspace")).unwrap()
         );
+        drop(key);
+        CURRENT_USER.remove_tree(name).unwrap();
+    }
+
+    #[test]
+    fn retired_shell_shortcut_is_replaced_as_susis_own_link() {
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path().join("production");
+        fs::create_dir_all(root.join("entry")).unwrap();
+        fs::copy(
+            std::env::current_exe().unwrap(),
+            root.join("entry/susi.exe"),
+        )
+        .unwrap();
+        fs::create_dir(root.join("workspace")).unwrap();
+        let programs = scratch.path().join("Programs");
+        fs::create_dir(&programs).unwrap();
+        let target = root.join("entry/susi.exe");
+        let work = root.join("workspace");
+        let retired = shell_link::retired_shell_encoding(&target, &work).unwrap();
+        let current = shell_link::encode(&target, &work).unwrap();
+        assert_ne!(retired, current);
+        let link = programs.join("Susi (local production).lnk");
+        fs::write(&link, &retired).unwrap();
+        let name = format!(
+            "Software\\Susi-Channel-Retired-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let key = CURRENT_USER.create(&name).unwrap();
+        key.set_expand_string("Path", "C:\\other").unwrap();
+        // No channel.json exists: a foreign link would be refused here.
+        register_at(&root, &programs, &key).unwrap();
+        assert_eq!(fs::read(&link).unwrap(), current);
+        assert!(!root.join("original-production-shortcut.lnk").exists());
         drop(key);
         CURRENT_USER.remove_tree(name).unwrap();
     }

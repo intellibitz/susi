@@ -363,12 +363,13 @@ The agent-owned Windows path uses native Rust executables, MSVC and OS APIs.
 There is no Bash, WSL, MSYS, Python or Node prerequisite. Release receipts retain
 the exact source, lockfile, compiler, target, artifact and measured gate results.
 
-Interactive installation opens Susi directly: enter a goal without restarting
-the terminal or editing configuration. Opening shows existing cloud connections
-and native models, then refreshes local-engine discovery in the background.
+Interactive installation shows usage once; give Susi a goal right away with
+`susi "<what you want done>"` (or pipe it on stdin), without restarting the
+terminal or editing configuration. The core CLI takes one-shot goals; the
+interactive conversation lives in the Susi desktop app (susi-commercial-apps).
 Discovered credentials and cached observations are checked when used; they are
 not a claim that a provider is responding. Optional agent and framework checks
-do not delay the goal prompt.
+do not delay a goal.
 
 For unattended installation, use `-NoLaunch` when running the downloaded script
 or set `NONINTERACTIVE=1`. An absolute `SUSI_HOME` installs an isolated instance

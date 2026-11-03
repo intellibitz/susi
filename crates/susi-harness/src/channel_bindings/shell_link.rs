@@ -9,7 +9,11 @@ use std::path::{Path, PathBuf};
 
 const HEADER: usize = 76;
 const CLSID: [u8; 16] = [1, 20, 2, 0, 0, 0, 0, 0, 192, 0, 0, 0, 0, 0, 0, 70];
-const FLAGS: u32 = 0x0200_02b0;
+// HasWorkingDir | IsUnicode | HasExpString | PreferEnvironmentPath. The link
+// opens bare `susi`, which prints usage: core has no interactive prompt.
+const FLAGS: u32 = 0x0200_0290;
+/// HasArguments, set only by Susi's retired encoding that launched `susi shell`.
+const HAS_ARGUMENTS: u32 = 0x20;
 const ENV_BLOCK: u32 = 0xa000_0001;
 const MAX_UNITS: usize = 260;
 
@@ -53,17 +57,34 @@ fn wide(text: &OsStr) -> io::Result<Vec<u16>> {
     Ok(words)
 }
 
+/// The current link: `target` with no arguments, started in `working`.
 pub(super) fn encode(target: &Path, working: &Path) -> io::Result<Vec<u8>> {
+    build(target, working, None)
+}
+
+/// Susi's own earlier encoding of the same link, which launched the retired
+/// interactive `susi shell`. Registration replaces it as Susi's own link.
+pub(super) fn retired_shell_encoding(target: &Path, working: &Path) -> io::Result<Vec<u8>> {
+    build(target, working, Some(OsStr::new("shell")))
+}
+
+fn build(target: &Path, working: &Path, argument: Option<&OsStr>) -> io::Result<Vec<u8>> {
     if !target.is_absolute() || !working.is_absolute() {
         return Err(invalid());
     }
+    let flags = if argument.is_some() {
+        FLAGS | HAS_ARGUMENTS
+    } else {
+        FLAGS
+    };
     let mut data = vec![0; HEADER];
     data[..4].copy_from_slice(&(HEADER as u32).to_le_bytes());
     data[4..20].copy_from_slice(&CLSID);
-    data[20..24].copy_from_slice(&FLAGS.to_le_bytes());
+    data[20..24].copy_from_slice(&flags.to_le_bytes());
     data[24..28].copy_from_slice(&0x20u32.to_le_bytes());
     data[60..64].copy_from_slice(&1u32.to_le_bytes());
-    for string in [compact(working), OsString::from("shell")] {
+    let strings = std::iter::once(compact(working)).chain(argument.map(OsStr::to_owned));
+    for string in strings {
         let words = wide(&string)?;
         data.extend((words.len() as u16).to_le_bytes());
         data.extend(words.into_iter().flat_map(u16::to_le_bytes));

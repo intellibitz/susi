@@ -18,8 +18,11 @@ its trusted connection and invokes the current bundle's `susi.exe install-releas
 qualified release. The target verifies the executable, evidence, notices and SBOM
 offline. The producer retains the full qualification log.
 
-The user can then open **Susi (local production)** or type `susi` in a new
-terminal. Both entry points use the same installed selector. Its atomic update
+The user can then give Susi a goal with `susi "<what you want done>"` in a new
+terminal; the core CLI takes one-shot goals, and the interactive conversation
+lives in the Susi desktop app. The **Susi (local production)** Start Menu entry
+starts bare `susi` in the channel workspace, which prints usage and exits; it
+and the `susi` command use the same installed selector. Its atomic update
 selects an immutable executable for each new launch. Running processes continue
 from their original slot. Repeating an interrupted installation recovers its
 recorded transition. The agent can inspect the deployment with

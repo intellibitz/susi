@@ -88,8 +88,9 @@ delivery loop from change ready through tests, merge, promotion and observation 
 changed product behavior. Record inputs, repetitions, failures and rollback. Prefer \
 simple stable public protocols and independently installable third-party plugins. \
 Publish conformance tests for permissions, discovery, errors and compatibility. \
-Demonstrate an external plugin update without rebuilding Susi, preserve user \
-capabilities, and measure removed source, dependency reach, executable size and \
+Prove a plugin update by showing that a pack hosted by susi-commercial-apps is \
+admitted over the socket without rebuilding Susi; preserve user capabilities, and \
+measure removed source, dependency reach, executable size and \
 wall-clock cost before claiming bloat reduction. Agents own isolated parallel delivery, \
 continue committing and pushing verified work, and wrap up scoped changes at 10% weekly \
 allowance remaining. Source publication never substitutes for production qualification.

@@ -1310,7 +1310,7 @@ fn dev_builds_never_install_the_release_binary() {
         .unwrap_or(usize::MAX);
     let local = body.find("local_delivery_cli::execute").unwrap();
     let install = body.find("install_cli::execute").unwrap();
-    let runtime = body.find("ShellSession::open").unwrap();
+    let runtime = body.find("match dispatch(cli.command)").unwrap();
     assert!(
         local < isolate && install < isolate && isolate < runtime,
         "native delivery/install dispatch must precede development isolation, which must precede runtime startup"
@@ -2569,9 +2569,12 @@ fn ui_and_plugins_live_in_commercial_apps() {
 }
 
 /// BT-07: the CLI has no UI subcommands: nothing in `src/` clears and redraws
-/// the terminal, `top` has no watch loop, and no visible command help names a
+/// the terminal, `top` has no watch loop, no visible command help names a
 /// dashboard or a cockpit (hidden aliases such as `sovereign-dashboard` and
-/// `harness cockpit` live in `#[command(alias = ...)]`, not in doc comments).
+/// `harness cockpit` live in `#[command(alias = ...)]`, not in doc comments),
+/// and there is no interactive shell: no `Shell` command variant in defs.rs and
+/// no `susi> ` prompt anywhere in `src/`. Bare `susi` prints usage; the
+/// conversation lives in the Susi desktop app (susi-commercial-apps).
 #[test]
 fn core_cli_has_no_ui_subcommands() {
     let root = workspace_root();
@@ -2580,6 +2583,11 @@ fn core_cli_has_no_ui_subcommands() {
     assert!(!sources.is_empty(), "no Rust sources under src/");
     for path in &sources {
         let text = std::fs::read_to_string(path).expect("read src file");
+        assert!(
+            !text.contains("susi> "),
+            "{}: interactive `susi> ` prompt; core takes one-shot goals, the conversation lives in the commercial desktop",
+            zero_ui_rel(path)
+        );
         for escape in [
             "\\x1B[2J",
             "\\x1b[2J",
@@ -2593,6 +2601,21 @@ fn core_cli_has_no_ui_subcommands() {
                 zero_ui_rel(path)
             );
         }
+    }
+    assert!(
+        !root.join("src/cli/shell_cli.rs").exists(),
+        "the interactive shell module must not return to core"
+    );
+    let defs = std::fs::read_to_string(root.join("src/cli/defs.rs")).expect("read defs.rs");
+    for (number, line) in defs.lines().enumerate() {
+        let trimmed = line.trim();
+        assert!(
+            !(trimmed == "Shell,"
+                || trimmed.starts_with("Shell {")
+                || trimmed.starts_with("Shell(")),
+            "src/cli/defs.rs:{}: a `Shell` command variant; core has no interactive shell",
+            number + 1
+        );
     }
     let top = std::fs::read_to_string(root.join("src/cli/top_cli.rs")).expect("read top_cli.rs");
     assert!(
