@@ -710,9 +710,17 @@ fn duplicate_keys_in_dynamic_metadata_or_baseline_proof_are_rejected() {
 fn changed_or_missing_reviewed_module_cannot_reuse_an_unchanged_entrypoint() {
     let temp = Temp::new();
     let original = fixture();
-    let encoded = serde_json::to_string(&original)
-        .unwrap()
-        .replace(&original.source_root, temp.0.to_str().unwrap());
+    // Replace the root in its JSON-escaped spelling: a Windows path's
+    // backslashes are doubled inside the encoded measurement, so replacing the
+    // raw path matched nothing and left every file under the fixture root.
+    let escaped = |text: &str| {
+        let json = serde_json::to_string(text).unwrap();
+        json[1..json.len() - 1].to_owned()
+    };
+    let encoded = serde_json::to_string(&original).unwrap().replace(
+        &escaped(&original.source_root),
+        &escaped(temp.0.to_str().unwrap()),
+    );
     let mut measured: Measurement = serde_json::from_str(&encoded).unwrap();
     measured.metadata_sha256 = measurement::json_sha256(&measured.metadata).unwrap();
     measured.selection_tree_sha256 = measurement::sha256(measured.selection_tree.as_bytes());
