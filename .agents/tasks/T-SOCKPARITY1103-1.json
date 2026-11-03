@@ -1,0 +1,19 @@
+{
+  "id": "T-SOCKPARITY1103-1",
+  "title": "Socket parity foundation: typed MCP input schemas for every tool and a CLI-to-socket parity ratchet test (plan B2, B3)",
+  "goal": "CEO directive 2026-11-03: every core feature reachable from the commercial desktop over the standards socket",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "socket_parity"
+    ]
+  },
+  "created_by": "SOCKPARITY1103",
+  "created_unix": 1793725890
+}
