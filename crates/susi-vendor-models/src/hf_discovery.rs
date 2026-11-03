@@ -132,12 +132,37 @@ fn permitted_license(model: &HfModel) -> bool {
 fn repo_metadata(base: &str, repo: &str, headers: &[(&str, &str)]) -> Option<HfModel> {
     type Entries = std::collections::HashMap<(String, String), (u64, Option<HfModel>)>;
     static CACHE: OnceLock<Mutex<Entries>> = OnceLock::new();
+    type Flights = std::collections::HashMap<(String, String), std::sync::Arc<Mutex<()>>>;
+    static FLIGHTS: OnceLock<Mutex<Flights>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let key = (base.to_string(), repo.to_string());
-    if let Some((at, value)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
-        if now().saturating_sub(*at) < 60 {
-            return value.clone();
+    let cached = || {
+        cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .filter(|(at, _)| now().saturating_sub(*at) < 60)
+            .map(|(_, value)| value.clone())
+    };
+    if let Some(value) = cached() {
+        return value;
+    }
+    // Ladder steps are admitted concurrently and can share a repository
+    // (a tokenizer, a base model): one lookup per repository at a time, the
+    // others wait for its answer instead of fetching it again.
+    let flight = {
+        let mut flights = FLIGHTS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if flights.len() >= 128 {
+            flights.clear();
         }
+        flights.entry(key.clone()).or_default().clone()
+    };
+    let _flight = flight.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(value) = cached() {
+        return value;
     }
     if !crate::susi_core::mac_policy::egress_permitted(base) {
         return None;
@@ -221,9 +246,23 @@ fn retain_admitted(
 ) -> Vec<ModelLadderConfigStep> {
     let auth = hf_auth_headers();
     let headers = hf_header_refs(&auth);
-    retain_quantized(steps)
+    let steps = retain_quantized(steps);
+    // Each step's license lookups are independent and bounded; checked at
+    // once, a ladder costs its slowest lookup, not their sum.
+    let admitted: Vec<bool> = std::thread::scope(|scope| {
+        let checks: Vec<_> = steps
+            .iter()
+            .map(|step| scope.spawn(|| admitted_step(cfg, step, &headers)))
+            .collect();
+        checks
+            .into_iter()
+            .map(|check| check.join().unwrap_or(false))
+            .collect()
+    });
+    steps
         .into_iter()
-        .filter(|step| admitted_step(cfg, step, &headers))
+        .zip(admitted)
+        .filter_map(|(step, admitted)| admitted.then_some(step))
         .collect()
 }
 
