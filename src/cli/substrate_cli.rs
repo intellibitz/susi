@@ -98,6 +98,7 @@ fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
             "tier0": susi_gemi::engines::alpha::SusiAlphaModel::inventory(
                 &susi_paths::SusiDirs::config_dir()
             ),
+            "tier0_roi": susi_gemi::pulse::SusiPulse::roi_summary(workspace),
         },
         "concurrency": {
             "swarm": "rayon work-stealing",

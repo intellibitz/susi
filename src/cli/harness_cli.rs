@@ -774,6 +774,11 @@ fn budget_report(ledger: &Path, cwd: &Path) -> Result<()> {
         "{}",
         budgets.report_line(total_spent(&spent), Registry::builtin())
     );
+    let (entries, _) = susi_harness::ledger::read_entries_lenient(&path);
+    let (roi, _) = susi_harness::roi::RoiReport::from_entries(&entries);
+    if roi.frontier_baseline_micro_usd > 0 {
+        println!("ROI: {}", roi.summary_line());
+    }
     alert_topups(&budgets);
     Ok(())
 }
