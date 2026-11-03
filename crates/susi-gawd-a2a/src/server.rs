@@ -127,6 +127,10 @@ async fn auth_guard(
     if req.uri().path() == PUBLIC_PATH {
         return Ok(next.run(req).await);
     }
+    // Liveness is public on every contract port (README, "Host contract").
+    if req.uri().path() == "/health" && req.method() == axum::http::Method::GET {
+        return Ok(health());
+    }
     let peer = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -152,6 +156,100 @@ async fn auth_guard(
         .run(Request::from_parts(parts, Body::from(bytes)))
         .await)
 }
+
+fn health() -> Response {
+    let mut response = Response::new(Body::from(r#"{"status":"ok"}"#));
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    response
+}
+
+/// JSON-RPC 2.0 codes the A2A library reports as `-32603` Internal error: it
+/// wraps a method-not-found as `JSON-RPC error: [-32601] ...` and a params
+/// decoding failure as `JSON error: ...` with a null id. Restore the standard
+/// code (and the request id) so clients can branch on them.
+fn normalize_rpc_error(
+    response: &mut serde_json::Value,
+    request_id: Option<&serde_json::Value>,
+) -> bool {
+    let Some(error) = response
+        .get_mut("error")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return false;
+    };
+    if error.get("code").and_then(serde_json::Value::as_i64) != Some(-32603) {
+        return false;
+    }
+    let message = error
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let (code, text) = if let Some(rest) = message.strip_prefix("JSON-RPC error: [") {
+        let Some((code, text)) = rest.split_once("] ") else {
+            return false;
+        };
+        let Ok(code) = code.parse::<i64>() else {
+            return false;
+        };
+        (code, text.to_string())
+    } else if let Some(rest) = message.strip_prefix("JSON error: ") {
+        (-32602, format!("Invalid params: {rest}"))
+    } else {
+        return false;
+    };
+    error.insert("code".into(), code.into());
+    error.insert("message".into(), text.into());
+    if response.get("id").is_none_or(serde_json::Value::is_null) {
+        if let Some(id) = request_id {
+            response["id"] = id.clone();
+        }
+    }
+    true
+}
+
+async fn jsonrpc_error_codes(req: Request<Body>, next: Next) -> Result<Response, StatusCode> {
+    if req.method() != axum::http::Method::POST || req.uri().path() != "/" {
+        return Ok(next.run(req).await);
+    }
+    let (parts, body) = req.into_parts();
+    let bytes = to_bytes(body, MAX_AUTH_BODY_BYTES)
+        .await
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+    let request_id = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("id").cloned());
+    let response = next
+        .run(Request::from_parts(parts, Body::from(bytes)))
+        .await;
+    let is_json = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/json"));
+    if !is_json {
+        return Ok(response);
+    }
+    let (mut parts, body) = response.into_parts();
+    let bytes = to_bytes(body, MAX_RPC_RESPONSE_BYTES)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut value = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(value) => value,
+        Err(_) => return Ok(Response::from_parts(parts, Body::from(bytes))),
+    };
+    if !normalize_rpc_error(&mut value, request_id.as_ref()) {
+        return Ok(Response::from_parts(parts, Body::from(bytes)));
+    }
+    parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+    Ok(Response::from_parts(parts, Body::from(value.to_string())))
+}
+
+/// Upper bound on a buffered JSON-RPC response body.
+const MAX_RPC_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Serve the A2A protocol on an already-bound TCP listener.
 ///
@@ -236,6 +334,7 @@ pub fn serve(
         // take the whole daemon down at startup. JSON-RPC + SSE is the
         // primary A2A binding anyway; the card advertises only what we serve.
         let app = a2a_router(state)
+            .layer(axum::middleware::from_fn(jsonrpc_error_codes))
             .layer(axum::middleware::from_fn_with_state(verifier, auth_guard))
             .layer(tower::limit::ConcurrencyLimitLayer::new(
                 MAX_CONCURRENT_REQUESTS,
@@ -344,5 +443,30 @@ mod tests {
             "task completed: PING",
             "{reply}"
         );
+    }
+}
+
+#[cfg(test)]
+mod rpc_error_tests {
+    use super::normalize_rpc_error;
+    use serde_json::json;
+
+    #[test]
+    fn wrapped_library_errors_get_standard_codes_and_ids() {
+        let mut unknown = json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,
+            "message":"JSON-RPC error: [-32601] Method 'x' not found"}});
+        assert!(normalize_rpc_error(&mut unknown, None));
+        assert_eq!(
+            unknown["error"],
+            json!({"code":-32601,"message":"Method 'x' not found"})
+        );
+        let mut params = json!({"jsonrpc":"2.0","id":null,"error":{"code":-32603,
+            "message":"JSON error: missing field `message`"}});
+        assert!(normalize_rpc_error(&mut params, Some(&json!(9))));
+        assert_eq!(params["error"]["code"], -32602);
+        assert_eq!(params["id"], 9);
+        let mut genuine = json!({"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"boom"}});
+        assert!(!normalize_rpc_error(&mut genuine, None));
+        assert_eq!(genuine["error"]["code"], -32603);
     }
 }

@@ -632,6 +632,10 @@ pub fn ensure_leaf_services() {
 /// every child successfully started before cancellation.
 fn ensure_leaf_services_until(shutdown: Option<&AtomicBool>) {
     let mut table = service_table::load();
+    // Spawn every missing service first, then wait for each: started one at
+    // a time the five leaves took ~3 s (about 0.6 s each) before the first
+    // backend call could reach them.
+    let mut spawned: Vec<(&LeafService, Option<u32>)> = Vec::new();
     for svc in LEAF_SERVICES {
         if shutdown.is_some_and(|flag| flag.load(Ordering::Acquire)) {
             break;
@@ -676,7 +680,13 @@ fn ensure_leaf_services_until(shutdown: Option<&AtomicBool>) {
                 }
             }
         }
-        if let Some(pid) = spawn_and_record(svc, &mut table, shutdown) {
+        spawned.push((svc, spawn_service(svc)));
+    }
+    for (svc, pid) in spawned {
+        // A teardown raised after the spawn is reaped inside, never recorded.
+        let recorded =
+            pid.and_then(|pid| record_spawned_service(svc, svc.port(), pid, &mut table, shutdown));
+        if let Some(pid) = recorded {
             slog(&format!("[supervisor] started {} (pid {})", svc.name, pid));
         } else if !table.iter().any(|r| r.name == svc.name) {
             slog(&format!(

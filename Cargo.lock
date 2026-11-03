@@ -4097,6 +4097,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-conformance"
+version = "0.1.0"
+dependencies = [
+ "susi-vendor-serde-json",
+]
+
+[[package]]
 name = "susi-core"
 version = "0.1.0"
 dependencies = [

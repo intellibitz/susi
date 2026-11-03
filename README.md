@@ -80,7 +80,7 @@ updated in the same change.
 
 Building a product on Susi? Start with [docs/integrating-with-susi.md](docs/integrating-with-susi.md).
 
-External clients can trust these ports — the daemon never silently drifts them:
+External clients can trust these ports — the daemon never silently drifts them. Verify an integration against a running host with `cargo run -p susi-conformance` ([docs/host-contract-conformance.md](docs/host-contract-conformance.md)):
 
 | Port | Surface |
 |------|---------|

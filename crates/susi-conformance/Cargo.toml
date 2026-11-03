@@ -1,0 +1,17 @@
+[package]
+name = "susi-conformance"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Black-box conformance suite for the Susi host contract (ports 9090-9094): health, auth, MCP, A2A and GEMI checks with per-check latency."
+
+[dependencies]
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+
+[[bin]]
+name = "susi-conformance"
+path = "src/bin/susi-conformance.rs"
+
+[lints]
+workspace = true

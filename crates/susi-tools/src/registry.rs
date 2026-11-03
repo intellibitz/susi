@@ -132,9 +132,15 @@ impl ToolRegistry {
             || lower_name.starts_with("ext_")
             || lower_name.starts_with("reflex_")
         {
-            return Self::list_tools()
-                .iter()
-                .any(|t| t.name == name || t.name.starts_with(name));
+            let matches = |tools: &[McpTool]| {
+                tools
+                    .iter()
+                    .any(|t| t.name == name || t.name.starts_with(name))
+            };
+            // The listing never waits on external servers; resolving a
+            // concrete `server:tool` name may.
+            return matches(&Self::list_tools())
+                || matches(&GmcpClient::list_managed_tools_blocking());
         }
         false
     }
