@@ -1504,20 +1504,31 @@ fn endpoint_probes() -> Vec<(&'static str, u16, bool)> {
         ("gmcp-sse", cfg.gmcp_http_port()),
         ("a2a", cfg.a2a_http_port()),
     ];
-    probes
-        .iter()
-        .map(|(name, port)| {
-            let up = std::net::TcpStream::connect_timeout(
-                &std::net::SocketAddr::new(
-                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-                    *port,
-                ),
-                std::time::Duration::from_millis(150),
-            )
-            .is_ok();
-            (*name, *port, up)
-        })
-        .collect()
+    // Concurrently: a refused loopback connect costs the whole timeout on
+    // Windows, so four sequential probes of a stopped host took ~600 ms.
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = probes
+            .iter()
+            .map(|&(name, port)| {
+                scope.spawn(move || {
+                    let up = std::net::TcpStream::connect_timeout(
+                        &std::net::SocketAddr::new(
+                            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                            port,
+                        ),
+                        std::time::Duration::from_millis(150),
+                    )
+                    .is_ok();
+                    (name, port, up)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .zip(probes)
+            .map(|(handle, (name, port))| handle.join().unwrap_or((name, port, false)))
+            .collect()
+    })
 }
 
 /// Count of operator-evicted members — a nonzero value means
