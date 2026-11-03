@@ -345,6 +345,14 @@ fn run() -> std::process::ExitCode {
         susi_daemon::boot_trace::phase("composition: release", || {
             susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
         });
+    } else if command
+        .as_ref()
+        .is_some_and(cli::defs::command_is_local_report)
+    {
+        susi_daemon::boot_trace::phase(
+            "composition: local report",
+            susi_daemon::composition::wire_plane_handlers,
+        );
     } else if matches!(
         command,
         Some(cli::defs::Commands::Mcp {

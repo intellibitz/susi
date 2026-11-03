@@ -211,11 +211,33 @@ fn listing_planes_that_read_no_catalog_prime_nothing() {
     }
 }
 
-/// The CLI composition root still composes for `keys` and `review`, but
-/// primes nothing: neither reads a primed catalog.
+/// Local reports compose only the plane handlers: no CLI composition root,
+/// no cloud-endpoint registration, no prime.
+#[test]
+fn local_reports_skip_the_cli_composition_root() {
+    let run = run(&["review"]);
+    assert_eq!(run.code, 0, "{}", run.context());
+    assert!(
+        run.stdout.contains("SUSI SUBSTRATE SUMMARY"),
+        "{}",
+        run.context()
+    );
+    assert!(run.traced("composition: local report"), "{}", run.context());
+    assert!(!run.traced("composition: cli"), "{}", run.context());
+    assert!(
+        !run.traced("plane-bus: configured cloud endpoints"),
+        "{}",
+        run.context()
+    );
+    assert!(run.primed().is_empty(), "{}", run.context());
+}
+
+/// The CLI composition root still composes for `keys`, but primes nothing:
+/// it reads no primed catalog.
 #[test]
 fn composing_commands_that_read_no_catalog_prime_nothing() {
-    for args in [&["keys", "list"][..], &["review"]] {
+    {
+        let args = &["keys", "list"][..];
         let run = run(args);
         assert_eq!(run.code, 0, "{args:?}\n{}", run.context());
         assert!(
