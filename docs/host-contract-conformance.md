@@ -28,8 +28,9 @@ machine-readable report.
 | `a2a.unknown-method@9094` | An unknown A2A JSON-RPC method is `-32601`, not a wrapped internal error. |
 | `gemi.models@9091` | `/v1/models` returns a `data` array. A **warning** flags model ids that are local filesystem paths. |
 
-Every check reports its own wall-clock latency, so the suite doubles as a quick
-responsiveness probe for a host.
+Every check reports its own wall-clock latency. `--max-ms N` turns that into a
+budget: any passing check slower than N ms fails, so a latency regression
+fails CI like a contract violation.
 
 ## Scope
 

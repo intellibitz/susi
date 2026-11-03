@@ -1189,7 +1189,7 @@ jobs:
           $env:SUSI_PORT_OFFSET = '300'
           & ./target/debug/susi.exe start
           try {
-            & ./target/debug/susi-conformance.exe --port-offset 300 --token-file (Join-Path $home_dir 'api_token') --timeout-ms 30000
+            & ./target/debug/susi-conformance.exe --port-offset 300 --token-file (Join-Path $home_dir 'api_token') --timeout-ms 30000 --max-ms 2000
           } finally {
             $PSNativeCommandUseErrorActionPreference = $false
             & ./target/debug/susi.exe stop

@@ -475,6 +475,20 @@ pub fn run(target: &Target) -> Vec<Check> {
     checks
 }
 
+/// Fail every passing check slower than `max_millis`: the speed mandate made
+/// enforceable. Results that already failed, warned or skipped are unchanged.
+pub fn enforce_latency_budget(checks: &mut [Check], max_millis: u128) {
+    for check in checks.iter_mut() {
+        if check.outcome == Outcome::Pass && check.millis > max_millis {
+            check.outcome = Outcome::Fail;
+            check.detail = format!(
+                "slow: {} ms exceeds the {max_millis} ms budget ({})",
+                check.millis, check.detail
+            );
+        }
+    }
+}
+
 /// True when no check failed (warnings and skips do not fail the suite).
 #[must_use]
 pub fn conformant(checks: &[Check]) -> bool {
@@ -500,6 +514,31 @@ mod tests {
             body: br#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601}}"#.to_vec(),
         };
         assert_eq!(rpc_payload(&plain).unwrap()["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn latency_budget_fails_only_slow_passes() {
+        let check = |outcome, millis| Check {
+            id: "x".into(),
+            outcome,
+            millis,
+            detail: "d".into(),
+        };
+        let mut checks = vec![
+            check(Outcome::Pass, 5),
+            check(Outcome::Pass, 500),
+            check(Outcome::Warn, 900),
+            check(Outcome::Skip, 0),
+        ];
+        enforce_latency_budget(&mut checks, 100);
+        let outcomes: Vec<_> = checks.iter().map(|c| c.outcome).collect();
+        assert_eq!(
+            outcomes,
+            [Outcome::Pass, Outcome::Fail, Outcome::Warn, Outcome::Skip]
+        );
+        assert!(checks[1]
+            .detail
+            .starts_with("slow: 500 ms exceeds the 100 ms budget"));
     }
 
     #[test]
