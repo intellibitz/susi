@@ -1,0 +1,27 @@
+{
+  "id": "T-WIN3FIX1103-2",
+  "title": "Keep advisory database snapshots LF-clean under isolated HOME on Windows",
+  "goal": "Ensure Snapshot::prepare and fixture_source_for pass -c core.autocrlf=false so Git for Windows does not convert LF advisory fixtures to CRLF when HOME/USERPROFILE is isolated.",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-WIN3FIX1103-2.json",
+    "xtask/src/advisory_evidence.rs"
+  ],
+  "size": "s",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--features",
+      "xtask/release-tooling",
+      "--bin",
+      "local-release",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "WIN3FIX1103",
+  "created_unix": 1793738650
+}
