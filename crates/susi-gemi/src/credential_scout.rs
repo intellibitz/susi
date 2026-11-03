@@ -155,8 +155,9 @@ impl ScoutReport {
 }
 
 /// The cheapest authenticated call, injected so tests never touch the
-/// network. Returns (status, body); `Err` is a transport failure.
-pub trait CheapCall {
+/// network. Returns (status, body); `Err` is a transport failure. `Sync`:
+/// a scout probes its targets at once.
+pub trait CheapCall: Sync {
     fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String>;
 }
 
@@ -215,43 +216,64 @@ pub fn probe_request(
 #[must_use]
 pub fn scout_targets(call: &dyn CheapCall, targets: &[CredentialTarget]) -> ScoutReport {
     let checked = now_unix();
-    let verdicts = targets
-        .iter()
-        .map(|t| {
-            let (url, headers) = probe_request(t.protocol, &t.api_base, &t.api_key);
-            let refs: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect();
-            let (status, body) = match call.get(&url, &refs) {
-                Ok((s, b)) => (Some(s), b),
-                Err(e) => (None, e),
-            };
-            let liveness = classify_probe(status, &body);
-            // Evidence must never carry the secret back out: strip the key
-            // (and the token tail it may have glued to itself) before the
-            // body snippet becomes the recorded detail.
-            let snippet: String = body.chars().take(160).collect();
-            let redacted =
-                susi_error::redact::redact_patterns(std::slice::from_ref(&t.api_key), &snippet);
-            let detail = match status {
-                Some(s) => format!("HTTP {s}: {redacted}"),
-                None => redacted,
-            };
-            CredentialVerdict {
-                vendor: t.vendor.clone(),
-                env: t.env.clone(),
-                liveness,
-                status,
-                detail,
-                fingerprint: credential_fingerprint(&t.api_key),
-                observed_unix: checked,
-            }
-        })
-        .collect();
+    // One probe per target, all at once: a scout costs its slowest probe,
+    // not the sum of them.
+    let verdicts = std::thread::scope(|scope| {
+        let probes: Vec<_> = targets
+            .iter()
+            .map(|t| scope.spawn(move || probe_target(call, t, checked)))
+            .collect();
+        probes
+            .into_iter()
+            .zip(targets)
+            .map(|(probe, t)| {
+                probe.join().unwrap_or_else(|_| CredentialVerdict {
+                    vendor: t.vendor.clone(),
+                    env: t.env.clone(),
+                    liveness: classify_probe(None, ""),
+                    status: None,
+                    detail: "probe panicked".to_string(),
+                    fingerprint: credential_fingerprint(&t.api_key),
+                    observed_unix: checked,
+                })
+            })
+            .collect()
+    });
     ScoutReport {
         checked_unix: checked,
         verdicts,
+    }
+}
+
+/// One target's cheapest call, classified.
+fn probe_target(call: &dyn CheapCall, t: &CredentialTarget, checked: u64) -> CredentialVerdict {
+    let (url, headers) = probe_request(t.protocol, &t.api_base, &t.api_key);
+    let refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let (status, body) = match call.get(&url, &refs) {
+        Ok((s, b)) => (Some(s), b),
+        Err(e) => (None, e),
+    };
+    let liveness = classify_probe(status, &body);
+    // Evidence must never carry the secret back out: strip the key
+    // (and the token tail it may have glued to itself) before the
+    // body snippet becomes the recorded detail.
+    let snippet: String = body.chars().take(160).collect();
+    let redacted = susi_error::redact::redact_patterns(std::slice::from_ref(&t.api_key), &snippet);
+    let detail = match status {
+        Some(s) => format!("HTTP {s}: {redacted}"),
+        None => redacted,
+    };
+    CredentialVerdict {
+        vendor: t.vendor.clone(),
+        env: t.env.clone(),
+        liveness,
+        status,
+        detail,
+        fingerprint: credential_fingerprint(&t.api_key),
+        observed_unix: checked,
     }
 }
 
@@ -543,11 +565,18 @@ mod tests {
     /// Counts probes; answers by the key's name: `dead…` is rejected,
     /// `flaky…` meets a server error, `offline…` gets no answer, anything
     /// else is live.
-    struct Counting(Cell<usize>);
+    #[derive(Default)]
+    struct Counting(std::sync::atomic::AtomicUsize);
+
+    impl Counting {
+        fn count(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
 
     impl CheapCall for Counting {
         fn get(&self, _url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
-            self.0.set(self.0.get() + 1);
+            self.0.fetch_add(1, Ordering::SeqCst);
             let key = |prefix: &str| headers.iter().any(|(_, v)| v.contains(prefix));
             if key("dead") {
                 return Ok((401, "{\"error\":\"invalid api key\"}".to_string()));
@@ -607,7 +636,7 @@ mod tests {
     fn the_scout_interval_holds_across_processes_until_the_credentials_change() {
         let dir = scratch("interval");
         let gate = dir.join(SCOUT_GATE_FILE);
-        let probes = Counting(Cell::new(0));
+        let probes = Counting::default();
         let recorded = Cell::new(0);
         let mut record = |_: &CredentialTarget, _: &CredentialVerdict| {
             recorded.set(recorded.get() + 1);
@@ -619,37 +648,37 @@ mod tests {
 
         let report = scout(&keys, T0).unwrap();
         assert_eq!(report.verdicts.len(), 2);
-        assert_eq!(probes.0.get(), 2);
+        assert_eq!(probes.count(), 2);
         assert_eq!(scout(&keys, T0 + 60).unwrap_err(), T0, "another process");
-        assert_eq!(probes.0.get(), 2, "no vendor was probed again");
+        assert_eq!(probes.count(), 2, "no vendor was probed again");
 
         let rotated = vec![target("alpha", "key-three"), target("beta", "dead-two")];
         assert!(scout(&rotated, T0 + 61).is_ok(), "a rotated key is scouted");
-        assert_eq!(probes.0.get(), 4);
+        assert_eq!(probes.count(), 4);
         let added = vec![
             target("alpha", "key-three"),
             target("beta", "dead-two"),
             target("gamma", "key-four"),
         ];
         assert!(scout(&added, T0 + 62).is_ok(), "an added key is scouted");
-        assert_eq!(probes.0.get(), 7);
+        assert_eq!(probes.count(), 7);
         let mut moved = added.clone();
         moved[2].api_base = "https://eu.gamma.example/v1".into();
         assert!(
             scout(&moved, T0 + 63).is_ok(),
             "a moved endpoint is scouted"
         );
-        assert_eq!(probes.0.get(), 10);
+        assert_eq!(probes.count(), 10);
 
         // The shell that had only the first two keys is still inside its own
         // interval: each environment's set keeps its entry.
         assert_eq!(scout(&rotated, T0 + 64).unwrap_err(), T0 + 61);
         assert_eq!(scout(&added, T0 + 64).unwrap_err(), T0 + 62);
-        assert_eq!(probes.0.get(), 10);
+        assert_eq!(probes.count(), 10);
 
         let later = T0 + 61 + SCOUT_MIN_INTERVAL_SECS;
         assert!(scout(&rotated, later).is_ok(), "past the interval");
-        assert_eq!(probes.0.get(), 12);
+        assert_eq!(probes.count(), 12);
         assert_eq!(
             recorded.get(),
             19,
@@ -674,7 +703,7 @@ mod tests {
     fn another_host_scouts_for_itself() {
         let dir = scratch("host");
         let gate = dir.join(SCOUT_GATE_FILE);
-        let probes = Counting(Cell::new(0));
+        let probes = Counting::default();
         let keys = vec![target("alpha", "key-one")];
         for (host, at) in [(HOST, T0), ("host-b", T0 + 1)] {
             assert!(
@@ -682,7 +711,7 @@ mod tests {
                 "{host}"
             );
         }
-        assert_eq!(probes.0.get(), 2);
+        assert_eq!(probes.count(), 2);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -693,7 +722,7 @@ mod tests {
     fn a_failed_scout_does_not_hold_the_interval() {
         let dir = scratch("failed");
         let gate = dir.join(SCOUT_GATE_FILE);
-        let probes = Counting(Cell::new(0));
+        let probes = Counting::default();
         for failing in ["offline-one", "flaky-one"] {
             let keys = vec![target("alpha", "key-two"), target("beta", failing)];
             let recorded = Cell::new(0);
@@ -708,7 +737,7 @@ mod tests {
             }
             assert_eq!(recorded.get(), 4, "each scout recorded what it saw");
         }
-        assert_eq!(probes.0.get(), 8);
+        assert_eq!(probes.count(), 8);
         assert!(!gate.exists(), "no failed scout held the interval");
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -719,10 +748,10 @@ mod tests {
         let dir = scratch("damaged");
         let gate = dir.join(SCOUT_GATE_FILE);
         std::fs::write(&gate, "{not json").unwrap();
-        let probes = Counting(Cell::new(0));
+        let probes = Counting::default();
         let keys = vec![target("alpha", "key-one")];
         assert!(gated(&probes, &keys, (&gate, HOST), T0, &mut |_, _| {}).is_ok());
-        assert_eq!(probes.0.get(), 1);
+        assert_eq!(probes.count(), 1);
         assert!(gated(&probes, &keys, (&gate, HOST), T0 + 1, &mut |_, _| {}).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -738,7 +767,7 @@ mod tests {
         let dir = scratch("replay");
         let gate = dir.join(SCOUT_GATE_FILE);
         let eligibility = dir.join("cloud-eligibility.json");
-        let probes = Counting(Cell::new(0));
+        let probes = Counting::default();
         let keys = vec![
             target("gamma", "key-three"),
             target("alpha", "key-one"),
@@ -761,7 +790,7 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(at, T0);
-        assert_eq!(probes.0.get(), 3, "the second process probed nothing");
+        assert_eq!(probes.count(), 3, "the second process probed nothing");
         let dead = second
             .iter()
             .find(|(key, _, _)| key == "dead-two")
@@ -808,7 +837,7 @@ mod tests {
     fn a_gate_entry_without_verdicts_is_scouted_again() {
         let dir = scratch("bare");
         let gate = dir.join(SCOUT_GATE_FILE);
-        let probes = Counting(Cell::new(0));
+        let probes = Counting::default();
         let keys = vec![target("alpha", "key-one"), target("beta", "dead-two")];
         let stamp = credential_set_stamp(HOST, &keys);
         std::fs::write(
@@ -821,7 +850,7 @@ mod tests {
             statuses.push(v.status);
         })
         .is_ok());
-        assert_eq!(probes.0.get(), 2);
+        assert_eq!(probes.count(), 2);
         assert!(statuses.contains(&Some(401)));
         let _ = std::fs::remove_dir_all(dir);
     }
