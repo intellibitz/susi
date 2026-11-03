@@ -189,7 +189,14 @@ impl Snapshot {
         // The standard RustSec URL's cargo-deny cache name is intentionally fixed;
         // an incompatible cargo-deny version fails instead of fetching another DB.
         let output = Command::new("git")
-            .args(["clone", "--no-hardlinks", "--no-checkout", "--"])
+            .args([
+                "-c",
+                "core.autocrlf=false",
+                "clone",
+                "--no-hardlinks",
+                "--no-checkout",
+                "--",
+            ])
             .arg(&source.path)
             .arg(&database)
             .output()?;
@@ -201,6 +208,8 @@ impl Snapshot {
             &[
                 "-c",
                 "core.hooksPath=",
+                "-c",
+                "core.autocrlf=false",
                 "checkout",
                 "--detach",
                 &source.revision,
@@ -304,6 +313,7 @@ pub fn fixture_source(directory: &Path) -> Source {
 pub fn fixture_source_for(directory: &Path, package: &str) -> Source {
     fs::create_dir(directory).unwrap();
     super::git(directory, &["init", "-q"]).unwrap();
+    super::git(directory, &["config", "core.autocrlf", "false"]).unwrap();
     super::git(directory, &["remote", "add", "origin", DATABASE_URL]).unwrap();
     let collection = directory.join("crates").join(package);
     fs::create_dir_all(&collection).unwrap();
