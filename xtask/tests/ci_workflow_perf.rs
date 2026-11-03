@@ -1289,12 +1289,7 @@ fn no_release_binary_is_published_before_the_suite_has_passed_on_the_tagged_comm
     let tests = job(&jobs, "tests");
     assert!(tests.body.contains("scripts/release-await-tests.sh"));
     assert!(tests.body.contains("actions: write"));
-    for (builder, publisher) in [
-        ("build", "publish"),
-        ("build-linux", "publish-linux"),
-        ("build-arm", "publish-arm"),
-        ("build-macos", "publish-macos"),
-    ] {
+    for (builder, publisher) in [("build", "publish"), ("build-linux", "publish-linux")] {
         let build = job(&jobs, builder);
         assert!(build.body.contains("needs: [verify-tag]"), "{builder}");
         assert!(
@@ -2444,9 +2439,7 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     for setting in [
         "runs-on: ${{ matrix.os }}",
         "os: windows-latest",
-        "os: ubuntu-24.04-arm",
         "name: windows-x86_64",
-        "name: linux-aarch64",
         "SCCACHE_GHA_ENABLED: \"false\"",
         "RUSTC_WRAPPER: sccache",
         "RUSTC_WORKSPACE_WRAPPER: sccache",
@@ -2460,6 +2453,13 @@ fn windows_release_cache_is_warmed_on_main_and_tags_only_restore() {
     }
     assert!(warmer.body.contains("scripts/ci-system-deps.sh"));
     assert!(warmer.body.contains("scripts/ci-install-mold.sh"));
+    // The public core release is x86_64 Windows and x86_64 Linux only (CEO
+    // decision 2026-11-03): no ARM or macOS warmer.
+    for retired in ["ubuntu-24.04-arm", "linux-aarch64", "macos"] {
+        assert!(!warmer.body.contains(retired), "warmer warms {retired}");
+    }
+    // The shared release steps stay byte-for-byte for the released legs; their
+    // inert linux-aarch64 cache clause is kept with them.
     assert!(build.body.contains("matrix.name == 'linux-aarch64'"));
     for setting in [
         "SCCACHE_GHA_ENABLED: \"false\"",
@@ -4697,4 +4697,336 @@ fn release_source_selects_root_workflow_test() {
         "mixed production changes must not narrow root coverage"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The `on:` block of a workflow: every line after `on:` up to the next
+/// top-level key, comments removed.
+fn triggers(workflow: &str) -> String {
+    let code = code(workflow);
+    let mut out = String::new();
+    let mut inside = false;
+    for line in code.lines() {
+        if line == "on:" {
+            inside = true;
+            continue;
+        }
+        if inside {
+            if !line.is_empty() && !line.starts_with(' ') {
+                break;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// The `- os:` runner labels of a body, in order.
+fn matrix_runners(body: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|l| l.trim_start().strip_prefix("- os:"))
+        .map(|v| v.trim().to_string())
+        .collect()
+}
+
+/// CI platform policy (CEO decision 2026-11-03, AGENTS.md). Per change (a merge
+/// to main): native builds and tests on x86_64 Windows and Linux only, plus
+/// compile checks of the three non-release platforms. Nightly: native tests on
+/// macOS, ARM64 Linux and ARM64 Windows. Release: core publishes x86_64 only,
+/// and the native non-release suite on the tag never blocks a publish.
+#[test]
+fn the_ci_platform_policy_is_tiered() {
+    let non_release = ["macos-15", "ubuntu-24.04-arm", "windows-11-arm"];
+
+    // Per change, the zero-config matrix runs on the release platforms only.
+    let zc = read(".github/workflows/zc-matrix.yml");
+    let zc_jobs = jobs(&zc);
+    let zc_matrix = job(&zc_jobs, "matrix");
+    assert!(triggers(&zc).contains("branches: [main]"));
+    assert_eq!(
+        matrix_runners(&zc_matrix.body),
+        ["ubuntu-latest", "windows-latest"],
+        "zc-matrix.yml runs per change: only x86_64 Linux and Windows; macos-cpu is nightly"
+    );
+    assert!(
+        !code(&zc).contains("macos"),
+        "zc-matrix.yml has a macOS leg again: macOS native tests are nightly (nightly.yml)"
+    );
+
+    // Per change, the three non-release platforms are compiled natively.
+    let pc = read(".github/workflows/platform-check.yml");
+    let pc_on = triggers(&pc);
+    assert!(
+        pc_on.contains("  push:\n    branches: [main]\n") && pc_on.contains("workflow_dispatch:"),
+        "platform-check.yml must run after every merge to main: {pc_on}"
+    );
+    assert!(
+        !pc_on.contains("pull_request") && !pc_on.contains("'**'"),
+        "platform-check.yml must stay off the branch gate: {pc_on}"
+    );
+    // The merge bot merges with GITHUB_TOKEN, whose pushes start no workflow:
+    // every merge it makes must dispatch the platform check on main, next to the
+    // main-suite dispatch, or the per-change tier never runs.
+    let merge_script = read("scripts/auto-merge-pr.sh");
+    let merge_head = merge_script
+        .split_once("merge_head() {")
+        .and_then(|(_, rest)| {
+            rest.split_once(
+                "
+}
+",
+            )
+        })
+        .map(|(body, _)| body)
+        .expect("scripts/auto-merge-pr.sh defines merge_head");
+    for dispatch in [
+        r#"gh workflow run test.yml --repo "$repo" --ref main"#,
+        r#"gh workflow run platform-check.yml --repo "$repo" --ref main"#,
+    ] {
+        assert!(
+            merge_head.contains(dispatch),
+            "merge_head in scripts/auto-merge-pr.sh lacks `{dispatch}`"
+        );
+    }
+    let pc_jobs = jobs(&pc);
+    assert_eq!(pc_jobs.len(), 1, "platform-check.yml is one matrix job");
+    let check = &pc_jobs[0];
+    assert_eq!(matrix_runners(&check.body), non_release);
+    for needle in [
+        "target: aarch64-apple-darwin",
+        "target: aarch64-unknown-linux-gnu",
+        "target: aarch64-pc-windows-msvc",
+        "fail-fast: false",
+        "timeout-minutes:",
+        "cargo check --workspace --all-targets --locked",
+    ] {
+        assert!(
+            check.body.contains(needle),
+            "platform-check.yml lacks {needle}"
+        );
+    }
+    for forbidden in [
+        "cargo test",
+        "nextest",
+        "Swatinem/rust-cache",
+        "actions/cache",
+        "SCCACHE_GHA_ENABLED",
+        "continue-on-error",
+    ] {
+        assert!(
+            !code(&pc).contains(forbidden),
+            "platform-check.yml contains `{forbidden}`: it is a compile-only, uncached \
+             per-change check whose red result must redden the run"
+        );
+    }
+    assert!(code(&pc).contains("cancel-in-progress: false"));
+    assert!(code(&pc).contains("group: platform-check-"));
+
+    // Nightly: macOS and ARM64 Linux natively, ARM64 Windows via its workflow.
+    let nightly = read(".github/workflows/nightly.yml");
+    let n_on = triggers(&nightly);
+    for trigger in ["schedule:", "workflow_dispatch:", "workflow_call:", "ref:"] {
+        assert!(n_on.contains(trigger), "nightly.yml lacks {trigger}");
+    }
+    assert!(
+        !n_on.contains("push:"),
+        "nightly.yml must not run per change"
+    );
+    let n_jobs = jobs(&nightly);
+    let native = job(&n_jobs, "native");
+    assert_eq!(
+        matrix_runners(&native.body),
+        ["macos-15", "ubuntu-24.04-arm"]
+    );
+    for needle in [
+        "profile: macos-cpu",
+        "ref: ${{ inputs.ref }}",
+        "cargo test --test zc_platform_installers --test vc_201_098_mastery --locked",
+        "cargo nextest run --locked --retries 2 --workspace",
+        "-p susi-leaf-services --all-features",
+        "timeout-minutes:",
+        "fail-fast: false",
+    ] {
+        assert!(
+            native.body.contains(needle),
+            "nightly `native` lacks {needle}"
+        );
+    }
+    // The workspace run includes tests that shell out to cargo-deny
+    // (xtask local-workflow's native gate fixture): nightly installs exactly
+    // the tools main's `test` shards install.
+    let tools = |body: &str| -> Vec<String> {
+        body.lines()
+            .filter_map(|l| l.trim_start().strip_prefix("tool:"))
+            .map(|v| v.trim().to_string())
+            .collect()
+    };
+    let test_yml = read(".github/workflows/test.yml");
+    let test_jobs = jobs(&test_yml);
+    let shard_tools = tools(&job(&test_jobs, "test").body);
+    assert!(
+        !shard_tools.is_empty(),
+        "test.yml `test` installs no tools?"
+    );
+    assert_eq!(
+        tools(&native.body),
+        shard_tools,
+        "nightly `native` must install the same tools as test.yml `test`"
+    );
+    let windows = job(&n_jobs, "windows-arm64");
+    assert!(windows
+        .body
+        .contains("uses: ./.github/workflows/windows-arm64.yml"));
+    assert!(windows.body.contains("ref: ${{ inputs.ref }}"));
+    assert!(
+        windows.body.contains("caller: nightly"),
+        "nightly's ARM64 Windows call must name itself so it never shares the group of          a manual windows-arm64.yml dispatch on main"
+    );
+    for forbidden in [
+        "continue-on-error",
+        "Swatinem/rust-cache",
+        "actions/cache",
+        "SCCACHE_GHA_ENABLED",
+    ] {
+        assert!(
+            !code(&nightly).contains(forbidden),
+            "nightly.yml contains `{forbidden}`: nightly results must be red when tests \
+             fail and it saves no cache"
+        );
+    }
+
+    // ARM64 Windows tests are nightly, never per change.
+    let arm = read(".github/workflows/windows-arm64.yml");
+    let arm_on = triggers(&arm);
+    assert!(
+        !arm_on.contains("push:"),
+        "windows-arm64.yml runs on push again: its per-change coverage is the compile-only \
+         windows-11-arm leg of platform-check.yml"
+    );
+    for trigger in ["workflow_dispatch:", "workflow_call:", "ref:"] {
+        assert!(
+            arm_on.contains(trigger),
+            "windows-arm64.yml lacks {trigger}"
+        );
+    }
+    assert!(
+        !arm_on.contains("schedule:"),
+        "windows-arm64.yml must not have its own schedule: nightly.yml calls it once a night"
+    );
+    assert!(code(&arm).contains("ref: ${{ inputs.ref }}"));
+    for forbidden in [
+        "continue-on-error",
+        "Swatinem/rust-cache",
+        "actions/cache",
+        "SCCACHE_GHA_ENABLED",
+    ] {
+        assert!(
+            !code(&arm).contains(forbidden),
+            "windows-arm64.yml contains `{forbidden}`: its nightly result must be red when              tests fail and it saves no cache"
+        );
+    }
+    let arm_jobs = jobs(&arm);
+    assert!(!arm_jobs.is_empty(), "windows-arm64.yml has no jobs?");
+    for j in &arm_jobs {
+        assert!(
+            j.body.contains("timeout-minutes:"),
+            "windows-arm64.yml job `{}` has no timeout-minutes: it bounds nightly's call",
+            j.id
+        );
+    }
+
+    // A running suite is never cancelled, and caller and callee never share a
+    // concurrency group (a shared group would make a call wait on itself).
+    for (wf, text, prefix) in [
+        ("nightly.yml", &nightly, "group: nightly-"),
+        ("windows-arm64.yml", &arm, "group: windows-arm64-"),
+    ] {
+        let text = code(text);
+        assert!(
+            text.contains("cancel-in-progress: false"),
+            "{wf} must never cancel a running suite"
+        );
+        let group = text
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("group:"))
+            .unwrap_or_else(|| panic!("{wf} has no concurrency group"));
+        assert!(group.starts_with(prefix), "{wf} group `{group}`");
+        assert!(
+            !group.contains("github.workflow") && !group.contains("release-"),
+            "{wf} group `{group}` could collide with its caller's"
+        );
+    }
+    assert!(
+        code(&arm).contains("inputs.caller"),
+        "windows-arm64.yml's group must include the caller"
+    );
+
+    // No other per-change or release workflow takes a non-release runner.
+    for wf in [
+        "test.yml",
+        "zc-matrix.yml",
+        "dev-release.yml",
+        "release.yml",
+    ] {
+        let text = code(&read(&format!(".github/workflows/{wf}")));
+        for runner in non_release
+            .iter()
+            .copied()
+            .chain(["macos-latest", "macos-14"])
+        {
+            assert!(
+                !text.contains(runner),
+                "{wf} runs on {runner}: non-release platforms are compiled per change in \
+                 platform-check.yml and tested nightly in nightly.yml"
+            );
+        }
+    }
+
+    // Release: x86_64 legs only; the native suite is evidence, not a gate.
+    let release = read(".github/workflows/release.yml");
+    let release_jobs = jobs(&release);
+    let legs: Vec<String> = release_jobs
+        .iter()
+        .flat_map(|j| matrix_runners(&j.body))
+        .collect();
+    assert_eq!(
+        legs,
+        ["windows-latest", "ubuntu-24.04"],
+        "release.yml builds x86_64 Windows and Linux only"
+    );
+    for j in &release_jobs {
+        for name in j
+            .body
+            .lines()
+            .filter_map(|l| l.trim_start().strip_prefix("name: "))
+        {
+            assert!(
+                !name.contains("aarch64") && !name.contains("macos"),
+                "release.yml job `{}` names a non-release leg: {name}",
+                j.id
+            );
+        }
+    }
+    // The suite is dispatched as a run of its own on the tag, so the release
+    // run's conclusion and re-runs never wait on Mac/ARM legs.
+    let native = job(&release_jobs, "native-platforms");
+    assert!(native.body.contains("needs: [verify-tag]"));
+    assert!(native.body.contains("timeout-minutes:"));
+    assert!(native.body.contains("actions: write"));
+    assert!(native.body.contains(
+        r#"gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f ref="$GITHUB_SHA""#
+    ));
+    assert!(
+        !code(&release).contains("uses: ./.github/workflows/"),
+        "release.yml calls a reusable workflow in-run: the native suite must be a run of          its own"
+    );
+    for j in release_jobs.iter().filter(|j| j.id != "native-platforms") {
+        assert!(
+            !j.body.contains("native-platforms"),
+            "release.yml job `{}` depends on native-platforms: Mac/ARM results must never \
+             block core's x86_64 publish or prune",
+            j.id
+        );
+    }
 }

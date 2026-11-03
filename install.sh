@@ -34,6 +34,29 @@ fi
 set -e
 set -o pipefail
 
+# Release scope (CEO decision 2026-11-03): the free public core release is
+# published for x86_64 Windows and x86_64 Linux only. macOS and non-x86_64
+# Linux support stays in the source, but core publishes no binary for them;
+# certified builds for other platforms come from the Susi commercial suite.
+# Refuse before any directory is created, download attempted or build run.
+case "$(uname -s)" in
+    Darwin*)
+        echo "Error: this is macOS. The free Susi core release supports x86_64 Windows and x86_64 Linux only." >&2
+        echo "Other platforms, including macOS, are served by the Susi commercial suite. Nothing was installed." >&2
+        exit 1
+        ;;
+    Linux*)
+        case "$(uname -m)" in
+            x86_64|amd64) ;;
+            *)
+                echo "Error: this is $(uname -m) Linux. The free Susi core release supports x86_64 Windows and x86_64 Linux only." >&2
+                echo "Other platforms, including non-x86_64 Linux, are served by the Susi commercial suite. Nothing was installed." >&2
+                exit 1
+                ;;
+        esac
+        ;;
+esac
+
 ISOLATED_INSTALL=0
 if [ -n "${SUSI_HOME:-}" ]; then
     case "$SUSI_HOME" in

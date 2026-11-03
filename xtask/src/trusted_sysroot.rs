@@ -323,6 +323,8 @@ mod tests {
         );
         assert!(super::target("host: aarch64-unknown-linux-gnu\n").is_ok());
         assert!(super::target("host: x86_64-pc-windows-msvc\n").is_ok());
+        assert!(super::target("host: aarch64-pc-windows-msvc\n").is_ok());
+        assert!(super::target("host: i686-pc-windows-msvc\n").is_err());
         assert!(super::target("host: wasm32-wasip1\n").is_err());
         assert!(super::target("host: x86_64-unknown-linux-musl\n").is_err());
     }
