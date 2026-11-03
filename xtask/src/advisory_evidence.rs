@@ -349,16 +349,16 @@ mod tests {
     fn database_pin_rejects_missing_wrong_dirty_stale_and_future_inputs() {
         let path = scratch();
         let mut source = fixture_source(&path.join("db"));
-        assert!(validate_source(&source, now().unwrap()).is_ok());
+        let (_, committed_at) = validate_source(&source, now().unwrap()).unwrap();
         super::super::git(
             &source.path,
             &["remote", "set-url", "origin", "https://example.invalid/db"],
         )
         .unwrap();
-        assert!(validate_source(&source, now().unwrap()).is_err());
+        assert!(validate_source(&source, committed_at).is_err());
         super::super::git(&source.path, &["remote", "set-url", "origin", DATABASE_URL]).unwrap();
-        assert!(validate_source(&source, now().unwrap() + MAX_AGE_SECONDS + 1).is_err());
-        assert!(validate_source(&source, now().unwrap() - CLOCK_SKEW_SECONDS - 1).is_err());
+        assert!(validate_source(&source, committed_at + MAX_AGE_SECONDS + 1).is_err());
+        assert!(validate_source(&source, committed_at - CLOCK_SKEW_SECONDS - 1).is_err());
         let revision = source.revision.clone();
         source.revision = "0".repeat(40);
         assert!(validate_source(&source, now().unwrap()).is_err());
