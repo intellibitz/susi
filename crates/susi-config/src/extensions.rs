@@ -413,21 +413,118 @@ fn write_private_file_if_changed(path: &Path, contents: &str) -> Result<(), Stri
 /// error. Reading it as default made the next write reset the operator's
 /// active pack and re-load every pack they had unloaded.
 fn read_state() -> Result<ExtensionsState, String> {
+    read_state_text().map(|(state, _)| state)
+}
+
+/// [`read_state`], with the bytes it was parsed from (`None`: no file).
+fn read_state_text() -> Result<(ExtensionsState, Option<String>), String> {
     let path = state_path();
     match std::fs::read_to_string(&path) {
-        Ok(text) => {
-            serde_json::from_str(&text).map_err(|e| format!("damaged {}: {e}", path.display()))
+        Ok(text) => serde_json::from_str(&text)
+            .map(|state| (state, Some(text)))
+            .map_err(|e| format!("damaged {}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok((ExtensionsState::default(), None))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ExtensionsState::default()),
         Err(e) => Err(format!("unreadable {}: {e}", path.display())),
     }
 }
 
-/// Unchanged state is not rewritten: every catalog read re-derives it, and
-/// re-records a standing quarantine.
-fn write_state(state: &ExtensionsState) -> Result<(), String> {
+/// The bytes `state.json` holds for `state`.
+fn render_state(state: &ExtensionsState) -> Result<String, String> {
     let text = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-    write_private_file_if_changed(&state_path(), &format!("{text}\n"))
+    Ok(format!("{text}\n"))
+}
+
+/// Unchanged state is not rewritten: every catalog read re-derives it, and
+/// re-records a standing quarantine. Callers hold [`StateLock`] from the
+/// read the new state was derived from until this returns.
+fn write_state(state: &ExtensionsState) -> Result<(), String> {
+    write_private_file_if_changed(&state_path(), &render_state(state)?)
+}
+
+/// Name of the cross-process lock on `state.json` (`.state.lock`, next to
+/// it). The leading dot keeps it out of the pack namespace: no valid pack id
+/// starts with one and discovery skips such entries, so a pack directory can
+/// never sit where the lock goes. The substrate stamp leaves its files out:
+/// they are not decision inputs.
+const STATE_LOCK: &str = ".state";
+
+/// Whether `name`, an entry of the extensions root that is not a
+/// directory, is one of the state lock's files: exactly `.state.lock` or
+/// the helper's `.state.lock.wait`/`.state.lock.break` markers.
+fn is_state_lock_file(name: &str, is_dir: bool) -> bool {
+    !is_dir
+        && name
+            .strip_prefix(STATE_LOCK)
+            .is_some_and(|rest| matches!(rest, ".lock" | ".lock.wait" | ".lock.break"))
+}
+
+/// Exclusive cross-process hold on `state.json`, taken for every
+/// read-derive-write of it.
+///
+/// Every catalog read re-derives the state, and each lifecycle command
+/// (load, unload, re-admit, a quarantine) reads, changes and writes it. With
+/// no lock, a reader that took the state just before `load` wrote it wrote
+/// its own derivation back afterwards: the load was reported, yet the active
+/// pack fell back to `default` and its pinned digests were gone. Holders
+/// re-read the state after taking this and write before dropping it; the
+/// write itself stays a temp file plus rename, so lock-free readers never see
+/// it torn. Acquisition waits a bounded time and reclaims a lock whose holder
+/// died ([`crate::file_lock::FileLock`]: pid liveness, then a 60 s age rule).
+/// Not reentrant: release it before calling back into a path that may take
+/// it (`ensure_extensions_substrate`, `list_packs`, `load_pack`).
+struct StateLock {
+    held: crate::file_lock::FileLock,
+}
+
+impl StateLock {
+    /// Only for an existing extensions root: taking the lock never creates
+    /// it (core does not create the root on its own).
+    fn acquire() -> Result<Self, String> {
+        let root = extensions_root();
+        if !root.is_dir() {
+            return Err(format!(
+                "extensions root {} is not a directory",
+                root.display()
+            ));
+        }
+        crate::file_lock::FileLock::acquire_within(&root, STATE_LOCK, STATE_LOCK_WAIT)
+            .map(|held| Self { held })
+            .ok_or_else(|| {
+                format!(
+                    "extensions state {} is locked by another process; retry",
+                    state_path().display()
+                )
+            })
+    }
+
+    /// Run `work`, a critical section that hashes pack files, while the
+    /// lock is kept fresh: hashing a large pack on a slow or suspended host
+    /// can outlast the 60 s age rule, which would otherwise hand the lock to
+    /// a waiter while this holder is still between its read and its write.
+    fn hold_while<T>(&self, work: impl FnOnce() -> T) -> T {
+        self.held.hold_while(work)
+    }
+}
+
+/// How long a state writer waits for the lock. Holders work for
+/// milliseconds (hashing a pack's files at most), so a longer wait is a
+/// wedged holder, which the lock's stale rule reclaims.
+const STATE_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// On Unix, `path` (when present) is owner-only (0600) afterwards: what an
+/// unchanged write did besides not writing.
+fn keep_private_mode(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o777 != 0o600) {
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 fn sha256_digest(bytes: &[u8]) -> String {
@@ -641,6 +738,11 @@ fn substrate_stamp(now: std::time::SystemTime) -> Option<String> {
     for entry in std::fs::read_dir(&root).ok()? {
         let entry = entry.ok()?;
         let name = entry.file_name().to_string_lossy().into_owned();
+        // Lock files come and go between the listing and the stat; a
+        // directory under any name is a decision input.
+        if is_state_lock_file(&name, entry.file_type().is_ok_and(|t| t.is_dir())) {
+            continue;
+        }
         let (line, is_dir) = fact(&name, &entry, now)?;
         lines.push(line);
         if is_dir {
@@ -729,17 +831,69 @@ fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
         return Ok((compiled_defaults(), false));
     }
     private_dir(&extensions_root())?;
-    let mut state = match read_state() {
-        Ok(state) => state,
-        Err(e) => {
-            // Zero-config must not brick on it, and must not overwrite it:
-            // run on compiled defaults until the operator repairs it.
-            eprintln!("[extensions] {e}; using compiled defaults without rewriting state");
-            return Ok((compiled_defaults(), false));
-        }
+    // Zero-config must not brick on a damaged state, and must not overwrite
+    // it: run on compiled defaults until the operator repairs it.
+    let damaged = |e: String| {
+        eprintln!("[extensions] {e}; using compiled defaults without rewriting state");
+        Ok((compiled_defaults(), false))
+    };
+    let (state, text) = match read_state_text() {
+        Ok(read) => read,
+        Err(e) => return damaged(e),
     };
     let mut quiet = true;
-    // Discover other pack dirs and auto-load them (zero-config), unless unloaded.
+    let discovered = discover_packs(&mut quiet);
+    // Only a valid discovered pack can be forced active.
+    let forced = std::env::var("SUSI_EXTENSION_PACK")
+        .ok()
+        .map(|forced| forced.trim().to_string())
+        .filter(|forced| manifest_for(forced).is_ok());
+    let settled = settle_state(state, &discovered, forced.as_deref());
+    let state = if text.as_deref() == Some(render_state(&settled)?.as_str()) {
+        // Nothing to settle: a reader writes nothing (and needs no lock).
+        keep_private_mode(&state_path());
+        settled
+    } else {
+        // Settling changes the file. Derive again from the state as it is
+        // under the lock: the snapshot above may predate a concurrent
+        // `load`/`unload`/quarantine, and writing a derivation of it back
+        // would silently undo that.
+        match StateLock::acquire() {
+            Ok(_lock) => {
+                let fresh = match read_state() {
+                    Ok(fresh) => fresh,
+                    Err(e) => return damaged(e),
+                };
+                let settled = settle_state(fresh, &discovered, forced.as_deref());
+                write_state(&settled)?;
+                settled
+            }
+            Err(e) => {
+                // A reader serves what it derived rather than fail; the next
+                // decision settles the file.
+                eprintln!("[extensions] {e}; serving the derived state without writing it");
+                quiet = false;
+                settled
+            }
+        }
+    };
+    let mut parts = Path::new(&state.active).components();
+    let directly_under_root = matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    let pack = ExtensionPack {
+        id: state.active.clone(),
+        root: extensions_root().join(&state.active),
+    };
+    Ok((pack, quiet && directly_under_root))
+}
+
+/// Valid pack directories directly under the extensions root, in listing
+/// order. A pack whose manifest is rejected is skipped with a warning, and
+/// `quiet` is cleared.
+fn discover_packs(quiet: &mut bool) -> Vec<String> {
+    let mut discovered = Vec::new();
     if let Ok(entries) = std::fs::read_dir(extensions_root()) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -759,45 +913,46 @@ fn decide_extensions_substrate() -> Result<(ExtensionPack, bool), String> {
                 eprintln!(
                     "[extensions] skipping pack `{id}`: {e} (optional failure; core continues)"
                 );
-                quiet = false;
+                *quiet = false;
                 continue;
             }
-            if state.unloaded.iter().any(|x| x == id) {
-                continue;
-            }
-            if !state.loaded.iter().any(|x| x == id) {
-                state.loaded.push(id.to_string());
-            }
+            discovered.push(id.to_string());
+        }
+    }
+    discovered
+}
+
+/// The zero-config settlement of `state`: auto-load each `discovered` pack
+/// the user did not unload, apply a valid `forced` id, and fall back to
+/// `default` when the active pack is gone. Reads pack manifests, never
+/// writes.
+fn settle_state(
+    mut state: ExtensionsState,
+    discovered: &[String],
+    forced: Option<&str>,
+) -> ExtensionsState {
+    for id in discovered {
+        if state.unloaded.iter().any(|x| x == id) {
+            continue;
+        }
+        if !state.loaded.iter().any(|x| x == id) {
+            state.loaded.push(id.clone());
         }
     }
     if state.active.trim().is_empty() {
         state.active = DEFAULT_PACK_ID.to_string();
     }
-    // Only a valid discovered pack can be forced active.
-    if let Ok(forced) = std::env::var("SUSI_EXTENSION_PACK") {
-        let forced = forced.trim();
-        if manifest_for(forced).is_ok() {
-            state.active = forced.to_string();
-            if !state.loaded.iter().any(|x| x == forced) {
-                state.loaded.push(forced.to_string());
-            }
+    if let Some(forced) = forced {
+        state.active = forced.to_string();
+        if !state.loaded.iter().any(|x| x == forced) {
+            state.loaded.push(forced.to_string());
         }
     }
     // If active pack dir is missing (and not default), fall back.
     if state.active != DEFAULT_PACK_ID && manifest_for(&state.active).is_err() {
         state.active = DEFAULT_PACK_ID.to_string();
     }
-    write_state(&state)?;
-    let mut parts = Path::new(&state.active).components();
-    let directly_under_root = matches!(
-        (parts.next(), parts.next()),
-        (Some(std::path::Component::Normal(_)), None)
-    );
-    let pack = ExtensionPack {
-        id: state.active.clone(),
-        root: extensions_root().join(&state.active),
-    };
-    Ok((pack, quiet && directly_under_root))
+    state
 }
 
 /// Invalidate in-process pack caches after load/unload/seed.
@@ -913,30 +1068,38 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
         ));
     }
     let manifest = manifest_for(id).map_err(|e| format!("pack `{id}` rejected: {e}"))?;
-    let mut state = read_state()?;
-    let digests = match verify_pack_integrity(&root, &manifest, &state) {
-        Ok(digests) => digests,
-        Err(reason) => {
-            state
-                .quarantined
-                .entry(id.to_string())
-                .or_default()
-                .insert("pack".to_string(), reason.clone());
-            write_state(&state)?;
-            return Err(format!("pack `{id}` quarantined: {reason}"));
+    // Verify and pin against the state as it is under the lock, and hold it
+    // through the write: a concurrent reader's settlement or another
+    // lifecycle command can then neither be undone by this load nor undo it.
+    let lock = StateLock::acquire()?;
+    lock.hold_while(|| {
+        let mut state = read_state()?;
+        let digests = match verify_pack_integrity(&root, &manifest, &state) {
+            Ok(digests) => digests,
+            Err(reason) => {
+                state
+                    .quarantined
+                    .entry(id.to_string())
+                    .or_default()
+                    .insert("pack".to_string(), reason.clone());
+                write_state(&state)?;
+                return Err(format!("pack `{id}` quarantined: {reason}"));
+            }
+        };
+        state.trusted_digests.insert(id.to_string(), digests);
+        if let Some(signer) = manifest.signer.as_ref() {
+            state.trusted_signers.insert(id.to_string(), signer.clone());
         }
-    };
-    state.trusted_digests.insert(id.to_string(), digests);
-    if let Some(signer) = manifest.signer.as_ref() {
-        state.trusted_signers.insert(id.to_string(), signer.clone());
-    }
-    state.quarantined.remove(id);
-    state.unloaded.retain(|x| x != id);
-    if !state.loaded.iter().any(|x| x == id) {
-        state.loaded.push(id.to_string());
-    }
-    state.active = id.to_string();
-    write_state(&state)?;
+        state.quarantined.remove(id);
+        state.unloaded.retain(|x| x != id);
+        if !state.loaded.iter().any(|x| x == id) {
+            state.loaded.push(id.to_string());
+        }
+        state.active = id.to_string();
+        write_state(&state)
+    })?;
+    // Not reentrant: `list_packs` settles the state again.
+    drop(lock);
     invalidate_extension_caches();
     list_packs()
         .into_iter()
@@ -953,19 +1116,24 @@ pub fn readmit_pack(id: &str) -> Result<PackStatus, String> {
     ensure_extensions_substrate()?;
     let root = extensions_root().join(id);
     let manifest = manifest_for(id)?;
-    let mut state = read_state()?;
-    state.trusted_digests.remove(id);
-    state.trusted_signers.remove(id);
-    state.quarantined.remove(id);
-    let digests = verify_pack_integrity(&root, &manifest, &state)?;
-    state.trusted_digests.insert(id.to_string(), digests);
-    if let Some(signer) = manifest.signer {
-        state.trusted_signers.insert(id.to_string(), signer);
-    } else {
+    let lock = StateLock::acquire()?;
+    lock.hold_while(|| {
+        let mut state = read_state()?;
+        state.trusted_digests.remove(id);
         state.trusted_signers.remove(id);
-    }
-    state.quarantined.remove(id);
-    write_state(&state)?;
+        state.quarantined.remove(id);
+        let digests = verify_pack_integrity(&root, &manifest, &state)?;
+        state.trusted_digests.insert(id.to_string(), digests);
+        if let Some(signer) = manifest.signer {
+            state.trusted_signers.insert(id.to_string(), signer);
+        } else {
+            state.trusted_signers.remove(id);
+        }
+        state.quarantined.remove(id);
+        write_state(&state)
+    })?;
+    // Not reentrant: `load_pack` takes it again.
+    drop(lock);
     invalidate_extension_caches();
     load_pack(id)
 }
@@ -979,6 +1147,14 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
     validate_pack_id(id)?;
     ensure_extensions_substrate()?;
+    // With no extensions root there is no state to change, and none is
+    // created; otherwise the change is made to the state as it is under the
+    // lock.
+    let lock = if extensions_root().is_dir() {
+        Some(StateLock::acquire()?)
+    } else {
+        None
+    };
     let mut state = read_state()?;
     state.loaded.retain(|x| x != id);
     if !state.unloaded.iter().any(|x| x == id) {
@@ -987,9 +1163,10 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
     if state.active == id {
         state.active = default_pack_id();
     }
-    if extensions_root().is_dir() {
+    if lock.is_some() {
         write_state(&state)?;
     }
+    drop(lock);
     invalidate_extension_caches();
     Ok(PackStatus {
         id: id.to_string(),
@@ -1029,7 +1206,7 @@ fn unloaded_pack(state: &ExtensionsState, id: &str) -> bool {
 
 fn verified_pack_file(name: &str) -> Option<(PathBuf, String)> {
     let pack = active_pack();
-    let mut state = read_state().ok()?;
+    let state = read_state().ok()?;
     if unloaded_pack(&state, &pack.id) {
         return None;
     }
@@ -1037,13 +1214,40 @@ fn verified_pack_file(name: &str) -> Option<(PathBuf, String)> {
     let digests = match verify_pack_integrity(&pack.root, &manifest, &state) {
         Ok(digests) => digests,
         Err(reason) => {
-            state
+            // Already recorded exactly as this read would record it (a
+            // standing quarantine, from the second read on): nothing to
+            // write, so no lock either — every catalog read lands here.
+            let recorded = state
                 .quarantined
-                .entry(pack.id.clone())
-                .or_default()
-                .insert("pack".to_string(), reason);
-            let _ = write_state(&state);
-            return None;
+                .get(&pack.id)
+                .and_then(|files| files.get("pack"));
+            if recorded == Some(&reason) {
+                return None;
+            }
+            // Record the quarantine in the state as it is under the lock,
+            // judged against that state: the snapshot above may predate a
+            // concurrent load or re-admission, which a write of it would
+            // undo. Without the lock the file is not served and nothing is
+            // recorded; the next read tries again.
+            let lock = StateLock::acquire().ok()?;
+            lock.hold_while(|| {
+                let mut state = read_state().ok()?;
+                if unloaded_pack(&state, &pack.id) {
+                    return None;
+                }
+                match verify_pack_integrity(&pack.root, &manifest, &state) {
+                    Ok(digests) => Some(digests),
+                    Err(reason) => {
+                        state
+                            .quarantined
+                            .entry(pack.id.clone())
+                            .or_default()
+                            .insert("pack".to_string(), reason);
+                        let _ = write_state(&state);
+                        None
+                    }
+                }
+            })?
         }
     };
     let path = resolve_pack_path(&pack, &manifest, name)?;
@@ -1293,3 +1497,7 @@ pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
     *CLOUD_VENDOR_CACHE.lock() = Some((generation, vendors.clone()));
     vendors
 }
+
+#[cfg(test)]
+#[path = "tests/extensions_state_lock.rs"]
+mod state_lock_tests;
