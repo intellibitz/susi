@@ -1,5 +1,7 @@
-//! First-run planning: reuse admitted cached weights, otherwise fetch the
-//! audited small CPU starter. Larger automatic downloads require later evidence.
+//! Starter planning: reuse admitted cached weights, otherwise plan a fetch of
+//! the audited small CPU starter. The fetch runs only for the user's explicit
+//! `STARTER_INSTALL_COMMAND`; core never downloads a model by itself (CEO
+//! decision 2026-11-04, "No, ask first").
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use susi_vendor_models::resumable_downloads::{DownloadPlan, RangeRequest, RangeResponse};
@@ -23,6 +25,10 @@ pub struct FirstRunHost {
     pub disk: u64,
     pub offline: bool,
 }
+/// The one command that downloads the audited starter (weights and tokenizer).
+pub const STARTER_INSTALL_COMMAND: &str = "susi os manage model install starter";
+/// The `source` that command names (`OsModelAction::Install`).
+pub const STARTER_SOURCE: &str = "starter";
 pub(crate) const STARTER_REVISION: &str = "9217f5db79a29953eb74d5343926648285ec7e67";
 pub(crate) const STARTER_SHA256: &str =
     "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed";

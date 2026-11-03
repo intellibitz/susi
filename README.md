@@ -301,7 +301,10 @@ Agents obtain an identified native artifact and invoke its Rust installer with
 `susi install`. It discovers the user profile, verifies the staged executable,
 and installs without replacing a different existing executable. No shell script,
 GitHub connection or user-written configuration is required for placement.
-The default first-goal journey provisions the licensed starter model when needed.
+Susi never downloads a model by itself: cloud models work right away, and
+`susi os manage model install starter` downloads the licensed local starter
+model (about 429 MB) when you ask. A local goal without it says so and names
+that command.
 Native installation does not by itself qualify a candidate for production;
 qualification, promotion and rollback have separate evidence gates.
 

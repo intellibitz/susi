@@ -11,6 +11,11 @@ struct AutoStatus {
     leading_mcp_enabled: Vec<String>,
     leading_mcp_ready_not_enabled: Vec<String>,
     preferred_coding_model: Option<String>,
+    /// GGUF files present in the model directories (names only).
+    local_models_installed: Vec<String>,
+    /// `no local model installed` plus the download command when empty:
+    /// core never downloads a model by itself (CEO decision 2026-11-04).
+    local_model: String,
     agents_ready: usize,
     /// `None` (JSON null) when no framework readiness probe has run.
     frameworks_ready: Option<usize>,
@@ -76,6 +81,23 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
         .ok()
         .and_then(|m| m.preferred());
 
+    let local_models_installed = super::setup_cli::opening_model_inventory(
+        &susi_paths::SusiDirs::config_dir(),
+        &susi_paths::SusiDirs::data_dir(),
+    );
+    let local_model = if local_models_installed.is_empty() {
+        format!(
+            "no local model installed in Susi's model folders (local runners such as \
+             Ollama are still used when they are running); {}",
+            susi_gemi::models::NoLocalModelInstalled::starter().install_hint()
+        )
+    } else {
+        format!(
+            "{} model file(s) found, verified when a goal runs",
+            local_models_installed.len()
+        )
+    };
+
     let agents_ready = load_json_file(
         &susi_paths::SusiDirs::config_dir()
             .join("execution-agents")
@@ -104,6 +126,8 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
         leading_mcp_enabled: enabled,
         leading_mcp_ready_not_enabled: ready_not,
         preferred_coding_model: preferred,
+        local_models_installed,
+        local_model,
         agents_ready,
         frameworks_ready,
         frameworks_probe,
@@ -122,6 +146,9 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
         AutoCommands::Status => {
             let status = collect_status(workspace)?;
             print_json(&status)?;
+            if status.local_models_installed.is_empty() {
+                eprintln!("local model: {}", status.local_model);
+            }
             if status.last_auto_prime.is_none() {
                 eprintln!(
                     "hint: no full prime recorded yet; `susi auto prime` refreshes this snapshot"

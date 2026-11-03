@@ -988,14 +988,14 @@ mod tests {
     }
 
     #[test]
-    fn automatic_first_download_is_small_even_with_large_gpu() {
+    fn starter_download_is_small_even_with_large_gpu() {
         let host = crate::zc_first_model::FirstRunHost {
             ram: 128_000_000_000,
             vram: 48_000_000_000,
             disk: 100_000_000_000,
             offline: false,
         };
-        match ModelManager::automatic_download_plan(&host, Path::new("models")) {
+        match ModelManager::starter_download_plan(&host, Path::new("models")) {
             crate::zc_first_model::FirstRunPlan::Fetch { model, plan } => {
                 assert_eq!(model.hf_file, "qwen2.5-0.5b-instruct-q4_0.gguf");
                 assert_eq!(model.size_bytes, 428_730_208);
@@ -1009,7 +1009,7 @@ mod tests {
             ..host
         };
         assert!(matches!(
-            ModelManager::automatic_download_plan(&low_memory, Path::new("models")),
+            ModelManager::starter_download_plan(&low_memory, Path::new("models")),
             crate::zc_first_model::FirstRunPlan::Fetch { .. }
         ));
     }
