@@ -233,6 +233,11 @@ impl SusiMasterAgent {
         version: &str,
         _callback: &dyn Fn(String),
     ) -> SusiMissionReport {
+        // The user's own mission (`susi <goal>`): a local engine its
+        // routing needs may be started on demand on this thread. The
+        // daemon's pulse worker enters through `solve_stream` and never
+        // holds this guard.
+        let _user_request = crate::susi_core::provider::OnDemandEngineStart::allow();
         self.solve_stream_report_with_model(goal, workspace, version, None, _callback)
     }
 

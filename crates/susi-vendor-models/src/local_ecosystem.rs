@@ -412,6 +412,264 @@ pub fn start(id: &str, p: &dyn Probe) -> Result<String, String> {
     Ok(format!("started {} ({})", def.name, argv.join(" ")))
 }
 
+/// The explicit command that starts engine `id`.
+pub fn start_command(id: &str) -> String {
+    format!("susi ecosystem start {id}")
+}
+
+/// Why a request that needs a local engine cannot reach it. Core starts no
+/// engine at boot; a request that needs one starts it on demand
+/// ([`ensure_running_on_port`]), and when that is not possible the caller
+/// gets this error, which names the explicit start command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalEngineError {
+    /// No engine serving this port is installed on this host.
+    NotInstalled { port: u16, engines: Vec<String> },
+    /// Installed, but it needs a model or options only the user can choose.
+    NeedsManualStart { id: String, name: String },
+    /// Installed and startable, but the launch failed.
+    StartFailed {
+        id: String,
+        name: String,
+        reason: String,
+    },
+    /// Launched, but its health endpoint did not answer in time.
+    NotReady { id: String, name: String, port: u16 },
+}
+
+impl LocalEngineError {
+    /// The engine id this error is about (`None` when nothing is installed).
+    pub fn engine_id(&self) -> Option<&str> {
+        match self {
+            Self::NotInstalled { .. } => None,
+            Self::NeedsManualStart { id, .. }
+            | Self::StartFailed { id, .. }
+            | Self::NotReady { id, .. } => Some(id),
+        }
+    }
+}
+
+impl std::fmt::Display for LocalEngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotInstalled { port, engines } => write!(
+                f,
+                "local engine needed on port {port} is not installed ({}); install one, then run `susi ecosystem start <id>`",
+                engines.join(", ")
+            ),
+            Self::NeedsManualStart { id, name } => write!(
+                f,
+                "local engine {name} is installed but not running, and it needs a model or options to start; start it yourself (`{}` explains what it needs)",
+                start_command(id)
+            ),
+            Self::StartFailed { id, name, reason } => write!(
+                f,
+                "local engine {name} is installed but could not be started on demand ({reason}); start it with `{}`",
+                start_command(id)
+            ),
+            Self::NotReady { id, name, port } => write!(
+                f,
+                "local engine {name} was started on demand but did not answer on port {port} in time; check it with `susi ecosystem status` or start it with `{}`",
+                start_command(id)
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LocalEngineError {}
+
+/// Make sure the local engine serving `port` is up, starting it when a
+/// request needs it. `Ok(false)`: already running, or no known engine
+/// serves that port (nothing to do). `Ok(true)`: this call started it and it
+/// now answers. Only an engine the table can launch unattended is started;
+/// everything else is a [`LocalEngineError`] naming the explicit command.
+///
+/// One on-demand launch is in flight per process at a time: concurrent
+/// callers wait for it and then see the engine up. A launch that failed or
+/// never became healthy is remembered for [`ON_DEMAND_FAILURE_COOLDOWN`], so
+/// the rest of a failover cascade fails fast with the same typed error
+/// instead of spawning another engine and waiting again.
+pub fn ensure_running_on_port(
+    port: u16,
+    p: &dyn Probe,
+    wait: std::time::Duration,
+) -> Result<bool, LocalEngineError> {
+    static LAUNCH_FAILURES: std::sync::Mutex<
+        std::collections::BTreeMap<u16, (std::time::Instant, LocalEngineError)>,
+    > = std::sync::Mutex::new(std::collections::BTreeMap::new());
+    // Held for the whole launch: this is the single-flight.
+    let mut failures = LAUNCH_FAILURES.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_running_on_port_once(&mut failures, port, p, wait, &|id| start(id, p))
+}
+
+/// How long a failed on-demand launch is answered from memory.
+pub const ON_DEMAND_FAILURE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn ensure_running_on_port_once(
+    failures: &mut std::collections::BTreeMap<u16, (std::time::Instant, LocalEngineError)>,
+    port: u16,
+    p: &dyn Probe,
+    wait: std::time::Duration,
+    launch: &dyn Fn(&str) -> Result<String, String>,
+) -> Result<bool, LocalEngineError> {
+    let recent = failures
+        .get(&port)
+        .filter(|(at, _)| at.elapsed() < ON_DEMAND_FAILURE_COOLDOWN)
+        .map(|(_, err)| err.clone());
+    if let Some(err) = recent {
+        // Fail fast unless the engine has come up since.
+        return if serving_answers(port, p) {
+            failures.remove(&port);
+            Ok(false)
+        } else {
+            Err(err)
+        };
+    }
+    let result = ensure_running_on_port_with(port, p, wait, launch);
+    match &result {
+        Err(err @ (LocalEngineError::StartFailed { .. } | LocalEngineError::NotReady { .. })) => {
+            failures.insert(port, (std::time::Instant::now(), err.clone()));
+        }
+        Ok(_) | Err(_) => {
+            failures.remove(&port);
+        }
+    }
+    result
+}
+
+/// Every engine definition serving `port` (after `SUSI_ENGINE_PORTS`).
+fn serving_on(port: u16) -> Vec<&'static Def> {
+    let overrides = env_overrides();
+    DEFS.iter()
+        .filter(|d| d.port != 0 && port_of(d, &overrides) == port)
+        .collect()
+}
+
+/// True when an engine that serves `port` answers its health endpoint.
+fn serving_answers(port: u16, p: &dyn Probe) -> bool {
+    serving_on(port).iter().any(|d| p.http_ok(port, d.health))
+}
+
+/// For a user request no registered provider could serve: when an engine
+/// that can be launched unattended is installed but not running, start it
+/// ([`ensure_running_on_port`]) so its models can be admitted and the
+/// request routed again. `Ok(Some(id))`: engine `id` was down and now
+/// answers (this call, or a concurrent request it waited for, started it);
+/// `Ok(None)`: no such engine is installed, or an installed one already
+/// answers (nothing to start).
+pub fn ensure_startable_engine_running(
+    p: &dyn Probe,
+    wait: std::time::Duration,
+) -> Result<Option<String>, LocalEngineError> {
+    let overrides = env_overrides();
+    let installed: Vec<(&Def, u16)> = DEFS
+        .iter()
+        .filter(|d| d.port != 0 && d.start.is_some())
+        .filter(|d| d.binaries.iter().any(|b| p.which(b).is_some()))
+        .map(|d| (d, port_of(d, &overrides)))
+        .collect();
+    if installed.iter().any(|(d, port)| p.http_ok(*port, d.health)) {
+        return Ok(None);
+    }
+    let Some((def, port)) = installed.first() else {
+        return Ok(None);
+    };
+    ensure_running_on_port(*port, p, wait).map(|_| Some(def.id.to_string()))
+}
+
+fn ensure_running_on_port_with(
+    port: u16,
+    p: &dyn Probe,
+    wait: std::time::Duration,
+    launch: &dyn Fn(&str) -> Result<String, String>,
+) -> Result<bool, LocalEngineError> {
+    let serving = serving_on(port);
+    if serving.is_empty() || serving.iter().any(|d| p.http_ok(port, d.health)) {
+        return Ok(false);
+    }
+    let installed: Vec<&Def> = serving
+        .iter()
+        .copied()
+        .filter(|d| d.binaries.iter().any(|b| p.which(b).is_some()))
+        .collect();
+    let Some(def) = installed
+        .iter()
+        .find(|d| d.start.is_some())
+        .or_else(|| installed.first())
+    else {
+        return Err(LocalEngineError::NotInstalled {
+            port,
+            engines: serving.iter().map(|d| d.id.to_string()).collect(),
+        });
+    };
+    if def.start.is_none() {
+        return Err(LocalEngineError::NeedsManualStart {
+            id: def.id.into(),
+            name: def.name.into(),
+        });
+    }
+    launch(def.id).map_err(|reason| LocalEngineError::StartFailed {
+        id: def.id.into(),
+        name: def.name.into(),
+        reason,
+    })?;
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if p.http_ok(port, def.health) {
+            return Ok(true);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(LocalEngineError::NotReady {
+                id: def.id.into(),
+                name: def.name.into(),
+                port,
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+/// The host, observed without running anything: [`HostProbe`] minus the
+/// `<binary> --version` spawn. Unattended scans (daemon boot, periodic
+/// maintenance) use this so core starts no third-party program on its own;
+/// an explicit `susi ecosystem scan` uses [`HostProbe`] and records versions.
+/// Versions an explicit scan recorded are carried forward
+/// ([`Self::with_recorded_versions`]) for binaries whose path is unchanged,
+/// so an unattended scan never erases them.
+#[derive(Debug, Default, Clone)]
+pub struct DetectOnlyProbe {
+    recorded: std::collections::BTreeMap<PathBuf, String>,
+}
+
+impl DetectOnlyProbe {
+    /// Answer `version` from what an earlier explicit scan recorded, keyed
+    /// by binary path.
+    pub fn with_recorded_versions(recorded: std::collections::BTreeMap<PathBuf, String>) -> Self {
+        Self { recorded }
+    }
+}
+
+impl Probe for DetectOnlyProbe {
+    fn which(&self, program: &str) -> Option<PathBuf> {
+        HostProbe.which(program)
+    }
+    fn home(&self) -> Option<PathBuf> {
+        HostProbe.home()
+    }
+    fn exists(&self, path: &Path) -> bool {
+        HostProbe.exists(path)
+    }
+    fn http_ok(&self, port: u16, path: &str) -> bool {
+        HostProbe.http_ok(port, path)
+    }
+    fn version(&self, program: &Path) -> Option<String> {
+        self.recorded.get(program).cloned()
+    }
+    fn is_macos_arm(&self) -> bool {
+        HostProbe.is_macos_arm()
+    }
+}
+
 /// The real host.
 pub struct HostProbe;
 
@@ -552,6 +810,134 @@ mod tests {
             .unwrap();
         assert!(o.running && !o.startable);
         assert_eq!(o.endpoint.as_deref(), Some("http://127.0.0.1:11434/v1"));
+    }
+
+    fn never_launch(id: &str) -> Result<String, String> {
+        panic!("{id} must not be launched")
+    }
+
+    #[test]
+    fn on_demand_start_skips_running_and_unknown_ports() {
+        let mut f = Fake::default();
+        f.bins.insert("ollama", "/usr/bin/ollama".into());
+        f.up.insert((11434, "/api/version"));
+        let wait = std::time::Duration::ZERO;
+        assert_eq!(
+            ensure_running_on_port_with(11434, &f, wait, &never_launch),
+            Ok(false)
+        );
+        // No known engine serves this port: nothing to start.
+        assert_eq!(
+            ensure_running_on_port_with(54321, &Fake::default(), wait, &never_launch),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn on_demand_start_launches_an_installed_startable_engine() {
+        let mut f = Fake::default();
+        f.bins.insert("ollama", "/usr/bin/ollama".into());
+        let launched = std::cell::RefCell::new(Vec::new());
+        // The fake engine never comes up: the request gets a typed error
+        // that names the explicit start command.
+        let err = ensure_running_on_port_with(11434, &f, std::time::Duration::ZERO, &|id| {
+            launched.borrow_mut().push(id.to_string());
+            Ok("started".into())
+        })
+        .unwrap_err();
+        assert_eq!(launched.into_inner(), ["ollama"]);
+        assert_eq!(err.engine_id(), Some("ollama"));
+        assert!(
+            err.to_string().contains("susi ecosystem start ollama"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn on_demand_start_failures_are_typed_and_name_the_start_command() {
+        let wait = std::time::Duration::ZERO;
+        let err =
+            ensure_running_on_port_with(11434, &Fake::default(), wait, &never_launch).unwrap_err();
+        assert!(matches!(
+            err,
+            LocalEngineError::NotInstalled { port: 11434, .. }
+        ));
+
+        let mut f = Fake::default();
+        f.bins.insert("vllm", "/usr/bin/vllm".into());
+        let err = ensure_running_on_port_with(8000, &f, wait, &never_launch).unwrap_err();
+        assert!(
+            matches!(err, LocalEngineError::NeedsManualStart { .. }),
+            "{err}"
+        );
+        assert!(
+            err.to_string().contains("susi ecosystem start vllm"),
+            "{err}"
+        );
+
+        let mut f = Fake::default();
+        f.bins.insert("ollama", "/usr/bin/ollama".into());
+        let err =
+            ensure_running_on_port_with(11434, &f, wait, &|_| Err("denied".into())).unwrap_err();
+        assert!(matches!(err, LocalEngineError::StartFailed { .. }), "{err}");
+        assert!(
+            err.to_string().contains("susi ecosystem start ollama"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn detect_only_probe_runs_no_version_command() {
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(DetectOnlyProbe::default().version(&exe), None);
+        // An explicit scan's recorded version is carried forward for the
+        // same binary path, and only for it.
+        let probe = DetectOnlyProbe::with_recorded_versions(
+            [(exe.clone(), "v9".to_string())].into_iter().collect(),
+        );
+        assert_eq!(probe.version(&exe).as_deref(), Some("v9"));
+        assert_eq!(probe.version(Path::new("/elsewhere/ollama")), None);
+    }
+
+    #[test]
+    fn a_failed_on_demand_launch_is_not_repeated_within_the_cooldown() {
+        let mut f = Fake::default();
+        f.bins.insert("ollama", "/usr/bin/ollama".into());
+        let launches = std::cell::Cell::new(0);
+        let launch = |_: &str| {
+            launches.set(launches.get() + 1);
+            Ok("started".to_string())
+        };
+        let mut failures = std::collections::BTreeMap::new();
+        let wait = std::time::Duration::ZERO;
+        let first = ensure_running_on_port_once(&mut failures, 11434, &f, wait, &launch);
+        assert!(matches!(first, Err(LocalEngineError::NotReady { .. })));
+        // The rest of the cascade fails fast with the same typed error.
+        let again = ensure_running_on_port_once(&mut failures, 11434, &f, wait, &launch);
+        assert_eq!(again, first);
+        assert_eq!(launches.get(), 1, "one launch, not one per provider");
+        // Once it answers, the remembered failure is dropped.
+        f.up.insert((11434, "/api/version"));
+        assert_eq!(
+            ensure_running_on_port_once(&mut failures, 11434, &f, wait, &launch),
+            Ok(false)
+        );
+        assert!(failures.is_empty());
+    }
+
+    #[test]
+    fn a_request_with_no_provider_starts_only_a_stopped_startable_engine() {
+        // Nothing installed, or an installed engine already answering:
+        // nothing to start.
+        let wait = std::time::Duration::ZERO;
+        assert_eq!(
+            ensure_startable_engine_running(&Fake::default(), wait),
+            Ok(None)
+        );
+        let mut f = Fake::default();
+        f.bins.insert("ollama", "/usr/bin/ollama".into());
+        f.up.insert((11434, "/api/version"));
+        assert_eq!(ensure_startable_engine_running(&f, wait), Ok(None));
     }
 
     #[test]
