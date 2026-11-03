@@ -8,8 +8,8 @@
 //! (`scout_configured_once`, called from
 //! `register_configured_cloud_endpoints` on the daemon registration path).
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::credential_scout::{
     classify_probe, probe_request, scout_targets, CheapCall, CredentialTarget, Liveness,
@@ -23,21 +23,21 @@ type RecordedRequest = (String, Vec<(String, String)>);
 /// test ever touches the network.
 struct FakeCall {
     responses: HashMap<String, Result<(u16, String), String>>,
-    requests: RefCell<Vec<RecordedRequest>>,
+    requests: Mutex<Vec<RecordedRequest>>,
 }
 
 impl FakeCall {
     fn new() -> Self {
         Self {
             responses: HashMap::new(),
-            requests: RefCell::new(Vec::new()),
+            requests: Mutex::new(Vec::new()),
         }
     }
 }
 
 impl CheapCall for FakeCall {
     fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
-        self.requests.borrow_mut().push((
+        self.requests.lock().unwrap().push((
             url.to_string(),
             headers
                 .iter()
@@ -114,15 +114,23 @@ fn vc_202_001_mastery_every_configured_credential_is_enumerated_and_probed() {
         assert_eq!(v.liveness, Liveness::Live);
     }
 
-    // Each credential got exactly one cheapest-possible probe.
-    let requests = fake.requests.borrow();
+    // Each credential got exactly one cheapest-possible probe. Probes run
+    // at once, so they are matched by URL, not by arrival order.
+    let requests = fake.requests.lock().unwrap();
     assert_eq!(requests.len(), targets.len());
-    for (t, (url, headers)) in targets.iter().zip(requests.iter()) {
+    for t in &targets {
+        let expected = format!("{}/models", t.api_base);
+        let matching: Vec<_> = requests
+            .iter()
+            .filter(|(url, _)| *url == expected)
+            .collect();
         assert_eq!(
-            *url,
-            format!("{}/models", t.api_base),
-            "the cheapest call is the zero-token models listing"
+            matching.len(),
+            1,
+            "{}: the cheapest call is the zero-token models listing",
+            t.vendor
         );
+        let headers = &matching[0].1;
         let auth = headers
             .iter()
             .find(|(k, _)| matches!(k.as_str(), "Authorization" | "x-api-key" | "x-goog-api-key"))

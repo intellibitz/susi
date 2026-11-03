@@ -407,7 +407,44 @@ pub fn register_configured_cloud_endpoints(
         }
         return;
     }
-    for (endpoint, api_key) in susi_gemi_models::cloud::inference_endpoints_with_keys() {
+    // Every network wait here runs at once, not one after another: the
+    // credential scout (registration never reads its verdicts) beside the
+    // registration, and each custom endpoint's model listing beside the
+    // others. Each wait is bounded; the sum was seconds on every CLI start.
+    std::thread::scope(|scope| {
+        // VC-202-001 — scout every configured credential with its cheapest
+        // call: classify live/expired/unauthorized/rate-limited/unknown and
+        // record the fingerprinted evidence so failover steers around dead
+        // keys. Interval-gated so repeat registrations stay free.
+        let scout = scope.spawn(|| {
+            crate::credential_scout::scout_configured_once(&crate::credential_scout::TransportCall)
+        });
+        register_endpoints(registry);
+        if let Ok(Some(report)) = scout.join() {
+            for verdict in &report.verdicts {
+                tracing::info!(
+                    vendor = %verdict.vendor,
+                    liveness = ?verdict.liveness,
+                    status = ?verdict.status,
+                    detail = %verdict.detail,
+                    "credential scout"
+                );
+            }
+        }
+    });
+}
+
+/// The registration half of [`register_configured_cloud_endpoints`].
+fn register_endpoints(registry: &crate::susi_core::registry::CapabilityRegistry) {
+    let endpoints: Vec<_> = susi_gemi_models::cloud::inference_endpoints_with_keys().collect();
+    std::thread::scope(|scope| {
+        for (endpoint, api_key) in &endpoints {
+            if is_custom_vendor_endpoint(endpoint) && !api_key.is_empty() {
+                scope.spawn(|| custom_endpoint_model(endpoint, api_key));
+            }
+        }
+    });
+    for (endpoint, api_key) in endpoints {
         let api_base = endpoint.api_base.trim().to_string();
         let protocol = InferenceProtocol::from_config(&endpoint.protocol_type);
         let is_cloud = HttpProvider::is_remote_cloud(&api_base);
@@ -524,24 +561,6 @@ pub fn register_configured_cloud_endpoints(
     // model API: it registers here so ranking, election, the matrix, the
     // ladder and the budget all see it uniformly.
     crate::seat_provider::register_configured_seats(registry);
-
-    // VC-202-001 — scout every configured credential with its cheapest
-    // call: classify live/expired/unauthorized/rate-limited/unknown and
-    // record the fingerprinted evidence so failover steers around dead
-    // keys. Interval-gated so repeat registrations stay free.
-    if let Some(report) =
-        crate::credential_scout::scout_configured_once(&crate::credential_scout::TransportCall)
-    {
-        for verdict in &report.verdicts {
-            tracing::info!(
-                vendor = %verdict.vendor,
-                liveness = ?verdict.liveness,
-                status = ?verdict.status,
-                detail = %verdict.detail,
-                "credential scout"
-            );
-        }
-    }
 }
 
 /// Register the curated models catalog (~50) plus the top coding/agent models.
@@ -754,18 +773,24 @@ fn cached_endpoint_models(
         "{base}|{protocol:?}|{}",
         susi_gemi_models::cloud_eligibility::credential_fingerprint(key)
     );
-    let mut cache = CACHE
-        .get_or_init(|| Mutex::new(BTreeMap::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    cache.retain(|_, (at, models)| {
-        at.elapsed() < Duration::from_secs(if models.is_some() { 60 } else { 5 })
-    });
-    if let Some((_, models)) = cache.get(&cache_key) {
-        return models.clone();
+    let cache = || {
+        CACHE
+            .get_or_init(|| Mutex::new(BTreeMap::new()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    };
+    {
+        let mut cache = cache();
+        cache.retain(|_, (at, models)| {
+            at.elapsed() < Duration::from_secs(if models.is_some() { 60 } else { 5 })
+        });
+        if let Some((_, models)) = cache.get(&cache_key) {
+            return models.clone();
+        }
     }
+    // Unlocked while fetching, so other endpoints' listings run alongside.
     let models = fetch_endpoint_models(base, key, protocol);
-    cache.insert(cache_key, (Instant::now(), models.clone()));
+    cache().insert(cache_key, (Instant::now(), models.clone()));
     models
 }
 
