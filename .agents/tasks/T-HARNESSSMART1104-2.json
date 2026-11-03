@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSSMART1104-2",
+  "title": "Susi GEMI algorithmic masterpiece: Bayesian UCB1/Pareto brain, Dirichlet NB classifier, SPRT/EVOI escalation, Dawid-Skene consensus, exact GQA KV roofline, phi-accrual hedged failover, and closed-form speculative gamma solver",
+  "goal": "Elevate susi-gemi into an algorithmic masterpiece across brain ranking (Beta posterior, UCB1, 3D Pareto frontier), learned_classifier (Dirichlet-Multinomial Naive Bayes with n-grams and Shannon entropy), confidence_escalation (Wald SPRT and EVOI decision theory), consensus_mode (Bayesian log-odds Dawid-Skene weighted voting and equivalence clustering), zc_kv_auto (exact GQA geometry, quantization roofline, and paged block sizing), region_failover (phi-accrual failure detection and p95 tail-hedged routing), retry_policy (decorrelated jitter and retry storm token bucket), placement_uses_task_class (Lagrangian utility-constrained placement), and speculative decoding (closed-form Leviathan optimal gamma solver).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--",
+      "--skip",
+      "engines::alpha::tests"
+    ]
+  },
+  "created_by": "HARNESSSMART1104",
+  "created_unix": 1793764800
+}
