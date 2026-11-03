@@ -16,6 +16,10 @@
 //! (GMCP) depend on this crate and never declare `rmcp` themselves. The
 //! client SDK and its reqwest transport stay in `susi-vendor-mcp`.
 
+/// JSON Schema derivation for typed tool inputs (`#[derive(JsonSchema)]` with
+/// `#[schemars(crate = "susi_vendor_mcp_server::schemars")]`), the same
+/// generator rmcp's `#[tool]` uses for `inputSchema`.
+pub use rmcp::schemars;
 pub use rmcp::tool;
 pub use rmcp::{
     handler, model, service, task_manager, transport, ErrorData, ServerHandler, ServiceExt,

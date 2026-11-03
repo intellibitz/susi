@@ -268,11 +268,17 @@ impl GmcpService {
     fn tools(&self) -> Result<Vec<Tool>, ErrorData> {
         let mut tools = BTreeMap::new();
         for tool in ToolRegistry::list_tools() {
-            let definition = serde_json::from_value(json!({
-                "name": tool.name, "description": tool.description,
-                "inputSchema": {"type":"object", "additionalProperties":true}
-            }))
-            .map_err(internal)?;
+            // Built-in handlers carry the typed schema their `#[tool]`
+            // declares; dynamically discovered proxies (external
+            // `server:tool`, reflexes) forward arguments unchanged and say so
+            // (their own schema is dropped at discovery: `args::passthrough`).
+            let input_schema = crate::tools::args::core_input_schema(&tool.name)
+                .unwrap_or_else(crate::tools::args::passthrough);
+            let definition = Tool::new_with_raw(
+                tool.name.clone(),
+                Some(tool.description.into()),
+                input_schema,
+            );
             tools.insert(tool.name, definition);
         }
         for (name, tool) in &self.catalog.read().tools {

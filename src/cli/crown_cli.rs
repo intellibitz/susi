@@ -431,7 +431,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         true,
         auto_ok,
         match &pack {
-            Ok(p) => format!("pack `{}` seeded at {}", p.id, p.root.display()),
+            Ok(p) => format!("active pack `{}` ({})", p.id, p.root.display()),
             Err(e) => e.clone(),
         },
     ));
@@ -635,7 +635,6 @@ fn report(workspace: &Path) -> serde_json::Value {
 }
 
 pub fn execute(action: Option<CrownCommands>, workspace: &Path) -> Result<()> {
-    let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     let substrate = susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
 

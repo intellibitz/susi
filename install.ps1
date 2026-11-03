@@ -5,6 +5,31 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Release scope (CEO decision 2026-11-03): the free public core release is
+# published for x86_64 Windows and x86_64 Linux only. ARM64 Windows support
+# exists in the source, but core publishes no ARM64 binary; certified builds
+# for other platforms come from the Susi commercial suite. Refuse before any
+# download, build or write. The native OS architecture is read three ways
+# because an x64 PowerShell emulated on ARM64 reports AMD64 for its own
+# process; any one naming ARM64 refuses.
+function Get-SusiNativeArchitectures {
+    $names = @($env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432)
+    try {
+        $names += [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    } catch { }
+    try {
+        $names += (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PROCESSOR_ARCHITECTURE -ErrorAction Stop).PROCESSOR_ARCHITECTURE
+    } catch { }
+    $names | Where-Object { $_ }
+}
+if (@(Get-SusiNativeArchitectures | Where-Object { $_ -match '^arm64$' }).Count -gt 0) {
+    Write-Host "[susi] This is ARM64 Windows. The free Susi core release supports x86_64 Windows and x86_64 Linux only." -ForegroundColor Red
+    Write-Host "[susi] Other platforms, including ARM64 Windows, are served by the Susi commercial suite. Nothing was installed." -ForegroundColor Red
+    # throw, like the SUSI_HOME check below: `exit` would also close a
+    # session that ran this script through Invoke-Expression.
+    throw 'Unsupported platform for the free Susi core release: ARM64 Windows.'
+}
+
 # SUSI Micro-Substrate Installer for Windows
 # Tier 0 Onboarding Protocol: Zero-Config Deployment
 

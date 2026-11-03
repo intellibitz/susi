@@ -164,8 +164,8 @@ fn default_candle_threads() -> usize {
         .unwrap_or(4)
 }
 
-/// A normal goal needs admitted tools and model preference, not a fresh probe
-/// of every optional external agent/framework. The daemon discovers those in
+/// A normal goal needs model preference (tools are only the ones admitted
+/// explicitly), not a fresh probe of every optional external agent/framework. The daemon discovers those in
 /// the background; explicitly invoking one still runs its own preflight.
 fn bare_goal_catalogs(goal: &str) -> susi_daemon::discovery_pipeline::Catalogs {
     use susi_daemon::discovery_pipeline::Catalogs;
@@ -174,7 +174,7 @@ fn bare_goal_catalogs(goal: &str) -> susi_daemon::discovery_pipeline::Catalogs {
     {
         return Catalogs::NONE;
     }
-    Catalogs::LEADING_MCP.union(Catalogs::CODING_MODELS)
+    Catalogs::CODING_MODELS
 }
 
 /// The CLI's clap command tree is large, and a debug build spends enough stack
@@ -567,9 +567,10 @@ mod tests {
     }
 
     #[test]
-    fn first_goal_admits_tools_and_models_without_optional_framework_probes() {
+    fn first_goal_primes_models_without_optional_framework_probes() {
+        // No MCP prime exists: core never auto-enables a server (plan A8).
         let catalogs = super::bare_goal_catalogs("Build a calculator");
-        assert!(catalogs.leading_mcp && catalogs.coding_models);
+        assert!(catalogs.coding_models);
         assert!(!catalogs.execution_agents && !catalogs.frameworks);
     }
 

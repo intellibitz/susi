@@ -143,97 +143,32 @@ impl GmcpClient {
         discovered
     }
 
+    /// The MCP scout registry, in precedence order: the active extension
+    /// pack's `mcp-registry.json`; else an existing host
+    /// `global_mcp_registry.json` (an operator override, or a cache an
+    /// earlier core wrote); else the host config's own
+    /// `bootstrap_mcp_servers`. Core bundles no registry, so with none of
+    /// these it is empty.
+    ///
+    /// Read-only: it never writes `global_mcp_registry.json`, never
+    /// refreshes it from a remote URL and never provisions an entry on its
+    /// own (zero-UI plan A8) — a server runs only after an explicit
+    /// `susi mcp-add` / `susi mcp enable`.
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
-        let registry_path = global_dir.join("global_mcp_registry.json");
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
-
-        let mtime = std::fs::metadata(&registry_path)
-            .and_then(|m| m.modified())
-            .ok();
-        let is_stale = mtime
-            .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
-            .unwrap_or(true);
-
-        static STORE: std::sync::OnceLock<
-            crate::susi_sandbox::VersionedJsonStore<Vec<GlobalMcpEntry>>,
-        > = std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::susi_sandbox::VersionedJsonStore::new);
-
-        let entries = store
-            .load_with_healing(
-                &registry_path,
-                || Ok(Self::bundled_leading_mcp_registry()),
-                |_| false,
-                false,
-            )
-            .unwrap_or_else(|_| Self::bundled_leading_mcp_registry());
-
-        if is_stale {
-            static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool =
-                std::sync::atomic::AtomicBool::new(false);
-            if !REGISTRY_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                let url = cfg.mcp_registry_url();
-                let reg_p = registry_path;
-                std::thread::spawn(move || {
-                    struct FetchGuard;
-                    impl Drop for FetchGuard {
-                        fn drop(&mut self) {
-                            REGISTRY_FETCH_RUNNING
-                                .store(false, std::sync::atomic::Ordering::SeqCst);
-                        }
-                    }
-                    let _guard = FetchGuard;
-                    let Ok(call) = susi_http_transport::http_call(
-                        "GET",
-                        &url,
-                        &[("User-Agent", "SUSI/0.1")],
-                        20,
-                        0,
-                    ) else {
-                        return;
-                    };
-                    if !(200..300).contains(&call.status) {
-                        return;
-                    }
-                    let Ok(bytes) = call.into_bytes(16 * 1024 * 1024) else {
-                        return;
-                    };
-                    let Ok(remote_entries) = serde_json::from_slice::<Vec<GlobalMcpEntry>>(&bytes)
-                    else {
-                        return;
-                    };
-                    if !remote_entries.is_empty() {
-                        let _ = crate::susi_config::atomic_write_bytes(
-                            &reg_p,
-                            serde_json::to_string_pretty(&remote_entries)
-                                .unwrap_or_default()
-                                .as_bytes(),
-                        );
-                    }
-                });
+        let from_pack: Vec<GlobalMcpEntry> =
+            crate::susi_sandbox::extensions::load_json_or_bundled("mcp-registry.json", "[]");
+        if !from_pack.is_empty() {
+            return from_pack;
+        }
+        let config_dir = susi_paths::SusiDirs::config_dir();
+        if let Ok(bytes) = fs::read(config_dir.join("global_mcp_registry.json")) {
+            if let Ok(entries) = serde_json::from_slice::<Vec<GlobalMcpEntry>>(&bytes) {
+                return entries;
             }
         }
-
-        entries
-    }
-
-    /// Bundled leading MCP scout catalog (~100 real packages). Used as
-    /// zero-config fallback for `global_mcp_registry.json` — packages are
-    /// provisioned on demand; remote scout may enlarge the live file.
-    pub fn bundled_leading_mcp_registry() -> Vec<GlobalMcpEntry> {
-        static BUNDLED: std::sync::OnceLock<Vec<GlobalMcpEntry>> = std::sync::OnceLock::new();
-        BUNDLED
-            .get_or_init(|| {
-                serde_json::from_str(
-                    crate::susi_sandbox::manager::SusiConfig::leading_mcp_registry_json(),
-                )
-                .unwrap_or_else(|_| {
-                    crate::susi_sandbox::manager::SusiConfig::default()
-                        .bootstrap_mcp_servers::<Vec<GlobalMcpEntry>>()
-                })
-            })
-            .clone()
+        crate::susi_sandbox::manager::SusiConfig::load(&config_dir)
+            .unwrap_or_default()
+            .bootstrap_mcp_servers::<Vec<GlobalMcpEntry>>()
     }
 
     /// Load `mcp_config.json` for a read-modify-write. Absent means no
@@ -248,51 +183,6 @@ impl GmcpClient {
             }),
             Err(_) => Err("ERROR_CONFIG_UNREADABLE"),
         }
-    }
-
-    pub fn auto_configure_server(name: &str, package: &str) -> String {
-        Self::auto_configure_with(name, package, crate::leading_mcp::resolve_runner)
-    }
-
-    fn auto_configure_with(
-        name: &str,
-        package: &str,
-        resolve: impl Fn(&str) -> Option<PathBuf>,
-    ) -> String {
-        let config_path = Self::get_config_path();
-        let mut config = match Self::read_mcp_config(&config_path) {
-            Ok(config) => config,
-            Err(code) => return code.to_string(),
-        };
-
-        // Resolve only the package's actual launcher. A version subprocess
-        // neither verifies the server nor justifies blocking first-goal boot.
-        let Some((runner, package)) = package_runner(package) else {
-            return "ERROR_UNSUPPORTED_PACKAGE".to_string();
-        };
-        let Some(command) = resolve(runner) else {
-            return "ERROR_LAUNCHER_UNAVAILABLE".to_string();
-        };
-        let args = if runner == "uvx" {
-            vec![package.to_string()]
-        } else {
-            vec!["-y".to_string(), package.to_string()]
-        };
-
-        let new_srv = McpServerConfig {
-            command: command.to_string_lossy().into_owned(),
-            args,
-            env: None,
-            extra: HashMap::new(),
-        };
-
-        config.mcp_servers.insert(name.to_string(), new_srv);
-        if let Ok(updated) = serde_json::to_string_pretty(&config) {
-            if crate::susi_config::atomic_write_bytes(&config_path, updated.as_bytes()).is_ok() {
-                return "SUCCESS_CONFIGURED".to_string();
-            }
-        }
-        "ERROR_FAILED".to_string()
     }
 
     /// Open MCP admission: mount any stdio command or HTTP MCP URL into
@@ -324,15 +214,6 @@ impl GmcpClient {
             }
         }
         "ERROR_FAILED".to_string()
-    }
-
-    /// Dynamically provisions an MCP tool package from the global registry
-    pub fn provision_tool_package(name: &str) -> String {
-        let registry = Self::fetch_global_registry();
-        if let Some(entry) = registry.iter().find(|e| e.name == name) {
-            return Self::auto_configure_server(&entry.name, &entry.package);
-        }
-        "NOT_FOUND_IN_REGISTRY".to_string()
     }
 
     pub fn execute_external_tool(server_name: &str, tool_name: &str, args: &str) -> String {
@@ -597,69 +478,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mcp_launcher_missing_does_not_write_a_fabricated_server() {
-        if crate::private_config_fixture().is_none() {
-            return;
-        }
-        let path = GmcpClient::get_config_path();
-        let original = r#"{"mcp_servers":{"keep":{"command":"echo","args":[]}}}"#;
-        fs::write(&path, original).unwrap();
-        let result = GmcpClient::auto_configure_with("new", "pypi:server-test", |_| None);
-        assert_eq!(result, "ERROR_LAUNCHER_UNAVAILABLE");
-        assert_eq!(fs::read_to_string(path).unwrap(), original);
-        let result = GmcpClient::auto_configure_with(
-            "container",
-            "ghcr.io/github/github-mcp-server",
-            |_| panic!("wrong package must not resolve npm"),
+    fn package_runner_selects_only_the_matching_launcher() {
+        assert_eq!(
+            package_runner("pypi:server-test"),
+            Some(("uvx", "server-test"))
         );
-        assert_eq!(result, "ERROR_UNSUPPORTED_PACKAGE");
+        assert_eq!(
+            package_runner("npm:@example/python-tools"),
+            Some(("npx", "@example/python-tools"))
+        );
+        // Container/remote transports are never turned into an npm call.
+        assert_eq!(package_runner("ghcr.io/github/github-mcp-server"), None);
+        assert_eq!(package_runner("npm:-rf"), None);
     }
 
+    /// A registry read writes no `global_mcp_registry.json` (so it never
+    /// freezes the registry), and an extension pack installed and loaded
+    /// afterwards supplies the rows.
     #[test]
-    fn mcp_launcher_selects_only_the_matching_package_runtime() {
+    fn scout_registry_reads_write_nothing_and_follow_the_loaded_pack() {
         let Some(dir) = crate::private_config_fixture() else {
             return;
         };
-        for (name, package, expected, args) in [
-            ("python", "pypi:server-test", "uvx", vec!["server-test"]),
-            (
-                "node",
-                "npm:@example/python-tools",
-                "npx",
-                vec!["-y", "@example/python-tools"],
-            ),
-        ] {
-            let executable = dir.join(expected);
-            let result = GmcpClient::auto_configure_with(name, package, |runner| {
-                assert_eq!(runner, expected, "must not probe unrelated launchers");
-                Some(executable.clone())
-            });
-            assert_eq!(result, "SUCCESS_CONFIGURED");
-            let config = GmcpClient::read_mcp_config(&GmcpClient::get_config_path()).unwrap();
-            assert_eq!(
-                config.mcp_servers[name].command,
-                executable.to_string_lossy()
-            );
-            assert_eq!(config.mcp_servers[name].args, args);
-        }
+        let host_file = dir.join("global_mcp_registry.json");
+        assert!(GmcpClient::fetch_global_registry().is_empty());
+        assert!(!host_file.exists(), "a registry read must write nothing");
+        let pack = dir.join("extensions").join("acme");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("manifest.json"),
+            r#"{"id":"acme","name":"Acme","version":"0.0.1",
+                "files":{"mcp-registry.json":"mcp-registry.json"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            pack.join("mcp-registry.json"),
+            r#"[{"name":"acme-mcp","description":"Acme","package":"npm:@acme/mcp","category":"reasoning"}]"#,
+        )
+        .unwrap();
+        crate::susi_sandbox::extensions::load_pack("acme").unwrap();
+        let names: Vec<String> = GmcpClient::fetch_global_registry()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, ["acme-mcp"]);
+        assert!(!host_file.exists(), "a registry read must write nothing");
     }
 
     #[test]
-    fn bundled_leading_mcp_registry_is_curated() {
-        let entries = GmcpClient::bundled_leading_mcp_registry();
-        assert!(
-            (50..=120).contains(&entries.len()),
-            "expected ~50–100 real MCP scout entries (not synthetic 1000), got {}",
-            entries.len()
-        );
-        assert!(
-            entries.iter().any(|e| e.name == "filesystem"),
-            "filesystem MCP missing"
-        );
-        assert!(
-            !entries.iter().any(|e| e.name.starts_with("mcp-catalog-")),
-            "synthetic filler slots must be removed"
-        );
+    fn core_bundles_no_mcp_scout_registry() {
+        // Zero-UI plan A9: the scout registry ships in an extension pack;
+        // with none installed and no host-listed bootstrap servers, it is
+        // empty rather than a compiled vendor catalog.
+        assert!(crate::susi_sandbox::manager::SusiConfig::default()
+            .bootstrap_mcp_servers::<Vec<GlobalMcpEntry>>()
+            .is_empty());
     }
 
     #[test]
@@ -694,9 +567,6 @@ mod tests {
         let original = "{\"mcp_servers\":{\"keep\":{\"command\":\"echo\",\"args\":[]}},\"torn\"";
         fs::write(&path, original).unwrap();
         let res = GmcpClient::admit_mcp_server("added", "npx", &["-y".into()]);
-        assert_eq!(res, "ERROR_CONFIG_DAMAGED");
-        assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        let res = GmcpClient::auto_configure_server("added", "some-package");
         assert_eq!(res, "ERROR_CONFIG_DAMAGED");
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }

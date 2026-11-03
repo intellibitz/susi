@@ -411,12 +411,20 @@ mod loopback {
         let root =
             std::env::temp_dir().join(format!("susi-a2a-{}", super::super::unique_id().unwrap()));
         std::fs::create_dir_all(&root).unwrap();
+        // A synthetic catalog entry: core bundles no vendor catalog.
+        let entry: super::super::AgentDefinition = serde_json::from_value(serde_json::json!({
+            "id": "a2a", "name": "A2A", "peer_name": "A2aAgent", "rank": 1,
+            "documentation": "https://example.invalid",
+            "adapter": {"kind": "a2a", "url": "https://agents.example.invalid"},
+        }))
+        .unwrap();
         let manager = AgentManager::with_config(
             &root,
             super::super::CatalogKind::Execution,
             root.join("cfg"),
         )
-        .unwrap();
+        .unwrap()
+        .with_catalog(vec![entry]);
         let adapter = Adapter::A2a {
             url: fake_agent(),
             token_env: None,

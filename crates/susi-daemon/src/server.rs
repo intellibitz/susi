@@ -1289,8 +1289,7 @@ impl SusiDaemon {
                 Some(move || {
                     let started = Instant::now();
                     // Never ahead of the contract providers: discovery
-                    // prunes and re-registers providers, and MCP discovery
-                    // reads the config the essential-MCP auto-link writes.
+                    // prunes and re-registers providers.
                     let _ =
                         crate::service_supervision::Supervisor::global().join(CONTRACT_PROVIDERS);
                     // run_daemon_loop is sync (invoked from CLI `daemon-start`);

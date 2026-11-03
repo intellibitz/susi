@@ -1,5 +1,30 @@
 use super::*;
 
+/// A synthetic catalog row in the pack format (core bundles no vendor
+/// catalog; commercial packs ship the real ones).
+fn synthetic(id: &str, peer: &str, rank: u8, program: &str) -> AgentDefinition {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "name": id,
+        "peer_name": peer,
+        "rank": rank,
+        "documentation": "https://example.invalid",
+        "adapter": {"kind": "command", "program": program, "args": ["{prompt}"]},
+    }))
+    .unwrap()
+}
+
+fn synthetic_catalog(kind: CatalogKind) -> Vec<AgentDefinition> {
+    match kind {
+        CatalogKind::Execution => vec![
+            synthetic("codex", "CodexAgent", 1, "codex"),
+            synthetic("aider", "AiderAgent", 2, "aider"),
+            synthetic("a2a", "A2aAgent", 3, "a2a"),
+        ],
+        CatalogKind::Framework => vec![synthetic("langgraph", "LangGraphEngine", 1, "python3")],
+    }
+}
+
 struct Fixture {
     manager: AgentManager,
     root: PathBuf,
@@ -12,7 +37,9 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!("susi-agent-test-{}", unique_id().unwrap()));
         fs::create_dir_all(&root).unwrap();
         Self {
-            manager: AgentManager::with_config(&root, kind, root.join("host-config")).unwrap(),
+            manager: AgentManager::with_config(&root, kind, root.join("host-config"))
+                .unwrap()
+                .with_catalog(synthetic_catalog(kind)),
             root,
         }
     }
@@ -30,102 +57,47 @@ impl Drop for Fixture {
     }
 }
 
+/// Zero-UI plan A9: core bundles no agent catalog. What is installed is the
+/// active pack's entries plus the adapter files the host writes into the
+/// manager's config dir; bookkeeping such as `ready.json` is not an adapter.
 #[test]
-fn curated_execution_agents_with_native_adapters() {
-    let catalog = catalog(CatalogKind::Execution).unwrap();
-    assert_eq!(catalog.len(), 15);
-    let mut ids = std::collections::HashSet::new();
-    for (index, agent) in catalog.iter().enumerate() {
-        assert!(ids.insert(&agent.id));
-        assert_eq!(agent.rank as usize, index + 1);
-        agent.adapter.validate().unwrap();
-        assert_eq!(
-            definition(CatalogKind::Execution, &agent.peer_name)
-                .unwrap()
-                .id,
-            agent.id
-        );
-    }
-    assert!(matches!(
-        definition(CatalogKind::Execution, "qwen-agent")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "qwen-agent"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "kilo-code")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "kilo"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "gemini-cli")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "gemini"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "aider")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "aider"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "swe-agent")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "sweagent"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "browser-use")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "browser-use"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "openviking")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "ov"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "deerflow")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "deerflow"
-    ));
+fn installed_catalog_admits_host_adapter_files() {
+    let root = std::env::temp_dir().join(format!("susi-agent-host-{}", unique_id().unwrap()));
+    let empty = root.join("empty");
+    let host = root.join("host");
+    fs::create_dir_all(&empty).unwrap();
+    fs::create_dir_all(&host).unwrap();
+    let baseline = catalog_with_host_dir(CatalogKind::Execution, &empty).unwrap();
+    fs::write(
+        host.join("acme-coder.json"),
+        r#"{"kind":"command","program":"acme","args":["{prompt}"]}"#,
+    )
+    .unwrap();
+    fs::write(host.join("ready.json"), "[]").unwrap();
+    let installed = catalog_with_host_dir(CatalogKind::Execution, &host).unwrap();
+    assert_eq!(installed.len(), baseline.len() + 1);
+    let acme = installed.iter().find(|a| a.id == "acme-coder").unwrap();
+    assert_eq!(acme.peer_name, "acme-coder");
+    assert_eq!(acme.rank, u8::MAX);
+    assert!(matches!(&acme.adapter, Adapter::Command { program, .. } if program == "acme"));
+    let manager = AgentManager::with_config(&root, CatalogKind::Execution, host.clone()).unwrap();
+    assert!(manager.adapter("acme-coder").is_ok());
+    assert!(manager.adapter("ready").is_err());
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
-fn ten_unique_frameworks_with_native_command_adapters() {
-    let catalog = catalog(CatalogKind::Framework).unwrap();
-    assert_eq!(catalog.len(), 14);
-    let mut ids = std::collections::HashSet::new();
-    for (index, engine) in catalog.iter().enumerate() {
-        assert!(ids.insert(&engine.id));
-        assert_eq!(engine.rank as usize, index + 1);
-        engine.adapter.validate().unwrap();
-        assert!(matches!(engine.adapter, Adapter::Command { .. }));
-        assert_eq!(
-            definition(CatalogKind::Framework, &engine.peer_name)
-                .unwrap()
-                .id,
-            engine.id
-        );
+fn fixed_catalog_resolves_ids_and_peer_names() {
+    let fixture = Fixture::new();
+    for agent in synthetic_catalog(CatalogKind::Execution) {
+        agent.adapter.validate().unwrap();
+        assert!(fixture.manager.adapter(&agent.peer_name).is_ok());
     }
-    // Distinct from the coding-executor Qwen peer.
-    assert_ne!(
-        definition(CatalogKind::Framework, "qwen-agent-engine")
-            .unwrap()
-            .peer_name,
-        "QwenAgent"
-    );
-    let (kind, def) = resolve_managed("LangGraphEngine").unwrap();
-    assert_eq!(kind, CatalogKind::Framework);
-    assert_eq!(def.id, "langgraph");
-    let (kind, def) = resolve_managed("CodexAgent").unwrap();
-    assert_eq!(kind, CatalogKind::Execution);
-    assert_eq!(def.id, "codex");
+    let err = fixture.manager.adapter("unknown-agent").unwrap_err();
+    assert!(err.to_string().contains("extension pack"), "{err}");
+    let frameworks = Fixture::for_kind(CatalogKind::Framework);
+    assert!(frameworks.manager.adapter("LangGraphEngine").is_ok());
+    assert!(frameworks.manager.adapter("codex").is_err());
 }
 
 #[test]
@@ -183,7 +155,8 @@ fn process_success_failure_and_literal_prompt_survive_manager_restart() {
             CatalogKind::Execution,
             fixture.root.join("host-config"),
         )
-        .unwrap();
+        .unwrap()
+        .with_catalog(synthetic_catalog(CatalogKind::Execution));
         assert_eq!(reopened.status(&run.id).unwrap().status, expected);
         assert_eq!(reopened.logs(&run.id, false, 65536).unwrap(), prompt);
         assert!(fixture.manager.execute(&run.id).is_err());

@@ -122,12 +122,25 @@ fn vc_201_076_mastery_tampered_artifact_is_quarantined_until_readmitted() {
 }
 
 #[test]
-fn vc_201_076_mastery_tampered_default_file_is_not_served() {
+fn vc_201_076_mastery_tampered_active_pack_file_is_not_served() {
     with_temp_home(|| {
-        let root = seed_default_pack().expect("seeded");
+        // Core seeds no pack: install a synthetic one, admit it, then tamper.
+        let root = extensions_root().join("acme");
+        std::fs::create_dir_all(&root).unwrap();
+        let body = br#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#;
+        let mut m = pack("acme", &[("cloud-vendors.json", "cloud-vendors.json")]);
+        m.checksums
+            .insert("cloud-vendors.json".into(), digest(body.as_slice()));
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string_pretty(&m).unwrap(),
+        )
+        .unwrap();
         let target = root.join("cloud-vendors.json");
+        std::fs::write(&target, body).unwrap();
+        load_pack("acme").expect("synthetic pack admits");
+        assert!(pack_file("cloud-vendors.json").is_some());
         std::fs::write(&target, b"{\"vendors\":[{\"id\":\"evil\"}]}").unwrap();
-        seed_default_pack().expect("reseed does not overwrite operator bytes");
         assert!(pack_file("cloud-vendors.json").is_none());
     });
 }

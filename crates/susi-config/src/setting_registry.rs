@@ -185,10 +185,6 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
         derivation: SettingDerivation::Hardware,
     },
     SettingEntry {
-        key: "mcp_registry_url",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
         key: "memory_experience_heuristics",
         derivation: SettingDerivation::Constant,
     },

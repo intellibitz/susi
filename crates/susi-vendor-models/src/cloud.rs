@@ -4,9 +4,9 @@
 //! models crate never depends on engines. Provider registry registration stays in
 //! `susi-gemi::http_provider`.
 //!
-//! Vendor env aliases come from the active extension pack
-//! (`config/extensions/default/cloud-vendors.json`); host overrides at
-//! `~/.susi/extensions/<pack>/cloud-vendors.json`.
+//! Vendor env aliases are core's compiled defaults
+//! (`config/cloud-vendors.json`); an installed, active extension pack may
+//! override them at `~/.susi/extensions/<pack>/cloud-vendors.json`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;

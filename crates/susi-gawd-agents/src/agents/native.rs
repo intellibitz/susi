@@ -200,7 +200,7 @@ impl GawdAgent for SearchAgent {
 }
 
 /// Ensures a usable model is available (installs the default if none is
-/// found) and links essential MCP servers.
+/// found); never links MCP servers (zero-UI plan A8).
 pub struct SusiRuntimeAgent;
 
 fn has_valid_local_weights(report: &serde_json::Value) -> bool {
@@ -259,8 +259,8 @@ impl GawdAgent for SusiRuntimeAgent {
                 workspace,
             );
         }
-        // 4. Link essential MCP servers
-        crate::susi_core::plane_bus::tools::auto_link_essential_mcp_servers();
+        // Third-party MCP servers are never linked here: core admits one
+        // only on an explicit request (zero-UI plan A8).
 
         Ok("Runtime environment established and optimized for pulse intent.".into())
     }

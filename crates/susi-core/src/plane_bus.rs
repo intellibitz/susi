@@ -106,7 +106,6 @@ pub mod topics {
 
     pub const TOOLS_EXISTS: &str = "tools.registry.exists";
     pub const TOOLS_EXECUTE: &str = "tools.registry.execute";
-    pub const TOOLS_AUTO_LINK: &str = "tools.registry.auto_link";
     pub const TOOLS_SCOUT_REMOTES: &str = "tools.mcp.scout_remotes";
     pub const TOOLS_REMOTE_EXECUTE: &str = "tools.mcp.remote_execute";
     pub const TOOLS_LIST: &str = "tools.registry.list";
@@ -1033,10 +1032,6 @@ pub mod tools {
             .to_string())
     }
 
-    pub fn auto_link_essential_mcp_servers() {
-        let _ = req(topics::TOOLS_AUTO_LINK, json!({}));
-    }
-
     pub fn scout_reasoning_remotes() -> Value {
         req_ok(topics::TOOLS_SCOUT_REMOTES, json!({}))
     }
@@ -1485,7 +1480,6 @@ mod facade_marshal_tests {
         let ws = Path::new(".");
         let _ = tools::exists("exec_command");
         let _ = tools::execute_tool("exec_command", &json!({}), ws);
-        tools::auto_link_essential_mcp_servers();
         let _ = tools::scout_reasoning_remotes();
         let _ = tools::list_tools();
         let _ = tools::leading_mcp_list(ws);
