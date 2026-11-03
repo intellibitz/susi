@@ -60,5 +60,66 @@
     "binary_sha256": "50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683",
     "catalog_sha256": "8b37b272b0c27b99f68239e1bf15c7d8f30c3a2feb79cb77a19e595bb16d03d4",
     "rollback": "fallback variable"
+  },
+  "installed_production_receipt_20261103": {
+    "measured_unix": 1793706000,
+    "method": "isolated home, credentials stripped, extension pack load/unload; cumulative ms from first command",
+    "catalog_sha256": "8b37b272b0c27b99f68239e1bf15c7d8f30c3a2feb79cb77a19e595bb16d03d4",
+    "committed_catalog": {
+      "native_production_0_21_43": {
+        "binary_sha256": "f9e14ee5c7476f80eaec764757ae823de50a7b63ce178d15115086c4decbec8b",
+        "baseline": "MOONSHOT_API_KEY was not registered",
+        "observed": "MOONSHOT_API_KEY was not registered",
+        "changed_behavior_observed": false,
+        "observed_ms": 2344,
+        "rollback_ms": 3304
+      },
+      "release_0_21_47": {
+        "binary_sha256": "28d6353dda48cf9e97d3ff6d4e5c78ba133a53ce494bcc95ecd40c8c2a2175db",
+        "baseline": "MOONSHOT_API_KEY was not registered",
+        "observed": "MOONSHOT_API_KEY was not registered",
+        "changed_behavior_observed": false,
+        "observed_ms": 427,
+        "rollback_ms": 556
+      },
+      "finding": "the alias change has already reached both installed binaries"
+    },
+    "probe_edit": {
+      "edit": "api_key_env MOONSHOT_API_KEY -> MOONSHOT_PROBE_VARIABLE in the pack copy",
+      "native_production_0_21_43": {
+        "phases": {
+          "seed_ms": 351,
+          "baseline_ms": 1212,
+          "edit_ms": 1217,
+          "packaged_ms": 1217,
+          "load_ms": 1420,
+          "observed_ms": 2601,
+          "rollback_ms": 3699
+        },
+        "baseline": "MOONSHOT_API_KEY was not registered",
+        "observed": "MOONSHOT_PROBE_VARIABLE was not registered",
+        "rollback": "MOONSHOT_API_KEY was not registered",
+        "changed_behavior_observed": true,
+        "rolled_back": true
+      },
+      "release_0_21_47": {
+        "phases": {
+          "seed_ms": 134,
+          "baseline_ms": 205,
+          "edit_ms": 210,
+          "packaged_ms": 210,
+          "load_ms": 280,
+          "observed_ms": 351,
+          "rollback_ms": 467
+        },
+        "baseline": "MOONSHOT_API_KEY was not registered",
+        "observed": "MOONSHOT_PROBE_VARIABLE was not registered",
+        "rollback": "MOONSHOT_API_KEY was not registered",
+        "changed_behavior_observed": true,
+        "rolled_back": true
+      }
+    },
+    "scope_note": "extension path only; no binary was rebuilt, qualified or promoted",
+    "recorded_in": "docs/workflow-speed.md"
   }
 }
