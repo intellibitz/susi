@@ -1,0 +1,23 @@
+{
+  "id": "T-ARM641103-1",
+  "title": "Public core release scope: x86_64 Windows and Linux only; keep ARM64 Windows source support for certified downstream builds",
+  "goal": "CEO budget call 2026-11-03: free core is released only for vanilla x86_64 Windows and Linux; susi-commercial-apps builds Susi Certified cores for macOS and ARM",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "zc_matrix",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "ARM641103",
+  "created_unix": 1793721964
+}
