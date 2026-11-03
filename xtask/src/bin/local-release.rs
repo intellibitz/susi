@@ -3006,7 +3006,15 @@ mod tests {
         let complete = complete_release_gates::test_read_receipt(&package).unwrap();
         let log = package.join(complete["gates"][0]["log"].as_str().unwrap());
         let original = fs::read(&log).unwrap();
+        // Windows-only: the retained gate log is written read-only and must
+        // lose that attribute before the fixture can replace it. The lint's
+        // world-writable concern is a Unix mode-bit effect that cannot arise
+        // inside this cfg(windows) block.
         #[cfg(windows)]
+        #[allow(
+            clippy::permissions_set_readonly_false,
+            reason = "Windows read-only attribute, no Unix mode bits involved"
+        )]
         {
             let mut permissions = fs::metadata(&log).unwrap().permissions();
             permissions.set_readonly(false);
