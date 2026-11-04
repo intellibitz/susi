@@ -1,0 +1,31 @@
+{
+  "id": "T-RATCHETPOLICYDOCKER1104-1",
+  "title": "test(ratchet,policy,sandbox,gawd): expand inline contract suites for unsafe-ratchet, build-policy, docker, and dag_hooks",
+  "goal": "D-OS-8: expand 1-test modules in susi-unsafe-ratchet, susi-build-policy, susi-sandbox, and susi-gawd-agents",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "-p",
+      "susi-build-policy",
+      "-p",
+      "susi-sandbox",
+      "-p",
+      "susi-gawd-agents",
+      "--lib"
+    ]
+  },
+  "created_by": "RATCHETPOLICYDOCKER1104",
+  "created_unix": 1793771925,
+  "closed": {
+    "at_unix": 1793772589,
+    "commit": "de32e03f9d102c6d2cce6085f74055a200bf3183",
+    "by": "RATCHETPOLICYDOCKER1104"
+  }
+}
