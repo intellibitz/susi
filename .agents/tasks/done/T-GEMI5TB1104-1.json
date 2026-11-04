@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "GEMI5TB1104",
-  "created_unix": 1793806425
+  "created_unix": 1793806425,
+  "closed": {
+    "at_unix": 1793806906,
+    "commit": "e627cd2437751d451b06f5aead37df427804b508",
+    "by": "GEMI5TB1104"
+  }
 }
