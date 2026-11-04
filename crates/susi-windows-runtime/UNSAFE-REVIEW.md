@@ -75,3 +75,27 @@ code, zero unused. The three added expressions are the one Machine read. The
 aarch64 build is reviewed, not executed: the review host is x64 and cannot run
 ARM64 code. ARM64 is not qualified until a native ARM64 host passes the same
 lifecycle and OS-UCRT fixtures.
+
+## Re-review 2026-11-04: `spawn_without_inheriting_stdio` (D-SP-4 Stage 3)
+
+`spawn_without_inheriting_stdio` is added to `src/lib.rs` (matching
+`crates/susi-daemon/src/server.rs` in semantics) so OS-UCRT binary targets
+(`installed_channel` and the thin client) share the no-inherit Windows process
+spawn without pulling in `susi-daemon` or `winapi`. (`susi-daemon` keeps its
+library-local copy so `msvcrt`-linked library and integration test harnesses do
+not link `libsusi_windows_runtime.rlib` and collide on `atexit`.)
+
+- `src/lib.rs`: declares `GetHandleInformation` and `SetHandleInformation` in a
+  `#[link(name = "kernel32")] extern "system"` block on allow-listed Windows
+  MSVC targets and wraps the two handle-flag calls in narrow `unsafe` blocks
+  inside safe `spawn_without_inheriting_stdio`. Null standard handles are
+  skipped, invalid or pseudo-handles return `0` (`FALSE`) without mutation, and
+  any cleared `HANDLE_FLAG_INHERIT` bit is restored immediately after
+  `cmd.spawn()`. Non-Windows targets execute `cmd.spawn()` with no unsafe code.
+- `build.rs` and `src/platform.rs`: byte-identical (`802DF3AE...` and
+  `F1B6F0B5...`).
+
+Re-measured on native x64 Windows with `cargo-geiger 0.14.0` using the same
+isolated-package method: **2 unsafe functions, 61 unsafe expressions, and 1
+unsafe implementation** in used code (7 safe functions, 117 safe expressions),
+with zero unused unsafe items and zero external crate dependencies.

@@ -1,8 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
-#[allow(dead_code)]
-#[path = "../bootstrap/os_ucrt.rs"]
-mod os_ucrt;
+use susi_build_os_ucrt as os_ucrt;
 #[path = "../src/pe_imports.rs"]
 mod pe_imports;
 use std::{fs, path::Path, process::Command};
