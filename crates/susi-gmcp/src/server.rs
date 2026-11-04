@@ -581,4 +581,25 @@ mod tests {
             .headers()
             .contains_key(hyper::header::WWW_AUTHENTICATE));
     }
+
+    #[test]
+    fn origin_forbidden_and_cors_headers_enforce_browser_origin_policy() {
+        let mut headers = hyper::HeaderMap::new();
+        assert!(!origin_forbidden(&headers, "*"));
+
+        headers.insert(
+            hyper::header::ORIGIN,
+            HeaderValue::from_static("https://app.example.com"),
+        );
+        assert!(origin_forbidden(&headers, "*"));
+        assert!(!origin_forbidden(&headers, "https://app.example.com"));
+        assert!(origin_forbidden(&headers, "https://other.example.com"));
+
+        let mut resp = json_response(StatusCode::OK, &serde_json::json!({"ok": true}));
+        cors(&mut resp, "https://app.example.com");
+        assert_eq!(
+            resp.headers()["access-control-allow-origin"],
+            "https://app.example.com"
+        );
+    }
 }

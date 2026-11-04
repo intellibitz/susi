@@ -305,4 +305,60 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&repo_dir);
     }
+
+    #[test]
+    fn harness_models_forwards_mode_provider_and_optional_repo() {
+        PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        let out = sent(CoreTools::harness_models(
+            &json!({"mode": "available", "provider": "openrouter"}),
+            &ws,
+        ));
+        assert_eq!(out["action"], "models");
+        assert_eq!(out["mode"], "available");
+        assert_eq!(out["provider"], "openrouter");
+    }
+
+    #[test]
+    fn harness_author_requires_repo_and_confines_out_and_roadmap_paths() {
+        PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        assert!(CoreTools::harness_author(&json!({"vector": "VC-1"}), &ws)
+            .unwrap_err()
+            .to_string()
+            .contains("repo is required"));
+
+        let repo_dir =
+            std::env::temp_dir().join(format!("susi-harness-author-{}", std::process::id()));
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let out_file = repo_dir.join("authored.json");
+        let authored = sent(CoreTools::harness_author(
+            &json!({
+                "repo": repo_dir.display().to_string(),
+                "gateway": "http://127.0.0.1:9000",
+                "vector": "VC-201-001",
+                "out": out_file.display().to_string(),
+                "max_tasks": 4
+            }),
+            &ws,
+        ));
+        assert_eq!(authored["action"], "author");
+        assert_eq!(authored["vector"], "VC-201-001");
+        assert_eq!(authored["max_tasks"], 4);
+        let _ = std::fs::remove_dir_all(&repo_dir);
+    }
+
+    #[test]
+    fn harness_budget_confines_optional_ledger_and_repo_arguments() {
+        PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        let ledger = ws.join("budget-ledger.jsonl");
+        let budget = sent(CoreTools::harness_budget(
+            &json!({"ledger": ledger.display().to_string()}),
+            &ws,
+        ));
+        assert_eq!(budget["action"], "budget");
+        assert!(Path::new(budget["ledger"].as_str().unwrap()).ends_with("budget-ledger.jsonl"));
+        assert!(CoreTools::harness_budget(&json!({"ledger": "relative.jsonl"}), &ws).is_err());
+    }
 }
