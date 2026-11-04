@@ -88,3 +88,37 @@ fn vc_201_055_mastery_crash_recovery_deduplication() {
     assert!(outcome2.deduplicated);
     assert_eq!(outcome1.operation_id, outcome2.operation_id);
 }
+
+#[test]
+fn vc_201_055_mastery_steady_state_noop_when_observed_matches_desired() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-mastery-noop".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama3-8b".into(),
+        min_replicas: 2,
+        max_replicas: 4,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-mastery-noop".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama3-8b".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+
+    let first = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(first.action, ReconcileAction::Provision);
+    assert_eq!(observed.phase, DeploymentPhase::Healthy);
+    assert_eq!(observed.observed_generation, desired.generation);
+    assert!(observed.active_replicas >= desired.min_replicas);
+
+    let second = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(second.action, ReconcileAction::Noop);
+    assert_eq!(observed.phase, DeploymentPhase::Healthy);
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-VENDORMODELS4T1104-1",
+  "title": "test(vendor-models): expand unit tests to 4 in deployment_spec, open_weight, price_catalog, resource_inventory, and vc_201_055_mastery",
+  "touch": [
+    "crates/susi-vendor-models/src/deployment_spec.rs",
+    "crates/susi-vendor-models/src/open_weight.rs",
+    "crates/susi-vendor-models/src/price_catalog.rs",
+    "crates/susi-vendor-models/src/tests/resource_inventory.rs",
+    "crates/susi-vendor-models/src/tests/vc_201_055_mastery.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "--lib"
+    ]
+  }
+}

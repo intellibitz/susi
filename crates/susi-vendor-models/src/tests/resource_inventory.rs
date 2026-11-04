@@ -62,3 +62,19 @@ fn vc_201_041_provenance_distinguishes_observed_vs_unavailable() {
         Observation::Value { .. } => panic!("gpu should be unknown"),
     }
 }
+
+#[test]
+fn vc_201_041_partial_gpu_observation_reports_unknown_readiness_until_all_probes_present() {
+    let inv = ResourceInventory::from_probes(ProbeInputs {
+        cpu_cores: Some(8),
+        ram_bytes: Some(32 << 30),
+        gpu_name: None,
+        vram_bytes: None,
+        disk_free_bytes: Some(1_000_000),
+        models: None,
+        runtimes: None,
+        now_unix: Some(77),
+    });
+    assert!(inv.has_unknown_readiness());
+    assert_eq!(inv.disk_free_bytes.value_ref(), Some(&1_000_000));
+}
