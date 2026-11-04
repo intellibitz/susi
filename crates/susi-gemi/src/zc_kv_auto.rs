@@ -193,4 +193,22 @@ mod zc_kv_auto_tests {
         assert_ne!(tight.recommended_scheme, KvQuantScheme::Fp16);
         assert!(tight.total_tokens >= 8192);
     }
+
+    #[test]
+    fn qwen25_32b_geometry_orders_quant_bytes_and_computes_gqa_ratio() {
+        let geom = TransformerKvGeometry::qwen25_32b();
+        let fp16 = geom.kv_bytes_per_token(KvQuantScheme::Fp16);
+        let q8 = geom.kv_bytes_per_token(KvQuantScheme::Q8_0);
+        let q4 = geom.kv_bytes_per_token(KvQuantScheme::Q4_0);
+        assert!(fp16 > q8);
+        assert!(q8 > q4);
+        assert_eq!(fp16, 2 * 64 * 8 * 128 * 2);
+        assert!((geom.gqa_compression_ratio() - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn kv_capacity_enforces_floor_and_ceiling_bounds() {
+        assert_eq!(kv_capacity(0, 0).tokens, 2048);
+        assert_eq!(kv_capacity(1024_u64.pow(4), 4096).tokens, 262_144);
+    }
 }
