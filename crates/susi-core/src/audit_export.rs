@@ -373,4 +373,88 @@ mod audit_export_tests {
         assert_eq!(v["action"], "start");
         assert_eq!(v["outcome"], "ok");
     }
+
+    #[test]
+    fn audit_action_kind_all_has_seventeen_unique_snake_case_labels() {
+        let all = AuditActionKind::all();
+        assert_eq!(all.len(), 17);
+        let labels: std::collections::BTreeSet<&str> = all.iter().map(|k| k.as_str()).collect();
+        assert_eq!(labels.len(), 17);
+        assert!(labels.iter().all(|s| !s.is_empty()));
+
+        assert_eq!(AuditOutcome::Succeeded.as_str(), "succeeded");
+        assert_eq!(AuditOutcome::Denied.as_str(), "denied");
+        assert_eq!(AuditOutcome::Failed.as_str(), "failed");
+        assert_eq!(AuditOutcome::Cancelled.as_str(), "cancelled");
+        assert_eq!(AuditOutcome::Partial.as_str(), "partial");
+        assert_eq!(AuditOutcome::Uncertain.as_str(), "uncertain");
+    }
+
+    #[test]
+    fn audit_action_new_rejects_empty_actor_target_or_correlation_and_truncates_metadata() {
+        let target = AuditTarget::identifier("resource-1");
+        assert!(AuditAction::new(
+            AuditActionKind::Commit,
+            "",
+            target.clone(),
+            AuditOutcome::Succeeded,
+            10,
+            0,
+            "corr-1",
+        )
+        .is_err());
+        assert!(AuditAction::new(
+            AuditActionKind::Commit,
+            "actor-1",
+            AuditTarget::identifier(""),
+            AuditOutcome::Succeeded,
+            10,
+            0,
+            "corr-1",
+        )
+        .is_err());
+        assert!(AuditAction::new(
+            AuditActionKind::Commit,
+            "actor-1",
+            target.clone(),
+            AuditOutcome::Succeeded,
+            10,
+            0,
+            "",
+        )
+        .is_err());
+
+        let valid = AuditAction::new(
+            AuditActionKind::Commit,
+            "actor-1",
+            target,
+            AuditOutcome::Succeeded,
+            10,
+            5,
+            "corr-1",
+        )
+        .unwrap();
+        assert!(valid.redacted);
+        assert_eq!(valid.duration_ms, 10);
+        assert_eq!(valid.cost_micros, 5);
+    }
+
+    #[test]
+    fn audit_choke_point_and_from_legacy_record_digest_without_retaining_raw_detail() {
+        let action = AuditAction::from_legacy(
+            "exec_command",
+            "secret-detail-body",
+            AuditOutcome::Succeeded,
+        )
+        .unwrap();
+        let serialized = serde_json::to_string(&action).unwrap();
+        assert!(!serialized.contains("secret-detail-body"));
+        assert_eq!(action.target.payload.as_ref().unwrap().bytes, 18);
+
+        let sink = RecordingAuditSink::default();
+        let choke = AuditChokePoint::new(sink.clone());
+        let out = choke.dispatch_mutation(&action, || Ok(42)).unwrap();
+        assert_eq!(out, 42);
+        assert_eq!(sink.records().len(), 1);
+    }
 }

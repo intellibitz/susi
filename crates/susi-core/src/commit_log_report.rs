@@ -517,4 +517,81 @@ mod tests {
             assert!(sync["note"].as_str().unwrap().contains("nothing to sync"));
         });
     }
+
+    #[test]
+    fn sync_report_handles_unreadable_peers_json_and_filters_loopback_peers() {
+        with_home(|| {
+            let peers_path = susi_paths::SusiDirs::config_dir().join("peers.json");
+            std::fs::create_dir_all(peers_path.parent().unwrap()).unwrap();
+            std::fs::write(&peers_path, "{broken-json").unwrap();
+            assert_eq!(
+                sync_report()["note"],
+                "peers.json is unreadable — nothing to sync from"
+            );
+
+            std::fs::write(
+                &peers_path,
+                serde_json::to_string(&vec![json!({
+                    "admission": "explicit",
+                    "address": "127.0.0.1:9090",
+                    "node_id": "self-node"
+                })])
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(sync_report()["peers"].as_array().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn show_report_returns_record_for_unique_epoch_and_rejects_ambiguous_empty_prefix() {
+        with_home(|| {
+            let r1 = commit_log::CommitRecord::seal(commit_log::CommitInput {
+                coordinator: "n1",
+                leader: "n1",
+                electorate: vec!["n1".into()],
+                tally: 1,
+                quorum_threshold: 1,
+                value: "v1",
+            })
+            .unwrap();
+            commit_log::append(&r1).unwrap();
+
+            let r2 = commit_log::CommitRecord::seal(commit_log::CommitInput {
+                coordinator: "n1",
+                leader: "n1",
+                electorate: vec!["n1".into(), "n2".into()],
+                tally: 2,
+                quorum_threshold: 2,
+                value: "v2",
+            })
+            .unwrap();
+            commit_log::append(&r2).unwrap();
+
+            let shown = show_report(&r1.epoch).unwrap();
+            assert_eq!(shown["verified"], true);
+            assert!(show_report("").unwrap_err().contains("ambiguous"));
+        });
+    }
+
+    #[test]
+    fn audit_and_replay_reports_reflect_committed_records() {
+        with_home(|| {
+            let rec = commit_log::CommitRecord::seal(commit_log::CommitInput {
+                coordinator: "n1",
+                leader: "n1",
+                electorate: vec!["n1".into()],
+                tally: 1,
+                quorum_threshold: 1,
+                value: "decision-1",
+            })
+            .unwrap();
+            commit_log::append(&rec).unwrap();
+
+            let audit = audit_report();
+            assert!(audit["records_checked"].as_u64().unwrap() >= 1);
+            let replay = replay_report();
+            assert!(replay["decisions"].as_u64().unwrap() >= 1);
+        });
+    }
 }
