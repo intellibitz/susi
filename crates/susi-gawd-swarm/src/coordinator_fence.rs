@@ -77,3 +77,101 @@ impl FencedMissionStore {
         WriteVerdict::Accepted
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn accept_epoch_requires_strictly_increasing_epoch_numbers() {
+        let mut store = FencedMissionStore::new();
+        assert!(store.current_epoch().is_none());
+
+        assert!(store.accept_epoch(LeadershipEpoch {
+            epoch: 2,
+            coordinator: "coord-a".to_string(),
+        }));
+        assert!(!store.accept_epoch(LeadershipEpoch {
+            epoch: 2,
+            coordinator: "coord-b".to_string(),
+        }));
+        assert!(!store.accept_epoch(LeadershipEpoch {
+            epoch: 1,
+            coordinator: "coord-b".to_string(),
+        }));
+        assert!(store.accept_epoch(LeadershipEpoch {
+            epoch: 3,
+            coordinator: "coord-b".to_string(),
+        }));
+        assert_eq!(
+            store.current_epoch().map(|e| e.coordinator.as_str()),
+            Some("coord-b")
+        );
+    }
+
+    #[test]
+    fn write_without_epoch_or_with_mismatched_epoch_returns_stale_epoch() {
+        let mut store = FencedMissionStore::new();
+        let w = MissionWrite {
+            mission_id: "m-1".to_string(),
+            epoch: 1,
+            coordinator: "coord-a".to_string(),
+            payload: "p".to_string(),
+        };
+        assert_eq!(store.write(w.clone()), WriteVerdict::StaleEpoch);
+
+        store.accept_epoch(LeadershipEpoch {
+            epoch: 2,
+            coordinator: "coord-a".to_string(),
+        });
+        assert_eq!(store.write(w), WriteVerdict::StaleEpoch);
+        assert_eq!(
+            store.write(MissionWrite {
+                mission_id: "m-1".to_string(),
+                epoch: 3,
+                coordinator: "coord-a".to_string(),
+                payload: "p".to_string(),
+            }),
+            WriteVerdict::StaleEpoch
+        );
+    }
+
+    #[test]
+    fn write_with_matching_epoch_but_different_coordinator_returns_wrong_coordinator() {
+        let mut store = FencedMissionStore::new();
+        store.accept_epoch(LeadershipEpoch {
+            epoch: 5,
+            coordinator: "coord-a".to_string(),
+        });
+        let verdict = store.write(MissionWrite {
+            mission_id: "m-1".to_string(),
+            epoch: 5,
+            coordinator: "coord-impostor".to_string(),
+            payload: "bad".to_string(),
+        });
+        assert_eq!(verdict, WriteVerdict::WrongCoordinator);
+        assert!(store.mission("m-1").is_none());
+    }
+
+    #[test]
+    fn write_with_matching_epoch_and_coordinator_persists_mission_payload() {
+        let mut store = FencedMissionStore::new();
+        store.accept_epoch(LeadershipEpoch {
+            epoch: 7,
+            coordinator: "coord-a".to_string(),
+        });
+        let verdict = store.write(MissionWrite {
+            mission_id: "m-7".to_string(),
+            epoch: 7,
+            coordinator: "coord-a".to_string(),
+            payload: "authoritative-state".to_string(),
+        });
+        assert_eq!(verdict, WriteVerdict::Accepted);
+        assert_eq!(
+            store.mission("m-7").map(String::as_str),
+            Some("authoritative-state")
+        );
+    }
+}

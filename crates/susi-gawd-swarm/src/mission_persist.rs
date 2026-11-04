@@ -528,3 +528,117 @@ impl PersistedMission {
         }
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn temp_ws(tag: &str) -> PathBuf {
+        static NONCE: AtomicU64 = AtomicU64::new(0);
+        let n = NONCE.fetch_add(1, Ordering::Relaxed);
+        let p = std::env::temp_dir().join(format!(
+            "susi-mission-persist-{tag}-{}-{n}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn runnable_dispatch_and_complete_enforce_dependency_order() {
+        let mut m = PersistedMission::new("m-order");
+        m.upsert_node(PersistedNode {
+            id: "step1".into(),
+            input: "init".into(),
+            dependencies: vec![],
+            output: None,
+            state: NodeTerminal::Pending,
+        });
+        m.upsert_node(PersistedNode {
+            id: "step2".into(),
+            input: "next".into(),
+            dependencies: vec!["step1".into()],
+            output: None,
+            state: NodeTerminal::Pending,
+        });
+        assert_eq!(m.runnable().len(), 1);
+        assert_eq!(m.runnable()[0].id, "step1");
+        assert!(m.dispatch("step2").is_err());
+
+        m.dispatch("step1").unwrap();
+        m.complete("step1", "done-1".into()).unwrap();
+        assert_eq!(m.runnable().len(), 1);
+        assert_eq!(m.runnable()[0].id, "step2");
+    }
+
+    #[test]
+    fn reconcile_interrupted_folds_running_nodes_to_pending_and_records_interruption() {
+        let mut m = PersistedMission::new("m-crash");
+        m.upsert_node(PersistedNode {
+            id: "n-run".into(),
+            input: "work".into(),
+            dependencies: vec![],
+            output: None,
+            state: NodeTerminal::Running,
+        });
+        let folded = m.reconcile_interrupted(1_700_000_000);
+        assert_eq!(folded, vec!["n-run".to_string()]);
+        assert_eq!(m.nodes["n-run"].state, NodeTerminal::Pending);
+        assert_eq!(m.interruptions.len(), 1);
+        assert_eq!(m.resume_verdict(), ResumeVerdict::Resumable);
+    }
+
+    #[test]
+    fn resume_verdict_distinguishes_complete_terminal_failed_and_resumable() {
+        let mut m = PersistedMission::new("m-verdict");
+        assert_eq!(m.resume_verdict(), ResumeVerdict::Resumable);
+
+        m.upsert_node(PersistedNode {
+            id: "a".into(),
+            input: "x".into(),
+            dependencies: vec![],
+            output: Some("ok".into()),
+            state: NodeTerminal::Completed,
+        });
+        assert_eq!(m.resume_verdict(), ResumeVerdict::Complete);
+
+        m.upsert_node(PersistedNode {
+            id: "b".into(),
+            input: "y".into(),
+            dependencies: vec![],
+            output: Some("boom".into()),
+            state: NodeTerminal::Failed,
+        });
+        assert_eq!(
+            m.resume_verdict(),
+            ResumeVerdict::TerminalFailed(vec![("b".into(), "boom".into())])
+        );
+    }
+
+    #[test]
+    fn snapshot_and_rollback_restore_prior_state_and_record_restore_entry() {
+        let ws = temp_ws("snap");
+        let id = PersistedMission::mission_id_for_goal("ship-feature");
+        let mut m = PersistedMission::new(&id);
+        m.upsert_node(PersistedNode {
+            id: "n1".into(),
+            input: "build".into(),
+            dependencies: vec![],
+            output: None,
+            state: NodeTerminal::Pending,
+        });
+        let missions_dir = PersistedMission::missions_dir(&ws);
+        m.save(&missions_dir).unwrap();
+        let snap_name = m.snapshot(&ws, "pre-run", 5, 100).unwrap();
+
+        m.nodes.get_mut("n1").unwrap().state = NodeTerminal::Failed;
+        m.save(&missions_dir).unwrap();
+
+        let restored = PersistedMission::rollback(&ws, &id, Some(&snap_name), 200).unwrap();
+        assert_eq!(restored.nodes["n1"].state, NodeTerminal::Pending);
+        assert_eq!(restored.restores.len(), 1);
+        assert_eq!(restored.restores[0].snapshot, snap_name);
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+}

@@ -125,3 +125,128 @@ impl FairQueue {
         aged && self.running.contains_key(sustained_id)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn default_queue_limits_and_enqueue_respect_running_and_waiting_bounds() {
+        let def = QueueLimits::default();
+        assert_eq!(def.max_running, 2);
+        assert_eq!(def.max_queued, 8);
+        assert_eq!(def.age_boost_secs, 30);
+
+        let mut q = FairQueue::new(QueueLimits {
+            max_running: 1,
+            max_queued: 1,
+            age_boost_secs: 10,
+        });
+        let m1 = QueuedMission {
+            mission_id: "m1".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 100,
+            weight: 1,
+        };
+        let m2 = QueuedMission {
+            mission_id: "m2".to_string(),
+            ..m1.clone()
+        };
+        let m3 = QueuedMission {
+            mission_id: "m3".to_string(),
+            ..m1.clone()
+        };
+        assert_eq!(q.enqueue(m1), EnqueueResult::Running);
+        assert_eq!(q.enqueue(m2), EnqueueResult::Queued);
+        assert_eq!(q.enqueue(m3), EnqueueResult::RejectedFull);
+        assert_eq!(q.running_count(), 1);
+        assert_eq!(q.waiting_count(), 1);
+    }
+
+    #[test]
+    fn complete_promotes_highest_weight_waiter_when_none_are_aged() {
+        let mut q = FairQueue::new(QueueLimits {
+            max_running: 1,
+            max_queued: 4,
+            age_boost_secs: 100,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "run-1".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 10,
+            weight: 1,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "wait-low".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 10,
+            weight: 2,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "wait-high".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 10,
+            weight: 9,
+        });
+
+        let promoted = q.complete("run-1", 15).expect("promote next");
+        assert_eq!(promoted.mission_id, "wait-high");
+        assert_eq!(q.waiting_count(), 1);
+    }
+
+    #[test]
+    fn complete_promotes_aged_waiter_ahead_of_higher_weight_fresh_waiter() {
+        let mut q = FairQueue::new(QueueLimits {
+            max_running: 1,
+            max_queued: 4,
+            age_boost_secs: 20,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "run-1".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 0,
+            weight: 1,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "aged-low-weight".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 5,
+            weight: 1,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "fresh-heavy".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 25,
+            weight: 500,
+        });
+
+        let promoted = q.complete("run-1", 30).expect("promote aged waiter");
+        assert_eq!(promoted.mission_id, "aged-low-weight");
+    }
+
+    #[test]
+    fn would_starve_without_aging_detects_aged_waiter_behind_sustained_running_mission() {
+        let mut q = FairQueue::new(QueueLimits {
+            max_running: 1,
+            max_queued: 4,
+            age_boost_secs: 10,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "sustained".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 0,
+            weight: 10,
+        });
+        q.enqueue(QueuedMission {
+            mission_id: "starved".to_string(),
+            workspace: "ws".to_string(),
+            enqueued_at: 5,
+            weight: 1,
+        });
+        assert!(!q.would_starve_without_aging("sustained", "starved", 10));
+        assert!(q.would_starve_without_aging("sustained", "starved", 15));
+        assert!(!q.would_starve_without_aging("other", "starved", 15));
+    }
+}

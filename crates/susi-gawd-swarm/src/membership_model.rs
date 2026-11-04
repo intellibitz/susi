@@ -127,3 +127,92 @@ pub const SAFETY_PROPERTIES: &[&str] = &[
     "SP3: connected non-partitioned nodes never disagree on leader for the same term (no split-brain)",
     "SP4: term numbers are non-decreasing on each node",
 ];
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn claim_bumps_term_only_when_leader_identity_changes() {
+        let mut node = NodeModel::new("n1");
+        let before = node.durable.clone();
+        node.claim("n1");
+        assert_eq!(node.durable.term, 1);
+        assert_eq!(node.durable.leader, "n1");
+        assert!(ClusterModel::terms_monotonic_after(&before, &node.durable));
+
+        node.claim("n1");
+        assert_eq!(node.durable.term, 1);
+
+        node.claim("n2");
+        assert_eq!(node.durable.term, 2);
+        assert_eq!(node.durable.leader, "n2");
+    }
+
+    #[test]
+    fn observe_adopts_higher_term_and_ignores_stale_lower_terms() {
+        let mut node = NodeModel::new("n1");
+        node.observe(0, "n2");
+        assert_eq!(node.durable.leader, "n2");
+
+        node.observe(5, "n3");
+        assert_eq!(node.durable.term, 5);
+        assert_eq!(node.durable.leader, "n3");
+
+        node.observe(4, "n1");
+        assert_eq!(node.durable.term, 5);
+        assert_eq!(node.durable.leader, "n3");
+    }
+
+    #[test]
+    fn cluster_deliver_drops_messages_to_partitioned_nodes_and_preserves_durable_on_restart() {
+        let mut cluster = ClusterModel::default();
+        cluster.add("n1");
+        cluster.add("n2");
+        cluster.set_partition("n2", true);
+
+        cluster.deliver(
+            "n1",
+            &Message::Claim {
+                leader: "n1".into(),
+            },
+        );
+        cluster.deliver(
+            "n2",
+            &Message::Claim {
+                leader: "n2".into(),
+            },
+        );
+        assert_eq!(cluster.nodes["n1"].durable.term, 1);
+        assert_eq!(cluster.nodes["n2"].durable.term, 0);
+
+        cluster.deliver("n1", &Message::Restart);
+        assert_eq!(cluster.nodes["n1"].durable.leader, "n1");
+    }
+
+    #[test]
+    fn no_split_brain_connected_detects_divergent_leaders_at_same_term() {
+        let mut cluster = ClusterModel::default();
+        cluster.add("n1");
+        cluster.add("n2");
+        cluster.deliver(
+            "n1",
+            &Message::Observe {
+                term: 3,
+                leader: "n1".into(),
+            },
+        );
+        cluster.deliver(
+            "n2",
+            &Message::Observe {
+                term: 3,
+                leader: "n2".into(),
+            },
+        );
+        assert!(cluster.no_split_brain_connected().is_err());
+
+        cluster.set_partition("n2", true);
+        assert!(cluster.no_split_brain_connected().is_ok());
+        assert_eq!(SAFETY_PROPERTIES.len(), 4);
+    }
+}

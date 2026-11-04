@@ -189,3 +189,107 @@ pub fn verification_satisfied(c: &ReviewConclusion, implementer: &str) -> bool {
         .collect();
     digests.len() == c.receipts.len()
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn digest_fields_is_length_framed_and_produces_canonical_sha256_digest() {
+        let d1 = digest_fields(&["ab", "c"]);
+        let d2 = digest_fields(&["a", "bc"]);
+        assert!(is_digest(&d1));
+        assert!(is_digest(&d2));
+        assert_ne!(d1, d2);
+        assert!(!is_digest("sha256:short"));
+        assert!(!is_digest(
+            "md5:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+    }
+
+    #[test]
+    fn acceptance_digests_are_canonical_and_deterministic() {
+        let cmd_a = vec!["cargo".to_string(), "test".to_string()];
+        let cmd_b = vec!["cargo".to_string(), "clippy".to_string()];
+        let da = acceptance_arguments_digest(&cmd_a);
+        let db = acceptance_arguments_digest(&cmd_b);
+        let ds = acceptance_success_digest();
+        assert!(is_digest(&da));
+        assert!(is_digest(&db));
+        assert!(is_digest(&ds));
+        assert_ne!(da, db);
+    }
+
+    #[test]
+    fn review_receipt_verifies_bound_fields_and_rejects_tampering() {
+        let args_d = acceptance_arguments_digest(&["cargo".to_string(), "test".to_string()]);
+        let res_d = acceptance_success_digest();
+        let receipt = ReviewReceipt::new(
+            "reviewer-1",
+            "impl-1",
+            "T-1",
+            "cargo_test",
+            args_d.clone(),
+            res_d.clone(),
+            "abc1234",
+        );
+        assert!(receipt.verifies(
+            "reviewer-1",
+            "impl-1",
+            "T-1",
+            "cargo_test",
+            &args_d,
+            &res_d,
+            "abc1234"
+        ));
+        assert!(!receipt.verifies(
+            "reviewer-2",
+            "impl-1",
+            "T-1",
+            "cargo_test",
+            &args_d,
+            &res_d,
+            "abc1234"
+        ));
+        assert!(!receipt.verifies(
+            "reviewer-1",
+            "impl-1",
+            "T-1",
+            "cargo_test",
+            &args_d,
+            &res_d,
+            "tampered"
+        ));
+    }
+
+    #[test]
+    fn verification_satisfied_enforces_independent_reviewer_and_unique_canonical_receipts() {
+        let d1 = digest_fields(&["run-1"]);
+        let d2 = digest_fields(&["run-2"]);
+        let valid = ReviewConclusion {
+            reviewer: "verifier-agent".into(),
+            pass: true,
+            receipts: vec![
+                ToolReceipt {
+                    tool: "cargo_test".into(),
+                    digest: d1.clone(),
+                },
+                ToolReceipt {
+                    tool: "clippy".into(),
+                    digest: d2,
+                },
+            ],
+            implementer: "impl-agent".into(),
+        };
+        assert!(verification_satisfied(&valid, "impl-agent"));
+        assert!(!verification_satisfied(&valid, "other-agent"));
+
+        let mut self_review = valid.clone();
+        self_review.reviewer = "impl-agent".into();
+        assert!(!verification_satisfied(&self_review, "impl-agent"));
+
+        let mut dup_digest = valid;
+        dup_digest.receipts[1].digest = d1;
+        assert!(!verification_satisfied(&dup_digest, "impl-agent"));
+    }
+}
