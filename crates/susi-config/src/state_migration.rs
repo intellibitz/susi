@@ -197,3 +197,91 @@ fn run_migrations(global_dir: &Path, from: u32, report: &mut MigrationReport) ->
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_state_mig_{tag}_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn migration_report_render_formats_noop_migrated_and_rolled_back_states() {
+        let noop = MigrationReport {
+            from_version: 1,
+            to_version: 1,
+            migrated: false,
+            rolled_back: false,
+            backup_dir: None,
+            messages: Vec::new(),
+        };
+        assert_eq!(
+            noop.render(),
+            "state migration: already at schema v1 (noop)"
+        );
+
+        let migrated = MigrationReport {
+            from_version: 0,
+            to_version: 1,
+            migrated: true,
+            rolled_back: false,
+            backup_dir: Some("/tmp/.migrate-bak".into()),
+            messages: vec!["v0→v1: wrote bundled config.json".into()],
+        };
+        let mig_txt = migrated.render();
+        assert!(mig_txt.contains("state migration: v0 → v1\n"));
+        assert!(mig_txt.contains("  - v0→v1: wrote bundled config.json\n"));
+        assert!(mig_txt.contains("  backup: /tmp/.migrate-bak\n"));
+        assert!(!mig_txt.contains("rolled back"));
+
+        let rolled = MigrationReport {
+            from_version: 0,
+            to_version: 1,
+            migrated: true,
+            rolled_back: true,
+            backup_dir: Some("/tmp/.migrate-bak".into()),
+            messages: vec!["migration failed".into()],
+        };
+        assert!(rolled.render().contains("  rolled back after failure\n"));
+    }
+
+    #[test]
+    fn migrate_state_dir_upgrades_v0_is_idempotent_and_rolls_back_on_corrupt_config() {
+        // 1. Fresh v0 directory migrates to STATE_SCHEMA_VERSION and second run is noop.
+        let dir = temp_dir("fresh");
+        let first = migrate_state_dir(&dir).expect("v0->v1 migration succeeds");
+        assert!(first.migrated);
+        assert!(!first.rolled_back);
+        assert_eq!(first.from_version, 0);
+        assert_eq!(first.to_version, STATE_SCHEMA_VERSION);
+        assert!(first.backup_dir.is_some());
+        assert!(SusiConfig::get_config_path(&dir).is_file());
+        assert_eq!(read_version(&dir), STATE_SCHEMA_VERSION);
+
+        let second = migrate_state_dir(&dir).expect("idempotent noop succeeds");
+        assert!(!second.migrated);
+        assert!(!second.rolled_back);
+        assert_eq!(second.from_version, STATE_SCHEMA_VERSION);
+        let _ = fs::remove_dir_all(&dir);
+
+        // 2. Corrupt v0 config.json triggers rollback, restoring original bytes and no manifest.
+        let bad_dir = temp_dir("rollback");
+        let cfg_path = SusiConfig::get_config_path(&bad_dir);
+        fs::write(&cfg_path, "{broken").unwrap();
+
+        let err = migrate_state_dir(&bad_dir).unwrap_err().to_string();
+        assert!(err.contains("state migration failed and rolled back"));
+        assert_eq!(fs::read_to_string(&cfg_path).unwrap(), "{broken");
+        assert!(!manifest_path(&bad_dir).exists());
+        let _ = fs::remove_dir_all(&bad_dir);
+    }
+}

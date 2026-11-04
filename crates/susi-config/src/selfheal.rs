@@ -133,3 +133,83 @@ pub fn load_or_selfheal(global_dir: &Path) -> EaiResult<(SusiConfig, SelfHealRep
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_selfheal_{tag}_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn render_and_empty_dir_selfheal_report_zero_config_and_repair_details() {
+        let clean = SelfHealReport::default();
+        assert_eq!(clean.render(), "config self-heal: ok (no repair needed)");
+
+        let repaired_report = SelfHealReport {
+            repaired: true,
+            backup_path: Some("/tmp/config.json.bak-1".into()),
+            messages: vec!["removed unknown key `x`".into()],
+        };
+        let rendered = repaired_report.render();
+        assert!(rendered.contains("  - removed unknown key `x`\n"));
+        assert!(rendered.contains("  backup: /tmp/config.json.bak-1\n"));
+
+        let dir = temp_dir("empty");
+        let (cfg, report) = load_or_selfheal(&dir).expect("empty dir succeeds");
+        assert!(!report.repaired);
+        assert!(report.backup_path.is_none());
+        assert!(report.messages.iter().any(|m| m.contains("zero-config")));
+        assert!(!cfg.settings.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_and_unknown_key_configs_are_backed_up_and_self_healed() {
+        // 1. Corrupt JSON is backed up and replaced with bundled defaults.
+        let dir_corrupt = temp_dir("corrupt");
+        let cfg_path = SusiConfig::get_config_path(&dir_corrupt);
+        fs::write(&cfg_path, "{not valid json").unwrap();
+
+        let (healed_cfg, report) = load_or_selfheal(&dir_corrupt).expect("corrupt JSON healed");
+        assert!(report.repaired);
+        let bak_path = PathBuf::from(report.backup_path.as_ref().expect("backup path set"));
+        assert_eq!(fs::read_to_string(&bak_path).unwrap(), "{not valid json");
+        assert!(!healed_cfg.settings.is_empty());
+        assert!(SusiConfig::load(&dir_corrupt).is_ok());
+        let _ = fs::remove_dir_all(&dir_corrupt);
+
+        // 2. Unknown top-level key is backed up and stripped from memory & disk.
+        let dir_unknown = temp_dir("unknown");
+        let mut seeded = SusiConfig::default();
+        seeded
+            .settings
+            .insert("totally_unknown_future_key".into(), serde_json::json!(42));
+        seeded.save(&dir_unknown).unwrap();
+
+        let (stripped_cfg, report2) =
+            load_or_selfheal(&dir_unknown).expect("unknown key self-healed");
+        assert!(report2.repaired);
+        assert!(report2.backup_path.is_some());
+        assert!(!stripped_cfg
+            .settings
+            .contains_key("totally_unknown_future_key"));
+        assert!(report2
+            .messages
+            .iter()
+            .any(|m| m == "removed unknown key `totally_unknown_future_key`"));
+
+        let reloaded = SusiConfig::load(&dir_unknown).unwrap();
+        assert!(!reloaded.settings.contains_key("totally_unknown_future_key"));
+        let _ = fs::remove_dir_all(&dir_unknown);
+    }
+}
