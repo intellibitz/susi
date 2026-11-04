@@ -147,3 +147,15 @@ fn discover_combines_env_dotenv_and_gh_cli_sources() {
         .any(|k| k.kind == SourceKind::WorkspaceDotEnv && k.alias == "deepseek"));
     assert!(found.iter().any(|k| k.kind == SourceKind::GhCli));
 }
+
+#[test]
+fn discover_ignores_empty_or_whitespace_only_env_and_gh_tokens() {
+    let mut envs = std::collections::BTreeMap::new();
+    envs.insert("OPENAI_API_KEY".into(), "   ".into());
+    let probe = FakeProbe {
+        envs,
+        files: Default::default(),
+        gh_token: Some("\n\t ".into()),
+    };
+    assert!(discover(&probe).is_empty());
+}

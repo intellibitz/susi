@@ -131,3 +131,22 @@ fn multi_dependency_join_node_becomes_runnable_only_after_all_parents_complete()
 
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn load_or_new_creates_fresh_mission_when_file_absent_and_reloads_when_present() {
+    let workspace = scratch_dir().join("load-or-new");
+    let persist_dir = PersistedMission::missions_dir(&workspace);
+    let fresh = PersistedMission::load_or_new(&persist_dir, "m-fresh").expect("fresh");
+    assert_eq!(fresh.mission_id, "m-fresh");
+    assert!(fresh.nodes.is_empty());
+
+    let dag = MissionDag::new("persisted goal");
+    let seeded = dag.to_persisted("m-fresh");
+    seeded.save(&persist_dir).expect("save seeded");
+
+    let reloaded = PersistedMission::load_or_new(&persist_dir, "m-fresh").expect("reloaded");
+    assert_eq!(reloaded.nodes.len(), 1);
+    assert!(reloaded.nodes.contains_key("n0"));
+
+    let _ = std::fs::remove_dir_all(&workspace);
+}

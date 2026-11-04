@@ -92,3 +92,18 @@ fn joint_consensus_supports_sequential_quorum_transitions() {
     assert!(dag.try_commit_membership(None));
     assert_eq!(dag.roster, Electorate::from_ids(["c", "d", "e"]));
 }
+
+#[test]
+fn joint_consensus_electorate_quorum_size_scales_with_majority_floor() {
+    assert_eq!(Electorate::from_ids(["n1"]).quorum_size(), 1);
+    assert_eq!(Electorate::from_ids(["n1", "n2"]).quorum_size(), 2);
+    assert_eq!(Electorate::from_ids(["n1", "n2", "n3"]).quorum_size(), 2);
+    assert_eq!(
+        Electorate::from_ids(["n1", "n2", "n3", "n4"]).quorum_size(),
+        3
+    );
+    assert_eq!(
+        Electorate::from_ids(["n1", "n2", "n3", "n4", "n5"]).quorum_size(),
+        3
+    );
+}
