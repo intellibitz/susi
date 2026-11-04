@@ -91,3 +91,24 @@ fn zc_install_sh_points_native_windows_users_to_install_ps1() {
         "install.sh must not claim native Windows is unsupported"
     );
 }
+
+#[test]
+fn zc_platform_installers_plan_steps_are_unique_and_scripts_non_empty() {
+    let plan = zero_config_plan();
+    assert_eq!(
+        plan,
+        &[
+            "create_config_dir",
+            "install_binary",
+            "seed_defaults",
+            "optional_daemon",
+        ]
+    );
+    for (idx, step) in plan.iter().enumerate() {
+        assert!(!step.is_empty());
+        assert!(!plan[..idx].contains(step), "duplicate step {step}");
+    }
+    let (sh, ps1) = read_installers();
+    assert!(sh.starts_with("#!/"), "install.sh must start with shebang");
+    assert!(!ps1.trim().is_empty(), "install.ps1 must be non-empty");
+}

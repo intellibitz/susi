@@ -593,3 +593,19 @@ fn scanner_catches_planted_promises_and_honours_exemptions() {
         .collect();
     assert_eq!(hits.len(), 1, "{table}");
 }
+
+#[test]
+fn prose_and_has_word_strip_inline_code_and_markdown_links() {
+    let raw = "See [guide](https://example.com/gui/dashboard) and `cockpit` module.";
+    let stripped = prose(raw);
+    assert!(!has_word(&stripped, "gui"));
+    assert!(!has_word(&stripped, "dashboard"));
+    assert!(!has_word(&stripped, "cockpit"));
+    assert!(broken_bans("README.md", raw).is_empty());
+
+    assert!(has_word("dashboards are external", "dashboard"));
+    assert!(!has_word("guided tour", "gui"));
+    assert!(is_history("1. Retracted: old item"));
+    assert!(is_history("Note (superseded by v2)"));
+    assert!(!is_history("Normal sentence about architecture"));
+}

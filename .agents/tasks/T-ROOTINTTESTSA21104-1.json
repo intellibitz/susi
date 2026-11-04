@@ -1,0 +1,19 @@
+{
+  "id": "T-ROOTINTTESTSA21104-1",
+  "title": "test(root): expand root pure-library integration tests wave A to 4 unit tests each",
+  "goal": "Expand 5 root pure-library integration test suites (core_docs_promise_no_ui_or_plugins, protocol_fuzz, vc_201_050_mastery, zc_platform_installers, airgap_mode) to 4 unit tests each",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "airgap_mode"
+    ]
+  },
+  "created_by": "ROOTINTTESTSA21104",
+  "created_unix": 1793793179
+}
