@@ -7,6 +7,19 @@ use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 use windows_registry::{Key, Type, CURRENT_USER, LOCAL_MACHINE};
 
+/// Machine installation directory used to launch Windows' own system tools.
+pub fn windows_root() -> EaiResult<PathBuf> {
+    let root = LOCAL_MACHINE
+        .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+        .and_then(|key| key.get_string("SystemRoot"))
+        .map(PathBuf::from)
+        .map_err(|e| EaiError::io(format!("read machine Windows directory: {e}")))?;
+    if !root.is_absolute() {
+        return Err(EaiError::io("machine Windows directory must be absolute"));
+    }
+    Ok(root)
+}
+
 fn safe_directory(path: &Path) -> io::Result<()> {
     for part in path.ancestors() {
         let meta = fs::symlink_metadata(part)?;
