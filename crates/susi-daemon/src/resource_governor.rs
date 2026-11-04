@@ -610,4 +610,32 @@ mod resource_governor_tests {
             AdmissionError::DemandExceedsCapacity { .. }
         ));
     }
+
+    #[test]
+    fn cancel_removes_running_or_queued_mission_and_rejects_empty_or_duplicate_ids() {
+        let admission = MissionAdmission::new(demand(1, 0, 1, 1));
+        assert_eq!(
+            admission.submit(request("   ", 1, demand(1, 0, 1, 1), true)),
+            Err(AdmissionError::EmptyMissionId)
+        );
+        admission
+            .submit(request("m1", 1, demand(1, 0, 1, 1), true))
+            .expect("m1 admitted");
+        assert_eq!(
+            admission.submit(request("m1", 1, demand(1, 0, 1, 1), true)),
+            Err(AdmissionError::DuplicateMission("m1".into()))
+        );
+        admission
+            .submit(request("m2", 1, demand(1, 0, 1, 1), true))
+            .expect("m2 queued");
+
+        let cancelled_queued = admission.cancel("m2").expect("cancel queued m2");
+        assert_eq!(cancelled_queued.status, AdmissionStatus::Cancelled);
+        let cancelled_running = admission.cancel("m1").expect("cancel running m1");
+        assert_eq!(cancelled_running.status, AdmissionStatus::Cancelled);
+        assert_eq!(
+            admission.cancel("m1"),
+            Err(AdmissionError::UnknownMission("m1".into()))
+        );
+    }
 }

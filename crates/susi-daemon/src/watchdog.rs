@@ -140,4 +140,14 @@ mod tests {
         watchdog.register_cell("cell-a");
         assert!(watchdog.ping("cell-a").is_ok());
     }
+
+    #[test]
+    fn default_watchdog_uses_five_second_timeout_and_clone_shares_heartbeats() {
+        let watchdog = WatchdogManager::default();
+        assert_eq!(watchdog.timeout(), Duration::from_secs(5));
+        let cloned = watchdog.clone();
+        watchdog.register_cell("c1");
+        assert!(cloned.ping("c1").is_ok());
+        assert!(cloned.find_dead_cells().is_empty());
+    }
 }
