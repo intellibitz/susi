@@ -310,4 +310,18 @@ mod tests {
         assert_eq!(set.checkpoints[0].id, "cp-2");
         assert_eq!(set.checkpoints[1].id, "cp-3");
     }
+
+    #[test]
+    fn resume_admits_checkpoint_when_current_token_equals_checkpoint_fencing_token() {
+        let mut set = PreemptibleSet::new(42);
+        set.checkpoints.push(Checkpoint {
+            id: "cp-exact-token".into(),
+            progress: 0.55,
+            fencing_token: 42,
+        });
+        let resumed = set.resume(42, 1);
+        assert_eq!(resumed.len(), 1);
+        assert_eq!(resumed[0].id, "cp-exact-token");
+        assert!(set.checkpoints.is_empty());
+    }
 }

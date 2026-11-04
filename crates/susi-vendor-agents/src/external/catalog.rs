@@ -440,4 +440,17 @@ mod tests {
             .iter()
             .any(|e| e.id.eq_ignore_ascii_case("nonexistent")));
     }
+
+    #[test]
+    fn resolve_program_rejects_missing_executable_and_a2a_preflight_succeeds_without_token_env() {
+        assert!(resolve_program("/nonexistent/susi/missing-agent-binary").is_none());
+        let a2a = Adapter::A2a {
+            url: "https://example.com/a2a".into(),
+            token_env: None,
+        };
+        let msg = a2a
+            .preflight()
+            .expect("a2a without token_env should pass preflight");
+        assert!(msg.contains("https://example.com/a2a"));
+    }
 }
