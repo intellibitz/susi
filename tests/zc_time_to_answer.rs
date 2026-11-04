@@ -118,3 +118,21 @@ fn zc_time_to_answer_no_required_files_created_first() {
     assert!(!out.trim().is_empty());
     std::fs::remove_dir_all(&home).ok();
 }
+
+#[test]
+fn unit_clean_home_creates_empty_isolated_directory() {
+    let home = clean_home("unit-empty");
+    assert!(home.is_dir());
+    assert_eq!(std::fs::read_dir(&home).unwrap().count(), 0);
+    std::fs::remove_dir_all(&home).ok();
+}
+
+#[test]
+fn unit_mock_model_fetch_copies_4mib_weight_within_fetch_budget() {
+    let home = clean_home("unit-fetch");
+    let elapsed = mock_model_fetch(&home);
+    assert!(elapsed < FETCH_BUDGET);
+    let dst = home.join("models").join("qwen-0.5b-q4.gguf");
+    assert_eq!(std::fs::metadata(&dst).unwrap().len(), 4 * 1024 * 1024);
+    std::fs::remove_dir_all(&home).ok();
+}
