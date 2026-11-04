@@ -32,4 +32,12 @@ mod tests {
         let boxed = Box::new(SusiEngineHooks);
         assert_eq!(std::mem::size_of_val(&*boxed), 0);
     }
+
+    #[test]
+    fn susi_engine_hooks_type_id_matches_reexported_daemon_type() {
+        assert_eq!(
+            std::any::TypeId::of::<SusiEngineHooks>(),
+            std::any::TypeId::of::<susi_daemon::SusiEngineHooks>()
+        );
+    }
 }
