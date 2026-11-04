@@ -405,4 +405,13 @@ mod policy_tests {
         assert!(command_covers_full_gate(required_verify_command()));
         assert!(!command_covers_full_gate("cargo test"));
     }
+
+    #[test]
+    fn executed_report_blocks_when_policy_check_fails_despite_passing_code_checks() {
+        let mut report =
+            executed_report(CheckOutcome::Pass, CheckOutcome::Pass, CheckOutcome::Pass);
+        report.policy = CheckOutcome::Fail;
+        assert!(!report.promotion_ready());
+        assert_eq!(report.blocking_reasons(), vec!["policy"]);
+    }
 }

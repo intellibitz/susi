@@ -78,4 +78,17 @@ mod sse_streaming_tests {
             assert_eq!(decoded, event);
         }
     }
+
+    #[test]
+    fn fold_sse_immediate_done_or_cancel_returns_empty_output() {
+        let (done_out, done_cancelled) =
+            fold_sse(&[SseEvent::Done, SseEvent::Data("later".into())]);
+        assert!(done_out.is_empty());
+        assert!(!done_cancelled);
+
+        let (cancel_out, cancel_cancelled) =
+            fold_sse(&[SseEvent::Cancelled, SseEvent::Data("later".into())]);
+        assert!(cancel_out.is_empty());
+        assert!(cancel_cancelled);
+    }
 }

@@ -1,0 +1,27 @@
+{
+  "id": "T-GAWD5TE1104-1",
+  "title": "susi-gawd Wave E 5-test inline floor across 13 leaf modules",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "zc_tasks_next"
+    ]
+  },
+  "created_by": "GAWD5TE1104",
+  "created_unix": 1793807000,
+  "closed": {
+    "at_unix": 1793807159,
+    "commit": "632a2d952cad1d1dd9354fb9984fd4785c0992de",
+    "by": "GAWD5TE1104"
+  }
+}

@@ -114,4 +114,16 @@ mod zc_agent_identity_tests {
             "CURSOR"
         );
     }
+
+    #[test]
+    fn zc_agent_identity_detect_agent_from_chain_recognizes_claude_and_codex_lines() {
+        assert_eq!(
+            detect_agent_from_chain("init\n/usr/local/bin/claude --print"),
+            Some("CLAUDE".into())
+        );
+        assert_eq!(
+            detect_agent_from_chain("init\n/usr/local/bin/codex exec"),
+            Some("CODEX".into())
+        );
+    }
 }
