@@ -155,4 +155,13 @@ mod inline_tests {
         assert!(!effective.trim().is_empty());
         assert!(effective.contains('/'));
     }
+
+    #[test]
+    fn is_openrouter_base_recognizes_subpaths_and_rejects_unrelated_hosts() {
+        assert!(is_openrouter_base(
+            "https://openrouter.ai/api/v1/chat/completions"
+        ));
+        assert!(!is_openrouter_base(""));
+        assert!(!is_openrouter_base("http://localhost:11434/v1"));
+    }
 }
