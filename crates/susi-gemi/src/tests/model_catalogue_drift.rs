@@ -144,3 +144,35 @@ fn model_catalogue_drift_finish_run_snapshots_membership() {
         "unpriced providers still appear — membership is the catalogue axis"
     );
 }
+
+#[test]
+fn model_catalogue_drift_detects_output_and_cache_hit_price_changes() {
+    let prev = run_with_catalogue(
+        100,
+        vec![(
+            "acme-cache".to_string(),
+            CatalogueEntry {
+                input_usd_per_1m: Some(1.0),
+                output_usd_per_1m: Some(2.0),
+                cache_hit_usd_per_1m: Some(0.1),
+            },
+        )],
+    );
+    let cur = run_with_catalogue(
+        200,
+        vec![(
+            "acme-cache".to_string(),
+            CatalogueEntry {
+                input_usd_per_1m: Some(1.0),
+                output_usd_per_1m: Some(2.5),
+                cache_hit_usd_per_1m: Some(0.2),
+            },
+        )],
+    );
+    let drift = drift_between(&prev, &cur);
+    assert_eq!(drift.len(), 1);
+    assert!(matches!(
+        &drift[0],
+        ScoutDrift::ModelPriceChanged { provider, .. } if provider == "acme-cache"
+    ));
+}

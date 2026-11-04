@@ -93,3 +93,31 @@ fn model_preload_breaks_frequency_ties_by_most_recent_timestamp() {
     assert_eq!(plan[0].model_id, "newer");
     assert_eq!(plan[1].model_id, "older");
 }
+
+#[test]
+fn model_preload_accumulates_multiple_uses_within_window_and_tracks_latest_use() {
+    let now = 5_000u64;
+    let events = vec![
+        ModelUseEvent {
+            model_id: "m-freq".into(),
+            used_unix: now - 100,
+        },
+        ModelUseEvent {
+            model_id: "m-freq".into(),
+            used_unix: now - 50,
+        },
+        ModelUseEvent {
+            model_id: "m-freq".into(),
+            used_unix: now - 10,
+        },
+    ];
+    let policy = PreloadPolicy {
+        max_warm: 5,
+        window_secs: 300,
+    };
+    let plan = schedule_preload(&events, &policy, Some(now));
+    assert_eq!(plan.len(), 1);
+    assert_eq!(plan[0].model_id, "m-freq");
+    assert_eq!(plan[0].uses_in_window, 3);
+    assert_eq!(plan[0].last_used_unix, now - 10);
+}

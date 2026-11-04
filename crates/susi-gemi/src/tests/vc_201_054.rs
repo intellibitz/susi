@@ -87,3 +87,25 @@ fn vc_201_054_unconstrained_allows_any_and_constrained_rejects_unverified_proven
         PlacementDecision::RejectUnknownRegion
     );
 }
+
+#[test]
+fn vc_201_054_verified_provenance_allows_in_allowlist_and_rejects_empty_allowlist() {
+    let verified = CloudTarget {
+        provider: "anthropic".into(),
+        model: "claude".into(),
+        region: Some(RegionMeta {
+            region: "us-west-2".into(),
+            provenance: RegionProvenance::Verified,
+        }),
+    };
+    assert_eq!(
+        place(&verified, &["us-west-2"], true),
+        PlacementDecision::Allow
+    );
+    assert_eq!(
+        place(&verified, &[], true),
+        PlacementDecision::RejectDisallowed {
+            region: "us-west-2".into()
+        }
+    );
+}

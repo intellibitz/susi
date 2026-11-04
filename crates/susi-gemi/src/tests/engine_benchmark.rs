@@ -78,3 +78,22 @@ fn engine_benchmark_handles_empty_prompt_slice_and_whitespace_token_floor() {
     let samples = run_engine_benchmark(&fake, &[]);
     assert!(samples.is_empty());
 }
+
+#[test]
+fn engine_benchmark_estimate_tokens_scales_with_words_and_preserves_prompt_count() {
+    assert_eq!(estimate_tokens("alpha beta gamma delta"), 4);
+    assert_eq!(estimate_tokens("single"), 1);
+
+    let fake = FakeProvider {
+        engine: "batch-engine".into(),
+        model: "batch-model".into(),
+        reply: "two words".into(),
+        latency: Duration::from_millis(8),
+        fail: false,
+    };
+    let samples = run_engine_benchmark(&fake, &["p1", "p2", "p3"]);
+    assert_eq!(samples.len(), 3);
+    assert!(samples
+        .iter()
+        .all(|s| s.success && s.first_token_latency_ms == 8));
+}
