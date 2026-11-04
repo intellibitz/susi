@@ -127,7 +127,7 @@ fn test_module_ranges(src: &str) -> Vec<(usize, usize)> {
         let Some(mod_at) = rest.find("mod ") else {
             continue;
         };
-        // Only further attributes (e.g. `#[allow(clippy::unwrap_used)]`) may sit
+        // Only further attributes (e.g. `#[allow(clippy::unwrap_used)]`) or comments may sit
         // between `#[cfg(test)]` and `mod`; anything else means the cfg is not
         // on this module.
         let between = &rest["#[cfg(test)]".len()..mod_at];
@@ -135,7 +135,7 @@ fn test_module_ranges(src: &str) -> Vec<(usize, usize)> {
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
-            .all(|line| line.starts_with("#[") && line.ends_with(']'));
+            .all(|line| (line.starts_with("#[") && line.ends_with(']')) || line.starts_with("//"));
         if !only_attributes {
             continue;
         }
