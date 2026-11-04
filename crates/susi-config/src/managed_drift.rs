@@ -351,4 +351,51 @@ mod tests {
         assert!(res.applied.is_empty());
         assert!(res.conflicts.is_empty());
     }
+
+    #[test]
+    fn drift_and_reconcile_handle_empty_objects_array_leaves_and_nested_missing_intermediate_creation(
+    ) {
+        let desired = json!({
+            "tags": ["alpha", "beta", "gamma"],
+            "empty_obj": {},
+            "a": { "b": { "c": { "d": 42 } } }
+        });
+        let observed = json!({
+            "tags": ["alpha", "beta"],
+            "empty_obj": "was_string"
+        });
+        let owned: BTreeSet<String> = ["tags", "empty_obj", "a"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+
+        let items = drift(&desired, &observed, &owned);
+        assert!(items.iter().any(|i| {
+            i.key == "tags"
+                && i.kind == DriftKind::Changed
+                && i.owned
+                && i.desired == Some(json!(["alpha", "beta", "gamma"]))
+                && i.observed == Some(json!(["alpha", "beta"]))
+        }));
+        assert!(items.iter().any(|i| {
+            i.key == "empty_obj"
+                && i.kind == DriftKind::Changed
+                && i.owned
+                && i.desired == Some(json!({}))
+                && i.observed == Some(json!("was_string"))
+        }));
+        assert!(items
+            .iter()
+            .any(|i| i.key == "a.b.c.d" && i.kind == DriftKind::Missing && i.owned));
+
+        let selected = vec![
+            "tags".to_string(),
+            "empty_obj".to_string(),
+            "a.b.c.d".to_string(),
+        ];
+        let rep = reconcile(&desired, &observed, &owned, &selected);
+        assert_eq!(rep.applied, selected);
+        assert!(rep.conflicts.is_empty());
+        assert_eq!(rep.repaired, desired);
+    }
 }

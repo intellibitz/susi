@@ -361,4 +361,49 @@ UNSTAMPED_API_KEY=secret_unstamped_val_789
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn rotate_key_succeeds_without_quarantine_flag_and_boundary_age_equals_max_age_is_not_flagged()
+    {
+        let dir = unique_temp_dir("no-quarantine-and-boundary");
+        let env_path = dir.join("cloud.env");
+        let ages_path = KeyAges::path_in(&dir);
+        assert!(!quarantine_path_in(&dir, "groq").exists());
+
+        std::fs::write(&env_path, "GROQ_API_KEY=initial_groq_key\n").expect("write cloud.env");
+        rotate_key(&RotateKey {
+            env_path: &env_path,
+            ages_path: &ages_path,
+            config_dir: &dir,
+            key: "GROQ_API_KEY",
+            vendor: "groq",
+            new_value: "updated_groq_key",
+            now_unix: 100 * 86_400,
+        })
+        .expect("rotate_key without quarantine flag");
+
+        assert_eq!(
+            std::fs::read_to_string(&env_path).expect("read cloud.env"),
+            "GROQ_API_KEY=updated_groq_key\n"
+        );
+        let mut ages = KeyAges::load(&ages_path).expect("load key-ages.json");
+        assert_eq!(ages.set_unix.get("GROQ_API_KEY"), Some(&(100 * 86_400)));
+
+        let now_unix = 200 * 86_400;
+        ages.stamp("EXACT_BOUNDARY_KEY", now_unix - 30 * 86_400);
+        ages.stamp("PAST_BOUNDARY_KEY", now_unix - 31 * 86_400);
+        let statuses = key_statuses(
+            "EXACT_BOUNDARY_KEY=val1\nPAST_BOUNDARY_KEY=val2\n",
+            &ages,
+            now_unix,
+            30,
+        );
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses[0].age_days, Some(30));
+        assert!(!statuses[0].needs_rotation);
+        assert_eq!(statuses[1].age_days, Some(31));
+        assert!(statuses[1].needs_rotation);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

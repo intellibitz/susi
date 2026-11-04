@@ -322,4 +322,40 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn migrate_state_dir_treats_corrupt_schema_manifest_as_v0_and_preserves_future_schema_version()
+    {
+        let corrupt_dir = temp_dir("corrupt-manifest");
+        fs::write(manifest_path(&corrupt_dir), "{bad").expect("write corrupt state.schema.json");
+        assert_eq!(read_version(&corrupt_dir), 0);
+
+        let report =
+            migrate_state_dir(&corrupt_dir).expect("migrate_state_dir on corrupt schema manifest");
+        assert!(report.migrated);
+        assert!(!report.rolled_back);
+        assert_eq!(report.from_version, 0);
+        assert_eq!(report.to_version, STATE_SCHEMA_VERSION);
+        assert_eq!(read_version(&corrupt_dir), STATE_SCHEMA_VERSION);
+        let bak_dir = PathBuf::from(report.backup_dir.expect("backup_dir recorded"));
+        assert_eq!(
+            fs::read_to_string(bak_dir.join("state.schema.json")).expect("read backed up manifest"),
+            "{bad"
+        );
+        let _ = fs::remove_dir_all(&corrupt_dir);
+
+        let future_dir = temp_dir("future-manifest");
+        write_version(&future_dir, 99).expect("write v99 manifest");
+        let future_report =
+            migrate_state_dir(&future_dir).expect("migrate_state_dir on future schema version");
+        assert!(!future_report.migrated);
+        assert!(!future_report.rolled_back);
+        assert_eq!(future_report.from_version, 99);
+        assert_eq!(future_report.to_version, 99);
+        assert_eq!(
+            future_report.render(),
+            "state migration: already at schema v99 (noop)"
+        );
+        let _ = fs::remove_dir_all(&future_dir);
+    }
 }
