@@ -98,4 +98,37 @@ mod inline_tests {
             .unwrap();
         assert!(!fail.success());
     }
+
+    #[test]
+    fn compiled_verifier_check_write_and_suite_commands_produce_expected_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("input.txt");
+        let receipt = dir.path().join("receipt.txt");
+        std::fs::write(&src, "  expected-token \n").unwrap();
+
+        let status = std::process::Command::new(program())
+            .args([
+                "check-write",
+                src.to_str().unwrap(),
+                "expected-token",
+                receipt.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(std::fs::read_to_string(&receipt).unwrap(), "verified\n");
+
+        std::fs::write(dir.path().join("cases.txt"), "case-a\ncase-b\ncase-c\n").unwrap();
+        std::fs::write(dir.path().join("solved.txt"), "case-a\ncase-c\n").unwrap();
+        let suite_ok = std::process::Command::new(program())
+            .current_dir(dir.path())
+            .arg("suite")
+            .status()
+            .unwrap();
+        assert!(suite_ok.success());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("metrics.txt")).unwrap(),
+            "cases_passed=2\n"
+        );
+    }
 }

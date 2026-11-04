@@ -52,3 +52,13 @@ fn vc_201_043_zero_byte_request_is_rejected_without_mutating_pool() {
     assert_eq!(p.admit(0), AdmitDecision::RejectedInsufficient);
     assert_eq!(p.reserved_bytes, 500);
 }
+
+#[test]
+fn vc_201_043_free_saturates_at_zero_when_reserved_exceeds_total() {
+    let mut p = AccelPool {
+        total_bytes: 1_000,
+        reserved_bytes: 1_200,
+    };
+    assert_eq!(p.free(), 0);
+    assert_eq!(p.admit(1), AdmitDecision::RejectedInsufficient);
+}

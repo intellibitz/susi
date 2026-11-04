@@ -107,3 +107,15 @@ fn vc_201_009_mastery_id_overlap_flags_with_reason() {
     assert!(!clean.contaminated);
     assert!(clean.reason.is_none());
 }
+
+#[test]
+fn vc_201_009_mastery_clean_corpus_passes_detect_in_corpus_and_exclusion_gate() {
+    let c = corpus(vec![
+        fx("h1", "unique held-out input", FixtureSplit::HeldOut),
+        fx("t1", "distinct training input", FixtureSplit::Train),
+    ]);
+    let report = detect_in_corpus(&c, &set(&["t1"]), &set(&[])).unwrap();
+    assert!(!report.contaminated);
+    assert!(report.reason.is_none());
+    assert_eq!(exclude_if_contaminated(&report, 99_u32), Ok(99_u32));
+}

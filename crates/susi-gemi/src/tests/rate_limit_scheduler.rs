@@ -58,3 +58,32 @@ fn rate_limit_scheduler_empty_headers_ready_immediately() {
         RateLimitDecision::Ready
     );
 }
+
+#[test]
+fn rate_limit_scheduler_ignores_malformed_numbers_and_retry_after_wins_when_present() {
+    let mut malformed = HashMap::new();
+    malformed.insert("Retry-After".into(), "not-a-number".into());
+    malformed.insert("x-ratelimit-remaining".into(), "bad".into());
+    malformed.insert("x-ratelimit-reset".into(), "bad".into());
+    let state = parse_rate_limit_headers(&malformed);
+    assert_eq!(state.retry_after_secs, None);
+    assert_eq!(state.remaining, None);
+    assert_eq!(state.reset_unix, None);
+    assert_eq!(
+        schedule_next_attempt(&state, Some(2_000)),
+        RateLimitDecision::Ready
+    );
+
+    let mut both = HashMap::new();
+    both.insert("retry-after".into(), "15".into());
+    both.insert("x-ratelimit-remaining".into(), "0".into());
+    both.insert("x-ratelimit-reset".into(), "9_000".into());
+    let both_state = parse_rate_limit_headers(&both);
+    assert_eq!(
+        schedule_next_attempt(&both_state, Some(1_000)),
+        RateLimitDecision::Wait {
+            ready_unix: 1_015,
+            reason: "Retry-After: 15s".into()
+        }
+    );
+}

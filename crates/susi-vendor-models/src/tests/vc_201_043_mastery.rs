@@ -87,3 +87,25 @@ fn vc_201_043_mastery_release_saturates_at_zero_without_underflow() {
     assert_eq!(pool.reserved_bytes, 0);
     assert_eq!(pool.free(), 1_000);
 }
+
+#[test]
+fn vc_201_043_mastery_multiple_concurrent_reservations_accumulate_and_release_independently() {
+    let mut pool = AccelPool {
+        total_bytes: 10_000,
+        reserved_bytes: 0,
+    };
+    assert_eq!(
+        pool.admit(3_000),
+        AdmitDecision::Admitted { reservation: 3_000 }
+    );
+    assert_eq!(
+        pool.admit(4_000),
+        AdmitDecision::Admitted { reservation: 4_000 }
+    );
+    assert_eq!(pool.reserved_bytes, 7_000);
+    assert_eq!(pool.free(), 3_000);
+
+    pool.release(3_000);
+    assert_eq!(pool.reserved_bytes, 4_000);
+    assert_eq!(pool.free(), 6_000);
+}

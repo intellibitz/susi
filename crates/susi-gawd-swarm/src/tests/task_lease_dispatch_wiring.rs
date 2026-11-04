@@ -106,3 +106,10 @@ fn task_lease_dispatch_wiring_persisted_recovery_preserves_monotonic_fences() {
         CompleteVerdict::StaleFence
     );
 }
+
+#[test]
+fn task_lease_dispatch_wiring_lease_authority_is_none_before_first_dispatch() {
+    let dag = MissionDag::new("undispatched authority");
+    assert!(dag.lease_authority(0).is_none());
+    assert!(dag.lease_authority(99).is_none());
+}

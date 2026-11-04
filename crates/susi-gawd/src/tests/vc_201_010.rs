@@ -84,3 +84,29 @@ fn vc_201_010_preserves_sign_and_four_decimal_precision_on_metric_delta() {
     assert!(out.contains("delta=0.0005"), "out={out}");
     assert!(out.contains("delta=-0.3750"), "out={out}");
 }
+
+#[test]
+fn vc_201_010_publish_emits_one_line_per_row_in_input_order() {
+    let rows = vec![
+        ExperimentComparison {
+            candidate_id: "first-cand".into(),
+            baseline_id: "b0".into(),
+            metric_delta: 0.1,
+            receipt: "r-1".into(),
+            outcome: TrialOutcome::Success,
+        },
+        ExperimentComparison {
+            candidate_id: "second-cand".into(),
+            baseline_id: "b0".into(),
+            metric_delta: 0.0,
+            receipt: "r-2".into(),
+            outcome: TrialOutcome::Inconclusive,
+        },
+    ];
+    let published = publish(&rows);
+    let lines: Vec<&str> = published.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], "rsi_comparisons:");
+    assert!(lines[1].contains("first-cand"));
+    assert!(lines[2].contains("second-cand"));
+}

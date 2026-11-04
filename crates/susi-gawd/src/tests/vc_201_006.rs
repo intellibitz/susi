@@ -71,3 +71,9 @@ fn vc_201_006_consistent_degradation_decides_regressed() {
         RegressionDecision::Inconclusive
     );
 }
+
+#[test]
+fn vc_201_006_empty_trial_slice_returns_inconclusive() {
+    assert_eq!(decide(&[], 1, 0.95), RegressionDecision::Inconclusive);
+    assert_eq!(decide(&[], 0, 0.50), RegressionDecision::Inconclusive);
+}

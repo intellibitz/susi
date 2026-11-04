@@ -1,0 +1,27 @@
+{
+  "id": "T-CORETESTS5TB1104-1",
+  "title": "Advance Wave B susi-core test suites to 5-test floor (CEO Job #325)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "--",
+      "vc_201_081_tests::"
+    ]
+  },
+  "created_by": "CORETESTS5TB1104",
+  "created_unix": 1793812906,
+  "closed": {
+    "at_unix": 1793813597,
+    "commit": "1d1e45b5487e30d66a4ed58a1b692d1b40d73a74",
+    "by": "CORETESTS5TB1104"
+  }
+}

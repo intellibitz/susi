@@ -101,3 +101,13 @@ fn vc_201_082_mastery_honest_verdicts_hold() {
         PromoteVerdict::RejectIsolationRegression
     );
 }
+
+#[test]
+fn vc_201_082_mastery_candidate_with_nan_recall_is_rejected_as_unmeasured() {
+    let baseline = suite(1, 0.9, 1.0, 0.5, 100);
+    let candidate = suite(2, 0.95, 1.0, f64::NAN, 120);
+    assert_eq!(
+        evaluate_promotion(&baseline, &candidate),
+        PromoteVerdict::RejectUnmeasuredMetrics
+    );
+}
