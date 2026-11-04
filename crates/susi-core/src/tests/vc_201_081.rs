@@ -118,3 +118,9 @@ fn vc_201_081_memory_store_insert_get_and_read_missing_or_authorized() {
         Ok("public-body")
     );
 }
+
+#[test]
+fn vc_201_081_memory_store_get_record_returns_none_for_unknown_id() {
+    let store = MemoryStore::default();
+    assert!(store.get_record("unknown-id").is_none());
+}

@@ -117,3 +117,9 @@ fn vc_201_084_authenticated_peer_export_and_merge_enforce_peer_token() {
     assert_eq!(exported.len(), 1);
     assert_eq!(exported[0].id, "k1");
 }
+
+#[test]
+fn vc_201_084_compare_provenance_orders_equal_and_lexical_prefixes_deterministically() {
+    assert_eq!(compare_provenance("p5", "p5"), std::cmp::Ordering::Equal);
+    assert_eq!(compare_provenance("p2", "p10"), std::cmp::Ordering::Less);
+}

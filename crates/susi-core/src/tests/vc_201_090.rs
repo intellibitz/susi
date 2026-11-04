@@ -94,3 +94,17 @@ fn vc_201_090_online_without_delegation_or_with_disallowed_model_enforces_contra
         Err(WorkflowError::DependencyFailed)
     );
 }
+
+#[test]
+fn vc_201_090_offline_mode_succeeds_even_when_mcp_is_unavailable() {
+    let out = run_vertical_workflow(&WorkflowRequest {
+        mode: WorkflowMode::Offline,
+        allow_delegate: false,
+        model_allowed: false,
+        mcp_tool: "search".into(),
+        mcp_available: false,
+    })
+    .expect("offline local-only mode does not depend on remote model or mcp availability");
+    assert_eq!(out.outcome, "offline_local_only");
+    assert!(out.retrieval_hit);
+}
