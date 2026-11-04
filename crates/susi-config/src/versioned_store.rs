@@ -268,3 +268,138 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> Default for Vers
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-versioned-store-{label}-{}-{n}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn load_arc_with_healing_seeds_missing_file_shares_arc_on_cache_hit_and_invalidates_on_size_change(
+    ) {
+        let dir = unique_temp_dir("arc-hit");
+        let path = dir.join("store.json");
+        let store: VersionedJsonStore<BTreeMap<String, String>> = VersionedJsonStore::default();
+
+        let first = store
+            .load_arc_with_healing(
+                &path,
+                || {
+                    let mut m = BTreeMap::new();
+                    m.insert("seed".to_string(), "1".to_string());
+                    Ok(m)
+                },
+                |m| {
+                    m.insert("healed".to_string(), "yes".to_string());
+                    true
+                },
+                true,
+            )
+            .expect("initial load_arc_with_healing");
+        assert!(path.is_file());
+        assert_eq!(first.get("seed").map(String::as_str), Some("1"));
+        assert_eq!(first.get("healed").map(String::as_str), Some("yes"));
+
+        let second = store
+            .load_arc_with_healing(
+                &path,
+                || unreachable!("cache hit should not call on_missing"),
+                |_| unreachable!("cache hit should not call heal_fn"),
+                true,
+            )
+            .expect("cached load_arc_with_healing");
+        assert!(Arc::ptr_eq(&first, &second));
+
+        std::fs::write(
+            &path,
+            r#"{"seed":"updated-longer-value","healed":"yes","extra":"field"}"#,
+        )
+        .expect("rewrite store.json with different size");
+
+        let third = store
+            .load_arc_with_healing(&path, || Ok(BTreeMap::new()), |_| false, true)
+            .expect("re-read after size change");
+        assert!(!Arc::ptr_eq(&first, &third));
+        assert_eq!(
+            third.get("seed").map(String::as_str),
+            Some("updated-longer-value")
+        );
+        assert_eq!(third.get("extra").map(String::as_str), Some("field"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn modify_and_reload_enforce_strict_parse_and_evict_cache_on_corrupt_json() {
+        let dir = unique_temp_dir("modify-reload");
+        let path = dir.join("config.json");
+        let store: VersionedJsonStore<BTreeMap<String, u32>> = VersionedJsonStore::new();
+
+        let updated = store
+            .modify(
+                &path,
+                || {
+                    let mut m = BTreeMap::new();
+                    m.insert("count".to_string(), 10);
+                    Ok(m)
+                },
+                |_| false,
+                true,
+                |m| {
+                    m.insert("count".to_string(), 42);
+                },
+            )
+            .expect("modify store");
+        assert_eq!(updated.get("count"), Some(&42));
+        assert!(store.cache.read().is_some());
+
+        std::fs::write(&path, "{ invalid json ").expect("write corrupt json");
+
+        let err = store
+            .reload_with_healing(&path, || Ok(BTreeMap::new()), |_| false, true)
+            .expect_err("strict reload must fail on corrupt JSON");
+        assert!(err.to_string().contains("Malformed configuration"));
+        assert!(
+            store.cache.read().is_none(),
+            "failed reload must evict previously cached snapshot"
+        );
+
+        let healed = store
+            .reload_with_healing(
+                &path,
+                || {
+                    let mut m = BTreeMap::new();
+                    m.insert("recovered".to_string(), 1);
+                    Ok(m)
+                },
+                |m| {
+                    m.insert("healed_after_corrupt".to_string(), 2);
+                    true
+                },
+                false,
+            )
+            .expect("non-strict reload heals from on_missing");
+        assert_eq!(healed.get("recovered"), Some(&1));
+        assert_eq!(healed.get("healed_after_corrupt"), Some(&2));
+
+        let persisted: BTreeMap<String, u32> =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read healed file"))
+                .expect("healed file on disk must be valid JSON");
+        assert_eq!(persisted, healed);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
