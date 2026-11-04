@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CORESUITESC4T1104",
-  "created_unix": 1793784378
+  "created_unix": 1793784378,
+  "closed": {
+    "at_unix": 1793784838,
+    "commit": "be57798eb7d2b6ef9c8b691f3ff1deec374f4596",
+    "by": "CORESUITESC4T1104"
+  }
 }
