@@ -1535,4 +1535,337 @@ mod tests {
         let err_dishonest = validate_agent_card_honesty(&dishonest_card).unwrap_err();
         assert!(err_dishonest.contains("dishonest skill"), "{err_dishonest}");
     }
+
+    struct MockReply {
+        status: u16,
+        content_type: &'static str,
+        headers: Vec<(&'static str, &'static str)>,
+        body: String,
+    }
+
+    impl MockReply {
+        fn json(status: u16, value: &Value) -> Self {
+            Self {
+                status,
+                content_type: "application/json",
+                headers: Vec::new(),
+                body: value.to_string(),
+            }
+        }
+    }
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> String {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let mut header_end = None;
+        let mut content_len = 0usize;
+        while let Ok(n) = stream.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if header_end.is_none() {
+                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    header_end = Some(pos + 4);
+                    let head = String::from_utf8_lossy(&buf[..pos]);
+                    for line in head.lines() {
+                        if let Some((k, v)) = line.split_once(':') {
+                            if k.trim().eq_ignore_ascii_case("content-length") {
+                                content_len = v.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(end) = header_end {
+                if buf.len() >= end + content_len {
+                    break;
+                }
+            }
+        }
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    fn spawn_loopback_http(
+        base_port: u16,
+        replies: Vec<MockReply>,
+    ) -> (Target, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let bound_port = listener.local_addr().unwrap().port();
+        assert!(bound_port >= base_port, "ephemeral port {bound_port}");
+        let handle = std::thread::spawn(move || {
+            let mut requests = Vec::with_capacity(replies.len());
+            for reply in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                requests.push(read_http_request(&mut stream));
+                let mut raw = format!(
+                    "HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
+                    reply.status,
+                    reply.content_type,
+                    reply.body.len()
+                );
+                for (k, v) in reply.headers {
+                    raw.push_str(&format!("{k}: {v}\r\n"));
+                }
+                raw.push_str("\r\n");
+                raw.push_str(&reply.body);
+                stream.write_all(raw.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+            }
+            requests
+        });
+        let target = Target {
+            host: "127.0.0.1".into(),
+            port_offset: bound_port - base_port,
+            token: Some("test-token".into()),
+            timeout: Duration::from_secs(2),
+        };
+        (target, handle)
+    }
+
+    #[test]
+    fn loopback_a2a_card_unknown_and_stream_conformance_checks() {
+        let honest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let dishonest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Renders a desktop UI via egui."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let (target, handle) = spawn_loopback_http(
+            ports::A2A,
+            vec![
+                // 1. a2a_card (honest -> Pass)
+                MockReply::json(200, &honest_card),
+                // 2. a2a_card (dishonest -> Fail)
+                MockReply::json(200, &dishonest_card),
+                // 3. auth_required POST / (401 -> Pass)
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 4. auth_required_as POST /stream (401 -> Pass)
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 5. a2a_unknown (-32601 -> Pass)
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 7, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                // 6..=8. a2a_stream (3 requests: unknown -> -32601, SubscribeToTask -> -32001, tasks/resubscribe -> -32001)
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 8, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 9, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 10, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+            ],
+        );
+
+        let c_card_ok = a2a_card(&target);
+        assert_eq!(c_card_ok.outcome, Outcome::Pass, "{}", c_card_ok.detail);
+        let c_card_bad = a2a_card(&target);
+        assert_eq!(c_card_bad.outcome, Outcome::Fail, "{}", c_card_bad.detail);
+        assert!(c_card_bad.detail.contains("dishonest skill"));
+
+        let c_auth_root = auth_required(&target, ports::A2A, "POST", "/");
+        assert_eq!(c_auth_root.outcome, Outcome::Pass, "{}", c_auth_root.detail);
+        let c_auth_stream = auth_required_as(&target, ports::A2A, "POST", "/stream", "/stream");
+        assert_eq!(
+            c_auth_stream.outcome,
+            Outcome::Pass,
+            "{}",
+            c_auth_stream.detail
+        );
+
+        let c_unknown = a2a_unknown(&target);
+        assert_eq!(c_unknown.outcome, Outcome::Pass, "{}", c_unknown.detail);
+
+        let c_stream = a2a_stream(&target);
+        assert_eq!(c_stream.outcome, Outcome::Pass, "{}", c_stream.detail);
+
+        let requests = handle.join().unwrap();
+        assert_eq!(requests.len(), 8);
+        assert!(requests[0].starts_with("GET /.well-known/agent-card.json HTTP/1.1"));
+        assert!(requests[5].contains("SubscribeToTask") || requests[6].contains("SubscribeToTask"));
+        assert!(requests[7].contains("tasks/resubscribe"));
+    }
+
+    #[test]
+    fn loopback_mcp_and_alias_9093_discover_tools_unauth_and_session_checks() {
+        for base in [ports::MCP, ports::MCP_ALIAS] {
+            let (target, handle) = spawn_loopback_http(
+                base,
+                vec![
+                    // 1. health
+                    MockReply::json(200, &json!({"status": "ok"})),
+                    // 2. auth_required POST /mcp -> 401
+                    MockReply::json(401, &json!({"error": "unauthorized"})),
+                    // 3. mcp_discover
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "result": {
+                                "capabilities": {"tools": {}},
+                                "_meta": {
+                                    "io.modelcontextprotocol/serverInfo": {"name": "susi-gmcp"}
+                                }
+                            }
+                        }),
+                    ),
+                    // 4. mcp_tools_at
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "result": {"tools": [{"name": "echo"}]}
+                        }),
+                    ),
+                    // 5..=7. mcp_session_at (initialize with Mcp-Session-Id -> notifications/initialized -> tools/list)
+                    MockReply {
+                        status: 200,
+                        content_type: "application/json",
+                        headers: vec![("Mcp-Session-Id", "sess-123")],
+                        body: json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "result": {
+                                "protocolVersion": MCP_SESSION,
+                                "capabilities": {"tools": {}},
+                                "serverInfo": {"name": "susi-gmcp"}
+                            }
+                        })
+                        .to_string(),
+                    },
+                    MockReply::json(202, &json!({})),
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "result": {"tools": [{"name": "echo"}, {"name": "ping"}]}
+                        }),
+                    ),
+                    // 8. mcp_session_at negative: missing Mcp-Session-Id header on initialize -> Fail
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "result": {"protocolVersion": MCP_SESSION}
+                        }),
+                    ),
+                ],
+            );
+
+            assert_eq!(health(&target, base).outcome, Outcome::Pass);
+            assert_eq!(
+                auth_required(&target, base, "POST", "/mcp").outcome,
+                Outcome::Pass
+            );
+            assert_eq!(mcp_discover(&target, base).outcome, Outcome::Pass);
+            assert_eq!(mcp_tools_at(&target, base).outcome, Outcome::Pass);
+
+            let c_sess = mcp_session_at(&target, base);
+            assert_eq!(c_sess.outcome, Outcome::Pass, "{}", c_sess.detail);
+            assert!(c_sess.detail.contains("2 tools"), "{}", c_sess.detail);
+
+            let c_sess_bad = mcp_session_at(&target, base);
+            assert_eq!(c_sess_bad.outcome, Outcome::Fail, "{}", c_sess_bad.detail);
+            assert!(c_sess_bad.detail.contains("without Mcp-Session-Id"));
+
+            let requests = handle.join().unwrap();
+            assert_eq!(requests.len(), 8);
+            assert!(requests[5]
+                .to_ascii_lowercase()
+                .contains("mcp-session-id: sess-123"));
+            assert!(requests[6]
+                .to_ascii_lowercase()
+                .contains("mcp-session-id: sess-123"));
+        }
+    }
+
+    #[test]
+    fn loopback_gemi_models_unauth_and_sse_stream_checks() {
+        let (target, handle) = spawn_loopback_http(
+            ports::GEMI,
+            vec![
+                // 1. auth_required GET /v1/models -> 401
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 2. gemi_models clean -> Pass
+                MockReply::json(
+                    200,
+                    &json!({"object": "list", "data": [{"id": "susi-1"}, {"id": "qwen2.5-0.5b"}]}),
+                ),
+                // 3. gemi_models leaking filesystem path -> Warn
+                MockReply::json(
+                    200,
+                    &json!({"object": "list", "data": [{"id": "/home/user/model.gguf"}]}),
+                ),
+                // 4. gemi_stream valid SSE -> Pass
+                MockReply {
+                    status: 200,
+                    content_type: "text/event-stream",
+                    headers: Vec::new(),
+                    body: "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\"}\n\ndata: [DONE]\n\n"
+                        .into(),
+                },
+            ],
+        );
+
+        let c_unauth = auth_required(&target, ports::GEMI, "GET", "/v1/models");
+        assert_eq!(c_unauth.outcome, Outcome::Pass, "{}", c_unauth.detail);
+
+        let c_models_ok = gemi_models(&target);
+        assert_eq!(c_models_ok.outcome, Outcome::Pass, "{}", c_models_ok.detail);
+        assert_eq!(c_models_ok.detail, "2 models");
+
+        let c_models_warn = gemi_models(&target);
+        assert_eq!(
+            c_models_warn.outcome,
+            Outcome::Warn,
+            "{}",
+            c_models_warn.detail
+        );
+        assert!(c_models_warn.detail.contains("local filesystem paths"));
+
+        let c_stream = gemi_stream(
+            &target,
+            &Optional {
+                inference: true,
+                ..Optional::default()
+            },
+        );
+        assert_eq!(c_stream.outcome, Outcome::Pass, "{}", c_stream.detail);
+        assert!(c_stream.detail.contains("1 JSON chunks, [DONE] true"));
+
+        let requests = handle.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert!(requests[3].starts_with("POST /v1/chat/completions HTTP/1.1"));
+    }
 }
