@@ -35,3 +35,11 @@ fn vc_201_015_verify_command_covers_fmt_clippy_test() {
     assert!(command_covers_full_gate(cmd));
     assert!(!command_covers_full_gate("cargo test"));
 }
+
+#[test]
+fn vc_201_015_all_four_checks_passing_achieves_promotion_ready() {
+    let mut report = executed_report(CheckOutcome::Pass, CheckOutcome::Pass, CheckOutcome::Pass);
+    report.policy = CheckOutcome::Pass;
+    assert!(report.promotion_ready());
+    assert!(report.blocking_reasons().is_empty());
+}

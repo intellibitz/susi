@@ -59,3 +59,11 @@ fn vc_201_100_mastery_release_path_consumes_explicit_evidence() {
     assert!(source.contains("qualify_multi_stage"));
     assert!(source.contains("SUSI_RELEASE_SELF_PATCH_EVIDENCE"));
 }
+
+#[test]
+fn vc_201_100_mastery_empty_inputs_fail_qualification_with_limitations() {
+    let report = qualify_multi_stage(&[]);
+    assert!(!report.qualified);
+    assert!(!report.claim_2x);
+    assert!(!report.limitations.is_empty());
+}

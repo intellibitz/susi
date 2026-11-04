@@ -37,3 +37,13 @@ fn vc_201_011_duplicate_applied_transition_refused() {
         .unwrap_err()
         .contains("duplicate"));
 }
+
+#[test]
+fn vc_201_011_duplicate_propose_and_unknown_experiment_transition_return_errors() {
+    let mut log = ExperimentLog::default();
+    log.propose("e4").unwrap();
+    assert!(log.propose("e4").is_err());
+    assert!(log
+        .transition("unknown-exp", ExperimentState::Isolated)
+        .is_err());
+}
