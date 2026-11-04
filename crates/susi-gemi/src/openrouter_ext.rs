@@ -103,3 +103,56 @@ fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
     }
     Ok(ids)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn probe_rejects_empty_and_whitespace_only_prompts_before_network() {
+        let empty_err = probe("").expect_err("empty prompt must fail");
+        assert!(empty_err
+            .to_string()
+            .contains("probe prompt must not be empty"));
+
+        let ws_err = probe("   \t\n  ").expect_err("whitespace prompt must fail");
+        assert!(ws_err
+            .to_string()
+            .contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn openrouter_base_detection_and_attribution_headers_are_consistent() {
+        assert!(is_openrouter_base(API_BASE));
+        assert!(!is_openrouter_base("https://api.openai.com/v1"));
+        let (referer, title) = attribution_headers();
+        assert!(!referer.trim().is_empty());
+        assert!(!title.trim().is_empty());
+    }
+
+    #[test]
+    fn provider_reflects_manager_doctor_state_and_formats_provider_name() {
+        let manager = OpenRouterManager::new().expect("manager init");
+        match manager.doctor() {
+            Ok(_) => {
+                let built = provider(&manager).expect("provider when doctor succeeds");
+                assert_eq!(built.api_base, API_BASE);
+                assert!(built.name.starts_with("openrouter-"));
+                assert_eq!(built.protocol, InferenceProtocol::OpenAiChat);
+            }
+            Err(_) => {
+                assert!(provider(&manager).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn openrouter_manager_exposes_non_empty_effective_model_identifier() {
+        let manager = OpenRouterManager::new().expect("manager init");
+        let effective = manager.effective_model();
+        assert!(!effective.trim().is_empty());
+        assert!(effective.contains('/'));
+    }
+}

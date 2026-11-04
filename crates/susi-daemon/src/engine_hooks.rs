@@ -87,3 +87,49 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         susi_gawd::reflex_trainer::ReflexTrainer::force_train(workspace)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use susi_tools::EngineHooks;
+
+    #[test]
+    fn engine_version_matches_cargo_pkg_version_and_is_non_empty() {
+        let hooks = SusiEngineHooks;
+        assert_eq!(hooks.engine_version(), env!("CARGO_PKG_VERSION"));
+        assert!(!hooks.engine_version().is_empty());
+    }
+
+    #[test]
+    fn sanitize_input_passes_clean_text_through_master_agent() {
+        let hooks = SusiEngineHooks;
+        let out = hooks.sanitize_input("verify unit tests").unwrap();
+        assert!(out.contains("verify unit tests"));
+    }
+
+    #[test]
+    fn identity_report_returns_non_empty_substrate_identity_for_workspace() {
+        let hooks = SusiEngineHooks;
+        let dir = std::env::temp_dir().join(format!("susi-enghooks-id-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let report = hooks.identity_report(&dir).unwrap();
+        assert!(!report.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn audit_action_vetoes_destructive_command_and_allows_benign_read() {
+        let hooks = SusiEngineHooks;
+        let dir = std::env::temp_dir().join(format!("susi-enghooks-aud-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        assert!(hooks.audit_action("read_file", "README.md", &dir).is_ok());
+        assert!(
+            hooks
+                .audit_action("exec_command", "rm -rf / --no-preserve-root", &dir)
+                .is_err()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -95,3 +95,60 @@ pub(super) mod window {
         });
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn enter_and_drop_manage_nested_read_windows_cleanly() {
+        let outer = ModelReadWindow::enter();
+        {
+            let _inner = ModelReadWindow::enter();
+        }
+        drop(outer);
+    }
+
+    #[test]
+    fn open_reads_existing_file_bytes_with_shared_read_permissions() {
+        let path = std::env::temp_dir().join(format!("susi-model-read-win-{}", std::process::id()));
+        std::fs::write(&path, b"gguf-header-bytes").unwrap();
+
+        let mut file = open(&path).unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        assert_eq!(buf, b"gguf-header-bytes");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn open_returns_error_when_target_file_does_not_exist() {
+        let missing = std::env::temp_dir().join(format!(
+            "susi-model-read-missing-{}-none.bin",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&missing);
+        assert!(open(&missing).is_err());
+    }
+
+    #[test]
+    fn concurrent_open_handles_can_read_same_model_file_simultaneously() {
+        let path =
+            std::env::temp_dir().join(format!("susi-model-read-shared-{}", std::process::id()));
+        std::fs::write(&path, b"weights-payload").unwrap();
+
+        let _win = ModelReadWindow::enter();
+        let f1 = open(&path).unwrap();
+        let f2 = open(&path).unwrap();
+        assert_eq!(f1.metadata().unwrap().len(), 15);
+        assert_eq!(f2.metadata().unwrap().len(), 15);
+
+        drop(f1);
+        drop(f2);
+        let _ = std::fs::remove_file(&path);
+    }
+}
