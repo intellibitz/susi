@@ -563,4 +563,56 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn cloud_opt_in_blocks_without_key_then_unblocks_when_key_supplied_and_rejects_unknown_step() {
+        let home = unique_temp_dir("cloud-unblock-and-unknown");
+        let mut plan = SetupPlan::detect(&home);
+        plan.keys_present.clear();
+        plan.grant_consent(ConsentKind::CloudApiKey);
+
+        let first = plan.apply(&home).expect("apply without cloud key");
+        assert!(first
+            .iter()
+            .any(|s| s == "applied cloud_opt_in: missing prerequisite API key"));
+        let cloud_step = plan
+            .steps
+            .iter()
+            .find(|s| s.id == "cloud_opt_in")
+            .expect("cloud_opt_in step");
+        assert!(cloud_step.blocked);
+        assert!(!cloud_step.applied);
+        assert!(!home.join("config").join("cloud_opt_in").exists());
+
+        let second = plan
+            .apply(&home)
+            .expect("re-apply while cloud key still absent");
+        assert!(second
+            .iter()
+            .any(|s| s == "skip cloud_opt_in: missing prerequisite"));
+
+        plan.keys_present.push("OPENAI_API_KEY".into());
+        let third = plan.apply(&home).expect("apply after cloud key supplied");
+        assert!(third.iter().any(|s| s == "applied cloud_opt_in"));
+        let unblocked = plan
+            .steps
+            .iter()
+            .find(|s| s.id == "cloud_opt_in")
+            .expect("cloud_opt_in step");
+        assert!(!unblocked.blocked);
+        assert!(unblocked.applied);
+        assert!(home.join("config").join("cloud_opt_in").is_file());
+
+        plan.steps.push(SetupStep {
+            id: "mystery_step".into(),
+            description: "unknown step".into(),
+            requires_consent: None,
+            applied: false,
+            blocked: false,
+        });
+        let unknown_err = plan.apply(&home).expect_err("unknown step id must error");
+        assert!(unknown_err.contains("unknown step mystery_step"));
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

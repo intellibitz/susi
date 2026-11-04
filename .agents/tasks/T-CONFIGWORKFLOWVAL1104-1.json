@@ -1,0 +1,28 @@
+{
+  "id": "T-CONFIGWORKFLOWVAL1104-1",
+  "title": "Expand inline unit tests for susi-config config, setup_workflow, validate, and state_backup",
+  "goal": "D-OS-8: expand inline unit tests for susi-config config, setup_workflow, validate, and state_backup",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "status": "in_progress",
+  "agent": "gemini",
+  "files": [
+    "crates/susi-config/src/config.rs",
+    "crates/susi-config/src/setup_workflow.rs",
+    "crates/susi-config/src/validate.rs",
+    "crates/susi-config/src/state_backup.rs"
+  ],
+  "created_by": "ZCKEYROT1104",
+  "created_unix": 1793776660
+}

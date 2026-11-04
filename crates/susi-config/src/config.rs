@@ -861,4 +861,46 @@ mod tests {
             "governance.secret_tokens pattern must be masked: {redacted}"
         );
     }
+
+    #[test]
+    fn port_offset_env_override_model_idle_timeout_env_override_and_typed_accessors_contract() {
+        let _guard = crate::env_test_lock();
+        let prev_offset = std::env::var_os("SUSI_PORT_OFFSET");
+        let prev_idle = std::env::var_os("SUSI_MODEL_IDLE_TIMEOUT_SECS");
+
+        let mut settings = DynamicRegistry::new();
+        settings.insert("port_offset".into(), DynamicValue::from(50));
+        let cfg = SusiConfig { settings };
+
+        std::env::set_var("SUSI_PORT_OFFSET", "250");
+        assert_eq!(cfg.port_offset(), 250);
+        assert_eq!(cfg.gmcp_port(), susi_paths::ports::GMCP + 250);
+        assert_eq!(cfg.gmcp_http_port(), susi_paths::ports::GMCP_HTTP + 250);
+        assert_eq!(cfg.gemi_port(), susi_paths::ports::GEMI + 250);
+        assert_eq!(
+            cfg.udp_discovery_port(),
+            susi_paths::ports::UDP_DISCOVERY + 250
+        );
+        assert_eq!(cfg.a2a_http_port(), susi_paths::ports::A2A_HTTP + 250);
+        assert_eq!(cfg.gossip_port(), susi_paths::ports::GOSSIP + 250);
+
+        std::env::set_var("SUSI_PORT_OFFSET", "not-a-u16");
+        assert_eq!(cfg.port_offset(), 50);
+
+        std::env::set_var("SUSI_MODEL_IDLE_TIMEOUT_SECS", "777");
+        assert_eq!(cfg.model_idle_timeout_secs(), 777);
+
+        match prev_offset {
+            Some(v) => std::env::set_var("SUSI_PORT_OFFSET", v),
+            None => std::env::remove_var("SUSI_PORT_OFFSET"),
+        }
+        match prev_idle {
+            Some(v) => std::env::set_var("SUSI_MODEL_IDLE_TIMEOUT_SECS", v),
+            None => std::env::remove_var("SUSI_MODEL_IDLE_TIMEOUT_SECS"),
+        }
+
+        assert!(cfg.gemi_max_concurrent_requests() >= 1);
+        assert!(!cfg.model_catalog().is_empty());
+        assert!(!cfg.eos_token_ids().is_empty());
+    }
 }

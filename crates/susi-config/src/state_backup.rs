@@ -470,4 +470,47 @@ mod tests {
             .expect_err("non-existent root must fail");
         assert!(root_err.contains("backup root is unavailable"));
     }
+
+    #[test]
+    fn restore_rejects_non_hex_ciphertext_cross_section_swap_and_verifies_localhost_file_refs() {
+        let mut sections = BTreeMap::new();
+        sections.insert("a.json".to_string(), br#"{"a":1}"#.to_vec());
+        sections.insert("b.json".to_string(), br#"{"b":2}"#.to_vec());
+        let blob = backup(&sections, 19, false).expect("backup two sections");
+
+        // 1. Non-hex characters in a section's ciphertext are rejected before AEAD open.
+        let mut bad_hex = blob.clone();
+        bad_hex.sections.insert("a.json".to_string(), "zzzz".into());
+        let hex_err = restore(&bad_hex, 19).expect_err("non-hex ciphertext must fail restore");
+        assert!(hex_err.contains("invalid backup section"));
+
+        // 2. Swapping valid ciphertexts between sections fails AEAD authentication via section-bound AAD.
+        let mut swapped = blob;
+        let cipher_a = swapped.sections.get("a.json").cloned().expect("cipher a");
+        let cipher_b = swapped.sections.get("b.json").cloned().expect("cipher b");
+        swapped.sections.insert("a.json".to_string(), cipher_b);
+        swapped.sections.insert("b.json".to_string(), cipher_a);
+        let swap_err =
+            restore(&swapped, 19).expect_err("cross-section ciphertext swap must fail AAD check");
+        assert!(swap_err.contains("backup authentication failed for section"));
+
+        // 3. file://localhost/... reference to an existing file on the active root/drive passes verify_references.
+        let manifest_toml = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let slashed = manifest_toml.to_string_lossy().replace('\\', "/");
+        let without_root = slashed
+            .split_once(":/")
+            .map(|(_, rest)| rest)
+            .or_else(|| slashed.strip_prefix('/'))
+            .unwrap_or(&slashed);
+        let localhost_url = format!("file://localhost/{without_root}");
+        let mut localhost_sections = BTreeMap::new();
+        localhost_sections.insert(
+            "ref.json".to_string(),
+            format!(r#"{{"manifest":"{localhost_url}"}}"#).into_bytes(),
+        );
+        let localhost_blob =
+            backup(&localhost_sections, 23, false).expect("backup localhost file ref");
+        let restored = restore(&localhost_blob, 23).expect("restore localhost file ref");
+        assert_eq!(restored, localhost_sections);
+    }
 }
