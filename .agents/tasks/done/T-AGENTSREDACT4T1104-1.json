@@ -1,0 +1,27 @@
+{
+    "id":  "T-AGENTSREDACT4T1104-1",
+    "title":  "D-OS-8: Expand inline unit test suites (3-\u003e4) across susi-agents adapter_upgrade, lib, registry, and susi-error redact",
+    "status":  "done",
+    "created_at":  "2026-11-04T08:00:00Z",
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-agents",
+                               "-p",
+                               "susi-error",
+                               "--lib"
+                           ]
+               },
+    "scope":  [
+                  "crates/susi-agents/src/adapter_upgrade.rs",
+                  "crates/susi-agents/src/lib.rs",
+                  "crates/susi-agents/src/registry.rs",
+                  "crates/susi-error/src/redact.rs",
+                  ".agents/tasks/T-AGENTSREDACT4T1104-1.json",
+                  ".agents/tasks/done/T-AGENTSREDACT4T1104-1.json"
+              ]
+}

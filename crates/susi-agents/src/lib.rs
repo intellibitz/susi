@@ -97,4 +97,24 @@ mod surface_tests {
             TypeId::of::<susi_core::agent_types::HighDensityContextStore>()
         );
     }
+
+    #[test]
+    fn re_exported_crate_modules_and_vendor_external_types_resolve_through_root() {
+        assert_eq!(
+            TypeId::of::<external::Adapter>(),
+            TypeId::of::<susi_vendor_agents::external::Adapter>()
+        );
+        assert_eq!(
+            TypeId::of::<external::AgentManager>(),
+            TypeId::of::<susi_vendor_agents::external::AgentManager>()
+        );
+        assert_eq!(
+            TypeId::of::<crate::susi_error::EaiError>(),
+            TypeId::of::<susi_error::EaiError>()
+        );
+        assert_eq!(
+            TypeId::of::<crate::susi_config::SusiConfig>(),
+            TypeId::of::<susi_config::SusiConfig>()
+        );
+    }
 }

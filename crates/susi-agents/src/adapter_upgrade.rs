@@ -151,4 +151,17 @@ mod tests {
         assert!(!dir.join("cfg").join("present.json").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn equal_version_on_active_adapter_is_rejected_as_downgrade_without_modifying_config() {
+        let (dir, manager) = manager_without("present");
+        let valid = Adapter::Command {
+            program: "echo".into(),
+            args: vec!["hi".into()],
+        };
+        let verdict = upgrade_adapter(&manager, "present", &valid, 1).unwrap();
+        assert_eq!(verdict, SwitchVerdict::RejectedDowngrade);
+        assert!(!dir.join("cfg").join("present.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

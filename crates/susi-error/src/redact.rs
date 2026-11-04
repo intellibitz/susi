@@ -156,4 +156,14 @@ mod tests {
             "keys: [REDACTED], [REDACTED], [REDACTED], short7, /home/developer-workspace"
         );
     }
+
+    #[test]
+    fn redact_patterns_handles_overlapping_or_adjacent_tokens_and_empty_inputs() {
+        assert_eq!(redact_patterns(&[], "sk-secret123"), "sk-secret123");
+        assert_eq!(contains_secret_pattern(&[], "sk-secret123"), None);
+
+        let overlapping = vec!["sk-".to_string(), "sk-live-".to_string()];
+        let redacted = redact_patterns(&overlapping, "first=sk-live-abc_123,second=sk-test-999!");
+        assert_eq!(redacted, "first=[REDACTED],second=[REDACTED]!");
+    }
 }

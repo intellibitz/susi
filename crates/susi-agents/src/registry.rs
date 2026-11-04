@@ -215,4 +215,43 @@ mod tests {
         reg.update_rank("no-such-agent", 0.5, "test");
         assert_eq!(reg.list_agents().len(), before);
     }
+
+    #[test]
+    fn register_agent_persists_new_non_core_profile_and_ignores_duplicate_name() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let before = reg.list_agents().len();
+        let custom_profile = AgentProfile {
+            name: "custom-scout-1104".to_string(),
+            description: "Custom non-core scout agent".to_string(),
+            categories: vec!["research".to_string()],
+            semantic_anchors: vec!["scout".to_string()],
+            base_rank: 0.75,
+            is_core: false,
+        };
+        reg.register_agent(custom_profile.clone());
+
+        let after_first = reg.list_agents();
+        assert_eq!(after_first.len(), before + 1);
+        assert!(after_first
+            .iter()
+            .any(|a| a.name == "custom-scout-1104" && !a.is_core));
+
+        let cap = crate::susi_core::registry::CapabilityRegistry::global()
+            .get_agent("custom-scout-1104")
+            .expect("registered in CapabilityRegistry::global()");
+        assert_eq!(cap.description, "Custom non-core scout agent");
+        assert!(!cap.is_core);
+
+        reg.register_agent(custom_profile);
+        let after_second = reg.list_agents();
+        assert_eq!(after_second.len(), before + 1);
+        assert_eq!(
+            after_second
+                .iter()
+                .filter(|a| a.name == "custom-scout-1104")
+                .count(),
+            1
+        );
+    }
 }
