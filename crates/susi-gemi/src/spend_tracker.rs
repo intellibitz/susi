@@ -387,4 +387,49 @@ mod inline_tests {
         };
         assert!(check_in(&ledger, &ceilings, &intent, 1_000_000).is_ok());
     }
+
+    #[test]
+    fn check_in_enforces_hourly_and_daily_caps_and_check_passes_when_uncapped() {
+        let mut ledger = UsageLedger::default();
+        ledger.record(UsageOutcome {
+            provider: "claude-sonnet".to_string(),
+            task_class: "chat".to_string(),
+            usage: crate::usage_accounting::TokenUsage::default(),
+            success: true,
+            latency_ms: 80,
+            unix_ms: 50_000_000,
+            agent: "test".to_string(),
+            mission: String::new(),
+            usd: 4.0,
+        });
+        let intent = SpendIntent {
+            provider: "claude-sonnet",
+            expected_usd: 2.0,
+            mission: "",
+        };
+
+        let hourly_cap = BudgetCeilings {
+            hourly_usd: Some(5.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            check_in(&ledger, &hourly_cap, &intent, 50_001_000)
+                .unwrap_err()
+                .window,
+            BudgetWindow::Hourly
+        );
+
+        let daily_cap = BudgetCeilings {
+            daily_usd: Some(5.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            check_in(&ledger, &daily_cap, &intent, 60_000_000)
+                .unwrap_err()
+                .window,
+            BudgetWindow::Daily
+        );
+
+        assert!(check(&intent).is_ok());
+    }
 }
