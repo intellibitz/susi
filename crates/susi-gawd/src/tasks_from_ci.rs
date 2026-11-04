@@ -90,4 +90,19 @@ mod tasks_from_ci_tests {
         assert_eq!(drafts[1].title, "Fix red CI: JobB / cargo clippy --all");
         assert_eq!(drafts[1].accept, "cargo clippy --all");
     }
+
+    #[test]
+    fn tasks_from_ci_passes_through_direct_cargo_test_check_as_accept_command() {
+        let drafts = tasks_from_ci(&[CiFailure {
+            job: "Linux".into(),
+            check: "cargo test --workspace".into(),
+            message: "assertion failed".into(),
+        }]);
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(
+            drafts[0].title,
+            "Fix red CI: Linux / cargo test --workspace"
+        );
+        assert_eq!(drafts[0].accept, "cargo test --workspace");
+    }
 }

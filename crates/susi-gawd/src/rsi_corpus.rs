@@ -370,4 +370,12 @@ mod inline_tests {
         assert_eq!(seeds.get("f-train"), Some(&11));
         assert_eq!(seeds.get("f-held"), Some(&22));
     }
+
+    #[test]
+    fn verify_integrity_rejects_duplicate_fixture_ids_in_corpus() {
+        let mut dup = sample_corpus();
+        let copy = dup.fixtures[0].clone();
+        dup.fixtures.push(copy);
+        assert!(dup.verify_integrity().is_err());
+    }
 }
