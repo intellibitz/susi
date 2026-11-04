@@ -130,3 +130,20 @@ fn piped_goal_runs_once_as_a_one_shot_mission() {
     assert!(stdout.contains("maple-2851"), "{stdout}");
     assert_eq!(stderr.matches("composition: cli").count(), 1, "{stderr}");
 }
+
+#[test]
+fn unit_isolate_home_redirects_home_and_userprofile_to_target_directory() {
+    let target = std::env::temp_dir().join(format!("susi-first-goal-unit-{}", std::process::id()));
+    let mut cmd = Command::new("git");
+    isolate_home(&mut cmd, &target);
+    let envs: std::collections::BTreeMap<_, _> = cmd
+        .get_envs()
+        .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_os_string())))
+        .collect();
+    assert_eq!(envs.get("HOME"), Some(&target.as_os_str().to_os_string()));
+    #[cfg(windows)]
+    assert_eq!(
+        envs.get("USERPROFILE"),
+        Some(&target.as_os_str().to_os_string())
+    );
+}

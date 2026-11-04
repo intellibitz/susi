@@ -1,0 +1,27 @@
+{
+  "id": "T-DAEMONINLINEB4T1104-1",
+  "title": "Expand 6 susi-daemon modules Wave B to 4 inline unit tests each",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "DAEMONINLINEB4T1104",
+  "created_unix": 1793796717,
+  "closed": {
+    "at_unix": 1793797408,
+    "commit": "a5caf0bc4320c1cd7c9d39d199da0033cb4c6ca9",
+    "by": "DAEMONINLINEB4T1104"
+  }
+}

@@ -429,4 +429,30 @@ mod park_tests {
         assert_eq!(short("0123456789abcdef"), "01234567");
         assert_eq!(short("abc"), "abc");
     }
+
+    #[test]
+    fn parked_constructors_and_path_helpers_preserve_codes_messages_and_slashes() {
+        let silent = Parked::silent();
+        assert_eq!(silent.code, 0);
+        assert!(silent.out.is_empty());
+        assert!(silent.err.is_empty());
+
+        let said = Parked::said("already on main");
+        assert_eq!(said.code, 0);
+        assert_eq!(said.out, "already on main");
+        assert!(said.err.is_empty());
+
+        let refused = Parked::refused(2, "not primary");
+        assert_eq!(refused.code, 2);
+        assert!(refused.out.is_empty());
+        assert_eq!(refused.err, "not primary");
+
+        assert_eq!(slashes(Path::new(r"a\b\c")), "a/b/c");
+        let tmp = std::env::temp_dir();
+        assert!(same_dir(&tmp, &tmp));
+        assert!(!same_dir(
+            Path::new("/nonexistent-path-alpha"),
+            Path::new("/nonexistent-path-beta")
+        ));
+    }
 }

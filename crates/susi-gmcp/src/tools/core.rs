@@ -2254,6 +2254,35 @@ impl CoreTools {
         ))
     }
 
+    /// The CLI's own mission (`susi <goal>`) run in the daemon. Unlike
+    /// `susi_solve`, it may start a stopped local engine on demand (as the
+    /// in-process goal does) and answers with one JSON document
+    /// `{text, status, exit_code}`, so a forwarding client takes its exit
+    /// code from the mission status rather than from the answer text.
+    #[tool(
+        name = "mission_run",
+        description = "Run a goal as `susi <goal>` does: a stopped local engine may be started on demand, and the result is one JSON document {text, status, exit_code} (exit_code 0 only for SUCCESS or COMPLETE). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace). Optional model: an advisory model hint.",
+        input_schema = args::typed::<args::MissionRun>()
+    )]
+    pub fn mission_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
+        let goal = arg
+            .as_str()
+            .or_else(|| arg.get("goal").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        if goal.trim().is_empty() {
+            return Err(EaiError::protocol(
+                "Usage: mission_run {goal, workspace?, model?}",
+            ));
+        }
+        let model = arg.get("model").and_then(|v| v.as_str());
+        let outcome = gawd::run_mission(goal, workspace, env!("CARGO_PKG_VERSION"), model);
+        if let Some(error) = outcome.get("error").and_then(|v| v.as_str()) {
+            return Err(EaiError::protocol(format!("mission_run: {error}")));
+        }
+        serde_json::to_string(&outcome).map_err(|e| EaiError::protocol(format!("mission_run: {e}")))
+    }
+
     #[tool(
         name = "power_reason",
         description = "Delegate complex reasoning to Power-Tier MCP remotes",

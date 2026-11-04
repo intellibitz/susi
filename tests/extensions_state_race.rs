@@ -176,3 +176,32 @@ fn a_pack_load_stays_active_and_pinned_under_concurrent_lists() {
         let _ = std::fs::remove_dir_all(&home);
     }
 }
+
+#[test]
+fn unit_sha256_hex_computes_deterministic_digest() {
+    let d1 = sha256_hex(b"cloud-vendors-payload");
+    let d2 = sha256_hex(b"cloud-vendors-payload");
+    assert_eq!(d1.len(), 64);
+    assert_eq!(d1, d2);
+    assert_ne!(d1, sha256_hex(b"different-payload"));
+}
+
+#[test]
+fn unit_install_pack_writes_manifest_and_cloud_vendors_with_matching_checksum() {
+    let home = scratch_home(999_001);
+    let extensions = home.join("extensions");
+    let digest = install_pack(&extensions, "unit-pack");
+    assert!(digest.starts_with("sha256:"));
+    let manifest_bytes = std::fs::read(extensions.join("unit-pack").join("manifest.json")).unwrap();
+    assert_eq!(digest, format!("sha256:{}", sha256_hex(&manifest_bytes)));
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).unwrap();
+    assert_eq!(manifest["id"], "unit-pack");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn unit_scratch_home_generates_distinct_paths_per_iteration() {
+    let h1 = scratch_home(1);
+    let h2 = scratch_home(2);
+    assert_ne!(h1, h2);
+}

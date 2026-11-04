@@ -92,6 +92,20 @@ fn zc_setup_workflow_cli_confines_defaults_to_instance_and_preserves_settings() 
         .contains("preserved"));
 }
 
+#[test]
+fn unit_zc_setup_workflow_empty_dir_detection_and_consent_serialization() {
+    let dir = scratch_home();
+    let mut plan = SetupPlan::detect(&dir);
+    plan.grant_consent(ConsentKind::CloudApiKey);
+    plan.grant_consent(ConsentKind::NetworkEgress);
+    let value = serde_json::to_value(&plan).expect("serialize plan");
+    assert!(value.is_object());
+    let roundtrip: SetupPlan = serde_json::from_value(value).expect("deserialize plan");
+    assert_eq!(roundtrip.available_engines, plan.available_engines);
+    assert_eq!(roundtrip.keys_present, plan.keys_present);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn scratch_home() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "susi-step1-{}-{}",

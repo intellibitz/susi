@@ -450,6 +450,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "mission_run",
+        "Run a goal as `susi <goal>` does and report its status and exit code",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::mission_run),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "power_reason",
         "Delegate complex reasoning to Power-Tier MCP remotes",
         MetaCategory::IntelligenceBridge,

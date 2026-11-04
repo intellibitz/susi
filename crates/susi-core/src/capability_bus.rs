@@ -242,3 +242,149 @@ impl CapabilityBus {
         })
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn register_rejects_empty_fields_and_duplicate_capability_ids() {
+        let mut bus = CapabilityBus::new();
+        assert!(matches!(
+            bus.register(CapabilityDescriptor::new(
+                "",
+                CapabilitySurface::Mcp,
+                "op",
+                "perm",
+                100,
+                10
+            )),
+            Err(CapabilityError::InvalidDescriptor(_))
+        ));
+        assert!(matches!(
+            bus.register(CapabilityDescriptor::new(
+                "cap.1",
+                CapabilitySurface::Mcp,
+                "op",
+                "perm",
+                0,
+                10
+            )),
+            Err(CapabilityError::InvalidDescriptor(_))
+        ));
+        let valid =
+            CapabilityDescriptor::new("cap.1", CapabilitySurface::Mcp, "op", "perm", 100, 10);
+        bus.register(valid.clone()).unwrap();
+        assert!(matches!(
+            bus.register(valid),
+            Err(CapabilityError::InvalidDescriptor(_))
+        ));
+    }
+
+    #[test]
+    fn discover_and_discover_surface_filter_sorted_descriptors() {
+        let mut bus = CapabilityBus::new();
+        bus.register(CapabilityDescriptor::new(
+            "b.http",
+            CapabilitySurface::Http,
+            "get",
+            "net.read",
+            500,
+            20,
+        ))
+        .unwrap();
+        bus.register(CapabilityDescriptor::new(
+            "a.mcp",
+            CapabilitySurface::Mcp,
+            "list",
+            "mcp.read",
+            500,
+            10,
+        ))
+        .unwrap();
+        let all = bus.discover();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].id, "a.mcp");
+        assert_eq!(all[1].id, "b.http");
+        let mcp_only = bus.discover_surface(CapabilitySurface::Mcp);
+        assert_eq!(mcp_only.len(), 1);
+        assert_eq!(mcp_only[0].id, "a.mcp");
+    }
+
+    #[test]
+    fn dispatch_enforces_unknown_capability_and_permission_checks() {
+        let mut bus = CapabilityBus::new();
+        bus.register(CapabilityDescriptor::new(
+            "cap.read",
+            CapabilitySurface::Adapter,
+            "read",
+            "fs.read",
+            100,
+            50,
+        ))
+        .unwrap();
+
+        let unknown = CapabilityRequest::new("cap.missing", "agent-1", ["fs.read".into()], 100, 50);
+        assert_eq!(
+            bus.dispatch(&unknown, |_| unreachable!()),
+            Err(CapabilityError::UnknownCapability("cap.missing".into()))
+        );
+
+        let denied = CapabilityRequest::new("cap.read", "agent-1", ["other.perm".into()], 100, 50);
+        assert_eq!(
+            bus.dispatch(&denied, |_| unreachable!()),
+            Err(CapabilityError::PermissionDenied("fs.read".into()))
+        );
+    }
+
+    #[test]
+    fn dispatch_enforces_timeout_and_budget_ceilings_and_returns_receipt() {
+        let mut bus = CapabilityBus::new();
+        bus.register(CapabilityDescriptor::new(
+            "cap.exec",
+            CapabilitySurface::A2a,
+            "run",
+            "a2a.run",
+            100,
+            50,
+        ))
+        .unwrap();
+
+        let req = CapabilityRequest::new("cap.exec", "agent-a", ["a2a.run".into()], 80, 40);
+        assert_eq!(
+            bus.dispatch(&req, |_| Ok(CapabilityInvocation {
+                output: json!(null),
+                elapsed_ms: 90,
+                cost_micros: 10,
+            })),
+            Err(CapabilityError::TimeoutExceeded {
+                elapsed_ms: 90,
+                limit_ms: 80,
+            })
+        );
+        assert_eq!(
+            bus.dispatch(&req, |_| Ok(CapabilityInvocation {
+                output: json!(null),
+                elapsed_ms: 20,
+                cost_micros: 45,
+            })),
+            Err(CapabilityError::BudgetExceeded {
+                cost_micros: 45,
+                limit_micros: 40,
+            })
+        );
+        let receipt = bus
+            .dispatch(&req, |_| {
+                Ok(CapabilityInvocation {
+                    output: json!({"ok": true}),
+                    elapsed_ms: 25,
+                    cost_micros: 30,
+                })
+            })
+            .unwrap();
+        assert_eq!(receipt.capability_id, "cap.exec");
+        assert_eq!(receipt.subject, "agent-a");
+        assert_eq!(receipt.cost_micros, 30);
+    }
+}
