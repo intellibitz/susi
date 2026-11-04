@@ -194,7 +194,7 @@ mod tests {
         });
         assert_eq!(
             reply_summary(&reply).unwrap(),
-            "first-artifact\nsecond-artifact".to_string()
+            "task completed: first-artifact\nsecond-artifact".to_string()
         );
     }
 }
