@@ -489,4 +489,33 @@ mod tests {
         )
         .is_err());
     }
+
+    #[test]
+    fn validate_and_check_portability_flag_empty_fields_zero_limits_and_azure_accelerators() {
+        let mut invalid = spec();
+        invalid.version = "wrong/v0".into();
+        invalid.model = "   ".into();
+        invalid.endpoints.clear();
+        invalid.runtime_requirements.cpu_cores = Some(0);
+        invalid.runtime_requirements.memory_mib = Some(0);
+        let issues = validate(&invalid);
+        assert!(issues.iter().any(|i| i.path == "/version"));
+        assert!(issues.iter().any(|i| i.path == "/model"));
+        assert!(issues.iter().any(|i| i.path == "/endpoints"));
+        assert!(issues
+            .iter()
+            .any(|i| i.path == "/runtime_requirements/cpu_cores"));
+        assert!(issues
+            .iter()
+            .any(|i| i.path == "/runtime_requirements/memory_mib"));
+
+        let candidate = spec();
+        let azure_issues = check_portability(&candidate, DeploymentTarget::AzureFoundry);
+        assert!(azure_issues
+            .iter()
+            .any(|i| i.path == "/runtime_requirements/accelerator"));
+
+        let local_issues = check_portability(&candidate, DeploymentTarget::Local);
+        assert!(local_issues.iter().any(|i| i.path == "/placement_policies"));
+    }
 }

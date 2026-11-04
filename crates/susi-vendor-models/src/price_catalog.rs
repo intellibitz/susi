@@ -155,4 +155,32 @@ mod price_catalog_tests {
         assert_eq!(back.lookup("claude").unwrap().output_usd_per_1m, 15.0);
         assert_eq!(PRICE_CHANNEL, "model-prices");
     }
+
+    #[test]
+    fn expected_cost_usd_blends_cache_hit_and_miss_rates_and_clamps_ratio() {
+        let mut cat = PriceCatalog::empty(3);
+        cat.insert(PriceEntry {
+            model_id: "cached-model".into(),
+            input_usd_per_1m: 4.0,
+            output_usd_per_1m: 10.0,
+            cache_hit_usd_per_1m: Some(1.0),
+            cache_miss_usd_per_1m: Some(5.0),
+        });
+        let blended = cat
+            .expected_cost_usd("cached-model", 1_000_000, 1_000_000, 0.5)
+            .unwrap();
+        assert!((blended - 13.0).abs() < 1e-9);
+
+        let clamped_low = cat
+            .expected_cost_usd("cached-model", 1_000_000, 1_000_000, -1.0)
+            .unwrap();
+        assert!((clamped_low - 15.0).abs() < 1e-9);
+
+        let clamped_high = cat
+            .expected_cost_usd("cached-model", 1_000_000, 1_000_000, 2.0)
+            .unwrap();
+        assert!((clamped_high - 11.0).abs() < 1e-9);
+
+        assert!(cat.expected_cost_usd("unknown", 100, 100, 0.5).is_none());
+    }
 }

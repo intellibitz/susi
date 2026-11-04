@@ -446,4 +446,23 @@ mod tests {
         assert_eq!(manager.reset("phi-4").unwrap().ollama_tag, "phi4");
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn pull_refuses_unmanaged_registry_tag_and_clear_preferred_is_idempotent() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-open-weight-pull-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let manager = OpenWeightManager::with_root(root.clone());
+        let pull_err = manager.pull("phi-4").unwrap_err().to_string();
+        assert!(pull_err.contains("[MODEL LICENSE]"), "{pull_err}");
+        assert_eq!(
+            manager.clear_preferred().unwrap(),
+            "no preferred open-weight model was set"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
 }
