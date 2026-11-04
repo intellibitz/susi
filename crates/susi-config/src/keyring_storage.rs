@@ -176,3 +176,102 @@ fn account(provider: &str) -> String {
 pub fn read_cloud_env(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encrypted_file_fallback_and_fake_keyring_roundtrip_and_bad_cipher_rejection() {
+        let mut fake = FakeKeyring::default();
+        assert_eq!(fake.get("susi-cloud-keys/openai").unwrap(), None);
+        fake.set("susi-cloud-keys/openai", "sk-fake-123").unwrap();
+        assert_eq!(
+            fake.get("susi-cloud-keys/openai").unwrap(),
+            Some("sk-fake-123".to_string())
+        );
+        fake.delete("susi-cloud-keys/openai").unwrap();
+        assert_eq!(fake.get("susi-cloud-keys/openai").unwrap(), None);
+
+        let mut enc = EncryptedFileFallback::with_key(0x5A);
+        enc.set("susi-cloud-keys/openai", "sk-secret-value")
+            .unwrap();
+        let stored_hex = enc
+            .map
+            .get("susi-cloud-keys/openai")
+            .expect("stored cipher entry");
+        assert_ne!(stored_hex, "sk-secret-value");
+        assert!(!stored_hex.contains("sk-secret"));
+        assert_eq!(
+            enc.get("susi-cloud-keys/openai").unwrap(),
+            Some("sk-secret-value".to_string())
+        );
+        enc.delete("susi-cloud-keys/openai").unwrap();
+        assert_eq!(enc.get("susi-cloud-keys/openai").unwrap(), None);
+
+        let mut clamped = EncryptedFileFallback::with_key(0);
+        assert_eq!(clamped.key, 1);
+        clamped
+            .set("susi-cloud-keys/anthropic", "sk-ant-999")
+            .unwrap();
+        assert_ne!(
+            clamped.map.get("susi-cloud-keys/anthropic").unwrap(),
+            "sk-ant-999"
+        );
+        assert_eq!(
+            clamped.get("susi-cloud-keys/anthropic").unwrap(),
+            Some("sk-ant-999".to_string())
+        );
+
+        assert_eq!(enc.decode("abc"), Err("bad cipher".to_string()));
+        assert!(enc.decode("zz").is_err());
+    }
+
+    #[test]
+    fn keyring_storage_env_override_precedence_and_cloud_env_migration() {
+        assert_eq!(
+            KeyringStorage::<FakeKeyring>::service_name(),
+            "susi-cloud-keys"
+        );
+
+        let mut store = KeyringStorage::new(FakeKeyring::default());
+        assert_eq!(store.get("openai").unwrap(), None);
+
+        store.put("openai", "backend_val").unwrap();
+        assert_eq!(
+            store.get("openai").unwrap(),
+            Some("backend_val".to_string())
+        );
+
+        store.set_env_override("susi-cloud-keys/openai", "override_val");
+        assert_eq!(
+            store.get("openai").unwrap(),
+            Some("override_val".to_string())
+        );
+        assert_eq!(
+            store.backend_mut().get("susi-cloud-keys/openai").unwrap(),
+            Some("backend_val".to_string())
+        );
+
+        let env_contents = "OPENAI_API_KEY=sk-1\n# comment\nANTHROPIC_API_KEY=sk-2\n";
+        let mut mig_store = KeyringStorage::new(FakeKeyring::default());
+        let migrated = mig_store.migrate_cloud_env(env_contents).unwrap();
+        assert_eq!(migrated, 2);
+        assert_eq!(mig_store.get("openai").unwrap(), Some("sk-1".to_string()));
+        assert_eq!(
+            mig_store.get("anthropic").unwrap(),
+            Some("sk-2".to_string())
+        );
+
+        let dir =
+            std::env::temp_dir().join(format!("susi-keyring-storage-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let env_path = dir.join("cloud.env");
+        std::fs::write(&env_path, env_contents).expect("write cloud.env");
+        let loaded_text = read_cloud_env(&env_path).expect("read cloud.env");
+        assert_eq!(loaded_text, env_contents);
+        assert!(read_cloud_env(&dir.join("missing.env")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
