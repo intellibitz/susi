@@ -80,3 +80,85 @@ fn vc_201_055_cloud_reconciler_desired_observed_state() {
     assert_eq!(observed.active_replicas, 2);
     assert_eq!(observed.healthy_replicas, 2);
 }
+
+#[test]
+fn vc_201_055_scale_out_and_scale_in_adjust_replicas_within_desired_bounds() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-scale".into(),
+        target_backend: "runpod".into(),
+        model_id: "qwen-72b".into(),
+        min_replicas: 3,
+        max_replicas: 5,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-scale".into(),
+        target_backend: "runpod".into(),
+        model_id: "qwen-72b".into(),
+        active_replicas: 1,
+        healthy_replicas: 1,
+        phase: DeploymentPhase::Healthy,
+        last_operation_id: None,
+        observed_generation: 1,
+    };
+
+    let up = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(up.action, ReconcileAction::ScaleUp);
+    assert_eq!(observed.active_replicas, 3);
+    assert_eq!(observed.healthy_replicas, 3);
+
+    observed.active_replicas = 8;
+    observed.healthy_replicas = 8;
+    let down = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(down.action, ReconcileAction::ScaleDown);
+    assert_eq!(observed.active_replicas, 5);
+    assert_eq!(observed.healthy_replicas, 5);
+}
+
+#[test]
+fn vc_201_055_rollback_without_known_good_generation_returns_err() {
+    let mut reconciler = CloudReconciler::new();
+    let mut desired = DeploymentDesiredState {
+        deployment_id: "dep-no-history".into(),
+        target_backend: "runpod".into(),
+        model_id: "qwen-72b".into(),
+        min_replicas: 1,
+        max_replicas: 2,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-no-history".into(),
+        target_backend: "runpod".into(),
+        model_id: "qwen-72b".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+    reconciler.reconcile(&desired, &mut observed);
+    reconciler.run_health_check(&desired, &mut observed, false);
+    assert!(reconciler.rollback(&mut desired, &mut observed).is_err());
+}
+
+#[test]
+fn vc_201_055_compute_operation_id_is_deterministic_and_sensitive_to_inputs() {
+    let id1 =
+        CloudReconciler::compute_operation_id("dep-a", 1, "runpod", ReconcileAction::Provision);
+    let id2 =
+        CloudReconciler::compute_operation_id("dep-a", 1, "runpod", ReconcileAction::Provision);
+    assert_eq!(id1, id2);
+
+    let diff_gen =
+        CloudReconciler::compute_operation_id("dep-a", 2, "runpod", ReconcileAction::Provision);
+    let diff_backend =
+        CloudReconciler::compute_operation_id("dep-a", 1, "modal", ReconcileAction::Provision);
+    let diff_action =
+        CloudReconciler::compute_operation_id("dep-a", 1, "runpod", ReconcileAction::ScaleUp);
+    assert_ne!(id1, diff_gen);
+    assert_ne!(id1, diff_backend);
+    assert_ne!(id1, diff_action);
+}

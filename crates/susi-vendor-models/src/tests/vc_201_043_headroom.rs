@@ -28,3 +28,35 @@ fn vc_201_043_accel_headroom_reserved_on_runtime_path() {
     assert_eq!(p.admit(1), AdmitDecision::RejectedInsufficient);
     assert_eq!(p.reserved_bytes, 950);
 }
+
+#[test]
+fn vc_201_043_headroom_scales_linearly_across_pool_sizes() {
+    for (total_bytes, expected_headroom) in [(0, 0), (19, 0), (20, 1), (20_000, 1_000)] {
+        let p = AccelPool {
+            total_bytes,
+            reserved_bytes: 0,
+        };
+        assert_eq!(p.headroom(), expected_headroom);
+    }
+}
+
+#[test]
+fn vc_201_043_headroom_preserved_across_multiple_sequential_admissions_and_releases() {
+    let mut p = AccelPool {
+        total_bytes: 2_000,
+        reserved_bytes: 0,
+    };
+    assert_eq!(p.headroom(), 100);
+    assert_eq!(
+        p.admit(1_000),
+        AdmitDecision::Admitted { reservation: 1_000 }
+    );
+    assert_eq!(p.admit(900), AdmitDecision::Admitted { reservation: 900 });
+    assert_eq!(p.reserved_bytes, 1_900);
+    assert_eq!(p.admit(1), AdmitDecision::RejectedInsufficient);
+
+    p.release(500);
+    assert_eq!(p.reserved_bytes, 1_400);
+    assert_eq!(p.admit(500), AdmitDecision::Admitted { reservation: 500 });
+    assert_eq!(p.reserved_bytes, 1_900);
+}
