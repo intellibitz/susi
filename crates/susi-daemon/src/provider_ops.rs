@@ -904,4 +904,13 @@ mod tests {
                 .is_some_and(|s| !s.is_empty())
         );
     }
+
+    #[test]
+    fn openrouter_models_offline_and_vendor_needs_model_check() {
+        assert!(Vendor::OpenRouter.needs_model("reset").is_err());
+        assert!(Vendor::Frontier.needs_model("reset").is_ok());
+        assert!(Vendor::OpenWeight.needs_model("configure").is_ok());
+        let catalog = openrouter_models(false, 5).expect("offline openrouter catalog");
+        assert!(catalog.is_array() || catalog.is_object());
+    }
 }

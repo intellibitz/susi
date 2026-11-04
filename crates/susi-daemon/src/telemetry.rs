@@ -45,4 +45,10 @@ mod inline_tests {
         let empty = TelemetrySnapshot::empty();
         assert!(!empty.has_readings());
     }
+
+    #[test]
+    fn sample_os_field_matches_std_env_consts_os() {
+        let snap = sample();
+        assert_eq!(snap.os, std::env::consts::OS);
+    }
 }

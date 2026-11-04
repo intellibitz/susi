@@ -30,6 +30,27 @@ fn emit_final_report(report: &SusiMissionReport, callback: &dyn Fn(String)) {
     callback(report.final_answer_for_sink());
 }
 
+fn cancelled_report(
+    goal: &str,
+    workspace: &Path,
+    session: Option<&std::sync::Arc<crate::susi_core::capture::EvidenceSession>>,
+    callback: &dyn Fn(String),
+) -> SusiMissionReport {
+    let mut report = SusiMissionReport {
+        goal: goal.to_string(),
+        status: "CANCELLED".to_string(),
+        agents: Vec::new(),
+        interactions: Vec::new(),
+        plan: None,
+        final_answer: "[MISSION CANCELLED] Mission cancelled by caller.".to_string(),
+    };
+    attach_evidence_ledger(&mut report, session, workspace);
+    mission_trace!("{}", report.completion_message());
+    mission_trace!("{}", report.to_protocol_format(true));
+    emit_final_report(&report, callback);
+    report
+}
+
 fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
     let source = format!("tool:{name}");
     // A mission plan never downloads a model (`USER_REQUEST_ONLY_TOOLS`).
@@ -302,6 +323,9 @@ impl SusiMasterAgent {
             .as_ref()
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
+        if crate::susi_core::progress::is_cancelled() {
+            return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+        }
 
         mission_trace!("<thinking>");
 
@@ -328,6 +352,10 @@ impl SusiMasterAgent {
         } else {
             "Answering directly"
         });
+        if crate::susi_core::progress::is_cancelled() {
+            drop(_guard);
+            return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+        }
         // Hardware/model inventories and the complete genome audit belong to
         // swarm dispatch. A read-only question needs neither before inference.
         if manifold.requires_swarm {
@@ -470,6 +498,10 @@ impl SusiMasterAgent {
             mission_trace!("\n[DETAILED SWARM SYNTHESIS LOGS]");
             mission_trace!("- [Recruited Agent] SafetyAgent (Provider: Local Core) cleared Read safety validation.");
             mission_trace!("- [Recruited Agent] SecurityAgent (Provider: Local Core) cleared injection validation.");
+            if crate::susi_core::progress::is_cancelled() {
+                drop(_guard);
+                return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+            }
 
             let lower_goal = goal.trim().to_lowercase();
             let system_read =
@@ -582,7 +614,15 @@ impl SusiMasterAgent {
             mission_trace!();
 
             mission_trace!("\n[SUBSTRATE VERIFICATION RESULTS]");
+            if crate::susi_core::progress::is_cancelled() {
+                drop(_guard);
+                return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+            }
             crate::susi_core::progress::report("Verifying the answer");
+            if crate::susi_core::progress::is_cancelled() {
+                drop(_guard);
+                return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+            }
             let mut verification_failed = false;
             let final_answer =
                 match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
@@ -672,6 +712,10 @@ impl SusiMasterAgent {
             // A confined native read is authoritative, including a missing
             // file or rejected receipt. Model recovery cannot supply that
             // observation and must not turn the error into invented contents.
+            if crate::susi_core::progress::is_cancelled() {
+                drop(_guard);
+                return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+            }
             if system_read.is_none() {
                 crate::cloud_recovery::recover(
                     &mut report,
@@ -682,6 +726,10 @@ impl SusiMasterAgent {
                     None,
                 );
             }
+            if crate::susi_core::progress::is_cancelled() {
+                drop(_guard);
+                return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+            }
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             mission_trace!("{}", report.completion_message());
             drop(_guard);
@@ -690,14 +738,30 @@ impl SusiMasterAgent {
             return report;
         }
 
+        if crate::susi_core::progress::is_cancelled() {
+            drop(_guard);
+            return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+        }
         crate::susi_core::progress::report("Running the agent swarm");
+        if crate::susi_core::progress::is_cancelled() {
+            drop(_guard);
+            return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+        }
         let start = std::time::Instant::now();
         let res = self.solve_with_streaming_trace(&goal, workspace, version, &|_| {});
         let elapsed = start.elapsed();
+        if crate::susi_core::progress::is_cancelled() {
+            drop(_guard);
+            return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+        }
         crate::susi_core::progress::report(&format!(
             "Agent swarm finished in {:.1} s",
             elapsed.as_secs_f64()
         ));
+        if crate::susi_core::progress::is_cancelled() {
+            drop(_guard);
+            return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+        }
 
         mission_trace!("\n- [Swarm Execution Latency] {:?}", elapsed);
 
@@ -711,6 +775,10 @@ impl SusiMasterAgent {
                     session.clone(),
                     None,
                 );
+                if crate::susi_core::progress::is_cancelled() {
+                    drop(_guard);
+                    return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+                }
                 attach_evidence_ledger(&mut report, session.as_ref(), workspace);
                 mission_trace!("{}", report.completion_message());
                 drop(_guard);
@@ -719,6 +787,10 @@ impl SusiMasterAgent {
                 report
             }
             Err(e) => {
+                if crate::susi_core::progress::is_cancelled() {
+                    drop(_guard);
+                    return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+                }
                 mission_trace!("[MISSION FAILED] {}", e);
                 let mut err_report = SusiMissionReport {
                     goal: goal.to_string(),
@@ -736,6 +808,10 @@ impl SusiMasterAgent {
                     session.clone(),
                     None,
                 );
+                if crate::susi_core::progress::is_cancelled() {
+                    drop(_guard);
+                    return cancelled_report(&goal, workspace, session.as_ref(), _callback);
+                }
                 attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
                 mission_trace!("{}", err_report.completion_message());
                 drop(_guard);
@@ -763,6 +839,9 @@ impl SusiMasterAgent {
         // 1. Swarm Supervision
         let (interactions, agents) =
             crate::amas::SusiSupervisor::supervise_mission(&goal, workspace);
+        if crate::susi_core::progress::is_cancelled() {
+            return Err(crate::susi_error::EaiError::governance("Mission cancelled"));
+        }
 
         for agent in &agents {
             mission_trace!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
@@ -814,6 +893,9 @@ impl SusiMasterAgent {
                 _callback,
             )
         };
+        if crate::susi_core::progress::is_cancelled() {
+            return Err(crate::susi_error::EaiError::governance("Mission cancelled"));
+        }
 
         mission_trace!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
         let mut verification_failed = false;
@@ -2321,5 +2403,52 @@ mod cli_output_contract {
                 out.push(path);
             }
         }
+    }
+
+    #[test]
+    fn solve_stream_report_stops_at_phase_boundary_when_cancelled() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-cancel-phase-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("tempdir");
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let trigger = cancel.clone();
+        let phases = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen = phases.clone();
+        let sink: crate::susi_core::progress::Sink = std::sync::Arc::new(move |line: &str| {
+            seen.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(line.to_string());
+            if line == "Answering directly" || line == "Planning the mission" {
+                trigger.store(true, std::sync::atomic::Ordering::Release);
+            }
+        });
+        let report = crate::susi_core::progress::with_sink(Some(sink), || {
+            crate::susi_core::progress::with_cancel(Some(cancel), || {
+                super::SusiMasterAgent::new().solve_stream_report(
+                    "version",
+                    &dir,
+                    "0.21.47",
+                    &|_| {},
+                )
+            })
+        });
+        assert_eq!(report.status, "CANCELLED");
+        assert!(!report.is_success());
+        assert_eq!(report.exit_code(), std::process::ExitCode::FAILURE);
+        let recorded_phases = phases.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        assert!(
+            recorded_phases.iter().any(|l| l == "Mission started"),
+            "{recorded_phases:?}"
+        );
+        assert!(
+            !recorded_phases.iter().any(|l| l == "Verifying the answer"),
+            "cancelled mission must stop before verification: {recorded_phases:?}"
+        );
+        let trace_text = std::fs::read_to_string(dir.join(".susi/last_mission_trace.json"))
+            .expect("cancelled mission must persist trace");
+        let trace: serde_json::Value = serde_json::from_str(&trace_text).expect("trace json");
+        assert_eq!(trace["status"], "CANCELLED");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

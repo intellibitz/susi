@@ -131,4 +131,12 @@ mod inline_tests {
             TaskClass::Reflex
         ));
     }
+
+    #[test]
+    fn coding_tier_satisfies_code_and_reflex_floors_but_not_reasoning() {
+        assert!(meets_floor("qwen2.5-coder", TaskClass::Reflex));
+        assert!(meets_floor("qwen2.5-coder", TaskClass::Code));
+        assert!(!meets_floor("qwen2.5-coder", TaskClass::Reasoning));
+        assert!(meets_floor("deepseek-r1", TaskClass::Code));
+    }
 }

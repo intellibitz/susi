@@ -701,4 +701,32 @@ mod tests {
             .and_then(|v| v.as_array())
             .is_some());
     }
+
+    #[test]
+    fn ecosystem_start_and_explain_validate_required_id_and_absolute_dir() {
+        let handler = GemiPlaneHandler;
+        let start_err = handler
+            .handle(topics::GEMI_ECOSYSTEM_START, json!({}))
+            .expect_err("missing id must fail");
+        assert!(start_err.contains("id is required"), "{start_err}");
+
+        let explain_missing = handler
+            .handle(topics::GEMI_ECOSYSTEM_EXPLAIN, json!({}))
+            .expect_err("missing id must fail");
+        assert!(
+            explain_missing.contains("id is required"),
+            "{explain_missing}"
+        );
+
+        let explain_rel = handler
+            .handle(
+                topics::GEMI_ECOSYSTEM_EXPLAIN,
+                json!({ "id": "ollama", "dir": "relative/dir" }),
+            )
+            .expect_err("relative dir must fail");
+        assert!(
+            explain_rel.contains("dir must be an absolute path"),
+            "{explain_rel}"
+        );
+    }
 }

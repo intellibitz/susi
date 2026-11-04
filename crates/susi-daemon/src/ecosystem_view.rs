@@ -189,4 +189,16 @@ mod inline_tests {
             assert!(item["installed"].is_boolean());
         }
     }
+
+    #[test]
+    fn runtime_inventory_ids_are_unique_and_non_empty() {
+        let inv = runtime_inventory();
+        let mut seen = std::collections::HashSet::new();
+        for item in &inv {
+            let id = item["id"].as_str().expect("id string");
+            assert!(!id.trim().is_empty());
+            assert!(seen.insert(id.to_string()), "duplicate runtime id: {id}");
+        }
+        assert_eq!(seen.len(), inv.len());
+    }
 }

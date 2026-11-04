@@ -163,4 +163,26 @@ mod tests {
         };
         assert_eq!(scheduler.apply_pheromone(&pheromone), Some(32));
     }
+
+    #[test]
+    fn apply_delta_clamps_within_bounds_and_thermal_or_power_stress_triggers_throttle() {
+        let scheduler = ElasticScheduler::new(2, 10);
+        assert_eq!(scheduler.target_concurrency(), 10);
+        assert_eq!(scheduler.apply_delta(-20), 2);
+        assert_eq!(scheduler.apply_delta(0), 2);
+        assert_eq!(scheduler.apply_delta(5), 7);
+        assert_eq!(scheduler.apply_delta(50), 10);
+
+        let thermal = SwarmPheromone {
+            id: "t".to_string(),
+            topic: "hardware.stress".to_string(),
+            emitter_id: "susi-runtime-admin".to_string(),
+            kind: crate::susi_abi::swarm::PheromoneKind::Observation,
+            intensity: 1.0,
+            payload: serde_json::json!({ "thermal_stress": true }),
+            ttl_ms: 1000,
+            deposited_at: 0,
+        };
+        assert_eq!(scheduler.apply_pheromone(&thermal), Some(5));
+    }
 }

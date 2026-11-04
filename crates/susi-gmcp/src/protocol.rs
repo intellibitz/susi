@@ -532,11 +532,32 @@ impl ServerHandler for GmcpService {
                         if task.is_cancel_requested() {
                             return Err(rmcp::task_manager::TaskExit::Cancelled);
                         }
-                        // Synchronous registry tools cannot be interrupted after entry. A late
-                        // cancellation remains a request, never a false claim of rollback.
-                        execute_registry(name, args, workspace, None)
-                            .await
-                            .map_err(Into::into)
+                        // Synchronous registry tools other than `mission_run` cannot be
+                        // interrupted after entry. A late cancellation remains a request,
+                        // never a false claim of rollback.
+                        let (cancel, cancel_watch) = if name == "mission_run" {
+                            let flag = Arc::new(std::sync::atomic::AtomicBool::new(
+                                task.is_cancel_requested(),
+                            ));
+                            let observed = flag.clone();
+                            let watched_task = task.clone();
+                            let watch = tokio::spawn(async move {
+                                watched_task.cancelled().await;
+                                observed.store(true, std::sync::atomic::Ordering::Release);
+                            });
+                            (Some(flag), Some(watch))
+                        } else {
+                            (None, None)
+                        };
+                        let result = execute_registry(name, args, workspace, None, cancel).await;
+                        if let Some(watch) = cancel_watch {
+                            watch.abort();
+                        }
+                        let result = result.map_err(rmcp::task_manager::TaskExit::from)?;
+                        if task.is_cancel_requested() {
+                            return Err(rmcp::task_manager::TaskExit::Cancelled);
+                        }
+                        Ok(result)
                     })
                 });
             return Ok(CallToolResponse::Task(CreateTaskResult::new(task)));
@@ -553,6 +574,23 @@ impl ServerHandler for GmcpService {
                 .await
                 .map_err(internal)?;
         }
+        // `mission_run` checks this cooperative flag at phase boundaries and
+        // stops early with status `CANCELLED` when `notifications/cancelled`
+        // arrives; other synchronous registry tools run to completion.
+        let (cancel, cancel_watch) = if name == "mission_run" {
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(
+                context.ct.is_cancelled(),
+            ));
+            let observed = flag.clone();
+            let ct = context.ct.clone();
+            let watch = tokio::spawn(async move {
+                ct.cancelled().await;
+                observed.store(true, std::sync::atomic::Ordering::Release);
+            });
+            (Some(flag), Some(watch))
+        } else {
+            (None, None)
+        };
         // A watched call relays the tool's own progress lines between the
         // started (0.0) and finished (1.0) notifications.
         let result = match token.clone() {
@@ -564,13 +602,17 @@ impl ServerHandler for GmcpService {
                 let relay = tokio::spawn(relay_progress(context.peer.clone(), token, rx));
                 // The sink (and with it the channel's sender) is dropped
                 // when the tool returns, which ends the relay.
-                let result = execute_registry(name, args, workspace, Some(sink)).await;
+                let result = execute_registry(name, args, workspace, Some(sink), cancel).await;
                 let _ = relay.await;
-                result?
+                result
             }
-            None => execute_registry(name, args, workspace, None).await?,
+            None => execute_registry(name, args, workspace, None, cancel).await,
         };
-        if let Some(token) = token {
+        if let Some(watch) = cancel_watch {
+            watch.abort();
+        }
+        let result = result?;
+        if let Some(token) = token.filter(|_| !context.ct.is_cancelled()) {
             context
                 .peer
                 .notify_progress(
@@ -875,10 +917,13 @@ async fn execute_registry(
     args: Value,
     workspace: PathBuf,
     progress: Option<crate::susi_core::progress::Sink>,
+    cancel: Option<crate::susi_core::progress::Cancel>,
 ) -> Result<CallToolResult, ErrorData> {
     let text = tokio::task::spawn_blocking(move || {
         crate::susi_core::progress::with_sink(progress, || {
-            ToolRegistry::execute_tool(&name, &args, &workspace)
+            crate::susi_core::progress::with_cancel(cancel, || {
+                ToolRegistry::execute_tool(&name, &args, &workspace)
+            })
         })
     })
     .await
