@@ -2,7 +2,8 @@
   "schema": "susi/task/v1",
   "id": "T-ERRREDACTA2A1104-1",
   "title": "test(error,gawd-a2a): add secret redaction and A2A task-store reaper contract tests",
-  "status": "in_progress",
+  "status": "done",
+  "completed_at": "2026-11-04T03:32:00Z",
   "created_at": "2026-11-04T03:25:00Z",
   "owner": "ERRREDACTA2A1104",
   "touch": [
