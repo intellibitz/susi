@@ -34,3 +34,14 @@ fn vc_201_083_retrieval_cannot_resurrect() {
     s.cache.insert("m3".into(), "resurrect".into());
     assert!(s.get("m3").is_none(), "tombstone blocks cache resurrection");
 }
+
+#[test]
+fn vc_201_083_insert_populates_all_stores_and_get_reads_primary_before_delete() {
+    let mut s = MemoryStores::default();
+    s.insert("m4", "payload-4");
+    assert_eq!(s.get("m4"), Some("payload-4"));
+    assert!(s.get("nonexistent").is_none());
+    assert_eq!(s.cache.get("m4").map(String::as_str), Some("payload-4"));
+    assert!(s.semantic_index.contains("m4"));
+    assert_eq!(s.replica.get("m4").map(String::as_str), Some("payload-4"));
+}
