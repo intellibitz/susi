@@ -58,3 +58,42 @@ fn tui_top_idle_queue_and_no_gpu() {
     assert!(frame.contains("(none)"));
     assert!(frame.contains("(idle)"));
 }
+
+#[test]
+fn tui_top_renders_vram_usage_and_temperature_metrics() {
+    let frame = render_frame(&TopSnapshot {
+        providers: vec![],
+        gpu: Some(GpuRow {
+            util_pct: 88.4,
+            temp_c: 71.2,
+            vram_used_mb: 4096,
+            vram_total_mb: 16384,
+        }),
+        queue: vec![],
+    });
+    assert!(frame.contains("util=88% temp=71C vram=4096/16384MB"));
+}
+
+#[test]
+fn tui_top_renders_multiple_queued_tasks_in_order() {
+    let frame = render_frame(&TopSnapshot {
+        providers: vec![],
+        gpu: None,
+        queue: vec![
+            QueueRow {
+                task_id: "T-ALPHA-1".into(),
+                holder: "GEMINI".into(),
+                title: "first mission".into(),
+            },
+            QueueRow {
+                task_id: "T-BETA-2".into(),
+                holder: "CLAUDE".into(),
+                title: "second mission".into(),
+            },
+        ],
+    });
+    let first_pos = frame.find("T-ALPHA-1 [GEMINI] first mission").unwrap();
+    let second_pos = frame.find("T-BETA-2 [CLAUDE] second mission").unwrap();
+    assert!(first_pos < second_pos);
+    assert!(!frame.contains("(idle)"));
+}
