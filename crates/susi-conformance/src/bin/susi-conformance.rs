@@ -433,4 +433,56 @@ mod tests {
         assert!(!defaults.json);
         assert_eq!(defaults.max_ms, None);
     }
+
+    #[test]
+    fn resolve_default_token_file_with_reads_ports_json_in_dot_susi_and_handles_all_none_inputs() {
+        let temp = std::env::temp_dir().join(format!(
+            "susi-conformance-dotsusi-ports-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let user_home = temp.join("user_home");
+        let dot_susi = user_home.join(".susi");
+        std::fs::create_dir_all(&dot_susi).unwrap();
+        let custom_dot_tok = temp.join("dot_susi_custom_tok");
+        std::fs::write(
+            dot_susi.join("ports.json"),
+            serde_json::json!({ "api_token_path": custom_dot_tok.to_string_lossy() }).to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_default_token_file_with(None, Some(&user_home), None, None, "linux"),
+            Some(custom_dot_tok)
+        );
+
+        let win_user_no_dot = temp.join("win_user_no_dot");
+        std::fs::create_dir_all(&win_user_no_dot).unwrap();
+        assert_eq!(
+            resolve_default_token_file_with(None, Some(&win_user_no_dot), None, None, "windows"),
+            Some(win_user_no_dot.join(".susi").join("api_token"))
+        );
+
+        let empty = Path::new("");
+        for os in ["windows", "macos", "linux"] {
+            assert_eq!(
+                resolve_default_token_file_with(None, None, None, None, os),
+                None
+            );
+            assert_eq!(
+                resolve_default_token_file_with(
+                    Some(empty),
+                    Some(empty),
+                    Some(empty),
+                    Some(empty),
+                    os
+                ),
+                None
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
 }
