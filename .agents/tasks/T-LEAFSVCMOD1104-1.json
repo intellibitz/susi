@@ -1,0 +1,18 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-LEAFSVCMOD1104-1",
+  "agent": "LEAFSVCMOD1104",
+  "branch": "leaf-services-mod-1104",
+  "goal": "Add module-local inline unit tests to the six susi-leaf-services modules (auth, config_svc, error_svc, native_svc, paths_svc, sandbox_svc) using only env-independent assertions (D-OS-8)",
+  "touch": [
+    "crates/susi-leaf-services/src/auth.rs",
+    "crates/susi-leaf-services/src/config_svc.rs",
+    "crates/susi-leaf-services/src/error_svc.rs",
+    "crates/susi-leaf-services/src/native_svc.rs",
+    "crates/susi-leaf-services/src/paths_svc.rs",
+    "crates/susi-leaf-services/src/sandbox_svc.rs"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-leaf-services", "--all-features"]
+  }
+}
