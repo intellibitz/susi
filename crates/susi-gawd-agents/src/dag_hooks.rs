@@ -72,4 +72,55 @@ mod tests {
         assert!(out[0].1.contains("goal=verify"));
         assert!(out[0].1.contains("seed=ok"));
     }
+
+    #[test]
+    fn run_with_forwards_empty_and_multi_entry_outputs_from_shared_blackboard() {
+        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(64));
+        bb.insert("step_1".to_string(), "plan-complete".to_string());
+        bb.insert("step_2".to_string(), "audit-clean".to_string());
+        let ws = Path::new("/tmp/multi-dag-ws");
+
+        fn empty_hook(
+            _goal: &str,
+            _workspace: &Path,
+            _blackboard: &MissionBlackboard,
+        ) -> Vec<(String, String)> {
+            Vec::new()
+        }
+
+        fn multi_hook(
+            goal: &str,
+            workspace: &Path,
+            blackboard: &MissionBlackboard,
+        ) -> Vec<(String, String)> {
+            vec![
+                (
+                    "Stage1".to_string(),
+                    format!("{goal}:{}", blackboard.get("step_1").unwrap_or_default()),
+                ),
+                (
+                    "Stage2".to_string(),
+                    format!(
+                        "{}:{}",
+                        workspace.display(),
+                        blackboard.get("step_2").unwrap_or_default()
+                    ),
+                ),
+            ]
+        }
+
+        assert!(run_with(Some(empty_hook), "ship", ws, &bb).is_empty());
+
+        let out = run_with(Some(multi_hook), "ship", ws, &bb);
+        assert_eq!(
+            out,
+            vec![
+                ("Stage1".to_string(), "ship:plan-complete".to_string()),
+                (
+                    "Stage2".to_string(),
+                    format!("{}:audit-clean", ws.display())
+                ),
+            ]
+        );
+    }
 }

@@ -150,7 +150,10 @@ pub fn ratchet_unsafe(
 
 #[cfg(test)]
 mod tests {
-    use super::{ratchet_unsafe, GeigerVerdict, SbomEntry, UnsafeExposure};
+    use super::{
+        ratchet_unsafe, sbom_changes, GeigerVerdict, SbomChange, SbomEntry, UnsafeBaseline,
+        UnsafeExposure,
+    };
 
     #[test]
     fn flags_new_exposure_and_ignores_first_party_exceptions() {
@@ -186,6 +189,103 @@ mod tests {
             GeigerVerdict::NeedsReview {
                 new_crates: vec!["new".into()]
             }
+        );
+    }
+
+    #[test]
+    fn sbom_changes_and_ratchet_unsafe_track_version_drift_and_unsafe_growth() {
+        let base_sbom = [
+            SbomEntry {
+                crate_name: "same".into(),
+                version: "1.0.0".into(),
+                provenance: "registry".into(),
+            },
+            SbomEntry {
+                crate_name: "upgraded".into(),
+                version: "1.0.0".into(),
+                provenance: "registry".into(),
+            },
+            SbomEntry {
+                crate_name: "removed".into(),
+                version: "0.9.0".into(),
+                provenance: "registry".into(),
+            },
+        ];
+        let cur_sbom = [
+            SbomEntry {
+                crate_name: "same".into(),
+                version: "1.0.0".into(),
+                provenance: "registry".into(),
+            },
+            SbomEntry {
+                crate_name: "upgraded".into(),
+                version: "1.1.0".into(),
+                provenance: "registry".into(),
+            },
+            SbomEntry {
+                crate_name: "added".into(),
+                version: "0.2.0".into(),
+                provenance: "registry".into(),
+            },
+        ];
+        let diff = sbom_changes(&base_sbom, &cur_sbom);
+        assert_eq!(
+            diff,
+            vec![
+                SbomChange {
+                    crate_name: "added".into(),
+                    from: None,
+                    to: Some("0.2.0".into()),
+                },
+                SbomChange {
+                    crate_name: "upgraded".into(),
+                    from: Some("1.0.0".into()),
+                    to: Some("1.1.0".into()),
+                },
+                SbomChange {
+                    crate_name: "removed".into(),
+                    from: Some("0.9.0".into()),
+                    to: None,
+                },
+            ]
+        );
+
+        let base_exp = [UnsafeExposure {
+            crate_name: "upgraded".into(),
+            unsafe_fns: 2,
+            first_party_exception: false,
+        }];
+        let reduced_exp = [UnsafeExposure {
+            crate_name: "upgraded".into(),
+            unsafe_fns: 1,
+            first_party_exception: false,
+        }];
+        assert_eq!(
+            ratchet_unsafe(&base_exp, &reduced_exp, &base_sbom, &cur_sbom),
+            GeigerVerdict::Clean
+        );
+
+        let increased_exp = [UnsafeExposure {
+            crate_name: "upgraded".into(),
+            unsafe_fns: 3,
+            first_party_exception: false,
+        }];
+        assert_eq!(
+            ratchet_unsafe(&base_exp, &increased_exp, &base_sbom, &cur_sbom),
+            GeigerVerdict::NeedsReview {
+                new_crates: vec!["upgraded".into()],
+            }
+        );
+
+        let parsed = serde_json::from_str::<UnsafeBaseline>("{}");
+        assert_eq!(
+            parsed.ok(),
+            Some(UnsafeBaseline {
+                features: "default".into(),
+                exposure: Vec::new(),
+                sbom: Vec::new(),
+                recorded_unix: 0,
+            })
         );
     }
 }

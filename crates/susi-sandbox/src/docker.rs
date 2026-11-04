@@ -148,4 +148,18 @@ mod tests {
         assert_hardened("registry.local:5000/team/sandbox:1.2.3", "id; uname -a");
         assert_hardened("alpine@sha256:0123abcd", "sh -c 'nested \"quotes\"'");
     }
+
+    #[test]
+    fn hardened_container_config_preserves_multiline_unicode_and_leaves_extra_grants_unset() {
+        let tricky = "printf '%s\\n' \"🚀 line1\"\n$(echo subshell) && exit 0";
+        let cfg = hardened_container_config("susi-sandbox:strict".to_string(), tricky);
+        assert_eq!(
+            cfg.cmd,
+            Some(vec!["sh".to_string(), "-c".to_string(), tricky.to_string(),])
+        );
+        assert_eq!(cfg.env, None);
+        assert_eq!(cfg.volumes, None);
+        assert_eq!(cfg.exposed_ports, None);
+        assert_eq!(cfg.user, None);
+    }
 }

@@ -182,5 +182,43 @@ mod tests {
             }
         }
         assert_ne!(commands[1].last(), commands[3].last());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn non_susi_fixture_skips_release_tooling_and_adapter_commands() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-vendor-minimal-fixture-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        let original = vec![
+            vec!["test".into(), "--workspace".into()],
+            vec!["clippy".into(), "-p".into(), "xtask".into()],
+        ];
+        let mut gates = original.clone();
+        include_release_tooling(&root, &mut gates);
+        assert_eq!(gates, original);
+        assert!(
+            commands(&root, "x86_64-unknown-linux-gnu", &root.join("target"))
+                .unwrap()
+                .is_empty()
+        );
+
+        std::fs::create_dir_all(root.join("crates/susi-core")).unwrap();
+        std::fs::write(root.join("crates/susi-core/Cargo.toml"), "[package]").unwrap();
+        include_release_tooling(&root, &mut gates);
+        assert_eq!(
+            gates[0],
+            ["test", "--workspace", "--features", "xtask/release-tooling"]
+        );
+        assert_eq!(gates[1], ["clippy", "-p", "xtask"]);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
