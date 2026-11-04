@@ -355,4 +355,32 @@ mod tests {
         assert_eq!(manager.reset("gpt").unwrap().model, "gpt-5");
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn frontier_definition_lookup_rejects_unknown_and_validate_rejects_invalid_env() {
+        assert!(FrontierManager::definition("unknown-frontier-xyz").is_err());
+        let root = tempfile::tempdir().unwrap();
+        let manager = FrontierManager::with_config(root.path().to_path_buf());
+        let res = manager.configure(
+            "gpt",
+            &FrontierOverride {
+                api_key_env: Some("BAD-ENV!".into()),
+                ..Default::default()
+            },
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn clear_preferred_is_idempotent_and_status_reports_catalog_count() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = FrontierManager::with_config(root.path().to_path_buf());
+        assert_eq!(
+            manager.clear_preferred().unwrap(),
+            "no preferred frontier model was set"
+        );
+        let status = manager.status();
+        assert_eq!(status["catalog_count"].as_u64().unwrap(), 5);
+        assert!(status["preferred"].is_null());
+    }
 }

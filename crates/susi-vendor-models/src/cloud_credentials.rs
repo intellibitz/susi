@@ -353,4 +353,37 @@ mod tests {
         assert!(list_str.contains("OPENAI_API_KEY"));
         assert!(list_str.contains("EXCEEDED"));
     }
+
+    #[test]
+    fn save_with_options_rejects_empty_control_chars_and_invalid_vendor_env() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(save_with_options(root.path(), "OPENAI_API_KEY", "", None, None).is_err());
+        assert!(save_with_options(root.path(), "OPENAI_API_KEY", "sk-\n-bad", None, None).is_err());
+        assert!(save_with_options(root.path(), "", "sk-valid-key", None, None).is_err());
+        assert!(save_with_options(root.path(), "BAD-ENV", "sk-valid-key", None, None).is_err());
+    }
+
+    #[test]
+    fn mask_key_handles_short_keys_and_cli_keys_set_remove_by_id_work() {
+        let root = tempfile::tempdir().unwrap();
+        let short_id =
+            save_with_options(root.path(), "OPENAI_API_KEY", "short123", None, None).unwrap();
+        let short_cred = get_by_id(root.path(), &short_id).unwrap().unwrap();
+        assert_eq!(short_cred.mask_key(), "***");
+        assert!(record_spend(root.path(), &short_id, -1.0).is_err());
+
+        let msg = cli_keys_set(
+            root.path(),
+            "ANTHROPIC_API_KEY",
+            "sk-ant-1234567890",
+            Some(25.0),
+            Some("team".into()),
+        )
+        .unwrap();
+        assert!(msg.contains("ANTHROPIC_API_KEY"));
+
+        let removed_msg = cli_keys_remove(root.path(), &short_id).unwrap();
+        assert!(removed_msg.contains(&short_id[..8]));
+        assert!(get_by_id(root.path(), &short_id).unwrap().is_none());
+    }
 }
