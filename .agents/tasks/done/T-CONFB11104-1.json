@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CONFB11104",
-  "created_unix": 1793755000
+  "created_unix": 1793755000,
+  "closed": {
+    "commit": "cbe517cfb30ba71e7c0d7903c8b86af6846abff4",
+    "by": "CONFB11104",
+    "at_unix": 1793755150
+  }
 }
