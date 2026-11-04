@@ -1,0 +1,15 @@
+{
+  "id": "T-STDLIBREMAP1102-1",
+  "created_by": "STDLIBREMAP1102",
+  "title": "Remap ephemeral stdlib compiler paths and compare raw archives",
+  "goal": "Keep actual source, tool and link evidence while qualifying byte equality across independent physical roots.",
+  "deps": [],
+  "scopes": [
+    "toolchain/windows-stdlib/builder.rs",
+    "toolchain/windows-stdlib/tests/raw_archive_repro.rs",
+    ".agents/tasks/T-STDLIBREMAP1102-1.json"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "--manifest-path", "toolchain/windows-stdlib/Cargo.toml", "--test", "raw_archive_repro"]
+  }
+}
