@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "COREMODSA4T1104",
-  "created_unix": 1793783002
+  "created_unix": 1793783002,
+  "closed": {
+    "at_unix": 1793783204,
+    "commit": "c52dab44da36a04465b74cf169ccdaf90ac170b4",
+    "by": "COREMODSA4T1104"
+  }
 }
