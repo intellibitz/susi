@@ -189,3 +189,74 @@ pub fn converge(a: &MemoryReplica, b: &MemoryReplica) -> (MemoryReplica, MemoryR
     b2.merge_from_peer(&a2.export_for_peers());
     (a2, b2)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    fn rec(id: &str, body: &str, prov: &str, local_only: bool) -> ScopedRecord {
+        ScopedRecord {
+            id: id.into(),
+            body: body.into(),
+            provenance: prov.into(),
+            local_only,
+            deleted: false,
+        }
+    }
+
+    #[test]
+    fn compare_provenance_uses_natural_numeric_ordering_for_shared_prefix() {
+        assert_eq!(compare_provenance("p10", "p9"), Ordering::Greater);
+        assert_eq!(compare_provenance("p2", "p10"), Ordering::Less);
+        assert_eq!(compare_provenance("rev5", "rev5"), Ordering::Equal);
+    }
+
+    #[test]
+    fn memory_replica_export_excludes_local_only_and_propagates_tombstones() {
+        let mut r = MemoryReplica::new();
+        r.upsert(rec("shared", "v1", "p1", false));
+        r.upsert(rec("private", "secret", "p1", true));
+        r.upsert(rec("gone", "old", "p1", false));
+        r.delete("gone");
+
+        let exported = r.export_for_peers();
+        assert!(exported.iter().any(|x| x.id == "shared" && !x.deleted));
+        assert!(!exported.iter().any(|x| x.id == "private"));
+        assert!(exported.iter().any(|x| x.id == "gone" && x.deleted));
+    }
+
+    #[test]
+    fn authenticated_export_and_merge_validate_peer_credentials() {
+        let mut r = MemoryReplica::new().with_peer_auth("tok-123");
+        r.upsert(rec("k1", "v1", "p1", false));
+
+        let bad = PeerAuth::new("peer-1", "wrong");
+        assert!(r.export_for_peer_authenticated(&bad).is_err());
+        assert!(r.merge_from_peer_authenticated(&[], &bad).is_err());
+
+        let good = PeerAuth::new("peer-1", "tok-123");
+        let out = r.export_for_peer_authenticated(&good).unwrap();
+        assert_eq!(out.len(), 1);
+        r.merge_from_peer_authenticated(&[rec("k1", "v2", "p2", false)], &good)
+            .unwrap();
+        assert_eq!(r.records["k1"].body, "v2");
+    }
+
+    #[test]
+    fn converge_synchronizes_eligible_records_and_tombstones_across_replicas() {
+        let mut a = MemoryReplica::new();
+        let mut b = MemoryReplica::new();
+        a.upsert(rec("doc", "old", "p2", false));
+        a.upsert(rec("del-me", "bye", "p1", false));
+        b.upsert(rec("doc", "newer", "p10", false));
+        b.delete("del-me");
+
+        let (a_conv, b_conv) = converge(&a, &b);
+        assert_eq!(a_conv.records["doc"].body, "newer");
+        assert_eq!(b_conv.records["doc"].body, "newer");
+        assert!(!a_conv.records.contains_key("del-me"));
+        assert!(a_conv.tombstones.contains("del-me"));
+    }
+}

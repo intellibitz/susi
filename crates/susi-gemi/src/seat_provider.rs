@@ -157,3 +157,59 @@ pub fn register_configured_seats(registry: &crate::susi_core::registry::Capabili
         }
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+    use crate::susi_core::provider::Provider;
+
+    fn sample_spec() -> SeatSpec {
+        SeatSpec {
+            agent: "claude".to_string(),
+            calls_per_window: 25,
+            window_secs: 3600,
+            max_concurrent: 2,
+            rate_per_min: 10,
+        }
+    }
+
+    #[test]
+    fn seat_provider_name_and_initial_quota_headroom_match_spec() {
+        let seat = SeatProvider::new(sample_spec());
+        assert_eq!(seat.name(), "seat-claude");
+        assert_eq!(seat.quota_headroom(), Some((25, 25)));
+    }
+
+    #[test]
+    fn seat_provider_is_healthy_when_headroom_remains() {
+        let seat = SeatProvider::new(sample_spec());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let healthy = rt.block_on(seat.is_healthy()).unwrap();
+        assert!(healthy);
+    }
+
+    #[test]
+    fn seat_provider_embed_returns_config_err() {
+        let seat = SeatProvider::new(sample_spec());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(seat.embed("hello")).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("agent seats answer prompts; they do not embed"));
+    }
+
+    #[test]
+    fn seat_provider_as_any_downcasts_to_seat_provider() {
+        let seat = SeatProvider::new(sample_spec());
+        let any_ref = seat.as_any();
+        assert!(any_ref.downcast_ref::<SeatProvider>().is_some());
+    }
+}

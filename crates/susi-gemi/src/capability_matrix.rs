@@ -114,3 +114,58 @@ pub fn persist(path: &Path, matrix: &CapabilityMatrix) -> std::io::Result<()> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     crate::susi_config::atomic_write_bytes(path, &bytes)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn build_in_empty_providers_populates_all_task_classes() {
+        let store = brain::Store::default();
+        let matrix = build_in(&store, &[], 1_700_000_000);
+        assert_eq!(matrix.unix, 1_700_000_000);
+        assert_eq!(matrix.classes.len(), TaskClass::ALL.len());
+        for class in TaskClass::ALL {
+            let cells = matrix.classes.get(class.label()).unwrap();
+            assert!(cells.is_empty());
+        }
+    }
+
+    #[test]
+    fn build_in_populated_providers_emits_ranked_cells_per_class() {
+        let store = brain::Store::default();
+        let providers = vec!["deepseek".to_string(), "ollama".to_string()];
+        let matrix = build_in(&store, &providers, 42);
+        for class in TaskClass::ALL {
+            let cells = matrix.classes.get(class.label()).unwrap();
+            assert_eq!(cells.len(), 2);
+            let names: Vec<&str> = cells.iter().map(|c| c.provider.as_str()).collect();
+            assert!(names.contains(&"deepseek"));
+            assert!(names.contains(&"ollama"));
+        }
+    }
+
+    #[test]
+    fn persist_writes_valid_json_that_roundtrips_matrix() {
+        let store = brain::Store::default();
+        let providers = vec!["deepseek".to_string()];
+        let matrix = build_in(&store, &providers, 123_456);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("matrix.json");
+        persist(&path, &matrix).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let decoded: CapabilityMatrix = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, matrix);
+    }
+
+    #[test]
+    fn default_path_points_to_brain_capability_matrix_json() {
+        let path = default_path();
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("brain_capability_matrix.json")
+        );
+    }
+}

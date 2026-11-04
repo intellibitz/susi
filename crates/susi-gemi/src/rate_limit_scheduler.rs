@@ -101,3 +101,80 @@ pub fn schedule_next_attempt(
     }
     RateLimitDecision::Ready
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn parse_rate_limit_headers_matches_case_insensitively_and_normalizes_millis() {
+        let mut headers = HashMap::new();
+        headers.insert("Retry-After".to_string(), " 15 ".to_string());
+        headers.insert(
+            "X-RateLimit-Remaining-Requests".to_string(),
+            "42".to_string(),
+        );
+        headers.insert("X-RateLimit-Reset".to_string(), "1700000000000".to_string());
+
+        let state = parse_rate_limit_headers(&headers);
+        assert_eq!(state.retry_after_secs, Some(15));
+        assert_eq!(state.remaining, Some(42));
+        assert_eq!(state.reset_unix, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn parse_rate_limit_headers_ignores_non_numeric_values() {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "retry-after".to_string(),
+            "Wed, 21 Oct 2026 07:28:00 GMT".to_string(),
+        );
+        headers.insert("x-ratelimit-remaining".to_string(), "invalid".to_string());
+        let state = parse_rate_limit_headers(&headers);
+        assert_eq!(state.retry_after_secs, None);
+        assert_eq!(state.remaining, None);
+        assert_eq!(state.reset_unix, None);
+    }
+
+    #[test]
+    fn schedule_next_attempt_prioritizes_retry_after_and_zero_remaining() {
+        let retry_state = RateLimitState {
+            retry_after_secs: Some(30),
+            remaining: Some(10),
+            reset_unix: None,
+        };
+        assert_eq!(
+            schedule_next_attempt(&retry_state, Some(1_000)),
+            RateLimitDecision::Wait {
+                ready_unix: 1_030,
+                reason: "Retry-After: 30s".to_string(),
+            }
+        );
+
+        let exhausted = RateLimitState {
+            retry_after_secs: None,
+            remaining: Some(0),
+            reset_unix: Some(1_050),
+        };
+        assert_eq!(
+            schedule_next_attempt(&exhausted, Some(1_000)),
+            RateLimitDecision::Wait {
+                ready_unix: 1_050,
+                reason: "x-ratelimit-remaining is 0".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn schedule_next_attempt_returns_ready_when_quota_remains() {
+        let ready_state = RateLimitState {
+            retry_after_secs: None,
+            remaining: Some(5),
+            reset_unix: Some(2_000),
+        };
+        assert_eq!(
+            schedule_next_attempt(&ready_state, Some(1_000)),
+            RateLimitDecision::Ready
+        );
+    }
+}
