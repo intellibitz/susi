@@ -527,3 +527,109 @@ pub(crate) fn reset_usage_for_test() {
         .unwrap_or_else(|e| e.into_inner())
         .clear();
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn billing_mode_label_and_capped_predicates_cover_all_variants() {
+        let metered = BillingMode::Metered;
+        let sub = BillingMode::Subscription {
+            calls_per_window: 100,
+            window_secs: 3600,
+        };
+        let free = BillingMode::FreeTier {
+            calls_per_window: 50,
+            window_secs: 86400,
+        };
+        let prepaid = BillingMode::PrepaidBalance {
+            allowance_usd: 25.0,
+        };
+
+        assert_eq!(metered.label(), "metered");
+        assert!(!metered.capped());
+        assert_eq!(sub.label(), "subscription");
+        assert!(sub.capped());
+        assert_eq!(free.label(), "free-tier");
+        assert!(free.capped());
+        assert_eq!(prepaid.label(), "prepaid");
+        assert!(prepaid.capped());
+    }
+
+    #[test]
+    fn parse_seat_spec_and_parse_billing_validate_syntax_and_defaults() {
+        let spec = parse_seat_spec("claude:45/18000").unwrap();
+        assert_eq!(spec.agent, "claude");
+        assert_eq!(spec.calls_per_window, 45);
+        assert_eq!(spec.window_secs, 18000);
+        assert_eq!(spec.max_concurrent, 1);
+        assert_eq!(spec.rate_per_min, 30);
+
+        let full = parse_seat_spec("codex:100/3600:4:60").unwrap();
+        assert_eq!(full.max_concurrent, 4);
+        assert_eq!(full.rate_per_min, 60);
+        assert!(parse_seat_spec(":10/60").is_none());
+        assert!(parse_seat_spec("claude:0/60").is_none());
+
+        assert_eq!(
+            parse_billing("deepseek", "deepseek:prepaid:12.5"),
+            Some((
+                "deepseek".to_string(),
+                BillingMode::PrepaidBalance {
+                    allowance_usd: 12.5
+                }
+            ))
+        );
+        assert!(parse_billing("other", "deepseek:metered").is_none());
+    }
+
+    #[test]
+    fn scarcity_penalty_and_effective_cost_scale_with_remaining_fraction() {
+        assert_eq!(scarcity_penalty(1.0), 0.0);
+        assert_eq!(scarcity_penalty(0.5), 1.0);
+        assert_eq!(scarcity_penalty(0.0), f64::MAX);
+
+        assert_eq!(effective_cost_usd(Some(0.10), None), Some(0.10));
+        assert_eq!(effective_cost_usd(Some(0.10), Some(1.0)), Some(0.10));
+        assert_eq!(effective_cost_usd(Some(0.10), Some(0.5)), Some(0.20));
+        assert_eq!(effective_cost_usd(Some(0.10), Some(0.0)), Some(f64::MAX));
+    }
+
+    #[test]
+    fn worker_descriptor_marginal_cost_handles_saturated_subscription_and_prepaid() {
+        let mut desc = WorkerDescriptor {
+            name: "seat-claude".to_string(),
+            kind: WorkerKind::AgentSeat,
+            billing: BillingMode::Subscription {
+                calls_per_window: 10,
+                window_secs: 3600,
+            },
+            rate_per_min: Some(30),
+            max_concurrent: Some(1),
+            healthy: true,
+            samples: 5,
+            success_rate: Some(1.0),
+            expected_cost_usd: None,
+            cost_per_outcome_usd: None,
+            window_used: Some(3.0),
+            window_cap: Some(10.0),
+            saturated: false,
+        };
+        assert_eq!(desc.marginal_cost_usd(), Some(0.0));
+        desc.saturated = true;
+        assert_eq!(desc.marginal_cost_usd(), Some(f64::MAX));
+
+        let prepaid = WorkerDescriptor {
+            billing: BillingMode::PrepaidBalance { allowance_usd: 5.0 },
+            expected_cost_usd: Some(1.5),
+            window_used: Some(4.0),
+            window_cap: Some(5.0),
+            saturated: false,
+            ..desc
+        };
+        assert_eq!(prepaid.marginal_cost_usd(), Some(f64::MAX));
+    }
+}

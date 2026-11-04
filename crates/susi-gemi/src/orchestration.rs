@@ -664,3 +664,125 @@ pub fn load_last(journal: &Path) -> Option<Topology> {
         .filter_map(|l| serde_json::from_str::<Topology>(l).ok())
         .next_back()
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_ranked(provider: &str, cost: Option<f64>, billing: &'static str) -> Ranked {
+        Ranked {
+            provider: provider.to_string(),
+            meets_floor: true,
+            capability: "reasoning",
+            unfit: false,
+            last_failure: None,
+            score: 0.9,
+            cost_tier: "low",
+            expected_cost_usd: cost,
+            cost_per_outcome_usd: cost,
+            billing,
+            quota_remaining: Some(0.8),
+            effective_cost_usd: cost,
+            samples: 10,
+            success_rate: Some(0.95),
+            avg_latency_ms: Some(120),
+        }
+    }
+
+    #[test]
+    fn verification_ok_reflects_deterministic_and_model_verdicts() {
+        assert!(Verification::Deterministic { ok: true }.ok());
+        assert!(!Verification::Deterministic { ok: false }.ok());
+        assert!(Verification::Model {
+            verifier: "checker".to_string(),
+            ok: true,
+            verdict: "VERIFIED".to_string(),
+        }
+        .ok());
+        assert!(!Verification::Model {
+            verifier: "checker".to_string(),
+            ok: false,
+            verdict: "REFUTED".to_string(),
+        }
+        .ok());
+    }
+
+    #[test]
+    fn marginal_cost_and_quota_exhausted_respect_billing_and_caps() {
+        let priced = sample_ranked("p1", Some(0.02), "metered");
+        assert!((marginal_cost(&priced) - 0.02).abs() < 1e-9);
+        assert!(!brain_quota_exhausted(&priced));
+
+        let sub = sample_ranked("p2", None, "subscription");
+        assert!((marginal_cost(&sub) - 0.0).abs() < 1e-9);
+
+        let mut capped = sample_ranked("p3", Some(0.01), "metered");
+        capped.quota_remaining = Some(0.0);
+        assert!(brain_quota_exhausted(&capped));
+    }
+
+    #[test]
+    fn assign_delegates_cheaper_secondary_and_holds_back_when_no_secondary_exists() {
+        let primary = sample_ranked("primary-model", Some(0.05), "metered");
+        let cheap = sample_ranked("cheap-secondary", Some(0.01), "metered");
+        let ranked_two = vec![primary.clone(), cheap];
+        let topo = assign(
+            &|_| ranked_two.clone(),
+            &|_| None,
+            TaskClass::Chat,
+            &["Hello there".to_string()],
+            1_700_000_000,
+        )
+        .unwrap();
+        assert_eq!(topo.primary, "primary-model");
+        assert_eq!(topo.fanned_out, 1);
+        assert!(topo.delegations[0].delegated);
+        assert_eq!(topo.delegations[0].provider, "cheap-secondary");
+
+        let single = vec![primary];
+        let topo_solo = assign(
+            &|_| single.clone(),
+            &|_| None,
+            TaskClass::Chat,
+            &["Hello there".to_string()],
+            1_700_000_000,
+        )
+        .unwrap();
+        assert_eq!(topo_solo.fanned_out, 0);
+        assert_eq!(
+            topo_solo.delegations[0].why_not_delegated,
+            Some(HeldBack::NoSecondary)
+        );
+    }
+
+    #[test]
+    fn append_and_load_last_roundtrip_most_recent_topology() {
+        let path = std::env::temp_dir().join(format!(
+            "susi-orch-inline-{}-{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        let t1 = Topology {
+            unix: 10,
+            mission_class: "chat".to_string(),
+            primary: "m1".to_string(),
+            delegations: Vec::new(),
+            fanned_out: 0,
+            synthesis_ok: true,
+            failovers: Vec::new(),
+        };
+        let mut t2 = t1.clone();
+        t2.unix = 20;
+        t2.primary = "m2".to_string();
+        append(&path, &t1).unwrap();
+        append(&path, &t2).unwrap();
+        let loaded = load_last(&path).unwrap();
+        assert_eq!(loaded.unix, 20);
+        assert_eq!(loaded.primary, "m2");
+        let _ = std::fs::remove_file(&path);
+    }
+}
