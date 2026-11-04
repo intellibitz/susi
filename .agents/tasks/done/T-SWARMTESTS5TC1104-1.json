@@ -1,0 +1,27 @@
+{
+  "id": "T-SWARMTESTS5TC1104-1",
+  "title": "Advance 14 susi-gawd-swarm src/tests suites to 5 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--",
+      "vc_201_030_tests::"
+    ]
+  },
+  "created_by": "SWARMTESTS5TC1104",
+  "created_unix": 1793814355,
+  "closed": {
+    "at_unix": 1793814992,
+    "commit": "418d5b981c4b54caa3bf1cae10559f63c8e1165e",
+    "by": "SWARMTESTS5TC1104"
+  }
+}

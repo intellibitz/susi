@@ -96,3 +96,24 @@ fn mission_resume_cli_wiring() {
     assert!(targets.iter().any(|n| n.id == "blocked"));
     assert!(targets.iter().any(|n| n.id == "running"));
 }
+
+#[test]
+fn vc_201_030_upsert_overwrites_existing_node_state_on_completion() {
+    let mut m = MissionView::new("m-update");
+    m.upsert(DagNodeView {
+        id: "step-1".into(),
+        view: NodeView::Running,
+        resumable: true,
+        output: None,
+    });
+    assert!(!m.reports_full_success());
+    m.upsert(DagNodeView {
+        id: "step-1".into(),
+        view: NodeView::Completed,
+        resumable: false,
+        output: Some("finished".into()),
+    });
+    assert_eq!(m.summary(), MissionSummary::FullyComplete);
+    assert!(m.reports_full_success());
+    assert!(m.resume_targets().is_empty());
+}
