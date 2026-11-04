@@ -60,3 +60,15 @@ fn vc_201_043_headroom_preserved_across_multiple_sequential_admissions_and_relea
     assert_eq!(p.admit(500), AdmitDecision::Admitted { reservation: 500 });
     assert_eq!(p.reserved_bytes, 1_900);
 }
+
+#[test]
+fn vc_201_043_headroom_rejects_admission_when_pool_is_already_inside_safety_margin() {
+    let mut p = AccelPool {
+        total_bytes: 1_000,
+        reserved_bytes: 960,
+    };
+    assert_eq!(p.free(), 40);
+    assert_eq!(p.headroom(), 50);
+    assert_eq!(p.admit(1), AdmitDecision::RejectedInsufficient);
+    assert_eq!(p.reserved_bytes, 960);
+}
