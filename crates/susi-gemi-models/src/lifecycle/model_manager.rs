@@ -100,9 +100,9 @@ fn parse_gguf<R: std::io::Read + std::io::Seek>(
 
 /// The I/O error under a candle error, through its context, path and
 /// backtrace wrappers.
+#[cfg(feature = "local-engine")]
 // Every other variant — a foreign enum whose list changes with candle's
 // features (CUDA, Metal) — is no I/O error.
-#[cfg(feature = "local-engine")]
 #[allow(clippy::wildcard_enum_match_arm)]
 fn candle_io_error(error: &susi_vendor_candle::candle_core::Error) -> Option<&std::io::Error> {
     use susi_vendor_candle::candle_core::Error;
