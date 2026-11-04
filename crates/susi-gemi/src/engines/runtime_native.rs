@@ -465,4 +465,11 @@ mod candle_routing_tests {
             .expect_err("legacy wrapper must delegate to SusiGgufEngine test seam");
         assert!(err.to_string().contains("native inference disabled"));
     }
+
+    #[test]
+    fn engine_implementations_report_canonical_names() {
+        assert_eq!(SusiGgufEngine.name(), "CandleGgufEngine");
+        assert_eq!(LlamaCppEngine.name(), "CandleGgufEngine");
+        assert_eq!(SusiFederatedEngine.name(), "SusiFederatedEngine");
+    }
 }

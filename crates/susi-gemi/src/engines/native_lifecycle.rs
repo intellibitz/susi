@@ -469,4 +469,22 @@ mod inline_tests {
             .expect_err("empty output must fail");
         assert!(err.to_string().contains("empty output"));
     }
+
+    #[test]
+    fn infer_via_host_fails_when_native_model_is_not_resident() {
+        let cb = |_: String| {};
+        let call = ContractCall::new("prompt-2", &cb, Some("m1"));
+        let ok_engine: Arc<dyn NativeInferenceEngine> = Arc::new(FakeEngine {
+            reply: "done".to_string(),
+        });
+        let unready_host: Arc<dyn EngineHost> = Arc::new(FakeHost {
+            model: Some("m1".to_string()),
+            resident: false,
+            endpoints: Vec::new(),
+            cooled: false,
+        });
+        let err = infer_via_host(ok_engine, unready_host, EngineKind::Native, &call)
+            .expect_err("non-resident model must fail readiness check");
+        assert!(!err.to_string().is_empty());
+    }
 }
