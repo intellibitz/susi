@@ -170,10 +170,10 @@ fn skill(
 
 impl GawdA2AExecutor {
     /// Skills on the card: the per-capability entries (missions, agents,
-    /// frameworks, models) plus the two original orchestration skills,
-    /// kept so existing clients that match on their ids still find them.
-    /// The descriptions say what actually happens: every request is a
-    /// mission, and the capability names what the mission can reach.
+    /// frameworks, models, harness, extensions) plus the two original
+    /// orchestration skills, kept so existing clients that match on their ids
+    /// still find them. The descriptions say what actually happens: every
+    /// request is a mission, and the capability names what the mission can reach.
     #[must_use]
     pub fn skills() -> Vec<ra2a::types::AgentSkill> {
         vec![
@@ -199,6 +199,18 @@ impl GawdA2AExecutor {
                 "models",
                 "Missions answered through GEMI model routing: local open-weight models and configured cloud providers, chosen by placement policy.",
                 &["models", "inference"],
+                None,
+            ),
+            skill(
+                "harness",
+                "Missions and autonomous budget/pareto optimization governed by the SUSI Harness and Bayesian UCB1 / SCIS / SOVA routing (managed by `susi harness` and `susi brain`; MCP tools `harness_*`, `brain_pareto`).",
+                &["harness", "brain", "routing"],
+                None,
+            ),
+            skill(
+                "extensions",
+                "Missions that validate, inspect, or admit signed/checksum-bound extension packs and Wasm reflexes (managed by `susi extensions`; MCP tools `extensions_*`).",
+                &["extensions", "wasm", "reflex"],
                 None,
             ),
             skill(
