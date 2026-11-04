@@ -231,3 +231,121 @@ pub fn explain_key(key: &str, global_dir: &Path) -> ExplainedSetting {
 pub fn explain_key_global(key: &str) -> ExplainedSetting {
     explain_key(key, &susi_paths::SusiDirs::config_dir())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_origin_labels_secret_redaction_and_nested_get_path() {
+        assert_eq!(ConfigOrigin::BundledDefault.label(), "bundled default");
+        assert_eq!(ConfigOrigin::Host.label(), "host config.json");
+        assert_eq!(
+            ConfigOrigin::Environment {
+                var: "SUSI_PORT_OFFSET".into()
+            }
+            .label(),
+            "env:SUSI_PORT_OFFSET"
+        );
+
+        for secret_key in [
+            "client_secret",
+            "api_token",
+            "db_password",
+            "openai_api_key",
+            "signing_key",
+        ] {
+            assert!(
+                path_looks_secret(secret_key),
+                "{secret_key} must look secret"
+            );
+            assert_eq!(
+                maybe_redact(secret_key, DynamicValue::String("raw-val".into())),
+                DynamicValue::String("[redacted]".into())
+            );
+        }
+        assert!(!path_looks_secret("port_offset"));
+        assert_eq!(
+            maybe_redact("port_offset", DynamicValue::from(15)),
+            DynamicValue::from(15)
+        );
+
+        let mut reg = DynamicRegistry::new();
+        reg.insert("top".into(), DynamicValue::String("val".into()));
+        reg.insert("a".into(), serde_json::json!({ "b": 99 }));
+        reg.insert(
+            "arr".into(),
+            DynamicValue::Array(vec![
+                DynamicValue::String("zero".into()),
+                DynamicValue::String("one".into()),
+            ]),
+        );
+
+        assert_eq!(
+            get_path(&reg, "top"),
+            Some(DynamicValue::String("val".into()))
+        );
+        assert_eq!(get_path(&reg, "a.b"), Some(DynamicValue::from(99)));
+        assert_eq!(
+            get_path(&reg, "arr.1"),
+            Some(DynamicValue::String("one".into()))
+        );
+        assert_eq!(get_path(&reg, "arr.5"), None);
+        assert_eq!(get_path(&reg, "arr.not_an_index"), None);
+        assert_eq!(get_path(&reg, "top.child"), None);
+        assert_eq!(get_path(&reg, "missing"), None);
+    }
+
+    #[test]
+    fn explain_key_resolves_bundled_host_and_secret_redaction_in_hermetic_tempdir() {
+        let _guard = crate::env_test_lock();
+        unsafe {
+            std::env::remove_var("SUSI_PORT_OFFSET");
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("susi-explain-inline-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let global_dir = dir.as_path();
+
+        let bundled = explain_key("port_offset", global_dir);
+        assert_eq!(bundled.origin, ConfigOrigin::BundledDefault);
+        assert_eq!(bundled.value, DynamicValue::from(0));
+        assert_eq!(bundled.render(), "port_offset = 0 (from bundled default)");
+
+        let mut settings = SusiConfig::heal_defaults().clone();
+        settings.insert("port_offset".into(), DynamicValue::from(7));
+        settings.insert(
+            "api_token".into(),
+            DynamicValue::String("top-secret-token-value".into()),
+        );
+        fs::write(
+            SusiConfig::get_config_path(global_dir),
+            serde_json::to_string_pretty(&SusiConfig { settings }).expect("serialize host config"),
+        )
+        .expect("write host config.json");
+
+        let host_explained = explain_key("port_offset", global_dir);
+        assert_eq!(host_explained.origin, ConfigOrigin::Host);
+        assert_eq!(host_explained.value, DynamicValue::from(7));
+        assert_eq!(
+            host_explained.render(),
+            "port_offset = 7 (from host config.json)"
+        );
+
+        let secret_explained = explain_key("api_token", global_dir);
+        assert_eq!(secret_explained.origin, ConfigOrigin::Host);
+        assert_eq!(
+            secret_explained.value,
+            DynamicValue::String("[redacted]".into())
+        );
+        assert!(!secret_explained.render().contains("top-secret-token-value"));
+        for layer in &secret_explained.layers {
+            if let Some(val) = &layer.value {
+                assert_eq!(val, &DynamicValue::String("[redacted]".into()));
+            }
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
