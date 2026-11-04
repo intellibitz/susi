@@ -108,3 +108,28 @@ fn vc_202_009_mastery_idempotent_readmission() {
     drop(ticket1);
     ticket2.release();
 }
+
+#[test]
+fn vc_202_009_mastery_refuses_when_vram_or_subprocesses_exceed_capacity() {
+    let ctrl = AdmissionController::new(test_limits(4000, 8192, 4096));
+
+    // Exceeds VRAM capacity (needs 6000 > 4096) while CPU and RAM are small
+    let vram_denied = ctrl
+        .admit(&job_req("m-vram", "j-vram", 500, 512, 6000))
+        .expect_err("job exceeding VRAM capacity must be refused");
+    assert!(matches!(
+        vram_denied,
+        Backpressure::LocalExhausted | Backpressure::Queued { .. }
+    ));
+
+    // Exceeds subprocess capacity (needs 15 > 10) while CPU, RAM, and VRAM are small
+    let mut subproc_req = job_req("m-sub", "j-sub", 500, 512, 512);
+    subproc_req.subprocesses = 15;
+    let subproc_denied = ctrl
+        .admit(&subproc_req)
+        .expect_err("job exceeding subprocess capacity must be refused");
+    assert!(matches!(
+        subproc_denied,
+        Backpressure::LocalExhausted | Backpressure::Queued { .. }
+    ));
+}

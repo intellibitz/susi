@@ -86,3 +86,41 @@ fn vc_201_021_running_not_treated_as_complete_on_reload() {
     assert!(loaded.runnable().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn vc_201_021_complete_unknown_errors_and_upsert_updates_in_place() {
+    let mut m = PersistedMission::new("mission-d");
+    m.upsert_node(PersistedNode {
+        id: "n0".into(),
+        input: "initial".into(),
+        dependencies: vec![],
+        output: None,
+        state: NodeTerminal::Pending,
+    });
+    m.upsert_node(PersistedNode {
+        id: "n1".into(),
+        input: "dependent".into(),
+        dependencies: vec!["n0".into()],
+        output: None,
+        state: NodeTerminal::Pending,
+    });
+
+    assert!(m.complete("missing-node", "out".into()).is_err());
+    assert_eq!(m.nodes.len(), 2);
+    assert_eq!(m.nodes["n0"].state, NodeTerminal::Pending);
+    assert_eq!(m.nodes["n1"].state, NodeTerminal::Pending);
+
+    m.upsert_node(PersistedNode {
+        id: "n0".into(),
+        input: "updated-input".into(),
+        dependencies: vec![],
+        output: Some("done".into()),
+        state: NodeTerminal::Completed,
+    });
+    assert_eq!(m.nodes.len(), 2);
+    assert_eq!(m.nodes["n0"].input, "updated-input");
+    assert_eq!(m.nodes["n0"].state, NodeTerminal::Completed);
+    assert_eq!(m.nodes["n1"].input, "dependent");
+    assert_eq!(m.runnable().len(), 1);
+    assert_eq!(m.runnable()[0].id, "n1");
+}
