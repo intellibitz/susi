@@ -135,3 +135,99 @@ impl Default for DrainManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn new_manager_accepts_jobs_and_tracks_runtime_readiness() {
+        let mut mgr = DrainManager::default();
+        assert!(mgr.accepting());
+        assert!(!mgr.is_ready("cuda:0"));
+        mgr.mark_ready("cuda:0");
+        assert!(mgr.is_ready("cuda:0"));
+
+        mgr.submit(Job {
+            id: "job-1".to_string(),
+            kind: JobKind::Resumable,
+            progress: 0.4,
+        })
+        .expect("submit while accepting");
+        assert_eq!(mgr.job("job-1").map(|j| j.progress), Some(0.4));
+    }
+
+    #[test]
+    fn drain_checkpoints_resumable_jobs_interrupts_oneshots_and_clears_readiness() {
+        let mut mgr = DrainManager::new();
+        mgr.mark_ready("cpu");
+        mgr.submit(Job {
+            id: "batch-1".to_string(),
+            kind: JobKind::Resumable,
+            progress: 0.75,
+        })
+        .unwrap();
+        mgr.submit(Job {
+            id: "chat-1".to_string(),
+            kind: JobKind::OneShot,
+            progress: 0.2,
+        })
+        .unwrap();
+
+        let outcomes = mgr.drain();
+        assert!(!mgr.accepting());
+        assert!(!mgr.is_ready("cpu"));
+        assert_eq!(
+            outcomes,
+            vec![
+                DrainOutcome::Checkpointed {
+                    id: "batch-1".to_string(),
+                    progress: 0.75
+                },
+                DrainOutcome::Interrupted {
+                    id: "chat-1".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn submit_is_refused_while_draining_until_resume_completes() {
+        let mut mgr = DrainManager::new();
+        mgr.drain();
+        let err = mgr
+            .submit(Job {
+                id: "late-job".to_string(),
+                kind: JobKind::OneShot,
+                progress: 0.0,
+            })
+            .unwrap_err();
+        assert!(err.contains("draining: refusing new job late-job"));
+    }
+
+    #[test]
+    fn resume_rebuilds_readiness_from_probe_and_resume_job_restores_progress() {
+        let mut mgr = DrainManager::new();
+        mgr.mark_ready("stale-gpu");
+        mgr.submit(Job {
+            id: "embed-job".to_string(),
+            kind: JobKind::Resumable,
+            progress: 0.6,
+        })
+        .unwrap();
+        mgr.drain();
+
+        let checkpoints = mgr.resume(&|| vec!["fresh-cpu".to_string()]);
+        assert!(mgr.accepting());
+        assert!(!mgr.is_ready("stale-gpu"));
+        assert!(mgr.is_ready("fresh-cpu"));
+        assert_eq!(checkpoints.len(), 1);
+
+        for cp in checkpoints {
+            mgr.resume_job(cp);
+        }
+        let restored = mgr.job("embed-job").expect("restored job");
+        assert_eq!(restored.kind, JobKind::Resumable);
+        assert!((restored.progress - 0.6).abs() < 1e-9);
+    }
+}

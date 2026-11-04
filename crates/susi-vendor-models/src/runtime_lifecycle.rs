@@ -204,3 +204,153 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    struct FakeBackend {
+        present: Cell<bool>,
+        healthy: Cell<bool>,
+    }
+
+    impl RuntimeBackend for FakeBackend {
+        fn discover(&self) -> EaiResult<bool> {
+            Ok(self.present.get())
+        }
+        fn load(&self, _model: &str) -> EaiResult<()> {
+            Ok(())
+        }
+        fn health(&self) -> EaiResult<Result<(), String>> {
+            if self.healthy.get() {
+                Ok(Ok(()))
+            } else {
+                Ok(Err("probe timeout".to_string()))
+            }
+        }
+        fn infer(&self, prompt: &str) -> EaiResult<InferOutcome> {
+            Ok(InferOutcome::Done {
+                output: format!("echo:{prompt}"),
+            })
+        }
+        fn cancel(&self) -> EaiResult<()> {
+            Ok(())
+        }
+        fn unload(&self) -> EaiResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn discover_and_load_require_present_runtime_before_staging_model() {
+        let backend = FakeBackend {
+            present: Cell::new(false),
+            healthy: Cell::new(true),
+        };
+        let mut rt = Runtime::new(
+            "local-rt",
+            Capabilities {
+                can_cancel: true,
+                can_unload: true,
+            },
+            &backend,
+        );
+        rt.discover().expect("discover");
+        assert_eq!(rt.status(), &RuntimeStatus::Gone);
+        assert!(rt.load("qwen").is_err());
+
+        backend.present.set(true);
+        rt.discover().expect("discover present");
+        assert_eq!(rt.status(), &RuntimeStatus::Discovered);
+        rt.load("qwen").expect("load");
+        assert_eq!(
+            rt.status(),
+            &RuntimeStatus::Loaded {
+                model: "qwen".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn infer_requires_explicit_ready_probe_and_recovers_after_transient_unhealthy_state() {
+        let backend = FakeBackend {
+            present: Cell::new(true),
+            healthy: Cell::new(false),
+        };
+        let mut rt = Runtime::new(
+            "local-rt",
+            Capabilities {
+                can_cancel: true,
+                can_unload: true,
+            },
+            &backend,
+        );
+        rt.discover().unwrap();
+        rt.load("qwen").unwrap();
+        assert!(rt.infer("hello").is_err());
+
+        assert!(!rt.ready().unwrap());
+        assert_eq!(
+            rt.status(),
+            &RuntimeStatus::Unhealthy {
+                reason: "probe timeout".to_string()
+            }
+        );
+
+        backend.healthy.set(true);
+        assert!(rt.ready().unwrap());
+        assert_eq!(
+            rt.infer("hello").unwrap(),
+            InferOutcome::Done {
+                output: "echo:hello".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn health_verb_updates_gone_to_discovered_and_marks_loaded_unhealthy_on_failure() {
+        let backend = FakeBackend {
+            present: Cell::new(true),
+            healthy: Cell::new(true),
+        };
+        let mut rt = Runtime::new(
+            "local-rt",
+            Capabilities {
+                can_cancel: true,
+                can_unload: true,
+            },
+            &backend,
+        );
+        assert_eq!(rt.health().unwrap(), Ok(()));
+        assert_eq!(rt.status(), &RuntimeStatus::Discovered);
+
+        rt.load("qwen").unwrap();
+        backend.healthy.set(false);
+        assert_eq!(rt.health().unwrap(), Err("probe timeout".to_string()));
+        assert_eq!(
+            rt.status(),
+            &RuntimeStatus::Unhealthy {
+                reason: "probe timeout".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn unsupported_cancel_and_unload_return_typed_errors_instead_of_silent_noop() {
+        let backend = FakeBackend {
+            present: Cell::new(true),
+            healthy: Cell::new(true),
+        };
+        let mut rt = Runtime::new(
+            "restricted-rt",
+            Capabilities {
+                can_cancel: false,
+                can_unload: false,
+            },
+            &backend,
+        );
+        assert!(rt.cancel().is_err());
+        assert!(rt.unload().is_err());
+    }
+}
