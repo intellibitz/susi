@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "COREINLINEA4T1104",
-  "created_unix": 1793796385
+  "created_unix": 1793796385,
+  "closed": {
+    "at_unix": 1793796628,
+    "commit": "b6c5596fccfc583bd68a9051083a79d3390ecb85",
+    "by": "COREINLINEA4T1104"
+  }
 }
