@@ -669,3 +669,372 @@ impl Default for InferenceRoutingConfig {
 }
 
 // === 100% DYNAMIC SUSI CONFIG - THE ROOT ===
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn model(fields: serde_json::Value) -> DynamicModelInfo {
+        serde_json::from_value(fields).unwrap()
+    }
+
+    fn scratch_file(tag: &str, content: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("susi-types-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("templates.json");
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn dynamic_model_info_new_exposes_every_typed_field() {
+        let info = DynamicModelInfo::new(
+            "Qwen".into(),
+            "hf".into(),
+            "qwen-7b".into(),
+            "a model".into(),
+            true,
+            "Deep".into(),
+            Some(250),
+            "local".into(),
+            Some("sha256:abc".into()),
+            Some(json!({"source": "test"})),
+        );
+        assert_eq!(info.name(), "Qwen");
+        assert_eq!(info.model_id(), "qwen-7b");
+        assert_eq!(info.registry(), "hf");
+        assert_eq!(info.description(), "a model");
+        assert!(info.is_local());
+        assert_eq!(info.tier(), "Deep");
+        assert_eq!(info.latency_ms(), Some(250));
+        assert_eq!(info.provider(), "local");
+        assert_eq!(info.checksum(), Some("sha256:abc"));
+        assert_eq!(info.provenance(), Some(&json!({"source": "test"})));
+    }
+
+    #[test]
+    fn dynamic_model_info_omits_absent_optional_fields() {
+        let info = DynamicModelInfo::new(
+            "n".into(),
+            "r".into(),
+            "m".into(),
+            "d".into(),
+            false,
+            "t".into(),
+            None,
+            "p".into(),
+            None,
+            None,
+        );
+        assert_eq!(info.latency_ms(), None);
+        assert_eq!(info.checksum(), None);
+        assert_eq!(info.provenance(), None);
+        for key in ["latency_ms", "checksum", "provenance"] {
+            assert!(info.get(key).is_none(), "{key} must not be serialized");
+        }
+        assert!(!info.is_local());
+    }
+
+    #[test]
+    fn dynamic_model_info_defaults_when_fields_are_missing() {
+        let empty = DynamicModelInfo::default();
+        assert_eq!(empty.name(), "unknown");
+        assert_eq!(empty.model_id(), "unknown");
+        assert_eq!(empty.provider(), "unknown");
+        assert_eq!(empty.registry(), "SUSI Substrate");
+        assert_eq!(empty.description(), "");
+        assert_eq!(empty.tier(), "Reflex");
+        assert!(!empty.is_local());
+    }
+
+    #[test]
+    fn model_name_and_id_follow_their_fallback_chains() {
+        // name: name -> model_id -> "unknown"
+        assert_eq!(model(json!({"name": "n", "model_id": "m"})).name(), "n");
+        assert_eq!(model(json!({"model_id": "m"})).name(), "m");
+        assert_eq!(model(json!({"id": "i"})).name(), "unknown");
+        // model_id: model_id -> id -> name -> "unknown"
+        assert_eq!(
+            model(json!({"model_id": "m", "id": "i", "name": "n"})).model_id(),
+            "m"
+        );
+        assert_eq!(model(json!({"id": "i", "name": "n"})).model_id(), "i");
+        assert_eq!(model(json!({"name": "n"})).model_id(), "n");
+        assert_eq!(model(json!({})).model_id(), "unknown");
+    }
+
+    #[test]
+    fn model_getters_ignore_values_of_the_wrong_type() {
+        let info = model(json!({
+            "name": 7,
+            "is_local": "yes",
+            "latency_ms": -5,
+            "tier": ["x"]
+        }));
+        assert_eq!(info.name(), "unknown");
+        assert!(!info.is_local());
+        assert_eq!(info.latency_ms(), None);
+        assert_eq!(info.tier(), "Reflex");
+        assert_eq!(model(json!({"latency_ms": 1.5})).latency_ms(), None);
+        assert_eq!(model(json!({"latency_ms": 40})).latency_ms(), Some(40));
+    }
+
+    #[test]
+    fn dynamic_model_info_round_trips_unknown_fields_through_serde() {
+        let info = model(json!({"name": "n", "custom_extension": {"k": 1}}));
+        assert_eq!(info.get("custom_extension"), Some(&json!({"k": 1})));
+        let back = serde_json::to_value(&info).unwrap();
+        assert_eq!(back["custom_extension"], json!({"k": 1}));
+        assert_eq!(back["name"], json!("n"));
+    }
+
+    #[test]
+    fn neural_checkpoint_getters_default_and_read_typed_values() {
+        let empty = DynamicNeuralCheckpoint::default();
+        assert_eq!(empty.intent(), "");
+        assert_eq!(empty.timestamp(), 0);
+        assert!(empty.completed_tools().is_empty());
+        assert_eq!(empty.status(), "IN_PROGRESS");
+
+        let filled: NeuralCheckpoint = serde_json::from_value(json!({
+            "intent": "ship",
+            "timestamp": 1_700_000_000u64,
+            "completed_tools": ["scan", "build"],
+            "status": "DONE"
+        }))
+        .unwrap();
+        assert_eq!(filled.intent(), "ship");
+        assert_eq!(filled.timestamp(), 1_700_000_000);
+        assert_eq!(filled.completed_tools(), ["scan", "build"]);
+        assert_eq!(filled.status(), "DONE");
+
+        let malformed: DynamicNeuralCheckpoint = serde_json::from_value(json!({
+            "intent": 5,
+            "timestamp": "soon",
+            "completed_tools": "not-a-list",
+            "status": null
+        }))
+        .unwrap();
+        assert_eq!(malformed.intent(), "");
+        assert_eq!(malformed.timestamp(), 0);
+        assert!(malformed.completed_tools().is_empty());
+        assert_eq!(malformed.status(), "IN_PROGRESS");
+    }
+
+    #[test]
+    fn default_chat_templates_carry_the_system_and_prompt_placeholders() {
+        let defaults = ChatTemplateConfig::default();
+        assert!(defaults.templates.contains_key("chatml"));
+        for (name, template) in &defaults.templates {
+            assert!(template.contains("{prompt}"), "{name} lacks {{prompt}}");
+        }
+    }
+
+    fn templates(pairs: &[(&str, &str)]) -> ChatTemplateConfig {
+        ChatTemplateConfig {
+            templates: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn chat_template_lookup_prefers_exact_then_normalized_fuzzy_then_fallbacks() {
+        let cfg = templates(&[("llama3", "L3"), ("chatml", "CM"), ("phi3", "P3")]);
+        assert_eq!(cfg.get("phi3").map(String::as_str), Some("P3"));
+        // Case, dashes, underscores and dots are ignored; containment either way.
+        assert_eq!(cfg.get("Llama-3.1-8B").map(String::as_str), Some("L3"));
+        assert_eq!(cfg.get("PHI_3.mini").map(String::as_str), Some("P3"));
+        // Unknown family falls back to chatml, else to any registered template.
+        assert_eq!(cfg.get("totally-new").map(String::as_str), Some("CM"));
+        let no_chatml = templates(&[("only", "O")]);
+        assert_eq!(no_chatml.get("totally-new").map(String::as_str), Some("O"));
+        assert!(templates(&[]).get("anything").is_none());
+    }
+
+    #[test]
+    fn chat_template_render_substitutes_every_supplied_variable() {
+        let cfg = templates(&[("chatml", "[{system}] {prompt} / {unset}")]);
+        let vars = HashMap::from([
+            ("system".to_string(), "S".to_string()),
+            ("prompt".to_string(), "P".to_string()),
+        ]);
+        assert_eq!(cfg.render("chatml", &vars), "[S] P / {unset}");
+        assert_eq!(
+            cfg.render("chatml", &HashMap::new()),
+            "[{system}] {prompt} / {unset}"
+        );
+    }
+
+    #[test]
+    fn chat_template_render_without_any_template_uses_the_plain_layout() {
+        let empty = templates(&[]);
+        let vars = HashMap::from([
+            ("system".to_string(), "S".to_string()),
+            ("prompt".to_string(), "P".to_string()),
+        ]);
+        assert_eq!(empty.render("any", &vars), "S\nP");
+    }
+
+    #[test]
+    fn chat_template_register_adds_and_overrides() {
+        let mut cfg = templates(&[]);
+        cfg.register("custom".into(), "v1 {prompt}".into());
+        assert_eq!(cfg.get("custom").map(String::as_str), Some("v1 {prompt}"));
+        cfg.register("custom".into(), "v2 {prompt}".into());
+        assert_eq!(cfg.templates.len(), 1);
+        assert_eq!(cfg.get("custom").map(String::as_str), Some("v2 {prompt}"));
+    }
+
+    #[test]
+    fn chat_template_from_file_reads_maps_and_falls_back_to_defaults() {
+        let good = scratch_file("tpl-good", r#"{"mine": "M {prompt}"}"#);
+        let cfg = ChatTemplateConfig::from_file(good.to_str().unwrap());
+        assert_eq!(cfg.get("mine").map(String::as_str), Some("M {prompt}"));
+
+        let defaults = ChatTemplateConfig::default().templates;
+        for (tag, content) in [
+            ("tpl-bad-json", "{not json"),
+            ("tpl-bad-shape", r#"{"mine": 5}"#),
+        ] {
+            let path = scratch_file(tag, content);
+            let cfg = ChatTemplateConfig::from_file(path.to_str().unwrap());
+            assert_eq!(cfg.templates, defaults, "{tag} must fall back");
+        }
+        let missing = good.with_file_name("absent.json");
+        assert_eq!(
+            ChatTemplateConfig::from_file(missing.to_str().unwrap()).templates,
+            defaults
+        );
+    }
+
+    #[test]
+    fn susi_prompts_default_dynamic_ships_prompts_and_templates() {
+        let prompts = SusiPrompts::default_dynamic();
+        assert!(prompts.get("system_identity").is_some());
+        assert!(prompts.get_str("system_identity").is_some());
+        assert!(prompts.get("no-such-prompt").is_none());
+        assert!(!prompts.agent_factory_prompt().is_empty());
+        assert!(prompts.chat_templates.templates.contains_key("chatml"));
+    }
+
+    #[test]
+    fn susi_prompt_getters_return_empty_strings_when_unset() {
+        let none = SusiPrompts::default();
+        assert_eq!(none.agent_factory_prompt(), "");
+        assert_eq!(none.consensus_wisdom_prompt(), "");
+        assert_eq!(none.intent_planner_prompt(), "");
+        assert_eq!(none.mission_partition_prompt(), "");
+        assert_eq!(none.dynamic_agent_prompt(), "");
+        assert_eq!(none.mission_refine_prompt(), "");
+    }
+
+    #[test]
+    fn susi_prompts_format_chat_and_dynamic_prompts_through_the_templates() {
+        let mut prompts = SusiPrompts::default_dynamic();
+        let chat = prompts.format_chat_prompt("chatml", "SYS-TEXT", "USER-TEXT");
+        assert!(chat.contains("SYS-TEXT") && chat.contains("USER-TEXT"));
+        assert!(!chat.contains("{system}") && !chat.contains("{prompt}"));
+
+        prompts
+            .chat_templates
+            .register("custom".into(), "Hello {name}, welcome to {place}!".into());
+        let vars = HashMap::from([
+            ("name".to_string(), "Ada".to_string()),
+            ("place".to_string(), "SUSI".to_string()),
+        ]);
+        assert_eq!(
+            prompts.format_dynamic("custom", vars),
+            "Hello Ada, welcome to SUSI!"
+        );
+    }
+
+    #[test]
+    fn susi_messages_default_dynamic_ships_categories() {
+        let messages = SusiMessages::default_dynamic();
+        assert!(!messages.categories.is_empty());
+        assert!(messages.get("daemon", "signal_received").is_some());
+        assert!(messages.get("daemon", "no-such-key").is_none());
+        assert!(messages
+            .get("no-such-category", "signal_received")
+            .is_none());
+    }
+
+    #[test]
+    fn susi_messages_register_creates_categories_and_overrides_keys() {
+        let mut messages = SusiMessages::default();
+        assert!(messages.get("cat", "key").is_none());
+        messages.register("cat".into(), "key".into(), "first".into());
+        messages.register("cat".into(), "other".into(), "second".into());
+        messages.register("cat".into(), "key".into(), "replaced".into());
+        assert_eq!(
+            messages.get("cat", "key").map(String::as_str),
+            Some("replaced")
+        );
+        assert_eq!(
+            messages.get("cat", "other").map(String::as_str),
+            Some("second")
+        );
+        let round: SusiMessages =
+            serde_json::from_value(serde_json::to_value(&messages).unwrap()).unwrap();
+        assert_eq!(
+            round.get("cat", "key").map(String::as_str),
+            Some("replaced")
+        );
+    }
+
+    #[test]
+    fn typed_defaults_and_partial_deserialization_keep_documented_values() {
+        let privacy = PrivacyConfig::default();
+        assert_eq!(privacy.mode, "balanced");
+        assert!(!privacy.mandatory_sandbox_for_exec);
+        assert!(privacy.require_egress_consent);
+        let partial: PrivacyConfig = serde_json::from_value(json!({"mode": "local_only"})).unwrap();
+        assert_eq!(partial.mode, "local_only");
+        assert!(partial.require_egress_consent, "unset fields keep defaults");
+
+        let routing = InferenceRoutingConfig::default();
+        assert_eq!(routing.policy, "auto");
+        assert_eq!(routing.local_max_latency_ms, 15_000);
+        assert!(routing.prefer_cloud_when_cpu_only && routing.ask_when_multiple_clouds);
+        let tuned: InferenceRoutingConfig =
+            serde_json::from_value(json!({"policy": "local_only"})).unwrap();
+        assert_eq!(tuned.policy, "local_only");
+        assert_eq!(tuned.local_min_tokens_per_sec, 8.0);
+
+        let entry: ModelCatalogEntry = serde_json::from_value(json!({"id": "gpt"})).unwrap();
+        assert_eq!(entry.id, "gpt");
+        assert_eq!(entry.engine, "");
+        let peer = ExternalPeerAgentSpec::default();
+        assert_eq!(peer.protocol, "");
+        assert!(peer.detect_bins.is_empty());
+    }
+
+    #[test]
+    fn governance_pattern_accessors_return_independent_copies() {
+        let mut patterns = GovernancePatterns {
+            secret_tokens: vec!["sk-".into()],
+            destructive_commands: vec!["rm -rf".into()],
+            critical_system_paths: vec!["/etc".into()],
+            exfiltration_vectors: vec!["curl".into()],
+            ..GovernancePatterns::default()
+        };
+        assert_eq!(patterns.secret_tokens(), ["sk-"]);
+        assert_eq!(patterns.destructive_commands(), ["rm -rf"]);
+        assert_eq!(patterns.critical_system_paths(), ["/etc"]);
+        assert_eq!(patterns.exfiltration_vectors(), ["curl"]);
+        let snapshot = patterns.secret_tokens();
+        patterns.secret_tokens.push("ghp_".into());
+        assert_eq!(snapshot, ["sk-"], "a returned Vec is a copy");
+    }
+
+    #[test]
+    fn external_peer_without_an_api_key_env_resolves_to_no_credential() {
+        let peer = ExternalPeerAgentSpec::default();
+        let dir = std::env::temp_dir();
+        assert!(peer.resolve_api_key(&dir).unwrap().is_none());
+    }
+}
