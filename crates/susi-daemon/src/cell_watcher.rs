@@ -240,4 +240,13 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn cell_watcher_config_for_substrate_sets_cells_subdir_and_five_sec_interval() {
+        let sub = std::env::temp_dir().join("susi-sub-watcher-cfg");
+        let cfg = CellWatcherConfig::for_substrate(&sub);
+        assert_eq!(cfg.cells_dir, sub.join("cells"));
+        assert_eq!(cfg.poll_interval, Duration::from_secs(5));
+        assert!(scan_cell_files(&sub.join("nonexistent-cells-dir")).is_empty());
+    }
 }

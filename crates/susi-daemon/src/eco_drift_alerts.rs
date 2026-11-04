@@ -156,4 +156,21 @@ mod tests {
         assert_eq!(task.accept[0], "cargo");
         assert!(task.accept.iter().any(|a| a.contains("eco_profile")));
     }
+
+    #[test]
+    fn eco_drift_alerts_handles_non_object_response_and_preserves_metadata_in_task() {
+        let alert = detect_drift(
+            "anthropic-messages",
+            &["id".into(), "content".into()],
+            &serde_json::json!(null),
+            "2026-11-04",
+        )
+        .expect("missing fields on non-object response");
+        assert_eq!(alert.items.len(), 2);
+        let task = to_task(&alert);
+        assert_eq!(task.title, "drift on anthropic-messages");
+        assert!(task.goal.contains("2026-11-04"));
+        assert!(task.goal.contains("missing-field:id"));
+        assert!(task.goal.contains("missing-field:content"));
+    }
 }
