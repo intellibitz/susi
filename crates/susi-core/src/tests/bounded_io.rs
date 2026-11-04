@@ -50,3 +50,11 @@ fn io_error_from_reader_propagates_cleanly() {
     let err = json_capped::<serde_json::Value>(FailingReader, 128).unwrap_err();
     assert!(err.contains("socket reset"), "{err}");
 }
+
+#[test]
+fn json_capped_accepts_payload_whose_byte_length_equals_exact_cap() {
+    let payload = br#"{"ok":true}"#;
+    let parsed: serde_json::Value =
+        json_capped(&payload[..], payload.len() as u64).expect("exact cap should succeed");
+    assert_eq!(parsed["ok"], serde_json::Value::Bool(true));
+}
