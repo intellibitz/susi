@@ -270,4 +270,22 @@ mod tests {
             "remote"
         ));
     }
+
+    #[test]
+    fn peer_http_port_returns_non_zero_port_and_names_handles_empty_rows() {
+        assert!(peer_http_port() > 0);
+        assert!(!names(&[], "any", "127.0.0.1:9093"));
+        assert!(!names(&[json!({})], "n1", "10.0.0.1:9093"));
+    }
+
+    #[test]
+    fn is_self_matches_wire_node_id_even_on_remote_ip() {
+        let local_id = susi_config::cluster_key::wire_node_id();
+        let remote_ip: std::net::IpAddr = "198.51.100.42".parse().unwrap();
+        assert!(is_self(remote_ip, &local_id));
+        assert!(is_self(
+            std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            "remote-node"
+        ));
+    }
 }

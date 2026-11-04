@@ -192,4 +192,28 @@ mod tests {
         drop(env);
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn human_bytes_formats_zero_mib_and_tib_boundaries_accurately() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(1024 * 1024), "1.0 MiB");
+        assert_eq!(human_bytes(1024_u64.pow(4)), "1.0 TiB");
+    }
+
+    #[test]
+    fn clean_report_default_and_residue_struct_serialization_contract() {
+        let def = CleanReport::default();
+        assert_eq!(def.removed_count, 0);
+        assert_eq!(def.reclaimed_bytes, 0);
+        assert!(def.removed.is_empty());
+
+        let residue = Residue {
+            kind: "stray_bin",
+            path: PathBuf::from("old.bin"),
+            bytes: 300,
+        };
+        let val = serde_json::to_value(&residue).unwrap();
+        assert_eq!(val["kind"], "stray_bin");
+        assert_eq!(val["bytes"], 300);
+    }
 }
