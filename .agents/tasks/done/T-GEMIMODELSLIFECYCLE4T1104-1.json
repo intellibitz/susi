@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GEMIMODELSLIFECYCLE4T1104-1",
+  "title": "Expand inline unit test suites for susi-gemi-models lifecycle selection, scan, download_controller, and types (3 -> 4 tests)",
+  "touch": [
+    "crates/susi-gemi-models/src/lifecycle/selection.rs",
+    "crates/susi-gemi-models/src/lifecycle/scan.rs",
+    "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
+    "crates/susi-gemi-models/src/lifecycle/types.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-gemi-models --lib",
+      "cargo clippy --offline --locked -p susi-gemi-models --all-targets -- -D warnings"
+    ]
+  }
+}

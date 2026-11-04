@@ -112,6 +112,7 @@ impl From<NoLocalModelInstalled> for crate::susi_error::EaiError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelVerificationResult {
     pub model_id: String,
     pub path: String,
@@ -337,5 +338,39 @@ mod tests {
         assert!(ver.is_valid_gguf);
         assert!(ver.checksum_verified);
         assert_eq!(ver.test_inference_status, "NOT_RUN");
+    }
+
+    #[test]
+    fn model_verification_result_serde_roundtrip_and_provisioning_outcome_equality() {
+        let ver = ModelVerificationResult {
+            model_id: "qwen3-0.6b-q4_k_m".to_string(),
+            path: "/models/qwen3-0.6b-q4_k_m.gguf".to_string(),
+            file_size_bytes: 428_730_208,
+            file_size_formatted: "0.43 GB".to_string(),
+            is_valid_gguf: true,
+            magic_header: "GGUF".to_string(),
+            test_inference_status: "NOT_RUN".to_string(),
+            latency_ms: 0,
+            checksum_known: true,
+            checksum_verified: true,
+        };
+        let json = serde_json::to_string(&ver).expect("serialize ModelVerificationResult");
+        let roundtrip: ModelVerificationResult =
+            serde_json::from_str(&json).expect("deserialize ModelVerificationResult");
+        assert_eq!(roundtrip, ver);
+
+        let variants = [
+            ModelProvisioningOutcome::Active,
+            ModelProvisioningOutcome::Ready("qwen3-0.6b".to_string()),
+            ModelProvisioningOutcome::Installed("qwen3-0.6b".to_string()),
+            ModelProvisioningOutcome::OfflineNoModel,
+            ModelProvisioningOutcome::TooSmall,
+        ];
+        for (i, a) in variants.iter().enumerate() {
+            assert_eq!(a, &a.clone());
+            for (j, b) in variants.iter().enumerate() {
+                assert_eq!(i == j, a == b);
+            }
+        }
     }
 }
