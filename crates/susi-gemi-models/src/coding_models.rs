@@ -113,7 +113,27 @@ impl CodingModelManager {
 
     pub fn configure(&self, id: &str, over: &CodingModelOverride) -> Result<CodingModelDefinition> {
         let def = Self::definition(id)?;
-        crate::susi_config::write_json_override(&self.config, &def.id, over)?;
+        let path = self.config.join(format!("{}.json", def.id));
+        let mut merged = fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<CodingModelOverride>(&bytes).ok())
+            .unwrap_or_default();
+        if over.engine.is_some() {
+            merged.engine.clone_from(&over.engine);
+        }
+        if over.model.is_some() {
+            merged.model.clone_from(&over.model);
+        }
+        if over.protocol_type.is_some() {
+            merged.protocol_type.clone_from(&over.protocol_type);
+        }
+        if over.api_key_env.is_some() {
+            merged.api_key_env.clone_from(&over.api_key_env);
+        }
+        for (k, v) in &over.extra {
+            merged.extra.insert(k.clone(), v.clone());
+        }
+        crate::susi_config::write_json_override(&self.config, &def.id, &merged)?;
         self.effective(&def.id)
     }
 
@@ -295,5 +315,107 @@ mod tests {
         assert_eq!(manager.effective("gpt-5").unwrap().model, "gpt-5.4");
         assert_eq!(manager.reset("gpt-5").unwrap().model, "gpt-5");
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn coding_model_definition_validate_enforces_nonempty_fields_and_env_identifier_syntax() {
+        let base = CodingModelDefinition {
+            id: "claude-opus".to_string(),
+            name: "Claude Opus".to_string(),
+            rank: 1,
+            documentation: "https://docs.anthropic.com".to_string(),
+            engine: "Anthropic".to_string(),
+            model: "claude-opus-4-6".to_string(),
+            protocol_type: "anthropic".to_string(),
+            api_key_env: String::new(),
+        };
+        assert!(base.validate().is_ok());
+
+        let mut valid_env = base.clone();
+        valid_env.api_key_env = "ANTHROPIC_API_KEY_2".to_string();
+        assert!(valid_env.validate().is_ok());
+
+        for bad_id in ["", "   "] {
+            let mut d = base.clone();
+            d.id = bad_id.to_string();
+            assert!(d.validate().is_err());
+        }
+        for bad_engine in ["", " \t "] {
+            let mut d = base.clone();
+            d.engine = bad_engine.to_string();
+            assert!(d.validate().is_err());
+        }
+        for bad_model in ["", "  "] {
+            let mut d = base.clone();
+            d.model = bad_model.to_string();
+            assert!(d.validate().is_err());
+        }
+        for bad_env in ["BAD-ENV-NAME", "KEY=VAL", "SPACE VAR", "KEY$1"] {
+            let mut d = base.clone();
+            d.api_key_env = bad_env.to_string();
+            let err = d.validate().unwrap_err().to_string();
+            assert!(err.contains("api_key_env must name an environment variable"));
+        }
+    }
+
+    #[test]
+    fn coding_model_manager_definition_resolves_id_and_case_insensitive_name_and_reports_unknown() {
+        let by_id = CodingModelManager::definition("claude-opus").unwrap();
+        let by_upper_name = CodingModelManager::definition("CLAUDE OPUS").unwrap();
+        assert_eq!(by_id.id, "claude-opus");
+        assert_eq!(by_upper_name.id, "claude-opus");
+        assert_eq!(by_id.model, by_upper_name.model);
+
+        let err = CodingModelManager::definition("unknown-coding-model-xyz")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("susi models list"));
+    }
+
+    #[test]
+    fn mandate_35_configure_preserves_unknown_extra_fields_and_effective_rejects_invalid_env() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-coding-model-m35-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let override_path = root.join("gpt-5.json");
+        fs::write(
+            &override_path,
+            r#"{"model":"gpt-5.1","custom_tier":"enterprise","routing_weight":10}"#,
+        )
+        .unwrap();
+
+        let manager = CodingModelManager::with_config(root.clone());
+        let updated = manager
+            .configure(
+                "gpt-5",
+                &CodingModelOverride {
+                    model: Some("gpt-5.5".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.model, "gpt-5.5");
+
+        let raw: Value =
+            serde_json::from_slice(&fs::read(&override_path).unwrap()).expect("valid json");
+        assert_eq!(raw["model"], "gpt-5.5");
+        assert_eq!(raw["custom_tier"], "enterprise");
+        assert_eq!(raw["routing_weight"], 10);
+
+        // Invalid api_key_env in host override must be rejected by effective()
+        fs::write(
+            &override_path,
+            r#"{"model":"gpt-5.5","api_key_env":"BAD-ENV-NAME"}"#,
+        )
+        .unwrap();
+        assert!(manager.effective("gpt-5").is_err());
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
