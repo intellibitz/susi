@@ -318,4 +318,27 @@ mod inline_tests {
             .iter()
             .any(|h| h.kind == "obfuscated_env:SERVICE_SECRET"));
     }
+
+    #[test]
+    fn local_only_marker_sets_local_only_classification_and_blocks_cloud_egress() {
+        assert_eq!(PromptScanPolicy::default(), PromptScanPolicy::Block);
+        assert_eq!(
+            ClassificationLabel::default(),
+            ClassificationLabel::ApprovedCloud
+        );
+
+        let res = scan_prompt_secrets(
+            "LOCAL_ONLY diagnostic dump",
+            &[],
+            Vec::<(String, String)>::new(),
+            PromptScanPolicy::Block,
+        );
+        assert_eq!(res.classification, ClassificationLabel::LocalOnly);
+        assert!(res.blocked());
+        assert_eq!(res.egress_text(), None);
+        assert!(res
+            .hits
+            .iter()
+            .any(|h| h.kind == "classification:LocalOnly"));
+    }
 }

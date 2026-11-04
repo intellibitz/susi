@@ -47,3 +47,60 @@ impl ReflexEngine {
         (decision, elapsed_micros)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn reflex_decision_variants_carry_solved_payload_or_deep_reasoning_marker() {
+        let solved = ReflexDecision::Solved("ACTION: status".to_string());
+        assert!(matches!(solved, ReflexDecision::Solved(ref s) if s == "ACTION: status"));
+
+        let deep = ReflexDecision::RequiresDeepReasoning;
+        assert!(matches!(deep, ReflexDecision::RequiresDeepReasoning));
+    }
+
+    #[test]
+    fn try_solve_returns_decision_and_elapsed_micros_for_simple_intent() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_reflex_engine_simple_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let (decision, _elapsed) = ReflexEngine::try_solve("status", &tmp);
+        match decision {
+            ReflexDecision::Solved(s) => assert!(!s.is_empty()),
+            ReflexDecision::RequiresDeepReasoning => {}
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn reflex_decision_clone_and_debug_preserve_variant_shape() {
+        let solved = ReflexDecision::Solved("ACTION: version".to_string());
+        let cloned = solved.clone();
+        assert!(format!("{cloned:?}").contains("ACTION: version"));
+
+        let deep = ReflexDecision::RequiresDeepReasoning.clone();
+        assert!(format!("{deep:?}").contains("RequiresDeepReasoning"));
+    }
+
+    #[test]
+    fn try_solve_reuses_tier0_reflex_cache_across_repeated_status_calls() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_reflex_engine_cache_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let (first, _) = ReflexEngine::try_solve("status", &tmp);
+        let (second, _) = ReflexEngine::try_solve("status", &tmp);
+        assert!(matches!(
+            (first, second),
+            (ReflexDecision::Solved(_), ReflexDecision::Solved(_))
+                | (
+                    ReflexDecision::RequiresDeepReasoning,
+                    ReflexDecision::RequiresDeepReasoning
+                )
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}

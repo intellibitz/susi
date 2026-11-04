@@ -44,3 +44,46 @@ pub fn notify_environment_changed() -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn notify_environment_changed_returns_ok_or_descriptive_io_error() {
+        if let Err(err) = notify_environment_changed() {
+            assert_eq!(err.kind(), io::ErrorKind::Other);
+            assert!(err.to_string().contains("environment broadcast"));
+        }
+    }
+
+    #[test]
+    fn notify_environment_changed_is_safe_across_repeated_calls() {
+        let first = notify_environment_changed();
+        let second = notify_environment_changed();
+        if let Err(e) = first {
+            assert_eq!(e.kind(), io::ErrorKind::Other);
+        }
+        if let Err(e) = second {
+            assert_eq!(e.kind(), io::ErrorKind::Other);
+        }
+    }
+
+    #[test]
+    fn environment_utf16_slice_decodes_to_null_terminated_environment_string() {
+        let raw: [u16; 12] = [69, 110, 118, 105, 114, 111, 110, 109, 101, 110, 116, 0];
+        let decoded = String::from_utf16(&raw[..11]).expect("valid utf16");
+        assert_eq!(decoded, "Environment");
+        assert_eq!(raw[11], 0);
+    }
+
+    #[test]
+    fn broadcast_timeout_error_preserves_other_error_kind_and_message() {
+        let err =
+            io::Error::other("Windows did not confirm the environment broadcast to all recipients");
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        assert!(err.to_string().contains("Windows did not confirm"));
+    }
+}

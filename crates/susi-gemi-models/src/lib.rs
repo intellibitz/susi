@@ -46,3 +46,53 @@ pub mod model_cache;
 pub mod zc_first_model;
 
 pub use lifecycle::*;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn default_starters_contains_audited_small_and_7b_entries() {
+        let starters = zc_first_model::default_starters();
+        assert_eq!(starters.len(), 2);
+        assert!(starters[0].size_bytes < starters[1].size_bytes);
+        assert_eq!(starters[0].id, "qwen2.5-0.5b-instruct-q4");
+    }
+
+    #[test]
+    fn task_complexity_escalates_and_saturates_at_very_complex() {
+        use intent::TaskComplexity;
+        assert_eq!(TaskComplexity::Trivial.escalate(), TaskComplexity::Simple);
+        assert_eq!(
+            TaskComplexity::VeryComplex.escalate(),
+            TaskComplexity::VeryComplex
+        );
+    }
+
+    #[test]
+    fn task_complexity_target_percentiles_are_monotonically_increasing() {
+        use intent::TaskComplexity;
+        assert!(
+            TaskComplexity::Trivial.target_percentile()
+                < TaskComplexity::Moderate.target_percentile()
+        );
+        assert!(
+            TaskComplexity::Moderate.target_percentile()
+                < TaskComplexity::Complex.target_percentile()
+        );
+    }
+
+    #[test]
+    fn starter_install_constants_expose_canonical_cli_command_and_source() {
+        assert_eq!(
+            std::hint::black_box(zc_first_model::STARTER_INSTALL_COMMAND),
+            "susi os manage model install starter"
+        );
+        assert_eq!(
+            std::hint::black_box(zc_first_model::STARTER_SOURCE),
+            "starter"
+        );
+    }
+}

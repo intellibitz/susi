@@ -208,4 +208,20 @@ mod inline_tests {
             LayerVerdict::Allow
         );
     }
+
+    #[test]
+    fn evaluate_denies_when_any_general_layer_denies_and_entry_point_as_str_matches() {
+        assert_eq!(EntryPoint::Tool.as_str(), "tool");
+        assert_eq!(EntryPoint::Peer.as_str(), "peer");
+        assert_eq!(EntryPoint::Model.as_str(), "model");
+
+        let layers = [
+            LayerDecision {
+                layer: "mac".into(),
+                verdict: LayerVerdict::Allow,
+            },
+            LayerDecision::from_daemon_capability(false),
+        ];
+        assert_eq!(evaluate(EntryPoint::Model, &layers), LayerVerdict::Deny);
+    }
 }
