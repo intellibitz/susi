@@ -1,0 +1,26 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ABINATIVE1104-1",
+  "title": "test(abi,native-client): add evidence, episodic memory, and loopback WasmHost contract tests (D-OS-8)",
+  "status": "done", "completed_at": "2026-11-04T03:03:15Z",
+  "created_at": "2026-11-04T02:59:30Z",
+  "owner": "gemini",
+  "touch": [
+    "crates/susi-abi/src/evidence.rs",
+    "crates/susi-abi/src/memory.rs",
+    "crates/susi-native-client/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-abi",
+      "-p",
+      "susi-native-client",
+      "--lib"
+    ]
+  }
+}
