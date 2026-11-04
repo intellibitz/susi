@@ -1,0 +1,19 @@
+{
+  "id": "T-DAEMONMODSD4T1104-1",
+  "title": "Expand 5 susi-daemon modules D (blackboard, boot_trace, context_adapters, gossip, plane_handler) to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "boot_trace"
+    ]
+  },
+  "created_by": "DAEMONMODSD4T1104",
+  "created_unix": 1793792164
+}

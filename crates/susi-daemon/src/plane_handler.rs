@@ -112,4 +112,36 @@ mod tests {
             .contains("unknown service")
         );
     }
+
+    #[test]
+    fn context_sample_os_and_substrate_status_return_structured_payloads() {
+        let h = DaemonPlaneHandler;
+        let sample = h
+            .handle(
+                topics::DAEMON_CONTEXT_SAMPLE_OS,
+                json!({"workspace": ".", "user": "plane-test"}),
+            )
+            .expect("context sample should succeed");
+        assert_eq!(sample["os"].as_str(), Some(std::env::consts::OS));
+        assert!(sample["sampled"].as_u64().is_some());
+
+        let status = h
+            .handle(topics::DAEMON_SUBSTRATE_STATUS, json!({"workspace": "."}))
+            .expect("substrate status should succeed");
+        assert!(status.is_object());
+    }
+
+    #[test]
+    fn register_installs_daemon_prefix_on_global_plane_bus() {
+        register();
+        let resp = PlaneBus::global()
+            .call("daemon.unrecognized_topic_for_test", json!({}))
+            .expect("registered daemon prefix should handle call");
+        assert!(
+            resp["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("unhandled topic")
+        );
+    }
 }

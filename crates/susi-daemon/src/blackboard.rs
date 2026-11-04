@@ -164,4 +164,48 @@ mod tests {
         assert!(violations.is_empty());
         assert!(board.query_topic("sla.violation").is_empty());
     }
+
+    #[test]
+    fn deposit_pheromone_and_query_topic_filter_by_topic_and_broadcast() {
+        let board = SwarmBlackboard::new();
+        let mut rx = board.subscribe();
+        let pheromone = SwarmPheromone {
+            id: "ph-1".to_string(),
+            source_cell: "cell-a".to_string(),
+            topic: "mission.progress".to_string(),
+            payload: b"step-1".to_vec(),
+            ttl_ms: 60_000,
+            deposited_at: u64::MAX / 2,
+        };
+        board.deposit_pheromone(pheromone);
+
+        let matched = board.query_topic("mission.progress");
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].id, "ph-1");
+        assert!(board.query_topic("mission.unknown").is_empty());
+        let received = rx
+            .try_recv()
+            .expect("broadcast subscriber receives pheromone");
+        assert_eq!(received.topic, "mission.progress");
+    }
+
+    #[test]
+    fn min_success_rate_sla_violation_deposits_alert_pheromone() {
+        let board = SwarmBlackboard::new();
+        let snapshot = crate::swarm_metrics::SwarmMetricsSnapshot {
+            missions_started: 4,
+            missions_completed: 4,
+            missions_succeeded: 1,
+            distinct_solutions: 1,
+            avg_time_to_resolution_ms: 200,
+        };
+        let targets = crate::sla_monitor::SlaTargets {
+            max_avg_resolution_ms: Some(1000),
+            min_success_rate: Some(0.8),
+        };
+        let violations = board.check_sla_and_alert(&snapshot, &targets);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(board.query_topic("sla.violation").len(), 1);
+        assert!(format!("{board:?}").contains("SwarmBlackboard"));
+    }
 }

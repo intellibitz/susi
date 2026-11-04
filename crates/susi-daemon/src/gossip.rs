@@ -471,4 +471,39 @@ mod tests {
         assert!(!manager.peer_has_capability("spoof", "infer"));
         assert_eq!(manager.rejected_count(), 1);
     }
+
+    #[test]
+    fn gossip_target_rewrites_socket_and_hostname_ports() {
+        assert_eq!(
+            GossipManager::gossip_target("127.0.0.1:9090", 9099),
+            "127.0.0.1:9099"
+        );
+        assert_eq!(
+            GossipManager::gossip_target("node-alpha.internal:8080", 9099),
+            "node-alpha.internal:9099"
+        );
+        assert_eq!(
+            GossipManager::gossip_target("node-beta.internal", 9099),
+            "node-beta.internal:9099"
+        );
+    }
+
+    #[test]
+    fn tampered_sealed_payload_is_rejected_and_increments_counter() {
+        let manager = GossipManager::new();
+        assert!(!manager.peer_has_capability("unknown-cell", "infer"));
+        let msg = GossipMessage::AdvertiseCapabilities {
+            cell_id: "cell-tampered".to_string(),
+            capabilities: vec!["infer".to_string()],
+            timestamp: 42,
+        };
+        let body = serde_json::to_vec(&msg).unwrap();
+        let mut sealed = manager.seal(&body).unwrap();
+        if let Some(last) = sealed.last_mut() {
+            *last ^= 0xFF;
+        }
+        assert!(manager.handle_gossip(&sealed).is_err());
+        assert!(!manager.peer_has_capability("cell-tampered", "infer"));
+        assert_eq!(manager.rejected_count(), 1);
+    }
 }
