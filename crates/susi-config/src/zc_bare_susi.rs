@@ -116,4 +116,30 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn bare_status_clone_equality_and_render_bare_exact_two_line_format() {
+        let states = [
+            bare_susi_status(true, true, true),
+            bare_susi_status(false, true, true),
+            bare_susi_status(true, true, false),
+            bare_susi_status(true, false, true),
+        ];
+
+        for status in &states {
+            let cloned = status.clone();
+            assert_eq!(&cloned, status);
+
+            let rendered = render_bare(status);
+            let lines: Vec<&str> = rendered.lines().collect();
+            assert_eq!(lines.len(), 2);
+            let expected_status = if status.ready { "ready" } else { "not ready" };
+            assert_eq!(lines[0], format!("susi status: {expected_status}"));
+            assert_eq!(lines[1], format!("next: {}", status.next_step));
+        }
+
+        assert_ne!(states[0], states[1]);
+        assert_ne!(states[1], states[2]);
+        assert_ne!(states[2], states[3]);
+    }
 }

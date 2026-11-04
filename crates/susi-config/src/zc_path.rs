@@ -115,4 +115,29 @@ mod tests {
         assert!(PathConsent::from_env_value(Some("\tTRUE\r\n")).granted);
         assert!(!PathConsent::from_env_value(Some("true_ish")).granted);
     }
+
+    #[test]
+    fn path_consent_preserves_spaces_in_bin_dir_and_rejects_partial_prefix_tokens() {
+        for token in ["10", "yesplease", "true1", "1true", "yess"] {
+            let consent = PathConsent::from_env_value(Some(token));
+            assert!(!consent.granted, "expected {token:?} to be rejected");
+        }
+
+        let granted = PathConsent::from_env_value(Some("yes"));
+        let [copy_a, copy_b] = [granted; 2];
+        assert_eq!(granted, copy_a);
+        assert_eq!(copy_a, copy_b);
+
+        let posix_spaces = "/Users/Alice/Application Support/susi/bin";
+        assert_eq!(
+            granted.path_snippet(posix_spaces),
+            Some(format!("export PATH=\"{posix_spaces}:$PATH\"  # susi"))
+        );
+
+        let win_spaces = "C:\\Program Files\\Susi\\bin";
+        assert_eq!(
+            granted.powershell_path_snippet(win_spaces),
+            Some(format!("$env:PATH = \"{win_spaces};$env:PATH\"  # susi"))
+        );
+    }
 }

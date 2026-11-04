@@ -230,6 +230,33 @@ mod service {
                 },
             );
         }
+
+        #[test]
+        fn xdg_config_home_override_triggers_local_only_resolution() {
+            let _guard = env_test_lock();
+            let temp_xdg = std::env::temp_dir().join("susi-config-xdg-local-only-test");
+            let temp_xdg_str = temp_xdg.to_string_lossy().into_owned();
+            with_env(
+                &[
+                    ("SUSI_XDG", None),
+                    ("XDG_CONFIG_HOME", Some(&temp_xdg_str)),
+                    ("XDG_DATA_HOME", None),
+                    ("XDG_CACHE_HOME", None),
+                    ("SUSI_CONFIG_PORT", Some("1")),
+                ],
+                || {
+                    assert!(susi_paths::loopback::local_env_override());
+                    assert!(super::local_only());
+                    let started = std::time::Instant::now();
+                    assert!(super::get_global().is_none());
+                    assert!(!super::save_global(&SusiConfig::default()));
+                    assert!(
+                        started.elapsed() < std::time::Duration::from_millis(150),
+                        "XDG_CONFIG_HOME override must short-circuit without network I/O"
+                    );
+                },
+            );
+        }
     }
 }
 
