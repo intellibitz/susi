@@ -1,0 +1,31 @@
+{
+  "id": "T-WINRTWEBMCP1104-1",
+  "title": "Expand inline unit tests across susi-windows-runtime, susi-vendor-agents cloud, susi-vendor-web live_search, susi-vendor-mcp-server, and susi-http-transport",
+  "goal": "Add a 2nd inline unit test to susi-windows-runtime, susi-vendor-agents external/cloud.rs, susi-vendor-web live_search.rs, susi-vendor-mcp-server lib.rs, and susi-http-transport http_conn.rs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-windows-runtime",
+      "-p",
+      "susi-vendor-agents",
+      "-p",
+      "susi-vendor-web",
+      "-p",
+      "susi-vendor-mcp-server",
+      "-p",
+      "susi-http-transport",
+      "--lib"
+    ]
+  },
+  "created_by": "WINRTWEBMCP1104",
+  "created_unix": 1793776193,
+  "closed": {
+    "at_unix": 1793776557,
+    "commit": "c96a4257b9df31dec955b79f9a599526fe8ff2a1",
+    "by": "WINRTWEBMCP1104"
+  }
+}

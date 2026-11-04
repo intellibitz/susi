@@ -35,4 +35,11 @@ mod tests {
         let err = crate::model::ErrorData::internal_error("probe", None);
         assert_eq!(err.code, crate::model::ErrorCode::INTERNAL_ERROR);
     }
+
+    #[test]
+    fn rmcp_invalid_params_preserves_code_and_message() {
+        let err = crate::model::ErrorData::invalid_params("bad param", None);
+        assert_eq!(err.code, crate::model::ErrorCode::INVALID_PARAMS);
+        assert_eq!(err.message.as_ref(), "bad param");
+    }
 }

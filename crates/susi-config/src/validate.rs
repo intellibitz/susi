@@ -473,4 +473,36 @@ mod tests {
                 && i.fix == Some(ConfigFix::Remove)
         }));
     }
+
+    #[test]
+    fn validate_settings_walks_same_length_arrays_ignores_resized_arrays_and_apply_fixes_creates_missing_file(
+    ) {
+        let mut same_len = SusiConfig::heal_defaults().clone();
+        if let Some(DynamicValue::Array(assets)) = same_len.get_mut("discoverable_assets") {
+            assert!(!assets.is_empty());
+            if let Some(DynamicValue::Object(first)) = assets.get_mut(0) {
+                first.insert("url".into(), DynamicValue::from(404));
+            }
+        }
+        let array_report = validate_settings(&same_len);
+        assert!(array_report.has_blocking());
+        assert!(array_report.issues.iter().any(|i| {
+            i.path == "discoverable_assets.0.url" && i.kind == ConfigIssueKind::TypeMismatch
+        }));
+
+        let mut resized = SusiConfig::heal_defaults().clone();
+        resized.insert("discoverable_assets".into(), DynamicValue::Array(vec![]));
+        let resized_report = validate_settings(&resized);
+        assert!(resized_report.is_clean());
+
+        let empty_dir = unique_temp_dir("apply-fixes-absent");
+        assert!(!SusiConfig::get_config_path(&empty_dir).exists());
+        let healed_report = apply_fixes(&empty_dir).expect("apply_fixes on absent config.json");
+        assert!(healed_report.is_clean());
+        assert!(SusiConfig::get_config_path(&empty_dir).is_file());
+        assert!(validate_dir(&empty_dir)
+            .expect("validate_dir after apply_fixes")
+            .is_clean());
+        let _ = fs::remove_dir_all(&empty_dir);
+    }
 }
