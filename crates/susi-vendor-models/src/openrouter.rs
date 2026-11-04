@@ -221,4 +221,42 @@ mod tests {
         assert!(validate_model_slug("../evil").is_err());
         assert!(validate_model_slug("anthropic/claude-sonnet-4").is_ok());
     }
+
+    #[test]
+    fn effective_model_defaults_to_auto_and_clear_preferred_model_is_idempotent() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = OpenRouterManager::with_root(root.path().to_path_buf());
+        assert!(manager.preferred_model().is_none());
+        assert_eq!(manager.effective_model(), DEFAULT_MODEL);
+        assert_eq!(
+            manager.clear_preferred_model().unwrap(),
+            "no OpenRouter preferred model was set"
+        );
+
+        fs::write(
+            root.path().join("preferred_model.txt"),
+            "anthropic/claude-sonnet-4\n",
+        )
+        .unwrap();
+        assert_eq!(
+            manager.preferred_model().as_deref(),
+            Some("anthropic/claude-sonnet-4")
+        );
+        assert_eq!(manager.effective_model(), "anthropic/claude-sonnet-4");
+        assert!(manager
+            .clear_preferred_model()
+            .unwrap()
+            .contains("cleared OpenRouter preferred model"));
+        assert!(manager.preferred_model().is_none());
+    }
+
+    #[test]
+    fn is_openrouter_base_and_definition_lookup_by_id_or_model() {
+        assert!(is_openrouter_base("https://openrouter.ai/api/v1"));
+        assert!(!is_openrouter_base("https://api.openai.com/v1"));
+
+        let auto = OpenRouterManager::definition("openrouter/auto").unwrap();
+        assert_eq!(auto.model, "openrouter/auto");
+        assert!(OpenRouterManager::definition("unknown-route-xyz").is_err());
+    }
 }
