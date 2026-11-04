@@ -131,4 +131,82 @@ mod tests {
             .unwrap()
             .contains("[ADMIN_UNWIRED] apply_patch_cycle"));
     }
+
+    struct StubAdminHooks;
+    impl AdminHooks for StubAdminHooks {
+        fn enforce_version_consistency(&self, workspace: &Path) -> EaiResult<String> {
+            Ok(format!("synced:{}", workspace.display()))
+        }
+        fn audit_compliance(&self, workspace: &Path) -> EaiResult<String> {
+            Ok(format!("compliant:{}", workspace.display()))
+        }
+        fn verify_version_alignment(&self, _workspace: &Path) -> EaiResult<String> {
+            Ok("Version Alignment Verified (v1.0.0)".to_string())
+        }
+        fn execute_release(&self, workspace: &Path) -> EaiResult<String> {
+            Ok(format!("release v1.0.0 from {}", workspace.display()))
+        }
+        fn bloat_audit_workspace(&self, _workspace: &Path) -> EaiResult<String> {
+            Ok("0 Bloat Detected".to_string())
+        }
+        fn perform_autonomous_drift_audit(&self, _workspace: &Path) -> EaiResult<String> {
+            Ok("0 Drift Detected".to_string())
+        }
+        fn apply_patch_cycle(
+            &self,
+            workspace: &Path,
+            request_json: &str,
+            trust_level: &str,
+        ) -> EaiResult<String> {
+            Ok(format!(
+                "Patch Cycle Applied ({trust_level}) on {}: {request_json}",
+                workspace.display()
+            ))
+        }
+    }
+
+    #[test]
+    fn hooks_accessor_and_custom_admin_hooks_implementation_cover_all_seven_methods() {
+        let ws = Path::new("workspace-root");
+        let active = hooks();
+        assert!(active.enforce_version_consistency(ws).is_ok());
+        assert!(active.audit_compliance(ws).is_ok());
+        assert!(active.verify_version_alignment(ws).is_ok());
+        assert!(active.execute_release(ws).is_ok());
+        assert!(active.bloat_audit_workspace(ws).is_ok());
+        assert!(active.perform_autonomous_drift_audit(ws).is_ok());
+        assert!(active.apply_patch_cycle(ws, "{}", "trusted").is_ok());
+
+        let custom: &dyn AdminHooks = &StubAdminHooks;
+        assert_eq!(
+            custom.enforce_version_consistency(ws).unwrap(),
+            "synced:workspace-root"
+        );
+        assert_eq!(
+            custom.audit_compliance(ws).unwrap(),
+            "compliant:workspace-root"
+        );
+        assert_eq!(
+            custom.verify_version_alignment(ws).unwrap(),
+            "Version Alignment Verified (v1.0.0)"
+        );
+        assert_eq!(
+            custom.execute_release(ws).unwrap(),
+            "release v1.0.0 from workspace-root"
+        );
+        assert_eq!(
+            custom.bloat_audit_workspace(ws).unwrap(),
+            "0 Bloat Detected"
+        );
+        assert_eq!(
+            custom.perform_autonomous_drift_audit(ws).unwrap(),
+            "0 Drift Detected"
+        );
+        assert_eq!(
+            custom
+                .apply_patch_cycle(ws, r#"{"files":[]}"#, "high")
+                .unwrap(),
+            r#"Patch Cycle Applied (high) on workspace-root: {"files":[]}"#
+        );
+    }
 }
