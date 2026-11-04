@@ -176,4 +176,21 @@ mod tests {
         assert!(errors >= 2, "both oversized lines must error");
         assert_eq!(recovered, b"ok\n");
     }
+
+    #[tokio::test]
+    async fn bounded_lines_allows_line_exactly_at_byte_limit() {
+        let mut reader = BoundedLines::new(&b"abcd\nef\n"[..], 4);
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).await.unwrap();
+        assert_eq!(output, b"abcd\nef\n");
+    }
+
+    #[tokio::test]
+    async fn bounded_lines_handles_empty_input_cleanly() {
+        let mut reader = BoundedLines::new(&b""[..], 8);
+        let mut output = Vec::new();
+        let n = reader.read_to_end(&mut output).await.unwrap();
+        assert_eq!(n, 0);
+        assert!(output.is_empty());
+    }
 }

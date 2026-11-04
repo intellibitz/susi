@@ -198,3 +198,113 @@ pub fn cli_status_line(view: &MissionView) -> String {
         ),
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use crate::mission_persist::PersistedNode;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn summary_and_reports_full_success_distinguish_empty_complete_resumable_and_partial() {
+        let mut view = MissionView::new("m-1");
+        assert_eq!(view.summary(), MissionSummary::Partial);
+        assert!(!view.reports_full_success());
+
+        view.upsert(DagNodeView {
+            id: "n1".into(),
+            view: NodeView::Completed,
+            resumable: false,
+            output: Some("done".into()),
+        });
+        assert_eq!(view.summary(), MissionSummary::FullyComplete);
+        assert!(view.reports_full_success());
+
+        view.upsert(DagNodeView {
+            id: "n2".into(),
+            view: NodeView::Blocked,
+            resumable: true,
+            output: None,
+        });
+        assert_eq!(view.summary(), MissionSummary::Resumable);
+        assert!(!view.reports_full_success());
+    }
+
+    #[test]
+    fn resume_targets_returns_only_resumable_blocked_running_or_uncertain_nodes() {
+        let mut view = MissionView::new("m-targets");
+        view.upsert(DagNodeView {
+            id: "a-done".into(),
+            view: NodeView::Completed,
+            resumable: false,
+            output: None,
+        });
+        view.upsert(DagNodeView {
+            id: "b-run".into(),
+            view: NodeView::Running,
+            resumable: true,
+            output: None,
+        });
+        view.upsert(DagNodeView {
+            id: "c-fail".into(),
+            view: NodeView::Failed,
+            resumable: false,
+            output: Some("err".into()),
+        });
+        let targets: Vec<&str> = view
+            .resume_targets()
+            .iter()
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(targets, vec!["b-run"]);
+    }
+
+    #[test]
+    fn from_persisted_maps_node_terminals_to_resumable_and_terminal_views() {
+        let mut persisted = PersistedMission::new("m-persisted");
+        persisted.upsert_node(PersistedNode {
+            id: "p".into(),
+            input: "i".into(),
+            dependencies: vec![],
+            output: None,
+            state: NodeTerminal::Pending,
+        });
+        persisted.upsert_node(PersistedNode {
+            id: "f".into(),
+            input: "i".into(),
+            dependencies: vec![],
+            output: Some("bad".into()),
+            state: NodeTerminal::Failed,
+        });
+        let view = MissionView::from_persisted(&persisted);
+        assert_eq!(view.nodes["p"].view, NodeView::Blocked);
+        assert!(view.nodes["p"].resumable);
+        assert_eq!(view.nodes["f"].view, NodeView::Failed);
+        assert!(!view.nodes["f"].resumable);
+    }
+
+    #[test]
+    fn cli_status_line_and_resumable_missions_report_resumable_state_honestly() {
+        static NONCE: AtomicU64 = AtomicU64::new(0);
+        let ws = std::env::temp_dir().join(format!(
+            "susi-mission-resume-{}-{}",
+            std::process::id(),
+            NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut m = PersistedMission::new("m-cli");
+        m.upsert_node(PersistedNode {
+            id: "n1".into(),
+            input: "work".into(),
+            dependencies: vec![],
+            output: None,
+            state: NodeTerminal::Pending,
+        });
+        m.save(&PersistedMission::missions_dir(&ws)).unwrap();
+
+        let listed = resumable_missions(&ws);
+        assert_eq!(listed.len(), 1);
+        let line = cli_status_line(&listed[0]);
+        assert!(line.contains("mission m-cli resumable (partial); resume nodes: n1"));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+}

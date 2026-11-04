@@ -41,4 +41,29 @@ mod mcp_call_budgets_tests {
         assert!(within_budget(u, 100, 100));
         assert!(!within_budget(u, 10_000, 0));
     }
+
+    #[test]
+    fn trusted_budget_matches_expected_timeout_and_byte_limits() {
+        let b = budget_for(true);
+        assert_eq!(b.timeout_ms, 30_000);
+        assert_eq!(b.max_response_bytes, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn untrusted_budget_matches_expected_timeout_and_byte_limits() {
+        let b = budget_for(false);
+        assert_eq!(b.timeout_ms, 5_000);
+        assert_eq!(b.max_response_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn within_budget_enforces_both_elapsed_and_byte_ceilings_inclusively() {
+        let b = McpCallBudget {
+            timeout_ms: 500,
+            max_response_bytes: 2048,
+        };
+        assert!(within_budget(b, 500, 2048));
+        assert!(!within_budget(b, 501, 2048));
+        assert!(!within_budget(b, 500, 2049));
+    }
 }

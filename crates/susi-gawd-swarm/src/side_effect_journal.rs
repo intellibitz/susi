@@ -398,3 +398,68 @@ pub fn args_digest(args: &str) -> String {
     }
     hex
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn args_digest_is_16_char_lowercase_hex_and_distinguishes_inputs() {
+        let d1 = args_digest("{\"path\":\"a.txt\"}");
+        let d2 = args_digest("{\"path\":\"b.txt\"}");
+        assert_eq!(d1.len(), 16);
+        assert!(d1.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(d1, d2);
+    }
+
+    #[test]
+    fn prepare_dispatch_requires_idempotency_key_for_mutating_tools_and_allows_read_only() {
+        let mut journal = IntentJournal::new();
+        let ro = journal.prepare_dispatch("n1", "read_file", "{\"p\":\"x\"}", None, 10);
+        assert!(matches!(ro, DispatchDecision::Dispatch { .. }));
+
+        let mutating_no_key =
+            journal.prepare_dispatch("n1", "write_file", "{\"p\":\"x\"}", None, 11);
+        assert!(matches!(
+            mutating_no_key,
+            DispatchDecision::ReconciliationRequired { .. }
+        ));
+    }
+
+    #[test]
+    fn prepare_dispatch_returns_already_executed_after_receipt_recorded() {
+        let mut journal = IntentJournal::new();
+        let first = journal.prepare_dispatch("n1", "write_file", "{\"p\":\"x\"}", Some("op-1"), 20);
+        let DispatchDecision::Dispatch { intent_id } = first else {
+            panic!("expected Dispatch");
+        };
+        journal.mark_executed_with_receipt(&intent_id, "written 4 bytes", 21);
+
+        let second =
+            journal.prepare_dispatch("n1", "write_file", "{\"p\":\"x\"}", Some("op-1"), 22);
+        assert!(matches!(
+            second,
+            DispatchDecision::AlreadyExecuted {
+                intent_id: ref id,
+                ..
+            } if *id == intent_id
+        ));
+    }
+
+    #[test]
+    fn reconcile_after_crash_marks_pending_uncertain_until_resolved_and_adopt_merges() {
+        let mut journal = IntentJournal::new();
+        let id = journal.record_intent_with_key("n1", "exec_command", "cargo check", "k1", 30);
+        let uncertain = journal.reconcile_after_crash();
+        assert_eq!(uncertain, vec![id.clone()]);
+        assert!(!journal.may_replay_node("n1"));
+        assert_eq!(journal.unreconciled("n1"), vec![id.clone()]);
+
+        journal.reconcile_not_applied(&id);
+        assert!(journal.may_replay_node("n1"));
+
+        let mut newer = IntentJournal::new();
+        newer.adopt(&journal);
+        assert_eq!(newer.idempotency_key(&id), Some("k1"));
+    }
+}
