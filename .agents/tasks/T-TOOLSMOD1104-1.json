@@ -1,0 +1,20 @@
+{
+  "id": "T-TOOLSMOD1104-1",
+  "title": "test(tools): inline contract suites for config, hooks, mcp_budget and crate surface",
+  "goal": "Complete module-level inline unit test coverage in susi-tools (D-OS-8): Mandate 35 round-trips, fail-closed hook seam, MAC transport authorization, re-export integrity",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-tools",
+      "--lib"
+    ]
+  },
+  "created_by": "TOOLSMOD1104",
+  "created_unix": 1793765204
+}
