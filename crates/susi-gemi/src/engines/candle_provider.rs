@@ -101,4 +101,11 @@ mod inline_tests {
         let res = rt.block_on(p.is_healthy());
         assert!(res.is_ok());
     }
+
+    #[test]
+    fn provider_preserves_name_and_concrete_any_type_id() {
+        let p = CandleProvider;
+        assert_eq!(p.name(), "Candle (Local)");
+        assert!(p.as_any().is::<CandleProvider>());
+    }
 }
