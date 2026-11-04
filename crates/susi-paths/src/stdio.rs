@@ -83,4 +83,75 @@ mod tests {
             assert!(!is_broken_pipe_message(message), "{message}");
         }
     }
+
+    #[test]
+    fn broken_pipe_markers_require_the_print_failure_prefix() {
+        for message in [
+            "",
+            "Broken pipe",
+            "Broken pipe (os error 32)",
+            "os error 32",
+            "write failed: The pipe has been ended. (os error 109)",
+            // The standard library's marker is lower-case; a different
+            // spelling is not its print failure.
+            "Failed Printing To stdout: Broken pipe (os error 32)",
+            "failed printing to stdout: broken pipe",
+        ] {
+            assert!(!is_broken_pipe_message(message), "{message:?}");
+        }
+        assert!(is_broken_pipe_message(
+            "failed printing to stdout: os error 32"
+        ));
+        assert!(is_broken_pipe_message(
+            "failed printing to stderr: os error 232"
+        ));
+        assert!(is_broken_pipe_message(
+            "failed printing to stdout: os error 109"
+        ));
+    }
+
+    /// The guard must hand every non-pipe panic to the hook that was
+    /// installed before it, for both `&str` and `String` payloads.
+    #[test]
+    fn the_guard_chains_non_pipe_panics_to_the_previous_hook() {
+        use std::sync::{Arc, Mutex};
+        static HOOK_LOCK: Mutex<()> = Mutex::new(());
+        let _serial = HOOK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        const MARK: &str = "stdio-guard-chain-probe";
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let original = std::panic::take_hook();
+        let sink = Arc::clone(&seen);
+        std::panic::set_hook(Box::new(move |info| {
+            let text = info
+                .payload()
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_default();
+            if text.contains(MARK) {
+                sink.lock().unwrap().push(text);
+            }
+        }));
+        super::install_broken_pipe_guard();
+
+        let static_payload = std::panic::catch_unwind(|| {
+            std::panic::panic_any("stdio-guard-chain-probe: static");
+        });
+        let owned_payload = std::panic::catch_unwind(|| {
+            std::panic::panic_any(format!("{MARK}: owned {}", 1));
+        });
+
+        // Restore the hook chain before asserting so a failure here cannot
+        // leave the guard installed for other tests.
+        let _ = std::panic::take_hook();
+        std::panic::set_hook(original);
+
+        assert!(static_payload.is_err() && owned_payload.is_err());
+        let seen = seen.lock().unwrap();
+        assert_eq!(
+            *seen,
+            vec![format!("{MARK}: static"), format!("{MARK}: owned 1")]
+        );
+    }
 }

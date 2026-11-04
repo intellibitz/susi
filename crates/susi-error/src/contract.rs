@@ -325,3 +325,212 @@ mod metrics_redaction_tests {
         assert!(text.contains("git push failed"));
     }
 }
+
+#[cfg(test)]
+mod contract_tests {
+    use super::{EaiError, EaiResult, ResultExt};
+    use std::error::Error as _;
+
+    type Ctor = fn(String) -> EaiError;
+
+    /// Every named constructor with its kind, code, retry class and
+    /// display prefix — one row per variant.
+    fn constructors() -> Vec<(Ctor, &'static str, &'static str, bool, &'static str)> {
+        vec![
+            (
+                |m| EaiError::governance(m),
+                "Governance",
+                "susi.governance",
+                false,
+                "Governance Violation: ",
+            ),
+            (
+                |m| EaiError::hardware(m),
+                "Hardware",
+                "susi.hardware",
+                true,
+                "Hardware Error: ",
+            ),
+            (
+                |m| EaiError::protocol(m),
+                "Protocol",
+                "susi.protocol",
+                false,
+                "Protocol Error: ",
+            ),
+            (
+                |m| EaiError::inference(m),
+                "Inference",
+                "susi.inference",
+                true,
+                "Inference Error: ",
+            ),
+            (
+                |m| EaiError::sandbox(m),
+                "Sandbox",
+                "susi.sandbox",
+                true,
+                "Sandbox Error: ",
+            ),
+            (
+                |m| EaiError::config(m),
+                "Config",
+                "susi.config",
+                false,
+                "Configuration Error: ",
+            ),
+            (|m| EaiError::io(m), "Io", "susi.io", true, "I/O Error: "),
+            (
+                |m| EaiError::network(m),
+                "Network",
+                "susi.network",
+                true,
+                "Network Error: ",
+            ),
+            (
+                |m| EaiError::filesystem(m),
+                "Filesystem",
+                "susi.filesystem",
+                false,
+                "Filesystem Error: ",
+            ),
+            (
+                |m| EaiError::process(m),
+                "Process",
+                "susi.process",
+                true,
+                "Process Error: ",
+            ),
+            (
+                |m| EaiError::authentication(m),
+                "Authentication",
+                "susi.authentication",
+                false,
+                "Authentication Error: ",
+            ),
+            (
+                |m| EaiError::authorization(m),
+                "Authorization",
+                "susi.authorization",
+                false,
+                "Authorization Error: ",
+            ),
+            (
+                |m| EaiError::internal(m),
+                "Internal",
+                "susi.internal",
+                false,
+                "Internal Engine Error: ",
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_constructor_reports_its_kind_code_retry_class_and_display() {
+        for (ctor, kind, code, retryable, prefix) in constructors() {
+            let err = ctor("probe".to_string());
+            assert_eq!(err.kind_name(), kind);
+            assert_eq!(err.code(), code);
+            assert_eq!(err.retryable(), retryable, "{kind}");
+            assert_eq!(err.to_string(), format!("{prefix}probe"));
+            assert!(err.source().is_none(), "{kind} has no source");
+        }
+    }
+
+    #[test]
+    fn context_prefixes_in_place_and_keeps_the_kind() {
+        for (ctor, kind, code, _, prefix) in constructors() {
+            let err = ctor("inner".to_string()).context("outer").context("top");
+            assert_eq!(err.kind_name(), kind);
+            assert_eq!(err.code(), code);
+            assert_eq!(err.to_string(), format!("{prefix}top: outer: inner"));
+        }
+    }
+
+    #[test]
+    fn unknown_carries_its_source_and_becomes_internal_under_context() {
+        let inner = std::io::Error::other("disk gone");
+        let unknown = EaiError::Unknown(Box::new(inner), std::backtrace::Backtrace::disabled());
+        assert_eq!(unknown.kind_name(), "Unknown");
+        assert_eq!(unknown.code(), "susi.unknown");
+        assert!(!unknown.retryable());
+        assert_eq!(unknown.to_string(), "Unknown Error: disk gone");
+        assert_eq!(unknown.source().unwrap().to_string(), "disk gone");
+
+        let ctx = unknown.context("reading state");
+        assert_eq!(ctx.kind_name(), "Internal");
+        assert_eq!(
+            ctx.to_string(),
+            "Internal Engine Error: reading state: disk gone"
+        );
+    }
+
+    #[test]
+    fn result_context_keeps_the_converted_kind_and_with_context_is_lazy() {
+        let io: Result<(), std::io::Error> = Err(std::io::Error::other("denied"));
+        let err = io.context("open file").unwrap_err();
+        assert_eq!(err.kind_name(), "Io");
+        assert_eq!(err.to_string(), "I/O Error: open file: denied");
+
+        let parse: Result<u8, std::num::ParseIntError> = "x".parse::<u8>();
+        let err = parse.with_context(|| format!("port {}", 7)).unwrap_err();
+        assert_eq!(err.kind_name(), "Protocol");
+        assert!(err.to_string().starts_with("Protocol Error: port 7: "));
+
+        let ok: Result<u8, std::io::Error> = Ok(3);
+        let mut called = false;
+        assert_eq!(
+            ok.with_context(|| {
+                called = true;
+                "never"
+            })
+            .unwrap(),
+            3
+        );
+        assert!(!called, "context closure must not run on success");
+    }
+
+    #[test]
+    fn option_context_passes_some_and_turns_none_into_internal() {
+        assert_eq!(Some(5).context("missing").unwrap(), 5);
+        let err = None::<u8>.context("missing value").unwrap_err();
+        assert_eq!(err.kind_name(), "Internal");
+        assert_eq!(err.to_string(), "Internal Engine Error: missing value");
+
+        let mut called = false;
+        assert_eq!(
+            Some(1)
+                .with_context(|| {
+                    called = true;
+                    "never"
+                })
+                .unwrap(),
+            1
+        );
+        assert!(!called);
+        let err = None::<u8>.with_context(|| "lazy none").unwrap_err();
+        assert_eq!(err.to_string(), "Internal Engine Error: lazy none");
+    }
+
+    #[test]
+    fn eai_err_and_eai_bail_build_internal_errors() {
+        let literal = crate::eai_err!("bad {} of {}", "row", 3);
+        assert_eq!(literal.kind_name(), "Internal");
+        assert_eq!(literal.to_string(), "Internal Engine Error: bad row of 3");
+
+        let source = std::io::Error::other("wrapped");
+        let expr = crate::eai_err!(source);
+        assert_eq!(expr.to_string(), "Internal Engine Error: wrapped");
+
+        fn bails(fail: bool) -> EaiResult<u8> {
+            if fail {
+                crate::eai_bail!("stopped at {}", 9);
+            }
+            Ok(1)
+        }
+        assert_eq!(bails(false).unwrap(), 1);
+        let err = bails(true).unwrap_err();
+        assert_eq!(err.kind_name(), "Internal");
+        assert_eq!(err.to_string(), "Internal Engine Error: stopped at 9");
+    }
+}
