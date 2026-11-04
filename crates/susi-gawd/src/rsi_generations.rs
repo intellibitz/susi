@@ -38,3 +38,98 @@ pub fn next_action(history: &[Generation], min_gens: u32) -> MultiGenResult {
     }
     MultiGenResult::Continue
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn next_action_continues_while_below_min_generations_with_budget() {
+        assert_eq!(next_action(&[], 3), MultiGenResult::Continue);
+        let gens = vec![
+            Generation {
+                index: 0,
+                delta: -0.5,
+                budget_remaining: 10.0,
+                rejected: true,
+            },
+            Generation {
+                index: 1,
+                delta: 0.0,
+                budget_remaining: 5.0,
+                rejected: false,
+            },
+        ];
+        assert_eq!(next_action(&gens, 3), MultiGenResult::Continue);
+    }
+
+    #[test]
+    fn next_action_stops_immediately_when_budget_is_exhausted() {
+        let gens = vec![Generation {
+            index: 0,
+            delta: 1.0,
+            budget_remaining: 0.0,
+            rejected: false,
+        }];
+        assert_eq!(next_action(&gens, 3), MultiGenResult::StopBudget);
+    }
+
+    #[test]
+    fn next_action_stops_on_regression_or_rejection_at_min_generations() {
+        let regressed = vec![
+            Generation {
+                index: 0,
+                delta: 0.2,
+                budget_remaining: 8.0,
+                rejected: false,
+            },
+            Generation {
+                index: 1,
+                delta: 0.3,
+                budget_remaining: 6.0,
+                rejected: false,
+            },
+            Generation {
+                index: 2,
+                delta: -0.1,
+                budget_remaining: 4.0,
+                rejected: false,
+            },
+        ];
+        assert_eq!(next_action(&regressed, 3), MultiGenResult::StopRegression);
+
+        let mut rejected = regressed;
+        rejected[2].delta = 0.5;
+        rejected[2].rejected = true;
+        assert_eq!(next_action(&rejected, 3), MultiGenResult::StopRegression);
+    }
+
+    #[test]
+    fn next_action_stops_on_zero_delta_and_continues_on_positive_delta() {
+        let mut gens = vec![
+            Generation {
+                index: 0,
+                delta: 0.1,
+                budget_remaining: 9.0,
+                rejected: false,
+            },
+            Generation {
+                index: 1,
+                delta: 0.2,
+                budget_remaining: 7.0,
+                rejected: false,
+            },
+            Generation {
+                index: 2,
+                delta: 0.0,
+                budget_remaining: 5.0,
+                rejected: false,
+            },
+        ];
+        assert_eq!(next_action(&gens, 3), MultiGenResult::StopNonImprovement);
+        gens[2].delta = 0.4;
+        assert_eq!(next_action(&gens, 3), MultiGenResult::Continue);
+    }
+}

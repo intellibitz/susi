@@ -1,0 +1,22 @@
+{
+  "id": "T-GAWDINLINEF4T1104-1",
+  "title": "test(gawd): expand inline unit tests to 4 in rsi_generations, rsi_promotion, scorecard, self_validation, native_verifier",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "GAWDINLINEF4T1104",
+  "created_unix": 1793798863
+}
