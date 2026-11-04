@@ -39,7 +39,7 @@ pub(crate) fn router() -> Router {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test-only module: unwrap/expect/panic are how these tests assert.
 mod tests {
     use super::*;
     use axum::body::Body;

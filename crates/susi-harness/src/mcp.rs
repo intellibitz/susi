@@ -57,6 +57,9 @@ pub trait Transport: Send {
 }
 
 /// A client for one MCP server.
+/// Upper bound on `tools/list` pages one listing follows.
+pub const MAX_LIST_PAGES: usize = 50;
+
 #[derive(Debug)]
 pub struct McpClient<T: Transport> {
     transport: T,
@@ -97,19 +100,47 @@ impl<T: Transport> McpClient<T> {
         Ok(result)
     }
 
-    /// The tools the server advertises.
+    /// The tools the server advertises, across every `tools/list` page.
+    ///
+    /// The listing follows `nextCursor` until the server omits it, bounded by
+    /// [`MAX_LIST_PAGES`] so a misbehaving server cannot loop the client.
     ///
     /// # Errors
     ///
-    /// Returns an error when the handshake or the listing fails.
+    /// Returns an error when the handshake or any page of the listing fails,
+    /// when a page carries a non-string cursor, or when the server keeps
+    /// paging past the bound.
     pub fn list_tools(&mut self) -> EaiResult<Vec<McpTool>> {
         self.initialize()?;
-        let result = self.request("tools/list", json!({}))?;
-        let tools = result
-            .get("tools")
-            .and_then(Value::as_array)
-            .ok_or_else(|| EaiError::internal("mcp tools/list returned no tools array"))?;
-        Ok(tools
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..MAX_LIST_PAGES {
+            let params = cursor
+                .as_ref()
+                .map_or_else(|| json!({}), |cursor| json!({"cursor": cursor}));
+            let result = self.request("tools/list", params)?;
+            let page = result
+                .get("tools")
+                .and_then(Value::as_array)
+                .ok_or_else(|| EaiError::internal("mcp tools/list returned no tools array"))?;
+            tools.extend(page.iter().cloned());
+            cursor = match result.get("nextCursor") {
+                None | Some(Value::Null) => return Ok(Self::parse_tools(&tools)),
+                Some(Value::String(next)) => Some(next.clone()),
+                Some(_) => {
+                    return Err(EaiError::internal(
+                        "mcp tools/list returned a non-string nextCursor",
+                    ))
+                }
+            };
+        }
+        Err(EaiError::internal(format!(
+            "mcp tools/list still paging after {MAX_LIST_PAGES} pages"
+        )))
+    }
+
+    fn parse_tools(tools: &[Value]) -> Vec<McpTool> {
+        tools
             .iter()
             .filter_map(|tool| {
                 let name = tool.get("name").and_then(Value::as_str)?;
@@ -126,7 +157,7 @@ impl<T: Transport> McpClient<T> {
                         .unwrap_or_else(|| json!({"type": "object"})),
                 })
             })
-            .collect())
+            .collect()
     }
 
     /// Call one tool and return its text content.
@@ -317,6 +348,50 @@ mod tests {
         assert_eq!(tools[0].name, "search");
         assert_eq!(client.transport.requests[0]["method"], "initialize");
         assert_eq!(client.transport.requests[1]["method"], "tools/list");
+    }
+
+    #[test]
+    fn mcp_list_tools_follows_next_cursor_until_absent() {
+        let transport = Scripted::new(vec![
+            initialized(),
+            json!({"result": {"tools": [{"name": "a"}], "nextCursor": "rev:1"}}),
+            json!({"result": {"tools": [{"name": "b"}], "nextCursor": "rev:2"}}),
+            json!({"result": {"tools": [{"name": "c"}]}}),
+        ]);
+        let mut client = McpClient::new(transport);
+        let names: Vec<String> = client
+            .list_tools()
+            .unwrap()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        assert_eq!(names, ["a", "b", "c"]);
+        let requests = &client.transport.requests;
+        assert_eq!(requests.len(), 4);
+        assert!(requests[1]["params"].get("cursor").is_none());
+        assert_eq!(requests[2]["params"]["cursor"], "rev:1");
+        assert_eq!(requests[3]["params"]["cursor"], "rev:2");
+    }
+
+    #[test]
+    fn mcp_list_tools_surfaces_a_cursor_error_and_bounds_paging() {
+        let transport = Scripted::new(vec![
+            initialized(),
+            json!({"result": {"tools": [{"name": "a"}], "nextCursor": "rev:1"}}),
+            json!({"error": {"code": -32602, "message": "Invalid cursor"}}),
+        ]);
+        let mut client = McpClient::new(transport);
+        let error = client.list_tools().unwrap_err().to_string();
+        assert!(error.contains("Invalid cursor"), "{error}");
+
+        let mut endless = vec![initialized()];
+        endless.extend(
+            (0..=MAX_LIST_PAGES)
+                .map(|n| json!({"result": {"tools": [], "nextCursor": format!("rev:{n}")}})),
+        );
+        let mut client = McpClient::new(Scripted::new(endless));
+        let error = client.list_tools().unwrap_err().to_string();
+        assert!(error.contains("still paging"), "{error}");
     }
 
     #[test]

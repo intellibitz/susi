@@ -90,11 +90,27 @@ impl CoreTools {
 
     #[tool(
         name = "ledger_verify",
-        description = "Verify the pinned GMCP normative requirements ledger (VC-203-001): vendored corpus hashes, verbatim clauses, complete row classification",
-        input_schema = args::no_args()
+        description = "Verify the pinned GMCP normative requirements ledger (VC-203-001): vendored corpus hashes, verbatim clauses, complete row classification; drift=true checks the pinned upstreams instead, as `susi mcp ledger [--drift]`. Args: optional drift, refetched, workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema = args::typed::<args::LedgerVerify>()
     )]
-    pub fn ledger_verify(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let report = crate::requirements_ledger::verify_report_json(workspace)?;
+    pub fn ledger_verify(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, false)?;
+        let report = if arg.get("drift").and_then(|v| v.as_bool()) == Some(true) {
+            let refetched = match arg.get("refetched").and_then(|v| v.as_str()) {
+                Some(dir) if Path::new(dir).is_absolute() => Some(Path::new(dir)),
+                Some(_) => {
+                    return Err(EaiError::config(
+                        "refetched must be an absolute path (the socket has no caller working directory)",
+                    ));
+                }
+                None => None,
+            };
+            crate::requirements_ledger::drift_report_json(workspace, refetched)?
+        } else {
+            crate::requirements_ledger::verify_report_json(workspace)?
+        };
         serde_json::to_string_pretty(&report)
             .map_err(|e| EaiError::process(format!("ledger report encode: {e}")))
     }
@@ -150,10 +166,13 @@ impl CoreTools {
 
     #[tool(
         name = "bloat_audit",
-        description = "Recursively audit src/ (AST-based) and target/ (build artifact size) for bloat and hardcoded secrets, rayon-parallel across all cores",
-        input_schema = args::no_args()
+        description = "Recursively audit src/ (AST-based) and target/ (build artifact size) for bloat and hardcoded secrets, rayon-parallel across all cores. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema = args::typed::<args::WorkspaceView>()
     )]
-    pub fn bloat_audit(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+    pub fn bloat_audit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, false)?;
         gawd::bloat_audit(workspace).map_err(EaiError::governance)
     }
 
@@ -212,15 +231,19 @@ impl CoreTools {
 
     #[tool(
         name = "select_model",
-        description = "Select or override active model substrate",
-        input_schema = args::bare_string_only("model name or id")
+        description = "Select or override the active model substrate, as `susi select-model`. Args: model",
+        input_schema = args::typed::<args::SelectModel>()
     )]
     pub fn select_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let arg_s = arg.as_str().unwrap_or("");
-        if arg_s.trim().is_empty() {
-            return Ok("Usage: select_model <model_name_or_id>".to_string());
-        }
-        let v = ModelManager::set_selected_model(arg_s.trim());
+        // `{model}` over MCP; a bare string from in-process callers.
+        let model = arg
+            .get("model")
+            .and_then(|v| v.as_str())
+            .or_else(|| arg.as_str())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .ok_or_else(|| EaiError::config("model is required"))?;
+        let v = ModelManager::set_selected_model(model);
         if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
             return Err(EaiError::config(e));
         }
@@ -281,20 +304,35 @@ impl CoreTools {
 
     #[tool(
         name = "scout_model",
-        description = "Scout or install model substrate",
-        input_schema = args::bare_string_only("model name or URL")
+        description = "Download, license-admit and verify a model from an HTTPS URL on the daemon's download agent, as `susi scout-model`. Args: url",
+        input_schema = args::typed::<args::ScoutModel>()
     )]
     pub fn scout_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let arg_s = arg.as_str().unwrap_or("");
-        if arg_s.trim().is_empty() {
-            return Ok("Usage: scout_model <model_name_or_url>".to_string());
+        // `{url}` over MCP; a bare string from in-process callers.
+        let url = arg
+            .get("url")
+            .and_then(|v| v.as_str())
+            .or_else(|| arg.as_str())
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| EaiError::config("url is required"))?;
+        // The CLI refuses anything but HTTPS; so does the socket, rather
+        // than reporting a non-URL query as "enqueued".
+        if !url.starts_with("https://") {
+            return Err(EaiError::config("model installation requires an HTTPS URL"));
         }
-        let res = ModelManager::install_model(arg_s.trim());
-        Ok(res
+        // The long-lived daemon downloads on its download agent (the CLI,
+        // which exits, downloads in the foreground).
+        let res = ModelManager::install_model(url);
+        let text = res
             .get("text")
             .and_then(|x| x.as_str())
-            .unwrap_or(&res.to_string())
-            .to_string())
+            .map(str::to_string)
+            .unwrap_or_else(|| res.to_string());
+        if let Some(error) = text.strip_prefix("ERROR: ") {
+            return Err(EaiError::network(error.to_string()));
+        }
+        Ok(text)
     }
 
     #[tool(
@@ -1769,10 +1807,13 @@ impl CoreTools {
 
     #[tool(
         name = "agents_run",
-        description = "Launch an external agent task; returns a durable task ID for status, logs and cancellation",
+        description = "Launch an external agent task; returns a durable task ID for status, logs and cancellation. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::AgentsRun>()
     )]
     pub fn agents_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let agent = arg
             .get("agent")
             .and_then(|v| v.as_str())
@@ -1790,17 +1831,20 @@ impl CoreTools {
 
     #[tool(
         name = "agents_tasks",
-        description = "List persisted external agent tasks for this workspace",
-        input_schema = args::no_args()
+        description = "List persisted external agent tasks for this workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema = args::typed::<args::WorkspaceView>()
     )]
-    pub fn agents_tasks(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+    pub fn agents_tasks(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, false)?;
         let runs = agents::external_runs(workspace, "execution");
         serde_json::to_string(&runs).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(
         name = "agents_status",
-        description = "Inspect an external task; refresh=true recovers cloud status after worker loss",
+        description = "Inspect an external task; refresh=true recovers cloud status after worker loss. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskStatus>()
     )]
     pub fn agents_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -1809,7 +1853,7 @@ impl CoreTools {
 
     #[tool(
         name = "agents_cancel",
-        description = "Request cancellation of a managed external agent task",
+        description = "Request cancellation of a managed external agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskId>()
     )]
     pub fn agents_cancel(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -1818,7 +1862,7 @@ impl CoreTools {
 
     #[tool(
         name = "agents_logs",
-        description = "Read the last 64 KiB of external agent output; stderr=true selects errors",
+        description = "Read the last 64 KiB of external agent output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskLogs>()
     )]
     pub fn agents_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -1827,7 +1871,7 @@ impl CoreTools {
 
     #[tool(
         name = "agents_send",
-        description = "Send a follow-up message to an existing cloud agent task",
+        description = "Send a follow-up message to an existing cloud agent task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskSend>()
     )]
     pub fn agents_send(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -1873,10 +1917,13 @@ impl CoreTools {
 
     #[tool(
         name = "frameworks_run",
-        description = "Launch an agent-framework task; returns a durable task ID",
+        description = "Launch an agent-framework task; returns a durable task ID. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::FrameworksRun>()
     )]
     pub fn frameworks_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let engine = arg
             .get("engine")
             .and_then(|v| v.as_str())
@@ -1892,17 +1939,20 @@ impl CoreTools {
 
     #[tool(
         name = "frameworks_tasks",
-        description = "List persisted agent-framework tasks for this workspace",
-        input_schema = args::no_args()
+        description = "List persisted agent-framework tasks for this workspace. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema = args::typed::<args::WorkspaceView>()
     )]
-    pub fn frameworks_tasks(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+    pub fn frameworks_tasks(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, false)?;
         let runs = agents::external_runs(workspace, "framework");
         serde_json::to_string(&runs).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(
         name = "frameworks_status",
-        description = "Inspect an agent-framework task",
+        description = "Inspect an agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskStatus>()
     )]
     pub fn frameworks_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -1911,7 +1961,7 @@ impl CoreTools {
 
     #[tool(
         name = "frameworks_cancel",
-        description = "Request cancellation of a managed agent-framework task",
+        description = "Request cancellation of a managed agent-framework task. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskId>()
     )]
     pub fn frameworks_cancel(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -1920,7 +1970,7 @@ impl CoreTools {
 
     #[tool(
         name = "frameworks_logs",
-        description = "Read the last 64 KiB of agent-framework output; stderr=true selects errors",
+        description = "Read the last 64 KiB of agent-framework output; stderr=true selects errors. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ExternalTaskLogs>()
     )]
     pub fn frameworks_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -2160,10 +2210,13 @@ impl CoreTools {
     /// of the whole arguments blob prefixed with the tool name.
     #[tool(
         name = "susi_solve",
-        description = "Solve a natural-language intent via the SUSI swarm substrate",
+        description = "Solve a natural-language intent via the SUSI swarm substrate. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::SusiSolve>()
     )]
     pub fn susi_solve(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let intent = if let Some(s) = arg.as_str() {
             s.to_string()
         } else if let Some(s) = arg
@@ -2435,30 +2488,7 @@ impl CoreTools {
             let subgraph = graph.related(&node, depth);
             Ok(serde_json::to_string_pretty(&subgraph).unwrap_or_else(|_| "{}".to_string()))
         } else {
-            let subgraph = graph.workspace_subgraph(workspace);
-            let events: Vec<_> = subgraph
-                .nodes
-                .into_iter()
-                .map(|n| {
-                    serde_json::json!({
-                        "type": "node",
-                        "id": n.id.0,
-                        "kind": format!("{:?}", n.kind),
-                        "label": n.label,
-                        "created_at": n.created_at,
-                    })
-                })
-                .chain(subgraph.edges.into_iter().map(|e| {
-                    serde_json::json!({
-                        "type": "edge",
-                        "id": e.id,
-                        "source": e.source.0,
-                        "target": e.target.0,
-                        "kind": format!("{:?}", e.kind),
-                        "created_at": e.created_at,
-                    })
-                }))
-                .collect();
+            let events = graph.workspace_events(workspace);
             Ok(serde_json::to_string_pretty(&serde_json::json!({
                 "workspace": workspace.display().to_string(),
                 "event_count": events.len(),
@@ -2662,10 +2692,13 @@ impl CoreTools {
 
     #[tool(
         name = "apply_patch_cycle",
-        description = "Apply a workspace-confined patch then run tests; revert on failure. Args: files[{path,old,new}], optional test_command, auto_apply, description.",
+        description = "Apply a workspace-confined patch then run tests; revert on failure. Args: files[{path,old,new}], optional test_command, auto_apply, description. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::ApplyPatchCycle>()
     )]
     pub fn apply_patch_cycle(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
         if arg
             .get("files")
             .and_then(|f| f.as_array())
@@ -2674,7 +2707,12 @@ impl CoreTools {
             return Err(EaiError::governance("apply_patch_cycle requires files[]"));
         }
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
-        let request_json = serde_json::to_string(arg)
+        // `workspace` chose where the cycle runs; it is not part of the patch.
+        let mut request = arg.clone();
+        if let Some(map) = request.as_object_mut() {
+            map.remove("workspace");
+        }
+        let request_json = serde_json::to_string(&request)
             .map_err(|e| EaiError::governance(format!("serialize patch request: {e}")))?;
         gawd_hooks::apply_patch_cycle(workspace, &request_json, &cfg.trust_level())
     }
@@ -2767,10 +2805,13 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     #[tool(
         name = "ambient_pulse",
-        description = "Scan workspace FS changes into context graph and refresh semantic index",
-        input_schema = args::no_args()
+        description = "Scan workspace FS changes into context graph and refresh semantic index. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema = args::typed::<args::WorkspaceView>()
     )]
-    pub fn ambient_pulse(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+    pub fn ambient_pulse(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let indexed = super::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
         ContextGraph::global().record_external_context(
             "ambient_pulse",
@@ -2787,10 +2828,13 @@ impl CoreTools {
 
     #[tool(
         name = "tx_begin",
-        description = "Begin multi-agent transaction. Args: description, files (array of relative paths).",
+        description = "Begin multi-agent transaction. Args: description, files (array of relative paths). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema = args::typed::<args::TxBegin>()
     )]
     pub fn tx_begin(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // The CLI runs this in its working directory; the socket
+        // takes an optional, MAC-policy-admitted `workspace`.
+        let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
         let description = arg
             .get("description")
             .and_then(|v| v.as_str())
@@ -2876,91 +2920,6 @@ impl CoreTools {
             "Delegation request written to {}. The Swarm will await the IDE's response.",
             req_path.display()
         ))
-    }
-
-    #[tool(
-        name = "extensions_list",
-        description = "List installed and discoverable extension packs and their load/active/quarantine state",
-        input_schema = args::no_args()
-    )]
-    pub fn extensions_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let packs = crate::susi_config::extensions::list_packs();
-        serde_json::to_string_pretty(&packs).map_err(|e| EaiError::protocol(e.to_string()))
-    }
-
-    #[tool(
-        name = "extensions_status",
-        description = "Report the active extension pack and all discoverable extension packs",
-        input_schema = args::no_args()
-    )]
-    pub fn extensions_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let pack = crate::susi_config::extensions::active_pack();
-        let packs = crate::susi_config::extensions::list_packs();
-        serde_json::to_string_pretty(&serde_json::json!({
-            "active": pack.id,
-            "root": pack.root,
-            "packs": packs,
-        }))
-        .map_err(|e| EaiError::protocol(e.to_string()))
-    }
-
-    #[tool(
-        name = "extensions_validate",
-        description = "Validate a pack directory against the host's manifest, path containment, signature and SHA-256 checksum rules without mutating host state",
-        input_schema = args::typed::<args::ExtensionsValidate>()
-    )]
-    pub fn extensions_validate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let raw = tool_string_arg(arg, &["path", "dir", "root"])?;
-        let path = if Path::new(&raw).is_absolute() {
-            std::path::PathBuf::from(&raw)
-        } else {
-            workspace.join(&raw)
-        };
-        let (manifest, artifacts) =
-            crate::susi_config::extensions::validate_pack_dir(&path).map_err(EaiError::protocol)?;
-        serde_json::to_string_pretty(&serde_json::json!({
-            "valid": true,
-            "id": manifest.id,
-            "version": manifest.version,
-            "apiVersion": manifest.api_version,
-            "permissions": manifest.permissions,
-            "signed": manifest.signer.is_some(),
-            "artifacts_sha256": artifacts,
-        }))
-        .map_err(|e| EaiError::protocol(e.to_string()))
-    }
-
-    #[tool(
-        name = "extensions_load",
-        description = "Load and activate an installed extension pack after verifying its manifest, signatures and SHA-256 checksums",
-        input_schema = args::typed::<args::ExtensionPackId>()
-    )]
-    pub fn extensions_load(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let id = tool_string_arg(arg, &["id", "pack", "name"])?;
-        let status = crate::susi_config::extensions::load_pack(&id).map_err(EaiError::protocol)?;
-        let active = crate::susi_config::extensions::active_pack().id;
-        serde_json::to_string_pretty(&serde_json::json!({
-            "loaded": status,
-            "active": active,
-        }))
-        .map_err(|e| EaiError::protocol(e.to_string()))
-    }
-
-    #[tool(
-        name = "extensions_unload",
-        description = "Unload and deactivate an extension pack while preserving its files on disk",
-        input_schema = args::typed::<args::ExtensionPackId>()
-    )]
-    pub fn extensions_unload(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let id = tool_string_arg(arg, &["id", "pack", "name"])?;
-        let status =
-            crate::susi_config::extensions::unload_pack(&id).map_err(EaiError::protocol)?;
-        let active = crate::susi_config::extensions::active_pack().id;
-        serde_json::to_string_pretty(&serde_json::json!({
-            "unloaded": status.id,
-            "active": active,
-        }))
-        .map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(

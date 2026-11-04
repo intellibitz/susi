@@ -23,6 +23,22 @@ pub fn sample_os_context_once(workspace: Option<&Path>, user: Option<&str>) -> u
     }
 }
 
+/// `susi context-graph sample-os` / MCP `context_graph_sample_os`: sample
+/// once and report how many records were written, the OS, and the sources
+/// this OS cannot sample (with the reason).
+pub fn sample_os_report(workspace: Option<&Path>, user: Option<&str>) -> serde_json::Value {
+    let count = sample_os_context_once(workspace, user);
+    let unavailable: serde_json::Map<String, serde_json::Value> = unavailable_os_context()
+        .into_iter()
+        .map(|(source, reason)| (source.to_string(), reason.into()))
+        .collect();
+    serde_json::json!({
+        "sampled": count,
+        "os": std::env::consts::OS,
+        "unavailable": unavailable,
+    })
+}
+
 /// OS context adapters this platform cannot run, with the reason — so a
 /// sample that records fewer sources says why instead of looking empty.
 pub fn unavailable_os_context() -> Vec<(&'static str, String)> {

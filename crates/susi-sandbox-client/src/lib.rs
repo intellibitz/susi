@@ -147,6 +147,7 @@ pub mod audit_chain;
 pub mod audit_fidelity;
 pub mod daemon_state;
 pub mod manager;
+pub mod placement_audit;
 
 pub use manager::SandboxManager;
 pub use susi_config::extensions;

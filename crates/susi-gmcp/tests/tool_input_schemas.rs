@@ -118,15 +118,17 @@ fn typed_schemas_match_handler_arguments() {
             "apply_patch_cycle.{key} admits null"
         );
     }
-    // Bare-string handlers say over MCP that their argument cannot be passed.
-    for name in ["select_model", "scout_model"] {
-        let schema = schema(name);
-        assert_eq!(shape(&schema), Shape::NoArgs);
-        assert!(schema["description"]
-            .as_str()
-            .unwrap()
-            .contains("bare-string"));
-    }
+    // The formerly bare-string handlers read an object over MCP (plan B4
+    // group 3): `select_model {model}` and `scout_model {url}`.
+    assert_eq!(schema("select_model")["required"], json!(["model"]));
+    assert_eq!(schema("scout_model")["required"], json!(["url"]));
+    // A provider override is spelled `override` on the wire.
+    let configure = schema("provider_configure");
+    assert!(
+        configure["properties"]["override"].is_object(),
+        "{configure}"
+    );
+    assert_eq!(configure["required"], json!(["vendor", "model"]));
     // B4 group 11 (PSP-20): extension pack admission tools.
     assert_eq!(shape(&schema("extensions_list")), Shape::NoArgs);
     assert_eq!(shape(&schema("extensions_status")), Shape::NoArgs);

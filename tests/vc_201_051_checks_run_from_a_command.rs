@@ -127,16 +127,37 @@ fn vc_201_051_checks_run_from_a_command_credentialed_probe_is_opt_in() {
 fn vc_201_051_checks_run_from_a_command_probe_has_a_production_caller() {
     // The original gap: probe_credentialed_opt_in existed with zero
     // callers outside its own file. Pin the fix — the admin command must
-    // invoke it (or its live-probe sibling) and the fixture checks.
+    // invoke it (or its live-probe sibling) and the fixture checks. The
+    // document is built by `susi_daemon::host_views::provider_contract`
+    // (shared with the MCP `provider_contract` tool), so pin the chain:
+    // the CLI arm calls that function, and that function — production
+    // code, not its test module — calls both probe entry points.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let admin = std::fs::read_to_string(root.join("src/cli/admin_cli.rs")).unwrap();
     assert!(
-        admin.contains("probe_credentialed_opt_in"),
+        admin.contains("AdminCommands::ProviderContract =>")
+            && admin.contains("susi_daemon::host_views::provider_contract()"),
+        "the admin command must call the shared provider-contract builder"
+    );
+    let views = std::fs::read_to_string(root.join("crates/susi-daemon/src/host_views.rs")).unwrap();
+    let production = views.split("#[cfg(test)]").next().unwrap();
+    let body = production
+        .split("pub fn provider_contract() -> Value {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("host_views::provider_contract is production code");
+    assert!(
+        body.contains("provider_contract::probe_credentialed_opt_in("),
         "the admin command must call the credentialed probe entry point"
     );
     assert!(
-        admin.contains("fixture_checks"),
+        body.contains("provider_contract::fixture_checks("),
         "the admin command must run the fixture-backed checks"
+    );
+    // The MCP tool reaches the same builder through the host bus.
+    assert!(
+        production.contains("\"provider_contract\" => Ok(provider_contract())"),
+        "the provider_contract host action must return the same document"
     );
     // And the probe must not narrate: it composes measured claims.
     let module =

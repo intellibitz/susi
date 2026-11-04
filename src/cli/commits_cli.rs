@@ -104,16 +104,18 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
 /// chain linkage and seq derivation intact; `commit_log_fetch` keeps
 /// serving the archive so peers can still repair across the boundary.
 fn compact() -> Result<()> {
-    let before = commit_log::load().len();
-    let archived =
-        commit_log::compact().map_err(|e| anyhow::anyhow!("ledger compaction failed: {e}"))?;
-    let after = commit_log::load().len();
-    if archived == 0 {
-        println!("ledger already minimal ({before} records) — nothing to compact");
+    let report = susi_core::commit_log_report::compact_report().map_err(anyhow::Error::msg)?;
+    if report["archived"].as_u64() == Some(0) {
+        println!(
+            "ledger already minimal ({} records) — nothing to compact",
+            report["before"]
+        );
     } else {
         println!(
-            "compacted: {archived} records archived to {}, {after} live (anchors + post-snapshot)",
-            commit_log::archive_path().display()
+            "compacted: {} records archived to {}, {} live (anchors + post-snapshot)",
+            report["archived"],
+            report["archive_path"].as_str().unwrap_or_default(),
+            report["live"]
         );
     }
     Ok(())
@@ -121,270 +123,25 @@ fn compact() -> Result<()> {
 
 /// Pull every record each verified peer holds, verify + append locally.
 /// `commit_log::append` is idempotent — records already held are skipped
-/// safely, and anything failing signature verification is rejected.
+/// safely, and anything failing signature verification is rejected. The
+/// report is `susi_core::commit_log_report`'s, the same document the MCP
+/// `commits_sync` tool returns.
 fn sync() -> Result<()> {
-    let peers_path = susi_paths::SusiDirs::config_dir().join("peers.json");
-    let Ok(text) = std::fs::read_to_string(&peers_path) else {
-        println!("no verified peers — nothing to sync from");
+    let report = susi_core::commit_log_report::sync_report();
+    if let Some(note) = report["note"].as_str() {
+        println!("{note}");
         return Ok(());
-    };
-    let Ok(nodes) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
-        println!("peers.json is unreadable — nothing to sync from");
-        return Ok(());
-    };
-    // Member-to-member calls authenticate with the cluster-derived
-    // peer bearer — the per-host api_token only authenticates locally.
-    let bearer = susi_config::cluster_key::peer_bearer();
-
-    // Snapshot held records once — append() is idempotent on duplicates,
-    // so "new" is determined by membership before the write, not the
-    // write's outcome. The compaction archive counts as held: archived
-    // records are still ours for dedup purposes.
-    let held: std::collections::HashSet<String> = commit_log::load()
-        .iter()
-        .chain(commit_log::load_from(&commit_log::archive_path()).iter())
-        .filter_map(|r| serde_json::to_string(r).ok())
-        .collect();
-
-    let targets: Vec<(String, String)> = nodes
-        .iter()
-        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
-        .filter_map(|n| {
-            let addr = n.get("address").and_then(|a| a.as_str())?;
-            // A loopback explicit entry is a self-edge (only possible from
-            // a pre-guard `peers add` or a hand-edited peers.json) — syncing
-            // with ourselves is a no-op that doubles as an MCP recursion.
-            if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost")
-            {
-                return None;
-            }
-            let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
-            Some((id.to_string(), addr.to_string()))
-        })
-        .collect();
-    // Parallel per-peer sync — a dead member costs its connect timeout,
-    // so a serial walk stalls the whole sync ~10s per unresponsive peer.
-    let outcomes: Vec<SyncOutcome> = std::thread::scope(|s| {
-        let handles: Vec<_> = targets
-            .iter()
-            .map(|(id, addr)| s.spawn(|| sync_peer(id, addr, &held, bearer.as_deref())))
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join().unwrap_or_else(|_| SyncOutcome {
-                    line: "sync worker panicked".to_string(),
-                    ..SyncOutcome::default()
-                })
-            })
-            .collect()
-    });
-    let mut total_new = 0usize;
-    let mut total_dup = 0usize;
-    let mut total_bad = 0usize;
-    let mut total_pushed = 0usize;
-    let mut total_push_rejected = 0usize;
-    for o in outcomes {
-        println!("{}", o.line);
-        total_new += o.new;
-        total_dup += o.dup;
-        total_bad += o.bad;
-        total_pushed += o.pushed;
-        total_push_rejected += o.push_rejected;
     }
+    for peer in report["peers"].as_array().into_iter().flatten() {
+        println!("{}", peer["line"].as_str().unwrap_or_default());
+    }
+    let t = &report["totals"];
     println!(
-        "sync: {total_new} pulled, {total_dup} already held, {total_bad} rejected; \
-         {total_pushed} pushed, {total_push_rejected} push-rejected"
+        "sync: {} pulled, {} already held, {} rejected; \
+         {} pushed, {} push-rejected",
+        t["pulled"], t["already_held"], t["rejected"], t["pushed"], t["push_rejected"]
     );
     Ok(())
-}
-
-#[derive(Default)]
-struct SyncOutcome {
-    line: String,
-    new: usize,
-    dup: usize,
-    bad: usize,
-    pushed: usize,
-    push_rejected: usize,
-}
-
-/// One peer's sync: pull their records (paginated), verify + batch-append
-/// locally, then push what they lack — batch intake first, per-record
-/// `commit_record` as the pre-batch-peer fallback.
-fn sync_peer(
-    id: &str,
-    addr: &str,
-    held: &std::collections::HashSet<String>,
-    bearer: Option<&str>,
-) -> SyncOutcome {
-    let mut out = SyncOutcome::default();
-    // Paginate until a short page — a ledger past the fetch cap must
-    // still converge instead of truncating at the first 1000 records.
-    // The full record set is retained for the push half of the
-    // exchange (records we hold that the peer lacks).
-    let mut offset = 0usize;
-    let mut their_records: Vec<commit_log::CommitRecord> = Vec::new();
-    let mut unreachable_note = String::new();
-    loop {
-        match susi_core::mcp_client::call_tool(
-            addr,
-            "commit_log_fetch",
-            &serde_json::json!({ "limit": 1000, "offset": offset }),
-            bearer,
-        ) {
-            Ok(result) => {
-                let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
-                    unreachable_note = "no tool output".to_string();
-                    break;
-                };
-                let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
-                else {
-                    unreachable_note = "malformed fetch payload".to_string();
-                    break;
-                };
-                let page = records.len();
-                offset += page;
-                their_records.extend(records);
-                if page < 1000 {
-                    break;
-                }
-            }
-            Err(e) => {
-                unreachable_note = format!("unreachable — {e}");
-                break;
-            }
-        }
-    }
-    if !unreachable_note.is_empty() {
-        out.line = format!("{id} ({addr}): {unreachable_note}");
-        return out;
-    }
-    let theirs: std::collections::HashSet<String> = their_records
-        .iter()
-        .filter_map(|r| serde_json::to_string(r).ok())
-        .collect();
-    // Descending seq order: prior-epoch records (signed under the
-    // retired cluster key) may only append when their seq+1
-    // successor is held and names their epoch — landing successors
-    // first lets a pre-rotation tail gap fill in one pass.
-    let mut ordered: Vec<&commit_log::CommitRecord> = their_records.iter().collect();
-    ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
-    let mut to_apply: Vec<commit_log::CommitRecord> = Vec::new();
-    for r in ordered {
-        if !r.verify() {
-            out.bad += 1;
-            continue;
-        }
-        // Raft's step-down on the pull path, but only from member
-        // coordinators — a non-member's forged high term must not
-        // adopt into term.json (it would freeze honest pushes).
-        if commit_log::coordinator_known(r) {
-            let _ = commit_log::check_term(r);
-        }
-        // Member records need coordinator authority — an evicted
-        // node still holds cluster.key. Refused records stay
-        // missing and converge once the coordinator is known.
-        if !commit_log::member_coordinator_known(r) {
-            out.bad += 1;
-            continue;
-        }
-        let key = serde_json::to_string(&r).unwrap_or_default();
-        if held.contains(&key) {
-            out.dup += 1;
-            continue;
-        }
-        to_apply.push((*r).clone());
-    }
-    // One lock + one ledger load for the whole pull — per-record
-    // `append` re-read and re-locked the ledger every record.
-    for outcome in commit_log::append_many(&to_apply) {
-        match outcome {
-            commit_log::AppendOutcome::Applied => out.new += 1,
-            commit_log::AppendOutcome::Skipped => out.dup += 1,
-            commit_log::AppendOutcome::Refused => out.bad += 1,
-        }
-    }
-
-    // Symmetric repair: records we hold that the peer lacks are pushed
-    // through `commit_record` — the receive path re-runs signature,
-    // quorum, and term gates, so a rejected push is the protocol
-    // working, not a sync failure. The archive is ours to serve: an
-    // uncompacted peer missing below-floor history can only get it
-    // from our cold storage.
-    let to_push: Vec<commit_log::CommitRecord> = commit_log::load()
-        .into_iter()
-        .chain(commit_log::load_from(&commit_log::archive_path()))
-        .filter(|r| {
-            let key = serde_json::to_string(r).unwrap_or_default();
-            !theirs.contains(&key)
-        })
-        .collect();
-    // Batch intake first — one RPC for the whole repair on peers
-    // running commit_records (the per-record loop below costs one
-    // TCP+HTTP round trip per record). Pre-batch peers get the
-    // fallback loop; the batch call failing for any other reason is
-    // covered by the same path — refused records are the protocol's
-    // gate working, not a sync failure.
-    // The tool caps a batch at 1000 — a bigger delta takes the
-    // per-record path (a peer that far behind is rare, and today's
-    // per-record behavior is no worse than before).
-    let batch_ok = if to_push.is_empty() || to_push.len() > 1000 {
-        None
-    } else {
-        susi_core::mcp_client::call_tool(
-            addr,
-            "commit_records",
-            &serde_json::json!({ "records": to_push }),
-            bearer,
-        )
-        .ok()
-        .filter(|r| r.get("isError").and_then(|v| v.as_bool()) != Some(true))
-    };
-    if let Some(result) = &batch_ok {
-        // The summary is JSON text: {applied, skipped, refused, repaired}.
-        let counts = result
-            .pointer("/content/0/text")
-            .and_then(|t| t.as_str())
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok());
-        out.pushed += counts
-            .as_ref()
-            .and_then(|c| c.get("applied").and_then(|v| v.as_u64()))
-            .unwrap_or(0) as usize
-            + counts
-                .as_ref()
-                .and_then(|c| c.get("skipped").and_then(|v| v.as_u64()))
-                .unwrap_or(0) as usize;
-        out.push_rejected += counts
-            .as_ref()
-            .and_then(|c| c.get("refused").and_then(|v| v.as_u64()))
-            .unwrap_or(0) as usize;
-    }
-    if batch_ok.is_none() {
-        for r in &to_push {
-            // The tool's args ARE the record — commit_record
-            // deserializes the argument object directly.
-            let Ok(args) = serde_json::to_value(r) else {
-                continue;
-            };
-            match susi_core::mcp_client::call_tool(addr, "commit_record", &args, bearer) {
-                // A completed RPC can still carry a tool-level rejection
-                // (isError) — a stale-term or consistency refusal is the
-                // protocol's gate working, not a sync failure.
-                Ok(result) if result.get("isError").and_then(|v| v.as_bool()) == Some(true) => {
-                    out.push_rejected += 1;
-                }
-                Ok(_) => out.pushed += 1,
-                Err(_) => out.push_rejected += 1,
-            }
-        }
-    }
-    out.line = format!(
-        "{id} ({addr}): +{} pulled, {} already held, {} rejected; \
-         {} pushed, {} push-rejected",
-        out.new, out.dup, out.bad, out.pushed, out.push_rejected
-    );
-    out
 }
 
 fn list(
@@ -497,115 +254,23 @@ fn list(
 }
 
 fn show(epoch_prefix: &str, json: bool) -> Result<()> {
-    let mut records = commit_log::load();
-    records.extend(commit_log::load_from(&commit_log::archive_path()));
-    let matches: Vec<_> = records
-        .iter()
-        .filter(|r| r.epoch.starts_with(epoch_prefix))
-        .collect();
-    match matches.len() {
-        0 => anyhow::bail!("no commit record with epoch prefix `{epoch_prefix}`"),
-        1 => {}
-        _ => anyhow::bail!("epoch prefix `{epoch_prefix}` is ambiguous"),
-    }
-    let r = matches[0];
-    if !json {
-        println!("{}", serde_json::to_string_pretty(r)?);
-        println!("verified: {}", r.verify());
-    }
-    // Coordinator-attribution state: absent is the pre-PKI form; when
-    // the roster binds the coordinator's key the sig must verify under
-    // it — an INVALID here means the record would now be refused at
-    // intake (forgery or a re-bound key).
-    let bound_pk = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("peers.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
-        .unwrap_or_default()
-        .iter()
-        .find_map(|p| {
-            (p.get("node_id").and_then(|v| v.as_str()) == Some(r.coordinator.as_str()))
-                .then(|| {
-                    p.get("pubkey")
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .map(str::to_string)
-                })
-                .flatten()
-        });
-    let msig = if r.member_sig.is_empty() {
-        "absent".to_string()
-    } else if r.coordinator == susi_config::cluster_key::wire_node_id() {
-        match susi_config::cluster_key::node_pubkey_hex() {
-            Some(pk)
-                if susi_config::cluster_key::member_verify(&pk, &r.signature, &r.member_sig) =>
-            {
-                "valid (self)".to_string()
-            }
-            _ => "INVALID (self)".to_string(),
-        }
-    } else {
-        match bound_pk {
-            Some(pk)
-                if susi_config::cluster_key::member_verify(&pk, &r.signature, &r.member_sig) =>
-            {
-                "valid".to_string()
-            }
-            Some(_) => "INVALID".to_string(),
-            None => "present (coordinator key unbound)".to_string(),
-        }
-    };
-    // Binding attestation: a member_add claiming a pubkey must carry
-    // the subject's own signature — verify it here so an operator can
-    // see whether a binding is subject-proven or would be refused now.
-    let subject_sig_state = if r.member_pubkey.is_empty() {
-        None
-    } else {
-        let member_id = r.member_delta().map(|(_, id, _)| id).unwrap_or_default();
-        Some(if r.subject_sig.is_empty() {
-            "ABSENT — record would be refused at intake today".to_string()
-        } else if susi_config::cluster_key::verify_bind_attestation(
-            member_id,
-            &r.member_pubkey,
-            &r.subject_sig,
-        ) {
-            "valid (subject-signed)".to_string()
-        } else {
-            "INVALID".to_string()
-        })
-    };
-    let endorsement_state = if r.kind.is_empty() {
-        None
-    } else {
-        let names: Vec<&str> = r.endorsements.iter().map(|e| e.node.as_str()).collect();
-        let gate = if susi_core::commit_log::endorsements_satisfied(r) {
-            "satisfied"
-        } else {
-            "BELOW bound quorum"
-        };
-        Some(format!(
-            "{} signer(s) [{}] — {}",
-            r.endorsements.len(),
-            names.join(", "),
-            gate
-        ))
-    };
+    let body =
+        susi_core::commit_log_report::show_report(epoch_prefix).map_err(anyhow::Error::msg)?;
     if json {
-        let body = serde_json::json!({
-            "record": r,
-            "verified": r.verify(),
-            "member_sig": msig,
-            "subject_sig": subject_sig_state,
-            "endorsements": endorsement_state,
-        });
         println!("{}", serde_json::to_string_pretty(&body)?);
-    } else {
-        println!("member_sig: {msig}");
-        if let Some(att) = &subject_sig_state {
-            println!("subject_sig: {att}");
-        }
-        if let Some(e) = &endorsement_state {
-            println!("endorsements: {e}");
-        }
+        return Ok(());
+    }
+    println!("{}", serde_json::to_string_pretty(&body["record"])?);
+    println!("verified: {}", body["verified"]);
+    println!(
+        "member_sig: {}",
+        body["member_sig"].as_str().unwrap_or_default()
+    );
+    if let Some(att) = body["subject_sig"].as_str() {
+        println!("subject_sig: {att}");
+    }
+    if let Some(e) = body["endorsements"].as_str() {
+        println!("endorsements: {e}");
     }
     Ok(())
 }
@@ -618,69 +283,42 @@ fn show(epoch_prefix: &str, json: bool) -> Result<()> {
 /// `coordinator != leader` is legitimate for per-node missions, so it is
 /// reported as an anomaly, not a violation.
 fn audit(strict: bool, json: bool) -> Result<()> {
-    // Full history = live ledger + compaction archive — an audit that
-    // stops at the snapshot boundary would miss pre-snapshot
-    // anomalies. `replay()` seeds from the snapshot so gap detection
-    // stays honest on compacted ledgers.
-    let mut records = commit_log::load();
-    records.extend(commit_log::load_from(&commit_log::archive_path()));
-    let state = commit_log::replay();
-    let snapshot = commit_log::load_snapshot();
-
-    let mut anomaly_lines: Vec<String> = state.anomalies.iter().map(|a| a.to_uppercase()).collect();
-    for r in &records {
-        if r.verify() && !r.leader.is_empty() && r.leader != r.coordinator {
-            // Attribution/endorsement/subject-attestation anomalies are
-            // folded by replay() itself — they land in state.anomalies.
-            anomaly_lines.push(format!(
-                "NON-LEADER COMMIT  {} seq {} — elected leader was {} ({})",
-                r.coordinator,
-                r.seq,
-                r.leader,
-                r.epoch.get(..12).unwrap_or(&r.epoch)
-            ));
-        }
-    }
-
+    let body = susi_core::commit_log_report::audit_report();
+    let anomalies: Vec<&str> = body["anomalies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a.as_str())
+        .collect();
     if json {
-        let body = serde_json::json!({
-            "ok": anomaly_lines.is_empty(),
-            "records_checked": records.len(),
-            "verified": state.decisions,
-            "snapshot": snapshot.map(|s| serde_json::json!({
-                "coordinators": s.high_water.len(),
-                "created_at": s.created_at,
-            })),
-            "anomalies": anomaly_lines,
-        });
         println!("{}", serde_json::to_string_pretty(&body)?);
     } else {
-        if let Some(snap) = &snapshot {
+        if let Some(snap) = body["snapshot"].as_object() {
             println!(
                 "snapshot: {} coordinators at/below high-water (created {})",
-                snap.high_water.len(),
-                snap.created_at
+                snap.get("coordinators").cloned().unwrap_or_default(),
+                snap.get("created_at").cloned().unwrap_or_default()
             );
         }
-        for line in &anomaly_lines {
+        for line in &anomalies {
             println!("{line}");
         }
         println!(
             "{} — {} record(s) checked, {} verified",
-            if anomaly_lines.is_empty() {
+            if anomalies.is_empty() {
                 "OK"
             } else {
                 "ANOMALIES FOUND"
             },
-            records.len(),
-            state.decisions
+            body["records_checked"],
+            body["verified"]
         );
     }
-    if strict && !anomaly_lines.is_empty() {
+    if strict && !anomalies.is_empty() {
         anyhow::bail!(
             "{} ledger anomal{} found",
-            anomaly_lines.len(),
-            if anomaly_lines.len() == 1 { "y" } else { "ies" }
+            anomalies.len(),
+            if anomalies.len() == 1 { "y" } else { "ies" }
         );
     }
     Ok(())
@@ -690,29 +328,13 @@ fn audit(strict: bool, json: bool) -> Result<()> {
 /// leader, and each coordinator's high-water sequence mark. Two nodes
 /// holding the same records derive the same view.
 fn replay_view(json: bool) -> Result<()> {
-    let state = commit_log::replay();
-    let persisted = commit_log::load_term();
     if json {
-        let body = serde_json::json!({
-            "term": state.term,
-            "leader": state.leader,
-            "persisted": { "term": persisted.term, "leader": persisted.leader },
-            "decisions": state.decisions,
-            "memberships": state.memberships,
-            "roster": state.roster.iter().map(|(id, addr)| serde_json::json!({
-                "node_id": id, "address": addr,
-            })).collect::<Vec<_>>(),
-            "banned": state.banned.iter().map(|(id, addr)| serde_json::json!({
-                "node_id": id, "address": addr,
-            })).collect::<Vec<_>>(),
-            "coordinators": state.coordinators.iter().map(|(c, high)| serde_json::json!({
-                "coordinator": c, "high_water": high,
-            })).collect::<Vec<_>>(),
-            "anomalies": state.anomalies,
-        });
+        let body = susi_core::commit_log_report::replay_report();
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
     }
+    let state = commit_log::replay();
+    let persisted = commit_log::load_term();
     println!("term:          {}", state.term);
     println!(
         "leader:        {}",

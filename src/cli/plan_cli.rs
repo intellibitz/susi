@@ -19,13 +19,6 @@ pub fn execute(args: PlanArgs, workspace: &Path) -> Result<()> {
         env!("CARGO_PKG_VERSION"),
         args.max_steps,
     )?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({
-            "status": report.status,
-            "final_answer": report.final_answer,
-            "agents": report.agents,
-        }))?
-    );
+    println!("{}", serde_json::to_string_pretty(&report.plan_summary())?);
     Ok(())
 }

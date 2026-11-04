@@ -327,7 +327,8 @@ pub fn wire_plane_bus() {
     });
 }
 
-/// The four plane handlers alone — what a request needs to resolve. Cheap
+/// The four plane handlers, plus the daemon's own `daemon.` topics
+/// (`crate::plane_handler`), alone — what a request needs to resolve. Cheap
 /// and idempotent: no discovery, no network.
 pub fn wire_plane_handlers() {
     static WIRED: OnceLock<()> = OnceLock::new();
@@ -337,6 +338,7 @@ pub fn wire_plane_handlers() {
             susi_gawd::plane_handler::register();
             susi_tools::plane_handler::register();
             susi_agents::plane_handler::register();
+            crate::plane_handler::register();
         });
     });
 }

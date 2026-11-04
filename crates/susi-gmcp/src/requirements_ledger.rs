@@ -376,6 +376,31 @@ pub fn check_drift_against_dir(root: &Path, refetched: &Path) -> Result<DriftRep
     Ok(report)
 }
 
+/// `susi mcp ledger --drift [--refetched <dir>]` as a document: the
+/// pinned upstreams checked against `refetched` (or the network), with
+/// `verified` false when any finding fails the check closed. The MCP
+/// `ledger_verify` tool (with `drift`) returns the same document.
+pub fn drift_report_json(
+    root: &Path,
+    refetched: Option<&Path>,
+) -> Result<serde_json::Value, EaiError> {
+    let report = match refetched {
+        Some(dir) => check_drift_against_dir(root, dir),
+        None => check_drift_remote(root),
+    }?;
+    Ok(serde_json::json!({
+        "drift": true,
+        "checked": report.checked,
+        "matched": report.matched,
+        "verified": report.findings.is_empty(),
+        "findings": report.findings.iter().map(|f| serde_json::json!({
+            "document": f.document,
+            "kind": f.kind,
+            "detail": f.detail,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
 /// Live drift check: refetch every pinned upstream file and compare hashes
 /// against `sources.json`. Network, HTTP, size-bound, and missing-pin
 /// failures are all `unfetchable` findings — an unreachable upstream fails

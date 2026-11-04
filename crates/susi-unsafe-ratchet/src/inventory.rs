@@ -605,6 +605,7 @@ pub fn migrate(
 }
 
 #[cfg(test)]
+// Test-only module: unwrap/expect/panic are how these tests assert.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;

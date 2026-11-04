@@ -1498,6 +1498,57 @@ pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
     vendors
 }
 
+// ── Lifecycle reports (one document for the CLI and the socket) ─────────
+//
+// `susi extensions <action>` prints these and the MCP `extensions_*` tools
+// return them, so the desktop over the socket and an operator at the CLI
+// read the same JSON (plan B4 group 11).
+
+/// `susi extensions status`: the active pack, its root, and every pack.
+pub fn status_report() -> serde_json::Value {
+    let pack = active_pack();
+    serde_json::json!({
+        "active": pack.id,
+        "root": pack.root,
+        "packs": list_packs(),
+    })
+}
+
+/// `susi extensions load <id>`: load (verify and activate) the pack, then
+/// report it and the pack now active.
+pub fn load_report(id: &str) -> Result<serde_json::Value, String> {
+    let status = load_pack(id)?;
+    Ok(serde_json::json!({
+        "loaded": status,
+        "active": active_pack().id,
+    }))
+}
+
+/// `susi extensions unload <id>`: deactivate the pack (files kept), then
+/// report it and the pack now active.
+pub fn unload_report(id: &str) -> Result<serde_json::Value, String> {
+    let status = unload_pack(id)?;
+    Ok(serde_json::json!({
+        "unloaded": status.id,
+        "active": active_pack().id,
+    }))
+}
+
+/// `susi extensions validate <path>`: the author-side admission check
+/// ([`validate_pack_dir`]); reads and changes no host state.
+pub fn validate_report(root: &Path) -> Result<serde_json::Value, String> {
+    let (manifest, artifacts) = validate_pack_dir(root)?;
+    Ok(serde_json::json!({
+        "valid": true,
+        "id": manifest.id,
+        "version": manifest.version,
+        "apiVersion": manifest.api_version,
+        "permissions": manifest.permissions,
+        "signed": manifest.signer.is_some(),
+        "artifacts_sha256": artifacts,
+    }))
+}
+
 #[cfg(test)]
 #[path = "tests/extensions_state_lock.rs"]
 mod state_lock_tests;

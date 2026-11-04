@@ -15,15 +15,56 @@ static STARTED: OnceLock<AtomicBool> = OnceLock::new();
 
 const FILE_EXTS: &[&str] = &["rs", "md", "txt", "toml", "json", "py", "ts"];
 const MAX_FILE_BYTES: u64 = 256 * 1024;
+/// Seconds between ambient scans.
+const INTERVAL_SECS: u64 = 15;
 
 /// Start ambient indexing for `workspace` (idempotent process-wide).
 pub fn start_ambient_indexer(workspace: &Path) {
+    let _ = start(workspace);
+}
+
+/// What one start request did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AmbientStart {
+    /// The supervised indexer was spawned for this workspace.
+    Started,
+    /// An indexer already runs in this process (one per process).
+    AlreadyRunning,
+    /// The workspace is a SUSI-internal root (substrate, config or data
+    /// dir); indexing it would observe SUSI's own writes.
+    InternalPath,
+}
+
+impl AmbientStart {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Started => "started",
+            Self::AlreadyRunning => "already_running",
+            Self::InternalPath => "refused_internal_path",
+        }
+    }
+}
+
+/// `susi ambient start` / MCP `ambient_start`: start the indexer and report
+/// truthfully what happened (`ambient`: started, already_running or
+/// refused_internal_path).
+pub fn start_report(workspace: &Path) -> serde_json::Value {
+    let outcome = start(workspace);
+    serde_json::json!({
+        "ambient": outcome.as_str(),
+        "workspace": workspace.display().to_string(),
+        "interval_secs": INTERVAL_SECS,
+    })
+}
+
+/// Start ambient indexing for `workspace` and say what happened.
+pub fn start(workspace: &Path) -> AmbientStart {
     if internal_path(workspace, &internal_roots()) {
-        return;
+        return AmbientStart::InternalPath;
     }
     let flag = STARTED.get_or_init(|| AtomicBool::new(false));
     if flag.swap(true, Ordering::SeqCst) {
-        return;
+        return AmbientStart::AlreadyRunning;
     }
     let ws = workspace.to_path_buf();
     // Supervised: a full-tree scan can legitimately take minutes, so the
@@ -37,6 +78,7 @@ pub fn start_ambient_indexer(workspace: &Path) {
             Some(move || ambient_loop(ws))
         },
     );
+    AmbientStart::Started
 }
 
 /// One-shot ambient pulse (also used by CLI).
@@ -121,7 +163,7 @@ fn ambient_loop(workspace: PathBuf) {
             save_scan_state(&workspace, &last);
             let _ = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(&workspace);
         }
-        std::thread::sleep(Duration::from_secs(15));
+        std::thread::sleep(Duration::from_secs(INTERVAL_SECS));
     }
 }
 

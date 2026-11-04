@@ -233,13 +233,56 @@ fn gap_task_from_failure_wiring_is_on_the_production_path() {
     // to the uncapped double-fork. The daemon's own set_current_dir covers
     // the unit.
     assert!(!server.contains(".arg(format!(\"--working-directory="));
-    // An agent adopts a gap through a real CLI arm.
+    // An agent adopts a gap through a real CLI arm. The arm maps its flags
+    // onto `susi_daemon::host_views::IntentLadder` and calls the shared
+    // `host_views::intent_ladder` (the MCP `intent_ladder` tool calls the
+    // same function), whose production body adopts and verifies.
     let admin_cli = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../src/cli/admin_cli.rs"
     ))
     .unwrap();
-    assert!(admin_cli.contains("intent_ladder::adopt_gap("));
+    for needle in [
+        "IntentLadder::AdoptGap(id)",
+        "IntentLadder::Verify(id)",
+        "susi_daemon::host_views::intent_ladder(&action, cwd)",
+        // `--verify` exits non-zero unless the re-check passed.
+        "matches!(action, IntentLadder::Verify(_)) && doc[\"verdict\"] != \"pass\"",
+    ] {
+        assert!(
+            admin_cli.contains(needle),
+            "admin_cli.rs is missing `{needle}`"
+        );
+    }
+    let views = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../susi-daemon/src/host_views.rs"
+    ))
+    .unwrap();
+    // Production code only: the module's tests sit after `#[cfg(test)]`.
+    let views = views.split("#[cfg(test)]").next().unwrap();
+    let body = views
+        .split("pub fn intent_ladder(action: &IntentLadder, cwd: &Path) -> R<Value> {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("host_views::intent_ladder is production code");
+    for needle in [
+        "use susi_gawd::intent_ladder as ladder;",
+        "IntentLadder::AdoptGap(id) =>",
+        "ladder::adopt_gap(",
+        "IntentLadder::Verify(id) =>",
+        "ladder::verify_intent(",
+    ] {
+        assert!(
+            body.contains(needle),
+            "host_views::intent_ladder is missing `{needle}`"
+        );
+    }
+    assert!(
+        views.contains("\"adopt_gap\" => IntentLadder::AdoptGap(")
+            && views.contains("intent_ladder(&action, &workspace)"),
+        "the intent_ladder host action must reach the same function"
+    );
     // `--verify` is a real CLI arm, and gap tasks go through the same
     // authored path a human's work meets.
     let defs = std::fs::read_to_string(concat!(
@@ -248,14 +291,6 @@ fn gap_task_from_failure_wiring_is_on_the_production_path() {
     ))
     .unwrap();
     assert!(defs.contains("verify: Option<String>"));
-    let cli = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../src/cli/admin_cli.rs"
-    ))
-    .unwrap();
-    for needle in ["verify_intent(", "entry.verdict != \"pass\""] {
-        assert!(cli.contains(needle), "admin_cli.rs is missing `{needle}`");
-    }
     let lib = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/intent_ladder.rs"))
         .unwrap();
     for needle in ["tasks::author(", "GAP_TASKS_PER_RUN", "verify_intent"] {

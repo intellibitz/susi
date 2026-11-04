@@ -3,7 +3,8 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
-use susi_tools::{LeadingMcpManager, LeadingMcpOverride};
+use susi_daemon::adapter_ops::{self, AdapterKind};
+use susi_tools::LeadingMcpManager;
 
 #[derive(Debug, Subcommand)]
 pub enum McpCommands {
@@ -144,7 +145,9 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             let mut tools = Vec::new();
             // GMCP pages tools/list at 100. Follow nextCursor so names past
             // the first page (for example time:get_current_time) are visible.
-            for _ in 0..32 {
+            const MAX_TOOLS_LIST_PAGES: usize = 50;
+            let mut complete = false;
+            for _ in 0..MAX_TOOLS_LIST_PAGES {
                 let result = susi_core::mcp_client::session_call(
                     &addr,
                     "tools/list",
@@ -156,6 +159,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     if tools.is_empty() {
                         println!("{}", serde_json::to_string_pretty(&result)?);
                     }
+                    complete = true;
                     break;
                 };
                 tools.extend(page.iter().cloned());
@@ -166,8 +170,14 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     .filter(|cursor| !cursor.is_empty());
                 match cursor {
                     Some(cursor) => params = serde_json::json!({ "cursor": cursor }),
-                    None => break,
+                    None => {
+                        complete = true;
+                        break;
+                    }
                 }
+            }
+            if !complete {
+                bail!("tools/list still paging after {MAX_TOOLS_LIST_PAGES} pages");
             }
             if !tools.is_empty() {
                 println!("{:<28} DESCRIPTION", "TOOL");
@@ -187,27 +197,17 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         }
         McpCommands::Ledger { drift, refetched } => {
             if drift {
-                use susi_gmcp::requirements_ledger as ledger;
-                let report = match refetched {
-                    Some(dir) => ledger::check_drift_against_dir(workspace, &dir),
-                    None => ledger::check_drift_remote(workspace),
-                }
+                // Same document as the MCP `ledger_verify` tool with `drift`.
+                let report = susi_gmcp::requirements_ledger::drift_report_json(
+                    workspace,
+                    refetched.as_deref(),
+                )
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
-                print_json(&serde_json::json!({
-                    "drift": true,
-                    "checked": report.checked,
-                    "matched": report.matched,
-                    "verified": report.findings.is_empty(),
-                    "findings": report.findings.iter().map(|f| serde_json::json!({
-                        "document": f.document,
-                        "kind": f.kind,
-                        "detail": f.detail,
-                    })).collect::<Vec<_>>(),
-                }))?;
-                if !report.findings.is_empty() {
+                print_json(&report)?;
+                let findings = report["findings"].as_array().map_or(0, Vec::len);
+                if findings > 0 {
                     bail!(
-                        "upstream drift: {} finding(s) — the pinned corpus is stale and must be re-pinned",
-                        report.findings.len()
+                        "upstream drift: {findings} finding(s) — the pinned corpus is stale and must be re-pinned"
                     );
                 }
                 return Ok(false);
@@ -222,49 +222,24 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             print_json(&manager.status()?)?;
             Ok(false)
         }
+        // `susi_daemon::adapter_ops` builds the doctor/setup/configure/reset
+        // documents; the MCP `adapter_*` tools return the same ones.
         McpCommands::Doctor { server } => {
-            let manager = LeadingMcpManager::new(workspace)?;
-            let servers = match server {
-                Some(id) => vec![LeadingMcpManager::definition(&id)?],
-                None => LeadingMcpManager::catalog()?,
-            };
-            let mut missing = false;
-            for srv in servers {
-                let result = manager.preflight(&srv.id);
-                missing |= result.is_err();
-                print_json(&serde_json::json!({
-                    "server": srv.id,
-                    "prerequisites_present": result.is_ok(),
-                    "enabled": manager.is_enabled(&srv.id).unwrap_or(false),
-                    "detail": match result { Ok(s) => s, Err(e) => e.to_string() }
-                }))?;
+            let rows = adapter_ops::doctor(AdapterKind::Mcp, server.as_deref(), workspace)
+                .map_err(anyhow::Error::msg)?;
+            for row in &rows {
+                print_json(row)?;
             }
-            if missing {
-                bail!("one or more leading MCP servers need setup");
+            if !adapter_ops::all_ready(&rows) {
+                bail!("{}", adapter_ops::needs_setup_message(AdapterKind::Mcp));
             }
             Ok(false)
         }
         McpCommands::Setup { server } => {
-            let manager = LeadingMcpManager::new(workspace)?;
-            let def = manager.effective(&server)?;
-            let credentials = if def.env_keys.is_empty() {
-                "This peer declares no credential variables.".to_string()
-            } else {
-                format!(
-                    "This peer requires authorization to supply {}.",
-                    def.env_keys.join(", ")
-                )
-            };
-            let instructions = format!(
-                "Susi serves MCP natively with `susi mcp serve`. The optional `{id}` peer uses the configured launcher `{runner}`. {credentials} An agent can check readiness with `susi mcp doctor {id}` and register it with `susi mcp enable {id}`.",
-                id = def.id,
-                runner = def.runner,
-            );
-            print_json(&serde_json::json!({
-                "server": def,
-                "enabled": manager.is_enabled(&def.id)?,
-                "instructions": instructions
-            }))?;
+            print_json(
+                &adapter_ops::setup(AdapterKind::Mcp, &server, workspace)
+                    .map_err(anyhow::Error::msg)?,
+            )?;
             Ok(false)
         }
         McpCommands::Enable { server } => {
@@ -287,14 +262,18 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             Ok(false)
         }
         McpCommands::Configure { server, file } => {
-            let manager = LeadingMcpManager::new(workspace)?;
-            let over: LeadingMcpOverride = serde_json::from_slice(&std::fs::read(file)?)?;
-            print_json(&manager.configure(&server, &over)?)?;
+            let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+            print_json(
+                &adapter_ops::configure(AdapterKind::Mcp, &server, doc, workspace)
+                    .map_err(anyhow::Error::msg)?,
+            )?;
             Ok(false)
         }
         McpCommands::Reset { server } => {
-            let manager = LeadingMcpManager::new(workspace)?;
-            print_json(&manager.reset(&server)?)?;
+            print_json(
+                &adapter_ops::reset(AdapterKind::Mcp, &server, workspace)
+                    .map_err(anyhow::Error::msg)?,
+            )?;
             Ok(false)
         }
     }

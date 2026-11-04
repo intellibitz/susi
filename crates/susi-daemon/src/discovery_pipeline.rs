@@ -159,6 +159,15 @@ pub fn local_ecosystem_scan_report() -> serde_json::Value {
     )
 }
 
+/// `susi ecosystem status` / MCP `ecosystem_scan {cached: true}`: the last
+/// persisted scan (`~/.susi/local_ecosystem.json`) as written, without
+/// scanning again.
+pub fn last_ecosystem_scan() -> Result<String, String> {
+    let path = susi_paths::SusiDirs::config_dir().join("local_ecosystem.json");
+    std::fs::read_to_string(&path)
+        .map_err(|_| "no startup scan yet; run `susi ecosystem scan`".to_string())
+}
+
 /// Build and persist the production local-host report at an explicit location.
 /// Keeping the destination injectable lets the production composition path be
 /// exercised hermetically without writing into the caller's SUSI instance.

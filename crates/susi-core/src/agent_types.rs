@@ -166,6 +166,23 @@ impl HighDensityContextStore {
     }
 }
 
+/// The last mission blackboard [`HighDensityContextStore::persist_inspectable`]
+/// wrote under `workspace` (`.susi/last_blackboard.json`), credential-redacted
+/// again on read. `susi blackboard show` prints it and MCP `blackboard_show`
+/// returns it; the error names the missing file.
+pub fn read_persisted_blackboard(workspace: &Path) -> Result<String, String> {
+    let path = workspace.join(".susi").join("last_blackboard.json");
+    if !path.is_file() {
+        return Err(format!(
+            "no mission blackboard at {} — run a swarm mission first",
+            path.display()
+        ));
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    Ok(crate::susi_config::redact_credentials(&text))
+}
+
 /// Shared state agents write their outputs into during a mission.
 pub type SwarmBlackboard = Arc<HighDensityContextStore>;
 pub type MissionBlackboard = SwarmBlackboard;
