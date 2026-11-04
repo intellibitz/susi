@@ -1,0 +1,25 @@
+{
+  "id": "T-VENDORAGENTSMOD1104-1",
+  "title": "test(agents): inline contract suite for external AgentManager lifecycle and adapter preparation in mod.rs",
+  "goal": "D-OS-8: cover zero-test external/mod.rs in susi-vendor-agents",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "--lib"
+    ]
+  },
+  "created_by": "VENDORAGENTSMOD1104",
+  "created_unix": 1793770986,
+  "closed": {
+    "at_unix": 1793771440,
+    "commit": "a97a6c0a9090f3f89bcffa859148d35e64f5146c",
+    "by": "VENDORAGENTSMOD1104"
+  }
+}
