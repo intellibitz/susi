@@ -156,3 +156,95 @@ pub fn load_cloud_evidence(path: &Path) -> Result<QualificationInput, String> {
         std::fs::read_to_string(path).map_err(|error| format!("read cloud evidence: {error}"))?;
     serde_json::from_str(&body).map_err(|error| format!("parse cloud evidence: {error}"))
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn passing_drill(env: &str) -> ReleaseDrill {
+        ReleaseDrill {
+            env: env.to_string(),
+            configured: true,
+            mission_ok: true,
+            recovered: true,
+            self_patch_evaluated: true,
+            promoted_via_tag: true,
+            scorecard_delta: 0.25,
+            predeclared_2x_metric: Some(20.0),
+            baseline_2x_metric: Some(10.0),
+        }
+    }
+
+    #[test]
+    fn qualify_release_passes_when_all_gates_hold_and_2x_metric_met() {
+        let rep = qualify_release(&passing_drill("local"));
+        assert!(rep.qualified);
+        assert!(rep.claim_2x);
+        assert!(rep.limitations.is_empty());
+        assert_eq!(rep.scorecard_deltas.len(), 1);
+    }
+
+    #[test]
+    fn qualify_release_collects_limitations_when_gates_or_2x_fail() {
+        let mut drill = passing_drill("local");
+        drill.promoted_via_tag = false;
+        drill.predeclared_2x_metric = Some(15.0);
+        let rep = qualify_release(&drill);
+        assert!(!rep.qualified);
+        assert!(!rep.claim_2x);
+        assert!(rep
+            .limitations
+            .iter()
+            .any(|l| l.contains("promotion bypassed tagged release path")));
+        assert!(rep
+            .limitations
+            .iter()
+            .any(|l| l.contains("2x claim unsupported")));
+    }
+
+    #[test]
+    fn qualify_multi_stage_requires_both_local_and_cloud_stages() {
+        let local_only = vec![QualificationInput {
+            drill: passing_drill("local"),
+            budget_preserved: true,
+            privacy_preserved: true,
+        }];
+        let rep_local = qualify_multi_stage(&local_only);
+        assert!(!rep_local.qualified);
+        assert!(rep_local
+            .limitations
+            .iter()
+            .any(|l| l.contains("no explicitly configured cloud environment")));
+
+        let both = vec![
+            local_only[0].clone(),
+            QualificationInput {
+                drill: passing_drill("cloud"),
+                budget_preserved: true,
+                privacy_preserved: true,
+            },
+        ];
+        let rep_both = qualify_multi_stage(&both);
+        assert!(rep_both.qualified);
+        assert!(rep_both.claim_2x);
+        assert!(rep_both.limitations.is_empty());
+    }
+
+    #[test]
+    fn load_cloud_evidence_roundtrips_json_and_errors_on_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.json");
+        assert!(load_cloud_evidence(&missing).is_err());
+
+        let path = dir.path().join("cloud.json");
+        let input = QualificationInput {
+            drill: passing_drill("cloud"),
+            budget_preserved: true,
+            privacy_preserved: true,
+        };
+        std::fs::write(&path, serde_json::to_vec(&input).unwrap()).unwrap();
+        assert_eq!(load_cloud_evidence(&path).unwrap(), input);
+    }
+}

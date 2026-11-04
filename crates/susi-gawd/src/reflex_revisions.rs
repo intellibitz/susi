@@ -64,3 +64,63 @@ impl ReflexStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_rev(id: &str) -> ReflexRevision {
+        ReflexRevision {
+            id: id.to_string(),
+            source_hash: "src-123".to_string(),
+            wasm_digest: "wasm-456".to_string(),
+            grants: vec!["fs.read".to_string()],
+            revoked: false,
+        }
+    }
+
+    #[test]
+    fn publish_and_may_execute_allow_active_revision_and_deny_unknown() {
+        let mut store = ReflexStore::default();
+        assert!(!store.may_execute("agent-a", "rev-1"));
+        store.publish(sample_rev("rev-1"));
+        assert!(store.may_execute("agent-a", "rev-1"));
+    }
+
+    #[test]
+    fn pin_and_revoke_preserve_execution_for_pinned_caller_only() {
+        let mut store = ReflexStore::default();
+        store.publish(sample_rev("rev-1"));
+        store.pin("pinned-caller", "rev-1").unwrap();
+        store.revoke("rev-1").unwrap();
+        assert!(store.may_execute("pinned-caller", "rev-1"));
+        assert!(!store.may_execute("unpinned-caller", "rev-1"));
+    }
+
+    #[test]
+    fn pin_and_revoke_reject_unknown_revision_ids() {
+        let mut store = ReflexStore::default();
+        assert_eq!(
+            store.pin("caller", "missing"),
+            Err("unknown revision".into())
+        );
+        assert_eq!(store.revoke("missing"), Err("unknown revision".into()));
+    }
+
+    #[test]
+    fn rollback_pin_updates_caller_pin_or_errors_on_unknown() {
+        let mut store = ReflexStore::default();
+        store.publish(sample_rev("rev-1"));
+        store.publish(sample_rev("rev-2"));
+        store.pin("caller", "rev-2").unwrap();
+        store.revoke("rev-1").unwrap();
+        store.rollback_pin("caller", "rev-1").unwrap();
+        assert!(store.may_execute("caller", "rev-1"));
+        assert_eq!(
+            store.rollback_pin("caller", "rev-999"),
+            Err("unknown revision".into())
+        );
+    }
+}
