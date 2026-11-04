@@ -266,4 +266,26 @@ mod inline_tests {
             .unwrap_err()
             .contains("split-brain commit"));
     }
+
+    #[test]
+    fn accept_rejects_stale_term_and_commit_record_round_trips_serde_json() {
+        let mut node = ChaosNode::new("n1");
+        node.elect(&[]);
+        assert_eq!(node.term, 0);
+        assert!(node.leader.is_empty());
+
+        node.elect(&[("n1".to_string(), 1.0)]);
+        node.term = 5;
+        let stale = CommitRecord {
+            term: 3,
+            leader: "n1".to_string(),
+            seq: 1,
+            payload: "old".to_string(),
+        };
+        assert!(!node.accept(stale.clone()));
+
+        let encoded = serde_json::to_string(&stale).unwrap();
+        let decoded: CommitRecord = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, stale);
+    }
 }

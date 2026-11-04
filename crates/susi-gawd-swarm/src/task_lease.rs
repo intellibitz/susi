@@ -422,4 +422,22 @@ mod inline_tests {
         let next = fresh.dispatch("t-5", "worker-n", 210, 60);
         assert!(next.fence > 1);
     }
+
+    #[test]
+    fn dispatch_clamps_zero_ttl_and_authorize_mutation_propagates_verdict_errors() {
+        let mut table = LeaseTable::new();
+        assert!(table.authority_for("missing").is_none());
+        let lease = table.dispatch("t-zero", "worker-z", 500, 0);
+        assert_eq!(lease.lease_until_unix, 501);
+
+        let token = table.authority_for("t-zero").unwrap();
+        assert_eq!(
+            table.authorize_mutation("missing", "worker-z", token, 500),
+            Err(CompleteVerdict::UnknownTask)
+        );
+        assert_eq!(
+            table.authorize_mutation("t-zero", "other-worker", token, 500),
+            Err(CompleteVerdict::NotOwner)
+        );
+    }
 }

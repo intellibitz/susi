@@ -1,0 +1,27 @@
+{
+  "id": "T-SWARM5TD1104-1",
+  "title": "test(swarm): expand Wave D inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--",
+      "side_effect_journal::inline_tests"
+    ]
+  },
+  "created_by": "SWARM5TD1104",
+  "created_unix": 1793808147,
+  "closed": {
+    "at_unix": 1793808393,
+    "commit": "383efb26bfcad65f9d421dddd34a209ed7136208",
+    "by": "SWARM5TD1104"
+  }
+}
