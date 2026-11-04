@@ -137,4 +137,20 @@ mod inline_tests {
         assert!(resumed.uncertain_external);
         assert!(resumed.completed);
     }
+
+    #[test]
+    fn action_outcome_serde_roundtrip_and_completed_reconcilable_clears_uncertain_flag() {
+        let completed_reconcilable = ActionOutcome {
+            class: ActionClass::Reconcilable,
+            uncertain_external: false,
+            completed: true,
+        };
+        let retried = after_crash_retry(&completed_reconcilable);
+        assert!(!retried.uncertain_external);
+        assert!(retried.completed);
+
+        let encoded = serde_json::to_string(&retried).unwrap();
+        let decoded: ActionOutcome = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, retried);
+    }
 }

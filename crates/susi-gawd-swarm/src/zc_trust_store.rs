@@ -59,4 +59,16 @@ mod zc_trust_store_tests {
         let back: TrustStore = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, s);
     }
+
+    #[test]
+    fn trust_store_clone_and_debug_preserve_sorted_trusted_peers() {
+        let mut s = TrustStore::default();
+        s.trust("z-peer");
+        s.trust("a-peer");
+        s.trust("m-peer");
+        let ordered: Vec<&str> = s.trusted_peers.iter().map(String::as_str).collect();
+        assert_eq!(ordered, vec!["a-peer", "m-peer", "z-peer"]);
+        assert_eq!(s.clone(), s);
+        assert!(format!("{s:?}").contains("a-peer"));
+    }
 }
