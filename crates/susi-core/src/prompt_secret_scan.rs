@@ -234,3 +234,88 @@ pub fn scan_prompt_secrets_env(
 ) -> PromptScanResult {
     scan_prompt_secrets(text, patterns, std::env::vars(), policy)
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn classification_label_predicates_and_merge_keep_strictest_level() {
+        assert!(ClassificationLabel::ApprovedCloud.permits_cloud_egress());
+        assert!(!ClassificationLabel::ApprovedCloud.is_local_only());
+        assert!(!ClassificationLabel::ApprovedCloud.is_workspace_private());
+
+        assert!(ClassificationLabel::WorkspacePrivate.is_workspace_private());
+        assert!(!ClassificationLabel::WorkspacePrivate.permits_cloud_egress());
+
+        assert!(ClassificationLabel::LocalOnly.is_local_only());
+        assert!(!ClassificationLabel::LocalOnly.permits_cloud_egress());
+
+        assert_eq!(
+            ClassificationLabel::ApprovedCloud.merge(ClassificationLabel::WorkspacePrivate),
+            ClassificationLabel::WorkspacePrivate
+        );
+        assert_eq!(
+            ClassificationLabel::WorkspacePrivate.merge(ClassificationLabel::LocalOnly),
+            ClassificationLabel::LocalOnly
+        );
+    }
+
+    #[test]
+    fn clean_prompt_passes_under_block_and_redact_policies() {
+        let res = scan_prompt_secrets(
+            "Summarize the public release notes.",
+            &["sk-live-".to_string()],
+            Vec::<(String, String)>::new(),
+            PromptScanPolicy::Block,
+        );
+        assert!(res.is_clean());
+        assert!(!res.blocked());
+        assert_eq!(res.classification, ClassificationLabel::ApprovedCloud);
+        assert_eq!(
+            res.egress_text(),
+            Some("Summarize the public release notes.")
+        );
+    }
+
+    #[test]
+    fn secret_pattern_and_env_credential_hits_block_or_redact_according_to_policy() {
+        let env_vars = vec![("OPENAI_API_KEY".to_string(), "supersecret123".to_string())];
+        let patterns = vec!["ghp_".to_string()];
+        let text = "Token ghp_abcdef123456 and key supersecret123";
+
+        let blocked =
+            scan_prompt_secrets(text, &patterns, env_vars.clone(), PromptScanPolicy::Block);
+        assert!(!blocked.is_clean());
+        assert!(blocked.blocked());
+        assert_eq!(blocked.egress_text(), None);
+
+        let redacted = scan_prompt_secrets(text, &patterns, env_vars, PromptScanPolicy::Redact);
+        assert!(!redacted.is_clean());
+        assert!(!redacted.blocked());
+        let egress = redacted.egress_text().expect("redacted text allowed");
+        assert!(!egress.contains("supersecret123"));
+        assert!(egress.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn obfuscated_env_secret_and_restricted_classification_trigger_hits() {
+        let env_vars = vec![("SERVICE_SECRET".to_string(), "abcd1234".to_string())];
+        let res = scan_prompt_secrets(
+            "workspace-private payload with a b c d 1 2 3 4",
+            &[],
+            env_vars,
+            PromptScanPolicy::Block,
+        );
+        assert_eq!(res.classification, ClassificationLabel::WorkspacePrivate);
+        assert!(res.blocked());
+        assert!(res
+            .hits
+            .iter()
+            .any(|h| h.kind == "classification:WorkspacePrivate"));
+        assert!(res
+            .hits
+            .iter()
+            .any(|h| h.kind == "obfuscated_env:SERVICE_SECRET"));
+    }
+}
