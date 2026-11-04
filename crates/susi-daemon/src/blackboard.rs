@@ -171,9 +171,11 @@ mod tests {
         let mut rx = board.subscribe();
         let pheromone = SwarmPheromone {
             id: "ph-1".to_string(),
-            source_cell: "cell-a".to_string(),
             topic: "mission.progress".to_string(),
-            payload: b"step-1".to_vec(),
+            emitter_id: "cell-a".to_string(),
+            kind: crate::susi_abi::swarm::PheromoneKind::Observation,
+            intensity: 1.0,
+            payload: serde_json::json!({"step": 1}),
             ttl_ms: 60_000,
             deposited_at: u64::MAX / 2,
         };

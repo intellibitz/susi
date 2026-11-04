@@ -135,7 +135,7 @@ mod tests {
     fn register_installs_daemon_prefix_on_global_plane_bus() {
         register();
         let resp = PlaneBus::global()
-            .call("daemon.unrecognized_topic_for_test", json!({}))
+            .request("daemon.unrecognized_topic_for_test", json!({}))
             .expect("registered daemon prefix should handle call");
         assert!(
             resp["error"]

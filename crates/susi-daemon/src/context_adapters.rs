@@ -220,8 +220,8 @@ mod tests {
 
     #[test]
     fn sample_os_context_once_accepts_workspace_and_user_scope() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let count = sample_os_context_once(Some(tmp.path()), Some("scoped-user"));
+        let tmp = std::env::temp_dir();
+        let count = sample_os_context_once(Some(tmp.as_path()), Some("scoped-user"));
         if !cfg!(target_os = "linux") {
             assert_eq!(count, 1);
         }
