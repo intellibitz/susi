@@ -453,4 +453,29 @@ mod inline_tests {
             .iter()
             .any(|d| matches!(d, ScoutDrift::ModelPriceChanged { provider, .. } if provider == "deepseek")));
     }
+
+    #[test]
+    fn catalogue_snapshot_and_provider_result_from_report_preserve_fields() {
+        let names = vec!["unpriced-test-model".to_string()];
+        let snap = catalogue_snapshot(&names);
+        assert_eq!(
+            snap.get("unpriced-test-model"),
+            Some(&CatalogueEntry {
+                input_usd_per_1m: None,
+                output_usd_per_1m: None,
+                cache_hit_usd_per_1m: None,
+            })
+        );
+
+        let report =
+            crate::scout_probe::ScoutReport::transport_dead("dead-model", "offline".to_string());
+        let summary = ScoutProviderResult::from(&report);
+        assert_eq!(summary.provider, "dead-model");
+        assert_eq!(summary.verified, 0);
+        assert_eq!(summary.probes, crate::scout_probe::SCOUT_PROBES.len());
+        assert_eq!(
+            summary.transport_failures,
+            crate::scout_probe::SCOUT_PROBES.len()
+        );
+    }
 }

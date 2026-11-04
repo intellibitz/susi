@@ -211,4 +211,13 @@ mod zc_kv_auto_tests {
         assert_eq!(kv_capacity(0, 0).tokens, 2048);
         assert_eq!(kv_capacity(1024_u64.pow(4), 4096).tokens, 262_144);
     }
+
+    #[test]
+    fn plan_kv_cache_for_32b_geometry_aligns_blocks_and_preserves_fp16_with_ample_vram() {
+        let geom = TransformerKvGeometry::qwen25_32b();
+        let plan = plan_kv_cache(geom, 16 * 1024 * 1024 * 1024, 2048);
+        assert_eq!(plan.recommended_scheme, KvQuantScheme::Fp16);
+        assert_eq!(plan.total_tokens % PAGE_BLOCK_TOKENS, 0);
+        assert!(plan.max_concurrent_sequences >= 2);
+    }
 }

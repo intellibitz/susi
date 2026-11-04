@@ -302,4 +302,24 @@ mod inline_tests {
         assert_eq!(report.transport_failures, 2);
         assert_eq!(report.verified_fraction(), Some(0.0));
     }
+
+    #[test]
+    fn record_outcomes_returns_probe_count_and_partial_verified_fraction_is_exact() {
+        let report = probe_with("half-provider", &|prompt| {
+            if prompt.contains("OK") {
+                Ok("OK".to_string())
+            } else if prompt.contains("7 plus 8") {
+                Ok("15".to_string())
+            } else if prompt.contains("Japan") {
+                Ok("Tokyo".to_string())
+            } else {
+                Ok("wrong".to_string())
+            }
+        });
+        assert_eq!(report.probes, 6);
+        assert_eq!(report.verified, 3);
+        assert_eq!(report.transport_failures, 0);
+        assert_eq!(report.verified_fraction(), Some(0.5));
+        assert_eq!(record_outcomes(&report), 6);
+    }
 }

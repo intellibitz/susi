@@ -124,4 +124,15 @@ mod tests {
         stream.finish("unpushed-tail", &callback);
         assert_eq!(*flushed.borrow(), "unpushed-tail");
     }
+
+    #[test]
+    fn consecutive_ascii_token_pushes_emit_incrementally() {
+        let tokenizer = tokenizer();
+        let mut stream = TokenStream::new(&tokenizer);
+        let pieces = RefCell::new(Vec::new());
+        let callback = |piece: String| pieces.borrow_mut().push(piece);
+        stream.push(2, &callback).unwrap();
+        stream.push(2, &callback).unwrap();
+        assert_eq!(*pieces.borrow(), vec!["!".to_string(), "!".to_string()]);
+    }
 }
