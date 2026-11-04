@@ -1,0 +1,24 @@
+{
+  "id": "T-OSPARITY1104-1",
+  "title": "D-OS-4 & D-OS-5: OS-neutral service installer/uninstall parity and Windows ACL permission parity",
+  "goal": "Align Windows scheduled task run level to Limited (/RL LIMITED), add cross-platform service uninstall command rendering and wire Windows scheduled task cleanup in susi uninstall (OSN-13, OSN-18), enforce Windows owner-only ACLs on plane-bus secret files, and implement Windows secret-file ACL exfiltration risk scanning in runtime_admin.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "cross_platform_service"
+    ]
+  },
+  "created_by": "OSPARITY1104",
+  "created_unix": 1793768500,
+  "closed": {
+    "commit": "d00607870d50943a1a4c15572785a2cdcef0ffd3",
+    "by": "OSPARITY1104",
+    "at_unix": 1793769690
+  }
+}
