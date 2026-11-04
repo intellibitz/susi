@@ -4041,6 +4041,7 @@ dependencies = [
  "susi-vendor-tracing-subscriber",
  "susi-vendor-wasmtime",
  "susi-windows-runtime",
+ "susi-wire-client",
 ]
 
 [[package]]
@@ -4102,6 +4103,7 @@ name = "susi-conformance"
 version = "0.1.0"
 dependencies = [
  "susi-vendor-serde-json",
+ "susi-wire-client",
 ]
 
 [[package]]
@@ -4351,6 +4353,7 @@ dependencies = [
  "susi-vendor-tokio-rustls",
  "susi-vendor-tower-service",
  "susi-vendor-url",
+ "susi-wire-client",
 ]
 
 [[package]]
@@ -4989,6 +4992,13 @@ dependencies = [
 [[package]]
 name = "susi-windows-runtime"
 version = "0.1.0"
+
+[[package]]
+name = "susi-wire-client"
+version = "0.1.0"
+dependencies = [
+ "susi-vendor-serde-json",
+]
 
 [[package]]
 name = "symlink"

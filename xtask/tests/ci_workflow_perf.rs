@@ -724,6 +724,7 @@ fn the_branch_gate_always_runs_the_root_guard_targets() {
         "core_boot_starts_nothing",
         "core_never_downloads_models_unasked",
         "core_docs_promise_no_ui_or_plugins",
+        "thin_client_invariant",
     ];
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);

@@ -439,17 +439,18 @@ async fn task_tool_returns_handle_and_accepts_midflight_input() {
     panic!("task never completed");
 }
 
-/// The blocking peer client (`susi_core::mcp_client`) against the real
-/// Streamable HTTP service: version negotiation from the `initialize`
-/// result, the tool call itself, and session release via `DELETE`.
-#[tokio::test(flavor = "multi_thread")]
-async fn peer_client_round_trip_negotiates_and_releases_session() {
+/// Every request method and response status the logged server answered.
+type HttpLog = Arc<std::sync::Mutex<Vec<(hyper::Method, hyper::StatusCode)>>>;
+
+/// The real Streamable HTTP service with `test_echo`, on a loopback port,
+/// logging each request's method and response status.
+async fn logged_http_service() -> (std::net::SocketAddr, HttpLog) {
     use hyper_util::rt::{TokioExecutor, TokioIo};
     use tower_service::Service;
     let service = service();
     echo(&service);
     let http = crate::server::http_service(service);
-    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen: HttpLog = Arc::default();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let log = seen.clone();
@@ -473,6 +474,15 @@ async fn peer_client_round_trip_negotiates_and_releases_session() {
             });
         }
     });
+    (addr, seen)
+}
+
+/// The blocking peer client (`susi_core::mcp_client`) against the real
+/// Streamable HTTP service: version negotiation from the `initialize`
+/// result, the tool call itself, and session release via `DELETE`.
+#[tokio::test(flavor = "multi_thread")]
+async fn peer_client_round_trip_negotiates_and_releases_session() {
+    let (addr, seen) = logged_http_service().await;
     let result = tokio::task::spawn_blocking(move || {
         crate::susi_core::mcp_client::call_tool(
             &addr.to_string(),
@@ -491,4 +501,38 @@ async fn peer_client_round_trip_negotiates_and_releases_session() {
             .any(|(m, s)| m == hyper::Method::DELETE && s.is_success()),
         "session not released: {seen:?}"
     );
+}
+
+/// The std-only wire client (`susi_wire_client::mcp`, used by the thin
+/// CLI) against the same real service: it negotiates the same revision,
+/// gets the same `tools/call` result as the peer client, and its `DELETE`
+/// releases the session.
+#[tokio::test(flavor = "multi_thread")]
+async fn wire_client_matches_peer_client_and_releases_session() {
+    let (addr, seen) = logged_http_service().await;
+    let (wire, peer, version) = tokio::task::spawn_blocking(move || {
+        let addr = addr.to_string();
+        let args = json!({"ping": "pong"});
+        let mut session =
+            susi_wire_client::mcp::Session::open(&addr, None, Duration::from_secs(5)).unwrap();
+        let version = session.protocol_version().to_string();
+        let wire = session
+            .call_tool("test_echo", &args, None, &mut |_| {})
+            .unwrap();
+        session.close().unwrap();
+        let peer =
+            crate::susi_core::mcp_client::call_tool(&addr, "test_echo", &args, None).unwrap();
+        (wire, peer, version)
+    })
+    .await
+    .unwrap();
+    assert_eq!(version, susi_wire_client::mcp::PROTOCOL_VERSION);
+    assert_eq!(wire["structuredContent"], json!({"ping": "pong"}));
+    assert_eq!(wire, peer);
+    let seen = seen.lock().unwrap();
+    let deletes = seen
+        .iter()
+        .filter(|(m, s)| m == hyper::Method::DELETE && s.is_success())
+        .count();
+    assert_eq!(deletes, 2, "both sessions must be released: {seen:?}");
 }

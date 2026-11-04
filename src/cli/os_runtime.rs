@@ -28,13 +28,22 @@ pub(crate) fn daemon_tool(
         .gmcp_http_port();
     let addr = format!("127.0.0.1:{port}");
     let bearer = susi_paths::host_token();
-    let result = susi_core::mcp_client::call_tool_with_timeout(
-        &addr,
-        tool,
-        arguments,
-        bearer.as_deref(),
-        timeout_secs,
-    )
+    // The std-only wire client never signs or seals. A peers.json row can
+    // bind a pubkey to the loopback address through the host-only fallback
+    // in `cluster_key::bound_pubkey_for_addr` (cluster_key.rs:694-717); the
+    // sealing peer client keeps that case.
+    let result = if susi_config::cluster_key::bound_pubkey_for_addr(&addr).is_some() {
+        susi_core::mcp_client::call_tool_with_timeout(
+            &addr,
+            tool,
+            arguments,
+            bearer.as_deref(),
+            timeout_secs,
+        )
+    } else {
+        susi_wire_client::mcp::call_tool(&addr, tool, arguments, bearer.as_deref(), timeout_secs)
+            .map_err(|e| e.to_string())
+    }
     .map_err(|e| format!("daemon MCP socket {addr}: {e}"))?;
     tool_document(&result)
 }

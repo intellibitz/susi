@@ -8,6 +8,7 @@ description = "Black-box conformance suite for the Susi host contract (ports 909
 
 [dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+susi-wire-client = { path = "../susi-wire-client" }
 
 [[bin]]
 name = "susi-conformance"
