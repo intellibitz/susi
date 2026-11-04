@@ -108,3 +108,63 @@ fn unsafe_ratchet_scope_tracks_native_measurement_source_and_inputs() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn unsafe_ratchet_scope_ignores_documentation_and_task_metadata_only_changes() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repository = crate_dir.parent().unwrap().parent().unwrap();
+    let script = repository.join(".github/workflows/unsafe-exposure-scope.sh");
+    let root = workspace();
+
+    assert!(!should_run(
+        &script,
+        &root,
+        &[
+            "docs/architecture.md",
+            "README.md",
+            ".agents/tasks/T-EXAMPLE-1.json",
+            ".agents/tasks/done/T-EXAMPLE-1.json",
+        ],
+    ));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn unsafe_ratchet_scope_triggers_on_manifest_lockfile_and_baseline_updates() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repository = crate_dir.parent().unwrap().parent().unwrap();
+    let script = repository.join(".github/workflows/unsafe-exposure-scope.sh");
+    let root = workspace();
+
+    for path in [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".agents/baseline/unsafe-default.json",
+        ".github/workflows/unsafe-exposure-ratchet.sh",
+    ] {
+        assert!(should_run(&script, &root, &[path]), "{path}");
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn unsafe_ratchet_scope_triggers_when_mixed_batch_contains_any_tracked_input() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repository = crate_dir.parent().unwrap().parent().unwrap();
+    let script = repository.join(".github/workflows/unsafe-exposure-scope.sh");
+    let root = workspace();
+
+    assert!(should_run(
+        &script,
+        &root,
+        &[
+            "docs/readme.md",
+            ".agents/tasks/T-EXAMPLE-1.json",
+            "src/admin/release.rs",
+        ],
+    ));
+
+    let _ = fs::remove_dir_all(root);
+}
