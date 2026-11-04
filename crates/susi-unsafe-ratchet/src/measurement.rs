@@ -839,3 +839,467 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Str
     }
     result
 }
+
+/// Deterministic, disk-free Cargo-graph fixture shared by the measurement and
+/// inventory suites: a first-party `app` depending on a registry crate `dep`.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+pub(crate) mod fixture {
+    use super::*;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    pub(crate) const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
+    pub(crate) const TARGET: &str = "x86_64-pc-windows-msvc";
+
+    pub(crate) fn scratch(tag: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-ratchet-{tag}-{}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    pub(crate) fn dep_identity() -> Identity {
+        Identity {
+            name: "dep".into(),
+            version: "1.0.0".into(),
+            source: REGISTRY.into(),
+        }
+    }
+
+    pub(crate) fn metadata(root: &Path) -> Value {
+        let app = root.join("app");
+        let dep = root.join("reg").join("dep");
+        json!({
+            "version": 1,
+            "workspace_root": root.to_str().unwrap(),
+            "workspace_members": ["app"],
+            "packages": [
+                {
+                    "id": "app", "name": "app", "version": "0.1.0", "source": null,
+                    "manifest_path": app.join("Cargo.toml").to_str().unwrap(),
+                    "targets": [{
+                        "kind": ["bin"],
+                        "src_path": app.join("src").join("main.rs").to_str().unwrap()
+                    }]
+                },
+                {
+                    "id": "dep", "name": "dep", "version": "1.0.0", "source": REGISTRY,
+                    "manifest_path": dep.join("Cargo.toml").to_str().unwrap(),
+                    "targets": [
+                        {"kind": ["lib"], "src_path": dep.join("src").join("lib.rs").to_str().unwrap()},
+                        {"kind": ["custom-build"], "src_path": dep.join("build.rs").to_str().unwrap()}
+                    ]
+                }
+            ],
+            "resolve": {
+                "root": "app",
+                "nodes": [
+                    {"id": "app", "features": [], "deps": [
+                        {"pkg": "dep", "dep_kinds": [{"kind": null, "target": null}]}
+                    ]},
+                    {"id": "dep", "features": ["std"], "deps": []}
+                ]
+            }
+        })
+    }
+
+    pub(crate) fn app_line(root: &Path) -> String {
+        format!("0::app v0.1.0 ({})||", root.join("app").display())
+    }
+
+    pub(crate) fn tree(root: &Path) -> String {
+        format!("{}\n1::dep v1.0.0||std\n", app_line(root))
+    }
+
+    fn hex(c: char) -> String {
+        c.to_string().repeat(64)
+    }
+
+    /// A valid measurement. `commit` and `dep_hash` must be lowercase hex
+    /// digits; `dep_unsafe` makes `dep` lack a crate-root forbid declaration.
+    pub(crate) fn measurement(
+        root: &Path,
+        commit: char,
+        dep_unsafe: bool,
+        dep_hash: char,
+    ) -> Measurement {
+        let metadata = metadata(root);
+        let selection_tree = tree(root);
+        let expected = expected_packages(&metadata, root, &selection_tree).unwrap();
+        Measurement {
+            schema: SCHEMA.into(),
+            complete: true,
+            source_root: root.to_str().unwrap().into(),
+            source_commit: commit.to_string().repeat(40),
+            source_tree: "7".repeat(40),
+            cargo_lock_sha256: hex('1'),
+            target: TARGET.into(),
+            features: "default".into(),
+            unit: UNIT.into(),
+            scanner_sha256: hex('2'),
+            scanner_version: "susi-unsafe-measure/test".into(),
+            metadata_sha256: json_sha256(&metadata).unwrap(),
+            graph_sha256: json_sha256(&expected).unwrap(),
+            cargo_version: "cargo 1.0.0".into(),
+            selection_args: selection_args(&metadata, TARGET).unwrap(),
+            selection_tree_sha256: sha256(selection_tree.as_bytes()),
+            selection_tree,
+            metadata,
+            packages: vec![
+                PackageMeasurement {
+                    identity: Identity {
+                        name: "app".into(),
+                        version: "0.1.0".into(),
+                        source: "workspace:app/Cargo.toml".into(),
+                    },
+                    first_party: true,
+                    files: vec![FileMeasurement {
+                        path: "src/main.rs".into(),
+                        sha256: hex('3'),
+                        bytes: 10,
+                        forbids_unsafe: true,
+                    }],
+                    forbids_unsafe: true,
+                },
+                PackageMeasurement {
+                    identity: dep_identity(),
+                    first_party: false,
+                    files: vec![FileMeasurement {
+                        path: "src/lib.rs".into(),
+                        sha256: hex(dep_hash),
+                        bytes: 20,
+                        forbids_unsafe: !dep_unsafe,
+                    }],
+                    forbids_unsafe: !dep_unsafe,
+                },
+            ],
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::fixture::{self, dep_identity, REGISTRY, TARGET};
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn sha256_matches_published_vectors() {
+        assert_eq!(
+            sha256(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn valid_sha256_requires_64_lowercase_hex_digits() {
+        assert!(valid_sha256(&"a".repeat(64)));
+        assert!(valid_sha256(&"0123456789abcdef".repeat(4)));
+        assert!(!valid_sha256(&"A".repeat(64)));
+        assert!(!valid_sha256(&"a".repeat(63)));
+        assert!(!valid_sha256(&"a".repeat(65)));
+        assert!(!valid_sha256(&format!("{}g", "a".repeat(63))));
+        assert!(!valid_sha256(""));
+    }
+
+    #[test]
+    fn identity_display_names_package_version_and_source() {
+        assert_eq!(
+            dep_identity().to_string(),
+            format!("dep@1.0.0 ({REGISTRY})")
+        );
+    }
+
+    #[test]
+    fn artifact_digest_binds_the_writers_trailing_newline() {
+        let value = json!({"k": [1, 2]});
+        let mut expected = serde_json::to_vec_pretty(&value).unwrap();
+        expected.push(b'\n');
+        assert_eq!(artifact_sha256(&value).unwrap(), sha256(&expected));
+        assert_ne!(
+            artifact_sha256(&value).unwrap(),
+            json_sha256(&value).unwrap()
+        );
+    }
+
+    #[test]
+    fn contained_file_accepts_package_files_and_rejects_escapes() {
+        let dir = fixture::scratch("contained");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src").join("lib.rs"), "// ok").unwrap();
+        let outside_name = format!("{}-outside.txt", dir.file_name().unwrap().to_string_lossy());
+        let outside = dir.parent().unwrap().join(&outside_name);
+        std::fs::write(&outside, "secret").unwrap();
+
+        assert!(contained_file(&dir, "src/lib.rs").is_ok());
+        assert!(contained_file(&dir, "src").is_err(), "directories rejected");
+        assert!(contained_file(&dir, "src/missing.rs").is_err());
+        let escape = contained_file(&dir, &format!("../{outside_name}")).unwrap_err();
+        assert!(escape.contains("escapes its package"), "{escape}");
+
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn relative_normalizes_separators_and_rejects_unsafe_paths() {
+        assert_eq!(
+            relative(Path::new("/a/b/c.rs"), Path::new("/a")).unwrap(),
+            "b/c.rs"
+        );
+        let outside = relative(Path::new("/x/y"), Path::new("/a")).unwrap_err();
+        assert!(outside.contains("is outside"), "{outside}");
+        let empty = relative(Path::new("/a"), Path::new("/a")).unwrap_err();
+        assert!(empty.contains("empty relative source path"), "{empty}");
+        let parent = relative(Path::new("/a/../b"), Path::new("/a")).unwrap_err();
+        assert!(parent.contains("non-normal source path"), "{parent}");
+    }
+
+    #[test]
+    fn display_matches_distinguishes_registry_path_and_git_sources() {
+        let registry = json!({"name": "x", "version": "1.0.0", "source": REGISTRY});
+        assert!(display_matches(&registry, "x v1.0.0").unwrap());
+        assert!(display_matches(&registry, "x v1.0.0 (proc-macro)").unwrap());
+        assert!(!display_matches(&registry, "x v2.0.0").unwrap());
+        assert!(!display_matches(&registry, "y v1.0.0").unwrap());
+
+        let path = json!({
+            "name": "x", "version": "1.0.0", "source": null,
+            "manifest_path": "/w/x/Cargo.toml"
+        });
+        let dir = Path::new("/w/x/Cargo.toml").parent().unwrap().display();
+        assert!(display_matches(&path, &format!("x v1.0.0 ({dir})")).unwrap());
+        assert!(!display_matches(&path, "x v1.0.0").unwrap());
+
+        let git =
+            json!({"name": "x", "version": "1.0.0", "source": "git+https://example.invalid/x"});
+        assert!(
+            !display_matches(&git, "x v1.0.0 (https://example.invalid/x)").unwrap(),
+            "unsupported source formats fail closed"
+        );
+    }
+
+    #[test]
+    fn selection_args_pin_the_root_target_and_normal_edges() {
+        let root = fixture::scratch("args");
+        let metadata = fixture::metadata(&root);
+        let args = selection_args(&metadata, TARGET).unwrap();
+        assert_eq!(args[0], "tree");
+        for flag in ["--offline", "--locked"] {
+            assert!(args.iter().any(|a| a == flag), "missing {flag}");
+        }
+        let at = |flag: &str| args.iter().position(|a| a == flag).unwrap();
+        assert_eq!(args[at("--target") + 1], TARGET);
+        assert_eq!(args[at("--package") + 1], "app");
+        assert_eq!(args[at("--edges") + 1], "normal");
+        assert!(selection_args(&json!({}), TARGET).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn expected_packages_derives_closure_features_edges_and_entry_points() {
+        let root = fixture::scratch("expected");
+        let metadata = fixture::metadata(&root);
+        let packages = expected_packages(&metadata, &root, &fixture::tree(&root)).unwrap();
+        assert_eq!(packages.len(), 2);
+
+        let app = &packages[0];
+        assert_eq!(app.identity.name, "app");
+        assert_eq!(app.identity.source, "workspace:app/Cargo.toml");
+        assert!(app.first_party);
+        assert_eq!(app.files, ["src/main.rs"]);
+        assert_eq!(app.dependencies, [dep_identity()]);
+
+        let dep = &packages[1];
+        assert_eq!(dep.identity, dep_identity());
+        assert!(!dep.first_party);
+        assert_eq!(dep.features, ["std"]);
+        assert_eq!(
+            dep.files,
+            ["src/lib.rs"],
+            "build scripts are not entry points"
+        );
+        assert!(dep.dependencies.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn expected_packages_fails_closed_on_inconsistent_graph_inputs() {
+        let root = fixture::scratch("graph-errors");
+        let app = fixture::app_line(&root);
+
+        let mut metadata = fixture::metadata(&root);
+        metadata["version"] = json!(2);
+        let err = expected_packages(&metadata, &root, &fixture::tree(&root)).unwrap_err();
+        assert!(err.contains("unsupported cargo metadata version"), "{err}");
+
+        let other = fixture::scratch("graph-errors-other");
+        let err = expected_packages(&fixture::metadata(&root), &other, &fixture::tree(&root))
+            .unwrap_err();
+        assert!(err.contains("workspace root does not match"), "{err}");
+
+        let metadata = fixture::metadata(&root);
+        for (tree, needle) in [
+            (
+                format!("{app}\n1::dep v1.0.0||std (*)\n"),
+                "deduplication omitted",
+            ),
+            (format!("{app}\n2::dep v1.0.0||std\n"), "skips a parent"),
+            (
+                format!("{app}\n1::ghost v9.9.9||\n"),
+                "missing or ambiguous",
+            ),
+            (
+                format!(
+                    "{app}\n1::dep v1.0.0||std\n2::app v0.1.0 ({})||\n",
+                    root.join("app").display()
+                ),
+                "not a metadata normal dependency",
+            ),
+            (
+                format!("{app}\n1::dep v1.0.0||bogus\n"),
+                "unknown metadata features",
+            ),
+            (
+                format!("{app}\n1::dep v1.0.0||std,std\n"),
+                "duplicate selected feature",
+            ),
+            (
+                format!("{app}\n1::dep v1.0.0\n"),
+                "missing Cargo tree feature delimiter",
+            ),
+            ("garbage".to_string(), "unknown Cargo tree depth format"),
+            (String::new(), "empty selected Cargo tree"),
+        ] {
+            let err = expected_packages(&metadata, &root, &tree).unwrap_err();
+            assert!(err.contains(needle), "wanted {needle:?}, got {err}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn validate_accepts_the_fixture_and_selects_both_packages() {
+        let root = fixture::scratch("validate-ok");
+        let measured = fixture::measurement(&root, 'a', true, 'a');
+        assert_eq!(validate(&measured).unwrap().len(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn validate_rejects_each_class_of_tampering() {
+        let root = fixture::scratch("validate-bad");
+        let good = fixture::measurement(&root, 'a', true, 'a');
+
+        fn rejects(good: &Measurement, needle: &str, mutate: impl FnOnce(&mut Measurement)) {
+            let mut tampered = good.clone();
+            mutate(&mut tampered);
+            let err = validate(&tampered).unwrap_err();
+            assert!(err.contains(needle), "wanted {needle:?}, got {err}");
+        }
+        rejects(&good, "incomplete or incompatible", |m| {
+            m.schema = "other".into()
+        });
+        rejects(&good, "incomplete or incompatible", |m| m.complete = false);
+        rejects(&good, "incomplete or incompatible", |m| {
+            m.features = "cuda".into()
+        });
+        rejects(&good, "missing measurement context", |m| {
+            m.source_root = "relative".into()
+        });
+        rejects(&good, "missing measurement context", |m| m.target.clear());
+        rejects(&good, "invalid source commit/tree", |m| {
+            m.source_commit = "A".repeat(40)
+        });
+        rejects(&good, "invalid measurement digest", |m| {
+            m.cargo_lock_sha256 = "zz".into()
+        });
+        rejects(&good, "metadata digest mismatch", |m| {
+            m.metadata_sha256 = "9".repeat(64)
+        });
+        rejects(&good, "selected Cargo graph context", |m| {
+            m.cargo_version = "rustc".into()
+        });
+        rejects(&good, "selected Cargo graph context", |m| {
+            m.selection_args.push("--extra".into())
+        });
+        rejects(&good, "selected graph digest mismatch", |m| {
+            m.graph_sha256 = "9".repeat(64)
+        });
+        rejects(&good, "incomplete or excess", |m| {
+            m.packages.pop();
+        });
+        rejects(&good, "duplicate measured package", |m| {
+            m.packages[1] = m.packages[0].clone();
+        });
+        rejects(&good, "first-party identity mismatch", |m| {
+            m.packages[1].first_party = true
+        });
+        rejects(&good, "invalid or duplicate measured file", |m| {
+            m.packages[1].files[0].sha256 = "A".repeat(64);
+        });
+        rejects(&good, "incomplete entry-point measurement", |m| {
+            m.packages[1].files[0].path = "src/other.rs".into();
+        });
+        rejects(&good, "inconsistent package declaration aggregate", |m| {
+            m.packages[1].forbids_unsafe = true;
+        });
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn write_json_atomic_replaces_content_without_leaving_temporaries() {
+        let dir = fixture::scratch("atomic");
+        let path = dir.join("nested").join("out.json");
+        write_json_atomic(&path, &json!({"k": 1})).unwrap();
+        let first = std::fs::read(&path).unwrap();
+        assert_eq!(first.last(), Some(&b'\n'));
+        write_json_atomic(&path, &json!({"k": 2})).unwrap();
+        let second = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+        assert!(second.contains('2'));
+        let entries: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(entries, ["out.json"], "no temp file may remain");
+        assert!(write_json_atomic(Path::new(""), &json!({})).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_measurement_round_trips_and_rejects_duplicate_keys() {
+        let root = fixture::scratch("read");
+        let measured = fixture::measurement(&root, 'a', true, 'a');
+        let path = root.join("m.json");
+        write_json_atomic(&path, &measured).unwrap();
+        let read = read_measurement(&path).unwrap();
+        assert_eq!(read.source_commit, measured.source_commit);
+        assert_eq!(
+            artifact_sha256(&read).unwrap(),
+            file_sha256(&path).unwrap(),
+            "the artifact digest is the digest of the written file"
+        );
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let duplicated = text.replacen('{', "{\"schema\": \"x\",", 1);
+        std::fs::write(&path, duplicated).unwrap();
+        let err = read_measurement(&path).unwrap_err();
+        assert!(err.contains("invalid complete measurement"), "{err}");
+        assert!(read_measurement(&root.join("absent.json")).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

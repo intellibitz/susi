@@ -25,3 +25,80 @@ pub struct McpConfig {
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn global_mcp_entry_round_trips_unknown_fields_mandate_35() {
+        let raw = json!({
+            "name": "filesystem",
+            "description": "Local file access",
+            "package": "@modelcontextprotocol/server-filesystem",
+            "category": "io",
+            "trust_score": 0.5,
+            "latency_ms": 12,
+            "future_registry_attr": {"tier": "gold"},
+            "publisher": "anthropic"
+        });
+        let entry: GlobalMcpEntry = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(entry.name, "filesystem");
+        assert_eq!(entry.trust_score, Some(0.5));
+        assert_eq!(entry.latency_ms, Some(12));
+        assert_eq!(entry.extra.len(), 2);
+        assert_eq!(entry.extra["publisher"], "anthropic");
+
+        // Re-serialization keeps every field, known or not.
+        assert_eq!(serde_json::to_value(&entry).unwrap(), raw);
+    }
+
+    #[test]
+    fn global_mcp_entry_optional_metrics_may_be_null_or_absent() {
+        let entry: GlobalMcpEntry = serde_json::from_value(json!({
+            "name": "n", "description": "d", "package": "p", "category": "c",
+            "trust_score": null
+        }))
+        .unwrap();
+        assert_eq!(entry.trust_score, None);
+        assert_eq!(entry.latency_ms, None);
+        assert!(entry.extra.is_empty());
+
+        // A required field missing is a hard error, not a silent default.
+        assert!(serde_json::from_value::<GlobalMcpEntry>(json!({"name": "n"})).is_err());
+    }
+
+    #[test]
+    fn mcp_config_round_trips_top_level_and_per_server_unknown_fields() {
+        let raw = json!({
+            "mcp_servers": {
+                "local": {
+                    "command": "npx",
+                    "args": ["-y", "server"],
+                    "env": {"MODE": "dev"},
+                    "cwd": "/srv/mcp"
+                },
+                "remote": {
+                    "command": "https://mcp.example.com/mcp",
+                    "args": [],
+                    "env": null,
+                    "auth_token": "redacted-in-real-life"
+                }
+            },
+            "schema_version": 3,
+            "telemetry": false
+        });
+        let cfg: McpConfig = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(cfg.mcp_servers.len(), 2);
+        assert_eq!(cfg.extra["schema_version"], 3);
+        assert_eq!(cfg.mcp_servers["local"].extra["cwd"], "/srv/mcp");
+        assert_eq!(
+            cfg.mcp_servers["local"].env.as_ref().unwrap()["MODE"],
+            "dev"
+        );
+        assert!(cfg.mcp_servers["remote"].env.is_none());
+
+        assert_eq!(serde_json::to_value(&cfg).unwrap(), raw);
+    }
+}

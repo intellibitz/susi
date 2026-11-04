@@ -1,0 +1,22 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-UNSAFERATCHET1104-1",
+  "agent": "UNSAFERATCHET1104",
+  "branch": "unsafe-ratchet-contracts-1104",
+  "goal": "Add inline contract test suites to susi-unsafe-ratchet strict_json, measurement and inventory: duplicate-key rejection, Cargo graph derivation, measurement tamper detection, and the migrate/check_inventory/receipt admission chain (D-OS-8)",
+  "touch": [
+    "crates/susi-unsafe-ratchet/src/strict_json.rs",
+    "crates/susi-unsafe-ratchet/src/measurement.rs",
+    "crates/susi-unsafe-ratchet/src/inventory.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet"
+    ]
+  }
+}
