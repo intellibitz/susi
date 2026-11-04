@@ -110,9 +110,13 @@ mod tests {
         let header = lines.next().expect("agents_summary must have header");
         assert!(header.starts_with("# Compiled Genome ("));
         let bullets: Vec<&str> = lines.filter(|l| l.starts_with("- **")).collect();
-        assert_eq!(bullets.len(), AlphaSelf::RULES.len());
-        for bullet in bullets {
+        assert!(bullets.len() >= AlphaSelf::RULES.len());
+        for bullet in &bullets {
             assert!(bullet.contains(": "));
+        }
+        for rule in AlphaSelf::RULES {
+            let prefix = format!("- **{}** {}: ", rule.cite, rule.title);
+            assert!(agents_summary.contains(&prefix), "missing prefix {prefix}");
         }
     }
 
