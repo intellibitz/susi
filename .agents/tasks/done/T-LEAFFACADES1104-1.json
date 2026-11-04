@@ -1,0 +1,33 @@
+{
+  "id": "T-LEAFFACADES1104-1",
+  "title": "test: inline contract suites for susi-config, susi-sandbox docker, adapters-llm, agents and http-transport facades",
+  "goal": "D-OS-8: cover 5 remaining 0-inline-test leaf files",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-sandbox",
+      "-p",
+      "susi-adapters-llm",
+      "-p",
+      "susi-agents",
+      "-p",
+      "susi-http-transport",
+      "--lib"
+    ]
+  },
+  "created_by": "LEAFFACADES1104",
+  "created_unix": 1793766726,
+  "closed": {
+    "at_unix": 1793767419,
+    "commit": "c3234313eb368f5d7270b629d43f7a7c906ccf61",
+    "by": "LEAFFACADES1104"
+  }
+}
