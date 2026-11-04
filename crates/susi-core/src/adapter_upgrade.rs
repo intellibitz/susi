@@ -110,3 +110,98 @@ impl AdapterUpgrade {
         SwitchVerdict::Switched
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn install_active_succeeds_once_and_refuses_replacement() {
+        let mut up = AdapterUpgrade::new();
+        assert!(up.active().is_none());
+        up.install_active(AdapterRevision {
+            id: "rev-1".into(),
+            version: 1,
+        })
+        .unwrap();
+        assert_eq!(up.active().unwrap().id, "rev-1");
+        assert!(up
+            .install_active(AdapterRevision {
+                id: "rev-2".into(),
+                version: 2,
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn switch_without_candidate_returns_no_candidate_staged() {
+        let mut up = AdapterUpgrade::new();
+        let passing = ContractResults {
+            checks: vec![("smoke".into(), true)],
+        };
+        assert_eq!(
+            up.switch_if_contracts_pass(&passing),
+            SwitchVerdict::NoCandidateStaged
+        );
+    }
+
+    #[test]
+    fn switch_rejects_empty_or_failing_contracts_and_downgrades() {
+        let mut up = AdapterUpgrade::new();
+        up.install_active(AdapterRevision {
+            id: "rev-2".into(),
+            version: 2,
+        })
+        .unwrap();
+
+        up.stage(AdapterRevision {
+            id: "rev-3".into(),
+            version: 3,
+        });
+        assert_eq!(
+            up.switch_if_contracts_pass(&ContractResults::default()),
+            SwitchVerdict::RejectedContractFailure
+        );
+
+        up.stage(AdapterRevision {
+            id: "rev-2-dup".into(),
+            version: 2,
+        });
+        let passing = ContractResults {
+            checks: vec![("abi".into(), true)],
+        };
+        assert_eq!(
+            up.switch_if_contracts_pass(&passing),
+            SwitchVerdict::RejectedDowngrade
+        );
+        assert_eq!(up.active().unwrap().id, "rev-2");
+    }
+
+    #[test]
+    fn switch_promotes_newer_revision_and_preserves_existing_session_owner() {
+        let mut up = AdapterUpgrade::new();
+        up.install_active(AdapterRevision {
+            id: "rev-1".into(),
+            version: 1,
+        })
+        .unwrap();
+        up.bind_session("sess-a");
+        assert_eq!(up.session_owner("sess-a"), Some("rev-1"));
+
+        up.stage(AdapterRevision {
+            id: "rev-2".into(),
+            version: 2,
+        });
+        let passing = ContractResults {
+            checks: vec![("abi".into(), true), ("schema".into(), true)],
+        };
+        assert_eq!(
+            up.switch_if_contracts_pass(&passing),
+            SwitchVerdict::Switched
+        );
+        assert_eq!(up.active().unwrap().id, "rev-2");
+        assert_eq!(up.session_owner("sess-a"), Some("rev-1"));
+        up.bind_session("sess-b");
+        assert_eq!(up.session_owner("sess-b"), Some("rev-2"));
+    }
+}
