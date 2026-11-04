@@ -1,0 +1,25 @@
+{
+  "id": "T-HARNESSSHELL1104-1",
+  "title": "test(harness): inline contract suites for shell_link encoder/decoder and crate invariants",
+  "goal": "Complete module-level inline unit test coverage in susi-harness (D-OS-8): MS-SHLLINK encode/legacy decode contracts and integer-money/catalogue invariants",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSSHELL1104",
+  "created_unix": 1793766069,
+  "closed": {
+    "at_unix": 1793766319,
+    "commit": "d2908a3a7414c0ad93d82040d165a9d772b947be",
+    "by": "HARNESSSHELL1104"
+  }
+}
