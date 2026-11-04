@@ -118,19 +118,23 @@ pub use contract::{EaiError, EaiResult, ResultExt};
 /// Error-event sink for the contract: the `susi-error` service when
 /// reachable, else the local metrics file.
 fn record_event(entry: &serde_json::Value) {
-    if susi_paths::is_service_mode() || !post_event(entry) {
+    record_event_to(service_port(), &error_metrics_path(), entry);
+}
+
+fn record_event_to(port: u16, metrics_path: &std::path::Path, entry: &serde_json::Value) {
+    if susi_paths::is_service_mode() || !post_event_to(port, entry) {
         // Best effort: nowhere left to report a failed error report.
-        let _ = sink::append_metrics_line(&error_metrics_path(), entry);
+        let _ = sink::append_metrics_line(metrics_path, entry);
     }
 }
 
-/// Best-effort `POST /log_error` against the `susi-error` service; `true`
-/// only when the service accepted the event (2xx), so a rejected or
+/// Best-effort `POST /log_error` against the `susi-error` service on `port`;
+/// `true` only when the service accepted the event (2xx), so a rejected or
 /// unanswered post still falls back to the local metrics file.
-fn post_event(entry: &serde_json::Value) -> bool {
+fn post_event_to(port: u16, entry: &serde_json::Value) -> bool {
     susi_paths::loopback::request_with_fallback(
         &susi_paths::loopback::Endpoint {
-            port: service_port(),
+            port,
             timeout: Duration::from_millis(200),
             auth: susi_paths::loopback::Auth::None,
         },
@@ -474,5 +478,87 @@ mod tests {
             !msg.contains(&fake_sk),
             "secret token must be redacted in normalized metrics event: {msg}"
         );
+    }
+
+    #[test]
+    fn record_event_posts_over_loopback_when_accepted_and_falls_back_to_local_sink_on_5xx() {
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+
+        fn read_req(stream: &mut TcpStream) -> (String, String) {
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 1024];
+            let header_end = loop {
+                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos;
+                }
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0);
+                buf.extend_from_slice(&chunk[..n]);
+            };
+            let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+            let content_len = head
+                .lines()
+                .find_map(|line| {
+                    let (k, v) = line.split_once(':')?;
+                    k.eq_ignore_ascii_case("content-length")
+                        .then(|| v.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            let body_start = header_end + 4;
+            while buf.len() < body_start + content_len {
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0);
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            let body =
+                String::from_utf8_lossy(&buf[body_start..body_start + content_len]).to_string();
+            (head, body)
+        }
+
+        let home = audit_home("record_event_ipc");
+        let metrics_file = home.join("error_metrics.jsonl");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server = std::thread::spawn(move || {
+            // 1st call: 204 No Content -> accepted by service, no local file write
+            let (mut s1, _) = listener.accept().unwrap();
+            let (h1, b1) = read_req(&mut s1);
+            assert!(h1.starts_with("POST /log_error HTTP/1.0"), "{h1}");
+            let j1: serde_json::Value = serde_json::from_str(&b1).unwrap();
+            assert_eq!(j1["seq"], 1);
+            write!(s1, "HTTP/1.0 204 No Content\r\nContent-Length: 0\r\n\r\n").unwrap();
+            s1.flush().unwrap();
+            drop(s1);
+
+            // 2nd call: 500 Internal Server Error -> rejected, falls back to local sink
+            let (mut s2, _) = listener.accept().unwrap();
+            let (h2, b2) = read_req(&mut s2);
+            assert!(h2.starts_with("POST /log_error HTTP/1.0"), "{h2}");
+            let j2: serde_json::Value = serde_json::from_str(&b2).unwrap();
+            assert_eq!(j2["seq"], 2);
+            write!(
+                s2,
+                "HTTP/1.0 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n"
+            )
+            .unwrap();
+            s2.flush().unwrap();
+            drop(s2);
+        });
+
+        record_event_to(port, &metrics_file, &serde_json::json!({"seq": 1}));
+        assert!(
+            !metrics_file.exists(),
+            "2xx service acceptance must not write to local fallback sink"
+        );
+
+        record_event_to(port, &metrics_file, &serde_json::json!({"seq": 2}));
+        let local_contents = std::fs::read_to_string(&metrics_file).unwrap();
+        assert_eq!(local_contents, "{\"seq\":2}\n");
+
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
