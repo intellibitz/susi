@@ -1,0 +1,22 @@
+{
+  "id": "T-GEMI5TC1104-1",
+  "title": "test(gemi): expand Wave C inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--",
+      "orchestration::inline_tests"
+    ]
+  },
+  "created_by": "GEMI5TC1104",
+  "created_unix": 1793806141
+}

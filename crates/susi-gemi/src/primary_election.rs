@@ -239,4 +239,10 @@ mod inline_tests {
         assert_eq!(load_last(&path).unwrap().unix, 200);
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn elect_all_with_empty_candidates_returns_empty_vec() {
+        assert!(elect_all(&[], 1_000).is_empty());
+        assert!(elect(&[], TaskClass::Chat, 1_000).is_none());
+    }
 }
