@@ -65,3 +65,60 @@ fn mission_resume_cli_wiring() {
     assert_eq!(done.summary(), MissionSummary::FullyComplete);
     assert!(MissionDag::resume_cli_status(&done).contains("fully complete"));
 }
+
+#[test]
+fn mission_resume_cli_wiring_uncertain_side_effect_marks_node_uncertain_and_resumable() {
+    let mut dag = MissionDag::new("uncertain side effect");
+    let first = dag.record_side_effect(0, "exec_command", None);
+    let after_crash = dag.record_side_effect(0, "exec_command", Some(&first));
+    assert!(after_crash.uncertain_external);
+
+    let view = dag.resume_cli_view("mission-uncertain");
+    assert_eq!(view.nodes["n0"].view, NodeView::Uncertain);
+    assert!(view.nodes["n0"].resumable);
+    assert_eq!(view.summary(), MissionSummary::Resumable);
+    assert!(!view.reports_full_success());
+    let status = MissionDag::resume_cli_status(&view);
+    assert!(status.contains("n0"), "status={status}");
+}
+
+#[test]
+fn mission_resume_cli_wiring_multi_branch_dag_resume_targets_and_status() {
+    let mut dag = MissionDag::new("multi-branch");
+    let b1 = dag.push_node("b1", "branch 1", vec![0]);
+    let b2 = dag.push_node("b2", "branch 2", vec![0]);
+    assert_eq!((b1, b2), (1, 2));
+
+    dag.nodes[0].completed = true;
+    let view = dag.resume_cli_view("mission-branches");
+    assert_eq!(view.nodes["n0"].view, NodeView::Completed);
+    assert!(!view.nodes["n0"].resumable);
+    assert_eq!(view.nodes["n1"].view, NodeView::Running);
+    assert_eq!(view.nodes["n2"].view, NodeView::Running);
+
+    let targets: Vec<&str> = view
+        .resume_targets()
+        .iter()
+        .map(|t| t.id.as_str())
+        .collect();
+    assert_eq!(targets, vec!["n1", "n2"]);
+    let status = MissionDag::resume_cli_status(&view);
+    assert!(status.contains("n1, n2"), "status={status}");
+}
+
+#[test]
+fn mission_resume_cli_wiring_partial_non_resumable_cancelled_summary() {
+    let mut dag = MissionDag::new("cancelled only");
+    dag.register_cancel_worker(0, WorkerKind::Local, true, 9_999);
+    if let Some(tok) = dag.cancel.token.as_mut() {
+        tok.cancel();
+    }
+
+    let view = dag.resume_cli_view("mission-cancelled");
+    assert_eq!(view.nodes["n0"].view, NodeView::Cancelled);
+    assert!(!view.nodes["n0"].resumable);
+    assert_eq!(view.summary(), MissionSummary::Partial);
+    assert!(view.resume_targets().is_empty());
+    let status = MissionDag::resume_cli_status(&view);
+    assert!(status.contains("no resumable nodes"), "status={status}");
+}
