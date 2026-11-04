@@ -204,4 +204,23 @@ mod inline_tests {
         up.bind_session("sess-b");
         assert_eq!(up.session_owner("sess-b"), Some("rev-2"));
     }
+
+    #[test]
+    fn stage_exposes_staged_revision_and_bind_session_without_active_is_noop() {
+        let mut up = AdapterUpgrade::default();
+        up.bind_session("orphan-session");
+        assert!(up.session_owner("orphan-session").is_none());
+        assert!(up.staged().is_none());
+
+        up.stage(AdapterRevision {
+            id: "rev-stage".into(),
+            version: 1,
+        });
+        assert_eq!(up.staged().unwrap().id, "rev-stage");
+        assert_eq!(
+            up.switch_if_contracts_pass(&ContractResults { checks: vec![] }),
+            SwitchVerdict::RejectedContractFailure
+        );
+        assert!(up.staged().is_none());
+    }
 }
