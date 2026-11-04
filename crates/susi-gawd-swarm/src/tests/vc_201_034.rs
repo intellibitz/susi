@@ -106,3 +106,35 @@ fn vc_201_034_rejects_peer_security_downgrade_request() {
         other => panic!("expected downgrade reject, got {other:?}"),
     }
 }
+
+#[test]
+fn vc_201_034_accepts_boundary_min_and_max_protocol_versions() {
+    let local = LocalProtocol {
+        wire_min: 2,
+        wire_max: 4,
+        ledger_min: 1,
+        ledger_max: 3,
+        min_security: 2,
+    };
+    let min_offer = ProtocolOffer {
+        wire_version: 2,
+        ledger_version: 1,
+        min_security: 2,
+        peer_security: 2,
+    };
+    assert_eq!(
+        local.negotiate(&min_offer),
+        NegotiateResult::Accept { wire: 2, ledger: 1 }
+    );
+
+    let max_offer = ProtocolOffer {
+        wire_version: 4,
+        ledger_version: 3,
+        min_security: 2,
+        peer_security: 4,
+    };
+    assert_eq!(
+        local.negotiate(&max_offer),
+        NegotiateResult::Accept { wire: 4, ledger: 3 }
+    );
+}
