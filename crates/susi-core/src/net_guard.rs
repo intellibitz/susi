@@ -238,6 +238,25 @@ impl NetGuard {
         })
     }
 
+    /// Whether the request comes from this host's loopback interface and
+    /// presents this host's own API token: the local CLI talking to its
+    /// own daemon. Such a caller already holds the credential that
+    /// authorizes every tool, so metering it guards nothing; peer-bearer,
+    /// signed and remote calls are never local-host callers. Only the TCP
+    /// peer counts: a reverse proxy on this host would make its clients
+    /// look local, so token holders behind one are not metered either.
+    pub fn is_local_host_bearer(auth_header: Option<&str>, peer: IpAddr) -> bool {
+        if !peer.to_canonical().is_loopback() {
+            return false;
+        }
+        let token = crate::susi_config::SusiConfig::load_global()
+            .unwrap_or_default()
+            .api_auth_token();
+        let presented = auth_header.and_then(|h| h.strip_prefix("Bearer "));
+        !token.is_empty()
+            && presented.is_some_and(|p| Self::constant_time_eq(p.as_bytes(), token.as_bytes()))
+    }
+
     /// Byte-for-byte comparison that always inspects every byte of both
     /// inputs, so how much of `presented` already matches `expected` can't be
     /// inferred from response timing (CWE-208). A plain `==` short-circuits
@@ -405,6 +424,20 @@ impl RateLimiter {
         }
     }
 
+    /// [`RateLimiter::check`] for an already authorized request, except
+    /// that the local host's own bearer calls over loopback
+    /// ([`NetGuard::is_local_host_bearer`]) are not metered: a thin CLI
+    /// makes several requests per command and must not hit 429 on its own
+    /// daemon. They do not consume budget either.
+    pub fn check_unless_local_host(
+        &self,
+        auth_header: Option<&str>,
+        peer: IpAddr,
+        limit: u32,
+    ) -> bool {
+        NetGuard::is_local_host_bearer(auth_header, peer) || self.check(peer, limit)
+    }
+
     /// Returns true if `ip` is still within its per-minute request budget.
     /// A `limit` of 0 disables rate limiting entirely.
     pub fn check(&self, ip: IpAddr, limit: u32) -> bool {
@@ -512,7 +545,12 @@ mod tests {
     #[test]
     fn empty_token_allows_loopback_only() {
         // When the live host already seeded a token this test observes the
-        // seeded-token path instead — still must not panic.
+        // seeded-token path instead — still must not panic. The lock keeps
+        // a sibling test's private SUSI_HOME from changing the token between
+        // the read below and the checks.
+        let _lock = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let loopback = IpAddr::from([127, 0, 0, 1]);
         let remote = IpAddr::from([8, 8, 8, 8]);
         let token = crate::susi_config::SusiConfig::load_global()
@@ -561,6 +599,112 @@ mod tests {
                 None
             ));
         }
+    }
+
+    /// Removes a private test home when dropped, also when a test fails.
+    struct TempHome(std::path::PathBuf);
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A private host home holding `api_token` and a roster row that binds
+    /// a node key to 127.0.0.1 (the host-only fallback a legacy row hits).
+    /// Fields drop in order: the env is restored, the home removed, then
+    /// the lock released.
+    fn local_host_with_bound_loopback_row() -> (
+        susi_paths::test_env::EnvGuard,
+        TempHome,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        let lock = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!(
+            "susi-net-guard-local-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("SUSI_HOME", &home);
+        let dir = susi_paths::SusiDirs::config_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("api_token"), "tok-local\n").unwrap();
+        std::fs::write(
+            dir.join("peers.json"),
+            r#"[{"node_id":"loopback-member","address":"127.0.0.1","pubkey":"3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"}]"#,
+        )
+        .unwrap();
+        (env, TempHome(home), lock)
+    }
+
+    #[test]
+    fn local_host_bearer_over_loopback_is_not_metered() {
+        let _home = local_host_with_bound_loopback_row();
+        let limiter = RateLimiter::with_capacity(10);
+        let token = Some("Bearer tok-local");
+        for peer in [
+            IpAddr::from([127, 0, 0, 1]),
+            "::1".parse().unwrap(),
+            "::ffff:127.0.0.1".parse().unwrap(),
+        ] {
+            assert!(NetGuard::is_local_host_bearer(token, peer), "{peer}");
+            for _ in 0..200 {
+                assert!(limiter.check_unless_local_host(token, peer, 2), "{peer}");
+            }
+        }
+        // Exempt calls spend no budget.
+        assert!(limiter.buckets.is_empty());
+
+        // Everyone else stays metered: the token from a remote address, a
+        // wrong or missing bearer from loopback.
+        let remote = IpAddr::from([192, 0, 2, 7]);
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        for (auth, peer) in [
+            (token, remote),
+            (Some("Bearer wrong"), loopback),
+            (None, loopback),
+        ] {
+            let limiter = RateLimiter::with_capacity(10);
+            assert!(!NetGuard::is_local_host_bearer(auth, peer));
+            assert!(limiter.check_unless_local_host(auth, peer, 2));
+            assert!(limiter.check_unless_local_host(auth, peer, 2));
+            assert!(
+                !limiter.check_unless_local_host(auth, peer, 2),
+                "{auth:?} {peer}"
+            );
+        }
+    }
+
+    /// The thin client never signs or seals. Its plaintext host-bearer call
+    /// from loopback is authorized even when a roster row binds a node key
+    /// to 127.0.0.1: the bound-member rule refuses only the shared peer
+    /// bearer, never the host's own token.
+    #[test]
+    fn plaintext_loopback_host_bearer_is_authorized_despite_a_bound_loopback_row() {
+        let _home = local_host_with_bound_loopback_row();
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        assert!(NetGuard::peer_key_bound(&loopback));
+        assert!(NetGuard::is_authorized(
+            Some("Bearer tok-local"),
+            loopback,
+            &EMPTY_SIGNED,
+            "POST",
+            "/mcp",
+            Some(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#),
+        ));
+        assert!(!NetGuard::is_authorized(
+            Some("Bearer wrong"),
+            loopback,
+            &EMPTY_SIGNED,
+            "POST",
+            "/mcp",
+            None,
+        ));
     }
 
     #[test]
