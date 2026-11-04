@@ -202,4 +202,11 @@ mod zc_env_classify_tests {
             );
         }
     }
+
+    #[test]
+    fn env_var_class_clone_and_equality_hold_for_registry_first_entry() {
+        let first = ENV_REGISTRY[0].clone();
+        assert_eq!(first, ENV_REGISTRY[0]);
+        assert!(!format!("{first:?}").is_empty());
+    }
 }

@@ -184,4 +184,11 @@ mod tests {
             "01234567-89ab-cdef-FEDC-BA9876543210"
         );
     }
+
+    #[test]
+    fn volume_guid_rejects_missing_backslash_after_closing_brace() {
+        let raw = r"\\?\Volume{01234567-89ab-cdef-FEDC-BA9876543210}model.gguf";
+        let units: Vec<u16> = raw.encode_utf16().collect();
+        assert!(volume_guid(&units).is_none());
+    }
 }

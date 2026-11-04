@@ -142,4 +142,12 @@ mod tests {
         assert_ne!(states[1], states[2]);
         assert_ne!(states[2], states[3]);
     }
+
+    #[test]
+    fn bare_status_debug_output_includes_ready_and_next_step_fields() {
+        let status = bare_susi_status(true, true, true);
+        let dbg = format!("{status:?}");
+        assert!(dbg.contains("ready: true"));
+        assert!(dbg.contains("next_step"));
+    }
 }

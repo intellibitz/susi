@@ -321,4 +321,18 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn qualification_with_holds_verdict_and_empty_limits_renders_holds_line() {
+        let q = Qualification {
+            journey_ok: true,
+            ratchet: RatchetVerdict::Holds { count: 2 },
+            limits: Vec::new(),
+        };
+        assert!(q.qualified());
+        let notes = q.release_notes_section();
+        assert!(notes.contains("- Fresh-HOME journey: pass\n"));
+        assert!(notes.contains("- Config debt: 2 (at baseline)\n"));
+        assert!(notes.contains("None — no required inputs remain.\n"));
+    }
 }

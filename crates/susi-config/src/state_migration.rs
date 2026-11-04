@@ -358,4 +358,11 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&future_dir);
     }
+
+    #[test]
+    fn state_schema_version_constant_is_positive_and_manifest_path_ends_with_state_schema_json() {
+        const { assert!(STATE_SCHEMA_VERSION >= 1) };
+        let p = manifest_path(Path::new("/tmp/susi-home"));
+        assert!(p.ends_with("state.schema.json"));
+    }
 }

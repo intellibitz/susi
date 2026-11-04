@@ -140,4 +140,11 @@ mod tests {
             Some(format!("$env:PATH = \"{win_spaces};$env:PATH\"  # susi"))
         );
     }
+
+    #[test]
+    fn from_env_value_rejects_empty_and_whitespace_only_strings() {
+        for empty in ["", "   ", "\t\n"] {
+            assert!(!PathConsent::from_env_value(Some(empty)).granted);
+        }
+    }
 }
