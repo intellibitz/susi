@@ -54,4 +54,17 @@ mod tests {
         assert!(cached.same_device(&cached_device()));
         assert_eq!(cached.location(), probe().location());
     }
+
+    #[test]
+    fn cpu_or_probed_device_supports_zero_tensor_allocation_and_dtype_check() {
+        let dev = cached_device();
+        assert!(dev.is_cpu() || dev.is_metal() || dev.is_cuda());
+        let tensor_res = candle_core::Tensor::zeros((2, 2), candle_core::DType::F32, &dev);
+        assert!(tensor_res.is_ok());
+        if let Ok(tensor) = tensor_res {
+            assert_eq!(tensor.dims(), &[2, 2]);
+            assert_eq!(tensor.dtype(), candle_core::DType::F32);
+            assert!(tensor.device().same_device(&dev));
+        }
+    }
 }

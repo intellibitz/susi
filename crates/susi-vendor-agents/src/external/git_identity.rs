@@ -219,4 +219,27 @@ mod tests {
         assert_eq!(repo.local("user.name").as_deref(), Some("Operator"));
         assert_eq!(repo.local("user.email"), None);
     }
+
+    #[test]
+    fn restore_repairs_only_mutated_key_when_other_key_remains_untouched() {
+        let repo = Repo::new();
+        repo.git(&["config", "--local", "user.name", "Operator"]);
+        repo.git(&["config", "--local", "user.email", "op@example.test"]);
+        let mut cmd = Command::new("true");
+        repo.isolate(&mut cmd);
+        let guard = GitIdentityGuard::arm(&repo.0, &mut cmd).unwrap().unwrap();
+
+        repo.git(&["config", "--local", "user.email", "you@example.com"]);
+        let note = guard
+            .restore()
+            .unwrap()
+            .expect("email mutation must be repaired");
+        assert!(
+            note.contains("user.email: you@example.com -> op@example.test"),
+            "{note}"
+        );
+        assert!(!note.contains("user.name"), "{note}");
+        assert_eq!(repo.local("user.name").as_deref(), Some("Operator"));
+        assert_eq!(repo.local("user.email").as_deref(), Some("op@example.test"));
+    }
 }
