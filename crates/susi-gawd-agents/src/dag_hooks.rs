@@ -174,4 +174,13 @@ mod tests {
         assert_eq!(bb.get("k1").as_deref(), Some("run-v1"));
         assert_eq!(bb.get("k2").as_deref(), Some("run-v2"));
     }
+
+    #[test]
+    fn run_with_handles_empty_goal_and_preserves_existing_blackboard_state_when_unwired() {
+        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(16));
+        bb.insert("existing".to_string(), "kept".to_string());
+        let out = run_with(None, "", Path::new("."), &bb);
+        assert!(out.is_empty());
+        assert_eq!(bb.get("existing").as_deref(), Some("kept"));
+    }
 }

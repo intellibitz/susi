@@ -257,4 +257,16 @@ mod confidence_escalation_tests {
         assert!(forced.evoi_usd < 0.0);
         assert!(forced.reason.contains("safety floor"));
     }
+
+    #[test]
+    fn sprt_escalator_clamps_constructor_bounds_and_serde_roundtrips() {
+        let sprt = SprtEscalator::new(2.0, -1.0, 0.99, 0.0);
+        assert!(sprt.upper_bound_b > 0.0);
+        assert!(sprt.lower_bound_a < 0.0);
+        assert_eq!(sprt.observations, 0);
+        let encoded = serde_json::to_string(&sprt).expect("serialize SprtEscalator");
+        let decoded: SprtEscalator =
+            serde_json::from_str(&encoded).expect("deserialize SprtEscalator");
+        assert_eq!(decoded, sprt);
+    }
 }

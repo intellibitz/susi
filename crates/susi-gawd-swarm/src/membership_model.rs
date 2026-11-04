@@ -215,4 +215,31 @@ mod inline_tests {
         assert!(cluster.no_split_brain_connected().is_ok());
         assert_eq!(SAFETY_PROPERTIES.len(), 4);
     }
+
+    #[test]
+    fn deliver_to_unknown_node_is_noop_and_term_state_round_trips_serde_json() {
+        let mut cluster = ClusterModel::default();
+        cluster.set_partition("ghost", true);
+        cluster.deliver(
+            "ghost",
+            &Message::Claim {
+                leader: "ghost".into(),
+            },
+        );
+        assert!(cluster.nodes.is_empty());
+
+        let high = TermState {
+            term: 5,
+            leader: "n1".into(),
+        };
+        let low = TermState {
+            term: 2,
+            leader: "n2".into(),
+        };
+        assert!(!ClusterModel::terms_monotonic_after(&high, &low));
+
+        let encoded = serde_json::to_string(&high).unwrap();
+        let decoded: TermState = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, high);
+    }
 }

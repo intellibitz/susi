@@ -77,4 +77,17 @@ mod brain_export_tests {
             "err={err}"
         );
     }
+
+    #[test]
+    fn import_brain_rejects_future_schema_versions_with_version_in_error() {
+        let err = import_brain(BrainBundle {
+            version: 2,
+            entries: vec![json!({"id": "EV-future"})],
+        })
+        .expect_err("version 2 must be rejected");
+        assert!(
+            err.contains("unsupported brain bundle version 2"),
+            "err={err}"
+        );
+    }
 }

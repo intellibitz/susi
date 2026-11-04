@@ -129,4 +129,17 @@ mod tests {
         assert_eq!(cloned_entry.extra["custom_tag"], "verified");
         assert_eq!(serde_json::to_value(&cloned_entry).unwrap(), entry_raw);
     }
+
+    #[test]
+    fn mcp_server_config_reexport_roundtrips_command_and_args() {
+        let raw = json!({
+            "command": "uvx",
+            "args": ["mcp-server-sqlite", "--db-path", "test.db"],
+            "env": null
+        });
+        let server: McpServerConfig = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(server.command, "uvx");
+        assert_eq!(server.args.len(), 3);
+        assert_eq!(serde_json::to_value(&server).unwrap(), raw);
+    }
 }

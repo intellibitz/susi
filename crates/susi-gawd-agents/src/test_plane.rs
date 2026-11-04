@@ -270,4 +270,17 @@ mod tests {
             .expect("find RouterAgent");
         assert!((router.base_rank - 0.8).abs() < f32::EPSILON);
     }
+
+    #[test]
+    fn sample_handler_preserves_core_flag_and_semantic_anchors_on_seeded_profiles() {
+        let handler = sample_handler();
+        let val = handler
+            .handle(topics::AGENTS_META_LIST, json!({}))
+            .expect("list profiles");
+        let list: Vec<AgentProfile> = serde_json::from_value(val).expect("decode profiles");
+        assert!(list.iter().all(|p| p.is_core));
+        assert!(list
+            .iter()
+            .any(|p| p.name == "ContextAgent" && p.semantic_anchors.contains(&"ls".to_string())));
+    }
 }

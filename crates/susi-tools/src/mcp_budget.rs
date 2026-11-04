@@ -189,4 +189,16 @@ mod tests {
             .unwrap_err();
         assert!(err.contains(actions::PROCESS_EXEC), "{err}");
     }
+
+    #[test]
+    fn balanced_policy_permits_loopback_and_subprocess_with_filesystem_capability() {
+        let balanced = MacPolicy::new([9u8; 32], PrivacyMode::Balanced, false);
+        assert_eq!(
+            authorize_transport(
+                &server("npx", Some(json!(["tools", "filesystem"]))),
+                &balanced
+            ),
+            Ok(())
+        );
+    }
 }
