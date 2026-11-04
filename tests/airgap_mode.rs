@@ -48,3 +48,34 @@ fn airgap_mode_local_engine_name_still_selectable() {
     let engine = "susi-offline";
     assert_eq!(engine, "susi-offline");
 }
+
+#[test]
+fn airgap_mode_blocks_additional_external_schemes_and_hosts() {
+    let policy = MacPolicy::new([22; 32], PrivacyMode::LocalOnly, true);
+    for blocked in [
+        "https://anthropic.com/v1/messages",
+        "https://generativelanguage.googleapis.com/v1beta/models",
+        "https://huggingface.co/models",
+        "https://api.together.xyz/v1/chat/completions",
+    ] {
+        assert!(
+            !policy.egress_permitted(blocked),
+            "airgap policy must reject external cloud endpoint {blocked}"
+        );
+    }
+}
+
+#[test]
+fn airgap_mode_permits_ipv4_and_localhost_loopback_ports() {
+    let policy = MacPolicy::new([33; 32], PrivacyMode::LocalOnly, true);
+    for allowed in [
+        "http://127.0.0.1:11434/api/generate",
+        "http://127.0.0.1:9181/health",
+        "http://localhost:8080/v1/chat/completions",
+    ] {
+        assert!(
+            policy.egress_permitted(allowed),
+            "airgap policy must permit loopback endpoint {allowed}"
+        );
+    }
+}

@@ -65,3 +65,15 @@ fn protocol_fuzz_compliance_trailer_parse() {
         let _has = msg.lines().any(|l| l.starts_with("Task: T-"));
     }
 }
+
+#[test]
+fn protocol_fuzz_claim_blob_missing_optional_lease_and_malformed_rejection() {
+    let without_lease = br#"{"task_id":"T-42","agent":"AGY"}"#;
+    let parsed: ClaimBlob = serde_json::from_slice(without_lease).unwrap();
+    assert_eq!(parsed.task_id, "T-42");
+    assert_eq!(parsed.agent, "AGY");
+    assert_eq!(parsed.lease_until, 0);
+
+    let missing_required = br#"{"task_id":"T-42"}"#;
+    assert!(serde_json::from_slice::<ClaimBlob>(missing_required).is_err());
+}
