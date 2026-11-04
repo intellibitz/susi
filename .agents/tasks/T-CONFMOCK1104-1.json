@@ -1,4 +1,4 @@
-﻿{
+{
   "id": "T-CONFMOCK1104-1",
   "title": "Hermetic loopback HTTP/JSON-RPC/SSE conformance test suite for A2A, MCP 9090/9093, and GEMI",
   "state": "closed",

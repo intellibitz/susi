@@ -38,3 +38,31 @@ impl GawdCapabilities {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gawd_capabilities_default_orchestrator_and_agent_capabilities_mapping() {
+        let def = GawdCapabilities::default();
+        assert!(def.streaming);
+        assert!(def.push_notifications);
+
+        let orch = GawdCapabilities::orchestrator();
+        assert!(orch.streaming);
+        assert!(orch.push_notifications);
+
+        let mapped = orch.as_capabilities();
+        assert_eq!(mapped.streaming, Some(true));
+        assert_eq!(mapped.push_notifications, Some(true));
+
+        let custom = GawdCapabilities {
+            streaming: false,
+            push_notifications: true,
+        };
+        let custom_mapped = custom.as_capabilities();
+        assert_eq!(custom_mapped.streaming, Some(false));
+        assert_eq!(custom_mapped.push_notifications, Some(true));
+    }
+}

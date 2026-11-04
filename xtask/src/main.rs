@@ -25,10 +25,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-    fs::write(&tmp, contents)?;
-    fs::rename(&tmp, path)
+/// Writes a tracked repository file in place. xtask only builds and never
+/// installs (Mandate 48), so it does no rename-based placement; these files are
+/// under version control, which is the recovery path for an interrupted write.
+fn write_tracked_file(path: &Path, contents: &str) -> std::io::Result<()> {
+    fs::write(path, contents)
 }
 
 fn sync_json_version(path: &Path, expected_schema: &str, version: &str) -> Result<(), String> {
@@ -52,7 +53,7 @@ fn sync_json_version(path: &Path, expected_schema: &str, version: &str) -> Resul
         }
         let pretty = serde_json::to_string_pretty(&doc)
             .map_err(|e| format!("failed to serialize {}: {e}", path.display()))?;
-        write_atomic(path, &format!("{pretty}\n"))
+        write_tracked_file(path, &format!("{pretty}\n"))
             .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
     }
     Ok(())
@@ -80,7 +81,7 @@ fn sync_readme_badge_in(root: &Path, version: &str) -> Result<(), String> {
     }
     let new_readme = format!("{}\n", updated.join("\n"));
     if new_readme != readme_md_raw {
-        write_atomic(&readme_path, &new_readme)
+        write_tracked_file(&readme_path, &new_readme)
             .map_err(|e| format!("failed to write {}: {e}", readme_path.display()))?;
     }
     Ok(())

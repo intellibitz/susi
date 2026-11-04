@@ -30,6 +30,12 @@ pub async fn reaper(store: Arc<InMemoryTaskStore>) {
 /// Non-terminal tasks are never evicted — a running task must stay
 /// addressable via `tasks/get` until it settles.
 pub async fn reap_terminal(store: &InMemoryTaskStore) {
+    reap_terminal_with_limit(store, MAX_TERMINAL_TASKS).await;
+}
+
+/// Delete the oldest terminal tasks beyond `max_terminal`.
+/// Non-terminal tasks are never evicted.
+pub async fn reap_terminal_with_limit(store: &InMemoryTaskStore, max_terminal: usize) {
     let mut tasks = Vec::new();
     let mut page_token: Option<String> = None;
     loop {
@@ -56,13 +62,67 @@ pub async fn reap_terminal(store: &InMemoryTaskStore) {
         .into_iter()
         .filter(|t| t.status.state.is_terminal())
         .collect();
-    if terminal.len() <= MAX_TERMINAL_TASKS {
+    if terminal.len() <= max_terminal {
         return;
     }
     // RFC 3339 timestamps sort lexicographically.
     terminal.sort_by(|a, b| a.status.timestamp.cmp(&b.status.timestamp));
-    let excess = terminal.len() - MAX_TERMINAL_TASKS;
+    let excess = terminal.len() - max_terminal;
     for task in terminal.into_iter().take(excess) {
         let _ = store.delete(task.id.as_str()).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ra2a::types::{Task, TaskState, TaskStatus};
+
+    fn make_task(id: &str, state: TaskState, timestamp: &str) -> Task {
+        let mut task = Task::new(id, "ctx-reaper-test");
+        let mut status = TaskStatus::new(state);
+        status.timestamp = Some(timestamp.to_string());
+        task.status = status;
+        task
+    }
+
+    #[tokio::test]
+    async fn reap_terminal_with_limit_evicts_oldest_terminal_tasks_and_preserves_active_tasks() {
+        let store = InMemoryTaskStore::new();
+
+        // Active (non-terminal) task with the oldest timestamp must never be evicted.
+        store
+            .save(
+                &make_task(
+                    "task-working-oldest",
+                    TaskState::Working,
+                    "2026-11-04T00:00:00Z",
+                ),
+                None,
+                Default::default(),
+            )
+            .await
+            .unwrap();
+
+        // Four terminal tasks ordered by RFC 3339 timestamp.
+        for (id, state, ts) in [
+            ("task-term-1", TaskState::Completed, "2026-11-04T00:01:00Z"),
+            ("task-term-2", TaskState::Failed, "2026-11-04T00:02:00Z"),
+            ("task-term-3", TaskState::Canceled, "2026-11-04T00:03:00Z"),
+            ("task-term-4", TaskState::Completed, "2026-11-04T00:04:00Z"),
+        ] {
+            store
+                .save(&make_task(id, state, ts), None, Default::default())
+                .await
+                .unwrap();
+        }
+
+        reap_terminal_with_limit(&store, 2).await;
+
+        assert!(store.get("task-working-oldest").await.unwrap().is_some());
+        assert!(store.get("task-term-1").await.unwrap().is_none());
+        assert!(store.get("task-term-2").await.unwrap().is_none());
+        assert!(store.get("task-term-3").await.unwrap().is_some());
+        assert!(store.get("task-term-4").await.unwrap().is_some());
     }
 }

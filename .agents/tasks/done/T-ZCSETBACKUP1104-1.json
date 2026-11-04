@@ -1,0 +1,22 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ZCSETBACKUP1104-1",
+  "agent": "ZCSETBACKUP1104",
+  "scope": [
+    "crates/susi-config/src/setting_registry.rs",
+    "crates/susi-config/src/state_backup.rs"
+  ],
+  "summary": "test(susi-config): inline unit test suites for setting_registry & state_backup (VC-201-061, D-OS-8)",
+  "started_at": "2026-11-04T09:07:00Z",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  }
+}

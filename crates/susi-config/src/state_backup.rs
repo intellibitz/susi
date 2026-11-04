@@ -312,3 +312,107 @@ pub fn collect_sections(root: &Path, names: &[&str]) -> Result<BTreeMap<String, 
     }
     Ok(report.sections)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backup_rejects_secret_sections_by_default_and_roundtrips_with_explicit_opt_in() {
+        let mut sections = BTreeMap::new();
+        sections.insert("config.json".to_string(), br#"{"port_offset":0}"#.to_vec());
+        sections.insert("api_token".to_string(), b"super-secret-value".to_vec());
+
+        let err = backup(&sections, 7, false).expect_err("default backup must reject secrets");
+        assert!(err.contains("secret sections require explicit inclusion"));
+        assert!(err.contains("api_token"));
+
+        let blob = backup_with_options(&sections, 7, BackupOptions::new(false).with_secrets())
+            .expect("backup with explicit secret opt-in");
+        assert_eq!(blob.manifest.format_version, BACKUP_FORMAT_VERSION);
+        assert!(!blob.manifest.dry_run);
+        assert_eq!(blob.sections.len(), 2);
+
+        let restored = restore(&blob, 7).expect("restore with matching key");
+        assert_eq!(restored, sections);
+
+        let bad_key_err = restore(&blob, 8).expect_err("restore with wrong key must fail");
+        assert!(bad_key_err.contains("backup authentication failed"));
+    }
+
+    #[test]
+    fn dry_run_manifest_tampering_and_external_reference_verification() {
+        let mut non_secret = BTreeMap::new();
+        non_secret.insert("config.json".to_string(), br#"{"ok":true}"#.to_vec());
+
+        let dry_blob = backup(&non_secret, 3, true).expect("dry-run backup");
+        assert!(dry_blob.manifest.dry_run);
+        assert!(dry_blob.sections.is_empty());
+        let dry_err = restore(&dry_blob, 3).expect_err("dry-run backup cannot be restored");
+        assert!(dry_err.contains("cannot restore a dry-run backup"));
+
+        let mut bad_ver = backup(&non_secret, 3, false).expect("normal backup");
+        bad_ver.manifest.format_version = 999;
+        let ver_err = restore(&bad_ver, 3).expect_err("unsupported format version must fail");
+        assert!(ver_err.contains("unsupported backup format"));
+
+        let dir =
+            std::env::temp_dir().join(format!("susi-state-backup-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let existing_file = dir.join("present.json");
+        std::fs::write(&existing_file, br#"{"hello":"world"}"#).expect("write present.json");
+
+        let valid_ref_url = format!(
+            "file://{}",
+            existing_file.to_string_lossy().replace('\\', "/")
+        );
+        let mut valid_ref_sections = BTreeMap::new();
+        valid_ref_sections.insert(
+            "config.json".to_string(),
+            format!(r#"{{"ref":"{valid_ref_url}"}}"#).into_bytes(),
+        );
+        let valid_blob = backup(&valid_ref_sections, 5, false).expect("backup valid file ref");
+        let restored_valid = restore(&valid_blob, 5).expect("restore valid file ref");
+        assert_eq!(restored_valid, valid_ref_sections);
+
+        let mut missing_file_sections = BTreeMap::new();
+        missing_file_sections.insert(
+            "config.json".to_string(),
+            br#"{"ref":"file:///nonexistent/susi/missing_asset_12345.bin"}"#.to_vec(),
+        );
+        let missing_file_blob =
+            backup(&missing_file_sections, 5, false).expect("backup missing file ref");
+        let missing_file_err =
+            restore(&missing_file_blob, 5).expect_err("missing file:// ref must fail restore");
+        assert!(missing_file_err.contains("unavailable external resource"));
+
+        let mut artifact_sections = BTreeMap::new();
+        artifact_sections.insert(
+            "config.json".to_string(),
+            br#"{"ref":"artifact://sha256/deadbeef"}"#.to_vec(),
+        );
+        let artifact_blob = backup(&artifact_sections, 5, false).expect("backup artifact ref");
+        let artifact_err =
+            restore(&artifact_blob, 5).expect_err("artifact:// ref must fail restore");
+        assert!(artifact_err.contains("unavailable external resource"));
+
+        let report = collect_sections_report(&dir, &["present.json", "absent.json"])
+            .expect("collect_sections_report");
+        assert_eq!(report.sections.len(), 1);
+        assert_eq!(
+            report.sections.get("present.json").map(Vec::as_slice),
+            Some(br#"{"hello":"world"}"#.as_slice())
+        );
+        assert_eq!(report.missing, vec!["absent.json".to_string()]);
+
+        let all_present =
+            collect_sections(&dir, &["present.json"]).expect("collect_sections all present");
+        assert_eq!(all_present.len(), 1);
+        let missing_err = collect_sections(&dir, &["present.json", "absent.json"])
+            .expect_err("collect_sections with missing file must fail");
+        assert!(missing_err.contains("unavailable external resources: absent.json"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
