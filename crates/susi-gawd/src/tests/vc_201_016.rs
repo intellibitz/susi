@@ -32,3 +32,25 @@ fn vc_201_016_rollback_restores_pin() {
     s.rollback_pin("c", "v1").unwrap();
     assert_eq!(s.pins.get("c").map(String::as_str), Some("v1"));
 }
+
+#[test]
+fn vc_201_016_unknown_revision_rejected_by_pin_rollback_and_revoke() {
+    let mut s = ReflexStore::default();
+    assert!(s.pin("caller", "missing").is_err());
+    assert!(s.rollback_pin("caller", "missing").is_err());
+    assert!(s.revoke("missing").is_err());
+}
+
+#[test]
+fn vc_201_016_unpinned_caller_executes_unrevoked_and_rejects_unknown() {
+    let mut s = ReflexStore::default();
+    s.publish(ReflexRevision {
+        id: "v1".into(),
+        source_hash: "s1".into(),
+        wasm_digest: "w1".into(),
+        grants: vec!["tool:read".into()],
+        revoked: false,
+    });
+    assert!(s.may_execute("unpinned", "v1"));
+    assert!(!s.may_execute("unpinned", "v999"));
+}

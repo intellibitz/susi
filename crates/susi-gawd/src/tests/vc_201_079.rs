@@ -51,3 +51,27 @@ fn vc_201_079_distinct_failures() {
         Err(VerifyFailure::UnknownKey)
     );
 }
+
+#[test]
+fn vc_201_079_empty_export_verifies_cleanly() {
+    let keys = BTreeMap::new();
+    assert_eq!(AuditEvidence::verify(&[], &keys), Ok(()));
+    assert_eq!(AuditEvidence::verify_against_length(&[], &keys, 0), Ok(()));
+}
+
+#[test]
+fn vc_201_079_multi_key_rotation_verifies_when_all_keys_present() {
+    let mut a = AuditEvidence::default();
+    assert!(a.append("unregistered", "missing").is_none());
+
+    a.register_key("k1", "secret-one");
+    a.register_key("k2", "secret-two");
+    a.append("event=first", "k1").unwrap();
+    a.append("event=second", "k2").unwrap();
+
+    let export = a.export();
+    let mut keys = BTreeMap::new();
+    keys.insert("k1".into(), "secret-one".into());
+    keys.insert("k2".into(), "secret-two".into());
+    assert_eq!(AuditEvidence::verify(&export, &keys), Ok(()));
+}
