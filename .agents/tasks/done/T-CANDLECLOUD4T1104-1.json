@@ -1,8 +1,8 @@
 {
   "id": "T-CANDLECLOUD4T1104-1",
   "title": "Expand inline unit tests to 4 in susi-vendor-cloud autoscale, failover_policy, and orphan_gc (CEO Job #139, D-OS-8)",
-  "status": "in_progress",
-  "state": "claimed",
+  "status": "done",
+  "state": "closed",
   "agent": "ZCKEYROT1104",
   "owner": "ZCKEYROT1104",
   "branch": "candle-cloud-4t-1104",
@@ -29,6 +29,7 @@
   },
   "created_at": "2026-11-04T08:30:00Z",
   "claimed_at": 1793780400,
+  "closed_at": 1793781900,
   "lease_until": 1793866800,
   "lease_until_unix": 1793866800
 }
