@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "CONFIGSUITESC4T1104",
-  "created_unix": 1793782466
+  "created_unix": 1793782466,
+  "closed": {
+    "at_unix": 1793782829,
+    "commit": "4f9b85a643cd869aecd16b2fd6dfde3225c1c78c",
+    "by": "CONFIGSUITESC4T1104"
+  }
 }
