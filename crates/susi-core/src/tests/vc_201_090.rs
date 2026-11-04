@@ -52,3 +52,45 @@ fn vc_201_090_offline_denied_and_dependency_failures() {
         Err(WorkflowError::DependencyFailed)
     );
 }
+
+#[test]
+fn vc_201_090_denied_egress_without_delegation_completes_locally_when_model_and_mcp_allowed() {
+    let out = run_vertical_workflow(&WorkflowRequest {
+        mode: WorkflowMode::DeniedEgress,
+        allow_delegate: false,
+        model_allowed: true,
+        mcp_tool: "fs".into(),
+        mcp_available: true,
+    })
+    .expect("denied-egress local workflow without delegation must succeed");
+    assert!(out.retrieval_hit);
+    assert_eq!(out.model_used.as_deref(), Some("local-allowed"));
+    assert_eq!(out.mcp_invoked.as_deref(), Some("fs"));
+    assert!(out.delegated_agent.is_none());
+    assert_eq!(out.outcome, "completed");
+}
+
+#[test]
+fn vc_201_090_online_without_delegation_or_with_disallowed_model_enforces_contract() {
+    let out = run_vertical_workflow(&WorkflowRequest {
+        mode: WorkflowMode::Online,
+        allow_delegate: false,
+        model_allowed: true,
+        mcp_tool: "fs".into(),
+        mcp_available: true,
+    })
+    .expect("online workflow without delegation must succeed");
+    assert!(out.delegated_agent.is_none());
+    assert_eq!(out.outcome, "completed");
+
+    assert_eq!(
+        run_vertical_workflow(&WorkflowRequest {
+            mode: WorkflowMode::Online,
+            allow_delegate: false,
+            model_allowed: false,
+            mcp_tool: "fs".into(),
+            mcp_available: true,
+        }),
+        Err(WorkflowError::DependencyFailed)
+    );
+}
