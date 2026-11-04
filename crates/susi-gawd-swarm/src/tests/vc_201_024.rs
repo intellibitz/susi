@@ -56,3 +56,76 @@ fn vc_201_024_never_exceeds_reservation() {
     };
     assert_eq!(admit(&bigger, &left), Admit::Queue);
 }
+
+#[test]
+fn vc_201_024_queues_on_unready_model_and_missing_mem_or_subprocesses() {
+    let base_free = Resources {
+        cpu: 4.0,
+        gpu_mem_gb: 8.0,
+        mem_gb: 4.0,
+        subprocesses: 1,
+        model_ready: false,
+        tool_grants: vec!["exec".into()],
+    };
+    let model_node = DagNode {
+        id: "needs-model".into(),
+        cpu: 1.0,
+        gpu_mem_gb: 1.0,
+        mem_gb: 1.0,
+        subprocesses: 1,
+        needs_model: true,
+        needs_tools: vec![],
+    };
+    assert_eq!(admit(&model_node, &base_free), Admit::Queue);
+
+    let ready_free = Resources {
+        model_ready: true,
+        ..base_free
+    };
+    let mem_heavy = DagNode {
+        id: "mem-heavy".into(),
+        mem_gb: 8.0,
+        ..model_node.clone()
+    };
+    assert_eq!(admit(&mem_heavy, &ready_free), Admit::Queue);
+
+    let subproc_heavy = DagNode {
+        id: "subproc-heavy".into(),
+        subprocesses: 2,
+        ..model_node
+    };
+    assert_eq!(admit(&subproc_heavy, &ready_free), Admit::Queue);
+}
+
+#[test]
+fn vc_201_024_queues_when_required_tool_grant_is_missing_or_nan_resource() {
+    let free = Resources {
+        cpu: 4.0,
+        gpu_mem_gb: 8.0,
+        mem_gb: 16.0,
+        subprocesses: 2,
+        model_ready: true,
+        tool_grants: vec!["read".into()],
+    };
+    let missing_tool = DagNode {
+        id: "needs-write".into(),
+        cpu: 1.0,
+        gpu_mem_gb: 0.0,
+        mem_gb: 1.0,
+        subprocesses: 1,
+        needs_model: false,
+        needs_tools: vec!["read".into(), "write".into()],
+    };
+    assert_eq!(admit(&missing_tool, &free), Admit::Queue);
+
+    let invalid_cpu = DagNode {
+        id: "negative-cpu".into(),
+        cpu: -0.5,
+        gpu_mem_gb: 0.0,
+        mem_gb: 1.0,
+        subprocesses: 1,
+        needs_model: false,
+        needs_tools: vec!["read".into()],
+    };
+    assert_eq!(admit(&invalid_cpu, &free), Admit::Queue);
+}

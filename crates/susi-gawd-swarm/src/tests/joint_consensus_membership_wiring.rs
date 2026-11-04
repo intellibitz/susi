@@ -50,3 +50,45 @@ fn joint_consensus_membership_wiring() {
         "roster unchanged when hazard detected"
     );
 }
+
+#[test]
+fn joint_consensus_try_commit_without_pending_proposal_returns_false() {
+    let mut dag = MissionDag::new("no pending proposal");
+    dag.bootstrap_roster(["a", "b", "c"]);
+    assert!(dag.pending_membership.is_none());
+    assert!(!dag.try_commit_membership(None));
+    assert_eq!(dag.roster, Electorate::from_ids(["a", "b", "c"]));
+}
+
+#[test]
+fn joint_consensus_ignores_outsider_endorsements() {
+    let mut dag = MissionDag::new("outsider endorsements");
+    dag.bootstrap_roster(["a", "b", "c"]);
+    dag.propose_membership(Electorate::from_ids(["b", "c", "d"]));
+
+    dag.endorse_membership("outsider-1");
+    dag.endorse_membership("outsider-2");
+    dag.endorse_membership("b");
+    assert!(!dag.try_commit_membership(None));
+    assert_eq!(dag.roster, Electorate::from_ids(["a", "b", "c"]));
+}
+
+#[test]
+fn joint_consensus_supports_sequential_quorum_transitions() {
+    let mut dag = MissionDag::new("sequential transitions");
+    dag.bootstrap_roster(["a", "b", "c"]);
+
+    dag.propose_membership(Electorate::from_ids(["b", "c", "d"]));
+    for m in ["b", "c"] {
+        dag.endorse_membership(m);
+    }
+    assert!(dag.try_commit_membership(None));
+    assert_eq!(dag.roster, Electorate::from_ids(["b", "c", "d"]));
+
+    dag.propose_membership(Electorate::from_ids(["c", "d", "e"]));
+    for m in ["c", "d"] {
+        dag.endorse_membership(m);
+    }
+    assert!(dag.try_commit_membership(None));
+    assert_eq!(dag.roster, Electorate::from_ids(["c", "d", "e"]));
+}
