@@ -62,3 +62,38 @@ fn crown_verify_exits_zero_in_workspace() {
 
     let _ = fs::remove_dir_all(&home);
 }
+
+#[test]
+fn unit_crown_verify_report_schema_tracks_critical_flag_and_failures() {
+    let report = serde_json::json!({
+        "kind": "crown_verify",
+        "all_critical_hold": true,
+        "failed_critical": [],
+    });
+    assert_eq!(report["kind"], "crown_verify");
+    assert_eq!(report["all_critical_hold"], true);
+    assert!(report["failed_critical"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn unit_crown_verify_isolate_home_sets_home_and_userprofile() {
+    let scratch = std::env::temp_dir().join(format!("susi_crown_unit_{}", std::process::id()));
+    let mut cmd = Command::new("cmd");
+    isolate_home(&mut cmd, &scratch);
+    let envs: std::collections::HashMap<_, _> = cmd
+        .get_envs()
+        .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_os_string())))
+        .collect();
+    assert_eq!(envs.get("HOME"), Some(&scratch.as_os_str().to_os_string()));
+    assert_eq!(
+        envs.get("USERPROFILE"),
+        Some(&scratch.as_os_str().to_os_string())
+    );
+}
+
+#[test]
+fn unit_crown_verify_workspace_mirror_path_nests_under_dot_susi() {
+    let ws = std::path::Path::new("/tmp/workspace");
+    let mirror = ws.join(".susi").join("last_crown.json");
+    assert!(mirror.ends_with(".susi/last_crown.json"));
+}

@@ -1,0 +1,29 @@
+{
+  "id": "T-ROOTINTTESTSM4T1104-1",
+  "title": "Expand 5 root integration test suites wave M to 4 tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "audit_chain_verifies",
+      "--test",
+      "audit_query_surface",
+      "--test",
+      "crown_verify_tests",
+      "--test",
+      "extensions_state_race",
+      "--test",
+      "local_channels",
+      "--",
+      "unit_"
+    ]
+  },
+  "created_by": "ROOTINTTESTSM4T1104",
+  "created_unix": 1793795984
+}
