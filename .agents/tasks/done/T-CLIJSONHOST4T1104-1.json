@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CLIJSONHOST4T1104",
-  "created_unix": 1793801144
+  "created_unix": 1793801144,
+  "closed": {
+    "at_unix": 1793801764,
+    "commit": "a0b621b96fd1c9de167de073ead971560e8f9112",
+    "by": "CLIJSONHOST4T1104"
+  }
 }
