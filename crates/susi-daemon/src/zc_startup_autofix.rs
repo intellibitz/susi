@@ -130,4 +130,23 @@ mod zc_startup_autofix_tests {
         assert!(home.join("a/b/c").is_dir());
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn startup_issue_and_autofix_report_serde_roundtrip() {
+        let issue = StartupIssue::CorruptState {
+            path: "settings.json".into(),
+        };
+        let issue_json = serde_json::to_string(&issue).expect("serialize StartupIssue");
+        let issue_back: StartupIssue =
+            serde_json::from_str(&issue_json).expect("deserialize StartupIssue");
+        assert_eq!(issue_back, issue);
+
+        let report = AutofixReport {
+            actions: vec!["backed up corrupt config settings.json".into()],
+        };
+        let rep_json = serde_json::to_string(&report).expect("serialize AutofixReport");
+        let rep_back: AutofixReport =
+            serde_json::from_str(&rep_json).expect("deserialize AutofixReport");
+        assert_eq!(rep_back, report);
+    }
 }

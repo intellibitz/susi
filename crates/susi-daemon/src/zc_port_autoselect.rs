@@ -77,4 +77,15 @@ mod zc_port_autoselect_tests {
         assert_eq!(picks[0].port, 9090);
         assert_eq!(picks[1].port, 9091);
     }
+
+    #[test]
+    fn port_pick_serde_roundtrip_and_contiguous_occupied_block_skip() {
+        let occ: BTreeSet<u16> = [8000, 8001, 8002].into_iter().collect();
+        let picks = autoselect_ports(&[("api".into(), 8000)], &occ);
+        assert_eq!(picks.len(), 1);
+        assert_eq!(picks[0].port, 8003);
+        let json = serde_json::to_string(&picks[0]).expect("serialize PortPick");
+        let restored: PortPick = serde_json::from_str(&json).expect("deserialize PortPick");
+        assert_eq!(restored, picks[0]);
+    }
 }
