@@ -1,0 +1,21 @@
+{
+  "id": "T-OSPARITY1103-4",
+  "title": "CI: always-run guards include the core docs zero-UI test",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "OSPARITY1103",
+  "created_unix": 1793773627
+}
