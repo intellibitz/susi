@@ -93,4 +93,20 @@ mod tests {
             assert_eq!(host.cap_drop, Some(vec!["ALL".to_string()]));
         }
     }
+
+    #[test]
+    fn re_exported_sandbox_client_and_error_types_resolve_through_crate_root() {
+        assert_eq!(
+            std::any::TypeId::of::<crate::SandboxManager>(),
+            std::any::TypeId::of::<susi_sandbox_client::SandboxManager>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<crate::VersionedJsonStore<String>>(),
+            std::any::TypeId::of::<susi_sandbox_client::VersionedJsonStore<String>>()
+        );
+        let err = crate::susi_error::EaiError::process("sandbox-test");
+        assert!(err.to_string().contains("sandbox-test"));
+        let default_cfg = crate::susi_config::SusiConfig::default();
+        assert!(!default_cfg.sandbox_image().is_empty());
+    }
 }
