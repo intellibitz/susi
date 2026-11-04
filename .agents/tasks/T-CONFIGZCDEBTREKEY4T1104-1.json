@@ -1,0 +1,25 @@
+{
+    "id":  "T-CONFIGZCDEBTREKEY4T1104-1",
+    "title":  "D-OS-8: Expand inline unit tests to 4 in zc_debt_report, rekey_schedule, zc_env_classify, and cloud_env",
+    "status":  "in_progress",
+    "created_at":  "2026-11-04T07:45:00Z",
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-config",
+                               "--lib"
+                           ]
+               },
+    "scope":  [
+                  "crates/susi-config/src/zc_debt_report.rs",
+                  "crates/susi-config/src/rekey_schedule.rs",
+                  "crates/susi-config/src/zc_env_classify.rs",
+                  "crates/susi-config/src/cloud_env.rs",
+                  ".agents/tasks/T-CONFIGZCDEBTREKEY4T1104-1.json",
+                  ".agents/tasks/done/T-CONFIGZCDEBTREKEY4T1104-1.json"
+              ]
+}

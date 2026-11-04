@@ -203,4 +203,44 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn scan_debt_merges_multiple_distinct_extra_kinds_in_lexicographical_id_order() {
+        let extras = vec![
+            DebtItem {
+                id: "zz:prompt-confirm".into(),
+                kind: DebtKind::Prompt,
+                description: "interactive confirm prompt".into(),
+                removes_via: "T-ZC-P1".into(),
+            },
+            DebtItem {
+                id: "aa:setup-bootstrap".into(),
+                kind: DebtKind::SetupStep,
+                description: "manual bootstrap step".into(),
+                removes_via: "T-ZC-S1".into(),
+            },
+            DebtItem {
+                id: "mm:env-override".into(),
+                kind: DebtKind::EnvVar,
+                description: "legacy env override".into(),
+                removes_via: "T-ZC-E1".into(),
+            },
+        ];
+        let merged = scan_debt(&extras);
+        assert_eq!(
+            merged.first().map(|i| i.id.as_str()),
+            Some("aa:setup-bootstrap")
+        );
+        assert_eq!(
+            merged.last().map(|i| i.id.as_str()),
+            Some("zz:prompt-confirm")
+        );
+        assert!(merged.windows(2).all(|w| w[0].id <= w[1].id));
+
+        let report = format_debt_report(&merged);
+        assert!(report.starts_with(&format!("zero-config debt: {} item(s)\n", merged.len())));
+        assert!(report.contains("- [setupstep] manual bootstrap step — removes via T-ZC-S1\n"));
+        assert!(report.contains("- [envvar] legacy env override — removes via T-ZC-E1\n"));
+        assert!(report.contains("- [prompt] interactive confirm prompt — removes via T-ZC-P1\n"));
+    }
 }

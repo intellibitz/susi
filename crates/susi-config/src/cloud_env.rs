@@ -168,4 +168,23 @@ mod malformed_quote_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn env_or_cloud_env_prefers_non_empty_process_env_and_cloud_env_path_ends_with_cloud_env() {
+        assert_eq!(
+            cloud_env_path().file_name().and_then(|n| n.to_str()),
+            Some("cloud.env")
+        );
+
+        let _guard = crate::env_test_lock();
+        let key = "SUSI_CLOUD_ENV_UNIT_TEST_PROBE_1104";
+        std::env::set_var(key, "from-process-env");
+        assert_eq!(env_or_cloud_env(key).as_deref(), Ok("from-process-env"));
+
+        std::env::set_var(key, "");
+        assert_eq!(env_or_cloud_env(key).as_deref(), Ok(""));
+
+        std::env::remove_var(key);
+        assert_eq!(env_or_cloud_env(key), Err(std::env::VarError::NotPresent));
+    }
 }
