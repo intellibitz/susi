@@ -24,5 +24,10 @@
     ]
   },
   "created_by": "LEAFFACADES1104",
-  "created_unix": 1793766726
+  "created_unix": 1793766726,
+  "closed": {
+    "at_unix": 1793767419,
+    "commit": "c3234313eb368f5d7270b629d43f7a7c906ccf61",
+    "by": "LEAFFACADES1104"
+  }
 }
