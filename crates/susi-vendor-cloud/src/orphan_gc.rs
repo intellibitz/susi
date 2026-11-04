@@ -310,4 +310,32 @@ mod tests {
             assert!(report.foreign.is_empty());
         }
     }
+
+    #[test]
+    fn reconcile_retains_orphaned_past_expiry_resource_when_retain_flag_is_set() {
+        let live_missions = BTreeSet::new();
+        let live_deployments = BTreeSet::new();
+        let retained = Resource {
+            id: "pinned-by-operator".into(),
+            owner: Some("susi".into()),
+            mission: "dead-m".into(),
+            deployment: "dead-d".into(),
+            retain: true,
+            expires_unix: 1,
+        };
+        let mut deleted = Vec::new();
+        let report = reconcile(
+            &[retained],
+            &Authoritative {
+                live_missions: &live_missions,
+                live_deployments: &live_deployments,
+                now_unix: 999_999,
+                dry_run: false,
+            },
+            &mut |id| deleted.push(id.to_string()),
+        );
+        assert!(deleted.is_empty());
+        assert!(report.delete.is_empty());
+        assert_eq!(report.keep, vec!["pinned-by-operator".to_string()]);
+    }
 }
