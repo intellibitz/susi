@@ -436,4 +436,33 @@ mod candle_routing_tests {
             assert_eq!(engine.name(), "CandleGgufEngine");
         }
     }
+
+    #[test]
+    fn federated_and_cloud_registry_keys_resolve_to_federated_engine() {
+        for key in ["susi-federated", "cloud"] {
+            let engine = engine_registry()
+                .instantiate::<Arc<dyn NativeInferenceEngine>>(key)
+                .unwrap();
+            assert_eq!(engine.name(), "SusiFederatedEngine");
+        }
+        assert!(engine_registry()
+            .instantiate::<Arc<dyn NativeInferenceEngine>>("nonexistent-engine")
+            .is_none());
+    }
+
+    #[test]
+    fn susi_gguf_engine_fails_closed_under_test_seam() {
+        let err = SusiGgufEngine
+            .run_inference("ping")
+            .expect_err("test build must short-circuit native inference");
+        assert!(err.to_string().contains("native inference disabled"));
+    }
+
+    #[test]
+    fn llama_cpp_engine_delegates_to_susi_gguf_test_seam() {
+        let err = LlamaCppEngine
+            .run_inference("ping")
+            .expect_err("legacy wrapper must delegate to SusiGgufEngine test seam");
+        assert!(err.to_string().contains("native inference disabled"));
+    }
 }

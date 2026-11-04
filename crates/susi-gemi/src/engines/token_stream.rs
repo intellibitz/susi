@@ -99,4 +99,29 @@ mod tests {
         assert_eq!(*output.borrow(), final_output);
         assert!(!output.borrow().is_empty());
     }
+
+    #[test]
+    fn finish_is_noop_when_all_bytes_were_already_emitted() {
+        let tokenizer = tokenizer();
+        let mut stream = TokenStream::new(&tokenizer);
+        let pieces = RefCell::new(Vec::new());
+        let callback = |piece: String| pieces.borrow_mut().push(piece);
+        stream.push(2, &callback).unwrap();
+        let count_after_push = pieces.borrow().len();
+        assert_eq!(count_after_push, 1);
+
+        let final_output = tokenizer.decode(&[2], true).unwrap();
+        stream.finish(&final_output, &callback);
+        assert_eq!(pieces.borrow().len(), count_after_push);
+    }
+
+    #[test]
+    fn finish_without_prior_pushes_flushes_entire_output() {
+        let tokenizer = tokenizer();
+        let stream = TokenStream::new(&tokenizer);
+        let flushed = RefCell::new(String::new());
+        let callback = |piece: String| flushed.borrow_mut().push_str(&piece);
+        stream.finish("unpushed-tail", &callback);
+        assert_eq!(*flushed.borrow(), "unpushed-tail");
+    }
 }
