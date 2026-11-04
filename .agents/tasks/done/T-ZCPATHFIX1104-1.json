@@ -1,0 +1,26 @@
+{
+  "id": "T-ZCPATHFIX1104-1",
+  "title": "D-OS-3, D-OS-7 and FAST-06 Cross-OS PathConsent Snippets and Dead-PID daemon.lock Doctor Self-Heal in susi-config",
+  "goal": "Extend PathConsent in crates/susi-config/src/zc_path.rs with case-insensitive env parsing, powershell_path_snippet, and path_snippet_for_os, and extend doctor_scan in crates/susi-config/src/zc_susi_fix.rs with parse_lock_pid and process_probe::pid_alive dead-PID daemon.lock detection.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ZCPATHFIX1104-1.json",
+    "crates/susi-config/src/zc_path.rs",
+    "crates/susi-config/src/zc_susi_fix.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "zc_"
+    ]
+  },
+  "created_by": "ZCPATHFIX1104",
+  "created_unix": 1793774900
+}
