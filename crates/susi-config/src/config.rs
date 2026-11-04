@@ -724,3 +724,101 @@ pub fn redact_credentials(text: &str) -> String {
         .unwrap_or_else(|_| SusiConfig::default().governance().secret_tokens);
     crate::susi_error::redact::redact_patterns(&patterns, &result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json_util::DynamicValue;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-config-unit-{label}-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn bundled_defaults_and_heal_in_place_strip_contract_ports_and_api_auth_token_while_preserving_user_overrides(
+    ) {
+        let _guard = crate::env_test_lock();
+        std::env::remove_var("SUSI_PORT_OFFSET");
+
+        let heal_defaults = SusiConfig::heal_defaults();
+        for port_key in HOST_CONTRACT_PORT_KEYS {
+            assert!(
+                !heal_defaults.contains_key(*port_key),
+                "heal_defaults must exclude host-contract port key {port_key}"
+            );
+        }
+
+        let mut settings = DynamicRegistry::new();
+        settings.insert(
+            "api_auth_token".into(),
+            DynamicValue::String("legacy-secret".into()),
+        );
+        settings.insert("port_offset".into(), DynamicValue::from(100));
+        let mut cfg = SusiConfig { settings };
+
+        assert!(SusiConfig::heal_in_place(&mut cfg));
+        assert!(!cfg.settings.contains_key("api_auth_token"));
+        assert!(cfg.settings.contains_key("trust_level"));
+        assert_eq!(cfg.port_offset(), 100);
+        assert_eq!(cfg.gmcp_port(), susi_paths::ports::GMCP + 100);
+        assert_eq!(cfg.gmcp_http_port(), susi_paths::ports::GMCP_HTTP + 100);
+        assert_eq!(cfg.gemi_port(), susi_paths::ports::GEMI + 100);
+        assert_eq!(
+            cfg.udp_discovery_port(),
+            susi_paths::ports::UDP_DISCOVERY + 100
+        );
+        assert_eq!(cfg.a2a_http_port(), susi_paths::ports::A2A_HTTP + 100);
+        assert_eq!(cfg.gossip_port(), susi_paths::ports::GOSSIP + 100);
+        assert!(!SusiConfig::heal_in_place(&mut cfg));
+    }
+
+    #[test]
+    fn load_save_roundtrip_and_managed_peers_admission_deduplicates_host_adapter_overrides() {
+        let dir = unique_temp_dir("save-load-peers");
+
+        let mut cfg = SusiConfig {
+            settings: DynamicRegistry::new(),
+        };
+        cfg.settings
+            .insert("trust_level".into(), DynamicValue::String("strict".into()));
+        cfg.save(&dir).expect("save config.json");
+
+        let loaded = SusiConfig::load(&dir).expect("load config.json");
+        assert_eq!(loaded.trust_level(), "strict");
+        for port_key in HOST_CONTRACT_PORT_KEYS {
+            assert!(!loaded.settings.contains_key(*port_key));
+        }
+
+        let exec_dir = dir.join("execution-agents");
+        let eng_dir = dir.join("agent-engines");
+        fs::create_dir_all(&exec_dir).expect("create execution-agents");
+        fs::create_dir_all(&eng_dir).expect("create agent-engines");
+        fs::write(exec_dir.join("codex-custom.json"), r#"{"kind":"cli"}"#)
+            .expect("write codex-custom.json");
+        fs::write(eng_dir.join("langgraph-custom.json"), r#"{"kind":"cli"}"#)
+            .expect("write langgraph-custom.json");
+        fs::write(eng_dir.join("codex-custom.json"), r#"{"kind":"cli"}"#)
+            .expect("write duplicate codex-custom.json");
+
+        let peers = managed_peers_from(&dir);
+        let codex_count = peers.iter().filter(|p| p.name == "codex-custom").count();
+        let lg_count = peers
+            .iter()
+            .filter(|p| p.name == "langgraph-custom")
+            .count();
+        assert_eq!(codex_count, 1);
+        assert_eq!(lg_count, 1);
+        assert!(peers.iter().all(|p| p.protocol == "managed"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

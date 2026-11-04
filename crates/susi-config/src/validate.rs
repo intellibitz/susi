@@ -324,3 +324,126 @@ pub fn apply_fixes(global_dir: &Path) -> EaiResult<ConfigValidationReport> {
     cfg.save(global_dir)?;
     Ok(validate_settings(&cfg.settings))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-validate-unit-{label}-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn validate_settings_classifies_deprecated_missing_unknown_and_type_mismatch_and_redacts_secret_fixes(
+    ) {
+        let clean = validate_settings(SusiConfig::heal_defaults());
+        assert!(clean.is_clean());
+        assert!(!clean.has_blocking());
+        assert!(clean.render().starts_with("config ok:"));
+
+        let mut deprecated_map = SusiConfig::heal_defaults().clone();
+        deprecated_map.insert("gmcp_port".into(), DynamicValue::from(9090));
+        deprecated_map.insert(
+            "api_auth_token".into(),
+            DynamicValue::String("legacy-token".into()),
+        );
+        deprecated_map.insert(
+            "mcp_registry_url".into(),
+            DynamicValue::String("https://example.invalid".into()),
+        );
+        let dep_report = validate_settings(&deprecated_map);
+        assert!(!dep_report.is_clean());
+        assert!(!dep_report.has_blocking());
+        for key in ["gmcp_port", "api_auth_token", "mcp_registry_url"] {
+            assert!(dep_report.issues.iter().any(|i| {
+                i.path == key
+                    && i.kind == ConfigIssueKind::Deprecated
+                    && i.fix == Some(ConfigFix::Remove)
+            }));
+        }
+
+        let mut drifted = SusiConfig::heal_defaults().clone();
+        drifted.remove("trust_level");
+        drifted.insert("unknown_custom_key".into(), DynamicValue::Bool(true));
+        drifted.insert(
+            "port_offset".into(),
+            DynamicValue::String("not-a-number".into()),
+        );
+        if let Some(DynamicValue::Object(gov)) = drifted.get_mut("governance") {
+            gov.remove("secret_tokens");
+        }
+        let drift_report = validate_settings(&drifted);
+        assert!(drift_report.has_blocking());
+        assert!(drift_report.issues.iter().any(|i| {
+            i.path == "trust_level"
+                && i.kind == ConfigIssueKind::Missing
+                && matches!(i.fix, Some(ConfigFix::Set(_)))
+        }));
+        assert!(drift_report.issues.iter().any(|i| {
+            i.path == "unknown_custom_key"
+                && i.kind == ConfigIssueKind::Unknown
+                && i.fix == Some(ConfigFix::Remove)
+        }));
+        assert!(drift_report.issues.iter().any(|i| {
+            i.path == "port_offset"
+                && i.kind == ConfigIssueKind::TypeMismatch
+                && matches!(i.fix, Some(ConfigFix::Set(_)))
+        }));
+
+        let rendered = drift_report.render();
+        assert!(rendered.contains("MISSING governance.secret_tokens:"));
+        assert!(rendered.contains("fix: set to \"[redacted]\""));
+    }
+
+    #[test]
+    fn validate_dir_and_apply_fixes_strip_deprecated_keys_and_backfill_missing_defaults() {
+        let dir = unique_temp_dir("apply-fixes");
+        let absent_report = validate_dir(&dir).expect("validate_dir on absent config.json");
+        assert!(absent_report.is_clean());
+
+        let mut settings = SusiConfig::heal_defaults().clone();
+        settings.remove("trust_level");
+        settings.insert("gmcp_port".into(), DynamicValue::from(9090));
+        settings.insert(
+            "api_auth_token".into(),
+            DynamicValue::String("secret-bearer".into()),
+        );
+        settings.insert("operator_unknown_key".into(), DynamicValue::Bool(true));
+        fs::write(
+            SusiConfig::get_config_path(&dir),
+            serde_json::to_string_pretty(&SusiConfig { settings }).expect("serialize config"),
+        )
+        .expect("write config.json");
+
+        let pre_report = validate_dir(&dir).expect("validate_dir before fixes");
+        assert!(!pre_report.is_clean());
+        assert!(pre_report.has_blocking());
+
+        let post_report = apply_fixes(&dir).expect("apply_fixes");
+        assert!(post_report.has_blocking());
+        assert_eq!(post_report.issues.len(), 1);
+        assert_eq!(post_report.issues[0].path, "operator_unknown_key");
+        assert_eq!(post_report.issues[0].kind, ConfigIssueKind::Unknown);
+
+        let reloaded: SusiConfig = serde_json::from_str(
+            &fs::read_to_string(SusiConfig::get_config_path(&dir)).expect("read fixed config.json"),
+        )
+        .expect("parse fixed config.json");
+        assert!(!reloaded.settings.contains_key("gmcp_port"));
+        assert!(!reloaded.settings.contains_key("api_auth_token"));
+        assert!(reloaded.settings.contains_key("trust_level"));
+        assert!(reloaded.settings.contains_key("operator_unknown_key"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
