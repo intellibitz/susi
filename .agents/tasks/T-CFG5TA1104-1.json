@@ -1,4 +1,4 @@
-﻿{
+{
   "id": "T-CFG5TA1104-1",
   "title": "test(config): advance 15 Wave A modules to 5 inline unit tests",
   "goal": "Advance 15 Wave A modules in crates/susi-config from 4 to 5 inline unit tests each (D-OS-8 5-test floor).",
