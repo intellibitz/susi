@@ -462,4 +462,22 @@ mod inline_tests {
         newer.adopt(&journal);
         assert_eq!(newer.idempotency_key(&id), Some("k1"));
     }
+
+    #[test]
+    fn reconcile_applied_and_reconciled_replay_transition_states_and_issue_receipt() {
+        let mut journal = IntentJournal::new();
+        let id1 = journal.record_intent_with_key("n1", "write_file", "{\"p\":\"a\"}", "k-app", 10);
+        let id2 = journal.record_intent_with_key("n1", "write_file", "{\"p\":\"b\"}", "k-not", 10);
+        let _ = journal.reconcile_after_crash();
+
+        journal.reconcile_applied(&id1, "applied-ok", 15);
+        assert_eq!(journal.get(&id1).unwrap().state, IntentState::Executed);
+        assert_eq!(journal.receipt(&id1).unwrap().recorded_unix, 15);
+
+        journal.reconcile_not_applied(&id2);
+        assert_eq!(journal.get(&id2).unwrap().state, IntentState::Reconciled);
+        let replay =
+            journal.prepare_dispatch("n1", "write_file", "{\"p\":\"b\"}", Some("k-not"), 20);
+        assert_eq!(replay, DispatchDecision::Dispatch { intent_id: id2 });
+    }
 }

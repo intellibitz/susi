@@ -161,4 +161,30 @@ mod inline_tests {
             BootstrapResult::UnauthorizedRoster
         );
     }
+
+    #[test]
+    fn snapshot_manifest_and_trust_anchor_round_trip_serde_json() {
+        let empty = BTreeSet::new();
+        assert_eq!(sign("leader", "s0", "t0", &empty), "leader:s0:t0:");
+
+        let roster = sample_roster();
+        let manifest = SnapshotManifest {
+            snapshot_id: "snap-9".to_string(),
+            ledger_tail: "tail-9".to_string(),
+            roster: roster.clone(),
+            signature: sign("leader-1", "snap-9", "tail-9", &roster),
+            signer: "leader-1".to_string(),
+        };
+        let m_json = serde_json::to_string(&manifest).unwrap();
+        let m_back: SnapshotManifest = serde_json::from_str(&m_json).unwrap();
+        assert_eq!(m_back, manifest);
+
+        let anchor = TrustAnchor {
+            peer_id: "leader-1".to_string(),
+            public_key: "ed25519:key".to_string(),
+        };
+        let a_json = serde_json::to_string(&anchor).unwrap();
+        let a_back: TrustAnchor = serde_json::from_str(&a_json).unwrap();
+        assert_eq!(a_back, anchor);
+    }
 }
