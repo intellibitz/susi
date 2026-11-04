@@ -164,6 +164,38 @@ fn collect_known_extension_ids(val: &Value, top_level: bool, out: &mut Vec<Strin
     }
 }
 
+/// Maps dedicated `xtask` binary subcommands (`startup-gate`, `local-channel`,
+/// `installed-upgrade`) so `cargo xtask <subcommand> [args...]` forwards directly
+/// to the corresponding binary instead of falling through to `cargo <subcommand>` (`D-SP-2`, `D-OS-6`).
+pub fn xtask_bin_subcommand(sub: &str) -> Option<&'static str> {
+    match sub {
+        "startup-gate" => Some("startup-gate"),
+        "local-channel" => Some("local-channel"),
+        "installed-upgrade" => Some("installed-upgrade"),
+        _ => None,
+    }
+}
+
+/// Builds the `cargo run --offline --locked -p xtask --bin <bin_name> -- <tail_args...>` command
+/// used to forward dedicated `xtask` binary subcommands (`D-SP-2`, `D-OS-6`).
+pub fn build_xtask_bin_forward_command(bin_name: &str, tail_args: &[String]) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        bin_name,
+    ]);
+    if !tail_args.is_empty() {
+        cmd.arg("--");
+        cmd.args(tail_args);
+    }
+    cmd
+}
+
 /// Parses `published_path` and diffs official extensions against `roadmap_path` (when present),
 /// returning deterministic [`extension_watch::RoadmapItem`] entries for new official extensions.
 pub fn run_extension_watch_on_files(
@@ -329,6 +361,18 @@ fn main() {
         }
     }
 
+    if let Some(bin_name) = args.first().and_then(|s| xtask_bin_subcommand(s.as_str())) {
+        let mut forward = build_xtask_bin_forward_command(bin_name, &args[1..]);
+        match forward.status() {
+            Ok(s) if s.success() => return,
+            Ok(s) => exit(s.code().unwrap_or(1)),
+            Err(e) => {
+                eprintln!("xtask: failed to execute {bin_name}: {e}");
+                exit(1);
+            }
+        }
+    }
+
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
     let mut cmd = Command::new("cargo");
@@ -389,8 +433,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        detected_features_for_os, ensure_dev_setup_in, requests_retired_backend,
-        run_extension_watch_on_files, sync_workspace_version_and_badge, with_detected_features,
+        build_xtask_bin_forward_command, detected_features_for_os, ensure_dev_setup_in,
+        requests_retired_backend, run_extension_watch_on_files, sync_workspace_version_and_badge,
+        with_detected_features, xtask_bin_subcommand,
     };
     use serde_json::Value;
     use std::process::Command;
@@ -609,5 +654,57 @@ mod tests {
         assert_eq!(items[1].extension_id, "zeta/new-official");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn routes_xtask_binary_subcommands_with_offline_locked_forward_args() {
+        assert_eq!(xtask_bin_subcommand("startup-gate"), Some("startup-gate"));
+        assert_eq!(xtask_bin_subcommand("local-channel"), Some("local-channel"));
+        assert_eq!(
+            xtask_bin_subcommand("installed-upgrade"),
+            Some("installed-upgrade")
+        );
+        assert_eq!(xtask_bin_subcommand("build"), None);
+        assert_eq!(xtask_bin_subcommand("test"), None);
+
+        let cmd_no_tail = build_xtask_bin_forward_command("startup-gate", &[]);
+        let args_no_tail: Vec<String> = cmd_no_tail
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args_no_tail,
+            v(&[
+                "run",
+                "--offline",
+                "--locked",
+                "-p",
+                "xtask",
+                "--bin",
+                "startup-gate"
+            ])
+        );
+
+        let cmd_with_tail =
+            build_xtask_bin_forward_command("local-channel", &v(&["status", "--check"]));
+        let args_with_tail: Vec<String> = cmd_with_tail
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args_with_tail,
+            v(&[
+                "run",
+                "--offline",
+                "--locked",
+                "-p",
+                "xtask",
+                "--bin",
+                "local-channel",
+                "--",
+                "status",
+                "--check"
+            ])
+        );
     }
 }
