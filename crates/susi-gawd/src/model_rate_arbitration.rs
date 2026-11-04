@@ -286,4 +286,24 @@ mod tests {
             .concurrency_limited_keys
             .contains(&"key_b".to_string()));
     }
+
+    #[test]
+    fn rate_arbitration_rejects_unregistered_key_and_reports_global_saturation() {
+        let mut arb = RateArbitrator::new(1);
+        assert!(!arb.can_admit("missing_key"));
+        assert_eq!(
+            arb.admit("missing_key"),
+            Err("Cannot admit: global or key limit reached".to_string())
+        );
+        assert!(arb.key_state("missing_key").is_none());
+
+        arb.set_key_limits("key_only", 5, 5);
+        assert_eq!(arb.admit("key_only"), Ok(()));
+        let report = arb.saturation();
+        assert!(report.global_limited);
+
+        // Completing an unregistered key is a no-op and does not decrement global count
+        arb.complete("missing_key");
+        assert_eq!(arb.global_concurrent(), 1);
+    }
 }
