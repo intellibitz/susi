@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "VENDORTESTS5TA1104",
-  "created_unix": 1793813715
+  "created_unix": 1793813715,
+  "closed": {
+    "at_unix": 1793814293,
+    "commit": "e3044738ce7ec01f8f7d261c0097f1285da9f21d",
+    "by": "VENDORTESTS5TA1104"
+  }
 }
