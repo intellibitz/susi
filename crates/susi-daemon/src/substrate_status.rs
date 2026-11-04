@@ -125,3 +125,46 @@ pub fn report(workspace: &Path) -> serde_json::Value {
     });
     collect(workspace, docker_sandbox_exec)
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn load_json_returns_none_for_missing_or_invalid_file() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-sub-status-inline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(load_json(&dir.join("missing.json")).is_none());
+
+        let invalid = dir.join("invalid.json");
+        std::fs::write(&invalid, "{not json").unwrap();
+        assert!(load_json(&invalid).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_json_parses_valid_json_document() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-sub-status-valid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let valid = dir.join("gov.json");
+        std::fs::write(&valid, r#"{"verdict":"pass","mandate":37}"#).unwrap();
+        let val = load_json(&valid).unwrap();
+        assert_eq!(val["verdict"], "pass");
+        assert_eq!(val["mandate"], 37);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn primed_constant_selects_agents_catalog() {
+        assert_eq!(PRIMED, Catalogs::AGENTS);
+    }
+
+    #[test]
+    fn count_wasm_reflexes_returns_usize_without_panicking() {
+        let _count = count_wasm_reflexes();
+    }
+}

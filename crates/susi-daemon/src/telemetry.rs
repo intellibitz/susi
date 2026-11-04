@@ -14,3 +14,35 @@ pub fn sample_and_record(workspace: Option<&Path>) -> TelemetrySnapshot {
     }
     snapshot
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn sample_returns_telemetry_snapshot_with_valid_ranges() {
+        let snap = sample();
+        if let Some(cpu) = snap.cpu_util_pct {
+            assert!((0.0..=100.0).contains(&cpu));
+        }
+    }
+
+    #[test]
+    fn sample_and_record_without_workspace_succeeds() {
+        let snap = sample_and_record(None);
+        let _ = snap.has_readings();
+    }
+
+    #[test]
+    fn sample_and_record_with_workspace_succeeds() {
+        let ws = std::env::temp_dir().join("susi-telemetry-inline-ws");
+        let snap = sample_and_record(Some(&ws));
+        let _ = snap.has_readings();
+    }
+
+    #[test]
+    fn empty_telemetry_snapshot_reports_no_readings() {
+        let empty = TelemetrySnapshot::empty();
+        assert!(!empty.has_readings());
+    }
+}
