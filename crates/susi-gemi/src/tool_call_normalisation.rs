@@ -43,4 +43,38 @@ mod tool_call_normalisation_tests {
         let anth = json!({"name":"search","input":{"q":"x"}});
         assert_eq!(normalize_tool_call(&anth).unwrap().name, "search");
     }
+
+    #[test]
+    fn normalize_tool_call_defaults_missing_arguments_to_empty_object() {
+        let top_level = json!({"name": "ping"});
+        let normalized_top = normalize_tool_call(&top_level).expect("top-level tool call");
+        assert_eq!(normalized_top.name, "ping");
+        assert_eq!(normalized_top.arguments, json!({}));
+
+        let nested = json!({"function": {"name": "pong"}});
+        let normalized_nested = normalize_tool_call(&nested).expect("nested function tool call");
+        assert_eq!(normalized_nested.name, "pong");
+        assert_eq!(normalized_nested.arguments, json!({}));
+    }
+
+    #[test]
+    fn normalize_tool_call_rejects_malformed_or_nameless_fragments() {
+        assert!(normalize_tool_call(&json!(null)).is_none());
+        assert!(normalize_tool_call(&json!("not-an-object")).is_none());
+        assert!(normalize_tool_call(&json!({"arguments": {"a": 1}})).is_none());
+        assert!(normalize_tool_call(&json!({"name": 42})).is_none());
+        assert!(normalize_tool_call(&json!({"function": {"arguments": {}}})).is_none());
+    }
+
+    #[test]
+    fn normalized_tool_call_round_trips_through_serde_json() {
+        let call = NormalizedToolCall {
+            name: "read_file".into(),
+            arguments: json!({"path": "Cargo.toml"}),
+        };
+        let encoded = serde_json::to_string(&call).expect("serialize NormalizedToolCall");
+        let decoded: NormalizedToolCall =
+            serde_json::from_str(&encoded).expect("deserialize NormalizedToolCall");
+        assert_eq!(decoded, call);
+    }
 }

@@ -147,3 +147,62 @@ fn billing_mode_marginal_cost() {
     // Full integration with evidence recording and quota enforcement happens in
     // follow-on tasks that depend on this foundation.
 }
+
+#[test]
+fn billing_mode_none_cost_per_token_returns_zero_for_any_token_count() {
+    let sub = MarginalCost {
+        mode: BillingMode::Subscription,
+        cost_per_token: None,
+        quota: Some(QuotaWindow::Daily {
+            remaining_calls: 0,
+            reset_unix: 1_700_000_000,
+        }),
+    };
+    assert!(sub.next_call_cost(0).abs() < f64::EPSILON);
+    assert!(sub.next_call_cost(1_000_000).abs() < f64::EPSILON);
+}
+
+#[test]
+fn billing_mode_rolling_and_weekly_quota_windows_compute_linear_cost() {
+    let rolling = MarginalCost {
+        mode: BillingMode::FreeTier,
+        cost_per_token: Some(0.002),
+        quota: Some(QuotaWindow::RollingSeconds {
+            period_secs: 3600,
+            remaining_secs: 600,
+        }),
+    };
+    assert!((rolling.next_call_cost(500) - 1.0).abs() < 1e-9);
+
+    let weekly = MarginalCost {
+        mode: BillingMode::PrepaidBalance,
+        cost_per_token: Some(0.0005),
+        quota: Some(QuotaWindow::Weekly {
+            remaining_calls: 100,
+            reset_unix: 1_700_600_000,
+        }),
+    };
+    assert!((weekly.next_call_cost(2000) - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn billing_mode_and_quota_window_round_trip_through_serde_json() {
+    for mode in [
+        BillingMode::PayAsYouGo,
+        BillingMode::Subscription,
+        BillingMode::FreeTier,
+        BillingMode::PrepaidBalance,
+    ] {
+        let json = serde_json::to_string(&mode).expect("serialize BillingMode");
+        let back: BillingMode = serde_json::from_str(&json).expect("deserialize BillingMode");
+        assert_eq!(back, mode);
+    }
+
+    let win = QuotaWindow::RollingSeconds {
+        period_secs: 60,
+        remaining_secs: 15,
+    };
+    let json = serde_json::to_string(&win).expect("serialize QuotaWindow");
+    let back: QuotaWindow = serde_json::from_str(&json).expect("deserialize QuotaWindow");
+    assert_eq!(back, win);
+}

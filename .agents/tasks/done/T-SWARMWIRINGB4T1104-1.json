@@ -1,0 +1,23 @@
+{
+  "id": "T-SWARMWIRINGB4T1104-1",
+  "title": "Expand susi-gawd-swarm mission_resume_cli, native_role_select, resource_schedule, side_effects, and task_lease wiring suites to 4 unit tests each",
+  "goal": "Expand susi-gawd-swarm mission_resume_cli, native_role_select, resource_schedule, side_effects, and task_lease wiring suites to 4 unit tests each",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib"
+    ]
+  },
+  "created_by": "SWARMWIRINGB4T1104",
+  "created_unix": 1793788176,
+  "closed": {
+    "at_unix": 1793789382,
+    "commit": "3ccdb706678f5b1f22d42b0f188557a3d90e0136",
+    "by": "SWARMWIRINGB4T1104"
+  }
+}
