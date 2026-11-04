@@ -131,3 +131,46 @@ fn vc_201_018_mastery() {
         Path::new("/home/u/.susi/bin/susi")
     ));
 }
+
+#[test]
+fn vc_201_018_release_sync_script_path_promotes_verified_candidate() {
+    let rc = produce_release_candidate(&verified(), "exp-sync", "sha256:deadbeef", "manifest-ok")
+        .unwrap();
+    assert_eq!(
+        decide_promotion(&PromotionAttempt {
+            candidate: rc,
+            via: PromotionPath::ReleaseSyncScript,
+        }),
+        PromotionDecision::AcceptedReviewable
+    );
+}
+
+#[test]
+fn vc_201_018_promote_via_records_tag_and_digest_on_success() {
+    let mut rel = FakeRelease::default();
+    promote_via(
+        &mut rel,
+        PromotionPath::SusiRelease,
+        &verified(),
+        "v1.2.3",
+        "sha256:cafe",
+        "evidence-bundle",
+    )
+    .unwrap();
+    assert_eq!(rel.promoted.len(), 1);
+}
+
+#[test]
+fn vc_201_018_promote_via_rejects_direct_target_install_even_when_verified() {
+    let mut rel = FakeRelease::default();
+    let res = promote_via(
+        &mut rel,
+        PromotionPath::DirectTargetInstall,
+        &verified(),
+        "v1.2.3",
+        "sha256:cafe",
+        "evidence-bundle",
+    );
+    assert!(matches!(res, Err(DeliveryError::ForbiddenPromotion(_))));
+    assert!(rel.promoted.is_empty());
+}

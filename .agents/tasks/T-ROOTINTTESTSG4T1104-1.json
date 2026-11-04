@@ -1,0 +1,19 @@
+{
+  "id": "T-ROOTINTTESTSG4T1104-1",
+  "title": "Expand 5 pure in-process VC-201 mastery root integration test suites G to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "vc_201_017_mastery"
+    ]
+  },
+  "created_by": "ROOTINTTESTSG4T1104",
+  "created_unix": 1793795582
+}
