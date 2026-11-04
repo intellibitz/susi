@@ -90,3 +90,45 @@ pub fn of(provider: &str) -> ModelCapability {
 pub fn meets_floor(provider: &str, class: super::brain::TaskClass) -> bool {
     of(provider) >= class.capability_floor()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use crate::engines::brain::TaskClass;
+
+    #[test]
+    fn model_capability_ordering_and_labels_follow_basic_coding_reasoning_hierarchy() {
+        assert!(ModelCapability::Basic < ModelCapability::Coding);
+        assert!(ModelCapability::Coding < ModelCapability::Reasoning);
+        assert_eq!(ModelCapability::Basic.label(), "basic");
+        assert_eq!(ModelCapability::Coding.label(), "coding");
+        assert_eq!(ModelCapability::Reasoning.label(), "reasoning");
+    }
+
+    #[test]
+    fn of_classifies_bundled_reasoning_and_coding_provider_names() {
+        assert_eq!(of("claude-opus-4"), ModelCapability::Reasoning);
+        assert_eq!(of("deepseek-r1"), ModelCapability::Reasoning);
+        assert_eq!(of("qwen2.5-coder"), ModelCapability::Coding);
+    }
+
+    #[test]
+    fn of_defaults_unknown_local_provider_to_basic() {
+        assert_eq!(of("unknown-tiny-local-model-xyz"), ModelCapability::Basic);
+    }
+
+    #[test]
+    fn meets_floor_enforces_task_class_capability_minimums() {
+        assert!(meets_floor("claude-opus-4", TaskClass::Reasoning));
+        assert!(!meets_floor(
+            "unknown-tiny-local-model-xyz",
+            TaskClass::Code
+        ));
+        assert!(meets_floor(
+            "unknown-tiny-local-model-xyz",
+            TaskClass::Reflex
+        ));
+    }
+}

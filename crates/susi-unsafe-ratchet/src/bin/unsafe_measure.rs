@@ -5,8 +5,8 @@ use std::path::Path;
 use std::process::ExitCode;
 use susi_unsafe_ratchet::measurement::{scan, write_json_atomic};
 
-fn run() -> Result<(), String> {
-    let mut args = std::env::args().skip(1);
+fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<BTreeMap<String, String>, String> {
+    let mut args = args.into_iter();
     let mut values = BTreeMap::new();
     while let Some(key) = args.next() {
         if !matches!(
@@ -20,6 +20,11 @@ fn run() -> Result<(), String> {
             return Err("duplicate argument".into());
         }
     }
+    Ok(values)
+}
+
+fn run() -> Result<(), String> {
+    let values = parse_args(std::env::args().skip(1))?;
     let get = |key: &str| {
         values
             .get(key)
@@ -51,5 +56,54 @@ fn main() -> ExitCode {
             eprintln!("unsafe_measure: {error}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn parse_args_accepts_all_four_supported_flags() {
+        let parsed = parse_args(
+            [
+                "--root",
+                ".",
+                "--target",
+                "x86_64-pc-windows-msvc",
+                "--features",
+                "default",
+                "--output",
+                "out.json",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .expect("valid flags");
+        assert_eq!(parsed.get("--root").map(String::as_str), Some("."));
+        assert_eq!(parsed.get("--output").map(String::as_str), Some("out.json"));
+    }
+
+    #[test]
+    fn parse_args_rejects_unknown_flag_name() {
+        let err = parse_args(["--bogus", "val"].into_iter().map(String::from))
+            .expect_err("unknown flag must fail");
+        assert!(err.contains("unknown argument --bogus"));
+    }
+
+    #[test]
+    fn parse_args_rejects_flag_missing_value() {
+        let err = parse_args(["--root"].into_iter().map(String::from))
+            .expect_err("missing value must fail");
+        assert!(err.contains("--root needs a value"));
+    }
+
+    #[test]
+    fn parse_args_rejects_duplicate_flag() {
+        let err = parse_args(["--root", "a", "--root", "b"].into_iter().map(String::from))
+            .expect_err("duplicate flag must fail");
+        assert_eq!(err, "duplicate argument");
     }
 }

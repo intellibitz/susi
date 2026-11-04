@@ -303,3 +303,75 @@ impl SusiMemory {
         }
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn ensure_global_sandbox_locally_creates_directory_and_default_config_json() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_shared_global_sandbox_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        SandboxManager::ensure_global_sandbox_locally(&tmp).expect("bootstrap global sandbox");
+        assert!(SusiConfig::get_config_path(&tmp).is_file());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn ensure_gitignore_purity_appends_dot_susi_entry_once_when_gitignore_exists() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_shared_gitignore_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).expect("create dir");
+        let gi = tmp.join(".gitignore");
+        fs::write(&gi, "target/\n").expect("write gitignore");
+
+        SandboxManager::ensure_gitignore_purity(&tmp);
+        SandboxManager::ensure_gitignore_purity(&tmp);
+        let content = fs::read_to_string(&gi).expect("read gitignore");
+        assert_eq!(content.matches(".susi/").count(), 1);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn save_and_check_interrupted_checkpoint_roundtrip_neural_checkpoint() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_shared_checkpoint_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).expect("create dir");
+        assert!(SandboxManager::check_interrupted_checkpoint(&tmp).is_none());
+
+        let mut fields = crate::susi_config::DynamicRegistry::new();
+        fields.insert("mission_id".to_string(), serde_json::json!("m-101"));
+        let cp = NeuralCheckpoint { fields };
+        SandboxManager::save_mission_checkpoint(&tmp, &cp);
+        let loaded = SandboxManager::check_interrupted_checkpoint(&tmp).expect("load checkpoint");
+        assert_eq!(
+            loaded.fields.get("mission_id"),
+            Some(&serde_json::json!("m-101"))
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn tail_lines_and_susi_memory_save_interaction_persist_and_read_bounded_lines() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_shared_tail_memory_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).expect("create dir");
+
+        SusiMemory::save_interaction(&tmp, "", "ignored", "0.21.47");
+        assert!(!tmp.join(".susi/memory.jsonl").exists());
+
+        SusiMemory::save_interaction(&tmp, "check status", "all systems healthy", "0.21.47");
+        let mem_path = tmp.join(".susi/memory.jsonl");
+        assert!(mem_path.is_file());
+        assert!(tail_lines(&mem_path, 0).is_empty());
+        let tail = tail_lines(&mem_path, 5);
+        assert!(tail.contains("check status"));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+}

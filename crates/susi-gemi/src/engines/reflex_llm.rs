@@ -261,3 +261,45 @@ impl GenerativeReflexEngine {
         Ok(trimmed.to_string())
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn global_returns_singleton_generative_reflex_engine_reference() {
+        let a = GenerativeReflexEngine::global() as *const GenerativeReflexEngine;
+        let b = GenerativeReflexEngine::global() as *const GenerativeReflexEngine;
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn reflex_model_id_constant_is_qwen_half_billion_instruct() {
+        let id = std::hint::black_box(GenerativeReflexEngine::REFLEX_MODEL_ID);
+        assert_eq!(id, "qwen2.5-0.5b-instruct");
+    }
+
+    #[test]
+    fn try_solve_returns_non_empty_action_or_descriptive_error_when_unprovisioned() {
+        let engine = GenerativeReflexEngine::global();
+        if ModelManager::get_model_path(GenerativeReflexEngine::REFLEX_MODEL_ID).is_none() {
+            let err = engine
+                .try_solve("status", Path::new("."))
+                .expect_err("unprovisioned model must fail");
+            assert!(err.to_string().contains("not provisioned"));
+        }
+    }
+
+    #[test]
+    fn try_generate_answer_returns_descriptive_error_when_model_unprovisioned() {
+        let engine = GenerativeReflexEngine::global();
+        if ModelManager::get_model_path(GenerativeReflexEngine::REFLEX_MODEL_ID).is_none() {
+            let err = engine
+                .try_generate_answer("hello", Path::new("."))
+                .expect_err("unprovisioned model must fail");
+            assert!(err.to_string().contains("not provisioned"));
+        }
+    }
+}

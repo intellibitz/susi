@@ -22,6 +22,8 @@ pub fn render_prometheus(samples: &[MetricSample]) -> String {
 }
 
 #[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod prometheus_metrics_tests {
     use super::*;
 
@@ -34,5 +36,42 @@ mod prometheus_metrics_tests {
         }]);
         assert!(body.contains("# TYPE susi_up gauge"));
         assert!(body.contains("susi_up 1"));
+    }
+
+    #[test]
+    fn render_prometheus_empty_slice_returns_empty_string() {
+        assert!(render_prometheus(&[]).is_empty());
+    }
+
+    #[test]
+    fn render_prometheus_renders_multiple_samples_in_order() {
+        let samples = [
+            MetricSample {
+                name: "susi_queue_depth".into(),
+                value: 3.0,
+                help: "queued tasks".into(),
+            },
+            MetricSample {
+                name: "susi_peers".into(),
+                value: 5.0,
+                help: "connected peers".into(),
+            },
+        ];
+        let body = render_prometheus(&samples);
+        let first_pos = body.find("susi_queue_depth 3").expect("first metric");
+        let second_pos = body.find("susi_peers 5").expect("second metric");
+        assert!(first_pos < second_pos);
+    }
+
+    #[test]
+    fn metric_sample_serde_roundtrip_preserves_fields() {
+        let sample = MetricSample {
+            name: "susi_latency_ms".into(),
+            value: 42.5,
+            help: "request latency".into(),
+        };
+        let json = serde_json::to_string(&sample).expect("serialize");
+        let decoded: MetricSample = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, sample);
     }
 }

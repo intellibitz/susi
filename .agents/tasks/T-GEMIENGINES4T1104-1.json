@@ -1,0 +1,30 @@
+{
+  "id": "T-GEMIENGINES4T1104-1",
+  "title": "Add 4 inline unit tests each across 14 susi-gemi::engines, susi-gemi-models, susi-config, susi-harness, susi-sandbox-client, susi-server, and susi-unsafe-ratchet modules under D-OS-8",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-harness",
+      "-p",
+      "susi-sandbox-client",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "GEMIENGINES4T1104",
+  "created_unix": 1793799420
+}

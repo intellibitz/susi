@@ -329,3 +329,144 @@ pub fn infer_via_host(
         InferOutcome::Unavailable { reason } => Err(EaiError::inference(reason)),
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    struct FakeEngine {
+        reply: String,
+    }
+
+    impl NativeInferenceEngine for FakeEngine {
+        fn name(&self) -> String {
+            "fake-engine".to_string()
+        }
+
+        fn run_inference(&self, prompt: &str) -> EaiResult<String> {
+            self.run_inference_stream(prompt, &|_| {}, None)
+        }
+
+        fn run_inference_stream(
+            &self,
+            prompt: &str,
+            callback: &dyn Fn(String),
+            _model_hint: Option<&str>,
+        ) -> susi_error::EaiResult<String> {
+            callback(self.reply.clone());
+            if self.reply.is_empty() {
+                Ok(String::new())
+            } else {
+                Ok(format!("{}:{}", prompt, self.reply))
+            }
+        }
+    }
+
+    struct FakeHost {
+        model: Option<String>,
+        resident: bool,
+        endpoints: Vec<String>,
+        cooled: bool,
+    }
+
+    impl EngineHost for FakeHost {
+        fn resolve_model(&self, hint: Option<&str>, _prompt: &str) -> Option<String> {
+            hint.map(str::to_string).or_else(|| self.model.clone())
+        }
+
+        fn model_resident(&self, _model: &str) -> Result<bool, String> {
+            Ok(self.resident)
+        }
+
+        fn preload(&self, _model: &str) -> EaiResult<()> {
+            Ok(())
+        }
+
+        fn unload(&self, _model: &str) -> EaiResult<()> {
+            Ok(())
+        }
+
+        fn endpoints(&self) -> Vec<String> {
+            self.endpoints.clone()
+        }
+
+        fn provider_cooled(&self, _endpoint: &str) -> bool {
+            self.cooled
+        }
+    }
+
+    #[test]
+    fn contract_call_new_stores_prompt_callback_and_optional_model_hint() {
+        let cb = |_: String| {};
+        let call = ContractCall::new("solve x", &cb, Some("qwen-7b"));
+        assert_eq!(call.prompt, "solve x");
+        assert_eq!(call.model_hint.as_deref(), Some("qwen-7b"));
+    }
+
+    #[test]
+    fn native_engine_backend_discover_load_health_and_unload_drive_host_seams() {
+        let cb = |_: String| {};
+        let call = ContractCall::new("hello", &cb, None);
+        let engine: Arc<dyn NativeInferenceEngine> = Arc::new(FakeEngine {
+            reply: "ok".to_string(),
+        });
+        let host: Arc<dyn EngineHost> = Arc::new(FakeHost {
+            model: Some("local-m1".to_string()),
+            resident: true,
+            endpoints: Vec::new(),
+            cooled: false,
+        });
+        let backend = NativeEngineBackend::new(engine, host, EngineKind::Native, &call);
+        assert!(backend.discover().expect("discover"));
+        backend.load("local-m1").expect("load");
+        assert!(backend.health().expect("health").is_ok());
+        backend.unload().expect("unload");
+        assert!(backend.cancel().is_err());
+    }
+
+    #[test]
+    fn federated_engine_backend_validates_endpoints_cooldown_and_refuses_unload() {
+        let cb = |_: String| {};
+        let call = ContractCall::new("hello", &cb, None);
+        let engine: Arc<dyn NativeInferenceEngine> = Arc::new(FakeEngine {
+            reply: "ok".to_string(),
+        });
+        let cooled_host: Arc<dyn EngineHost> = Arc::new(FakeHost {
+            model: None,
+            resident: false,
+            endpoints: vec!["ep-1".to_string()],
+            cooled: true,
+        });
+        let backend = NativeEngineBackend::new(engine, cooled_host, EngineKind::Federated, &call);
+        assert!(backend.discover().expect("discover"));
+        assert!(backend.health().expect("health").is_err());
+        assert!(backend.unload().is_err());
+    }
+
+    #[test]
+    fn infer_via_host_runs_full_discover_load_ready_infer_contract_and_rejects_empty_output() {
+        let cb = |_: String| {};
+        let call = ContractCall::new("prompt-1", &cb, Some("m1"));
+        let ok_engine: Arc<dyn NativeInferenceEngine> = Arc::new(FakeEngine {
+            reply: "done".to_string(),
+        });
+        let host: Arc<dyn EngineHost> = Arc::new(FakeHost {
+            model: Some("m1".to_string()),
+            resident: true,
+            endpoints: Vec::new(),
+            cooled: false,
+        });
+        let out = infer_via_host(ok_engine, Arc::clone(&host), EngineKind::Native, &call)
+            .expect("infer via host");
+        assert_eq!(out, "prompt-1:done");
+
+        let empty_engine: Arc<dyn NativeInferenceEngine> = Arc::new(FakeEngine {
+            reply: String::new(),
+        });
+        let err = infer_via_host(empty_engine, host, EngineKind::Native, &call)
+            .expect_err("empty output must fail");
+        assert!(err.to_string().contains("empty output"));
+    }
+}
