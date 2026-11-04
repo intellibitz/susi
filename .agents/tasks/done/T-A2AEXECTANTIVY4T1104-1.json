@@ -1,0 +1,29 @@
+{
+  "id": "T-A2AEXECTANTIVY4T1104-1",
+  "title": "Expand inline unit test suites for susi-gawd-a2a executor, susi-vendor-tantivy, susi-gawd-agents self_core, and susi-paths xdg (3 -> 4 tests)",
+  "goal": "Add a 4th inline unit test to susi-gawd-a2a executor.rs, susi-vendor-tantivy lib.rs, susi-gawd-agents self_core.rs, and susi-paths xdg.rs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-a2a",
+      "-p",
+      "susi-vendor-tantivy",
+      "-p",
+      "susi-gawd-agents",
+      "-p",
+      "susi-paths",
+      "--lib"
+    ]
+  },
+  "created_by": "A2AEXECTANTIVY4T1104",
+  "created_unix": 1793777891,
+  "closed": {
+    "at_unix": 1793778502,
+    "commit": "91d2b6f8268cba19717be2d72107390f3e91ea00",
+    "by": "A2AEXECTANTIVY4T1104"
+  }
+}

@@ -286,4 +286,43 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn macos_ignores_xdg_and_appdata_and_windows_ignores_home_and_xdg_fallbacks() {
+        let mac_home = Path::new("/Users/alice");
+        let xdg_cfg = Path::new("/tmp/xdg-cfg");
+        let xdg_data = Path::new("/tmp/xdg-data");
+        let xdg_cache = Path::new("/tmp/xdg-cache");
+        let appdata = Path::new(r"C:\Users\alice\AppData\Roaming");
+
+        assert_eq!(
+            config_dir_for("macos", Some(mac_home), Some(xdg_cfg), Some(appdata)),
+            Some(mac_home.join("Library/Application Support/intellibitz.susi"))
+        );
+        assert_eq!(
+            data_dir_for("macos", Some(mac_home), Some(xdg_data), Some(appdata)),
+            Some(mac_home.join("Library/Application Support/intellibitz.susi"))
+        );
+        assert_eq!(
+            cache_dir_for("macos", Some(mac_home), Some(xdg_cache), Some(appdata)),
+            Some(mac_home.join("Library/Caches/intellibitz.susi"))
+        );
+
+        let home = Path::new("/home/alice");
+        let rel = Path::new("relative/appdata");
+        for win_appdata in [None, Some(rel)] {
+            assert_eq!(
+                config_dir_for("windows", Some(home), Some(xdg_cfg), win_appdata),
+                None
+            );
+            assert_eq!(
+                data_dir_for("windows", Some(home), Some(xdg_data), win_appdata),
+                None
+            );
+            assert_eq!(
+                cache_dir_for("windows", Some(home), Some(xdg_cache), win_appdata),
+                None
+            );
+        }
+    }
 }
