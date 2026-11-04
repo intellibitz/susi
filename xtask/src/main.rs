@@ -22,9 +22,116 @@ mod trusted_sysroot;
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
+use serde_json::Value;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
+
+fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path)
+}
+
+fn sync_json_version(path: &Path, expected_schema: &str, version: &str) -> Result<(), String> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    let raw =
+        fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let mut doc = serde_json::from_str::<Value>(&raw)
+        .map_err(|e| format!("invalid JSON {}: {e}", path.display()))?;
+    let schema = doc.get("schema").and_then(Value::as_str).unwrap_or("");
+    if schema != expected_schema {
+        return Err(format!(
+            "{}: expected schema {expected_schema:?}, got {schema:?}",
+            path.display()
+        ));
+    }
+    if doc.get("version").and_then(Value::as_str) != Some(version) {
+        if let Some(obj) = doc.as_object_mut() {
+            obj.insert("version".to_string(), Value::String(version.to_string()));
+        }
+        let pretty = serde_json::to_string_pretty(&doc)
+            .map_err(|e| format!("failed to serialize {}: {e}", path.display()))?;
+        write_atomic(path, &format!("{pretty}\n"))
+            .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn sync_readme_badge_in(root: &Path, version: &str) -> Result<(), String> {
+    let readme_path = root.join("README.md");
+    if !readme_path.is_file() {
+        return Ok(());
+    }
+    let readme_md_raw = fs::read_to_string(&readme_path)
+        .map_err(|e| format!("failed to read {}: {e}", readme_path.display()))?;
+    if !readme_md_raw.contains("https://img.shields.io/badge/version-v") {
+        return Ok(());
+    }
+    let mut updated = Vec::new();
+    for line in readme_md_raw.lines() {
+        if line.contains("https://img.shields.io/badge/version-v") {
+            updated.push(format!(
+                "![SUSI Version](https://img.shields.io/badge/version-v{version}-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)"
+            ));
+        } else {
+            updated.push(line.to_string());
+        }
+    }
+    let new_readme = format!("{}\n", updated.join("\n"));
+    if new_readme != readme_md_raw {
+        write_atomic(&readme_path, &new_readme)
+            .map_err(|e| format!("failed to write {}: {e}", readme_path.display()))?;
+    }
+    Ok(())
+}
+
+/// Synchronizes the workspace version from `<root>/Cargo.toml` across
+/// `.agents/{identity,roadmap,evidence}.json` and the `README.md` version badge (`D-SP-1`).
+pub fn sync_workspace_version_and_badge(root: &Path) -> Result<String, String> {
+    let cargo_toml_path = root.join("Cargo.toml");
+    let cargo_toml = fs::read_to_string(&cargo_toml_path)
+        .map_err(|e| format!("missing {}: {e}", cargo_toml_path.display()))?;
+    let version = cargo_toml
+        .lines()
+        .find(|l| l.trim().starts_with("version = \""))
+        .and_then(|l| l.split('"').nth(1))
+        .ok_or_else(|| format!("could not find version in {}", cargo_toml_path.display()))?
+        .to_string();
+
+    for (rel, schema) in [
+        (".agents/identity.json", "susi/identity/v1"),
+        (".agents/roadmap.json", "susi/roadmap/v1"),
+        (".agents/evidence.json", "susi/evidence/v1"),
+    ] {
+        sync_json_version(&root.join(rel), schema, &version)?;
+    }
+
+    sync_readme_badge_in(root, &version)?;
+    Ok(version)
+}
+
+/// Reports the selected CPU backend when an NVIDIA device is present (`D-SP-1`).
+pub fn warn_if_gpu_available_but_unused(os: &str, features_include_metal: bool) {
+    if features_include_metal || os == "macos" {
+        return;
+    }
+    let has_nvidia_gpu = Command::new("nvidia-smi")
+        .args(["--query-gpu=name", "--format=csv,noheader"])
+        .output()
+        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
+    if has_nvidia_gpu {
+        println!(
+            "xtask: [build-gpu] NVIDIA GPU detected; this build uses CPU inference. \
+             The supported native local CPU workflow is `cargo local-build debug` or \
+             `cargo local-build production`. CUDA/MKL product features are retired because \
+             their dependencies fail license/native-code gates."
+        );
+    }
+}
 
 /// Appends detected GPU feature args unless the caller already chose a
 /// feature set (`--features`/`-F`, `--all-features`, `--no-default-features`):
@@ -111,13 +218,34 @@ fn main() {
         return;
     }
 
+    if args.first().map(String::as_str) == Some("sync-version") {
+        let root = args
+            .get(1)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        match sync_workspace_version_and_badge(&root) {
+            Ok(ver) => {
+                println!("xtask: synced workspace version v{ver}.");
+                return;
+            }
+            Err(error) => {
+                eprintln!("xtask: {error}");
+                exit(1);
+            }
+        }
+    }
+
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
     let mut cmd = Command::new("cargo");
     if is_build {
         ensure_dev_setup();
+        let _ = sync_workspace_version_and_badge(Path::new("."));
         println!("xtask: cargo build running GPU detection...");
         let gpu_args = detected_features_for_os(env::consts::OS);
+        let has_metal =
+            gpu_args.iter().any(|a| a == "metal") || args.iter().any(|a| a.contains("metal"));
+        warn_if_gpu_available_but_unused(env::consts::OS, has_metal);
         if gpu_args.is_empty() {
             println!(
                 "xtask: [build-gpu] No GPU backend detected (or unsupported) - building CPU-only."
@@ -168,8 +296,9 @@ fn main() {
 mod tests {
     use super::{
         detected_features_for_os, ensure_dev_setup_in, requests_retired_backend,
-        with_detected_features,
+        sync_workspace_version_and_badge, with_detected_features,
     };
+    use serde_json::Value;
     use std::process::Command;
 
     fn v(items: &[&str]) -> Vec<String> {
@@ -268,6 +397,82 @@ mod tests {
         assert_eq!(hooks_path(&dir), "");
         std::fs::remove_file(dir.join("scripts/setup-dev.sh")).unwrap();
         ensure_dev_setup_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_workspace_version_updates_ledgers_and_readme_badge_idempotently() {
+        let dir = std::env::temp_dir().join(format!("xtask-sync-ok-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".agents")).unwrap();
+
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"susi\"\nversion = \"0.21.99\"\n",
+        )
+        .unwrap();
+        for (file, schema) in [
+            ("identity.json", "susi/identity/v1"),
+            ("roadmap.json", "susi/roadmap/v1"),
+            ("evidence.json", "susi/evidence/v1"),
+        ] {
+            std::fs::write(
+                dir.join(".agents").join(file),
+                format!("{{\"schema\":\"{schema}\",\"version\":\"0.21.1\"}}\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            dir.join("README.md"),
+            "# SUSI\n![SUSI Version](https://img.shields.io/badge/version-v0.21.1-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)\n",
+        )
+        .unwrap();
+
+        let ver = sync_workspace_version_and_badge(&dir).unwrap();
+        assert_eq!(ver, "0.21.99");
+
+        for file in ["identity.json", "roadmap.json", "evidence.json"] {
+            let raw = std::fs::read_to_string(dir.join(".agents").join(file)).unwrap();
+            let doc: Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(doc.get("version").and_then(Value::as_str), Some("0.21.99"));
+        }
+        let readme_after = std::fs::read_to_string(dir.join("README.md")).unwrap();
+        assert!(readme_after.contains("https://img.shields.io/badge/version-v0.21.99-blue.svg"));
+
+        // Second call is idempotent.
+        let ver_again = sync_workspace_version_and_badge(&dir).unwrap();
+        assert_eq!(ver_again, "0.21.99");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("README.md")).unwrap(),
+            readme_after
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_workspace_version_rejects_mismatched_ledger_schema() {
+        let dir = std::env::temp_dir().join(format!("xtask-sync-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".agents")).unwrap();
+
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"susi\"\nversion = \"0.21.99\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".agents/identity.json"),
+            "{\"schema\":\"wrong/schema/v1\",\"version\":\"0.21.1\"}\n",
+        )
+        .unwrap();
+
+        let err = sync_workspace_version_and_badge(&dir).unwrap_err();
+        assert!(
+            err.contains("expected schema \"susi/identity/v1\""),
+            "unexpected error: {err}"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
