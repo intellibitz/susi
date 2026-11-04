@@ -1,0 +1,27 @@
+{
+  "id": "T-DSP4WIRE1104-6",
+  "title": "D-SP-4 Stage 3: susi-build-os-ucrt and susi-windows-runtime spawn_without_inheriting_stdio",
+  "goal": "Move Windows OS-UCRT link configuration into crates/susi-build-os-ucrt with configure_all_bins(), move spawn_without_inheriting_stdio into crates/susi-windows-runtime under its unsafe review, and consolidate local-release proof binary lists.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-build-os-ucrt",
+      "-p",
+      "susi-windows-runtime",
+      "--lib"
+    ]
+  },
+  "created_by": "DSP4WIRE1104",
+  "created_unix": 1793807132,
+  "closed": {
+    "at_unix": 1793810231,
+    "commit": "718836ee2ae8dc08518a9a90e3d1c7df00d6b93d",
+    "by": "DSP4WIRE1104"
+  }
+}
