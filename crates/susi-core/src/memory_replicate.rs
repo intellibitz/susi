@@ -259,4 +259,21 @@ mod inline_tests {
         assert!(!a_conv.records.contains_key("del-me"));
         assert!(a_conv.tombstones.contains("del-me"));
     }
+
+    #[test]
+    fn merge_from_peer_preserves_higher_existing_provenance_and_skips_local_only() {
+        let mut r = MemoryReplica::new();
+        r.upsert(rec("doc-1", "authoritative-v10", "p10", false));
+        r.merge_from_peer(&[
+            rec("doc-1", "stale-v2", "p2", false),
+            rec("peer-local", "do-not-import", "p99", true),
+        ]);
+        assert_eq!(r.records["doc-1"].body, "authoritative-v10");
+        assert!(!r.records.contains_key("peer-local"));
+
+        r.delete("doc-1");
+        r.upsert(rec("doc-1", "late-resurrect", "p99", false));
+        assert!(!r.records.contains_key("doc-1"));
+        assert!(r.tombstones.contains("doc-1"));
+    }
 }

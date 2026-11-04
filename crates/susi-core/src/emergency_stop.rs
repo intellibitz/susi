@@ -281,4 +281,26 @@ mod inline_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn restore_from_rejects_unsigned_file_and_cancellable_admission_records_cancelled() {
+        let dir = std::env::temp_dir().join(format!("susi-estop-unsigned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("unsigned.json");
+
+        let unsigned = StopStatus::default();
+        std::fs::write(&path, serde_json::to_string(&unsigned).unwrap()).unwrap();
+        let err = EmergencyStopBus::restore_from(&path).unwrap_err();
+        assert!(err.contains("unsigned emergency stop file"), "{err}");
+
+        let mut bus = EmergencyStopBus::default();
+        bus.apply_stop("fleet", "drill");
+        assert!(bus
+            .register_task(RunningTask::new("c1", true, false, "fleet/worker"))
+            .is_err());
+        assert!(bus.status.cancelled_tasks.contains("c1"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

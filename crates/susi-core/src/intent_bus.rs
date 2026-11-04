@@ -536,4 +536,32 @@ mod tests {
         assert!(bus.providers().is_empty());
         assert!(bus.needs().is_empty());
     }
+
+    #[test]
+    fn intent_similarity_uses_explicit_embeddings_and_cosine_handles_mismatched_lengths() {
+        assert_eq!(cosine(&[], &[1.0, 0.0]), 0.0);
+        assert_eq!(cosine(&[1.0], &[1.0, 0.0]), 0.0);
+        assert_eq!(cosine(&[0.0, 0.0], &[1.0, 0.0]), 0.0);
+
+        let a = IntentMessage {
+            id: "e1".into(),
+            from: "agent-a".into(),
+            kind: IntentKind::Provide,
+            intent: "custom alpha".into(),
+            embedding: Some(vec![1.0, 0.0, 0.0]),
+            payload: serde_json::Value::Null,
+            created_at: 1,
+        };
+        let b = IntentMessage {
+            id: "e2".into(),
+            from: "agent-b".into(),
+            kind: IntentKind::Need,
+            intent: "custom beta".into(),
+            embedding: Some(vec![1.0, 0.0, 0.0]),
+            payload: serde_json::Value::Null,
+            created_at: 2,
+        };
+        let score = intent_similarity(&a, &b);
+        assert!(score >= 0.45, "score={score}");
+    }
 }
