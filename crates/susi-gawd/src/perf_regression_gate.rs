@@ -83,4 +83,56 @@ mod perf_regression_gate_tests {
         );
         assert!(!gate_blocks_release(&ok));
     }
+
+    #[test]
+    fn perf_regression_gate_empty_baseline_passes_and_missing_candidate_fails() {
+        let empty = perf_regression_gate(&[], &[], 10.0);
+        assert!(empty.is_empty());
+        assert!(!gate_blocks_release(&empty));
+
+        let base = vec![BenchSample {
+            name: "latency_p99".into(),
+            value: 50.0,
+        }];
+        let missing = perf_regression_gate(&base, &[], 10.0);
+        assert_eq!(
+            missing,
+            vec![RegressionDecision::Fail {
+                name: "latency_p99".into(),
+                baseline: 50.0,
+                candidate: 0.0,
+            }]
+        );
+        assert!(gate_blocks_release(&missing));
+    }
+
+    #[test]
+    fn perf_regression_gate_passes_when_candidate_improves_over_baseline() {
+        let base = vec![BenchSample {
+            name: "tok_s".into(),
+            value: 100.0,
+        }];
+        let improved = vec![BenchSample {
+            name: "tok_s".into(),
+            value: 120.0,
+        }];
+        let decisions = perf_regression_gate(&base, &improved, 5.0);
+        assert_eq!(decisions, vec![RegressionDecision::Pass]);
+        assert!(!gate_blocks_release(&decisions));
+    }
+
+    #[test]
+    fn perf_regression_gate_accepts_exact_threshold_boundary() {
+        let base = vec![BenchSample {
+            name: "tok_s".into(),
+            value: 100.0,
+        }];
+        let boundary = vec![BenchSample {
+            name: "tok_s".into(),
+            value: 90.0,
+        }];
+        let decisions = perf_regression_gate(&base, &boundary, 10.0);
+        assert_eq!(decisions, vec![RegressionDecision::Pass]);
+        assert!(!gate_blocks_release(&decisions));
+    }
 }

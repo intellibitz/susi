@@ -234,4 +234,57 @@ mod export_file_tests {
             .contains("could not read"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn empty_audit_evidence_exports_empty_and_verifies_cleanly() {
+        let evidence = AuditEvidence::new();
+        assert!(evidence.export().is_empty());
+        let file_export = evidence.export_file();
+        assert_eq!(file_export.format, "susi-audit-evidence/v1");
+        assert_eq!(file_export.expected_len, 0);
+        let keys = BTreeMap::new();
+        assert!(AuditEvidence::verify(&[], &keys).is_ok());
+        assert!(file_export.verify(&keys).is_ok());
+    }
+
+    #[test]
+    fn append_with_unregistered_key_returns_none_without_mutating_chain() {
+        let mut evidence = AuditEvidence::new();
+        evidence.register_key("k1", "secret-1");
+        assert!(evidence.append("unauthenticated", "unknown-key").is_none());
+        assert!(evidence.export().is_empty());
+
+        let seg = evidence.append("authenticated", "k1").expect("valid key");
+        assert_eq!(seg.index, 0);
+        assert_eq!(evidence.export().len(), 1);
+    }
+
+    #[test]
+    fn verify_detects_tampered_body_signature_and_truncation() {
+        let mut evidence = AuditEvidence::new();
+        evidence.register_key("k1", "secret-1");
+        evidence.append("seg-0", "k1").unwrap();
+        evidence.append("seg-1", "k1").unwrap();
+        let keys = BTreeMap::from([("k1".to_string(), "secret-1".to_string())]);
+
+        let mut tampered_body = evidence.export();
+        tampered_body[1].redacted_body = "forged".into();
+        assert_eq!(
+            AuditEvidence::verify(&tampered_body, &keys),
+            Err(VerifyFailure::Tampering)
+        );
+
+        let mut tampered_sig = evidence.export();
+        tampered_sig[0].signature = "00".repeat(32);
+        assert_eq!(
+            AuditEvidence::verify(&tampered_sig, &keys),
+            Err(VerifyFailure::Tampering)
+        );
+
+        let truncated = &evidence.export()[..1];
+        assert_eq!(
+            AuditEvidence::verify_against_length(truncated, &keys, 2),
+            Err(VerifyFailure::Truncation)
+        );
+    }
 }

@@ -382,4 +382,37 @@ mod tests {
             assert_eq!(out["error"], MULTI_TENANT_COMMERCIAL, "{topic}");
         }
     }
+
+    #[test]
+    fn unknown_gawd_topic_returns_unhandled_topic_error() {
+        let err = handle_topic("gawd.nonexistent.topic", json!({}))
+            .expect_err("unknown topic must return Err");
+        assert!(err.contains("unhandled topic"));
+    }
+
+    #[test]
+    fn register_wires_gawd_prefix_on_global_plane_bus_idempotently() {
+        register();
+        register();
+        let res = PlaneBus::global()
+            .request(
+                "gawd.auth.mint_aic",
+                json!({
+                    "agent_id": "test_agent",
+                    "requested_capabilities": ["code", "verify"]
+                }),
+            )
+            .expect("plane bus request");
+        assert_eq!(res["certificate"]["agent_id"], "test_agent");
+    }
+
+    #[test]
+    fn non_tenant_readonly_topics_succeed_without_commercial_gate() {
+        let recent = handle_topic(topics::GAWD_SCHEDULER_RECENT, json!({ "limit": 5 }))
+            .expect("scheduler recent");
+        assert!(recent.is_array());
+
+        let peers = handle_topic(topics::GAWD_CLUSTER_PEERS, json!({})).expect("cluster peers");
+        assert!(peers.get("peers").and_then(Value::as_array).is_some());
+    }
 }

@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GAWDMODSA4T1104-1",
+  "title": "Expand susi-gawd core modules (audit_evidence, eval_separation, perf_regression_gate, plane_handler, repo_gate) to 4 unit tests each",
+  "touch": [
+    "crates/susi-gawd/src/audit_evidence.rs",
+    "crates/susi-gawd/src/eval_separation.rs",
+    "crates/susi-gawd/src/perf_regression_gate.rs",
+    "crates/susi-gawd/src/plane_handler.rs",
+    "crates/susi-gawd/src/repo_gate.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "export_file_tests"
+    ]
+  }
+}
