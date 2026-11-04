@@ -49,3 +49,99 @@ pub fn place(target: &CloudTarget, allowed: &[&str], constrain: bool) -> Placeme
         }
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn unconstrained_placement_allows_target_even_without_region_metadata() {
+        let target = CloudTarget {
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            region: None,
+        };
+        assert_eq!(
+            place(&target, &["us-east-1"], false),
+            PlacementDecision::Allow
+        );
+    }
+
+    #[test]
+    fn constrained_placement_rejects_missing_or_unknown_provenance_region() {
+        let missing = CloudTarget {
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            region: None,
+        };
+        assert_eq!(
+            place(&missing, &["us-east-1"], true),
+            PlacementDecision::RejectUnknownRegion
+        );
+
+        let unknown_prov = CloudTarget {
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            region: Some(RegionMeta {
+                region: "us-east-1".to_string(),
+                provenance: RegionProvenance::Unknown,
+            }),
+        };
+        assert_eq!(
+            place(&unknown_prov, &["us-east-1"], true),
+            PlacementDecision::RejectUnknownRegion
+        );
+    }
+
+    #[test]
+    fn constrained_placement_allows_verified_and_operator_attested_allowed_regions() {
+        for provenance in [
+            RegionProvenance::Verified,
+            RegionProvenance::OperatorAttested,
+        ] {
+            let target = CloudTarget {
+                provider: "vertex".to_string(),
+                model: "gemini".to_string(),
+                region: Some(RegionMeta {
+                    region: "eu-west-1".to_string(),
+                    provenance,
+                }),
+            };
+            assert_eq!(
+                place(&target, &["us-east-1", "eu-west-1"], true),
+                PlacementDecision::Allow
+            );
+        }
+    }
+
+    #[test]
+    fn constrained_placement_rejects_disallowed_or_empty_region_names() {
+        let disallowed = CloudTarget {
+            provider: "vertex".to_string(),
+            model: "gemini".to_string(),
+            region: Some(RegionMeta {
+                region: "ap-northeast-1".to_string(),
+                provenance: RegionProvenance::Verified,
+            }),
+        };
+        assert_eq!(
+            place(&disallowed, &["eu-west-1"], true),
+            PlacementDecision::RejectDisallowed {
+                region: "ap-northeast-1".to_string()
+            }
+        );
+
+        let empty_name = CloudTarget {
+            provider: "vertex".to_string(),
+            model: "gemini".to_string(),
+            region: Some(RegionMeta {
+                region: String::new(),
+                provenance: RegionProvenance::Verified,
+            }),
+        };
+        assert_eq!(
+            place(&empty_name, &["eu-west-1"], true),
+            PlacementDecision::RejectUnknownRegion
+        );
+    }
+}
