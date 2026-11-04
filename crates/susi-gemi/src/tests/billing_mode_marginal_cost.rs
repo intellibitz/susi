@@ -206,3 +206,24 @@ fn billing_mode_and_quota_window_round_trip_through_serde_json() {
     let back: QuotaWindow = serde_json::from_str(&json).expect("deserialize QuotaWindow");
     assert_eq!(back, win);
 }
+
+#[test]
+fn billing_mode_daily_and_weekly_quota_windows_round_trip_and_zero_tokens_is_free() {
+    for win in [
+        QuotaWindow::Daily {
+            remaining_calls: 42,
+            reset_unix: 1_700_086_400,
+        },
+        QuotaWindow::Weekly {
+            remaining_calls: 250,
+            reset_unix: 1_700_600_000,
+        },
+    ] {
+        let encoded = serde_json::to_string(&win).expect("serialize QuotaWindow");
+        let decoded: QuotaWindow = serde_json::from_str(&encoded).expect("deserialize QuotaWindow");
+        assert_eq!(decoded, win);
+    }
+
+    let paygo = MarginalCost::pay_as_you_go(0.005);
+    assert!(paygo.next_call_cost(0).abs() < f64::EPSILON);
+}

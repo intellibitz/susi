@@ -101,3 +101,11 @@ fn vc_201_065_mastery_schema_version_constant_is_positive_and_persisted() {
         "state_migration.rs must persist the target schema version after migration"
     );
 }
+
+#[test]
+fn vc_201_065_mastery_run_daemon_loop_source_is_non_empty_and_names_global_dir() {
+    let body = run_daemon_loop_source();
+    assert!(!body.is_empty());
+    assert!(body.contains("fn run_daemon_loop"));
+    assert!(body.contains("global_dir"));
+}

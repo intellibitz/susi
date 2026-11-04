@@ -159,3 +159,11 @@ fn vc_201_044_mastery_size_mismatch_quarantines_and_never_marks_ready() {
     let _ = store.publish("model.gguf", &plan, &|req| transport.call(req));
     assert!(!store.is_ready("model.gguf"));
 }
+
+#[test]
+fn vc_201_044_mastery_unverified_model_name_is_never_ready_on_fresh_store() {
+    let root = temp_store_dir("fresh-empty");
+    let store = Store::new(&root);
+    assert!(!store.is_ready("nonexistent-model.gguf"));
+    assert!(store.recover().is_empty());
+}

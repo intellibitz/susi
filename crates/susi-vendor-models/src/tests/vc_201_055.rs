@@ -162,3 +162,35 @@ fn vc_201_055_compute_operation_id_is_deterministic_and_sensitive_to_inputs() {
     assert_ne!(id1, diff_backend);
     assert_ne!(id1, diff_action);
 }
+
+#[test]
+fn vc_201_055_health_check_transitions_between_healthy_and_degraded() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-health".into(),
+        target_backend: "runpod".into(),
+        model_id: "qwen-72b".into(),
+        min_replicas: 2,
+        max_replicas: 4,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-health".into(),
+        target_backend: "runpod".into(),
+        model_id: "qwen-72b".into(),
+        active_replicas: 2,
+        healthy_replicas: 2,
+        phase: DeploymentPhase::Healthy,
+        last_operation_id: None,
+        observed_generation: 1,
+    };
+
+    reconciler.run_health_check(&desired, &mut observed, false);
+    assert_eq!(observed.phase, DeploymentPhase::Degraded);
+    assert_eq!(observed.healthy_replicas, 0);
+
+    reconciler.run_health_check(&desired, &mut observed, true);
+    assert_eq!(observed.phase, DeploymentPhase::Healthy);
+    assert_eq!(observed.healthy_replicas, 2);
+}

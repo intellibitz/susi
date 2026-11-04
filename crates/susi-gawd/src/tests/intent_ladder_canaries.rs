@@ -65,3 +65,20 @@ fn intent_ladder_canaries_exact_boundary_and_invalid_inputs() {
     };
     assert_eq!(evaluate_canary(&nan_metric), CanaryResult::StopTrial);
 }
+
+#[test]
+fn intent_ladder_canaries_nan_baseline_or_nan_regression_limit_stops_trial() {
+    let nan_baseline = CanaryTrial {
+        candidate_metric: 1.0,
+        baseline_metric: f64::NAN,
+        regression_limit: 0.5,
+    };
+    assert_eq!(evaluate_canary(&nan_baseline), CanaryResult::StopTrial);
+
+    let nan_limit = CanaryTrial {
+        candidate_metric: 1.0,
+        baseline_metric: 1.0,
+        regression_limit: f64::NAN,
+    };
+    assert_eq!(evaluate_canary(&nan_limit), CanaryResult::StopTrial);
+}

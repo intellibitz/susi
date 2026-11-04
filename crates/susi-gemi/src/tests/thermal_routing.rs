@@ -82,3 +82,25 @@ fn thermal_routing_new_starts_fit_and_observe_unknown_clears_on_cool_sample() {
     assert_eq!(after_cool, HostFitness::Fit);
     assert!(!r.prefer_cloud());
 }
+
+#[test]
+fn thermal_routing_transient_hot_spike_below_sustained_threshold_keeps_host_fit() {
+    let mut r = ThermalRouter::new(85.0, 70.0, 3);
+    r.observe(ThermalSample {
+        temp_c: 90.0,
+        power_w: 100.0,
+        power_cap_w: 200.0,
+        util_pct: 80.0,
+    });
+    assert_eq!(r.state(), HostFitness::Fit);
+
+    r.observe(ThermalSample {
+        temp_c: 65.0,
+        power_w: 60.0,
+        power_cap_w: 200.0,
+        util_pct: 30.0,
+    });
+    assert_eq!(r.state(), HostFitness::Fit);
+    assert!(!r.prefer_cloud());
+    assert!(r.local_ok_for_latency_sensitive());
+}

@@ -124,3 +124,13 @@ fn vc_201_021_complete_unknown_errors_and_upsert_updates_in_place() {
     assert_eq!(m.runnable().len(), 1);
     assert_eq!(m.runnable()[0].id, "n1");
 }
+
+#[test]
+fn vc_201_021_mission_id_for_goal_is_deterministic_and_non_empty() {
+    let id1 = PersistedMission::mission_id_for_goal("build and verify");
+    let id2 = PersistedMission::mission_id_for_goal("build and verify");
+    let id3 = PersistedMission::mission_id_for_goal("different goal");
+    assert!(!id1.is_empty());
+    assert_eq!(id1, id2);
+    assert_ne!(id1, id3);
+}

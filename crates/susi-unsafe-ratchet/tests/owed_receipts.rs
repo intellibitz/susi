@@ -159,3 +159,11 @@ fn publishing_done_record_on_origin_main_clears_previously_owed_receipt() {
 
     assert!(repo.owed("LATEAGENT").is_empty());
 }
+
+#[test]
+fn malformed_receipt_json_is_ignored_when_querying_valid_agent() {
+    let repo = Repo::new();
+    repo.receipt("T-CORRUPT-1", "not-a-json-object");
+    repo.receipt("T-VALID-1", r#"{"agent":"CLEANAGENT"}"#);
+    assert_eq!(repo.owed("CLEANAGENT"), ["T-VALID-1"]);
+}

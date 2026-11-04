@@ -1,0 +1,27 @@
+{
+  "id": "T-GEMITESTS5TA1104-1",
+  "title": "Expand unit tests from 4 to 5 per suite across 14 crates/susi-gemi/src/tests/*.rs modules",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--",
+      "rate_limit_scheduler_tests"
+    ]
+  },
+  "created_by": "GEMITESTS5TA1104",
+  "created_unix": 1793812512,
+  "closed": {
+    "at_unix": 1793813326,
+    "commit": "ea500faf06e4de34e814f8c557b4be2e63dcabca",
+    "by": "GEMITESTS5TA1104"
+  }
+}

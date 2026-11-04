@@ -85,3 +85,10 @@ fn vc_201_058_missing_capability_and_no_route_lists_every_attempt() {
     assert_eq!(refusals[0].reason, "missing capability");
     assert_eq!(refusals[1].reason, "provider outage");
 }
+
+#[test]
+fn vc_201_058_empty_endpoint_list_returns_no_route_with_empty_refusals() {
+    let c = constraints();
+    let NoRoute { refusals } = route(&c, &[]).unwrap_err();
+    assert!(refusals.is_empty());
+}

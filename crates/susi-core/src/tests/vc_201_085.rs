@@ -112,3 +112,12 @@ fn vc_201_085_run_fixtures_rejects_broken_or_unparseable_json_fixtures() {
     };
     assert!(valid_fixtures.run_fixtures());
 }
+
+#[test]
+fn vc_201_085_skill_sign_produces_distinct_signatures_across_signer_name_and_version() {
+    let s1 = skill_sign("alice", "pack-a", "1.0.0");
+    assert_eq!(s1, skill_sign("alice", "pack-a", "1.0.0"));
+    assert_ne!(s1, skill_sign("bob", "pack-a", "1.0.0"));
+    assert_ne!(s1, skill_sign("alice", "pack-b", "1.0.0"));
+    assert_ne!(s1, skill_sign("alice", "pack-a", "1.0.1"));
+}

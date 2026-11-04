@@ -56,3 +56,13 @@ fn vc_201_040_trace_archive_roundtrips() {
     assert!(loaded.scenarios.iter().all(|s| !s.trace.is_empty()));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn vc_201_040_every_scenario_records_non_empty_expected_guard_and_trace() {
+    let report = run_matrix();
+    assert!(!report.scenarios.is_empty());
+    for s in &report.scenarios {
+        assert!(!s.expected_guard.is_empty());
+        assert!(!s.trace.is_empty());
+    }
+}

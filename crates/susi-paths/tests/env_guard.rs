@@ -71,3 +71,18 @@ fn env_guard_isolated_scrubs_susi_home_and_port_offset_independently() {
     assert!(std::env::var_os("SUSI_PORT_OFFSET").is_none());
     drop(env);
 }
+
+#[test]
+fn env_guard_set_and_remove_chain_preserves_interleaved_vars() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut env = EnvGuard::isolated();
+    env.set("SUSI_CHAIN_A", "alpha")
+        .set("SUSI_CHAIN_B", "beta")
+        .remove("SUSI_CHAIN_A");
+    assert!(std::env::var_os("SUSI_CHAIN_A").is_none());
+    assert_eq!(
+        std::env::var_os("SUSI_CHAIN_B").as_deref(),
+        Some(OsStr::new("beta"))
+    );
+    drop(env);
+}
