@@ -208,4 +208,55 @@ mod tests {
             .to_string()
             .contains("refused by plane"));
     }
+
+    #[test]
+    fn adapter_setup_and_agents_retry_forward_expected_actions_and_workspace() {
+        PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        let setup = sent(CoreTools::adapter_setup(
+            &json!({"kind": "agents", "id": "claude"}),
+            &ws,
+        ));
+        assert_eq!(setup["action"], "setup");
+        assert_eq!(setup["kind"], "agents");
+        assert_eq!(setup["id"], "claude");
+
+        let retried = sent(CoreTools::agents_retry(&json!({"task_id": "t-42"}), &ws));
+        assert_eq!(retried["action"], "retry");
+        assert_eq!(retried["kind"], "agents");
+        assert_eq!(retried["task_id"], "t-42");
+    }
+
+    #[test]
+    fn adapter_configure_resolves_granted_absolute_file_path() {
+        PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        let file = ws.join("susi-adapter-override.json");
+        let configured = sent(CoreTools::adapter_configure(
+            &json!({
+                "kind": "frameworks",
+                "id": "autogen",
+                "file": file.display().to_string()
+            }),
+            &ws,
+        ));
+        assert_eq!(configured["action"], "configure");
+        assert!(
+            Path::new(configured["file"].as_str().unwrap()).ends_with("susi-adapter-override.json")
+        );
+    }
+
+    #[test]
+    fn mcp_add_forwards_url_without_optional_args_and_rejects_bad_types() {
+        PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        let added = sent(CoreTools::mcp_add(
+            &json!({"name": "local", "command_or_url": "https://mcp.local/sse"}),
+            &ws,
+        ));
+        assert_eq!(added["action"], "mcp_add");
+        assert_eq!(added["name"], "local");
+        assert!(added.get("args").is_none());
+        assert!(CoreTools::adapter_doctor(&json!({"kind": 123}), &ws).is_err());
+    }
 }
