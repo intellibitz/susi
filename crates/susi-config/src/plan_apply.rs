@@ -255,4 +255,35 @@ mod tests {
         assert!(!rendered.contains("old-secret"));
         assert!(!rendered.contains("new-secret"));
     }
+
+    #[test]
+    fn partial_replay_skips_applied_ops_and_applies_new_ops_and_config_plan_serde_roundtrip() {
+        let mut store = ConfigStore::default();
+        store.values.insert("k1".into(), "v1_old".into());
+        store.values.insert("k2".into(), "v2_old".into());
+
+        let mut desired = BTreeMap::new();
+        desired.insert("k1".into(), "v1_new".into());
+        desired.insert("k2".into(), "v2_new".into());
+        let plan = store.plan(&desired);
+        assert_eq!(plan.ops.len(), 2);
+
+        let plan_json = serde_json::to_string(&plan).unwrap();
+        let roundtrip: ConfigPlan = serde_json::from_str(&plan_json).unwrap();
+        assert_eq!(roundtrip, plan);
+
+        // Simulate op1 already applied while k1 holds its post-apply state and k2 still holds v2_old.
+        let op1_id = plan.ops[0].id.clone();
+        let op2_id = plan.ops[1].id.clone();
+        store.values.insert("k1".into(), "already_mutated".into());
+        store.applied_ops.insert(op1_id.clone(), true);
+
+        let actions = store.apply(&plan).expect("partial replay succeeds");
+        assert_eq!(
+            actions,
+            vec![format!("skip {op1_id}"), format!("applied {op2_id}")]
+        );
+        assert_eq!(store.values.get("k1"), Some(&"already_mutated".into()));
+        assert_eq!(store.values.get("k2"), Some(&"v2_new".into()));
+    }
 }
