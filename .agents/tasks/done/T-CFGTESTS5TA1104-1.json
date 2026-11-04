@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CFGTESTS5TA1104",
-  "created_unix": 1793813000
+  "created_unix": 1793813000,
+  "closed": {
+    "at_unix": 1793813121,
+    "commit": "bda8bf82250bd2eb8797a6f3a1f7b26b7898c239",
+    "by": "CFGTESTS5TA1104"
+  }
 }
