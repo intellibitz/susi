@@ -364,4 +364,50 @@ mod tests {
             format!("Download already active for: {target_url}")
         );
     }
+
+    #[test]
+    fn list_active_prefers_progress_file_when_present_and_stop_download_removes_active_entry() {
+        let controller = ModelDownloadController::default();
+        let model_name = format!("synthetic-progress-{}.gguf", std::process::id());
+        let target_url =
+            format!("https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/{model_name}");
+        let progress_path = ModelManager::progress_path(&target_url);
+        let _ = fs::remove_file(&progress_path);
+
+        let handle = SwarmTaskManager::global().register_task("model_download_live", &target_url);
+        controller.active_downloads.insert(
+            target_url.clone(),
+            ActiveDownloadTask {
+                target_url: target_url.clone(),
+                model_name: model_name.clone(),
+                task_handle: Arc::clone(&handle),
+            },
+        );
+
+        // 1. Without a progress file on disk, list_active returns the 0-byte RUNNING placeholder.
+        let placeholder = controller.list_active();
+        assert_eq!(placeholder.len(), 1);
+        assert_eq!(placeholder[0].bytes_downloaded, 0);
+        assert_eq!(placeholder[0].status, "RUNNING");
+
+        // 2. With a matching progress file on disk, list_active returns the live progress record.
+        ModelManager::save_download_progress(&model_name, &target_url, 2_048, 4_096, "RUNNING");
+        let live = controller.list_active();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].bytes_downloaded, 2_048);
+        assert_eq!(live[0].expected_bytes, 4_096);
+        assert!((live[0].percentage - 50.0).abs() < f32::EPSILON);
+
+        // 3. Cancelling the handle and removing the active entry clears is_downloading.
+        handle
+            .cancel_flag
+            .store(true, std::sync::atomic::Ordering::Release);
+        assert!(handle.is_cancelled());
+        controller.active_downloads.remove(&target_url);
+        assert!(!controller.is_downloading(&target_url));
+        assert!(!controller.has_active_downloads());
+        assert!(controller.list_active().is_empty());
+
+        let _ = fs::remove_file(&progress_path);
+    }
 }
