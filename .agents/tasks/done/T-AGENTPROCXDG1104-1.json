@@ -20,5 +20,10 @@
     ]
   },
   "created_by": "AGENTPROCXDG1104",
-  "created_unix": 1793774723
+  "created_unix": 1793774723,
+  "closed": {
+    "at_unix": 1793775026,
+    "commit": "1aec100ca268eb091581419b4c6db1caff3ba414",
+    "by": "AGENTPROCXDG1104"
+  }
 }
