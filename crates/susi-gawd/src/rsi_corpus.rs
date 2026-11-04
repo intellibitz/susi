@@ -283,3 +283,91 @@ pub fn make_fixture(spec: FixtureSpec<'_>) -> CorpusFixture {
         evaluator_expected: spec.evaluator_expected,
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_corpus() -> RsiCorpus {
+        RsiCorpus {
+            schema_version: RSI_CORPUS_SCHEMA.to_string(),
+            revision: "rev-2026-11".to_string(),
+            fixtures: vec![
+                make_fixture(FixtureSpec {
+                    id: "f-train",
+                    class: FixtureClass::Coding,
+                    input: "solve x",
+                    split: FixtureSplit::Train,
+                    seed: 11,
+                    evaluator_expected: Some("x=1".to_string()),
+                }),
+                make_fixture(FixtureSpec {
+                    id: "f-held",
+                    class: FixtureClass::Repair,
+                    input: "fix y",
+                    split: FixtureSplit::HeldOut,
+                    seed: 22,
+                    evaluator_expected: Some("y=2".to_string()),
+                }),
+            ],
+            promotion_spec: None,
+        }
+    }
+
+    #[test]
+    fn make_fixture_and_from_json_verify_integrity_for_valid_corpus() {
+        let corpus = sample_corpus();
+        assert!(corpus.verify_integrity().is_ok());
+        let json = serde_json::to_string(&corpus).unwrap();
+        let parsed = RsiCorpus::from_json(&json).unwrap();
+        assert_eq!(parsed, corpus);
+    }
+
+    #[test]
+    fn verify_integrity_detects_schema_revision_duplicate_and_hash_errors() {
+        let mut bad_schema = sample_corpus();
+        bad_schema.schema_version = "wrong/v0".to_string();
+        assert!(matches!(
+            bad_schema.verify_integrity(),
+            Err(CorpusIntegrityError::UnsupportedSchema { .. })
+        ));
+
+        let mut empty_rev = sample_corpus();
+        empty_rev.revision = "   ".to_string();
+        assert_eq!(
+            empty_rev.verify_integrity(),
+            Err(CorpusIntegrityError::EmptyRevision)
+        );
+
+        let mut bad_hash = sample_corpus();
+        bad_hash.fixtures[0].input_hash = "deadbeef".to_string();
+        assert!(matches!(
+            bad_hash.verify_integrity(),
+            Err(CorpusIntegrityError::InputHashMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn candidate_view_strips_evaluator_expected_and_splits_filter_cleanly() {
+        let corpus = sample_corpus();
+        let view = corpus.candidate_view();
+        assert!(view.fixtures.iter().all(|f| f.evaluator_expected.is_none()));
+        assert_eq!(corpus.train().len(), 1);
+        assert_eq!(corpus.held_out().len(), 1);
+        assert!(corpus.held_out_ids().contains("f-held"));
+    }
+
+    #[test]
+    fn replay_seeds_enforces_revision_match_and_returns_seed_map() {
+        let corpus = sample_corpus();
+        assert!(matches!(
+            corpus.replay_seeds("other-rev"),
+            Err(CorpusIntegrityError::RevisionMismatch { .. })
+        ));
+        let seeds = corpus.replay_seeds("rev-2026-11").unwrap();
+        assert_eq!(seeds.get("f-train"), Some(&11));
+        assert_eq!(seeds.get("f-held"), Some(&22));
+    }
+}
