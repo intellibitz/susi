@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "SOCKPARITY1103",
-  "created_unix": 1793743205
+  "created_unix": 1793743205,
+  "closed": {
+    "at_unix": 1793761404,
+    "commit": "84c3473bfcac791e7603c9d96f91468ab0131aba",
+    "by": "SOCKPARITY1103"
+  }
 }
