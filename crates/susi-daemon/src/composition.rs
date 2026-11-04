@@ -424,7 +424,10 @@ pub fn wire_mcp_serve_substrate(substrate: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::wire_plane_bus;
+    use super::{
+        swarm_host_snapshot, wire_daemon_engine_hooks, wire_engine_hooks, wire_mcp_serve_substrate,
+        wire_plane_bus, wire_plane_handlers,
+    };
 
     #[test]
     fn wire_plane_bus_answers_hardware_profile() {
@@ -437,5 +440,46 @@ mod tests {
             .expect("gemi.hardware.profile handler");
         let cpus = profile.get("cpus").and_then(|v| v.as_u64()).unwrap_or(0);
         assert!(cpus > 0, "hardware profile had no cpus: {profile}");
+    }
+
+    #[test]
+    fn wire_mcp_serve_substrate_creates_dir_and_initializes_context_graph() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-mcp-serve-sub-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        wire_mcp_serve_substrate(&dir);
+        assert!(dir.is_dir(), "substrate directory must be created");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wire_plane_bus_and_handlers_are_idempotent_across_repeated_calls() {
+        wire_plane_handlers();
+        wire_plane_handlers();
+        wire_plane_bus();
+        wire_plane_bus();
+        let resp = susi_core::plane_bus::PlaneBus::global().request(
+            susi_core::plane_bus::topics::GEMI_HARDWARE_PROFILE,
+            serde_json::json!({}),
+        );
+        assert!(resp.is_ok());
+    }
+
+    #[test]
+    fn wire_engine_hooks_and_swarm_host_snapshot_register_cleanly() {
+        wire_daemon_engine_hooks();
+        wire_engine_hooks();
+        let snap = swarm_host_snapshot();
+        assert_eq!(snap.get("wired").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            snap.get("orchestrator_id").and_then(|v| v.as_str()),
+            Some("susi-host")
+        );
     }
 }

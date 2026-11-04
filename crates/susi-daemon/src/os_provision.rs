@@ -95,4 +95,43 @@ mod tests {
         );
         assert!(dispatch(&json!({"action": "list", "kind": "not-a-cloud"})).is_err());
     }
+
+    #[test]
+    fn dispatch_apply_rejects_blank_manifest_and_nonexistent_absolute_path() {
+        assert!(
+            dispatch(&json!({"action": "apply", "kind": "kubernetes", "manifest": "   "}))
+                .unwrap_err()
+                .contains("requires manifest")
+        );
+        let missing = std::env::temp_dir().join(format!(
+            "susi-nonexistent-manifest-{}.yaml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&missing);
+        let err = dispatch(&json!({
+            "action": "apply",
+            "kind": "kubernetes",
+            "manifest": missing.to_string_lossy(),
+        }))
+        .unwrap_err();
+        assert!(
+            err.contains("read "),
+            "expected file read error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn apply_and_list_report_reject_unknown_cloud_kind() {
+        assert!(apply("not-a-cloud", "apiVersion: v1").is_err());
+        assert!(list_report("not-a-cloud").is_err());
+    }
+
+    #[test]
+    fn dispatch_apply_validates_kind_before_manifest() {
+        assert!(
+            dispatch(&json!({"action": "apply"}))
+                .unwrap_err()
+                .contains("apply requires kind")
+        );
+    }
 }
