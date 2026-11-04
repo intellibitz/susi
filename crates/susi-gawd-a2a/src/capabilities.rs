@@ -119,10 +119,12 @@ mod tests {
 
         assert_eq!(first.streaming, Some(false));
         assert_eq!(first.push_notifications, Some(true));
-        assert_eq!(first.state_transition_history, None);
+        assert_eq!(first.extended_agent_card, None);
+        assert!(first.extensions.is_empty());
 
         assert_eq!(second.streaming, Some(false));
         assert_eq!(second.push_notifications, Some(false));
-        assert_eq!(second.state_transition_history, None);
+        assert_eq!(second.extended_agent_card, None);
+        assert!(second.extensions.is_empty());
     }
 }
