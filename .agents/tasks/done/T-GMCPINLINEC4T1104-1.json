@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "GMCPINLINEC4T1104",
-  "created_unix": 1793799743
+  "created_unix": 1793799743,
+  "closed": {
+    "at_unix": 1793800014,
+    "commit": "7eef9dcc35551f50ec785f1b34789f27dbdefb9f",
+    "by": "GMCPINLINEC4T1104"
+  }
 }
