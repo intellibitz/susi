@@ -213,3 +213,9 @@ fn missing_seqs_floored_reports_only_gaps_above_snapshot_floor() {
     let missing = commit_log::missing_seqs_floored(&commit_log::load(), "coord-f", 4, 2);
     assert_eq!(missing, vec![3]);
 }
+
+#[test]
+fn missing_seqs_floored_returns_empty_when_high_water_at_or_below_floor() {
+    assert!(commit_log::missing_seqs_floored(&[], "coord-x", 2, 2).is_empty());
+    assert!(commit_log::missing_seqs_floored(&[], "coord-x", 1, 5).is_empty());
+}

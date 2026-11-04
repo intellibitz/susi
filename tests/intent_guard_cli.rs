@@ -84,3 +84,13 @@ fn nested_command_word_is_refused_with_a_hint() {
     assert!(stderr.contains("susi admin release"), "{stderr}");
     assert!(written.is_empty(), "{written:?}");
 }
+
+#[test]
+fn unit_susi_binary_exists_for_intent_guard() {
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_susi"));
+    assert!(
+        bin.is_file(),
+        "expected susi executable at {}",
+        bin.display()
+    );
+}
