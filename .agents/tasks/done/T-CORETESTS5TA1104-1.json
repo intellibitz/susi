@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CORETESTS5TA1104",
-  "created_unix": 1793812642
+  "created_unix": 1793812642,
+  "closed": {
+    "at_unix": 1793812742,
+    "commit": "5c5c6d2f78b55f6be594b71a1b12f5ef310a5506",
+    "by": "CORETESTS5TA1104"
+  }
 }
