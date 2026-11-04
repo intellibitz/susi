@@ -1,0 +1,20 @@
+{
+  "id": "T-GEMI5TA1104-1",
+  "title": "Advance 8 Wave A susi-gemi modules to 5 inline unit tests each (CEO Job #289)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "created_by": "GEMI5TA1104",
+  "created_unix": 1793805561
+}

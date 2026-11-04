@@ -168,4 +168,25 @@ mod inline_tests {
             Some("brain_capability_matrix.json")
         );
     }
+
+    #[test]
+    fn build_returns_matrix_covering_all_canonical_task_classes() {
+        let matrix = build();
+        assert_eq!(matrix.classes.len(), TaskClass::ALL.len());
+        let cell = MatrixCell {
+            provider: "deepseek".into(),
+            capability: "coding".into(),
+            meets_floor: true,
+            unfit: false,
+            samples: 18,
+            success_rate: Some(0.95),
+            avg_latency_ms: Some(350),
+            expected_cost_usd: Some(0.0012),
+            cost_per_outcome_usd: Some(0.0013),
+            last_failure: None,
+        };
+        let encoded = serde_json::to_string(&cell).unwrap();
+        let decoded: MatrixCell = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, cell);
+    }
 }

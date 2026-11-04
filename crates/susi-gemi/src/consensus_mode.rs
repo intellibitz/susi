@@ -273,4 +273,11 @@ mod consensus_mode_tests {
         assert!(report.posterior_probability.abs() < f64::EPSILON);
         assert!(report.supporting_providers.is_empty());
     }
+
+    #[test]
+    fn canonicalize_answer_strips_code_fences_punctuation_and_markdown_emphasis() {
+        let fenced = "```rust\nfn main() {}\n```";
+        assert_eq!(canonicalize_answer(fenced), "fn main() {}");
+        assert_eq!(canonicalize_answer("  **Yes, agreed!**.  "), "yes, agreed!");
+    }
 }
