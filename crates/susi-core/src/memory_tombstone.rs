@@ -137,3 +137,66 @@ impl MemoryStores {
         self.persist_tombstones();
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn insert_populates_all_stores_and_rejects_late_write_after_tombstone() {
+        let mut stores = MemoryStores::default();
+        assert!(stores.insert("k1", "val-1"));
+        assert_eq!(stores.get("k1"), Some("val-1"));
+        assert!(stores.semantic_index.contains("k1"));
+
+        stores.delete_start("k1", 100);
+        assert!(!stores.insert("k1", "resurrect"));
+        assert_eq!(stores.get("k1"), None);
+    }
+
+    #[test]
+    fn delete_start_and_resume_purge_derived_stores_and_prevent_resurrection() {
+        let mut stores = MemoryStores::default();
+        assert!(stores.insert("k2", "val-2"));
+        stores.delete_start("k2", 200);
+        assert_eq!(stores.get("k2"), None);
+        assert!(stores.pending_delete.contains("k2"));
+
+        stores.delete_resume();
+        assert!(!stores.pending_delete.contains("k2"));
+        assert!(!stores.semantic_index.contains("k2"));
+        assert!(!stores.cache.contains_key("k2"));
+        assert!(!stores.replica.contains_key("k2"));
+    }
+
+    #[test]
+    fn snapshot_and_restore_tombstones_preserve_deletion_barriers() {
+        let mut first = MemoryStores::default();
+        first.insert("k3", "val-3");
+        first.delete_start("k3", 300);
+        let snap = first.snapshot_tombstones();
+
+        let mut second = MemoryStores::default();
+        second.restore_tombstones(snap);
+        assert!(!second.insert("k3", "late-val"));
+        assert_eq!(second.get("k3"), None);
+    }
+
+    #[test]
+    fn persistent_memory_stores_save_and_reload_tombstones_from_disk() {
+        let dir = std::env::temp_dir().join(format!("susi-tomb-inline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("tombstones.json");
+
+        let mut writer = MemoryStores::new_persistent(&path);
+        writer.insert("k4", "val-4");
+        writer.delete_start("k4", 400);
+
+        let mut reader = MemoryStores::new_persistent(&path);
+        assert!(reader.tombstones.contains_key("k4"));
+        assert!(!reader.insert("k4", "re-insert"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
