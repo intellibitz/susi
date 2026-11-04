@@ -226,4 +226,22 @@ mod region_failover_tests {
         assert!(p2 > p1);
         assert!(p3 > p2);
     }
+
+    #[test]
+    fn p95_rtt_ms_clamps_negative_stddev_and_enforces_one_ms_floor() {
+        let tiny = RegionTelemetry {
+            region: "local-edge".into(),
+            mean_rtt_ms: 0.2,
+            stddev_rtt_ms: -5.0,
+            elapsed_since_ok_ms: 10.0,
+            heartbeat_mean_ms: 1000.0,
+            heartbeat_stddev_ms: 50.0,
+        };
+        assert!((tiny.p95_rtt_ms() - 1.0).abs() < f64::EPSILON);
+
+        let plan = plan_hedged_failover(&[tiny], &[], 8.0).expect("single healthy region");
+        assert_eq!(plan.primary_region, "local-edge");
+        assert_eq!(plan.hedge_region, None);
+        assert_eq!(plan.hedge_after_ms, 25);
+    }
 }

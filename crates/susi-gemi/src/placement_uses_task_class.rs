@@ -228,4 +228,24 @@ mod placement_uses_task_class_tests {
         assert_eq!(decision.placement, Placement::Cloud);
         assert!(decision.cloud_utility_advantage > 0.0);
     }
+
+    #[test]
+    fn place_and_optimize_placement_enforce_local_only_task_class() {
+        assert_eq!(place("local_only", 100.0), Placement::Local);
+        assert_eq!(place("summarize", 100.0), Placement::Local);
+        assert_eq!(place("classify", 100.0), Placement::Local);
+
+        let local_class = optimize_placement(PlacementContext {
+            task_class: "local_only",
+            daily_budget_usd: 100.0,
+            spent_today_usd: 0.0,
+            expected_cloud_cost_usd: 0.01,
+            local_tokens_per_sec: 5.0,
+            host_fitness: HostFitness::UnfitThermal,
+            local_only_policy: false,
+            local_meets_capability_floor: false,
+        });
+        assert_eq!(local_class.placement, Placement::Local);
+        assert!(local_class.budget_shadow_price.is_infinite());
+    }
 }

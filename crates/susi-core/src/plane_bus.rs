@@ -282,33 +282,73 @@ fn req_ok(topic: &str, payload: Value) -> Value {
 /// travel back on.
 const PROGRESS_STREAM: &str = "progress_stream";
 
-/// [`req`] for a call this thread's caller may be watching
-/// ([`crate::progress`]). With a sink installed, the handler is given a
-/// bus stream ([`progress_sink_for`]) and the lines it reports reach the
-/// sink while the request is still running; without one this is [`req`].
+/// Stream chunk key naming the handler's reverse cancellation stream.
+const CANCEL_STREAM: &str = "cancel_stream";
+
+/// [`req`] for a call this thread's caller may be watching or may cancel
+/// ([`crate::progress`]). With a sink or cancel flag installed, the handler
+/// gets a bus stream ([`with_watched`], [`progress_sink_for`]) so progress
+/// lines come back and cancellation travels forward while the request runs;
+/// without either this is [`req`].
 fn req_watched(topic: &str, mut payload: Value) -> Result<Value, String> {
-    let Some(sink) = crate::progress::current() else {
+    let sink = crate::progress::current();
+    let cancel = crate::progress::current_cancel();
+    if sink.is_none() && cancel.is_none() {
         return req(topic, payload);
-    };
+    }
     let (stream_id, rx) = PlaneBus::global().open_stream();
     payload[PROGRESS_STREAM] = json!(stream_id);
+    if cancel
+        .as_ref()
+        .is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire))
+    {
+        payload["cancelled"] = json!(true);
+    }
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let finished = done.clone();
     // Relay while the request blocks this thread; once it has returned,
     // drain what is already queued and stop at the first quiet gap.
-    let relay = std::thread::spawn(move || loop {
-        match rx.recv_timeout(std::time::Duration::from_millis(50)) {
-            Ok(chunk) => {
-                if let Some(line) = chunk.get("message").and_then(Value::as_str) {
-                    sink(line);
+    let relay = std::thread::spawn(move || {
+        let mut cancel_streams = Vec::<String>::new();
+        let mut cancel_sent = false;
+        loop {
+            match rx.recv_timeout(std::time::Duration::from_millis(25)) {
+                Ok(chunk) => {
+                    if let (Some(sink), Some(line)) =
+                        (&sink, chunk.get("message").and_then(Value::as_str))
+                    {
+                        sink(line);
+                    }
+                    if let Some(cs) = chunk.get(CANCEL_STREAM).and_then(Value::as_str) {
+                        if cancel_sent
+                            || cancel
+                                .as_ref()
+                                .is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire))
+                        {
+                            cancel_sent = true;
+                            PlaneBus::global().stream_emit(cs, json!({ "cancelled": true }));
+                        } else {
+                            cancel_streams.push(cs.to_string());
+                        }
+                    }
+                }
+                Err(flume::RecvTimeoutError::Timeout) => {
+                    if finished.load(std::sync::atomic::Ordering::Acquire) {
+                        break;
+                    }
+                }
+                Err(flume::RecvTimeoutError::Disconnected) => break,
+            }
+            if !cancel_sent
+                && cancel
+                    .as_ref()
+                    .is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire))
+            {
+                cancel_sent = true;
+                for cs in cancel_streams.drain(..) {
+                    PlaneBus::global().stream_emit(&cs, json!({ "cancelled": true }));
                 }
             }
-            Err(flume::RecvTimeoutError::Timeout) => {
-                if finished.load(std::sync::atomic::Ordering::Acquire) {
-                    break;
-                }
-            }
-            Err(flume::RecvTimeoutError::Disconnected) => break,
         }
     });
     // Ends the relay and closes the stream on every way out, a panic too.
@@ -347,6 +387,54 @@ pub fn progress_sink_for(payload: &Value) -> Option<crate::progress::Sink> {
     Some(Arc::new(move |line: &str| {
         PlaneBus::global().stream_emit(&stream_id, json!({ "message": line }));
     }))
+}
+
+/// Run a plane handler body with both the watched request's progress sink and
+/// its cooperative cancellation flag installed on this thread.
+pub fn with_watched<T>(payload: &Value, call: impl FnOnce() -> T) -> T {
+    let Some(stream_id) = payload
+        .get(PROGRESS_STREAM)
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+    else {
+        return call();
+    };
+    let initially_cancelled = payload
+        .get("cancelled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(initially_cancelled));
+    let (cancel_stream, cancel_rx) = PlaneBus::global().open_stream();
+    let observed = cancel_flag.clone();
+    let listener = std::thread::spawn(move || {
+        if cancel_rx.recv().is_ok() {
+            observed.store(true, std::sync::atomic::Ordering::Release);
+        }
+    });
+    PlaneBus::global().stream_emit(&stream_id, json!({ CANCEL_STREAM: cancel_stream }));
+    struct CancelWatch {
+        cancel_stream: String,
+        listener: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Drop for CancelWatch {
+        fn drop(&mut self) {
+            PlaneBus::global().stream_close(&self.cancel_stream);
+            if let Some(listener) = self.listener.take() {
+                let _ = listener.join();
+            }
+        }
+    }
+    let _cancel_watch = CancelWatch {
+        cancel_stream,
+        listener: Some(listener),
+    };
+    let sink: crate::progress::Sink = Arc::new(move |line: &str| {
+        PlaneBus::global().stream_emit(&stream_id, json!({ "message": line }));
+    });
+    crate::progress::with_sink(Some(sink), || {
+        crate::progress::with_cancel(Some(cancel_flag), call)
+    })
 }
 
 // ── Gemi facade (call sites use these instead of `susi_gemi::*`) ──────────
@@ -1989,6 +2077,42 @@ mod facade_marshal_tests {
         let unwatched = req_watched(topic, json!({})).unwrap();
         assert_eq!(unwatched["watched"], false);
         assert!(progress_sink_for(&json!({ "progress_stream": "" })).is_none());
+    }
+
+    struct CancellableWorker;
+
+    impl PlaneHandler for CancellableWorker {
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            with_watched(&payload, || {
+                crate::progress::report("phase 1");
+                for _ in 0..80 {
+                    if crate::progress::is_cancelled() {
+                        return Ok(json!({ "status": "CANCELLED" }));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Ok(json!({ "status": "COMPLETED" }))
+            })
+        }
+    }
+
+    #[test]
+    fn watched_requests_propagate_cancellation_across_the_bus() {
+        let _g = wire();
+        let topic = "test.progress.cancellable";
+        PlaneBus::global().register(topic, Arc::new(CancellableWorker));
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let trigger = cancel.clone();
+        let sink: crate::progress::Sink = Arc::new(move |line: &str| {
+            if line == "phase 1" {
+                trigger.store(true, std::sync::atomic::Ordering::Release);
+            }
+        });
+        let outcome = crate::progress::with_sink(Some(sink), || {
+            crate::progress::with_cancel(Some(cancel), || req_watched(topic, json!({})))
+        })
+        .unwrap();
+        assert_eq!(outcome["status"], "CANCELLED");
     }
 
     fn wire() -> std::sync::MutexGuard<'static, ()> {

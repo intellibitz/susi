@@ -296,4 +296,17 @@ mod tests {
         let p = McpInferenceProvider::new("OpenAI Bridge", "Chat Completions");
         assert_eq!(p.name(), "mcp-openai-bridge-chat-completions");
     }
+
+    #[test]
+    fn extract_text_payload_supports_output_and_response_fields() {
+        assert_eq!(extract_text_payload(r#"{"output":"out-text"}"#), "out-text");
+        assert_eq!(
+            extract_text_payload(r#"{"response":"resp-text"}"#),
+            "resp-text"
+        );
+        assert_eq!(
+            McpInferenceProvider::new("Local_LLM", "Complete").name(),
+            "mcp-local_llm-complete"
+        );
+    }
 }

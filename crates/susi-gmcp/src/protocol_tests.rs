@@ -536,3 +536,186 @@ async fn wire_client_matches_peer_client_and_releases_session() {
         .count();
     assert_eq!(deletes, 2, "both sessions must be released: {seen:?}");
 }
+
+/// Wire-level test for D-SP-4 Stage 2d: sending `notifications/cancelled`
+/// while `mission_run` is in a phase propagates cooperative cancellation
+/// across the plane bus, stops `mission_run` at the next phase boundary, and
+/// records status `"CANCELLED"` (`exit_code = 1`) in the mission trace;
+/// synchronous tools other than `mission_run` keep their existing behaviour.
+#[tokio::test(flavor = "multi_thread")]
+async fn mission_run_cancellation_stops_at_phase_boundary_and_records_cancelled_trace() {
+    use crate::susi_core::plane_bus::{topics, with_watched, PlaneBus, PlaneHandler};
+
+    struct ToolListStub;
+    impl PlaneHandler for ToolListStub {
+        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
+            Ok(json!([
+                { "name": "mission_run", "description": "Run a mission" },
+                { "name": "sovereign_status", "description": "Check status" }
+            ]))
+        }
+    }
+
+    struct ToolExecStub {
+        mission_done: tokio::sync::Notify,
+        sync_cancel_gate: Arc<std::sync::atomic::AtomicBool>,
+        sync_saw_cancel: Arc<std::sync::atomic::AtomicBool>,
+        sync_done: tokio::sync::Notify,
+    }
+    impl PlaneHandler for ToolExecStub {
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
+            let ws = payload
+                .get("workspace")
+                .and_then(Value::as_str)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let outcome = with_watched(&payload, || match name {
+                "mission_run" => {
+                    crate::susi_core::progress::report("Mission started");
+                    let mut status = "SUCCESS";
+                    for _ in 0..400 {
+                        if crate::susi_core::progress::is_cancelled() {
+                            status = "CANCELLED";
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    // Must not advance to the next phase when cancelled.
+                    if status != "CANCELLED" {
+                        crate::susi_core::progress::report("Running the agent swarm");
+                    }
+                    let exit_code = i32::from(status != "SUCCESS");
+                    let trace_dir = ws.join(".susi");
+                    let _ = std::fs::create_dir_all(&trace_dir);
+                    let trace = json!({
+                        "status": status,
+                        "exit_code": exit_code,
+                    });
+                    let _ = std::fs::write(
+                        trace_dir.join("last_mission_trace.json"),
+                        trace.to_string(),
+                    );
+                    Ok(json!({ "text": trace.to_string() }))
+                }
+                "sovereign_status" => {
+                    crate::susi_core::progress::report("Status started");
+                    for _ in 0..200 {
+                        if self
+                            .sync_cancel_gate
+                            .load(std::sync::atomic::Ordering::Acquire)
+                        {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    std::thread::sleep(Duration::from_millis(60));
+                    self.sync_saw_cancel.store(
+                        crate::susi_core::progress::is_cancelled(),
+                        std::sync::atomic::Ordering::Release,
+                    );
+                    Ok(json!({ "text": "ok" }))
+                }
+                other => Err(format!("unexpected tool {other}")),
+            });
+            if name == "mission_run" {
+                self.mission_done.notify_waiters();
+            } else if name == "sovereign_status" {
+                self.sync_done.notify_waiters();
+            }
+            outcome
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let exec_stub = Arc::new(ToolExecStub {
+        mission_done: tokio::sync::Notify::new(),
+        sync_cancel_gate: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        sync_saw_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        sync_done: tokio::sync::Notify::new(),
+    });
+    PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(ToolListStub));
+    PlaneBus::global().register(topics::TOOLS_EXECUTE, exec_stub.clone());
+
+    let service = GmcpService::new(dir.path().to_path_buf());
+    let mut wire = wire(service).await;
+    discover(&mut wire).await;
+
+    let mission_notified = exec_stub.mission_done.notified();
+    let mut call = modern(
+        2,
+        "tools/call",
+        json!({
+            "name": "mission_run",
+            "arguments": { "intent": "audit repo" }
+        }),
+    );
+    call["params"]["_meta"]["progressToken"] = json!("mission-1");
+    send(&mut wire, call).await;
+
+    // Wait for "Tool started" (0.0) and "Mission started" progress notifications.
+    let started = recv(&mut wire).await;
+    assert_eq!(started["method"], "notifications/progress", "{started}");
+    assert_eq!(started["params"]["message"], "Tool started");
+    let phase = recv(&mut wire).await;
+    assert_eq!(phase["method"], "notifications/progress", "{phase}");
+    assert_eq!(phase["params"]["message"], "Mission started");
+
+    // Cancel the in-flight mission_run call while it is in the phase.
+    send(
+        &mut wire,
+        json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 2, "reason": "user hit Ctrl-C" }
+        }),
+    )
+    .await;
+
+    tokio::time::timeout(Duration::from_secs(5), mission_notified)
+        .await
+        .expect("mission_run must stop at phase boundary after cancellation");
+
+    let trace_text =
+        std::fs::read_to_string(dir.path().join(".susi/last_mission_trace.json")).unwrap();
+    let trace: Value = serde_json::from_str(&trace_text).unwrap();
+    assert_eq!(trace["status"], "CANCELLED");
+    assert_eq!(trace["exit_code"], 1);
+
+    // Synchronous tools other than `mission_run` keep their existing behaviour.
+    let sync_notified = exec_stub.sync_done.notified();
+    let mut sync_call = modern(
+        3,
+        "tools/call",
+        json!({
+            "name": "sovereign_status",
+            "arguments": {}
+        }),
+    );
+    sync_call["params"]["_meta"]["progressToken"] = json!("status-1");
+    send(&mut wire, sync_call).await;
+    let _ = recv(&mut wire).await; // "Tool started"
+    let sync_phase = recv(&mut wire).await;
+    assert_eq!(sync_phase["params"]["message"], "Status started");
+    send(
+        &mut wire,
+        json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 3, "reason": "late cancel" }
+        }),
+    )
+    .await;
+    exec_stub
+        .sync_cancel_gate
+        .store(true, std::sync::atomic::Ordering::Release);
+    tokio::time::timeout(Duration::from_secs(5), sync_notified)
+        .await
+        .expect("synchronous tool must run to completion");
+    assert!(
+        !exec_stub
+            .sync_saw_cancel
+            .load(std::sync::atomic::Ordering::Acquire),
+        "synchronous registry tools other than mission_run must not receive a cancel flag"
+    );
+}

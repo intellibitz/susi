@@ -785,4 +785,21 @@ mod inline_tests {
         assert_eq!(loaded.primary, "m2");
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn default_journal_path_ends_with_orchestrations_jsonl_and_assign_returns_none_when_empty() {
+        let path = default_journal_path();
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("orchestrations.jsonl")
+        );
+        assert!(assign(
+            &|_| Vec::new(),
+            &|_| None,
+            TaskClass::Chat,
+            &["goal".to_string()],
+            100
+        )
+        .is_none());
+    }
 }

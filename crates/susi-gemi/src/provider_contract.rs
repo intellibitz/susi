@@ -542,4 +542,28 @@ mod tests {
         );
         assert_eq!(bad_stream.status, ProbeStatus::Failed);
     }
+
+    #[test]
+    fn probe_fixture_handles_unsupported_markers_for_streaming_tool_calls_and_embeddings() {
+        let unsupported = FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({"unsupported": true}),
+        };
+        for kind in [
+            ProbeKind::Streaming,
+            ProbeKind::ToolCalls,
+            ProbeKind::Embeddings,
+        ] {
+            let c = probe_fixture("p", "m", "v", kind, &unsupported);
+            assert_eq!(c.status, ProbeStatus::Unsupported);
+        }
+        let no_usage = FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({}),
+        };
+        assert_eq!(
+            probe_fixture("p", "m", "v", ProbeKind::Usage, &no_usage).status,
+            ProbeStatus::Unsupported
+        );
+    }
 }
