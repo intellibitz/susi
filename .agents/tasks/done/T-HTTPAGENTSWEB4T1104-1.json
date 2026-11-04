@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-HTTPAGENTSWEB4T1104-1",
+  "title": "Expand inline unit tests to 4 in http_conn, external cloud/process, and live_search",
+  "touch": [
+    "crates/susi-http-transport/src/http_conn.rs",
+    "crates/susi-vendor-agents/src/external/cloud.rs",
+    "crates/susi-vendor-agents/src/external/process.rs",
+    "crates/susi-vendor-web/src/live_search.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-http-transport -p susi-vendor-agents -p susi-vendor-web --lib",
+      "cargo clippy --offline --locked -p susi-http-transport -p susi-vendor-agents -p susi-vendor-web --tests -- -D warnings"
+    ]
+  }
+}
