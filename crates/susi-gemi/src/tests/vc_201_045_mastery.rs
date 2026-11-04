@@ -148,3 +148,46 @@ fn vc_201_045_format_and_quantization_benchmark_matrix() {
     assert_eq!(recommendation.len(), Quantization::ALL.len());
     assert!(recommendation.iter().all(|c| c.format == ModelFormat::Gguf));
 }
+
+#[test]
+fn vc_201_045_mastery_empty_output_candidate_fails_correctness_and_is_excluded() {
+    use crate::engine_benchmark::FakeProvider;
+
+    let empty_spec = CandidateSpec {
+        engine: "llamacpp".into(),
+        model: "qwen-empty".into(),
+        format: ModelFormat::Gguf,
+        quantization: Quantization::Q4,
+    };
+    let empty_provider = FakeProvider {
+        engine: "llamacpp".into(),
+        model: "qwen-empty".into(),
+        reply: "   ".into(),
+        latency: Duration::from_millis(5),
+        fail: false,
+    };
+    let empty_bench = run_candidate_benchmark(&empty_provider, empty_spec, 512.0, &["prompt"]);
+    assert!(empty_bench.supported);
+    assert!(!empty_bench.correct);
+
+    let valid_spec = CandidateSpec {
+        engine: "llamacpp".into(),
+        model: "qwen-valid".into(),
+        format: ModelFormat::Gguf,
+        quantization: Quantization::Q8,
+    };
+    let valid_provider = FakeProvider {
+        engine: "llamacpp".into(),
+        model: "qwen-valid".into(),
+        reply: "one two three four".into(),
+        latency: Duration::from_millis(10),
+        fail: false,
+    };
+    let valid_bench =
+        run_candidate_benchmark(&valid_provider, valid_spec.clone(), 1024.0, &["prompt"]);
+    assert!(valid_bench.supported);
+    assert!(valid_bench.correct);
+
+    let ranked = recommend_placement(&[empty_bench, valid_bench]);
+    assert_eq!(ranked, vec![valid_spec]);
+}
