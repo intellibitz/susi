@@ -48,3 +48,61 @@ pub fn dev_instance_ports() -> [u16; 5] {
     let base = DEV_INSTANCE_BASE_PORT;
     [base, base + 1, base + 2, base + 3, base + 4]
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn evaluate_canary_continues_when_regression_is_within_limit_or_candidate_improves() {
+        let improved = CanaryTrial {
+            candidate_metric: 0.96,
+            baseline_metric: 0.92,
+            regression_limit: 0.02,
+        };
+        assert_eq!(evaluate_canary(&improved), CanaryResult::Continue);
+
+        let within = CanaryTrial {
+            candidate_metric: 0.91,
+            baseline_metric: 0.92,
+            regression_limit: 0.02,
+        };
+        assert_eq!(evaluate_canary(&within), CanaryResult::Continue);
+    }
+
+    #[test]
+    fn evaluate_canary_stops_trial_when_delta_exceeds_regression_limit() {
+        let regressed = CanaryTrial {
+            candidate_metric: 0.85,
+            baseline_metric: 0.92,
+            regression_limit: 0.02,
+        };
+        assert_eq!(evaluate_canary(&regressed), CanaryResult::StopTrial);
+    }
+
+    #[test]
+    fn evaluate_canary_stops_trial_on_non_finite_metrics_or_negative_limit() {
+        let nan_candidate = CanaryTrial {
+            candidate_metric: f64::NAN,
+            baseline_metric: 0.90,
+            regression_limit: 0.05,
+        };
+        assert_eq!(evaluate_canary(&nan_candidate), CanaryResult::StopTrial);
+
+        let neg_limit = CanaryTrial {
+            candidate_metric: 0.95,
+            baseline_metric: 0.90,
+            regression_limit: -0.01,
+        };
+        assert_eq!(evaluate_canary(&neg_limit), CanaryResult::StopTrial);
+    }
+
+    #[test]
+    fn dev_instance_ports_returns_five_consecutive_ports_from_pinned_base() {
+        let ports = dev_instance_ports();
+        assert_eq!(ports, [9190, 9191, 9192, 9193, 9194]);
+        assert_eq!(ports[0], DEV_INSTANCE_BASE_PORT);
+    }
+}

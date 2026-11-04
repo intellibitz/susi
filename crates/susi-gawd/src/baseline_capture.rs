@@ -79,3 +79,53 @@ impl BaselineRecord {
             && !other.command.is_empty()
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn release_reference_sets_release_runtime_default_dataset_and_reference_flag() {
+        let rec = BaselineRecord::release_reference("abc1234", "x86_64-win", "susi bench");
+        assert_eq!(rec.commit, "abc1234");
+        assert_eq!(rec.hardware, "x86_64-win");
+        assert_eq!(rec.runtime, "release");
+        assert_eq!(rec.dataset, "default");
+        assert_eq!(rec.command, "susi bench");
+        assert!(rec.is_release_reference);
+    }
+
+    #[test]
+    fn candidate_on_dev_sets_dev_instance_runtime_and_non_reference_flag() {
+        let rec = BaselineRecord::candidate_on_dev("def5678", "x86_64-win", "susi bench");
+        assert_eq!(rec.commit, "def5678");
+        assert_eq!(rec.runtime, "dev-instance");
+        assert!(!rec.is_release_reference);
+        assert_eq!(rec.latency_ms, 0);
+    }
+
+    #[test]
+    fn with_metrics_populates_success_rate_latency_tokens_and_cost() {
+        let rec = BaselineRecord::release_reference("c1", "hw1", "cmd")
+            .with_metrics(0.98, 120, 4096, 850);
+        assert!((rec.success_rate - 0.98).abs() < 1e-9);
+        assert_eq!(rec.latency_ms, 120);
+        assert_eq!(rec.tokens, 4096);
+        assert_eq!(rec.cost_micros, 850);
+    }
+
+    #[test]
+    fn is_comparable_to_requires_matching_dataset_hardware_and_non_empty_commands() {
+        let base = BaselineRecord::release_reference("c1", "hw1", "susi bench");
+        let cand = BaselineRecord::candidate_on_dev("c2", "hw1", "susi bench --fast");
+        assert!(base.is_comparable_to(&cand));
+
+        let diff_hw = BaselineRecord::candidate_on_dev("c2", "hw2", "susi bench");
+        assert!(!base.is_comparable_to(&diff_hw));
+
+        let empty_cmd = BaselineRecord::candidate_on_dev("c2", "hw1", "");
+        assert!(!base.is_comparable_to(&empty_cmd));
+    }
+}
