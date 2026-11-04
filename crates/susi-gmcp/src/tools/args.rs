@@ -139,6 +139,7 @@ pub fn core_tool_definitions() -> Vec<rmcp::model::Tool> {
         CoreTools::agent_register_tool_attr(),
         CoreTools::reason_tool_attr(),
         CoreTools::susi_solve_tool_attr(),
+        CoreTools::mission_run_tool_attr(),
         CoreTools::power_reason_tool_attr(),
         CoreTools::meta_scout_agents_tool_attr(),
         CoreTools::meta_rank_agents_tool_attr(),
@@ -733,6 +734,18 @@ pub struct SusiSolve {
     /// Absolute workspace the CLI would run this in (default: the server
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct MissionRun {
+    /// The goal, as typed after `susi`.
+    pub goal: String,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
+    /// Advisory model hint; it never bypasses governance.
+    pub model: Option<String>,
 }
 
 // ── Context graph ──────────────────────────────────────────────────────

@@ -97,6 +97,9 @@ pub mod topics {
     pub const GEMI_ECOSYSTEM_EXPLAIN: &str = "gemi.ecosystem.explain";
 
     pub const GAWD_SOLVE: &str = "gawd.mission.solve";
+    /// The CLI's own mission (`susi <goal>`) run by the daemon: on-demand
+    /// engine start allowed, answered with `{text, status, exit_code}`.
+    pub const GAWD_MISSION_RUN: &str = "gawd.mission.run";
     pub const GAWD_SANITIZE: &str = "gawd.mission.sanitize";
     pub const GAWD_AUDIT_ACTION: &str = "gawd.audit.action";
     pub const GAWD_PATCH: &str = "gawd.patch.apply";
@@ -968,6 +971,28 @@ pub mod gawd {
         .to_string()
     }
 
+    /// The user's own mission, as `susi <goal>` runs it in process, for a
+    /// caller that forwards the goal to the daemon (`mission_run`). The
+    /// handler may start a stopped local engine on demand, and the answer
+    /// carries the mission's status and the CLI exit code (0 only for an
+    /// explicitly successful mission), never an outcome guessed from prose.
+    pub fn run_mission(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+    ) -> Value {
+        req_ok(
+            topics::GAWD_MISSION_RUN,
+            json!({
+                "intent": intent,
+                "workspace": workspace.display().to_string(),
+                "version": version,
+                "model": model
+            }),
+        )
+    }
+
     /// Generative mission solve (`/v1/chat/completions`): the model's own
     /// output is the product, so recovery may self-cite an inference
     /// receipt minted for the provider call instead of demanding
@@ -1393,12 +1418,21 @@ pub mod tools {
     /// "No, ask first").
     pub const USER_REQUEST_ONLY_TOOLS: &[&str] = &["scout_model"];
 
-    /// True when `name` is one of [`USER_REQUEST_ONLY_TOOLS`].
+    /// The user's own mission (`mission_run`, a forwarded `susi <goal>`).
+    /// It may start a stopped local engine, which core does only when the
+    /// user asks, so a model reply, a mission plan or a DAG step never runs
+    /// it.
+    pub const USER_MISSION_TOOLS: &[&str] = &["mission_run"];
+
+    /// True when `name` is one of [`USER_REQUEST_ONLY_TOOLS`] or
+    /// [`USER_MISSION_TOOLS`]: tools only an explicit user or client
+    /// request may run.
     #[must_use]
     pub fn is_user_request_only(name: &str) -> bool {
         let name = name.trim();
         USER_REQUEST_ONLY_TOOLS
             .iter()
+            .chain(USER_MISSION_TOOLS)
             .any(|tool| tool.eq_ignore_ascii_case(name))
     }
 
@@ -1406,12 +1440,23 @@ pub mod tools {
     /// call, naming the commands that download a model on request.
     #[must_use]
     pub fn user_request_only_refusal(name: &str) -> String {
+        let name = name.trim();
+        if USER_MISSION_TOOLS
+            .iter()
+            .any(|tool| tool.eq_ignore_ascii_case(name))
+        {
+            return format!(
+                "`{name}` runs a mission as your own request and may start a stopped \
+                 local engine, so only you or an MCP client may call it: a model reply, \
+                 a mission plan or a DAG step cannot."
+            );
+        }
         format!(
             "`{}` downloads a model, and Susi never downloads one by itself: \
              it runs only when you ask. Run `susi os manage model install starter` \
              for the audited starter, or `susi scout-model <https url>` for a \
              specific model. Cloud models work without a download.",
-            name.trim()
+            name
         )
     }
 
@@ -1700,6 +1745,16 @@ mod tests {
         }
         assert!(!tools::is_user_request_only("read_file"));
         assert!(!tools::is_user_request_only("verify_model_download_agent"));
+        // A plan or model reply cannot start the user's own mission, which
+        // may start a stopped local engine.
+        assert!(tools::is_user_request_only(" Mission_Run "));
+        assert!(!tools::is_user_request_only("susi_solve"));
+        let error =
+            tools::execute_autonomous_tool("mission_run", &json!({"goal": "x"}), Path::new("."))
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("only you or an MCP client"), "{error}");
+        assert!(!error.contains("downloads"), "{error}");
     }
 
     struct Echo;
@@ -1911,6 +1966,7 @@ mod facade_marshal_tests {
         let _ = gawd::solve_mission("i", ws, "v");
         let _ = gawd::solve_mission_with_model("i", ws, "v", Some("m"));
         let _ = gawd::solve_mission_generative("i", ws, "v", None, Some("tools"));
+        let _ = gawd::run_mission("i", ws, "v", Some("m"));
         assert!(gawd::sanitize_input("x").is_ok());
         assert!(gawd::audit_action("t", "d", ws).is_ok());
         let _ = gawd::apply_patch(json!({}));

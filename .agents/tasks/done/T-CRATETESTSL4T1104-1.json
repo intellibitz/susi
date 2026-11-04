@@ -1,0 +1,26 @@
+{
+  "id": "T-CRATETESTSL4T1104-1",
+  "title": "Expand susi-unsafe-ratchet, susi-gawd::admin::park, susi-vendor-candle, and workflow_publication to 4 tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-unsafe-ratchet",
+      "-p",
+      "susi-vendor-candle"
+    ]
+  },
+  "created_by": "CRATETESTSL4T1104",
+  "created_unix": 1793795653,
+  "closed": {
+    "at_unix": 1793796170,
+    "commit": "fd5355452a42bbb02c85c99bb3f82d7a21a11b15",
+    "by": "CRATETESTSL4T1104"
+  }
+}

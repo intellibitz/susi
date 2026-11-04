@@ -75,3 +75,87 @@ pub fn run_vertical_workflow(req: &WorkflowRequest) -> Result<WorkflowEvidence, 
         outcome: "completed".into(),
     })
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn offline_mode_returns_local_only_evidence_without_model_or_mcp() {
+        let req = WorkflowRequest {
+            mode: WorkflowMode::Offline,
+            allow_delegate: true,
+            model_allowed: false,
+            mcp_tool: "search".to_string(),
+            mcp_available: false,
+        };
+        let ev = run_vertical_workflow(&req).expect("offline succeeds locally");
+        assert!(ev.retrieval_hit);
+        assert_eq!(ev.model_used, None);
+        assert_eq!(ev.mcp_invoked, None);
+        assert_eq!(ev.delegated_agent, None);
+        assert_eq!(ev.outcome, "offline_local_only");
+    }
+
+    #[test]
+    fn denied_egress_rejects_delegation_but_completes_local_execution() {
+        let mut req = WorkflowRequest {
+            mode: WorkflowMode::DeniedEgress,
+            allow_delegate: true,
+            model_allowed: true,
+            mcp_tool: "search".to_string(),
+            mcp_available: true,
+        };
+        assert_eq!(
+            run_vertical_workflow(&req),
+            Err(WorkflowError::EgressDenied)
+        );
+
+        req.allow_delegate = false;
+        let ev = run_vertical_workflow(&req).expect("no delegation succeeds");
+        assert_eq!(ev.delegated_agent, None);
+        assert_eq!(ev.outcome, "completed");
+    }
+
+    #[test]
+    fn online_mode_delegates_when_allowed_and_records_mcp_tool() {
+        let req = WorkflowRequest {
+            mode: WorkflowMode::Online,
+            allow_delegate: true,
+            model_allowed: true,
+            mcp_tool: "fetch".to_string(),
+            mcp_available: true,
+        };
+        let ev = run_vertical_workflow(&req).expect("online workflow");
+        assert!(ev.retrieval_hit);
+        assert_eq!(ev.model_used.as_deref(), Some("local-allowed"));
+        assert_eq!(ev.mcp_invoked.as_deref(), Some("fetch"));
+        assert_eq!(ev.delegated_agent.as_deref(), Some("delegate-1"));
+        assert_eq!(ev.outcome, "completed");
+    }
+
+    #[test]
+    fn disallowed_model_or_unavailable_mcp_returns_dependency_failed() {
+        let no_model = WorkflowRequest {
+            mode: WorkflowMode::Online,
+            allow_delegate: false,
+            model_allowed: false,
+            mcp_tool: "search".to_string(),
+            mcp_available: true,
+        };
+        assert_eq!(
+            run_vertical_workflow(&no_model),
+            Err(WorkflowError::DependencyFailed)
+        );
+
+        let no_mcp = WorkflowRequest {
+            model_allowed: true,
+            mcp_available: false,
+            ..no_model
+        };
+        assert_eq!(
+            run_vertical_workflow(&no_mcp),
+            Err(WorkflowError::DependencyFailed)
+        );
+    }
+}

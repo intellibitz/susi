@@ -125,3 +125,68 @@ impl GrantSet {
         self.derive_for_reflex(&wasm_allow, ResourceLimits::default())
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn resource_limits_clamp_to_parent_bounds_all_three_dimensions() {
+        let parent = ResourceLimits {
+            max_memory_bytes: 32 * 1024 * 1024,
+            max_fuel: 50_000,
+            timeout_millis: 2_000,
+        };
+        let requested = ResourceLimits {
+            max_memory_bytes: 64 * 1024 * 1024,
+            max_fuel: 25_000,
+            timeout_millis: 10_000,
+        };
+        let clamped = requested.clamp_to_parent(&parent);
+        assert_eq!(clamped.max_memory_bytes, 32 * 1024 * 1024);
+        assert_eq!(clamped.max_fuel, 25_000);
+        assert_eq!(clamped.timeout_millis, 2_000);
+    }
+
+    #[test]
+    fn host_baseline_grants_expected_capabilities_and_resource_checks() {
+        let host = GrantSet::host_baseline();
+        assert!(host.allows("fs.read"));
+        assert!(host.allows("net.loopback"));
+        assert!(host.allows("clock"));
+        assert!(!host.allows("fs.write"));
+
+        let subset = BTreeSet::from(["fs.read".to_string(), "clock".to_string()]);
+        assert!(host.allows_all(&subset));
+        assert!(host.allows_resources(1024, 1_000, 500));
+        assert!(!host.allows_resources(512 * 1024 * 1024, 1_000, 500));
+    }
+
+    #[test]
+    fn derive_for_reflex_intersects_capabilities_and_prevents_privilege_escalation() {
+        let parent = GrantSet::host_baseline();
+        let requested_caps = BTreeSet::from([
+            "fs.read".to_string(),
+            "fs.write".to_string(),
+            "net.external".to_string(),
+        ]);
+        let requested_limits = ResourceLimits {
+            max_memory_bytes: 1024 * 1024 * 1024,
+            max_fuel: 5_000_000,
+            timeout_millis: 60_000,
+        };
+        let child = parent.derive_for_reflex(&requested_caps, requested_limits);
+        assert_eq!(child.caps(), &BTreeSet::from(["fs.read".to_string()]));
+        assert_eq!(child.limits(), parent.limits());
+    }
+
+    #[test]
+    fn attenuate_for_wasm_strips_network_and_applies_default_reflex_limits() {
+        let host = GrantSet::host_baseline();
+        let wasm = host.attenuate_for_wasm();
+        assert!(wasm.allows("fs.read"));
+        assert!(wasm.allows("clock"));
+        assert!(!wasm.allows("net.loopback"));
+        assert_eq!(wasm.limits(), ResourceLimits::default());
+    }
+}

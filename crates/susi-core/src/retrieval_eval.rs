@@ -64,3 +64,98 @@ impl MemoryIndexCandidate {
         }
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn baseline() -> RetrievalSuite {
+        RetrievalSuite {
+            version: 3,
+            answer_correctness: 0.90,
+            private_isolation: 1.00,
+            recall: 0.85,
+            index_size: 1024,
+        }
+    }
+
+    #[test]
+    fn evaluate_promotion_accepts_equal_or_improved_candidate() {
+        let base = baseline();
+        let candidate = RetrievalSuite {
+            version: 4,
+            answer_correctness: 0.92,
+            private_isolation: 1.00,
+            recall: 0.88,
+            index_size: 2048,
+        };
+        assert_eq!(
+            evaluate_promotion(&base, &candidate),
+            PromoteVerdict::Promote
+        );
+    }
+
+    #[test]
+    fn evaluate_promotion_rejects_stale_version_and_nan_metrics() {
+        let base = baseline();
+        let stale = RetrievalSuite {
+            version: 2,
+            ..base.clone()
+        };
+        assert_eq!(
+            evaluate_promotion(&base, &stale),
+            PromoteVerdict::RejectStaleSuiteVersion
+        );
+
+        let unmeasured = RetrievalSuite {
+            recall: f64::NAN,
+            ..base.clone()
+        };
+        assert_eq!(
+            evaluate_promotion(&base, &unmeasured),
+            PromoteVerdict::RejectUnmeasuredMetrics
+        );
+    }
+
+    #[test]
+    fn evaluate_promotion_rejects_correctness_and_isolation_regressions() {
+        let base = baseline();
+        let worse_correctness = RetrievalSuite {
+            answer_correctness: 0.89,
+            recall: 0.99,
+            ..base.clone()
+        };
+        assert_eq!(
+            evaluate_promotion(&base, &worse_correctness),
+            PromoteVerdict::RejectCorrectnessRegression
+        );
+
+        let worse_isolation = RetrievalSuite {
+            private_isolation: 0.99,
+            recall: 0.99,
+            ..base
+        };
+        assert_eq!(
+            evaluate_promotion(&baseline(), &worse_isolation),
+            PromoteVerdict::RejectIsolationRegression
+        );
+    }
+
+    #[test]
+    fn memory_index_candidate_try_promote_gates_on_verdict() {
+        let base = baseline();
+        let good = MemoryIndexCandidate::new(base.clone(), vec![1, 2, 3]);
+        assert_eq!(good.try_promote(&base), Ok(()));
+        assert_eq!(good.index_data, vec![1, 2, 3]);
+
+        let bad_suite = RetrievalSuite {
+            version: 1,
+            ..base.clone()
+        };
+        let bad = MemoryIndexCandidate::new(bad_suite, vec![]);
+        assert_eq!(
+            bad.try_promote(&base),
+            Err(PromoteVerdict::RejectStaleSuiteVersion)
+        );
+    }
+}

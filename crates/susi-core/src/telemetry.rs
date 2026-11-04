@@ -247,3 +247,62 @@ fn read_uevent_value(path: &std::path::Path, key: &str) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn empty_snapshot_has_no_readings_and_matches_target_os() {
+        let snap = TelemetrySnapshot::empty();
+        assert!(!snap.has_readings());
+        assert_eq!(snap.os, std::env::consts::OS);
+        assert_eq!(snap.max_temp_c(), None);
+        assert!(!snap.critical_battery());
+    }
+
+    #[test]
+    fn max_temp_c_converts_millidegrees_and_picks_highest_zone() {
+        let mut snap = TelemetrySnapshot::empty();
+        snap.thermal_zones.push(ThermalZone {
+            name: "cpu0".to_string(),
+            temp_mc: 45_500,
+        });
+        snap.thermal_zones.push(ThermalZone {
+            name: "gpu0".to_string(),
+            temp_mc: 72_250,
+        });
+        assert!(snap.has_readings());
+        let max = snap.max_temp_c().expect("max temp");
+        assert!((max - 72.25).abs() < 1e-3);
+    }
+
+    #[test]
+    fn critical_battery_detects_discharging_below_twenty_percent() {
+        let mut snap = TelemetrySnapshot::empty();
+        snap.batteries.push(BatteryInfo {
+            name: "BAT0".to_string(),
+            capacity_pct: Some(19),
+            status: Some("discharging".to_string()),
+            power_w: Some(-12.5),
+        });
+        assert!(snap.critical_battery());
+
+        snap.batteries[0].status = Some("Charging".to_string());
+        assert!(!snap.critical_battery());
+
+        snap.batteries[0].status = Some("Discharging".to_string());
+        snap.batteries[0].capacity_pct = Some(20);
+        assert!(!snap.critical_battery());
+    }
+
+    #[test]
+    fn sample_populates_os_and_records_readings_or_unavailable_reasons() {
+        let snap = sample();
+        assert_eq!(snap.os, std::env::consts::OS);
+        assert!(snap.has_readings() || !snap.unavailable.is_empty());
+        if snap.thermal_zones.is_empty() {
+            assert!(snap.unavailable.contains_key("thermal_zones"));
+        }
+    }
+}
