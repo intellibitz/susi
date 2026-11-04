@@ -645,4 +645,46 @@ mod tests {
         }
         assert_eq!(codes, [-32700, -32600]);
     }
+
+    #[test]
+    fn classify_envelope_rejects_parse_errors_arrays_and_null_ids() {
+        assert!(matches!(
+            classify_envelope(b"{bad"),
+            GateVerdict::Reject { code: -32700, .. }
+        ));
+        assert!(matches!(
+            classify_envelope(b"[]"),
+            GateVerdict::Reject { code: -32600, .. }
+        ));
+        assert!(matches!(
+            classify_envelope(br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#),
+            GateVerdict::Reject { code: -32600, .. }
+        ));
+        assert!(http_envelope_rejection(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#).is_none());
+    }
+
+    #[test]
+    fn classify_line_tracks_legacy_vs_modern_era_and_enforces_required_meta() {
+        let mut legacy = EraState::default();
+        let init_legacy =
+            br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#;
+        assert!(matches!(
+            classify_line(init_legacy, &mut legacy),
+            GateVerdict::Forward
+        ));
+        assert!(legacy.is_legacy());
+
+        let mut modern = EraState::default();
+        let discover = br#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}"#;
+        assert!(matches!(
+            classify_line(discover, &mut modern),
+            GateVerdict::Forward
+        ));
+        assert!(modern.is_modern());
+        let missing_meta = br#"{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}"#;
+        assert!(matches!(
+            classify_line(missing_meta, &mut modern),
+            GateVerdict::Reject { code: -32602, .. }
+        ));
+    }
 }

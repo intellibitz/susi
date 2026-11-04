@@ -119,6 +119,15 @@ mod eco_mcp_versions_tests {
             .iter()
             .any(|r| r["kind"] == "supersedes"));
     }
+
+    #[test]
+    fn default_profile_and_negotiate_no_overlap_leave_negotiated_none() {
+        let mut p = McpSpecProfile::default_profile();
+        assert!(p.negotiated.is_none());
+        assert_eq!(p.registry_metadata["probe_status"], "unprobed");
+        assert!(p.negotiate(&["1999-01-01"]).is_none());
+        assert!(p.negotiated.is_none());
+    }
 }
 
 #[cfg(test)]
