@@ -85,3 +85,72 @@ pub fn select_roles(
         multi_agent_cheaper: multi_cost < solo_cost,
     })
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn agent(id: &str, caps: &[&str], suitability: f64, cost: f64) -> AgentEvidence {
+        AgentEvidence {
+            id: id.into(),
+            capabilities: caps.iter().map(|c| (*c).to_string()).collect(),
+            suitability,
+            cost_per_success: cost,
+        }
+    }
+
+    #[test]
+    fn select_roles_returns_no_implementer_when_no_agent_has_positive_suitability() {
+        let required = BTreeSet::new();
+        assert_eq!(
+            select_roles(&[], &required, 1.0),
+            Err(SelectError::NoImplementer)
+        );
+        let zero = vec![agent("a1", &["rust"], 0.0, 0.1)];
+        assert_eq!(
+            select_roles(&zero, &required, 1.0),
+            Err(SelectError::NoImplementer)
+        );
+    }
+
+    #[test]
+    fn select_roles_returns_no_independent_verifier_when_only_one_agent_qualifies() {
+        let required = BTreeSet::from(["rust".to_string()]);
+        let agents = vec![
+            agent("solo", &["rust"], 0.9, 0.2),
+            agent("unfit", &["rust"], 0.0, 0.1),
+        ];
+        assert_eq!(
+            select_roles(&agents, &required, 1.0),
+            Err(SelectError::NoIndependentVerifier)
+        );
+    }
+
+    #[test]
+    fn select_roles_assigns_highest_suitability_implementer_and_independent_verifier() {
+        let required = BTreeSet::from(["rust".to_string(), "test".to_string()]);
+        let agents = vec![
+            agent("ver", &["test"], 0.75, 0.10),
+            agent("imp", &["rust"], 0.95, 0.15),
+        ];
+        let assigned = select_roles(&agents, &required, 0.50).unwrap();
+        assert_eq!(assigned.implementer, "imp");
+        assert_eq!(assigned.verifier, "ver");
+        assert_eq!(assigned.specialist, None);
+        assert!(assigned.multi_agent_cheaper);
+    }
+
+    #[test]
+    fn select_roles_picks_specialist_for_uncovered_capability_and_checks_cost_vs_solo() {
+        let required =
+            BTreeSet::from(["rust".to_string(), "audit".to_string(), "wasm".to_string()]);
+        let agents = vec![
+            agent("imp", &["rust"], 0.9, 0.40),
+            agent("ver", &["audit"], 0.8, 0.40),
+            agent("spec", &["wasm"], 0.6, 0.30),
+        ];
+        let assigned = select_roles(&agents, &required, 1.00).unwrap();
+        assert_eq!(assigned.specialist.as_deref(), Some("spec"));
+        assert!(!assigned.multi_agent_cheaper);
+    }
+}

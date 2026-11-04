@@ -73,3 +73,68 @@ pub fn reconcile_dispatch_side_effect(tool: &str, prior: Option<&ActionOutcome>)
         },
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn may_retry_after_crash_allows_read_only_idempotent_and_reconcilable_only() {
+        assert!(may_retry_after_crash(ActionClass::ReadOnly));
+        assert!(may_retry_after_crash(ActionClass::Idempotent));
+        assert!(may_retry_after_crash(ActionClass::Reconcilable));
+        assert!(!may_retry_after_crash(ActionClass::NonRetryable));
+    }
+
+    #[test]
+    fn classify_tool_action_distinguishes_read_only_reconcilable_and_non_retryable() {
+        assert_eq!(classify_tool_action("read_file"), ActionClass::ReadOnly);
+        assert_eq!(classify_tool_action("grep"), ActionClass::ReadOnly);
+        assert_eq!(
+            classify_tool_action("exec_command"),
+            ActionClass::Reconcilable
+        );
+        assert_eq!(
+            classify_tool_action("write_file"),
+            ActionClass::Reconcilable
+        );
+        assert_eq!(
+            classify_tool_action("custom_external_drop"),
+            ActionClass::NonRetryable
+        );
+    }
+
+    #[test]
+    fn after_crash_retry_marks_incomplete_reconcilable_uncertain_and_blocks_non_retryable() {
+        let incomplete_reconcilable = ActionOutcome {
+            class: ActionClass::Reconcilable,
+            uncertain_external: false,
+            completed: false,
+        };
+        let retried = after_crash_retry(&incomplete_reconcilable);
+        assert!(retried.uncertain_external);
+        assert!(retried.completed);
+
+        let non_retryable = ActionOutcome {
+            class: ActionClass::NonRetryable,
+            uncertain_external: false,
+            completed: false,
+        };
+        let blocked = after_crash_retry(&non_retryable);
+        assert!(blocked.uncertain_external);
+        assert!(!blocked.completed);
+    }
+
+    #[test]
+    fn reconcile_dispatch_side_effect_initializes_fresh_outcome_or_advances_prior() {
+        let fresh = reconcile_dispatch_side_effect("apply_patch", None);
+        assert_eq!(fresh.class, ActionClass::Reconcilable);
+        assert!(!fresh.uncertain_external);
+        assert!(!fresh.completed);
+
+        let resumed = reconcile_dispatch_side_effect("apply_patch", Some(&fresh));
+        assert_eq!(resumed.class, ActionClass::Reconcilable);
+        assert!(resumed.uncertain_external);
+        assert!(resumed.completed);
+    }
+}
