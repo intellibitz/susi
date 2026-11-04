@@ -276,4 +276,56 @@ mod tests {
             "a prompt is required"
         );
     }
+
+    #[test]
+    fn validates_invalid_timeout_missing_flag_values_and_whitespace_only_gateway_or_model() {
+        assert_eq!(
+            parse(args(&["--timeout", "nope"])).err().unwrap(),
+            "timeout must be a number of seconds"
+        );
+        assert_eq!(
+            parse(args(&["--workspace"])).err().unwrap(),
+            "--workspace needs a value"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "  ",
+                "--model",
+                "deepseek-flash",
+                "--workspace",
+                "scratch",
+                "--state",
+                "state",
+                "--mission",
+                "pilot-2",
+                "--task",
+                "exec-1",
+                "prompt",
+            ]))
+            .err()
+            .unwrap(),
+            "--gateway is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9185",
+                "--model",
+                "  ",
+                "--workspace",
+                "scratch",
+                "--state",
+                "state",
+                "--mission",
+                "pilot-2",
+                "--task",
+                "exec-1",
+                "prompt",
+            ]))
+            .err()
+            .unwrap(),
+            "--model is required"
+        );
+    }
 }

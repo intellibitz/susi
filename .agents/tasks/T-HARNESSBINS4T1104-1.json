@@ -1,0 +1,25 @@
+{
+  "id": "T-HARNESSBINS4T1104-1",
+  "title": "D-OS-8: Expand inline unit test suites to 4 in susi-harness CLI binaries",
+  "status": "in_progress",
+  "created_at": "2026-11-04T08:22:00Z",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--bins"
+    ]
+  },
+  "scope": [
+    "crates/susi-harness/src/bin/harness-author.rs",
+    "crates/susi-harness/src/bin/harness-run.rs",
+    "crates/susi-harness/src/bin/harness-supervise.rs",
+    "crates/susi-harness/src/bin/harness-susi.rs",
+    ".agents/tasks/T-HARNESSBINS4T1104-1.json",
+    ".agents/tasks/done/T-HARNESSBINS4T1104-1.json"
+  ]
+}
