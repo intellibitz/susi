@@ -931,11 +931,15 @@ impl SusiSupervisor {
                                 }
                             }
                         }
-                        // Also speak the daemon's LAN ping dialect so host
-                        // discovery works — same backoff as our own dialect.
+                        // Also speak the daemon's authenticated LAN ping dialect
+                        // when a host token is seeded (`B7`) — never broadcast
+                        // retired unauthenticated `SUSI_LAN_PING` or bare `SUSI_PING`.
                         if broadcast_due {
-                            let _ = socket
-                                .send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));
+                            let host_token = susi_paths::host_token();
+                            if let Some(frame) = authenticated_lan_ping_frame(host_token.as_deref())
+                            {
+                                let _ = socket.send_to(&frame, format!("255.255.255.255:{}", port));
+                            }
                         }
                         std::thread::sleep(Duration::from_millis(100));
                     }
@@ -2015,6 +2019,19 @@ impl SusiSupervisor {
     }
 }
 
+/// Format an authenticated `SUSI_PING:<api_token>` UDP discovery frame (`B7`).
+///
+/// Returns `None` when no non-empty host token is seeded so the scout never
+/// broadcasts the retired unauthenticated `SUSI_LAN_PING` or bare `SUSI_PING`
+/// dialect on UDP `9092`.
+pub fn authenticated_lan_ping_frame(token: Option<&str>) -> Option<Vec<u8>> {
+    let trimmed = token?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(format!("SUSI_PING:{trimmed}").into_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2514,5 +2531,15 @@ mod tests {
                 .any(|n| matches!(n.admission, PeerAdmission::Local)),
             "local master must remain discoverable without binding 9092"
         );
+    }
+
+    #[test]
+    fn authenticated_lan_ping_frame_requires_non_empty_token_and_retires_lan_ping() {
+        let frame = super::authenticated_lan_ping_frame(Some("secret\n"))
+            .expect("non-empty token must produce authenticated ping frame");
+        assert_eq!(frame, b"SUSI_PING:secret".to_vec());
+        assert_ne!(frame.as_slice(), b"SUSI_LAN_PING");
+        assert_eq!(super::authenticated_lan_ping_frame(None), None);
+        assert_eq!(super::authenticated_lan_ping_frame(Some("  ")), None);
     }
 }

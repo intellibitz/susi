@@ -56,13 +56,14 @@ impl SubstrateKernelLoader {
         Ok(loaded_modules)
     }
 
-    /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
+    /// Prints the configured GMCP/GEMI/UDP ports and probes each endpoint.
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
-        use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
         use std::time::Duration;
 
         let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
+        let host_token = susi_paths::host_token();
         let checks: &[(&str, u16, bool)] = &[
             ("GMCP/MCP HTTP", cfg.gmcp_port(), true),
             ("GEMI HTTP", cfg.gemi_port(), true),
@@ -79,13 +80,7 @@ impl SubstrateKernelLoader {
                 )
                 .is_ok()
             } else {
-                UdpSocket::bind("127.0.0.1:0")
-                    .and_then(|s| {
-                        s.set_write_timeout(Some(Duration::from_millis(200)))?;
-                        s.send_to(b"SUSI_LAN_PING", format!("127.0.0.1:{}", port))?;
-                        Ok(())
-                    })
-                    .is_ok()
+                probe_udp_discovery_port(*port, host_token.as_deref(), Duration::from_millis(200))
             };
             println!(
                 "    - {} (127.0.0.1:{}) ... {}",
@@ -96,5 +91,117 @@ impl SubstrateKernelLoader {
         }
         let _ = std::io::stdout().flush();
         Ok(())
+    }
+}
+
+/// Probe the authenticated UDP discovery endpoint (`B7`).
+///
+/// Sends `SUSI_PING:<api_token>` to `127.0.0.1:{port}` and waits up to
+/// `timeout` for an authenticated `SUSI_ACK:<version>` reply. Fails closed
+/// (`false`) when no non-empty host token is available, when the responder
+/// drops an unauthenticated/mismatched ping, or when nothing is listening.
+pub fn probe_udp_discovery_port(
+    port: u16,
+    token: Option<&str>,
+    timeout: std::time::Duration,
+) -> bool {
+    use std::net::UdpSocket;
+
+    let Some(tok) = token.map(str::trim).filter(|t| !t.is_empty()) else {
+        return false;
+    };
+    let Ok(socket) = UdpSocket::bind("127.0.0.1:0") else {
+        return false;
+    };
+    if socket.set_write_timeout(Some(timeout)).is_err()
+        || socket.set_read_timeout(Some(timeout)).is_err()
+    {
+        return false;
+    }
+    let frame = format!("SUSI_PING:{tok}");
+    if socket
+        .send_to(frame.as_bytes(), format!("127.0.0.1:{port}"))
+        .is_err()
+    {
+        return false;
+    }
+    let mut buf = [0u8; 256];
+    let Ok((amt, _src)) = socket.recv_from(&mut buf) else {
+        return false;
+    };
+    buf[..amt].starts_with(b"SUSI_ACK:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::probe_udp_discovery_port;
+    use std::net::UdpSocket;
+    use std::time::Duration;
+
+    #[test]
+    fn probe_udp_discovery_port_succeeds_on_authenticated_ack() {
+        let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set read timeout");
+        let port = server.local_addr().expect("local_addr").port();
+
+        let handle = std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((amt, src)) = server.recv_from(&mut buf) {
+                if &buf[..amt] == b"SUSI_PING:test-token-b7" {
+                    let _ = server.send_to(b"SUSI_ACK:0.21.47", src);
+                }
+            }
+        });
+
+        assert!(probe_udp_discovery_port(
+            port,
+            Some("  test-token-b7\n"),
+            Duration::from_millis(500),
+        ));
+        let _ = handle.join();
+    }
+
+    #[test]
+    fn probe_udp_discovery_port_rejects_missing_wrong_token_and_closed_port() {
+        let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
+        server
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .expect("set read timeout");
+        let port = server.local_addr().expect("local_addr").port();
+
+        let handle = std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((amt, src)) = server.recv_from(&mut buf) {
+                if &buf[..amt] == b"SUSI_PING:expected-secret" {
+                    let _ = server.send_to(b"SUSI_ACK:0.21.47", src);
+                }
+            }
+        });
+
+        assert!(!probe_udp_discovery_port(
+            port,
+            None,
+            Duration::from_millis(100),
+        ));
+        assert!(!probe_udp_discovery_port(
+            port,
+            Some("   "),
+            Duration::from_millis(100),
+        ));
+        assert!(!probe_udp_discovery_port(
+            port,
+            Some("wrong-token"),
+            Duration::from_millis(150),
+        ));
+        let _ = handle.join();
+
+        // Port is now closed after `server` dropped in the responder thread.
+        assert!(!probe_udp_discovery_port(
+            port,
+            Some("expected-secret"),
+            Duration::from_millis(100),
+        ));
     }
 }
