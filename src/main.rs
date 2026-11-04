@@ -303,7 +303,7 @@ fn run() -> std::process::ExitCode {
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
-    let mut command_tree = Cli::command();
+    let mut command_tree = Cli::command().version(env!("CARGO_PKG_VERSION"));
     let cli = parse_cli(&mut command_tree);
     if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
         return status;
