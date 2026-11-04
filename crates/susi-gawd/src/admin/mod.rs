@@ -480,4 +480,15 @@ mod intent_classify_tests {
             "[MOTION]"
         );
     }
+
+    #[test]
+    fn global_susi_dir_and_contains_phrase_handle_empty_and_boundary_cases() {
+        assert!(!contains_phrase("any text", ""));
+        assert!(contains_phrase("(status)", "status"));
+        assert!(!contains_phrase("statuses", "status"));
+        assert_eq!(
+            SusiAdmin::get_global_susi_dir(),
+            susi_paths::SusiDirs::config_dir()
+        );
+    }
 }
