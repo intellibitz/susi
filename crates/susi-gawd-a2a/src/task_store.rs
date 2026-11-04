@@ -196,4 +196,66 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn max_terminal_tasks_constant_and_empty_store_reap_are_safe() {
+        assert_eq!(MAX_TERMINAL_TASKS, 512);
+        let store = InMemoryTaskStore::new();
+        reap_terminal_with_limit(&store, 0).await;
+        reap_terminal_with_limit(&store, 10).await;
+        reap_terminal(&store).await;
+        let listed = store.list(&ListTasksRequest::default()).await.unwrap();
+        assert!(listed.tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reap_terminal_with_limit_paginates_across_over_100_terminal_tasks_and_keeps_newest_five(
+    ) {
+        let store = InMemoryTaskStore::new();
+        store
+            .save(
+                &make_task(
+                    "task-working-live",
+                    TaskState::Working,
+                    "2026-11-04T00:00:00Z",
+                ),
+                None,
+                Default::default(),
+            )
+            .await
+            .unwrap();
+
+        for i in 0..110usize {
+            let hour = i / 60;
+            let minute = i % 60;
+            let ts = format!("2026-11-04T{hour:02}:{minute:02}:00Z");
+            let id = format!("task-paginated-{i:03}");
+            store
+                .save(
+                    &make_task(&id, TaskState::Completed, &ts),
+                    None,
+                    Default::default(),
+                )
+                .await
+                .unwrap();
+        }
+
+        reap_terminal_with_limit(&store, 5).await;
+
+        assert!(store.get("task-working-live").await.unwrap().is_some());
+        for i in 0..105usize {
+            let id = format!("task-paginated-{i:03}");
+            assert!(
+                store.get(&id).await.unwrap().is_none(),
+                "{id} should be evicted"
+            );
+        }
+        for i in 105..110usize {
+            let id = format!("task-paginated-{i:03}");
+            assert!(
+                store.get(&id).await.unwrap().is_some(),
+                "{id} should remain"
+            );
+        }
+    }
 }
