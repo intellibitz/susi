@@ -287,3 +287,17 @@ copying a divergent workflow. `susi_core::self_build::BRIEF` carries the same
 contract into delegated tasks. Update them and governance tests together when
 requirements change. Legacy scripts and GitHub adapters may remain during
 migration, but must not become prerequisites or contradict these mandates.
+
+## Handoff and rescue of unfinished work
+
+Many task copies hold work not yet on GitHub, because pushes are blocked when a
+copy is far behind `main`. If you own such a copy: sync it with `main` (resolve
+conflicts only inside your own work); push to a branch named `wip/<task-name>`,
+never straight to `main`; never commit secrets or key files, and double-check
+certificate or key files first; sign your task-log entry with your agent name
+(Codex, Claude, Gemini or Grok) and state what is finished and what is left; do
+not delete your copy, Grok Bot removes copies after the work is confirmed on
+GitHub; skip any copy another agent is actively using.
+
+If you hit your weekly limit, leave a note in the task log for the next agent
+saying where you stopped.

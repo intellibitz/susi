@@ -11,10 +11,12 @@ commit built for another host is not accepted.
 The compile-time allow-list is explicit: `x86_64` and `aarch64` with MSVC.
 Every other Windows target fails to compile. ARM64 (`aarch64-pc-windows-msvc`)
 is admitted only on a native ARM64 host so that host can produce its own
-evidence: core checks it on GitHub `windows-11-arm` runners for downstream
-certified builds (CEO decision 2026-11-03). It is not a published core release
+evidence. Core CI and official releases do not run or publish that target
+(CEO decision 2026-11-03). The native evidence belongs to Susi Commercial
+Apps, in its certified-core pipeline, and only for a published core tag whose
+runtime allow-list contains this target. It is not a published core release
 and is **not qualified**: no ARM64 result in this README is claimed until those
-native runs pass. At startup `image()` also refuses a PE image whose COFF
+commercial runs pass. At startup `image()` also refuses a PE image whose COFF
 Machine is not the build architecture (`0x8664` on x64, `0xAA64` on ARM64).
 
 The entry point calls the **compiler-generated C `main(int, char**)`** exactly

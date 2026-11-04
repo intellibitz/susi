@@ -292,4 +292,10 @@ mod inline_tests {
         let err = susi_error::EaiError::process("swarm root test");
         assert!(err.to_string().contains("swarm root test"));
     }
+
+    #[test]
+    fn joint_consensus_module_computes_electorate_quorum_via_swarm_root() {
+        let electorate = joint_consensus::Electorate::from_ids(["n1", "n2", "n3"]);
+        assert_eq!(electorate.quorum_size(), 2);
+    }
 }

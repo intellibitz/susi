@@ -81,4 +81,15 @@ mod inline_tests {
         let b = hooks().audit_distillation_state(Path::new("same-ws"));
         assert_eq!(a.is_ok(), b.is_ok());
     }
+
+    #[test]
+    fn noop_host_hooks_includes_distillation_audit_unavailable_context() {
+        let noop = NoOpHostHooks;
+        let err = noop
+            .audit_distillation_state(Path::new(""))
+            .expect_err("noop must report unwired error");
+        let msg = err.to_string();
+        assert!(msg.contains("distillation audit unavailable"));
+        assert!(msg.contains("host hooks were never initialized"));
+    }
 }

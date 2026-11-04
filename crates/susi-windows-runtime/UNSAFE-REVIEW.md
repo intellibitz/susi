@@ -46,8 +46,10 @@ metadata compilation verifies the empty non-Windows crate remains buildable.
 
 ## Re-review 2026-11-03: Windows ARM64 source support
 
-CEO decision 2026-11-03 keeps ARM64 Windows support in core source, checked on
-GitHub `windows-11-arm` runners, without a public ARM64 release. The reviewed
+CEO decision 2026-11-03 keeps ARM64 Windows support in core source and keeps
+it out of core CI and out of public releases. A native ARM64 host, qualified
+in the susi-commercial-apps certified-core pipeline, produces the evidence.
+The reviewed
 files changed as follows; the guard digests in `unsafe-review.json` are re-bound
 to the new sources.
 

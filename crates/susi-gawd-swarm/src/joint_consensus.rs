@@ -136,4 +136,20 @@ mod inline_tests {
         t2.endorse("y");
         assert!(!overlapping_disjoint_blocked(&t1, &t2));
     }
+
+    #[test]
+    fn overlapping_disjoint_blocked_permits_concurrent_transitions_with_overlapping_new_rosters() {
+        let old = Electorate::from_ids(["a", "b"]);
+        let mut t1 = MembershipTransition::new(old.clone(), Electorate::from_ids(["b", "x"]));
+        let mut t2 = MembershipTransition::new(old, Electorate::from_ids(["b", "y"]));
+        for m in ["a", "b", "x"] {
+            t1.endorse(m);
+        }
+        for m in ["a", "b", "y"] {
+            t2.endorse(m);
+        }
+        assert!(t1.can_commit());
+        assert!(t2.can_commit());
+        assert!(overlapping_disjoint_blocked(&t1, &t2));
+    }
 }
