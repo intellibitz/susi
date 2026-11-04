@@ -406,4 +406,31 @@ mod tests {
             "help"
         );
     }
+
+    #[test]
+    fn token_from_susi_dir_falls_back_on_malformed_ports_json_and_empty_args_keep_defaults() {
+        let temp = std::env::temp_dir().join(format!(
+            "susi-conformance-fallback-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        std::fs::write(temp.join("ports.json"), "{not-valid-json").unwrap();
+        assert_eq!(token_from_susi_dir(&temp), temp.join("api_token"));
+
+        std::fs::write(temp.join("ports.json"), r#"{"api_token_path":"   "}"#).unwrap();
+        assert_eq!(token_from_susi_dir(&temp), temp.join("api_token"));
+
+        let _ = std::fs::remove_dir_all(&temp);
+
+        let defaults = parse_cli_args(&[], 42, Some(PathBuf::from("/default/tok"))).unwrap();
+        assert_eq!(defaults.host, "127.0.0.1");
+        assert_eq!(defaults.port_offset, 42);
+        assert_eq!(defaults.token_file, Some(PathBuf::from("/default/tok")));
+        assert!(!defaults.explicit_token);
+        assert_eq!(defaults.timeout_ms, 5_000);
+        assert!(!defaults.json);
+        assert_eq!(defaults.max_ms, None);
+    }
 }

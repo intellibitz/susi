@@ -205,6 +205,31 @@ mod service {
                 },
             );
         }
+
+        #[test]
+        fn enter_service_mode_forces_local_only_resolution_without_network_io() {
+            let _guard = env_test_lock();
+            with_env(
+                &[
+                    ("SUSI_XDG", None),
+                    ("XDG_CONFIG_HOME", None),
+                    ("XDG_DATA_HOME", None),
+                    ("XDG_CACHE_HOME", None),
+                    ("SUSI_CONFIG_PORT", Some("1")),
+                ],
+                || {
+                    super::super::enter_service_mode();
+                    assert!(super::local_only());
+                    let started = std::time::Instant::now();
+                    assert!(super::get_global().is_none());
+                    assert!(!super::save_global(&SusiConfig::default()));
+                    assert!(
+                        started.elapsed() < std::time::Duration::from_millis(150),
+                        "service-mode resolution must not attempt network I/O"
+                    );
+                },
+            );
+        }
     }
 }
 
