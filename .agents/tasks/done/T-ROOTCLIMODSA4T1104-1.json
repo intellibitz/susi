@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "ROOTCLIMODSA4T1104",
-  "created_unix": 1793795075
+  "created_unix": 1793795075,
+  "closed": {
+    "at_unix": 1793795513,
+    "commit": "9271e06263b498945957905f6d83a60df792687a",
+    "by": "ROOTCLIMODSA4T1104"
+  }
 }
