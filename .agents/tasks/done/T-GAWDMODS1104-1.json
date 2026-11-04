@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GAWDMODS1104-1",
+  "agent": "GAWDMODS1104",
+  "branch": "gawd-mods-1104",
+  "goal": "Expand inline unit tests for susi-gawd-agents accountability, goal_shape, pkb and susi-gawd-a2a zc_peer_discovery, a2a_conformance: every failure marker and word-boundary rule, meta-command and question classification, multi-entry JSONL staging, peer admission reasons and conformance combinations (D-OS-8)",
+  "touch": [
+    "crates/susi-gawd-agents/src/accountability.rs",
+    "crates/susi-gawd-agents/src/goal_shape.rs",
+    "crates/susi-gawd-agents/src/pkb.rs",
+    "crates/susi-gawd-a2a/src/zc_peer_discovery.rs",
+    "crates/susi-gawd-a2a/src/a2a_conformance.rs"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gawd-agents", "-p", "susi-gawd-a2a", "--lib"]
+  }
+}
