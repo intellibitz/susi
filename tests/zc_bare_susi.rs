@@ -61,3 +61,13 @@ fn zc_bare_susi_serde_roundtrip_and_two_line_render_contract() {
         assert_eq!(rendered.lines().count(), 2);
     }
 }
+
+#[test]
+fn zc_bare_susi_ready_status_has_ready_banner_and_next_step_prefix() {
+    let status = bare_susi_status(true, true, true);
+    assert!(status.ready);
+    assert!(!status.next_step.is_empty());
+    let rendered = render_bare(&status);
+    assert!(rendered.starts_with("susi status: ready\n"));
+    assert!(rendered.contains("next: "));
+}

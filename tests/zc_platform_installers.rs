@@ -112,3 +112,16 @@ fn zc_platform_installers_plan_steps_are_unique_and_scripts_non_empty() {
     assert!(sh.starts_with("#!/"), "install.sh must start with shebang");
     assert!(!ps1.trim().is_empty(), "install.ps1 must be non-empty");
 }
+
+#[test]
+fn zc_platform_installers_verify_sha256_checksum_before_installing() {
+    let (sh, ps1) = read_installers();
+    assert!(
+        sh.contains("sha256sum") || sh.contains("shasum"),
+        "install.sh must verify SHA-256 checksums"
+    );
+    assert!(
+        ps1.contains("Get-FileHash") && ps1.to_ascii_uppercase().contains("SHA256"),
+        "install.ps1 must verify SHA-256 checksums via Get-FileHash"
+    );
+}

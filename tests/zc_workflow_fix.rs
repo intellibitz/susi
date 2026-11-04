@@ -214,3 +214,10 @@ fn unit_executable_helper_accepts_existing_repository_scripts() {
     assert!(script.is_file());
     assert!(executable(&script));
 }
+
+#[test]
+fn unit_fix_lines_ignores_mid_line_arrows_and_blank_input() {
+    assert!(fix_lines("").is_empty());
+    let sample = "note: a → b transition\n→\n  → git fetch origin\n";
+    assert_eq!(fix_lines(sample), vec!["git fetch origin".to_string()]);
+}

@@ -60,3 +60,14 @@ fn vc_201_100_mastery_sub_2x_metric_qualifies_without_claiming_2x() {
     assert!(!report.claim_2x);
     assert_eq!(report.scorecard_deltas.len(), 2);
 }
+
+#[test]
+fn vc_201_100_mastery_unconfigured_or_unpromoted_stage_blocks_qualification() {
+    let mut unconfigured = evidence("local");
+    unconfigured.drill.configured = false;
+    assert!(!qualify_multi_stage(&[unconfigured, evidence("cloud")]).qualified);
+
+    let mut unpromoted = evidence("cloud");
+    unpromoted.drill.promoted_via_tag = false;
+    assert!(!qualify_multi_stage(&[evidence("local"), unpromoted]).qualified);
+}
