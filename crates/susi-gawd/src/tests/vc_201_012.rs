@@ -54,3 +54,15 @@ fn vc_201_012_deduplicates_identical_receipts_while_incrementing_frequency() {
         vec!["dup-rcpt".to_string(), "unique-rcpt".to_string()]
     );
 }
+
+#[test]
+fn vc_201_012_single_failure_retains_frequency_one_and_exact_score() {
+    let failures = vec![("single_gap".into(), 7.5, "rcpt-only".into())];
+    let ranked = prioritize(&failures);
+    assert_eq!(ranked.len(), 1);
+    assert_eq!(ranked[0].pattern, "single_gap");
+    assert_eq!(ranked[0].frequency, 1);
+    assert!((ranked[0].impact - 7.5).abs() < f64::EPSILON);
+    assert!((ranked[0].score() - 7.5).abs() < f64::EPSILON);
+    assert_eq!(ranked[0].receipts, vec!["rcpt-only".to_string()]);
+}

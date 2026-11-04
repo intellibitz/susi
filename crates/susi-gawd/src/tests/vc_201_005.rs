@@ -60,3 +60,17 @@ fn vc_201_005_missing_expected_output_fails_wrong_output() {
     assert_eq!(judge(&c, &s, false), PromotionGate::FailWrongOutput);
     assert_eq!(judge(&c, &s, true), PromotionGate::FailWriteAttempt);
 }
+
+#[test]
+fn vc_201_005_empty_held_out_suite_passes_for_unmodified_candidate() {
+    let c = CandidateArtifact {
+        id: "c-empty".into(),
+        actual_output: BTreeSet::new(),
+        expected_results: BTreeSet::new(),
+    };
+    let s = HeldOutSuite {
+        inputs: Vec::new(),
+        expected: BTreeSet::new(),
+    };
+    assert_eq!(judge(&c, &s, false), PromotionGate::Pass);
+}
