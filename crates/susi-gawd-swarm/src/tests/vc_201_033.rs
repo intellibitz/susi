@@ -82,3 +82,25 @@ fn node_enrollment_production() {
     assert!(!no_tls.accepted);
     assert!(no_tls.key_epoch.is_none());
 }
+
+#[test]
+fn vc_201_033_revoke_requires_majority_quorum_from_electorate() {
+    let mut s = IdentityStore::default();
+    let electorate = BTreeSet::from(["a".into(), "b".into(), "c".into()]);
+    let key = KeyMaterial {
+        peer_id: "p1".into(),
+        key_id: "k-quorum".into(),
+        public: "pk-q".into(),
+    };
+    s.rotate(
+        "p1",
+        key,
+        &BTreeSet::from(["a".into(), "b".into()]),
+        &electorate,
+    )
+    .unwrap();
+    assert!(s
+        .revoke("k-quorum", &BTreeSet::from(["a".into()]), &electorate)
+        .is_err());
+    assert!(s.credential_ok_after_restart("k-quorum"));
+}
