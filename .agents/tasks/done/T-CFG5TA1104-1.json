@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CFG5TA1104",
-  "created_unix": 1793810500
+  "created_unix": 1793810500,
+  "closed": {
+    "at_unix": 1793809907,
+    "commit": "45edeebbc769ecaff84953c03c9fc37a35cd6d0d",
+    "by": "CFG5TA1104"
+  }
 }
