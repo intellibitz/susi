@@ -821,4 +821,44 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn redact_credentials_masks_env_keys_resolved_tokens_and_governance_secret_patterns() {
+        let _guard = crate::env_test_lock();
+        let prev = std::env::var_os("OPENAI_API_KEY");
+        std::env::set_var("OPENAI_API_KEY", "env-super-secret-key-9999");
+
+        let default_patterns = SusiConfig::default().governance().secret_tokens;
+        let sample_pattern = default_patterns
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "sk-".to_string());
+        let raw = format!(
+            "status=healthy key_leak=env-super-secret-key-9999 \
+             resolved=inline-secret-value pattern={sample_pattern}abcdef123456"
+        );
+        let redacted = redact_credentials(&raw);
+
+        match prev {
+            Some(v) => std::env::set_var("OPENAI_API_KEY", v),
+            None => std::env::remove_var("OPENAI_API_KEY"),
+        }
+
+        assert!(
+            redacted.contains("status=healthy"),
+            "non-secret diagnostic text should survive: {redacted}"
+        );
+        assert!(
+            !redacted.contains("env-super-secret-key-9999"),
+            "OPENAI_API_KEY env value must be masked: {redacted}"
+        );
+        assert!(
+            !redacted.contains("inline-secret-value"),
+            "resolved= token value must be masked: {redacted}"
+        );
+        assert!(
+            !redacted.contains(&format!("{sample_pattern}abcdef123456")),
+            "governance.secret_tokens pattern must be masked: {redacted}"
+        );
+    }
 }

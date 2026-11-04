@@ -446,4 +446,31 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn validate_dir_rejects_malformed_json_and_validate_settings_flags_nested_unknown_keys() {
+        let dir = unique_temp_dir("malformed-and-nested");
+        fs::write(SusiConfig::get_config_path(&dir), "{not valid json")
+            .expect("write malformed config.json");
+        assert!(
+            validate_dir(&dir).is_err(),
+            "validate_dir must return Err on malformed config.json"
+        );
+        let _ = fs::remove_dir_all(&dir);
+
+        let mut settings = SusiConfig::heal_defaults().clone();
+        if let Some(DynamicValue::Object(gov)) = settings.get_mut("governance") {
+            gov.insert(
+                "unknown_nested_key".into(),
+                DynamicValue::String("unexpected".into()),
+            );
+        }
+        let report = validate_settings(&settings);
+        assert!(report.has_blocking());
+        assert!(report.issues.iter().any(|i| {
+            i.path == "governance.unknown_nested_key"
+                && i.kind == ConfigIssueKind::Unknown
+                && i.fix == Some(ConfigFix::Remove)
+        }));
+    }
 }

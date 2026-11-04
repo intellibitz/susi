@@ -212,4 +212,50 @@ mod tests {
         assert!(!reloaded.settings.contains_key("totally_unknown_future_key"));
         let _ = fs::remove_dir_all(&dir_unknown);
     }
+
+    #[test]
+    fn clean_config_requires_no_repair_and_deprecated_keys_trigger_backup_and_strip() {
+        // 1. Clean, already-valid config.json returns repaired == false and no backup file.
+        let dir_clean = temp_dir("clean-valid");
+        let clean_cfg = SusiConfig {
+            settings: SusiConfig::heal_defaults().clone(),
+        };
+        clean_cfg.save(&dir_clean).unwrap();
+
+        let (_, clean_report) = load_or_selfheal(&dir_clean).expect("clean config loads");
+        assert!(!clean_report.repaired);
+        assert!(clean_report.backup_path.is_none());
+        assert!(clean_report.messages.is_empty());
+        let has_bak = fs::read_dir(&dir_clean)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|e| e.file_name().to_string_lossy().contains(".bak-"));
+        assert!(!has_bak, "clean config must not write a .bak file");
+        let _ = fs::remove_dir_all(&dir_clean);
+
+        // 2. Deprecated top-level keys trigger backup, repair, and removal from saved config.json.
+        let dir_dep = temp_dir("deprecated-keys");
+        let mut dep_map = SusiConfig::heal_defaults().clone();
+        dep_map.insert("gmcp_port".into(), serde_json::json!(9090));
+        dep_map.insert("api_auth_token".into(), serde_json::json!("tok"));
+        fs::write(
+            SusiConfig::get_config_path(&dir_dep),
+            serde_json::to_string_pretty(&SusiConfig { settings: dep_map }).unwrap(),
+        )
+        .unwrap();
+
+        let (healed_cfg, dep_report) =
+            load_or_selfheal(&dir_dep).expect("deprecated keys self-healed");
+        assert!(dep_report.repaired);
+        let bak_path = PathBuf::from(dep_report.backup_path.as_ref().expect("backup created"));
+        assert!(bak_path.is_file());
+        assert!(!healed_cfg.settings.contains_key("gmcp_port"));
+        assert!(!healed_cfg.settings.contains_key("api_auth_token"));
+
+        let saved_raw = fs::read_to_string(SusiConfig::get_config_path(&dir_dep)).unwrap();
+        let saved_val: serde_json::Value = serde_json::from_str(&saved_raw).unwrap();
+        assert!(saved_val.get("gmcp_port").is_none());
+        assert!(saved_val.get("api_auth_token").is_none());
+        let _ = fs::remove_dir_all(&dir_dep);
+    }
 }
