@@ -402,4 +402,42 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn load_with_healing_skips_rewrite_when_unhealed_and_propagates_on_missing_error() {
+        let dir = unique_temp_dir("no-rewrite-and-err");
+        let path = dir.join("existing.json");
+        let raw_compact = r#"{"alpha":1}"#;
+        std::fs::write(&path, raw_compact).expect("write compact json");
+
+        let store: VersionedJsonStore<BTreeMap<String, u32>> = VersionedJsonStore::new();
+        let loaded = store
+            .load_with_healing(
+                &path,
+                || unreachable!("existing file should not invoke on_missing"),
+                |_| false,
+                true,
+            )
+            .expect("load existing file without healing");
+        assert_eq!(loaded.get("alpha"), Some(&1));
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read existing file"),
+            raw_compact,
+            "file must not be rewritten when heal_fn returns false"
+        );
+
+        let missing_path = dir.join("missing.json");
+        let err = store
+            .load_arc_with_healing(
+                &missing_path,
+                || Err(crate::susi_error::EaiError::config("on_missing failure")),
+                |_| false,
+                true,
+            )
+            .expect_err("on_missing error must propagate");
+        assert!(err.to_string().contains("on_missing failure"));
+        assert!(!missing_path.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

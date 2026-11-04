@@ -329,4 +329,26 @@ mod tests {
         );
         assert_eq!(res.repaired["foreign"]["keep"], json!("observed_preserved"));
     }
+
+    #[test]
+    fn drift_is_empty_when_identical_and_reconcile_with_empty_selection_preserves_observed() {
+        let doc = json!({
+            "providers": {
+                "openai": { "model": "gpt-4o", "timeout_ms": 5000 }
+            }
+        });
+        let owned: BTreeSet<String> = ["providers".to_string()].into_iter().collect();
+
+        assert!(drift(&doc, &doc, &owned).is_empty());
+
+        let observed = json!({
+            "providers": {
+                "openai": { "model": "gpt-3.5", "extra": true }
+            }
+        });
+        let res = reconcile(&doc, &observed, &owned, &[]);
+        assert_eq!(res.repaired, observed);
+        assert!(res.applied.is_empty());
+        assert!(res.conflicts.is_empty());
+    }
 }
