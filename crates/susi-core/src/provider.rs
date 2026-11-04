@@ -70,7 +70,8 @@ impl Drop for OnDemandEngineStart {
 
 #[cfg(test)]
 mod on_demand_engine_start_tests {
-    use super::OnDemandEngineStart;
+    use super::{BoxFuture, EaiResult, OnDemandEngineStart, Provider};
+    use std::any::Any;
 
     #[test]
     fn the_permission_is_scoped_to_the_guard_and_its_thread() {
@@ -87,5 +88,50 @@ mod on_demand_engine_start_tests {
             assert!(!other_thread, "another thread never inherits the guard");
         }
         assert!(!OnDemandEngineStart::allowed());
+    }
+
+    #[test]
+    fn on_demand_engine_start_starts_disallowed_on_fresh_thread() {
+        let allowed = std::thread::spawn(OnDemandEngineStart::allowed)
+            .join()
+            .unwrap();
+        assert!(!allowed);
+    }
+
+    #[test]
+    fn on_demand_engine_start_multiple_sequential_cycles_reset_cleanly() {
+        for _ in 0..2 {
+            {
+                let _g = OnDemandEngineStart::allow();
+                assert!(OnDemandEngineStart::allowed());
+            }
+            assert!(!OnDemandEngineStart::allowed());
+        }
+    }
+
+    #[test]
+    fn mock_provider_trait_object_is_object_safe_and_downcastable() {
+        struct DummyProvider;
+        impl Provider for DummyProvider {
+            fn name(&self) -> &str {
+                "dummy"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+                Box::pin(async { Ok(true) })
+            }
+            fn generate(&self, _prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+                Box::pin(async { Ok("ok".into()) })
+            }
+            fn embed(&self, _text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![1.0]) })
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        let p: Box<dyn Provider> = Box::new(DummyProvider);
+        assert_eq!(p.name(), "dummy");
+        assert!(p.as_any().downcast_ref::<DummyProvider>().is_some());
     }
 }
