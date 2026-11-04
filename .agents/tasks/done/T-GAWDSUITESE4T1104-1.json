@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GAWDSUITESE4T1104-1",
+  "title": "Expand susi-gawd test suites (vc_201_011, vc_201_015, vc_201_017, vc_201_097_mastery, vc_201_100_mastery) to 4 unit tests each",
+  "touch": [
+    "crates/susi-gawd/src/tests/vc_201_011.rs",
+    "crates/susi-gawd/src/tests/vc_201_015.rs",
+    "crates/susi-gawd/src/tests/vc_201_017.rs",
+    "crates/susi-gawd/src/tests/vc_201_097_mastery.rs",
+    "crates/susi-gawd/src/tests/vc_201_100_mastery.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "vc_201_011_tests"
+    ]
+  }
+}

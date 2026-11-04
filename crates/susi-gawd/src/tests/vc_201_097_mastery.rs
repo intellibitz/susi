@@ -100,3 +100,29 @@ fn vc_201_097_mastery_pinned_baseline_exists_for_the_default_feature_set() {
          baseline is not a recorded measurement"
     );
 }
+
+#[test]
+fn vc_201_097_mastery_baseline_roundtrips_json_and_verdict_is_clean_against_self() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../.agents/baseline/unsafe-default.json"
+    ))
+    .expect("pinned baseline recorded");
+    let baseline: susi_unsafe_ratchet::UnsafeBaseline =
+        serde_json::from_str(&text).expect("baseline parses as UnsafeBaseline");
+    let reencoded = serde_json::to_string(&baseline).expect("serialize baseline");
+    let decoded: susi_unsafe_ratchet::UnsafeBaseline =
+        serde_json::from_str(&reencoded).expect("deserialize baseline");
+    assert_eq!(decoded.features, baseline.features);
+    assert_eq!(decoded.exposure, baseline.exposure);
+    assert_eq!(decoded.sbom, baseline.sbom);
+    assert_eq!(
+        ratchet_unsafe(
+            &baseline.exposure,
+            &decoded.exposure,
+            &baseline.sbom,
+            &decoded.sbom
+        ),
+        GeigerVerdict::Clean
+    );
+}
