@@ -267,4 +267,41 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn decide_holds_at_max_replicas_and_scales_to_max_when_unit_cost_is_zero() {
+        let policy = sample_policy();
+        let at_max = EndpointMetrics {
+            replicas: policy.max_replicas,
+            queue_depth: 100,
+            p95_latency_ms: 500,
+            in_flight: 8,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&at_max, &policy, 5, 0),
+            ScaleDecision::Hold {
+                reason: "within targets",
+            }
+        );
+
+        let zero_cost_policy = AutoscalePolicy {
+            cost_per_replica_hour_cents: 0,
+            ..policy
+        };
+        let overloaded = EndpointMetrics {
+            replicas: 2,
+            queue_depth: 64,
+            p95_latency_ms: 350,
+            in_flight: 2,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&overloaded, &zero_cost_policy, 5, 500),
+            ScaleDecision::ScaleOut {
+                add: 6,
+                reason: "queue/latency above target",
+            }
+        );
+    }
 }
