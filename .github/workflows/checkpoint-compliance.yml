@@ -83,7 +83,9 @@ jobs:
           set -euo pipefail
           result=failure
           if [[ $OUTCOME == success ]] && gh api "repos/intellibitz/susi/pulls/$PR" |
-            jq -e --arg h "$HEAD" --arg b "$BASE" '.state=="open" and .head.sha==$h and .base.sha==$b' &&
+            jq -e --arg h "$HEAD" --arg b "$BASE" --slurpfile captured "$RUNNER_TEMP/subject.json" '
+              def identity: [.number,.base.repo.full_name,.base.ref,.base.sha,.head.repo.full_name,.head.ref,.head.sha];
+              .state=="open" and .head.sha==$h and .base.sha==$b and (identity == ($captured[0]|identity))' &&
             [[ $(gh api repos/intellibitz/susi/git/ref/heads/main --jq '.object.sha') == "$BASE" ]]; then result=success; fi
           gh api -X POST repos/intellibitz/susi/check-runs -f 'name=Independent Workflow Compliance' -f head_sha="$HEAD" -f status=completed -f conclusion="$result" -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --silent
           test "$result" = success
