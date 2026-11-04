@@ -131,6 +131,81 @@ mod service {
         )
         .is_some_and(|resp| resp.is_success())
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::super::env_test_lock;
+        use super::SusiConfig;
+
+        /// Sets `vars` for the closure's duration and restores the previous
+        /// values afterwards, even if an assertion fails.
+        fn with_env<R>(vars: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
+            struct Restore(Vec<(String, Option<std::ffi::OsString>)>);
+            impl Drop for Restore {
+                fn drop(&mut self) {
+                    for (key, old) in self.0.drain(..) {
+                        match old {
+                            Some(v) => std::env::set_var(&key, v),
+                            None => std::env::remove_var(&key),
+                        }
+                    }
+                }
+            }
+            let _restore = Restore(
+                vars.iter()
+                    .map(|(k, _)| ((*k).to_string(), std::env::var_os(k)))
+                    .collect(),
+            );
+            for (key, value) in vars {
+                match value {
+                    Some(v) => std::env::set_var(key, v),
+                    None => std::env::remove_var(key),
+                }
+            }
+            f()
+        }
+
+        #[test]
+        fn port_honours_the_override_and_falls_back_to_the_contract_port() {
+            let _guard = env_test_lock();
+            with_env(&[("SUSI_CONFIG_PORT", Some(" 28082 "))], || {
+                assert_eq!(super::port(), 28082);
+            });
+            with_env(&[("SUSI_CONFIG_PORT", Some("not-a-port"))], || {
+                assert_eq!(
+                    super::port(),
+                    susi_paths::ports::effective(susi_paths::ports::CONFIG_SERVICE)
+                );
+            });
+            with_env(&[("SUSI_CONFIG_PORT", None)], || {
+                assert_eq!(
+                    super::port(),
+                    susi_paths::ports::effective(susi_paths::ports::CONFIG_SERVICE)
+                );
+            });
+        }
+
+        #[test]
+        fn explicit_local_env_config_keeps_global_config_off_the_service() {
+            let _guard = env_test_lock();
+            // Point the port at something nothing listens on: if the local-only
+            // guard ever regressed, the calls below would fail rather than reach
+            // a real substrate on this host.
+            with_env(
+                &[("SUSI_XDG", Some("1")), ("SUSI_CONFIG_PORT", Some("1"))],
+                || {
+                    assert!(super::local_only());
+                    let started = std::time::Instant::now();
+                    assert!(super::get_global().is_none());
+                    assert!(!super::save_global(&SusiConfig::default()));
+                    assert!(
+                        started.elapsed() < std::time::Duration::from_millis(150),
+                        "local-only resolution must not attempt network I/O"
+                    );
+                },
+            );
+        }
+    }
 }
 
 pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
