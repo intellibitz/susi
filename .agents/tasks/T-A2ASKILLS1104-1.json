@@ -1,0 +1,22 @@
+{
+    "id":  "T-A2ASKILLS1104-1",
+    "title":  "Advertise harness and extensions per-capability skills on A2A agent card and verify honesty invariants (B6)",
+    "goal":  "",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gawd-a2a",
+                               "--lib"
+                           ]
+               },
+    "created_by":  "A2ASKILLS1104",
+    "created_unix":  1793755675
+}
