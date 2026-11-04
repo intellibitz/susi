@@ -179,4 +179,53 @@ mod placement_uses_task_class_tests {
         });
         assert_eq!(privacy_locked.placement, Placement::Local);
     }
+
+    #[test]
+    fn optimize_placement_forces_local_when_budget_exhausted_or_below_floor() {
+        let exhausted = optimize_placement(PlacementContext {
+            task_class: "reasoning",
+            daily_budget_usd: 10.0,
+            spent_today_usd: 10.0,
+            expected_cloud_cost_usd: 0.05,
+            local_tokens_per_sec: 15.0,
+            host_fitness: HostFitness::Fit,
+            local_only_policy: false,
+            local_meets_capability_floor: false,
+        });
+        assert_eq!(exhausted.placement, Placement::Local);
+        assert!((exhausted.budget_shadow_price - 100.0).abs() < f64::EPSILON);
+
+        let tiny_daily = optimize_placement(PlacementContext {
+            daily_budget_usd: 0.50,
+            spent_today_usd: 0.0,
+            ..PlacementContext {
+                task_class: "reasoning",
+                daily_budget_usd: 0.50,
+                spent_today_usd: 0.0,
+                expected_cloud_cost_usd: 0.01,
+                local_tokens_per_sec: 15.0,
+                host_fitness: HostFitness::Fit,
+                local_only_policy: false,
+                local_meets_capability_floor: false,
+            }
+        });
+        assert_eq!(tiny_daily.placement, Placement::Local);
+        assert!((tiny_daily.budget_shadow_price - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn optimize_placement_routes_reasoning_below_capability_floor_to_cloud() {
+        let decision = optimize_placement(PlacementContext {
+            task_class: "reasoning",
+            daily_budget_usd: 50.0,
+            spent_today_usd: 0.0,
+            expected_cloud_cost_usd: 0.01,
+            local_tokens_per_sec: 20.0,
+            host_fitness: HostFitness::Fit,
+            local_only_policy: false,
+            local_meets_capability_floor: false,
+        });
+        assert_eq!(decision.placement, Placement::Cloud);
+        assert!(decision.cloud_utility_advantage > 0.0);
+    }
 }

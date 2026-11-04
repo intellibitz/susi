@@ -1,0 +1,21 @@
+{
+  "id": "T-GEMIMODSB4T1104-1",
+  "title": "Expand 5 crates/susi-gemi modules (placement_uses_task_class, plane_handler, provider_contract, region_failover, retry_policy) to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "placement_uses_task_class"
+    ]
+  },
+  "created_by": "GEMIMODSB4T1104",
+  "created_unix": 1793789336
+}

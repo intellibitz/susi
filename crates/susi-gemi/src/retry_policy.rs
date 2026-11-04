@@ -180,4 +180,38 @@ mod retry_policy_tests {
         }
         assert!(budget.try_retry(FailureKind::Timeout, 0, 100, 99).retry);
     }
+
+    #[test]
+    fn failure_kind_is_retryable_partitions_transient_vs_permanent() {
+        assert!(FailureKind::Transient5xx.is_retryable());
+        assert!(FailureKind::Timeout.is_retryable());
+        assert!(FailureKind::ConnectionReset.is_retryable());
+
+        assert!(!FailureKind::Auth.is_retryable());
+        assert!(!FailureKind::Funds.is_retryable());
+        assert!(!FailureKind::NonIdempotent.is_retryable());
+        assert!(!FailureKind::Client4xx.is_retryable());
+    }
+
+    #[test]
+    fn decorrelated_retry_is_deterministic_capped_and_stops_at_max_attempts() {
+        let d1 = decorrelated_retry(FailureKind::ConnectionReset, 2, 400, 12345);
+        let d2 = decorrelated_retry(FailureKind::ConnectionReset, 2, 400, 12345);
+        assert_eq!(d1, d2);
+        assert!(d1.retry);
+        assert!((100..=5_000).contains(&d1.delay_ms));
+
+        let capped = decorrelated_retry(FailureKind::Transient5xx, 4, 50_000, 999);
+        assert!(capped.retry);
+        assert!(capped.delay_ms <= 5_000);
+
+        let exhausted = decorrelated_retry(FailureKind::Transient5xx, 5, 400, 12345);
+        assert_eq!(
+            exhausted,
+            RetryDecision {
+                retry: false,
+                delay_ms: 0
+            }
+        );
+    }
 }

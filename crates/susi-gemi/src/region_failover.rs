@@ -187,4 +187,43 @@ mod region_failover_tests {
         assert_eq!(plan.hedge_region.as_deref(), Some("us-east-jittery"));
         assert_eq!(plan.hedge_after_ms, 64);
     }
+
+    #[test]
+    fn failover_and_hedged_plan_return_none_when_all_regions_unhealthy_or_stale() {
+        let regs = [
+            RegionLatency {
+                region: "us-east".into(),
+                rtt_ms: 50,
+            },
+            RegionLatency {
+                region: "eu-west".into(),
+                rtt_ms: 40,
+            },
+        ];
+        assert!(failover(&regs, &["us-east", "eu-west"]).is_none());
+
+        let stale_telemetry = [RegionTelemetry {
+            region: "us-east".into(),
+            mean_rtt_ms: 30.0,
+            stddev_rtt_ms: 5.0,
+            elapsed_since_ok_ms: 15_000.0,
+            heartbeat_mean_ms: 1000.0,
+            heartbeat_stddev_ms: 100.0,
+        }];
+        assert!(plan_hedged_failover(&stale_telemetry, &[], 8.0).is_none());
+        assert!(plan_hedged_failover(&stale_telemetry, &["us-east"], 100.0).is_none());
+    }
+
+    #[test]
+    fn phi_accrual_is_zero_within_mean_and_increases_monotonically_beyond() {
+        assert!((phi_accrual(500.0, 1000.0, 100.0) - 0.0).abs() < f64::EPSILON);
+        assert!((phi_accrual(1000.0, 1000.0, 100.0) - 0.0).abs() < f64::EPSILON);
+
+        let p1 = phi_accrual(1200.0, 1000.0, 100.0);
+        let p2 = phi_accrual(1500.0, 1000.0, 100.0);
+        let p3 = phi_accrual(2000.0, 1000.0, 100.0);
+        assert!(p1 > 0.0);
+        assert!(p2 > p1);
+        assert!(p3 > p2);
+    }
 }
