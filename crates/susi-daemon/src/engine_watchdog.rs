@@ -87,4 +87,65 @@ mod engine_watchdog_tests {
         assert!(w.is_unfit());
         assert_eq!(w.on_health_check(&down), WatchdogAction::None);
     }
+
+    #[test]
+    fn engine_watchdog_healthy_check_returns_none_and_stays_fit() {
+        let mut w = EngineWatchdog::new(2, 50, 500);
+        let ok = EngineHandle {
+            id: "llama".into(),
+            healthy: true,
+        };
+        assert_eq!(w.on_health_check(&ok), WatchdogAction::None);
+        assert!(!w.is_unfit());
+    }
+
+    #[test]
+    fn engine_watchdog_exponential_backoff_caps_at_max_backoff_ms() {
+        let mut w = EngineWatchdog::new(5, 300, 500);
+        let down = EngineHandle {
+            id: "qwen".into(),
+            healthy: false,
+        };
+        assert_eq!(
+            w.on_health_check(&down),
+            WatchdogAction::Restart { backoff_ms: 300 }
+        );
+        assert_eq!(
+            w.on_health_check(&down),
+            WatchdogAction::Restart { backoff_ms: 500 }
+        );
+        assert_eq!(
+            w.on_health_check(&down),
+            WatchdogAction::Restart { backoff_ms: 500 }
+        );
+        assert!(!w.is_unfit());
+    }
+
+    #[test]
+    fn engine_watchdog_healthy_interlude_preserves_crash_counter_until_unfit() {
+        let w = EngineWatchdog::new(0, 200, 100);
+        assert_eq!(w.max_crashes, 1);
+        assert_eq!(w.max_backoff_ms, 200);
+
+        let mut w2 = EngineWatchdog::new(3, 100, 1000);
+        let down = EngineHandle {
+            id: "llama".into(),
+            healthy: false,
+        };
+        let up = EngineHandle {
+            id: "llama".into(),
+            healthy: true,
+        };
+        assert_eq!(
+            w2.on_health_check(&down),
+            WatchdogAction::Restart { backoff_ms: 100 }
+        );
+        assert_eq!(w2.on_health_check(&up), WatchdogAction::None);
+        assert_eq!(
+            w2.on_health_check(&down),
+            WatchdogAction::Restart { backoff_ms: 200 }
+        );
+        assert_eq!(w2.on_health_check(&down), WatchdogAction::MarkUnfit);
+        assert_eq!(w2.on_health_check(&up), WatchdogAction::None);
+    }
 }

@@ -1,0 +1,21 @@
+{
+  "id": "T-DAEMONMODSA21104-1",
+  "title": "Expand 5 crates/susi-daemon/src/ modules from 1 to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "engine_watchdog"
+    ]
+  },
+  "created_by": "DAEMONMODSA21104",
+  "created_unix": 1793792794
+}

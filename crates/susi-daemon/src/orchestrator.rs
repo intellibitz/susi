@@ -126,4 +126,38 @@ mod tests {
         assert!(orchestrator.scale_down("worker-2").is_ok());
         assert_eq!(orchestrator.pool_summary(), (1, 0));
     }
+
+    #[test]
+    fn test_orchestrator_new_is_empty_and_assign_task_returns_none() {
+        let orchestrator = Orchestrator::new("empty-cell");
+        assert_eq!(orchestrator.orchestrator_id, "empty-cell");
+        assert_eq!(orchestrator.pool_summary(), (0, 0));
+        assert_eq!(orchestrator.assign_task(), None);
+    }
+
+    #[test]
+    fn test_orchestrator_scale_down_rejects_unknown_and_removes_busy_worker() {
+        let orchestrator = Orchestrator::new("scale-cell");
+        assert!(
+            orchestrator
+                .scale_down("missing-worker")
+                .unwrap_err()
+                .contains("not found")
+        );
+
+        orchestrator.scale_up("worker-busy");
+        assert_eq!(orchestrator.assign_task().as_deref(), Some("worker-busy"));
+        assert_eq!(orchestrator.pool_summary(), (1, 1));
+        assert!(orchestrator.scale_down("worker-busy").is_ok());
+        assert_eq!(orchestrator.pool_summary(), (0, 0));
+    }
+
+    #[test]
+    fn test_orchestrator_complete_task_on_idle_or_unknown_worker_is_idempotent() {
+        let orchestrator = Orchestrator::new("idem-cell");
+        orchestrator.scale_up("worker-a");
+        orchestrator.complete_task("unknown-worker");
+        orchestrator.complete_task("worker-a");
+        assert_eq!(orchestrator.pool_summary(), (1, 0));
+    }
 }
