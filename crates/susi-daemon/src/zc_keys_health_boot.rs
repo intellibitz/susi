@@ -45,4 +45,46 @@ mod zc_keys_health_boot_tests {
         assert_eq!(r.len(), 1);
         assert!(r[0].contains("anthropic"));
     }
+
+    #[test]
+    fn boot_key_report_empty_input_returns_empty_vec() {
+        assert!(boot_key_report(&[]).is_empty());
+    }
+
+    #[test]
+    fn boot_key_report_all_ok_entries_returns_empty_vec() {
+        let r = boot_key_report(&[
+            KeyStatus {
+                vendor: "openai".into(),
+                health: KeyHealth::Ok,
+            },
+            KeyStatus {
+                vendor: "gemini".into(),
+                health: KeyHealth::Ok,
+            },
+        ]);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn boot_key_report_surfaces_missing_expired_and_revoked_vendors() {
+        let r = boot_key_report(&[
+            KeyStatus {
+                vendor: "openai".into(),
+                health: KeyHealth::Missing,
+            },
+            KeyStatus {
+                vendor: "anthropic".into(),
+                health: KeyHealth::Expired,
+            },
+            KeyStatus {
+                vendor: "deepseek".into(),
+                health: KeyHealth::Revoked,
+            },
+        ]);
+        assert_eq!(r.len(), 3);
+        assert!(r[0].contains("openai") && r[0].contains("Missing"));
+        assert!(r[1].contains("anthropic") && r[1].contains("Expired"));
+        assert!(r[2].contains("deepseek") && r[2].contains("Revoked"));
+    }
 }

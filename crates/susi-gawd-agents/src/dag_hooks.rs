@@ -123,4 +123,55 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn run_invokes_global_hook_safely_and_run_with_passes_goal_and_workspace() {
+        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(64));
+        let ws = Path::new("/tmp/global-dag-ws");
+        let _ = run("global-goal", ws, &bb);
+
+        fn echo_hook(
+            goal: &str,
+            workspace: &Path,
+            _blackboard: &MissionBlackboard,
+        ) -> Vec<(String, String)> {
+            vec![(goal.to_string(), workspace.display().to_string())]
+        }
+
+        let pairs = run_with(Some(echo_hook), "exact-goal", ws, &bb);
+        assert_eq!(
+            pairs,
+            vec![("exact-goal".to_string(), ws.display().to_string())]
+        );
+    }
+
+    #[test]
+    fn hook_callback_mutates_and_reads_blackboard_entries_preserving_order() {
+        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(64));
+        let ws = Path::new("/tmp/mutate-dag-ws");
+
+        fn mutating_hook(
+            goal: &str,
+            _workspace: &Path,
+            blackboard: &MissionBlackboard,
+        ) -> Vec<(String, String)> {
+            blackboard.insert("k1".to_string(), format!("{goal}-v1"));
+            blackboard.insert("k2".to_string(), format!("{goal}-v2"));
+            vec![
+                ("k1".to_string(), blackboard.get("k1").unwrap_or_default()),
+                ("k2".to_string(), blackboard.get("k2").unwrap_or_default()),
+            ]
+        }
+
+        let out = run_with(Some(mutating_hook), "run", ws, &bb);
+        assert_eq!(
+            out,
+            vec![
+                ("k1".to_string(), "run-v1".to_string()),
+                ("k2".to_string(), "run-v2".to_string()),
+            ]
+        );
+        assert_eq!(bb.get("k1").as_deref(), Some("run-v1"));
+        assert_eq!(bb.get("k2").as_deref(), Some("run-v2"));
+    }
 }

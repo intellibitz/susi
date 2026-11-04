@@ -48,3 +48,42 @@ fn vc_201_054_allows_attested_allowed_region() {
         PlacementDecision::Allow
     );
 }
+
+#[test]
+fn vc_201_054_unconstrained_allows_any_and_constrained_rejects_unverified_provenance() {
+    let missing_region = CloudTarget {
+        provider: "openai".into(),
+        model: "gpt".into(),
+        region: None,
+    };
+    assert_eq!(
+        place(&missing_region, &["us-east-1"], false),
+        PlacementDecision::Allow
+    );
+
+    let unknown_prov = CloudTarget {
+        provider: "openai".into(),
+        model: "gpt".into(),
+        region: Some(RegionMeta {
+            region: "us-east-1".into(),
+            provenance: RegionProvenance::Unknown,
+        }),
+    };
+    assert_eq!(
+        place(&unknown_prov, &["us-east-1"], true),
+        PlacementDecision::RejectUnknownRegion
+    );
+
+    let empty_region = CloudTarget {
+        provider: "openai".into(),
+        model: "gpt".into(),
+        region: Some(RegionMeta {
+            region: String::new(),
+            provenance: RegionProvenance::Verified,
+        }),
+    };
+    assert_eq!(
+        place(&empty_region, &["us-east-1"], true),
+        PlacementDecision::RejectUnknownRegion
+    );
+}

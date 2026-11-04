@@ -55,4 +55,34 @@ mod changelog_from_tasks_tests {
     fn changelog_from_tasks_empty_note() {
         assert!(changelog_from_tasks(&[], 0).contains("No closed tasks"));
     }
+
+    #[test]
+    fn changelog_from_tasks_excludes_task_strictly_equal_to_since_unix() {
+        let closed = vec![ClosedTask {
+            id: "T-BOUNDARY".into(),
+            title: "exact tag timestamp".into(),
+            closed_unix: 500,
+        }];
+        let md = changelog_from_tasks(&closed, 500);
+        assert!(md.contains("No closed tasks"));
+        assert!(!md.contains("T-BOUNDARY"));
+    }
+
+    #[test]
+    fn changelog_from_tasks_renders_sorted_bullets_for_multiple_matching_tasks() {
+        let closed = vec![
+            ClosedTask {
+                id: "T-B".into(),
+                title: "second item".into(),
+                closed_unix: 300,
+            },
+            ClosedTask {
+                id: "T-A".into(),
+                title: "first item".into(),
+                closed_unix: 250,
+            },
+        ];
+        let md = changelog_from_tasks(&closed, 100);
+        assert!(md.contains("- T-A: first item\n- T-B: second item\n"));
+    }
 }

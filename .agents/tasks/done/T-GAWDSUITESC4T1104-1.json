@@ -1,0 +1,26 @@
+{
+  "id": "T-GAWDSUITESC4T1104-1",
+  "title": "Expand 5 crates/susi-gawd/src/tests/ suites from 2 to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "vc_201_016"
+    ]
+  },
+  "created_by": "GAWDSUITESC4T1104",
+  "created_unix": 1793791567,
+  "closed": {
+    "at_unix": 1793791849,
+    "commit": "e2d2d416c5a253b57c3d157aedf8a87aa1bc6af0",
+    "by": "GAWDSUITESC4T1104"
+  }
+}

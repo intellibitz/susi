@@ -1,0 +1,26 @@
+{
+  "id": "T-GEMISUITESB4T1104-1",
+  "title": "Expand 4 crates/susi-gemi/src/tests/ suites (vc_201_045_mastery, vc_201_047_mastery, vc_201_051, vc_201_054) and susi-windows-runtime libtest fixture to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "vc_201_045_mastery"
+    ]
+  },
+  "created_by": "GEMISUITESB4T1104",
+  "created_unix": 1793790157,
+  "closed": {
+    "at_unix": 1793790315,
+    "commit": "d99f94d49b4999f4ea42aed00e957ecf2f552cf5",
+    "by": "GEMISUITESB4T1104"
+  }
+}

@@ -662,4 +662,43 @@ mod tests {
             Some(true)
         );
     }
+
+    #[test]
+    fn unhandled_topic_errors_and_intent_and_context_assemble_topics_succeed() {
+        let handler = GemiPlaneHandler;
+        let unknown = handler.handle("gemi.nonexistent.topic", json!({}));
+        let err = unknown.expect_err("unknown topic must return Err");
+        assert!(err.contains("unhandled topic"), "{err}");
+
+        let intent = handler
+            .handle(
+                topics::GEMI_INTENT_CLASSIFY,
+                json!({ "goal": "write a rust unit test" }),
+            )
+            .expect("intent classify topic must succeed");
+        assert!(intent
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty()));
+
+        let assembled = handler
+            .handle(
+                "gemi.context.assemble",
+                json!({
+                    "turns": [
+                        { "role": "system", "content": "sys" },
+                        { "role": "user", "content": "hi" }
+                    ]
+                }),
+            )
+            .expect("context assemble topic must succeed");
+        assert!(assembled.get("prompt").and_then(|v| v.as_str()).is_some());
+        assert!(assembled.get("stable_prefix_tokens").is_some());
+        assert!(assembled.get("total_tokens").is_some());
+        assert!(assembled.get("cacheable_fraction").is_some());
+        assert!(assembled
+            .get("defects")
+            .and_then(|v| v.as_array())
+            .is_some());
+    }
 }

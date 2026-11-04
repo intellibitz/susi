@@ -111,4 +111,33 @@ mod tests {
         // Good cell should still be alive because it pinged
         assert!(!dead.contains(&"good-cell".to_string()));
     }
+
+    #[test]
+    fn ping_unregistered_cell_returns_error() {
+        let watchdog = WatchdogManager::default();
+        let err = watchdog
+            .ping("missing-cell")
+            .expect_err("unregistered cell must error");
+        assert!(err.contains("missing-cell"));
+    }
+
+    #[test]
+    fn empty_watchdog_reports_no_dead_cells_and_exposes_timeout() {
+        let watchdog = WatchdogManager::new(Duration::from_secs(7));
+        assert_eq!(watchdog.timeout(), Duration::from_secs(7));
+        assert!(watchdog.find_dead_cells().is_empty());
+    }
+
+    #[test]
+    fn unregister_cell_and_reregister_manage_heartbeats_cleanly() {
+        let watchdog = WatchdogManager::new(Duration::from_secs(5));
+        watchdog.register_cell("cell-a");
+        assert!(watchdog.ping("cell-a").is_ok());
+
+        watchdog.unregister_cell("cell-a");
+        assert!(watchdog.ping("cell-a").is_err());
+
+        watchdog.register_cell("cell-a");
+        assert!(watchdog.ping("cell-a").is_ok());
+    }
 }

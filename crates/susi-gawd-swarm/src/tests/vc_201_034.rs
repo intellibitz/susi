@@ -53,3 +53,56 @@ fn vc_201_034_rejects_unsupported_and_insecure_downgrade() {
         other => panic!("expected reject, got {other:?}"),
     }
 }
+
+#[test]
+fn vc_201_034_rejects_out_of_range_ledger_version() {
+    let local = LocalProtocol {
+        wire_min: 1,
+        wire_max: 3,
+        ledger_min: 2,
+        ledger_max: 4,
+        min_security: 2,
+    };
+    let too_old_ledger = ProtocolOffer {
+        wire_version: 2,
+        ledger_version: 1,
+        min_security: 2,
+        peer_security: 2,
+    };
+    match local.negotiate(&too_old_ledger) {
+        NegotiateResult::Reject { reason } => assert!(reason.contains("ledger")),
+        other => panic!("expected ledger reject, got {other:?}"),
+    }
+
+    let too_new_ledger = ProtocolOffer {
+        wire_version: 2,
+        ledger_version: 5,
+        min_security: 2,
+        peer_security: 2,
+    };
+    match local.negotiate(&too_new_ledger) {
+        NegotiateResult::Reject { reason } => assert!(reason.contains("ledger")),
+        other => panic!("expected ledger reject, got {other:?}"),
+    }
+}
+
+#[test]
+fn vc_201_034_rejects_peer_security_downgrade_request() {
+    let local = LocalProtocol {
+        wire_min: 1,
+        wire_max: 3,
+        ledger_min: 1,
+        ledger_max: 3,
+        min_security: 3,
+    };
+    let downgrade_offer = ProtocolOffer {
+        wire_version: 2,
+        ledger_version: 2,
+        min_security: 2,
+        peer_security: 3,
+    };
+    match local.negotiate(&downgrade_offer) {
+        NegotiateResult::Reject { reason } => assert!(reason.contains("downgrade refused")),
+        other => panic!("expected downgrade reject, got {other:?}"),
+    }
+}

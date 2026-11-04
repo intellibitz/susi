@@ -51,3 +51,45 @@ fn model_preload_respects_max_warm_bound() {
     let plan = schedule_preload(&events, &policy, Some(now));
     assert_eq!(plan.len(), 3);
 }
+
+#[test]
+fn model_preload_empty_events_or_zero_max_warm_returns_empty_plan() {
+    let policy = PreloadPolicy {
+        max_warm: 2,
+        window_secs: 3600,
+    };
+    assert!(schedule_preload(&[], &policy, Some(5_000)).is_empty());
+
+    let zero_warm = PreloadPolicy {
+        max_warm: 0,
+        window_secs: 3600,
+    };
+    let events = vec![ModelUseEvent {
+        model_id: "m1".into(),
+        used_unix: 4_999,
+    }];
+    assert!(schedule_preload(&events, &zero_warm, Some(5_000)).is_empty());
+}
+
+#[test]
+fn model_preload_breaks_frequency_ties_by_most_recent_timestamp() {
+    let now = 2_000u64;
+    let events = vec![
+        ModelUseEvent {
+            model_id: "older".into(),
+            used_unix: now - 50,
+        },
+        ModelUseEvent {
+            model_id: "newer".into(),
+            used_unix: now - 5,
+        },
+    ];
+    let policy = PreloadPolicy {
+        max_warm: 2,
+        window_secs: 600,
+    };
+    let plan = schedule_preload(&events, &policy, Some(now));
+    assert_eq!(plan.len(), 2);
+    assert_eq!(plan[0].model_id, "newer");
+    assert_eq!(plan[1].model_id, "older");
+}

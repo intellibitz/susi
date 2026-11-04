@@ -1,0 +1,25 @@
+{
+  "id": "T-GAWDA2AAGENTS4T1104-1",
+  "title": "Expand inline unit tests to 4 in susi-gawd-a2a and susi-gawd-agents admin_hooks, axiom, and brain",
+  "goal": "Expand inline unit tests to 4 in susi-gawd-a2a (capabilities, task_store) and susi-gawd-agents (admin_hooks, axiom, brain)",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-a2a",
+      "-p",
+      "susi-gawd-agents",
+      "--lib"
+    ]
+  },
+  "created_by": "GAWDA2AAGENTS4T1104",
+  "created_unix": 1793786818,
+  "closed": {
+    "at_unix": 1793787987,
+    "commit": "ffa46e0690eaa08fced769f854683d9bb0262c50",
+    "by": "GAWDA2AAGENTS4T1104"
+  }
+}

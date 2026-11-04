@@ -56,3 +56,64 @@ fn vc_201_026_deadline_remaining_propagates() {
     tok2.cancel();
     assert_eq!(tok2.remaining_secs(40), None);
 }
+
+#[test]
+fn vc_201_026_propagate_sets_cancellable_worker_signals_only() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let mut bus = CancelBus::default();
+    bus.set_token(CancelToken::fresh(
+        "mission-sig",
+        CancelBus::now_unix() + 60,
+    ));
+
+    let cancellable_sig = Arc::new(AtomicBool::new(false));
+    let irreversible_sig = Arc::new(AtomicBool::new(false));
+
+    bus.register(Descendant {
+        id: "worker-cancellable".into(),
+        kind: WorkerKind::Local,
+        cancellable: true,
+        cancel_scope: None,
+        signal: Some(Arc::clone(&cancellable_sig)),
+    });
+    bus.register(Descendant {
+        id: "worker-irreversible".into(),
+        kind: WorkerKind::PeerDispatch,
+        cancellable: false,
+        cancel_scope: None,
+        signal: Some(Arc::clone(&irreversible_sig)),
+    });
+
+    let reports = bus.propagate();
+    assert!(cancellable_sig.load(Ordering::Acquire));
+    assert!(!irreversible_sig.load(Ordering::Acquire));
+    assert!(bus.terminated.contains("worker-cancellable"));
+    assert!(bus.irreversible_running.contains("worker-irreversible"));
+    assert_eq!(reports.len(), 1);
+}
+
+#[test]
+fn vc_201_026_propagate_without_token_is_noop_and_late_register_sets_signal() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let mut bus = CancelBus::default();
+    assert!(bus.propagate().is_empty());
+    assert!(bus.terminated.is_empty());
+
+    let mut pre_cancelled = CancelToken::fresh("mission-late", CancelBus::now_unix() + 60);
+    pre_cancelled.cancel();
+    bus.set_token(pre_cancelled);
+
+    let late_sig = Arc::new(AtomicBool::new(false));
+    bus.register(Descendant {
+        id: "late-worker".into(),
+        kind: WorkerKind::ModelCall,
+        cancellable: true,
+        cancel_scope: None,
+        signal: Some(Arc::clone(&late_sig)),
+    });
+    assert!(late_sig.load(Ordering::Acquire));
+}

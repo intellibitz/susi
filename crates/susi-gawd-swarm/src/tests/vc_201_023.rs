@@ -31,3 +31,24 @@ fn vc_201_023_idempotent_retries_cleanly() {
     assert!(out.completed);
     assert!(!out.uncertain_external);
 }
+
+#[test]
+fn vc_201_023_read_only_vs_reconcilable_crash_retry_outcomes() {
+    let read_only_prior = ActionOutcome {
+        class: ActionClass::ReadOnly,
+        uncertain_external: false,
+        completed: false,
+    };
+    let read_only_out = after_crash_retry(&read_only_prior);
+    assert!(read_only_out.completed);
+    assert!(!read_only_out.uncertain_external);
+
+    let reconcilable_prior = ActionOutcome {
+        class: ActionClass::Reconcilable,
+        uncertain_external: false,
+        completed: false,
+    };
+    let reconcilable_out = after_crash_retry(&reconcilable_prior);
+    assert!(reconcilable_out.completed);
+    assert!(reconcilable_out.uncertain_external);
+}

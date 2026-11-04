@@ -38,4 +38,43 @@ mod zc_port_autoselect_tests {
         assert_eq!(picks[0].port, 9091);
         assert_eq!(picks[1].port, 9092);
     }
+
+    #[test]
+    fn zc_port_autoselect_empty_services_returns_empty_vec() {
+        let picks = autoselect_ports(&[], &BTreeSet::new());
+        assert!(picks.is_empty());
+    }
+
+    #[test]
+    fn zc_port_autoselect_preserves_preferred_ports_when_unoccupied() {
+        let picks = autoselect_ports(
+            &[("gmcp".into(), 9090), ("gemi".into(), 9095)],
+            &BTreeSet::new(),
+        );
+        assert_eq!(picks.len(), 2);
+        assert_eq!(
+            picks[0],
+            PortPick {
+                service: "gmcp".into(),
+                port: 9090
+            }
+        );
+        assert_eq!(
+            picks[1],
+            PortPick {
+                service: "gemi".into(),
+                port: 9095
+            }
+        );
+    }
+
+    #[test]
+    fn zc_port_autoselect_resolves_duplicate_preferred_ports_sequentially() {
+        let picks = autoselect_ports(
+            &[("svc-a".into(), 9090), ("svc-b".into(), 9090)],
+            &BTreeSet::new(),
+        );
+        assert_eq!(picks[0].port, 9090);
+        assert_eq!(picks[1].port, 9091);
+    }
 }

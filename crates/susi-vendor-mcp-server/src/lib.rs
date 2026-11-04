@@ -42,4 +42,34 @@ mod tests {
         assert_eq!(err.code, crate::model::ErrorCode::INVALID_PARAMS);
         assert_eq!(err.message.as_ref(), "bad param");
     }
+
+    #[test]
+    fn rmcp_parse_invalid_request_and_method_not_found_constructors_preserve_codes() {
+        let parse_err = crate::ErrorData::parse_error("malformed json", None);
+        assert_eq!(parse_err.code, crate::model::ErrorCode::PARSE_ERROR);
+        assert_eq!(parse_err.message.as_ref(), "malformed json");
+
+        let inv_req = crate::ErrorData::invalid_request("missing jsonrpc", None);
+        assert_eq!(inv_req.code, crate::model::ErrorCode::INVALID_REQUEST);
+
+        let not_found = crate::ErrorData::method_not_found::<crate::model::CallToolRequestMethod>();
+        assert_eq!(not_found.code, crate::model::ErrorCode::METHOD_NOT_FOUND);
+    }
+
+    #[test]
+    fn reexported_schemars_generates_object_schema_for_derived_input() {
+        #[derive(crate::schemars::JsonSchema)]
+        #[schemars(crate = "crate::schemars")]
+        #[allow(dead_code)]
+        struct ProbeToolInput {
+            name: String,
+            limit: u32,
+        }
+
+        let schema = crate::schemars::schema_for!(ProbeToolInput);
+        let value = schema.as_value();
+        assert_eq!(value["type"], "object");
+        assert!(value["properties"]["name"].is_object());
+        assert!(value["properties"]["limit"].is_object());
+    }
 }

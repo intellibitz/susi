@@ -429,4 +429,52 @@ mod license_tests {
         fs::remove_file(&path).unwrap();
         fs::remove_dir(&dir).unwrap();
     }
+
+    #[test]
+    fn offline_host_starter_download_plan_returns_offline_no_model_and_network_status_mocks() {
+        let (ok, msg, latency_ms) = ModelManager::check_network_status();
+        assert!(ok);
+        assert!(msg.contains("mocked"));
+        assert_eq!(latency_ms, 2);
+
+        let offline_host = crate::zc_first_model::FirstRunHost {
+            ram: 8 * 1_073_741_824,
+            disk: 10_000_000_000,
+            offline: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            ModelManager::starter_download_plan(&offline_host, Path::new("unused-offline-models")),
+            crate::zc_first_model::FirstRunPlan::OfflineNoModel
+        ));
+    }
+
+    #[test]
+    fn missing_tokenizer_for_unaudited_repo_fails_license_gate_before_download() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-tokenizer-unaudited-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let step = crate::hardware::ModelLadderStep {
+            step: 1,
+            label: "unaudited".into(),
+            hf_repo: "unaudited-org/unaudited-model".into(),
+            hf_file: "unaudited.gguf".into(),
+            tokenizer_repo: String::new(),
+            min_bytes: 0,
+            expected_bytes: 0,
+        };
+        let result = ModelManager::ensure_ladder_tokenizer(
+            &step,
+            &dir,
+            &crate::susi_sandbox::manager::SusiConfig::default(),
+        );
+        assert!(result.is_err());
+        assert!(!dir.join("unaudited.tokenizer.json").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

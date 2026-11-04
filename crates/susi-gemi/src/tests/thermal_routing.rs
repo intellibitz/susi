@@ -61,3 +61,24 @@ fn thermal_routing_power_cap_marks_unfit_power() {
     });
     assert_eq!(r.state(), HostFitness::UnfitPower);
 }
+
+#[test]
+fn thermal_routing_new_starts_fit_and_observe_unknown_clears_on_cool_sample() {
+    let mut r = ThermalRouter::new(85.0, 70.0, 2);
+    assert_eq!(r.state(), HostFitness::Fit);
+    assert!(!r.prefer_cloud());
+    assert!(r.local_ok_for_latency_sensitive());
+
+    assert_eq!(r.observe_unknown(), HostFitness::Unknown);
+    assert!(r.prefer_cloud());
+    assert!(!r.local_ok_for_latency_sensitive());
+
+    let after_cool = r.observe(ThermalSample {
+        temp_c: 55.0,
+        power_w: 40.0,
+        power_cap_w: 200.0,
+        util_pct: 15.0,
+    });
+    assert_eq!(after_cool, HostFitness::Fit);
+    assert!(!r.prefer_cloud());
+}

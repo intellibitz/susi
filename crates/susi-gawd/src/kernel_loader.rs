@@ -233,4 +233,43 @@ mod tests {
             Duration::from_millis(100),
         ));
     }
+
+    #[test]
+    fn boot_kernel_loads_all_four_core_substrate_manifests() {
+        let modules = super::SubstrateKernelLoader::boot_kernel(std::path::Path::new("."))
+            .expect("boot_kernel must parse built-in core manifests");
+        assert_eq!(modules.len(), 4);
+        let ids: Vec<&str> = modules.iter().map(|m| m.module_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "gawd-swarm",
+                "gmcp-protocol",
+                "gemi-inference",
+                "truth-transformer"
+            ]
+        );
+        assert!(modules
+            .iter()
+            .all(|m| !m.capabilities.is_empty() && m.memory_footprint_mb > 0));
+    }
+
+    #[test]
+    fn substrate_module_manifest_roundtrips_json_serialization() {
+        let manifest = super::SubstrateModuleManifest {
+            module_id: "test-mod".to_string(),
+            version: "0.2.0".to_string(),
+            entry_point: "TestEntry".to_string(),
+            capabilities: vec!["cap-a".to_string(), "cap-b".to_string()],
+            memory_footprint_mb: 256,
+        };
+        let json = serde_json::to_string(&manifest).expect("serialize manifest");
+        let decoded: super::SubstrateModuleManifest =
+            serde_json::from_str(&json).expect("deserialize manifest");
+        assert_eq!(decoded.module_id, "test-mod");
+        assert_eq!(decoded.version, "0.2.0");
+        assert_eq!(decoded.entry_point, "TestEntry");
+        assert_eq!(decoded.capabilities, vec!["cap-a", "cap-b"]);
+        assert_eq!(decoded.memory_footprint_mb, 256);
+    }
 }

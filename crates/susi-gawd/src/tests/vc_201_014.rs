@@ -62,3 +62,43 @@ fn vc_201_014_exhaustion_stops_new_work_and_cancels_children() {
     assert!(b.cancelled_children.contains("child-a"));
     assert!(b.reserve(BudgetUsage::default()).is_err());
 }
+
+#[test]
+fn vc_201_014_cloud_spend_or_wall_time_exceeding_limits_triggers_exhaustion() {
+    let mut b = ExperimentBudget::new(
+        "e3",
+        BudgetLimits {
+            tokens: 1_000,
+            wall_ms: 200,
+            subprocesses: 5,
+            cloud_spend_micros: 500,
+        },
+    );
+    let err = b
+        .debit(BudgetUsage {
+            tokens: 10,
+            wall_ms: 50,
+            subprocesses: 1,
+            cloud_spend_micros: 600,
+        })
+        .unwrap_err();
+    assert!(err.contains("exhausted"));
+    assert!(!b.allows_new_work());
+}
+
+#[test]
+fn vc_201_014_new_budget_initializes_zero_usage_and_empty_cancelled_children() {
+    let b = ExperimentBudget::new(
+        "e4",
+        BudgetLimits {
+            tokens: 500,
+            wall_ms: 1_000,
+            subprocesses: 2,
+            cloud_spend_micros: 10_000,
+        },
+    );
+    assert_eq!(b.id, "e4");
+    assert_eq!(b.usage, BudgetUsage::default());
+    assert!(b.cancelled_children.is_empty());
+    assert!(b.allows_new_work());
+}

@@ -94,3 +94,28 @@ fn vc_202_014_mastery_secret_redaction_scrubs_key_material() {
         "key material must not survive redaction: {redacted}"
     );
 }
+
+#[test]
+fn vc_202_014_mastery_egress_gate_allows_subdomains_and_isolates_mission_refusals() {
+    let policy = EgressPolicy::from_allowlist(&allowlist_from_vendors(&["openai"]))
+        .allow_host("*.openai.com");
+    let mut gate = EgressGate::new(policy);
+
+    assert_eq!(gate.authorize("mission-x", "api.openai.com"), Ok(()));
+    assert_eq!(gate.authorize("mission-x", "eu.files.openai.com"), Ok(()));
+    assert_eq!(
+        gate.authorize("mission-x", "untrusted-x.example.org"),
+        Err(DenyReason::HostNotAllowed)
+    );
+    assert_eq!(
+        gate.authorize("mission-y", "untrusted-y.example.org"),
+        Err(DenyReason::HostNotAllowed)
+    );
+
+    let refusals = gate.refusals();
+    assert_eq!(refusals.len(), 2);
+    assert_eq!(refusals[0].mission, "mission-x");
+    assert_eq!(refusals[0].host, "untrusted-x.example.org");
+    assert_eq!(refusals[1].mission, "mission-y");
+    assert_eq!(refusals[1].host, "untrusted-y.example.org");
+}

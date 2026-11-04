@@ -164,3 +164,36 @@ fn vc_201_047_preload_eviction_with_hysteresis() {
     let cold_without = cold_starts(&workload, &[]);
     assert!(cold_with_preload < cold_without);
 }
+
+#[test]
+fn vc_201_047_mastery_challenger_above_hysteresis_margin_evicts_incumbent() {
+    let now = 5_000u64;
+    let policy = PreloadPolicy {
+        max_warm: 1,
+        window_secs: 300,
+    };
+    let hysteresis = PreloadHysteresis { margin: 0.5 };
+    let events = vec![
+        ModelUseEvent {
+            model_id: "model_old".into(),
+            used_unix: now - 100,
+        },
+        ModelUseEvent {
+            model_id: "model_hot".into(),
+            used_unix: now - 20,
+        },
+        ModelUseEvent {
+            model_id: "model_hot".into(),
+            used_unix: now - 10,
+        },
+        ModelUseEvent {
+            model_id: "model_hot".into(),
+            used_unix: now,
+        },
+    ];
+    let incumbent = vec!["model_old".to_string()];
+    let damped = schedule_preload_damped(&events, &policy, &incumbent, &hysteresis, Some(now));
+    assert_eq!(damped.len(), 1);
+    assert_eq!(damped[0].model_id, "model_hot");
+    assert_eq!(damped[0].uses_in_window, 3);
+}

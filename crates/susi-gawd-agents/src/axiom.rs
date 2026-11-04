@@ -102,4 +102,35 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn ingest_constitution_agents_summary_bullet_lines_match_rules_count_and_format() {
+        let (agents_summary, _) = AxiomSubstrate::ingest_constitution(Path::new("."));
+        let mut lines = agents_summary.lines();
+        let header = lines.next().expect("agents_summary must have header");
+        assert!(header.starts_with("# Compiled Genome ("));
+        let bullets: Vec<&str> = lines.filter(|l| l.starts_with("- **")).collect();
+        assert!(bullets.len() >= AlphaSelf::RULES.len());
+        for bullet in &bullets {
+            assert!(bullet.contains(": "));
+        }
+        for rule in AlphaSelf::RULES {
+            let prefix = format!("- **{}** {}: ", rule.cite, rule.title);
+            assert!(agents_summary.contains(&prefix), "missing prefix {prefix}");
+        }
+    }
+
+    #[test]
+    fn ingest_constitution_projects_summary_bullet_lines_match_components_count_and_format() {
+        let (_, projects_summary) = AxiomSubstrate::ingest_constitution(Path::new("."));
+        let mut lines = projects_summary.lines();
+        let header = lines.next().expect("projects_summary must have header");
+        assert_eq!(header, "# Compiled Binary Component Topology");
+        let bullets: Vec<&str> = lines.collect();
+        assert_eq!(bullets.len(), AlphaSelf::COMPONENTS.len());
+        for bullet in bullets {
+            assert!(bullet.starts_with("- **"));
+            assert!(bullet.contains(": "));
+        }
+    }
 }
