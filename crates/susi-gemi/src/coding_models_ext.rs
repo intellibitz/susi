@@ -39,3 +39,41 @@ pub fn probe(id: &str, prompt: &str) -> Result<String> {
         .map_err(|e| susi_error::eai_err!(e.to_string()))?;
     Ok(crate::susi_config::redact_credentials(&text))
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn probe_rejects_empty_prompt_immediately() {
+        let err = probe("any-model-id", "").unwrap_err();
+        assert!(err.to_string().contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn probe_rejects_whitespace_only_prompt_immediately() {
+        let err = probe("any-model-id", "   \n\t  ").unwrap_err();
+        assert!(err.to_string().contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn provider_returns_err_for_unknown_coding_model_id() {
+        let manager = CodingModelManager::new().unwrap();
+        let res = provider(&manager, "nonexistent-coding-model-xyz-999");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn inference_protocol_mapping_matches_coding_provider_expectations() {
+        assert_eq!(
+            InferenceProtocol::from_config("openai"),
+            InferenceProtocol::OpenAiChat
+        );
+        assert_ne!(
+            InferenceProtocol::from_config("anthropic"),
+            InferenceProtocol::from_config("openai")
+        );
+    }
+}
