@@ -266,4 +266,40 @@ mod tests {
         assert!(mandates.iter().any(|r| r.cite == "Mandate 1"));
         assert!(!mandates.iter().any(|r| r.title.contains("RSI iteration")));
     }
+
+    #[test]
+    fn format_pillar_inventory_handles_empty_slice_and_identity_report_includes_sections_and_workspace(
+    ) {
+        assert_eq!(
+            AlphaSelf::format_pillar_inventory("Empty Pillar", &[]),
+            "- Empty Pillar (0): (none)"
+        );
+        let sample_comps = [
+            SusiComponentSpec {
+                name: "CompA",
+                tier: SusiCoreTier::Tier0Reflex,
+                description: "first component",
+            },
+            SusiComponentSpec {
+                name: "CompB",
+                tier: SusiCoreTier::Tier2Reasoning,
+                description: "second component",
+            },
+        ];
+        assert_eq!(
+            AlphaSelf::format_pillar_inventory("Custom", &sample_comps),
+            "- Custom (2): CompA, CompB"
+        );
+
+        let temp_ws = std::env::temp_dir().join(format!("susi_self_core_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_ws);
+        let report = identity_report(&temp_ws);
+        assert!(report.contains("# susi Substrate - Identity Report"));
+        assert!(report.contains("## 1. CORE CONFIGURATION"));
+        assert!(report.contains("## 2. SYSTEM ENVIRONMENT"));
+        assert!(report.contains(AlphaSelf::VERSION));
+        assert!(report.contains(&AlphaSelf::genome_summary()));
+        assert!(report.contains(&temp_ws.display().to_string()));
+        let _ = std::fs::remove_dir_all(&temp_ws);
+    }
 }

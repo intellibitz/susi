@@ -271,4 +271,36 @@ mod tests {
         );
         let _ = std::fs::remove_file(&file_path);
     }
+
+    #[test]
+    fn search_orders_hits_by_bm25_score_and_respects_result_limits() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_vendor_tantivy_bm25_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let index = DocIndex::open_or_create(&dir).unwrap();
+        let mut w = index.writer(15_000_000).unwrap();
+        w.add("doc:once", "note", "quantum computing overview")
+            .unwrap();
+        w.add("doc:thrice", "note", "quantum quantum quantum supremacy")
+            .unwrap();
+        w.add("doc:none", "note", "classical mechanics only")
+            .unwrap();
+        w.commit().unwrap();
+
+        let hits = index.search("quantum", 2).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].0 >= hits[1].0);
+        assert_eq!(hits[0].1.doc_id, "doc:thrice");
+        assert_eq!(hits[1].1.doc_id, "doc:once");
+
+        let top_one = index.search("quantum", 1).unwrap();
+        assert_eq!(top_one.len(), 1);
+        assert_eq!(top_one[0].1.doc_id, "doc:thrice");
+
+        let limited_all = index.all_docs(2).unwrap();
+        assert_eq!(limited_all.len(), 2);
+
+        drop(index);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
