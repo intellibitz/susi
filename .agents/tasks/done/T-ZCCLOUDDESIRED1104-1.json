@@ -1,0 +1,25 @@
+{
+  "id": "T-ZCCLOUDDESIRED1104-1",
+  "title": "D-OS-7 Cloud Env Overlay Determinism and Declarative Desired-State Validation Contract Suite in susi-config",
+  "goal": "Extract load_cloud_env_from and cloud_env_overlay_from in crates/susi-config/src/cloud_env.rs with unit tests, and add comprehensive inline unit tests in crates/susi-config/src/desired_state.rs.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ZCCLOUDDESIRED1104-1.json",
+    "crates/susi-config/src/cloud_env.rs",
+    "crates/susi-config/src/desired_state.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "ZCCLOUDDESIRED1104",
+  "created_unix": 1793776750
+}
