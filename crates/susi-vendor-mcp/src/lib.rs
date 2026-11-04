@@ -100,4 +100,19 @@ mod inline_tests {
             Some(&serde_json::json!(5000))
         );
     }
+
+    #[test]
+    fn mcp_server_config_debug_and_empty_args_serialization_roundtrip() {
+        let cfg = McpServerConfig {
+            command: "echo".into(),
+            args: Vec::new(),
+            env: None,
+            extra: HashMap::new(),
+        };
+        assert!(format!("{cfg:?}").contains("echo"));
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        let back: McpServerConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.command, "echo");
+        assert!(back.args.is_empty());
+    }
 }

@@ -95,4 +95,12 @@ mod tests {
         assert!(brave < google);
         assert!(google < web);
     }
+
+    #[test]
+    fn gather_live_evidence_includes_not_linked_status_for_each_candidate_tool() {
+        let report = gather_live_evidence("query", std::path::Path::new("."));
+        assert!(report.contains("- brave_search: not linked"));
+        assert!(report.contains("- google_search: not linked"));
+        assert!(report.contains("- web_search: not linked"));
+    }
 }

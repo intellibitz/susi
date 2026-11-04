@@ -169,4 +169,13 @@ mod tests {
             assert_eq!(crate_forbids_unsafe_checked(source), Ok(true), "{source}");
         }
     }
+
+    #[test]
+    fn empty_source_and_line_comments_after_inner_attribute_marker_are_handled() {
+        assert_eq!(crate_forbids_unsafe_checked(""), Ok(false));
+        assert_eq!(
+            crate_forbids_unsafe_checked("#! // comment\n[forbid(unsafe_code)]"),
+            Ok(true)
+        );
+    }
 }
