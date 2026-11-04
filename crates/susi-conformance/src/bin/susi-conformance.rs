@@ -110,7 +110,6 @@ struct CliOptions {
     json: bool,
     max_ms: Option<u128>,
     optional: Optional,
-    signed_udp_pong_prefix: Option<String>,
 }
 
 fn parse_cli_args(
@@ -127,7 +126,6 @@ fn parse_cli_args(
         json: false,
         max_ms: None,
         optional: Optional::default(),
-        signed_udp_pong_prefix: None,
     };
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -170,7 +168,7 @@ fn parse_cli_args(
             }
             "--signed-udp-pong-prefix" => {
                 let v = value("--signed-udp-pong-prefix")?;
-                opts.signed_udp_pong_prefix = Some(v);
+                opts.optional.signed_udp_pong_prefix = Some(v);
             }
             "--inference" => opts.optional.inference = true,
             "--json" => opts.json = true,
@@ -221,20 +219,6 @@ fn main() -> ExitCode {
         timeout: Duration::from_millis(opts.timeout_ms),
     };
     let mut checks = run_with(&target, &opts.optional);
-    if let Some(ref prefix) = opts.signed_udp_pong_prefix {
-        for check in &mut checks {
-            if check.id.starts_with("udp.discovery-signed@")
-                && check.outcome == susi_conformance::Outcome::Pass
-                && !check.detail.contains(prefix)
-            {
-                check.outcome = susi_conformance::Outcome::Fail;
-                check.detail = format!(
-                    "signed pong did not match required prefix {prefix:?} ({})",
-                    check.detail
-                );
-            }
-        }
-    }
     if let Some(budget) = opts.max_ms {
         enforce_latency_budget(&mut checks, budget);
     }
@@ -408,7 +392,7 @@ mod tests {
             Some("SUSI_PING_SIG2:probe")
         );
         assert_eq!(
-            parsed.signed_udp_pong_prefix.as_deref(),
+            parsed.optional.signed_udp_pong_prefix.as_deref(),
             Some("SUSI_PONG_SIG2:")
         );
         assert!(parsed.json);

@@ -106,6 +106,9 @@ pub struct Optional {
     /// Pre-signed `SUSI_PING_SIG*` datagram for opt-in positive UDP
     /// discovery verification (`SUSI_PONG_SIG*`).
     pub signed_udp_ping: Option<String>,
+    /// Optional required prefix on the positive UDP discovery pong reply
+    /// (for example `"SUSI_PONG_SIG2:"`).
+    pub signed_udp_pong_prefix: Option<String>,
 }
 
 /// Outcome of one contract check.
@@ -767,6 +770,16 @@ fn udp_discovery_signed(target: &Target, optional: &Optional) -> Check {
             UdpProbe::Answered(reply)
                 if reply.starts_with("SUSI_PONG_SIG:") || reply.starts_with("SUSI_PONG_SIG2:") =>
             {
+                if let Some(ref prefix) = optional.signed_udp_pong_prefix {
+                    if !reply.starts_with(prefix) {
+                        return (
+                            Outcome::Fail,
+                            format!(
+                                "signed pong {reply:?} did not match required prefix {prefix:?}"
+                            ),
+                        );
+                    }
+                }
                 (Outcome::Pass, format!("signed ping answered: {reply:?}"))
             }
             UdpProbe::Answered(reply) => (
@@ -1867,5 +1880,238 @@ mod tests {
         let requests = handle.join().unwrap();
         assert_eq!(requests.len(), 4);
         assert!(requests[3].starts_with("POST /v1/chat/completions HTTP/1.1"));
+    }
+
+    fn serve_bound_http(
+        listener: std::net::TcpListener,
+        replies: Vec<MockReply>,
+    ) -> std::thread::JoinHandle<usize> {
+        use std::io::Write;
+        std::thread::spawn(move || {
+            let mut count = 0;
+            for reply in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                let _ = read_http_request(&mut stream);
+                let mut raw = format!(
+                    "HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
+                    reply.status,
+                    reply.content_type,
+                    reply.body.len()
+                );
+                for (k, v) in reply.headers {
+                    raw.push_str(&format!("{k}: {v}\r\n"));
+                }
+                raw.push_str("\r\n");
+                raw.push_str(&reply.body);
+                stream.write_all(raw.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+                count += 1;
+            }
+            count
+        })
+    }
+
+    #[test]
+    fn full_suite_run_with_passes_across_all_five_contract_ports_at_shared_offset() {
+        use std::net::{TcpListener, UdpSocket};
+        let mut bound = None;
+        for offset in (20_000u16..45_000).step_by(10) {
+            let l_mcp = TcpListener::bind(("127.0.0.1", ports::MCP + offset));
+            let l_gemi = TcpListener::bind(("127.0.0.1", ports::GEMI + offset));
+            let u_disc = UdpSocket::bind(("127.0.0.1", ports::UDP_DISCOVERY + offset));
+            let l_alias = TcpListener::bind(("127.0.0.1", ports::MCP_ALIAS + offset));
+            let l_a2a = TcpListener::bind(("127.0.0.1", ports::A2A + offset));
+            if let (Ok(mcp), Ok(gemi), Ok(udp), Ok(alias), Ok(a2a)) =
+                (l_mcp, l_gemi, u_disc, l_alias, l_a2a)
+            {
+                bound = Some((offset, mcp, gemi, udp, alias, a2a));
+                break;
+            }
+        }
+        let (offset, mcp_l, gemi_l, udp_s, alias_l, a2a_l) =
+            bound.expect("failed to bind 5 contiguous contract ports in 20000..45000");
+
+        let discover_reply = || {
+            MockReply::json(
+                200,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "capabilities": {"tools": {}},
+                        "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "susi-gmcp"}}
+                    }
+                }),
+            )
+        };
+        let tools_reply = || {
+            MockReply::json(
+                200,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {"tools": [{"name": "echo"}]}
+                }),
+            )
+        };
+        let session_init_reply = || MockReply {
+            status: 200,
+            content_type: "application/json",
+            headers: vec![("Mcp-Session-Id", "sess-5port")],
+            body: json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": MCP_SESSION,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "susi-gmcp"}
+                }
+            })
+            .to_string(),
+        };
+
+        // 1. MCP (9090 + offset): 8 requests (health, auth_required, discover, tools, unknown, 3x session)
+        let h_mcp = serve_bound_http(
+            mcp_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                discover_reply(),
+                tools_reply(),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 3, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                session_init_reply(),
+                MockReply::json(202, &json!({})),
+                tools_reply(),
+            ],
+        );
+
+        // 2. GEMI (9091 + offset): 4 requests (health, auth_required, models, stream)
+        let h_gemi = serve_bound_http(
+            gemi_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(200, &json!({"object": "list", "data": [{"id": "susi-1"}]})),
+                MockReply {
+                    status: 200,
+                    content_type: "text/event-stream",
+                    headers: Vec::new(),
+                    body: "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\"}\n\ndata: [DONE]\n\n"
+                        .into(),
+                },
+            ],
+        );
+
+        // 3. MCP_ALIAS (9093 + offset): 7 requests (health, auth_required, discover, tools, 3x session)
+        let h_alias = serve_bound_http(
+            alias_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                discover_reply(),
+                tools_reply(),
+                session_init_reply(),
+                MockReply::json(202, &json!({})),
+                tools_reply(),
+            ],
+        );
+
+        // 4. A2A (9094 + offset): 8 requests (health, auth /, auth /stream, card, unknown, 3x stream)
+        let honest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let h_a2a = serve_bound_http(
+            a2a_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(200, &honest_card),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 7, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 8, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 9, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 10, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+            ],
+        );
+
+        // 5. UDP_DISCOVERY (9092 + offset): 5 unauthenticated datagrams (silent) + 1 signed datagram (pong)
+        let h_udp = std::thread::spawn(move || {
+            let _ = udp_s.set_read_timeout(Some(Duration::from_secs(3)));
+            let mut buf = [0u8; 256];
+            for _ in 0..6 {
+                if let Ok((n, src)) = udp_s.recv_from(&mut buf) {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if msg.starts_with("SUSI_PING_SIG2:susi-conformance:CORE:9090:1:") {
+                        let _ = udp_s.send_to(
+                            b"SUSI_PONG_SIG2:host:CORE:9090:1:deadbeef:127.0.0.1:cafebabe",
+                            src,
+                        );
+                    }
+                }
+            }
+        });
+
+        let target = Target {
+            host: "127.0.0.1".into(),
+            port_offset: offset,
+            token: Some("test-token".into()),
+            timeout: Duration::from_millis(250),
+        };
+        let optional = Optional {
+            susi_bin: None,
+            inference: true,
+            signed_udp_ping: Some(
+                "SUSI_PING_SIG2:susi-conformance:CORE:9090:1:deadbeef:127.0.0.1:cafebabe".into(),
+            ),
+            signed_udp_pong_prefix: Some("SUSI_PONG_SIG2:host:CORE:".into()),
+        };
+
+        let checks = run_with(&target, &optional);
+        assert!(conformant(&checks), "{checks:?}");
+        for check in &checks {
+            if check.id == "mcp.stdio" {
+                assert_eq!(check.outcome, Outcome::Skip, "{}", check.detail);
+            } else {
+                assert_eq!(
+                    check.outcome,
+                    Outcome::Pass,
+                    "{}: {}",
+                    check.id,
+                    check.detail
+                );
+            }
+        }
+
+        assert_eq!(h_mcp.join().unwrap(), 8);
+        assert_eq!(h_gemi.join().unwrap(), 4);
+        assert_eq!(h_alias.join().unwrap(), 7);
+        assert_eq!(h_a2a.join().unwrap(), 8);
+        h_udp.join().unwrap();
     }
 }
