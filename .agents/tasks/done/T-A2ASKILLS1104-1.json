@@ -18,5 +18,10 @@
                            ]
                },
     "created_by":  "A2ASKILLS1104",
-    "created_unix":  1793755675
+    "created_unix":  1793755675,
+    "closed":  {
+                   "at_unix":  1793755699,
+                   "commit":  "33eda4f5b90dad3ab982b12ab24da1bec7376f79",
+                   "by":  "A2ASKILLS1104"
+               }
 }
