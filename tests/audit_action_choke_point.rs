@@ -42,3 +42,87 @@ fn audit_action_choke_point() {
     assert!(!serialized.contains("private prompt"));
     assert!(!serialized.contains("sk-proj-not-for-audit"));
 }
+
+#[test]
+fn audit_target_identifier_omits_payload_and_preserves_redaction_marker() {
+    let sink = RecordingAuditSink::default();
+    let choke = AuditChokePoint::new(sink.clone());
+    let action = AuditAction::new(
+        AuditActionKind::ToolExecution,
+        "agent-worker",
+        AuditTarget::identifier("tool:read_file"),
+        AuditOutcome::Succeeded,
+        5,
+        0,
+        "trace/identifier-1",
+    )
+    .unwrap();
+
+    assert!(action.target.payload.is_none());
+    choke.dispatch(&action).unwrap();
+
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].target.id, "tool:read_file");
+    assert!(records[0].redacted);
+}
+
+#[test]
+fn audit_action_rejects_empty_actor_target_or_correlation_id() {
+    assert!(AuditAction::new(
+        AuditActionKind::ModelCall,
+        "",
+        AuditTarget::identifier("provider:model"),
+        AuditOutcome::Denied,
+        1,
+        0,
+        "trace-1",
+    )
+    .is_err());
+    assert!(AuditAction::new(
+        AuditActionKind::ModelCall,
+        "actor-1",
+        AuditTarget::identifier(""),
+        AuditOutcome::Denied,
+        1,
+        0,
+        "trace-1",
+    )
+    .is_err());
+    assert!(AuditAction::new(
+        AuditActionKind::ModelCall,
+        "actor-1",
+        AuditTarget::identifier("provider:model"),
+        AuditOutcome::Denied,
+        1,
+        0,
+        "",
+    )
+    .is_err());
+}
+
+#[test]
+fn audit_choke_point_records_denied_and_failed_outcomes_accurately() {
+    let sink = RecordingAuditSink::default();
+    let choke = AuditChokePoint::new(sink.clone());
+    for (idx, outcome) in [AuditOutcome::Denied, AuditOutcome::Failed]
+        .into_iter()
+        .enumerate()
+    {
+        let action = AuditAction::new(
+            AuditActionKind::EgressAttempt,
+            "policy-guard",
+            AuditTarget::identifier("rule:network_egress"),
+            outcome,
+            idx as u64 + 1,
+            0,
+            &format!("trace/outcome-{idx}"),
+        )
+        .unwrap();
+        choke.dispatch(&action).unwrap();
+    }
+    let records = sink.records();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].outcome.as_str(), "denied");
+    assert_eq!(records[1].outcome.as_str(), "failed");
+}

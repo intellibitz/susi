@@ -26,3 +26,29 @@ fn skip_rechecks_owed_attestations_after_setup() {
         "a drained queue must exit successfully without building susi"
     );
 }
+
+#[test]
+fn ci_verified_pending_script_exists_and_checks_refs_verified() {
+    let script = include_str!("../scripts/ci-verified-pending.sh");
+    assert!(!script.trim().is_empty());
+    assert!(
+        script.contains("refs/verified") || script.contains("done/"),
+        "ci-verified-pending.sh must inspect verified refs or done tasks"
+    );
+}
+
+#[test]
+fn test_workflow_defines_workflow_compliance_and_compile_check_jobs() {
+    let workflow = include_str!("../.github/workflows/test.yml");
+    assert!(workflow.contains("Workflow Compliance"));
+    assert!(workflow.contains("Compile Check (branch pushes)"));
+}
+
+#[test]
+fn post_merge_acceptance_limits_batch_verification_to_two_tasks() {
+    let workflow = include_str!("../.github/workflows/test.yml");
+    assert!(
+        workflow.contains("tasks verify-merged --limit 2"),
+        "post-merge acceptance must bound per-push verification batch size"
+    );
+}
