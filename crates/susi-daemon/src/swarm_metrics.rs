@@ -59,3 +59,81 @@ pub fn snapshot_from_tasks(tasks: &[susi_core::task_manager::TaskRecord]) -> Swa
     }
     snap
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use susi_core::task_manager::{SwarmTaskManager, TaskRecord, TaskStatus};
+
+    fn make_record(
+        id: &str,
+        status: TaskStatus,
+        start_secs: u64,
+        end_secs: u64,
+        result: Option<&str>,
+    ) -> TaskRecord {
+        let mgr = SwarmTaskManager::global();
+        let handle = mgr.register_task_scoped(id, "test-intent", Some("swarm-metrics-inline"));
+        if let Some(r) = result {
+            handle.mark_completed(r);
+        } else {
+            handle.mark_failed("none");
+            *handle.result.write() = None;
+        }
+        let mut rec = mgr.tasks.get(&handle.task_id).unwrap().value().clone();
+        mgr.tasks.remove(&handle.task_id);
+        rec.task_id = id.into();
+        rec.status = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(status as u8));
+        rec.start_time_secs = start_secs;
+        rec.last_progress_secs = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(end_secs));
+        rec
+    }
+
+    #[test]
+    fn snapshot_from_empty_tasks_is_default_zeroed() {
+        let snap = snapshot_from_tasks(&[]);
+        assert_eq!(snap, SwarmMetricsSnapshot::default());
+    }
+
+    #[test]
+    fn snapshot_ignores_running_tasks_in_completion_counts() {
+        let tasks = vec![
+            make_record("t1", TaskStatus::Running, 10, 20, None),
+            make_record("t2", TaskStatus::Paused, 10, 25, None),
+        ];
+        let snap = snapshot_from_tasks(&tasks);
+        assert_eq!(snap.missions_started, 2);
+        assert_eq!(snap.missions_completed, 0);
+        assert_eq!(snap.missions_succeeded, 0);
+        assert_eq!(snap.avg_time_to_resolution_ms, 0);
+    }
+
+    #[test]
+    fn snapshot_tracks_distinct_solutions_and_resolution_time() {
+        let tasks = vec![
+            make_record("t1", TaskStatus::Completed, 100, 104, Some("ans-a")),
+            make_record("t2", TaskStatus::Completed, 100, 106, Some("ans-a")),
+            make_record("t3", TaskStatus::Completed, 100, 108, Some("ans-b")),
+        ];
+        let snap = snapshot_from_tasks(&tasks);
+        assert_eq!(snap.missions_started, 3);
+        assert_eq!(snap.missions_completed, 3);
+        assert_eq!(snap.missions_succeeded, 3);
+        assert_eq!(snap.distinct_solutions, 2);
+        assert_eq!(snap.avg_time_to_resolution_ms, 6000);
+    }
+
+    #[test]
+    fn snapshot_counts_failed_and_killed_as_completed_but_not_succeeded() {
+        let tasks = vec![
+            make_record("t1", TaskStatus::Failed, 50, 52, Some("err")),
+            make_record("t2", TaskStatus::Killed, 50, 54, None),
+        ];
+        let snap = snapshot_from_tasks(&tasks);
+        assert_eq!(snap.missions_started, 2);
+        assert_eq!(snap.missions_completed, 2);
+        assert_eq!(snap.missions_succeeded, 0);
+        assert_eq!(snap.distinct_solutions, 0);
+        assert_eq!(snap.avg_time_to_resolution_ms, 3000);
+    }
+}

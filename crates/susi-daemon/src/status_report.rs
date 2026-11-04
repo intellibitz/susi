@@ -776,3 +776,110 @@ pub fn measured_json(cwd: &Path, global_dir: &Path) -> std::io::Result<serde_jso
         }
     }))
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn local_model_line_formats_selected_empty_and_installed_states() {
+        let mut r = RoutingSection {
+            budget_label: "standard",
+            ..Default::default()
+        };
+        assert!(local_model_line(&r).contains("no local model installed"));
+
+        r.installed_local_models = vec!["qwen.gguf".into(), "llama.gguf".into()];
+        let installed_msg = local_model_line(&r);
+        assert!(installed_msg.contains("2 model file(s) found"));
+        assert!(installed_msg.contains("qwen.gguf, llama.gguf"));
+
+        r.chosen_local_model = Some("qwen.gguf".into());
+        assert_eq!(local_model_line(&r), "local model: qwen.gguf");
+    }
+
+    #[test]
+    fn now_unix_returns_positive_epoch_timestamp() {
+        assert!(now_unix() > 1_700_000_000);
+    }
+
+    #[test]
+    fn render_and_to_json_reflect_unified_status_fields() {
+        let status = UnifiedStatus {
+            workspace: PathBuf::from("/tmp/ws"),
+            daemon_pid: Some(4242),
+            missions: vec![MissionInFlight {
+                id: "m-1".into(),
+                prompt_head: "fix bug".into(),
+                dispatched_unix: 100,
+            }],
+            resumable: vec![ResumableMission {
+                id: "dag-1".into(),
+                resumable_nodes: vec!["n1".into()],
+                interruptions: 2,
+            }],
+            rollback_ready: vec![RollbackReady {
+                id: "fail-1".into(),
+                snapshots: 3,
+            }],
+            queue: QueueSection {
+                total: 2,
+                paused: 1,
+                due_now: 0,
+                next_due_in_secs: Some(30),
+                max_failures: 1,
+            },
+            brain: BrainSection {
+                providers_with_evidence: vec!["openai".into()],
+                leaders: vec![("coding".into(), "openai".into())],
+                unfit: vec!["slow|chat".into()],
+                failure_streaks: 1,
+            },
+            routing: RoutingSection {
+                preferred_cloud: Some("openai".into()),
+                policy_override: Some("fast".into()),
+                auto_switched_from: Some("anthropic".into()),
+                cooled: vec![("gemini".into(), 15)],
+                chosen_local_model: Some("local.gguf".into()),
+                installed_local_models: vec!["local.gguf".into()],
+                budget_label: "unlimited",
+            },
+            spend: SpendSection {
+                calls: 5,
+                successes: 4,
+                prompt_tokens: 100,
+                completion_tokens: 50,
+                by_provider: vec![("openai".into(), 5, 4)],
+                observation_bytes: 512,
+                observation_ms: 2,
+                observation_by_agent: vec![("worker".into(), 512)],
+            },
+            approvals: vec![PendingApproval {
+                id: "ap-1".into(),
+                requester: "agent".into(),
+                resource: "net".into(),
+                action: "egress".into(),
+            }],
+        };
+        let text = render(&status);
+        assert!(text.contains("daemon: running (pid 4242)"));
+        assert!(text.contains("missions in flight: 1"));
+        assert!(text.contains("resumable DAG missions: 1"));
+        assert!(text.contains("failed missions with snapshots: 1"));
+        assert!(text.contains("next run in 30s"));
+
+        let json = to_json(&status);
+        assert_eq!(json["schema"], "susi-status-detail-v1");
+        assert_eq!(json["daemon"]["running"], true);
+        assert_eq!(json["daemon"]["pid"], 4242);
+        assert_eq!(json["spend"]["calls"], 5);
+    }
+
+    #[test]
+    fn read_missions_and_resumable_handle_missing_directories_cleanly() {
+        let missing = std::env::temp_dir().join("susi-status-nonexistent-dir-99999");
+        assert!(read_missions(&missing).is_empty());
+        assert!(read_resumable_missions(&missing).is_empty());
+        assert!(read_rollback_ready(&missing).is_empty());
+    }
+}
