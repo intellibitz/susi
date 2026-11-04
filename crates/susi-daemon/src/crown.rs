@@ -673,9 +673,10 @@ mod inline_tests {
 
     #[test]
     fn primed_catalogs_combine_agents_and_coding_models_only() {
-        assert!(PRIMED.coding_models);
-        assert!(PRIMED.execution_agents);
-        assert!(PRIMED.frameworks);
+        let primed = std::hint::black_box(&PRIMED);
+        assert!(primed.coding_models);
+        assert!(primed.execution_agents);
+        assert!(primed.frameworks);
         assert_eq!(PRIMED, Catalogs::ALL);
         assert_ne!(PRIMED, Catalogs::NONE);
     }
