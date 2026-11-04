@@ -1,0 +1,83 @@
+{
+  "schema": "susi/private-checkpoint-compliance-proof/v1",
+  "source": "8c76f17b428af84d512ba69ea156aabd7d16daac",
+  "scope": "Verification of PR 1299 native Windows integration only. No Linux unsafe, license or advisory attestation.",
+  "pr": {
+    "repository": "intellibitz/susi",
+    "number": 1299,
+    "base": "e6824c957b1c41e5c2611266da564f99bf620394",
+    "head": "216e3bb157b677827757723da6c5126cebdc63a5",
+    "tree": "540c7bcdeb0be389eb167b71fcef4817f2b52802",
+    "delta_paths": 117,
+    "first_parent_integrations": 17,
+    "receipted_trees": 7,
+    "intermediate_batch_merges": 10,
+    "gates": 14,
+    "workspace_passes": 4242,
+    "final_worker": {
+      "name": "release43-proof",
+      "paths": [
+        ".agents/evidence/release43-windows.json",
+        ".agents/tasks/T-RELEASE43PROOF-1.json",
+        "docs/step1-acceptance.md"
+      ],
+      "task": "T-RELEASE43PROOF-1"
+    }
+  },
+  "trusted_primary": "A2D6C27F2D77F13C37908A74A18641EA74E38BA1",
+  "trust": "Protected signer reviewed outside this worker. Public material matched the primary fingerprint on the independently retrieved intellibitz host-listed key. The CI keyring and fingerprint must be provisioned outside the PR.",
+  "authentic_bundle_sha256": {
+    "authority.gpg": "00d803f5014f10ce8dc8000f3b9d66349418ddc707c92099011a4788a44e0a82",
+    "native-receipt": "d3237a61ee068e827f609593048caea9ba933b0046b5da73773e386c03932a44",
+    "publication.json": "33a9b59baa83e95061b5b910cee2ca4f4d1e0d93a98cd489d5b5f3d1dc199102",
+    "statement.json": "7c6a55bca275ed6b02f10954118cfe75fb2347c684592970f0813504ca72d686",
+    "statement.sig": "a54c1242daa0d754115be43b33fac7f8234a9c5804d2e6926e5901beb7b93558"
+  },
+  "bundle": {
+    "private_repo": "F:/rp42-1015219",
+    "ref": "refs/benchmarks/checkpoint-compliance/authority-bundle",
+    "tree": "13d96f47d6aa31795ea1c8eb5a3fa1dd10faff07"
+  },
+  "executable_sha256": "482e109b45ada882b272664f47e29921cafb6b1c9fd8c7edcbf30e6a3e2905b0",
+  "fixture_log_sha256": "ac03ecac41fc9e7a8bfd2a5aab7b4354beb4cedce6442eee3a1969dd3c97065e",
+  "fixture_cases": [
+    "PASS reconstruct real checkpoint",
+    "PASS independently signed complete checkpoint",
+    "PASS repository replay",
+    "PASS PR replay",
+    "PASS base branch replay",
+    "PASS feature branch replay",
+    "PASS new base",
+    "PASS new head",
+    "PASS signed altered tree",
+    "PASS signed altered scoped path",
+    "PASS signed altered result",
+    "PASS signed altered provenance",
+    "PASS signature for different bytes",
+    "PASS signature by untrusted key even when key is in keyring",
+    "PASS altered evidence input 2",
+    "PASS altered evidence input 3",
+    "PASS unsigned",
+    "PASS authentic independent authority",
+    "PASS authentic signature replay on changed PR",
+    "PASS authentic signature replay on changed base",
+    "PASS authentic signature replay on changed head",
+    "PASS real signature packet mutation",
+    "PASS legacy scoped T-task and refusal of bare LOCAL trailer"
+  ],
+  "workflow_shell_fixture": {
+    "log_sha256": "faa87a95db5bbb1c6c722cf967c6403051869b6d22738485676177088cecd6ab",
+    "capture": 0,
+    "authentic_verify": 0,
+    "would_report_success": 0,
+    "base_changed_at_reporting": 1,
+    "boundary": "Actual workflow shell, bare local Git remote, authentic signature. GitHub API read/write simulated, cargo command supplied the independently compiled exact verifier."
+  },
+  "legacy": "Existing branch-push workflow and scripts unchanged. Scoped claimed T-task accepted and unreceipted LOCAL trailer refused.",
+  "hosted_readback": "PR remains on the attested base/head. Existing Compile Check, Unsafe Exposure Ratchet, cargo deny, Workflow Compliance, and open-pr failures are outside this private proof.",
+  "limits": [
+    "Workflow/application not installed or dispatched; no GitHub check written. Separate protected deployment and issuing App credentials required. Do not move Susi main to bootstrap this exact signed checkpoint.",
+    "Receipt provenance identifies tested trees; no separate execution claim for intermediate merges. Same-context re-verification is allowed; a different PR, base, head, tree, branch, paths, result or signer is rejected.",
+    "The existing push check is not overwritten. A hosted migration must preserve existing legacy coverage, App provenance, current-base enforcement, and unrelated required gates. No merge decision follows from this proof."
+  ]
+}
