@@ -727,6 +727,25 @@ jobs:
       - name: Root-package guard tests (every branch push)
         run: cargo test --locked -p susi --test architecture_tests --test socket_parity --test core_boot_starts_nothing --test core_never_downloads_models_unasked --test core_docs_promise_no_ui_or_plugins --test thin_client_invariant
 
+      # GMCP evidence currency. Every VC-203 record binds to a digest of the
+      # files its checks read (tests/gmcp_requirements.rs), and only main's
+      # full suite ran that target, so a branch that changed the GMCP crate
+      # without re-recording (scripts/gmcp-record-evidence.sh, both phases)
+      # merged green and staled main: #1561 and #1618 did on 2026-11-04, and
+      # the tagged suites of v0.21.48 and v0.21.49 then failed gmcp mastery,
+      # so neither published. A branch whose diff from main touches the GMCP
+      # crate, its evidence or that test runs the full target here (about
+      # 100 s); any other branch skips it in seconds. An unresolvable base runs
+      # it too.
+      - name: GMCP evidence currency (branches touching GMCP)
+        run: |
+          if base=$(git merge-base "${BASE_REF:-origin/main}" HEAD 2>/dev/null) &&
+             ! git diff --no-renames --name-only "$base" HEAD | grep -qE '^(crates/susi-gmcp/|\.agents/gmcp/|tests/gmcp_requirements\.rs$)'; then
+            echo "no GMCP-bound path changed since $base: main's suite checks evidence currency"
+          else
+            cargo test --locked -p susi --test gmcp_requirements
+          fi
+
       - name: Install cargo-nextest for branch tests
       # The native gate fixture (xtask local-workflow) runs `cargo deny`; without
       # it the test fails in 14 ms with exit 101 (main, 2026-11-03).
