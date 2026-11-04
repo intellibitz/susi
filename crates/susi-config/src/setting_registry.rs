@@ -388,4 +388,31 @@ mod tests {
         }
         assert_eq!(total_partitioned, SETTING_REGISTRY.len());
     }
+
+    #[test]
+    fn every_bundled_default_config_key_is_registered_in_setting_registry() {
+        for key in crate::SusiConfig::default().settings.keys() {
+            assert!(
+                lookup(key).is_some(),
+                "bundled config.default.json key {key:?} is missing from SETTING_REGISTRY"
+            );
+        }
+        for key in crate::SusiConfig::heal_defaults().keys() {
+            assert!(
+                lookup(key).is_some(),
+                "heal_defaults key {key:?} is missing from SETTING_REGISTRY"
+            );
+        }
+
+        let sample = SettingEntry {
+            key: "gemi_port",
+            derivation: SettingDerivation::Constant,
+        };
+        let encoded = serde_json::to_string(&sample).expect("serialize SettingEntry");
+        assert_eq!(encoded, r#"{"key":"gemi_port","derivation":"constant"}"#);
+        let decoded: SettingEntry =
+            serde_json::from_str(r#"{"key":"gemi_port","derivation":"constant"}"#)
+                .expect("deserialize SettingEntry");
+        assert_eq!(decoded, sample);
+    }
 }
