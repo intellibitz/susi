@@ -1,0 +1,23 @@
+{
+  "id": "T-ERRMETRICS1104-1",
+  "title": "susi-error Path-Parameterized Metrics Tail, Rotated Residue Detection and rewrap Contract Verification",
+  "goal": "Extract oversized_rotated_metrics_in, recent_error_entries_from, and normalize_posted_event in crates/susi-error/src/lib.rs and add comprehensive unit tests verifying rewrap prefix stripping, >512 KiB tail reading, rotated residue detection, and posted-event secret redaction.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ERRMETRICS1104-1.json",
+    "crates/susi-error/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-error"
+    ]
+  },
+  "created_by": "ERRMETRICS1104",
+  "created_unix": 1793774300
+}
