@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 susi-core = { workspace = true }
-susi-vendor-candle = { workspace = true }
+susi-vendor-candle = { workspace = true, optional = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
@@ -25,7 +25,8 @@ libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 [features]
 default = []
-metal = ["susi-vendor-candle/metal"]
+local-engine = ["dep:susi-vendor-candle"]
+metal = ["local-engine", "susi-vendor-candle/metal"]
 
 [lints]
 workspace = true

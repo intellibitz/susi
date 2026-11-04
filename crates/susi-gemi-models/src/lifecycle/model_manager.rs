@@ -7,6 +7,7 @@ use crate::susi_sandbox::manager::DynamicModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "local-engine")]
 use susi_vendor_candle::candle_core::quantized::gguf_file::Content as GgufContent;
 use susi_vendor_models::resumable_downloads::DownloadPlan;
 use susi_vendor_models::transactional_download::Store;
@@ -37,6 +38,7 @@ struct DownloadSource<'a> {
 }
 
 /// Why a GGUF header could not be read.
+#[cfg(feature = "local-engine")]
 enum GgufRead {
     /// An I/O error ended the read: it says nothing about the file.
     Io,
@@ -45,12 +47,37 @@ enum GgufRead {
     Invalid,
 }
 
+/// Whole enough to name as a GGUF without parsing the tensor table.
+/// `None` is an I/O failure. A short or non-GGUF file is `Some(false)`.
+#[cfg(not(feature = "local-engine"))]
+fn gguf_magic_whole_enough(path: &Path) -> Option<bool> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return None,
+    };
+    let len = match file.metadata() {
+        Ok(meta) => meta.len(),
+        Err(_) => return None,
+    };
+    let mut magic = [0u8; 4];
+    match std::io::Read::read_exact(&mut file, &mut magic) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Some(false),
+        Err(_) => return None,
+    }
+    if &magic != b"GGUF" || len < 64 {
+        return Some(false);
+    }
+    Some(true)
+}
+
 /// The GGUF metadata and tensor table of `path`, with the file's length.
 /// Read through a buffer that keeps its own position: the walk is hundreds
 /// of thousands of small reads (each vocabulary string, its length, and the
 /// position check the parser makes before it), and unbuffered every one was
 /// a system call — seconds per local model on a Windows host. The parser
 /// sees the same bytes and positions either way.
+#[cfg(feature = "local-engine")]
 fn read_gguf_content(path: &Path) -> Result<(GgufContent, u64), GgufRead> {
     let file = fs::File::open(path).map_err(|_| GgufRead::Io)?;
     let len = file.metadata().map_err(|_| GgufRead::Io)?.len();
@@ -63,6 +90,7 @@ fn read_gguf_content(path: &Path) -> Result<(GgufContent, u64), GgufRead> {
 }
 
 /// [`GgufContent::read`] over `source` through a [`PositionedReader`].
+#[cfg(feature = "local-engine")]
 fn parse_gguf<R: std::io::Read + std::io::Seek>(
     source: R,
 ) -> susi_vendor_candle::candle_core::Result<GgufContent> {
@@ -72,6 +100,7 @@ fn parse_gguf<R: std::io::Read + std::io::Seek>(
 
 /// The I/O error under a candle error, through its context, path and
 /// backtrace wrappers.
+#[cfg(feature = "local-engine")]
 // Every other variant — a foreign enum whose list changes with candle's
 // features (CUDA, Metal) — is no I/O error.
 #[allow(clippy::wildcard_enum_match_arm)]
@@ -88,11 +117,13 @@ fn candle_io_error(error: &susi_vendor_candle::candle_core::Error) -> Option<&st
 
 /// A buffered reader that answers `stream_position` from its own count
 /// instead of asking the file, which would be a system call each time.
+#[cfg(any(feature = "local-engine", test))]
 struct PositionedReader<R> {
     inner: std::io::BufReader<R>,
     position: u64,
 }
 
+#[cfg(any(feature = "local-engine", test))]
 impl<R: std::io::Read + std::io::Seek> PositionedReader<R> {
     fn new(mut inner: R) -> std::io::Result<Self> {
         let position = inner.stream_position()?;
@@ -103,6 +134,7 @@ impl<R: std::io::Read + std::io::Seek> PositionedReader<R> {
     }
 }
 
+#[cfg(any(feature = "local-engine", test))]
 impl<R: std::io::Read> std::io::Read for PositionedReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read = self.inner.read(buf)?;
@@ -111,6 +143,7 @@ impl<R: std::io::Read> std::io::Read for PositionedReader<R> {
     }
 }
 
+#[cfg(any(feature = "local-engine", test))]
 impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
     fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
         self.position = self.inner.seek(to)?;
@@ -125,6 +158,7 @@ impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
 impl ModelManager {
     /// Parse GGUF metadata with buffered reads and tracked positions, retaining
     /// Candle's bounds checks. The source may be borrowed for later tensor seeks.
+    #[cfg(feature = "local-engine")]
     pub fn read_gguf_metadata<R: std::io::Read + std::io::Seek>(
         source: R,
     ) -> susi_vendor_candle::candle_core::Result<GgufContent> {
@@ -186,14 +220,22 @@ impl ModelManager {
     /// Whether `path` holds a whole GGUF payload; `None` when an I/O error
     /// ended the read, which says nothing about the file.
     fn judge_gguf_payload(path: &Path) -> Option<bool> {
-        let (content, len) = match read_gguf_content(path) {
-            Ok(read) => read,
-            Err(GgufRead::Io) => return None,
-            Err(GgufRead::Invalid) => return Some(false),
-        };
-        Some(Self::gguf_payload_fits(&content, len))
+        #[cfg(feature = "local-engine")]
+        {
+            let (content, len) = match read_gguf_content(path) {
+                Ok(read) => read,
+                Err(GgufRead::Io) => return None,
+                Err(GgufRead::Invalid) => return Some(false),
+            };
+            return Some(Self::gguf_payload_fits(&content, len));
+        }
+        #[cfg(not(feature = "local-engine"))]
+        {
+            gguf_magic_whole_enough(path)
+        }
     }
 
+    #[cfg(feature = "local-engine")]
     fn gguf_payload_fits(content: &GgufContent, file_len: u64) -> bool {
         !content.tensor_infos.is_empty()
             && content.tensor_infos.values().all(|tensor| {
@@ -238,6 +280,7 @@ impl ModelManager {
     /// a stray mention in prompt prose only cost a preference point, never a
     /// wrong exclusion — the caller drops tool-less models only when a
     /// capable sibling exists.
+    #[cfg_attr(not(feature = "local-engine"), allow(dead_code))]
     pub(crate) fn chat_template_supports_tools(template: &str) -> bool {
         let t = template.to_lowercase();
         [
@@ -274,18 +317,28 @@ impl ModelManager {
     /// Whether the GGUF at `path` declares a tool-capable chat template;
     /// `None` when an I/O error ended the read.
     fn judge_gguf_template_supports_tools(path: &Path) -> Option<bool> {
-        let content = match read_gguf_content(path) {
-            Ok((content, _)) => content,
-            Err(GgufRead::Io) => return None,
-            Err(GgufRead::Invalid) => return Some(false),
-        };
-        Some(
-            content
-                .metadata
-                .get("tokenizer.chat_template")
-                .and_then(|v| v.to_string().ok())
-                .is_some_and(|t| Self::chat_template_supports_tools(t)),
-        )
+        #[cfg(feature = "local-engine")]
+        {
+            let content = match read_gguf_content(path) {
+                Ok((content, _)) => content,
+                Err(GgufRead::Io) => return None,
+                Err(GgufRead::Invalid) => return Some(false),
+            };
+            return Some(
+                content
+                    .metadata
+                    .get("tokenizer.chat_template")
+                    .and_then(|v| v.to_string().ok())
+                    .is_some_and(|t| Self::chat_template_supports_tools(t)),
+            );
+        }
+        #[cfg(not(feature = "local-engine"))]
+        {
+            match gguf_magic_whole_enough(path) {
+                Some(true) => Some(false),
+                other => other,
+            }
+        }
     }
 
     /// Whether any discovered local GGUF declares a tool-capable chat
@@ -548,7 +601,7 @@ impl ModelManager {
                     if file_name.ends_with(".gguf") {
                         Self::valid_gguf_payload(p)
                     } else if file_name.ends_with(".json") {
-                        susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok()
+                        Self::downloaded_json_parses_as_tokenizer(p)
                     } else {
                         p.metadata().is_ok_and(|m| m.len() > 0)
                     }
@@ -679,11 +732,23 @@ impl ModelManager {
         Ok(())
     }
 
+    fn downloaded_json_parses_as_tokenizer(path: &Path) -> bool {
+        #[cfg(feature = "local-engine")]
+        {
+            susi_vendor_candle::tokenizers::Tokenizer::from_file(path).is_ok()
+        }
+        #[cfg(not(feature = "local-engine"))]
+        {
+            let _ = path;
+            false
+        }
+    }
+
     fn valid_download_artifact(file_name: &str, path: &Path) -> bool {
         if file_name.ends_with(".gguf") {
             Self::valid_gguf_payload(path)
         } else if file_name.ends_with(".json") {
-            susi_vendor_candle::tokenizers::Tokenizer::from_file(path).is_ok()
+            Self::downloaded_json_parses_as_tokenizer(path)
         } else {
             path.metadata().is_ok_and(|metadata| metadata.len() > 0)
         }
@@ -1041,6 +1106,7 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_gguf_payload_rejects_truncated_tensor() {
         let path =
@@ -1070,6 +1136,7 @@ mod tests {
     /// header parse and the payload check must refuse rather than admit a
     /// file no loader can dequantize. The same holds for the 16..=29 IQ
     /// quants the pinned candle revision does not implement.
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_gguf_payload_rejects_unsupported_tensor_dtype() {
         let path =
@@ -1121,6 +1188,7 @@ mod tests {
 
     /// The buffered reader hands the parser the same bytes and positions as
     /// the file itself: the same header, tensor table and data offset.
+    #[cfg(feature = "local-engine")]
     #[test]
     fn a_buffered_gguf_read_parses_as_the_file_does() {
         let path =
@@ -1166,12 +1234,14 @@ mod tests {
 
     /// A source that counts how often it is asked for bytes or its position:
     /// each would be a system call on a file.
+    #[cfg(feature = "local-engine")]
     struct Counted<R> {
         inner: R,
         reads: std::rc::Rc<std::cell::Cell<usize>>,
         positions: std::rc::Rc<std::cell::Cell<usize>>,
     }
 
+    #[cfg(feature = "local-engine")]
     impl<R: std::io::Read> std::io::Read for Counted<R> {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             self.reads.set(self.reads.get() + 1);
@@ -1179,6 +1249,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "local-engine")]
     impl<R: std::io::Seek> std::io::Seek for Counted<R> {
         fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
             if to == std::io::SeekFrom::Current(0) {
@@ -1191,6 +1262,7 @@ mod tests {
     /// The header walk asks the file for bytes a handful of times, not once
     /// per field, and never asks it where it is after the start: the parser's
     /// many small reads and position checks are answered from the buffer.
+    #[cfg(feature = "local-engine")]
     #[test]
     fn a_gguf_header_walk_reaches_the_file_a_handful_of_times() {
         let reads = std::rc::Rc::new(std::cell::Cell::new(0));

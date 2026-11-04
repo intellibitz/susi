@@ -274,11 +274,11 @@ fn version_output(exe: &Path) -> Result<String> {
         std::process::id()
     ));
     fs::create_dir(&scratch)?;
-    let mut command = Command::new(exe);
+    let mut command = Command::new(exe.canonicalize()?);
     command.env_clear().current_dir(&scratch).arg("--version");
     #[cfg(windows)]
     {
-        let system = env::var_os("SystemRoot").ok_or("Windows system directory is missing")?;
+        let system = susi_harness::channel_bindings::windows_root()?;
         let drive = Path::new(&system)
             .ancestors()
             .last()
@@ -462,17 +462,69 @@ fn apply(
     Ok(after)
 }
 
-pub(super) fn manage(
-    release: Option<&str>,
-    previous: Option<&str>,
-    rollback: bool,
-    status: bool,
-    expected: Option<&str>,
-) -> Result<()> {
+// A packaged caller can read its own newly installed files while ordinary
+// Windows processes see an entirely different release at the same path.
+#[cfg(windows)]
+fn public_host_view(local: &Path) -> Result<bool> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let name = format!(".susi-host-view-{}-{nonce}", std::process::id());
+    let requested = local.join(&name);
+    // Probe a new write: existing public files can be visible in both views.
+    let _probe = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
+        .open(&requested)?;
+    let physical = requested.canonicalize()?;
+    let private_cache = physical.ancestors().any(|part| {
+        part.ends_with("LocalCache/Local")
+            && part
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::parent)
+                .is_some_and(|parent| parent.ends_with("Packages"))
+    });
+    Ok(!private_cache && physical == local.canonicalize()?.join(name))
+}
+
+#[derive(Default)]
+pub(super) struct Request<'a> {
+    pub release: Option<&'a str>,
+    pub previous: Option<&'a str>,
+    pub rollback: bool,
+    pub status: bool,
+    pub expected: Option<&'a str>,
+}
+
+pub(super) fn manage(request: Request<'_>, host_worker: bool) -> Result<()> {
+    let result = manage_in_view(request, host_worker);
     #[cfg(windows)]
-    let root = PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA missing")?)
-        .join("SusiLocal")
-        .join("production");
+    if host_worker {
+        super::host_task::reply(&result)?;
+    }
+    println!(
+        "Installed verified Susi release {}. Open Susi or run susi.",
+        result?
+    );
+    Ok(())
+}
+
+fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
+    let Request {
+        release,
+        previous,
+        rollback,
+        status,
+        expected,
+    } = request;
+    #[cfg(windows)]
+    let local = PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA missing")?);
+    #[cfg(windows)]
+    let root = local.join("SusiLocal").join("production");
     #[cfg(not(windows))]
     let root = match env::var_os("LOCALAPPDATA") {
         Some(dir) => PathBuf::from(dir).join("SusiLocal").join("production"),
@@ -484,6 +536,17 @@ pub(super) fn manage(
     };
     if !root.is_absolute() {
         return Err("installed release root must be absolute".into());
+    }
+    #[cfg(windows)]
+    if !public_host_view(&local)? {
+        if host_worker {
+            return Err("Windows host worker still sees a private filesystem view".into());
+        }
+        return super::host_task::run(release, previous, rollback, status, expected);
+    }
+    #[cfg(not(windows))]
+    if host_worker {
+        return Err("the installation host worker requires native Windows".into());
     }
     let register = |root: &Path| -> Result<()> {
         #[cfg(windows)]
@@ -535,11 +598,7 @@ pub(super) fn manage(
             .transpose()?;
         apply(&root, Some((&package, prior.as_ref())), &register, None)?
     };
-    println!(
-        "Installed verified Susi release {}. Open Susi or run susi.",
-        selection.current
-    );
-    Ok(())
+    Ok(selection.current)
 }
 
 #[cfg(all(test, windows))]

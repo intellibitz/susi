@@ -15,11 +15,20 @@
 use std::process::Command;
 
 fn dep_tree_with_features(target: &str, all_features: bool) -> String {
+    dep_tree_with_args(
+        target,
+        if all_features {
+            &["--all-features", "--workspace"]
+        } else {
+            &[]
+        },
+    )
+}
+
+fn dep_tree_with_args(target: &str, extra: &[&str]) -> String {
     let mut command = Command::new(env!("CARGO"));
     command.arg("tree");
-    if all_features {
-        command.args(["--all-features", "--workspace"]);
-    }
+    command.args(extra);
     let out = command
         .args([
             "--target",
@@ -54,16 +63,26 @@ fn packages(tree: &str) -> std::collections::HashSet<&str> {
         .collect()
 }
 
-fn assert_native_runtime_graph(tree: &str) {
+/// `model_runtime`: whether the graph must link the Candle model runtime.
+/// The default core is a protocol socket and leaves it out; the `plugins`
+/// bundle and `--all-features` bring it back (T-GROKSLIM1104-1).
+fn assert_native_runtime_graph(tree: &str, model_runtime: bool) {
     let packages = packages(tree);
     assert!(
         packages.contains("wasmi"),
         "actual Wasmi runtime missing: {tree}"
     );
-    assert!(
-        packages.contains("candle-core"),
-        "Rust model runtime missing: {tree}"
-    );
+    if model_runtime {
+        assert!(
+            packages.contains("candle-core"),
+            "Rust model runtime missing: {tree}"
+        );
+    } else {
+        assert!(
+            !packages.contains("candle-core"),
+            "the default core must not link the Candle model runtime: {tree}"
+        );
+    }
     for package in &packages {
         assert!(
             !matches!(
@@ -93,7 +112,7 @@ fn windows_resolves_rust_runtime_and_native_tls() {
     // 2026-11-03) resolve the same Rust runtime and Schannel TLS graph.
     for target in ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
         let tree = dep_tree(target);
-        assert_native_runtime_graph(&tree);
+        assert_native_runtime_graph(&tree, false);
         let packages = packages(&tree);
         for required in [
             "native-tls",
@@ -121,7 +140,7 @@ fn windows_resolves_rust_runtime_and_native_tls() {
 #[test]
 fn linux_resolves_rust_runtime_and_platform_openssl() {
     let tree = dep_tree("x86_64-unknown-linux-gnu");
-    assert_native_runtime_graph(&tree);
+    assert_native_runtime_graph(&tree, false);
     let packages = packages(&tree);
     for required in [
         "native-tls",
@@ -145,7 +164,7 @@ fn linux_resolves_rust_runtime_and_platform_openssl() {
 #[test]
 fn apple_resolves_rust_runtime_and_security_framework() {
     let tree = dep_tree("aarch64-apple-darwin");
-    assert_native_runtime_graph(&tree);
+    assert_native_runtime_graph(&tree, false);
     let packages = packages(&tree);
     for required in [
         "native-tls",
@@ -187,7 +206,7 @@ fn all_supported_features_exclude_retired_accelerator_dependencies() {
         "aarch64-apple-darwin",
     ] {
         let tree = dep_tree_with_features(target, true);
-        assert_native_runtime_graph(&tree);
+        assert_native_runtime_graph(&tree, true);
         let names = packages(&tree);
         for retired in [
             "intel-mkl-src",
@@ -239,5 +258,15 @@ fn retired_feature_requests_fail_explicitly_before_building() {
                 "unexpected rejection: {error}"
             );
         }
+    }
+}
+
+#[test]
+fn plugins_bundle_restores_the_rust_model_runtime() {
+    // The slim default leaves Candle out; `--features plugins` is the
+    // documented way to get the built-in local model engine back.
+    for target in ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] {
+        let tree = dep_tree_with_args(target, &["--features", "plugins"]);
+        assert_native_runtime_graph(&tree, true);
     }
 }

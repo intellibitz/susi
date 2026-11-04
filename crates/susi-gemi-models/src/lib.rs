@@ -37,6 +37,7 @@ pub use susi_vendor_models::{
     local_ecosystem, open_weight, openrouter, price_catalog, resource_inventory, runtime_lifecycle,
 };
 pub mod coding_models;
+mod device;
 pub(crate) mod download;
 pub mod gpu_telemetry;
 pub mod hardware;

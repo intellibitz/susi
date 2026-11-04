@@ -15,17 +15,20 @@ static RESIDENCY_PROBE: std::sync::OnceLock<fn(&Path) -> bool> = std::sync::Once
 
 /// Keep one parsed tokenizer for selection and inference together. Comparing
 /// bytes also catches same-size replacements within a filesystem timestamp tick.
+#[cfg(feature = "local-engine")]
 #[derive(Default)]
 struct TokenizerCache {
     entry: Option<CachedTokenizer>,
 }
 
+#[cfg(feature = "local-engine")]
 struct CachedTokenizer {
     path: PathBuf,
     digest: String,
     tokenizer: std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>,
 }
 
+#[cfg(feature = "local-engine")]
 impl TokenizerCache {
     fn load(
         &mut self,
@@ -68,6 +71,7 @@ impl TokenizerCache {
     }
 }
 
+#[cfg(feature = "local-engine")]
 fn parsed_tokenizer(
     path: &Path,
     verified: Option<VerifiedArtifact>,
@@ -653,15 +657,24 @@ impl ModelManager {
     /// Selection and inference share one bounded parser cache. Errors reading
     /// the artifact remain retryable; only content failures become verdicts.
     fn judge_tokenizer(path: &Path) -> Option<bool> {
-        match parsed_tokenizer(path, None) {
-            Ok(_) => Some(true),
-            Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
-            Err(_) => None,
+        #[cfg(feature = "local-engine")]
+        {
+            return match parsed_tokenizer(path, None) {
+                Ok(_) => Some(true),
+                Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
+                Err(_) => None,
+            };
+        }
+        #[cfg(not(feature = "local-engine"))]
+        {
+            let _ = path;
+            Some(false)
         }
     }
 
     /// Resolve the same validated tokenizer used during model selection without
     /// parsing its JSON twice. The cache retains at most one tokenizer.
+    #[cfg(feature = "local-engine")]
     pub fn load_tokenizer(
         path: &Path,
     ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
@@ -737,6 +750,7 @@ mod selection_tests {
         ));
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {
         use susi_vendor_candle::tokenizers::{models::wordlevel::WordLevel, Tokenizer};

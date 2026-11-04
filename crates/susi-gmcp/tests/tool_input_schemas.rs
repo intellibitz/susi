@@ -153,7 +153,17 @@ fn every_registered_tool_has_a_typed_input_schema() {
     let source = std::fs::read_to_string(&path).unwrap();
     let body = source.split("#[cfg(test)]").next().unwrap_or(&source);
     let mut registered = Vec::new();
-    for call in body.split("ToolRegistry::register_meta_tool(").skip(1) {
+    let calls: Vec<&str> = body.split("ToolRegistry::register_meta_tool(").collect();
+    for (before, call) in calls.iter().zip(calls.iter().skip(1)) {
+        // A registration behind `tools-rich` exists only when that feature is
+        // on; its typed schema is gated the same way in tools/args.rs.
+        if before
+            .trim_end()
+            .ends_with("#[cfg(feature = \"tools-rich\")]")
+            && !cfg!(feature = "tools-rich")
+        {
+            continue;
+        }
         let name = call.split('"').nth(1).unwrap();
         let handler = call
             .split("adapt(CoreTools::")

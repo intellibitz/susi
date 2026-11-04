@@ -11,6 +11,31 @@ use std::{
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 mod native_target;
 const COMMIT: &str = "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4";
+// This policy lives in builder.rs, an input to the outer sysroot identity.
+// Only compiler output paths are virtual. Evidence retains the physical paths.
+const VIRTUAL_BUILD_ROOT: &str = "/susi/windows-stdlib";
+const REMAP_SCOPE: &str = "--remap-path-scope=all";
+const BASE_FLAGS: &str = "-Zforce-unstable-if-unmarked";
+
+fn compiler_flags(physical: &Path) -> Result<String> {
+    let path = physical.to_str().ok_or("non-UTF8 stdlib destination")?;
+    if path.contains('\x1f') {
+        return Err("stdlib destination contains the encoded rustflags separator".into());
+    }
+    let mut flags = vec![BASE_FLAGS.to_owned(), REMAP_SCOPE.to_owned()];
+    // rustc and Cargo can spell Windows paths differently. Cover the native,
+    // extended and slash-separated forms of the same canonical directory.
+    let canonical = physical.canonicalize()?;
+    let extended = canonical.to_str().ok_or("non-UTF8 canonical destination")?;
+    let slash = path.replace('\\', "/");
+    let mut prefixes = vec![path, extended, slash.as_str()];
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    for from in prefixes {
+        flags.push(format!("--remap-path-prefix={from}={VIRTUAL_BUILD_ROOT}"));
+    }
+    Ok(flags.join("\x1f"))
+}
 
 fn hash(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -123,7 +148,7 @@ pub(crate) fn sysroot_cargo(installed: &Path) -> Command {
             bin.join(native_target::executable(host, "rustdoc")),
         )
         .env("RUSTC_BOOTSTRAP", "1")
-        .env("CARGO_ENCODED_RUSTFLAGS", "-Zforce-unstable-if-unmarked");
+        .env("CARGO_ENCODED_RUSTFLAGS", BASE_FLAGS);
     command
 }
 
@@ -155,8 +180,12 @@ fn run() -> Result<()> {
     }
     fs::create_dir_all(&destination)?;
     let absolute = destination.canonicalize()?;
-    let text = absolute.to_string_lossy();
-    let destination = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
+    let text = absolute.to_str().ok_or("non-UTF8 stdlib destination")?;
+    let destination = if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{unc}"))
+    } else {
+        PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text))
+    };
     let library = destination.join("source/library");
     let original = installed.join("lib/rustlib/src/rust/library");
     let mut sources = Vec::new();
@@ -229,8 +258,10 @@ fn run() -> Result<()> {
     }
     fs::write(destination.join("selected-dependencies.txt"), &graph.stdout)?;
     let build = destination.join("build");
+    let flags = compiler_flags(&destination)?;
     let mut command = sysroot_cargo(&installed);
     command
+        .env("CARGO_ENCODED_RUSTFLAGS", &flags)
         .current_dir(&library)
         .args([
             "build",
@@ -279,6 +310,9 @@ fn run() -> Result<()> {
     if artifacts.len() < 10 {
         return Err("incomplete compiler artifact set".into());
     }
+    let cargo = installed
+        .join("bin")
+        .join(native_target::executable(native_host(), "cargo"));
     let receipt = json!({
         "schema": "susi/product-stdlib-prototype/v1", "status": "requires-qualification",
         "target": target, "compiler_commit": COMMIT, "compiler_vV_sha256": hash(&version.stdout),
@@ -286,6 +320,14 @@ fn run() -> Result<()> {
         "original_sources_manifest_sha256": hash(&fs::read(destination.join("original-sources.json"))?),
         "selected_dependencies_sha256": hash(&graph.stdout),
         "builder_source_sha256": hash(include_bytes!("builder.rs")),
+        "compiler_paths": {
+            "physical_destination": destination, "physical_build": build,
+            "physical_original": original, "physical_source": library,
+            "physical_rustc": compiler, "physical_cargo": cargo,
+            "rustc_sha256": hash(&fs::read(&compiler)?),
+            "cargo_sha256": hash(&fs::read(&cargo)?),
+            "virtual_destination": VIRTUAL_BUILD_ROOT, "encoded_rustflags": flags,
+        },
         "char_methods_sha256": hash(text.as_bytes()), "os_unicode_version": if target.contains("linux") { [16,0,0] } else { [15,1,0] },
         "removed_const_apis": ["char::is_lowercase", "char::is_uppercase", "char::is_whitespace"],
         "artifacts": artifacts,

@@ -41,8 +41,9 @@ tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-to
 rcgen = { package = "susi-vendor-rcgen", path = "../susi-vendor-rcgen" }
 
 [features]
-default = ["tools-rich"]
-tools-rich = []
+default = []
+tools-rich = ["susi-gmcp/tools-rich"]
+local-engine = ["susi-gemi/local-engine"]
 
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.

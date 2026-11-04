@@ -90,6 +90,9 @@ pub(crate) enum Commands {
         /// Require this specific release for verification or rollback
         #[arg(long, conflicts_with = "id")]
         expect: Option<String>,
+        /// Internal response channel for the current user's Windows host task.
+        #[arg(long, hide = true)]
+        host_worker: bool,
     },
     /// Build, test, integrate and qualify Susi locally through native guarded tools
     Local {

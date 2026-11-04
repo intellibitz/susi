@@ -1,12 +1,12 @@
 //! Serializes loads of each canonical file without blocking unrelated models.
 
+use crate::device::Device;
 use crate::susi_error::{EaiError, EaiResult};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
-use susi_vendor_candle::candle_core::Device;
 use susi_vendor_models::model_license::{ResidentLease, VerifiedArtifact};
 
 #[derive(Debug, PartialEq, Eq)]

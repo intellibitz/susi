@@ -6,8 +6,18 @@
 //!
 //! Each engine module has exactly one path, `susi_gemi::engines::<module>`.
 
+mod alpha_avail;
+mod alpha_pure;
+
+#[cfg(feature = "local-engine")]
+#[path = "alpha.rs"]
 pub mod alpha;
+#[cfg(not(feature = "local-engine"))]
+#[path = "alpha_off.rs"]
+pub mod alpha;
+
 pub mod brain;
+#[cfg(feature = "local-engine")]
 pub(crate) mod candle_err;
 pub mod candle_provider;
 pub mod capability;
@@ -16,11 +26,18 @@ pub mod http_provider;
 pub mod mcp_provider;
 pub mod native_lifecycle;
 pub mod reflex;
+#[cfg(feature = "local-engine")]
+#[path = "reflex_llm.rs"]
+pub mod reflex_llm;
+#[cfg(not(feature = "local-engine"))]
+#[path = "reflex_llm_off.rs"]
 pub mod reflex_llm;
 pub mod routing;
 /// Core local/cloud inference runtime (`GemiEngine`, `NeuralBackend`, …).
 pub mod runtime;
+#[cfg(feature = "local-engine")]
 pub mod speculative;
+#[cfg(feature = "local-engine")]
 pub(crate) mod token_stream;
 
 /// Serializes every test in this crate that mutates the process-global
@@ -41,4 +58,62 @@ pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
     crate::susi_core::commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
+mod slim_core_tests {
+    #[test]
+    fn slim_core_keeps_candle_behind_local_engine() {
+        let gemi = include_str!("../../Cargo.toml");
+        assert!(
+            gemi.contains("susi-vendor-candle = { workspace = true, optional = true }"),
+            "candle stays an optional dependency of susi-gemi"
+        );
+        assert!(
+            gemi.contains(
+                "local-engine = [\"dep:susi-vendor-candle\", \"susi-gemi-models/local-engine\"]"
+            ),
+            "local-engine is what links candle"
+        );
+        let features = gemi
+            .split("[features]")
+            .nth(1)
+            .unwrap_or("")
+            .split("[lints]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            features.contains("default = []"),
+            "susi-gemi must not enable local-engine by default"
+        );
+        assert!(
+            !features.contains("default = [\"local-engine\"]"),
+            "local-engine is opt-in"
+        );
+
+        let root = include_str!("../../../../Cargo.toml");
+        let root_features = root
+            .split("[features]")
+            .nth(1)
+            .unwrap_or("")
+            .split("[profile.release]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            root_features.contains("default = []"),
+            "the susi package default build is the slim socket"
+        );
+        assert!(
+            root_features.contains(
+                "local-engine = [\"susi-gemi/local-engine\", \"susi-daemon/local-engine\"]"
+            ),
+            "the root local-engine feature must reach the daemon and gemi"
+        );
+        assert!(
+            !root_features.lines().any(|line| {
+                line.trim_start().starts_with("default") && line.contains("local-engine")
+            }),
+            "local-engine must not be a default feature of the susi package"
+        );
+    }
 }
