@@ -96,3 +96,28 @@ fn vc_202_001_mastery_source_discovery_enumerates_but_never_classifies() {
     probe.env.clear();
     assert_eq!(discover(&probe).len(), 1, "file sources still enumerate");
 }
+
+#[test]
+fn vc_202_001_mastery_empty_probe_discovers_zero_sources() {
+    let probe = FakeProbe {
+        env: HashMap::new(),
+        files: HashMap::new(),
+        home: PathBuf::from("/nonexistent-empty-home"),
+    };
+    assert!(discover(&probe).is_empty());
+}
+
+#[test]
+fn vc_202_001_mastery_discovered_previews_mask_raw_secret_values() {
+    let secret = "sk-super-secret-long-token-value-123456";
+    let probe = FakeProbe {
+        env: HashMap::from([("OPENAI_API_KEY".to_string(), secret.to_string())]),
+        files: HashMap::new(),
+        home: PathBuf::from("/nonexistent-mask-home"),
+    };
+    let found = discover(&probe);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].secret(), secret);
+    assert_ne!(found[0].preview, found[0].secret());
+    assert!(!found[0].preview.contains("super-secret-long-token"));
+}

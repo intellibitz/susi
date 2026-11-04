@@ -78,3 +78,40 @@ fn vc_201_041_mastery_provenance_and_timestamps_present() {
         Observation::Value { .. } => panic!("gpu_name should be unknown"),
     }
 }
+
+#[test]
+fn vc_201_041_mastery_complete_probes_clear_unknown_readiness_and_preserve_models_runtimes() {
+    let inv = ResourceInventory::from_probes(ProbeInputs {
+        cpu_cores: Some(16),
+        ram_bytes: Some(64_000_000_000),
+        gpu_name: Some("RTX 4090".into()),
+        vram_bytes: Some(24_000_000_000),
+        disk_free_bytes: Some(500_000_000_000),
+        models: Some(vec!["m1".into()]),
+        runtimes: Some(vec!["ollama".into()]),
+        now_unix: Some(1790959900),
+    });
+
+    assert!(!inv.has_unknown_readiness());
+    assert_eq!(inv.models.value_ref(), Some(&vec!["m1".to_string()]));
+    assert_eq!(inv.runtimes.value_ref(), Some(&vec!["ollama".to_string()]));
+}
+
+#[test]
+fn vc_201_041_mastery_serde_json_roundtrip_preserves_observed_and_unknown_variants() {
+    let inv = ResourceInventory::from_probes(ProbeInputs {
+        cpu_cores: Some(8),
+        ram_bytes: Some(32_000_000_000),
+        gpu_name: None,
+        vram_bytes: None,
+        disk_free_bytes: Some(100_000_000_000),
+        models: Some(vec!["qwen-2.5".into()]),
+        runtimes: None,
+        now_unix: Some(1790959950),
+    });
+
+    let serialized = serde_json::to_string(&inv).expect("serialize ResourceInventory");
+    let decoded: ResourceInventory =
+        serde_json::from_str(&serialized).expect("deserialize ResourceInventory");
+    assert_eq!(decoded, inv);
+}

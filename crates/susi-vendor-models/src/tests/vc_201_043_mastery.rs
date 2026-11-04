@@ -51,3 +51,39 @@ fn vc_201_043_mastery_zero_or_negative_request_rejected() {
     assert_eq!(pool.admit(0), AdmitDecision::RejectedInsufficient);
     assert_eq!(pool.reserved_bytes, 0);
 }
+
+#[test]
+fn vc_201_043_mastery_headroom_boundary_enforces_five_percent_safety_margin() {
+    let mut pool = AccelPool {
+        total_bytes: 1_000,
+        reserved_bytes: 0,
+    };
+    assert_eq!(
+        pool.admit(950),
+        AdmitDecision::Admitted { reservation: 950 }
+    );
+    assert_eq!(pool.reserved_bytes, 950);
+    assert_eq!(pool.free(), 50);
+
+    let mut fresh_pool = AccelPool {
+        total_bytes: 1_000,
+        reserved_bytes: 0,
+    };
+    assert_eq!(fresh_pool.admit(951), AdmitDecision::RejectedInsufficient);
+    assert_eq!(fresh_pool.reserved_bytes, 0);
+}
+
+#[test]
+fn vc_201_043_mastery_release_saturates_at_zero_without_underflow() {
+    let mut pool = AccelPool {
+        total_bytes: 1_000,
+        reserved_bytes: 0,
+    };
+    assert_eq!(
+        pool.admit(200),
+        AdmitDecision::Admitted { reservation: 200 }
+    );
+    pool.release(500);
+    assert_eq!(pool.reserved_bytes, 0);
+    assert_eq!(pool.free(), 1_000);
+}
