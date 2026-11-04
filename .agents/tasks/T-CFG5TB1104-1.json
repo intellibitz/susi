@@ -1,0 +1,22 @@
+{
+  "id": "T-CFG5TB1104-1",
+  "title": "test(config): advance 16 Wave B modules to 5 inline unit tests",
+  "goal": "Advance 16 Wave B modules in crates/susi-config from 4 to 5 inline unit tests each (D-OS-8 5-test floor).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--",
+      "zc_bare_susi::tests"
+    ]
+  },
+  "created_by": "CFG5TB1104",
+  "created_unix": 1793811000
+}
