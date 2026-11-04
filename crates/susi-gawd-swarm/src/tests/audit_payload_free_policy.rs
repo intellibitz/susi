@@ -371,3 +371,25 @@ fn audit_tier_preserves_insertion_order_across_multiple_events() {
         .collect();
     assert_eq!(actors, vec!["actor-1", "actor-2", "actor-3"]);
 }
+
+#[test]
+fn trace_tier_isolates_enabled_subsystems_from_unregistered_ones() {
+    let mut trace = TraceTier::new(500);
+    trace.enable_subsystem("swarm-dag", TraceLevel::Warning);
+    assert!(trace.record(TraceEntry {
+        level: TraceLevel::Warning,
+        subsystem: "swarm-dag".to_string(),
+        message: "node scheduled".to_string(),
+        timestamp_unix: 4000,
+        bytes: 120,
+    }));
+    assert!(!trace.record(TraceEntry {
+        level: TraceLevel::Warning,
+        subsystem: "unregistered-subsystem".to_string(),
+        message: "ignored".to_string(),
+        timestamp_unix: 4001,
+        bytes: 50,
+    }));
+    assert_eq!(trace.entries().len(), 1);
+    assert_eq!(trace.bytes_remaining(), 380);
+}
