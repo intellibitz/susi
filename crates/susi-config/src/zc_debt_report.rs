@@ -172,4 +172,35 @@ mod tests {
         let roundtrip: Vec<DebtItem> = serde_json::from_str(&json).expect("deserialize DebtItems");
         assert_eq!(roundtrip, items);
     }
+
+    #[test]
+    fn scan_debt_excludes_derived_and_constant_settings_and_format_preserves_order() {
+        let debt = scan_debt(&[]);
+        for entry in SETTING_REGISTRY {
+            if matches!(
+                entry.derivation,
+                SettingDerivation::Constant
+                    | SettingDerivation::Hardware
+                    | SettingDerivation::Detection
+                    | SettingDerivation::Measurement
+            ) {
+                let id = format!("setting:{}", entry.key);
+                assert!(
+                    !debt.iter().any(|item| item.id == id),
+                    "derived/constant setting `{id}` must not appear in scan_debt"
+                );
+            }
+        }
+
+        let formatted = format_debt_report(&debt);
+        let bullet_lines: Vec<&str> = formatted.lines().skip(1).collect();
+        assert_eq!(bullet_lines.len(), debt.len());
+        for (line, item) in bullet_lines.iter().zip(debt.iter()) {
+            assert!(
+                line.contains(&item.description) && line.contains(&item.removes_via),
+                "formatted line `{line}` does not match ordered DebtItem `{}`",
+                item.id
+            );
+        }
+    }
 }

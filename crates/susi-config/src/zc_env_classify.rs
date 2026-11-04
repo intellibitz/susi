@@ -153,4 +153,30 @@ mod zc_env_classify_tests {
             ENV_REGISTRY.len()
         );
     }
+
+    #[test]
+    fn classify_is_case_sensitive_and_env_class_serializes_to_snake_case() {
+        assert_eq!(classify("susi_home"), None);
+        assert_eq!(classify("openai_api_key"), None);
+        assert_eq!(classify(""), None);
+
+        for (class, expected_wire) in [
+            (EnvClass::Internal, "\"internal\""),
+            (EnvClass::Test, "\"test\""),
+            (EnvClass::UserFacing, "\"user_facing\""),
+        ] {
+            let encoded = serde_json::to_string(&class).expect("serialize EnvClass");
+            assert_eq!(encoded, expected_wire);
+            let decoded: EnvClass = serde_json::from_str(&encoded).expect("deserialize EnvClass");
+            assert_eq!(decoded, class);
+        }
+
+        let sample = EnvVarClass {
+            name: "SUSI_HOME",
+            class: EnvClass::Internal,
+        };
+        let sample_val = serde_json::to_value(&sample).expect("serialize EnvVarClass");
+        assert_eq!(sample_val["name"], "SUSI_HOME");
+        assert_eq!(sample_val["class"], "internal");
+    }
 }

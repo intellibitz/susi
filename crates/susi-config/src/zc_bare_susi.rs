@@ -95,4 +95,25 @@ mod tests {
         let decoded: BareStatus = serde_json::from_str(&json).expect("deserialize BareStatus");
         assert_eq!(decoded, ready);
     }
+
+    #[test]
+    fn bare_susi_status_exhaustive_truth_table_and_render_invariants() {
+        for daemon_up in [false, true] {
+            for has_model in [false, true] {
+                for keys_ok in [false, true] {
+                    let status = bare_susi_status(daemon_up, has_model, keys_ok);
+                    assert_eq!(status.ready, daemon_up && has_model && keys_ok);
+                    assert!(!status.next_step.is_empty());
+
+                    let rendered = render_bare(&status);
+                    assert!(rendered.ends_with('\n'));
+                    if status.ready {
+                        assert!(rendered.starts_with("susi status: ready\n"));
+                    } else {
+                        assert!(rendered.starts_with("susi status: not ready\n"));
+                    }
+                }
+            }
+        }
+    }
 }

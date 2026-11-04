@@ -144,4 +144,36 @@ mod tests {
             serde_json::from_str(&encoded_session).expect("deserialize session");
         assert_eq!(decoded_session, session);
     }
+
+    #[test]
+    fn receipt_status_rejects_unknown_tag_and_empty_claim_or_zero_session_round_trip() {
+        assert!(serde_json::from_str::<ReceiptStatus>("\"unknown_status\"").is_err());
+
+        let unverified_claim = GroundedClaim {
+            claim_id: "claim-empty".to_string(),
+            proposition: "Pending verification".to_string(),
+            confidence: 0.0,
+            receipt_citations: Vec::new(),
+            verified: false,
+        };
+        let claim_json =
+            serde_json::to_string(&unverified_claim).expect("serialize unverified claim");
+        let decoded_claim: GroundedClaim =
+            serde_json::from_str(&claim_json).expect("deserialize unverified claim");
+        assert_eq!(decoded_claim, unverified_claim);
+        assert!(decoded_claim.receipt_citations.is_empty());
+        assert!(!decoded_claim.verified);
+
+        let zero_session = EvidenceSessionSummary {
+            session_id: "sess-zero".to_string(),
+            workspace_root: "/tmp/empty".to_string(),
+            total_receipts: 0,
+            verified_claims: 0,
+            created_at: 0,
+        };
+        let session_json = serde_json::to_string(&zero_session).expect("serialize zero session");
+        let decoded_session: EvidenceSessionSummary =
+            serde_json::from_str(&session_json).expect("deserialize zero session");
+        assert_eq!(decoded_session, zero_session);
+    }
 }

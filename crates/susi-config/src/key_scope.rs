@@ -226,4 +226,57 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn resolve_key_ref_env_scope_and_key_ref_serde_roundtrip() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_key_scope_env_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+
+        let _guard = crate::env_test_lock();
+        const VAR_NAME: &str = "SUSI_TEST_SCOPE_ENV_1104";
+        let prev = std::env::var_os(VAR_NAME);
+        std::env::set_var(VAR_NAME, "env-scope-secret-1104");
+
+        let env_ref = KeyRef::parse("key://env/SUSI_TEST_SCOPE_ENV_1104").unwrap();
+        let resolved = resolve_key_ref(&env_ref, &dir).expect("resolve env key ref when set");
+        assert_eq!(resolved.value, "env-scope-secret-1104");
+
+        std::env::remove_var(VAR_NAME);
+        let unset_err = resolve_key_ref(&env_ref, &dir)
+            .expect_err("unset env key ref must fail")
+            .to_string();
+        assert!(unset_err.contains("not set in process env or cloud.env"));
+
+        if let Some(v) = prev {
+            std::env::set_var(VAR_NAME, v);
+        }
+        drop(_guard);
+
+        for (scope, expected_wire) in [
+            (KeyScope::Env, "\"env\""),
+            (KeyScope::CloudEnv, "\"cloud_env\""),
+            (KeyScope::HostFile, "\"host_file\""),
+        ] {
+            let scope_json = serde_json::to_string(&scope).expect("serialize KeyScope");
+            assert_eq!(scope_json, expected_wire);
+            let scope_back: KeyScope =
+                serde_json::from_str(&scope_json).expect("deserialize KeyScope");
+            assert_eq!(scope_back, scope);
+
+            let kr = KeyRef {
+                scope,
+                name: "sample_key".into(),
+            };
+            let kr_json = serde_json::to_string(&kr).expect("serialize KeyRef");
+            let kr_back: KeyRef = serde_json::from_str(&kr_json).expect("deserialize KeyRef");
+            assert_eq!(kr_back, kr);
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

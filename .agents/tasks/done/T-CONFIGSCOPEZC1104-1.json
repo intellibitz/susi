@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CONFIGSCOPEZC1104-1",
+  "title": "Expand inline unit tests for key_scope, zc_debt_report, rekey_schedule, and zc_env_classify in susi-config",
+  "touch": [
+    "crates/susi-config/src/key_scope.rs",
+    "crates/susi-config/src/zc_debt_report.rs",
+    "crates/susi-config/src/rekey_schedule.rs",
+    "crates/susi-config/src/zc_env_classify.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-config --lib",
+      "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings"
+    ]
+  }
+}
