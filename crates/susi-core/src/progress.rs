@@ -165,4 +165,17 @@ mod tests {
         assert!(panicked.is_err());
         assert!(current_cancel().is_none());
     }
+
+    #[test]
+    fn with_sink_none_and_with_cancel_none_leave_thread_locals_empty() {
+        let out = with_sink(None, || {
+            assert!(current().is_none());
+            with_cancel(None, || {
+                assert!(current_cancel().is_none());
+                assert!(!is_cancelled());
+                42
+            })
+        });
+        assert_eq!(out, 42);
+    }
 }
