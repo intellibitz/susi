@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "HTTPTRANSPORTLEAF4T1104",
-  "created_unix": 1793780001
+  "created_unix": 1793780001,
+  "closed": {
+    "at_unix": 1793780362,
+    "commit": "c74fb3907ca51c2e83e68331bc3be7ba909e6fdd",
+    "by": "HTTPTRANSPORTLEAF4T1104"
+  }
 }
