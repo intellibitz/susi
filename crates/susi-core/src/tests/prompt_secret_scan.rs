@@ -82,3 +82,11 @@ fn prompt_secret_scan_env_held_secret_is_detected() {
     assert!(!r.redacted.contains(&held));
     assert!(r.hits.iter().any(|h| h.kind.contains("OPENAI_API_KEY")));
 }
+
+#[test]
+fn prompt_secret_scan_empty_prompt_and_empty_patterns_report_clean() {
+    let r = scan_prompt_secrets("", &[], None::<(String, String)>, PromptScanPolicy::Block);
+    assert!(r.is_clean());
+    assert!(!r.blocked());
+    assert_eq!(r.egress_text(), Some(""));
+}
