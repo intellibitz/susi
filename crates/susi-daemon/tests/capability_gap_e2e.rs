@@ -103,3 +103,45 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
         "hot-patched reflex must execute through execute_tool, got: {second}"
     );
 }
+
+#[test]
+fn engine_hooks_init_registers_core_builtin_tools_deterministically() {
+    susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+    assert!(
+        susi_tools::ToolRegistry::exists("read_file"),
+        "read_file must be registered in ToolRegistry"
+    );
+    assert!(
+        susi_tools::ToolRegistry::exists("write_file"),
+        "write_file must be registered in ToolRegistry"
+    );
+}
+
+#[test]
+fn env_guard_isolation_restores_substrate_vars_after_drop() {
+    let key = "SUSI_CAPABILITY_GAP_E2E_PROBE";
+    {
+        let mut guard = susi_paths::test_env::EnvGuard::isolated();
+        guard.set(key, "first");
+        assert_eq!(std::env::var(key).unwrap(), "first");
+        guard.set(key, "second");
+        assert_eq!(std::env::var(key).unwrap(), "second");
+    }
+    assert!(std::env::var_os(key).is_none());
+}
+
+#[test]
+fn reflex_wasm_destination_path_resolves_under_isolated_data_dir() {
+    let tmp = std::env::temp_dir().join(format!("susi_gap_path_probe_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(tmp.join(".susi"));
+    let mut env = susi_paths::test_env::EnvGuard::isolated();
+    env.set("HOME", &tmp);
+    env.set("USERPROFILE", &tmp);
+    env.set("XDG_CONFIG_HOME", tmp.join("xdg"));
+    let wasm = susi_paths::SusiDirs::data_dir()
+        .join("reflexes")
+        .join("probe_slug.wasm");
+    assert!(wasm.ends_with(std::path::Path::new("reflexes").join("probe_slug.wasm")));
+    drop(env);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
