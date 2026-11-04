@@ -247,4 +247,23 @@ mod inline_tests {
         std::fs::write(&path, serde_json::to_vec(&input).unwrap()).unwrap();
         assert_eq!(load_cloud_evidence(&path).unwrap(), input);
     }
+
+    #[test]
+    fn qualify_multi_stage_rejects_when_budget_or_privacy_fails_on_cloud_stage() {
+        let stages = vec![
+            QualificationInput {
+                drill: passing_drill("local"),
+                budget_preserved: true,
+                privacy_preserved: true,
+            },
+            QualificationInput {
+                drill: passing_drill("cloud"),
+                budget_preserved: false,
+                privacy_preserved: true,
+            },
+        ];
+        let rep = qualify_multi_stage(&stages);
+        assert!(!rep.qualified);
+        assert!(!rep.limitations.is_empty());
+    }
 }

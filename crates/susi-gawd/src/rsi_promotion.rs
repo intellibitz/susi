@@ -195,4 +195,31 @@ mod inline_tests {
         };
         assert!(!rejects_target_install(Path::new("/tmp/susi"), staging));
     }
+
+    #[test]
+    fn decide_promotion_rejects_blank_artifact_digest_and_accepts_susi_release() {
+        let blank_digest = ReleaseCandidate {
+            experiment_id: "exp-4".to_string(),
+            evidence_manifest: "manifest-ok".to_string(),
+            artifact_digest: "   ".to_string(),
+        };
+        assert_eq!(
+            decide_promotion(&PromotionAttempt {
+                candidate: blank_digest.clone(),
+                via: PromotionPath::SusiRelease,
+            }),
+            PromotionDecision::Rejected("missing evidence or digest")
+        );
+        let valid = ReleaseCandidate {
+            artifact_digest: "sha256:abc123".to_string(),
+            ..blank_digest
+        };
+        assert_eq!(
+            decide_promotion(&PromotionAttempt {
+                candidate: valid,
+                via: PromotionPath::SusiRelease,
+            }),
+            PromotionDecision::AcceptedReviewable
+        );
+    }
 }
