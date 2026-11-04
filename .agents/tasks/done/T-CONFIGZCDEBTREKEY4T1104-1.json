@@ -1,7 +1,7 @@
 {
     "id":  "T-CONFIGZCDEBTREKEY4T1104-1",
     "title":  "D-OS-8: Expand inline unit tests to 4 in zc_debt_report, rekey_schedule, zc_env_classify, and cloud_env",
-    "status":  "in_progress",
+    "status":  "done",
     "created_at":  "2026-11-04T07:45:00Z",
     "accept":  {
                    "cmd":  [
