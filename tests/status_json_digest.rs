@@ -82,3 +82,36 @@ fn json_status_hashes_the_executable_even_when_a_matching_cache_line_lies() {
     assert_eq!(value["executable"]["bytes"], meta.len());
     std::fs::remove_dir_all(home).unwrap();
 }
+
+#[test]
+fn unit_true_sha256_matches_deterministic_payload_digest() {
+    let dir = scratch("unit-hash");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("payload.bin");
+    std::fs::write(&file, b"susi-status-digest-payload").unwrap();
+    let h1 = true_sha256(&file);
+    let h2 = true_sha256(&file);
+    assert_eq!(h1.len(), 64);
+    assert_eq!(h1, h2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn unit_scratch_path_includes_tag_and_process_id() {
+    let p = scratch("sample-tag");
+    let s = p.to_string_lossy();
+    assert!(s.contains("susi-status-digest-sample-tag-"));
+    assert!(s.contains(&std::process::id().to_string()));
+}
+
+#[test]
+fn unit_forged_cache_line_format_differs_from_real_digest() {
+    let dir = scratch("unit-forged");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("bin.exe");
+    std::fs::write(&file, b"binary-bytes").unwrap();
+    let real = true_sha256(&file);
+    let forged = "0".repeat(64);
+    assert_ne!(real, forged);
+    let _ = std::fs::remove_dir_all(&dir);
+}

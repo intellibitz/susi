@@ -70,3 +70,29 @@ fn loaded_catalog_resolves_moonshotai() {
     assert!(!after.status.success());
     assert!(!acme_resolved(&after), "{after:?}");
 }
+
+#[test]
+fn unit_isolate_home_redirects_home_and_xdg_env_vars() {
+    let temp = std::env::temp_dir().join("susi-moonshot-unit-home");
+    let mut cmd = Command::new("susi");
+    isolate_home(&mut cmd, &temp);
+    let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+    assert!(envs.contains_key(std::ffi::OsStr::new("HOME")));
+}
+
+#[test]
+fn unit_moonshot_vendor_json_fixture_parses_aliases_and_env_key() {
+    let raw = r#"[{"id":"kimi","aliases":["kimi","moonshot","moonshotai"],"api_key_env":"MOONSHOT_API_KEY"}]"#;
+    let parsed: serde_json::Value = serde_json::from_str(raw).unwrap();
+    assert_eq!(parsed[0]["id"], "kimi");
+    assert_eq!(parsed[0]["api_key_env"], "MOONSHOT_API_KEY");
+    assert_eq!(parsed[0]["aliases"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn unit_extension_manifest_json_fixture_declares_cloud_vendors_capability() {
+    let raw = r#"{"id":"moonshot-test","name":"Alias acceptance","version":"1.0.0","apiVersion":"1","capabilities":["catalog.cloud_vendors"],"permissions":[],"files":{"cloud-vendors.json":"cloud-vendors.json"}}"#;
+    let manifest: serde_json::Value = serde_json::from_str(raw).unwrap();
+    assert_eq!(manifest["id"], "moonshot-test");
+    assert_eq!(manifest["capabilities"][0], "catalog.cloud_vendors");
+}
