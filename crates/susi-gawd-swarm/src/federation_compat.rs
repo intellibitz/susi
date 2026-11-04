@@ -165,4 +165,35 @@ mod inline_tests {
             NegotiateResult::Reject { reason } if reason.contains("downgrade refused")
         ));
     }
+
+    #[test]
+    fn negotiate_accepts_exact_boundary_wire_and_ledger_versions() {
+        let min_bound = ProtocolOffer {
+            wire_version: LOCAL.wire_min,
+            ledger_version: LOCAL.ledger_min,
+            min_security: LOCAL.min_security,
+            peer_security: LOCAL.min_security,
+        };
+        assert_eq!(
+            LOCAL.negotiate(&min_bound),
+            NegotiateResult::Accept {
+                wire: LOCAL.wire_min,
+                ledger: LOCAL.ledger_min,
+            }
+        );
+
+        let max_bound = ProtocolOffer {
+            wire_version: LOCAL.wire_max,
+            ledger_version: LOCAL.ledger_max,
+            min_security: LOCAL.min_security,
+            peer_security: LOCAL.min_security + 2,
+        };
+        assert_eq!(
+            LOCAL.negotiate(&max_bound),
+            NegotiateResult::Accept {
+                wire: LOCAL.wire_max,
+                ledger: LOCAL.ledger_max,
+            }
+        );
+    }
 }
