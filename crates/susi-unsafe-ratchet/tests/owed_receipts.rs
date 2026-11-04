@@ -124,3 +124,38 @@ fn outstanding_receipts_match_the_published_tree() {
         ["T-NESTED/file", "T-OWED", "T-PUBLISHED"]
     );
 }
+
+#[test]
+fn empty_repository_without_closed_refs_reports_no_owed_receipts() {
+    let repo = Repo::new();
+    assert!(repo.owed("TEST").is_empty());
+    assert!(repo.owed("OTHER").is_empty());
+}
+
+#[test]
+fn owed_receipts_filter_by_agent_and_sort_unmerged_task_ids() {
+    let repo = Repo::new();
+    repo.receipt("T-ZETA-2", r#"{"agent":"ALPHA"}"#);
+    repo.receipt("T-ALPHA-1", r#"{"agent":"ALPHA"}"#);
+    repo.receipt("T-BETA-1", r#"{"agent":"BETA"}"#);
+    assert_eq!(repo.owed("ALPHA"), ["T-ALPHA-1", "T-ZETA-2"]);
+    assert_eq!(repo.owed("BETA"), ["T-BETA-1"]);
+    assert!(repo.owed("GAMMA").is_empty());
+}
+
+#[test]
+fn publishing_done_record_on_origin_main_clears_previously_owed_receipt() {
+    let repo = Repo::new();
+    repo.receipt("T-LATE-1", r#"{"agent":"LATEAGENT"}"#);
+    assert_eq!(repo.owed("LATEAGENT"), ["T-LATE-1"]);
+
+    let done = repo.0.join(".agents/tasks/done");
+    std::fs::create_dir_all(&done).unwrap();
+    std::fs::write(done.join("T-LATE-1.json"), "{}").unwrap();
+    repo.git(&["add", "."], None);
+    repo.git(&["commit", "-qm", "publish T-LATE-1"], None);
+    let head = repo.git(&["rev-parse", "HEAD"], None);
+    repo.git(&["update-ref", "refs/remotes/origin/main", &head], None);
+
+    assert!(repo.owed("LATEAGENT").is_empty());
+}
