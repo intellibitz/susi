@@ -1,0 +1,24 @@
+{
+  "id": "T-ROOTINTTESTSH4T1104-1",
+  "title": "Expand 5 root integration test suites H to 4 unit tests each under D-OS-8",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "vc_201_046_mastery"
+    ]
+  },
+  "created_by": "ROOTINTTESTSH4T1104",
+  "created_unix": 1793794473,
+  "closed": {
+    "at_unix": 1793794879,
+    "commit": "eb90829178cc62139b40d626df15b7348d034dbf",
+    "by": "ROOTINTTESTSH4T1104"
+  }
+}
