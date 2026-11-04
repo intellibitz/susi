@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CFG5TB1104",
-  "created_unix": 1793811000
+  "created_unix": 1793811000,
+  "closed": {
+    "at_unix": 1793810620,
+    "commit": "0dcec74e2d596bce62f8d534a90b2ae8553a8a81",
+    "by": "CFG5TB1104"
+  }
 }
