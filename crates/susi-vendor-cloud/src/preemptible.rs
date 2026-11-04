@@ -125,3 +125,96 @@ impl PreemptibleSet {
         self.ledger.productive_secs + self.ledger.duplicate_secs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evict_checkpoints_eligible_jobs_interrupts_non_checkpointable_and_bills_duplicate_compute() {
+        let mut set = PreemptibleSet::new(7);
+        set.ledger.productive_secs = 120;
+        set.jobs.insert(
+            "job-ckpt".into(),
+            Job {
+                id: "job-ckpt".into(),
+                checkpointable: true,
+                progress: 0.65,
+                compute_secs: 45,
+            },
+        );
+        set.jobs.insert(
+            "job-oneshot".into(),
+            Job {
+                id: "job-oneshot".into(),
+                checkpointable: false,
+                progress: 0.30,
+                compute_secs: 30,
+            },
+        );
+
+        let outcomes = set.evict();
+        assert!(set.jobs.is_empty());
+        assert_eq!(
+            outcomes,
+            vec![
+                EvictOutcome::Checkpointed {
+                    id: "job-ckpt".into(),
+                    progress: 0.65,
+                },
+                EvictOutcome::Interrupted {
+                    id: "job-oneshot".into(),
+                },
+            ]
+        );
+        assert_eq!(set.checkpoints.len(), 1);
+        assert_eq!(set.checkpoints[0].id, "job-ckpt");
+        assert!((set.checkpoints[0].progress - 0.65).abs() < f64::EPSILON);
+        assert_eq!(set.checkpoints[0].fencing_token, 7);
+        assert_eq!(set.ledger.duplicate_secs, 75);
+        assert_eq!(set.billed_secs(), 195);
+    }
+
+    #[test]
+    fn resume_enforces_fencing_token_and_retry_budget_while_resetting_compute_secs() {
+        let mut set = PreemptibleSet::new(10);
+        set.checkpoints = vec![
+            Checkpoint {
+                id: "cp-valid".into(),
+                progress: 0.40,
+                fencing_token: 9,
+            },
+            Checkpoint {
+                id: "cp-future-owner".into(),
+                progress: 0.70,
+                fencing_token: 15,
+            },
+            Checkpoint {
+                id: "cp-over-budget".into(),
+                progress: 0.90,
+                fencing_token: 10,
+            },
+        ];
+
+        let resumed = set.resume(10, 2);
+        assert_eq!(
+            resumed,
+            vec![Job {
+                id: "cp-valid".into(),
+                checkpointable: true,
+                progress: 0.40,
+                compute_secs: 0,
+            }]
+        );
+        assert_eq!(set.jobs.len(), 1);
+        assert_eq!(set.jobs["cp-valid"].compute_secs, 0);
+        assert_eq!(set.checkpoints.len(), 2);
+        assert_eq!(set.checkpoints[0].id, "cp-future-owner");
+        assert_eq!(set.checkpoints[1].id, "cp-over-budget");
+
+        let resumed_next = set.resume(15, 2);
+        assert_eq!(resumed_next.len(), 2);
+        assert!(set.checkpoints.is_empty());
+        assert_eq!(set.jobs.len(), 3);
+    }
+}
