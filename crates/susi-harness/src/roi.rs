@@ -643,4 +643,66 @@ mod tests {
         let proof = verify_sova_invariants().expect("SOVA invariants must hold");
         assert!(proof.contains("SOVA Bellman-ECVO verified"));
     }
+
+    #[test]
+    fn empty_ledger_and_sova_capability_floor_and_micro_usd_helpers_hold() {
+        let (empty_roi, workers) = RoiReport::from_entries(&[]);
+        assert_eq!(empty_roi.actual_cost_micro_usd, 0);
+        assert_eq!(empty_roi.uncached_model_cost_micro_usd, 0);
+        assert_eq!(empty_roi.frontier_baseline_micro_usd, 0);
+        assert_eq!(empty_roi.total_saved_micro_usd, 0);
+        assert_eq!(empty_roi.cost_reduction_bps, 0);
+        assert_eq!(empty_roi.cache_savings_bps, 0);
+        assert_eq!(empty_roi.roi_multiplier_centi, 100);
+        assert!(workers.is_empty());
+
+        let a = MicroUsd::from_micros(250_000);
+        let b = MicroUsd::from_micros(100_000);
+        assert_eq!(a.saturating_add(b).micros(), 350_000);
+        assert_eq!(a.checked_sub(b), Some(MicroUsd::from_micros(150_000)));
+        assert_eq!(b.checked_sub(a), None);
+
+        assert!(SovaArbitrageEngine::select_optimal_worker(&[], None, 10_000, 0, 1_000).is_none());
+
+        let cheap_below_floor = SovaCandidate {
+            model: "tiny-below-floor".into(),
+            price: ModelPrice {
+                input_miss: MicroUsd::from_micros(10_000),
+                input_hit: MicroUsd::from_micros(1_000),
+                output: MicroUsd::from_micros(20_000),
+            },
+            successes: 50,
+            failures: 0,
+            consecutive_task_failures: 0,
+            meets_capability_floor: false,
+        };
+        let capable_worker = SovaCandidate {
+            model: "capable-pro".into(),
+            price: ModelPrice {
+                input_miss: MicroUsd::from_micros(500_000),
+                input_hit: MicroUsd::from_micros(50_000),
+                output: MicroUsd::from_micros(1_500_000),
+            },
+            successes: 20,
+            failures: 1,
+            consecutive_task_failures: 0,
+            meets_capability_floor: true,
+        };
+        let decision = SovaArbitrageEngine::select_optimal_worker(
+            &[cheap_below_floor, capable_worker],
+            None,
+            50_000,
+            0,
+            4_000,
+        )
+        .expect("SOVA decision for non-empty candidates");
+        assert_eq!(decision.selected_model, "capable-pro");
+        assert!(matches!(
+            decision.verdict,
+            SovaVerdict::InitialSelect {
+                ref selected_model,
+                ..
+            } if selected_model == "capable-pro"
+        ));
+    }
 }

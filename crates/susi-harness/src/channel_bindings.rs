@@ -379,4 +379,71 @@ mod tests {
         drop(key);
         CURRENT_USER.remove_tree(name).unwrap();
     }
+
+    #[test]
+    fn notification_complete_requires_pending_marker_and_register_refuses_foreign_shortcut() {
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path().join("production");
+        fs::create_dir_all(root.join("entry")).unwrap();
+        fs::copy(
+            std::env::current_exe().unwrap(),
+            root.join("entry/susi.exe"),
+        )
+        .unwrap();
+        fs::create_dir(root.join("workspace")).unwrap();
+
+        let err = notification_complete(&root).unwrap_err().to_string();
+        assert!(
+            err.contains("finish environment notification"),
+            "unexpected error: {err}"
+        );
+
+        let mut foreign_lnk = vec![0u8; 76];
+        foreign_lnk[..4].copy_from_slice(&76u32.to_le_bytes());
+        foreign_lnk[4..20].copy_from_slice(&[1, 20, 2, 0, 0, 0, 0, 0, 192, 0, 0, 0, 0, 0, 0, 70]);
+        foreign_lnk[20..24].copy_from_slice(&2u32.to_le_bytes());
+        let base = b"C:\\Other\\susi.exe\0";
+        let mut info = vec![0u8; 28];
+        info[4..8].copy_from_slice(&28u32.to_le_bytes());
+        info[8..12].copy_from_slice(&1u32.to_le_bytes());
+        info[16..20].copy_from_slice(&28u32.to_le_bytes());
+        info[24..28].copy_from_slice(&(28 + base.len() as u32).to_le_bytes());
+        info.extend_from_slice(base);
+        info.push(0);
+        let info_len = info.len() as u32;
+        info[..4].copy_from_slice(&info_len.to_le_bytes());
+        foreign_lnk.extend_from_slice(&info);
+
+        let programs = scratch.path().join("Programs");
+        fs::create_dir(&programs).unwrap();
+        let shortcut_path = programs.join("Susi (local production).lnk");
+
+        let name = format!(
+            "Software\\Susi-Channel-Foreign-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let key = CURRENT_USER.create(&name).unwrap();
+        key.set_expand_string("Path", "C:\\other").unwrap();
+
+        fs::write(&shortcut_path, b"arbitrary-non-susi-shortcut").unwrap();
+        let malformed_err = register_at(&root, &programs, &key).unwrap_err().to_string();
+        assert!(
+            malformed_err.contains("unsupported or malformed Susi Shell Link"),
+            "unexpected error: {malformed_err}"
+        );
+
+        fs::write(&shortcut_path, &foreign_lnk).unwrap();
+        let err = register_at(&root, &programs, &key).unwrap_err().to_string();
+        assert!(
+            err.contains("refusing to replace an unrelated Start Menu shortcut"),
+            "unexpected error: {err}"
+        );
+
+        drop(key);
+        CURRENT_USER.remove_tree(name).unwrap();
+    }
 }
