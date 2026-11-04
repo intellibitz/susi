@@ -249,4 +249,19 @@ mod tests {
         assert_eq!(cfg.poll_interval, Duration::from_secs(5));
         assert!(scan_cell_files(&sub.join("nonexistent-cells-dir")).is_empty());
     }
+
+    #[test]
+    fn scan_cell_files_ignores_directories_even_with_matching_prefix_or_suffix() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi-cell-watcher-dirs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("nested.cell")).unwrap();
+        fs::create_dir_all(tmp.join("susi-cell-dir")).unwrap();
+        fs::write(tmp.join("valid.cell"), "").unwrap();
+
+        let files = scan_cell_files(&tmp);
+        assert_eq!(files.len(), 1);
+        assert!(files.contains(&tmp.join("valid.cell")));
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

@@ -1,0 +1,20 @@
+{
+  "id": "T-DAEMON5TA1104-1",
+  "title": "Advance 8 Wave A susi-daemon modules to 5 inline unit tests each (CEO Job #279)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib"
+    ]
+  },
+  "created_by": "DAEMON5TA1104",
+  "created_unix": 1793803876
+}

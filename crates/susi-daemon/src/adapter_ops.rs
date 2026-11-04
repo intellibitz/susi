@@ -464,4 +464,16 @@ mod tests {
         assert!(retry_start(AdapterKind::Agents, "no-such-task", &ws).is_err());
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn id_key_and_needs_setup_message_cover_all_adapter_families() {
+        assert_eq!(AdapterKind::Agents.id_key(), "agent");
+        assert_eq!(AdapterKind::Frameworks.id_key(), "engine");
+        assert_eq!(AdapterKind::Models.id_key(), "model");
+        assert_eq!(AdapterKind::Mcp.id_key(), "server");
+        assert!(needs_setup_message(AdapterKind::Agents).contains("need setup"));
+        assert!(needs_setup_message(AdapterKind::Frameworks).contains("need setup"));
+        assert!(needs_setup_message(AdapterKind::Models).contains("need setup"));
+        assert!(needs_setup_message(AdapterKind::Mcp).contains("need setup"));
+    }
 }
