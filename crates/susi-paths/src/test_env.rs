@@ -217,4 +217,66 @@ mod tests {
         }
         assert_eq!(["APPDATA", "LOCALAPPDATA"].map(std::env::var_os), before);
     }
+
+    #[test]
+    fn isolate_home_sets_home_xdg_scrubs_instance_vars_and_preserves_caller_overrides() {
+        use super::isolate_home;
+        use std::collections::HashMap;
+        use std::ffi::OsStr;
+        use std::path::Path;
+        use std::process::Command;
+
+        let home = Path::new("/tmp/susi-isolated-child-home");
+        let mut cmd = Command::new("susi");
+        isolate_home(&mut cmd, home);
+        let envs: HashMap<_, _> = cmd
+            .get_envs()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(OsStr::to_os_string)))
+            .collect();
+
+        assert_eq!(
+            envs.get("HOME").and_then(Option::as_ref),
+            Some(&home.as_os_str().to_os_string())
+        );
+        assert_eq!(
+            envs.get("XDG_CONFIG_HOME").and_then(Option::as_ref),
+            Some(&home.join(".config").into_os_string())
+        );
+        assert_eq!(
+            envs.get("XDG_DATA_HOME").and_then(Option::as_ref),
+            Some(&home.join(".local").join("share").into_os_string())
+        );
+        assert_eq!(
+            envs.get("XDG_CACHE_HOME").and_then(Option::as_ref),
+            Some(&home.join(".cache").into_os_string())
+        );
+        assert_eq!(envs.get("SUSI_HOME"), Some(&None));
+        assert_eq!(envs.get("SUSI_PORT_OFFSET"), Some(&None));
+
+        let custom_xdg = Path::new("/tmp/custom-xdg-cfg");
+        let custom_susi = Path::new("/tmp/custom-susi-home");
+        let mut custom_cmd = Command::new("susi");
+        custom_cmd
+            .env("XDG_CONFIG_HOME", custom_xdg)
+            .env("SUSI_HOME", custom_susi)
+            .env("SUSI_PORT_OFFSET", "250");
+        isolate_home(&mut custom_cmd, home);
+        let custom_envs: HashMap<_, _> = custom_cmd
+            .get_envs()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(OsStr::to_os_string)))
+            .collect();
+
+        assert_eq!(
+            custom_envs.get("XDG_CONFIG_HOME").and_then(Option::as_ref),
+            Some(&custom_xdg.as_os_str().to_os_string())
+        );
+        assert_eq!(
+            custom_envs.get("SUSI_HOME").and_then(Option::as_ref),
+            Some(&custom_susi.as_os_str().to_os_string())
+        );
+        assert_eq!(
+            custom_envs.get("SUSI_PORT_OFFSET").and_then(Option::as_ref),
+            Some(&OsStr::new("250").to_os_string())
+        );
+    }
 }

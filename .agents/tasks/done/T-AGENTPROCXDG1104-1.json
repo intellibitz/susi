@@ -1,0 +1,29 @@
+{
+  "id": "T-AGENTPROCXDG1104-1",
+  "title": "test(agents,config,paths): expand inline contract suites for external/process, windows_model_identity, xdg, and test_env",
+  "goal": "D-OS-8: cover zero/low-test modules in susi-vendor-agents, susi-config, and susi-paths",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-paths",
+      "--lib"
+    ]
+  },
+  "created_by": "AGENTPROCXDG1104",
+  "created_unix": 1793774723,
+  "closed": {
+    "at_unix": 1793775026,
+    "commit": "1aec100ca268eb091581419b4c6db1caff3ba414",
+    "by": "AGENTPROCXDG1104"
+  }
+}

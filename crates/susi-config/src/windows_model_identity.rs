@@ -115,7 +115,8 @@ fn volume_guid(path: &[u16]) -> Option<[u16; 36]> {
 
 #[cfg(test)]
 mod tests {
-    use super::volume_guid;
+    use super::{model_file_identity, volume_guid};
+    use std::fs::File;
 
     #[test]
     fn only_normalized_unnamed_local_volume_paths_qualify() {
@@ -131,5 +132,36 @@ mod tests {
         ] {
             assert!(parsed(&rejected).is_none());
         }
+    }
+
+    #[test]
+    fn model_file_identity_matches_same_file_and_distinguishes_distinct_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-win-model-id-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path_a = dir.join("model-a.gguf");
+        let path_b = dir.join("model-b.gguf");
+        std::fs::write(&path_a, b"weights-a").unwrap();
+        std::fs::write(&path_b, b"weights-b").unwrap();
+
+        let a1 = File::open(&path_a).unwrap();
+        let a2 = File::open(&path_a).unwrap();
+        let b1 = File::open(&path_b).unwrap();
+
+        let id_a1 = model_file_identity(&a1).expect("identity for local file a1");
+        let id_a2 = model_file_identity(&a2).expect("identity for local file a2");
+        let id_b1 = model_file_identity(&b1).expect("identity for local file b1");
+
+        assert_eq!(id_a1, id_a2);
+        assert_ne!(id_a1, id_b1);
+
+        drop((a1, a2, b1));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
