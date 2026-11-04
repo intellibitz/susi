@@ -19,5 +19,10 @@
                            ]
                },
     "created_by":  "XTASKSYNC1104",
-    "created_unix":  1793754913
+    "created_unix":  1793754913,
+    "closed":  {
+                   "at_unix":  1793754939,
+                   "commit":  "3519169d50aacf70255ace99af1547cc9799c4a7",
+                   "by":  "XTASKSYNC1104"
+               }
 }
