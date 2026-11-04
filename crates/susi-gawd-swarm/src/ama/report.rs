@@ -71,7 +71,9 @@ impl SusiMissionReport {
     }
 
     /// Apply the same sink boundary used by the persisted mission report.
-    pub(super) fn final_answer_for_sink(&self) -> String {
+    /// This is the text the CLI prints, so a forwarded mission returns it
+    /// too (`mission_run`).
+    pub fn final_answer_for_sink(&self) -> String {
         sink_text("mission-result", &self.final_answer)
     }
 
