@@ -778,6 +778,44 @@ impl StdioSession {
         response["result"].clone()
     }
 
+    /// The whole served catalog. `tools/list` pages at 100 items with a
+    /// revision-bound `nextCursor`; this follows the cursor until it is
+    /// absent (at most `MAX_TOOLS_LIST_PAGES` pages) and returns the last
+    /// page's result with `tools` replaced by every page's tools. `params`
+    /// (for example a modern `_meta`) travel on every page; a cursor error
+    /// fails through `request`'s JSON-RPC error assertion.
+    fn list_all_tools(&mut self, params: serde_json::Value) -> serde_json::Value {
+        const MAX_TOOLS_LIST_PAGES: usize = 50;
+        let mut tools = Vec::new();
+        let mut page_params = params.clone();
+        for _ in 0..MAX_TOOLS_LIST_PAGES {
+            let mut result = self.request("tools/list", page_params);
+            tools.extend(
+                result["tools"]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("tools/list page without tools: {result}"))
+                    .iter()
+                    .cloned(),
+            );
+            let cursor = result
+                .as_object_mut()
+                .and_then(|object| object.remove("nextCursor"))
+                .filter(|cursor| !cursor.is_null());
+            match cursor {
+                Some(serde_json::Value::String(cursor)) => {
+                    page_params = params.clone();
+                    page_params["cursor"] = serde_json::json!(cursor);
+                }
+                Some(other) => panic!("tools/list returned a non-string nextCursor: {other}"),
+                None => {
+                    result["tools"] = serde_json::Value::Array(tools);
+                    return result;
+                }
+            }
+        }
+        panic!("tools/list still paging after {MAX_TOOLS_LIST_PAGES} pages");
+    }
+
     /// Replay a fixture request verbatim and report what came back for it:
     /// `Some(response)` on an answer within the bound, `None` on a silent drop.
     fn request_verbatim(
@@ -869,6 +907,66 @@ impl Drop for StdioSession {
     }
 }
 
+/// `susi mcp serve` pages `tools/list` at 100 items with a revision-bound
+/// `nextCursor` (spec-compliant). The first page holds exactly 100 tools and
+/// a cursor; following every cursor yields each registered core tool exactly
+/// once, so a client that paginates never misses a tool past page one.
+#[test]
+fn stdio_tools_list_pages_cover_every_registered_tool() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch =
+        std::env::temp_dir().join(format!("gmcp-tools-list-pages-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut wire = StdioSession::spawn(root, &home);
+
+    let first = wire.request("tools/list", serde_json::json!({}));
+    let first_tools = first["tools"].as_array().expect("first page tools array");
+    assert_eq!(
+        first_tools.len(),
+        100,
+        "the first tools/list page holds exactly 100 tools"
+    );
+    assert!(
+        first["nextCursor"].as_str().is_some_and(|c| !c.is_empty()),
+        "a catalog past 100 tools must carry a nextCursor: {}",
+        first["nextCursor"]
+    );
+
+    let all = wire.list_all_tools(serde_json::json!({}));
+    let tools = all["tools"].as_array().expect("paginated tools array");
+    assert!(
+        all.get("nextCursor").is_none(),
+        "the merged listing is complete"
+    );
+    assert_eq!(
+        &tools[..100],
+        first_tools.as_slice(),
+        "the paginated listing starts with the first page"
+    );
+    let mut served = std::collections::BTreeSet::new();
+    for tool in tools {
+        let name = tool["name"].as_str().expect("every tool is named");
+        assert!(
+            served.insert(name.to_string()),
+            "pages must not repeat a tool: {name}"
+        );
+    }
+    let missing: Vec<String> = susi_gmcp::tools::args::core_tool_definitions()
+        .into_iter()
+        .map(|tool| tool.name.to_string())
+        .filter(|name| !served.contains(name))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "every registered tool must be listed across pages; missing {missing:?}"
+    );
+    assert!(served.contains("ledger_verify"), "ledger_verify is listed");
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 /// GMCP-203-001-03: the ledger verification capability is wired through the
 /// CLI (`susi mcp ledger`), the direct-call surface (`susi mcp call susi`,
 /// the same path daemon-embedded dispatch uses), and the served MCP surface
@@ -904,30 +1002,9 @@ fn gmcp_req_203_001_03_integration() {
     let mut wire = StdioSession::spawn(root, &home);
 
     // tools/list must advertise ledger_verify through the shared registry.
-    let mut cursor = serde_json::Value::Null;
-    let mut listed = false;
-    for _ in 0..16 {
-        let params = if cursor.is_null() {
-            serde_json::json!({})
-        } else {
-            serde_json::json!({"cursor": cursor})
-        };
-        let result = wire.request("tools/list", params);
-        if result["tools"]
-            .as_array()
-            .is_some_and(|tools| tools.iter().any(|t| t["name"] == "ledger_verify"))
-        {
-            listed = true;
-            break;
-        }
-        match result["nextCursor"]
-            .as_str()
-            .or_else(|| result["next_cursor"].as_str())
-        {
-            Some(next) => cursor = serde_json::json!(next),
-            None => break,
-        }
-    }
+    let listed = wire.list_all_tools(serde_json::json!({}))["tools"]
+        .as_array()
+        .is_some_and(|tools| tools.iter().any(|t| t["name"] == "ledger_verify"));
     assert!(listed, "tools/list must advertise ledger_verify");
 
     // tools/call over the wire must return the canonical report.
@@ -7311,7 +7388,7 @@ fn gmcp_req_203_004_03_integration() {
     std::fs::create_dir_all(&home).unwrap();
 
     let mut wire = StdioSession::spawn(root, &home);
-    let tools = wire.request("tools/list", serde_json::json!({}));
+    let tools = wire.list_all_tools(serde_json::json!({}));
     assert!(
         tools["tools"]
             .as_array()
@@ -9347,7 +9424,7 @@ fn gmcp_req_203_009_03_integration() {
     wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
 
     // Discovery: a non-empty, unique catalog with real schema objects.
-    let listed = wire.request("tools/list", serde_json::json!({}));
+    let listed = wire.list_all_tools(serde_json::json!({}));
     let tools = listed["tools"]
         .as_array()
         .expect("tools/list must return a tools array");
@@ -9413,6 +9490,8 @@ fn gmcp_req_203_009_03_integration() {
     );
 
     // Concurrent calls stay correlated (the service may answer out of order).
+    // Each answers the first page, so both must equal a sequential first page.
+    let first_page = wire.request("tools/list", serde_json::json!({}));
     wire.send(&serde_json::json!({
         "jsonrpc": "2.0", "id": 700, "method": "tools/list", "params": {}
     }));
@@ -9428,8 +9507,7 @@ fn gmcp_req_203_009_03_integration() {
             "concurrent discovery must succeed: {answer}"
         );
         assert_eq!(
-            answer["result"]["tools"].as_array().map(Vec::len),
-            Some(tools.len()),
+            answer["result"]["tools"], first_page["tools"],
             "discovery must be deterministic across concurrent calls"
         );
     }
@@ -9778,8 +9856,8 @@ fn gmcp_req_203_009_05_interop() {
     wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
 
     // (a) Deterministic ordering & schema conformance across discovery requests
-    let list1 = wire.request("tools/list", serde_json::json!({}));
-    let list2 = wire.request("tools/list", serde_json::json!({}));
+    let list1 = wire.list_all_tools(serde_json::json!({}));
+    let list2 = wire.list_all_tools(serde_json::json!({}));
     let tools1 = list1["tools"].as_array().expect("tools array 1");
     let tools2 = list2["tools"].as_array().expect("tools array 2");
     assert_eq!(
@@ -10064,7 +10142,7 @@ fn gmcp_req_203_009_06_operations() {
     assert!(initialize["result"]["capabilities"]["tools"].is_object());
     wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
 
-    let list = wire.request("tools/list", serde_json::json!({}));
+    let list = wire.list_all_tools(serde_json::json!({}));
     let tools = list["tools"].as_array().expect("tools array");
     assert!(!tools.is_empty(), "inspectable tool list must not be empty");
     assert!(

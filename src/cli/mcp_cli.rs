@@ -145,7 +145,9 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             let mut tools = Vec::new();
             // GMCP pages tools/list at 100. Follow nextCursor so names past
             // the first page (for example time:get_current_time) are visible.
-            for _ in 0..32 {
+            const MAX_TOOLS_LIST_PAGES: usize = 50;
+            let mut complete = false;
+            for _ in 0..MAX_TOOLS_LIST_PAGES {
                 let result = susi_core::mcp_client::session_call(
                     &addr,
                     "tools/list",
@@ -157,6 +159,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     if tools.is_empty() {
                         println!("{}", serde_json::to_string_pretty(&result)?);
                     }
+                    complete = true;
                     break;
                 };
                 tools.extend(page.iter().cloned());
@@ -167,8 +170,14 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     .filter(|cursor| !cursor.is_empty());
                 match cursor {
                     Some(cursor) => params = serde_json::json!({ "cursor": cursor }),
-                    None => break,
+                    None => {
+                        complete = true;
+                        break;
+                    }
                 }
+            }
+            if !complete {
+                bail!("tools/list still paging after {MAX_TOOLS_LIST_PAGES} pages");
             }
             if !tools.is_empty() {
                 println!("{:<28} DESCRIPTION", "TOOL");

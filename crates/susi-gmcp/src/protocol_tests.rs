@@ -64,19 +64,35 @@ async fn current_discovery_tools_structured_output_and_errors() {
     echo(&service);
     let mut wire = wire(service).await;
     discover(&mut wire).await;
-    // The built-in registry exceeds one page, so walk every cursor.
+    // The built-in registry exceeds one page, so walk every cursor (bounded).
+    // Cursors are revision-bound and parallel tests mutate the process-wide
+    // tool registry, so a "Catalog changed" answer restarts the listing
+    // without a cursor, exactly as the error instructs a client to.
     let mut tools = Vec::new();
     let mut params = json!({});
-    for id in 100.. {
+    let mut complete = false;
+    for id in 100..150 {
         send(&mut wire, modern(id, "tools/list", params)).await;
         let listed = recv(&mut wire).await;
+        if listed["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("Catalog changed"))
+        {
+            tools.clear();
+            params = json!({});
+            continue;
+        }
         assert!(listed["result"].get("ttlMs").is_some(), "{listed}");
         tools.extend(listed["result"]["tools"].as_array().unwrap().clone());
         match listed["result"]["nextCursor"].as_str() {
             Some(cursor) => params = json!({"cursor": cursor}),
-            None => break,
+            None => {
+                complete = true;
+                break;
+            }
         }
     }
+    assert!(complete, "tools/list must finish paging within the bound");
     assert!(tools
         .iter()
         .any(|t| t["name"] == "test_echo" && t["inputSchema"]["type"] == "object"));
