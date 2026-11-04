@@ -47,4 +47,47 @@ mod zc_scorecard_tests {
         assert!((s.delta_since_release - 5.0).abs() < f64::EPSILON);
         assert_eq!(s.remaining[0].closing_task, "T-CLAUDE-175");
     }
+
+    #[test]
+    fn zc_scorecard_zero_manual_steps_yields_perfect_hundred_score() {
+        let s = scorecard(Vec::new(), 100.0);
+        assert_eq!(s.debt, 0);
+        assert_eq!(s.score, 100.0);
+        assert!((s.delta_since_release - 0.0).abs() < f64::EPSILON);
+        assert!(s.remaining.is_empty());
+    }
+
+    #[test]
+    fn zc_scorecard_clamps_large_debt_at_zero() {
+        let steps: Vec<ManualStep> = (0..25)
+            .map(|i| ManualStep {
+                description: format!("step-{i}"),
+                closing_task: format!("T-{i}"),
+            })
+            .collect();
+        let s = scorecard(steps, 50.0);
+        assert_eq!(s.debt, 25);
+        assert_eq!(s.score, 0.0);
+        assert!((s.delta_since_release - (-50.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn zc_scorecard_computes_negative_delta_when_score_regresses() {
+        let s = scorecard(
+            vec![
+                ManualStep {
+                    description: "step-a".into(),
+                    closing_task: "T-A".into(),
+                },
+                ManualStep {
+                    description: "step-b".into(),
+                    closing_task: "T-B".into(),
+                },
+            ],
+            95.0,
+        );
+        assert_eq!(s.debt, 2);
+        assert_eq!(s.score, 90.0);
+        assert!((s.delta_since_release - (-5.0)).abs() < f64::EPSILON);
+    }
 }
