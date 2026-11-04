@@ -64,4 +64,14 @@ mod tests {
         assert!(!report.contains("DuckDuckGo"));
         assert!(!report.contains("Temperature:"));
     }
+
+    #[test]
+    fn gather_lists_all_candidate_search_tools_and_refuses_to_invent_citations() {
+        let report = gather_live_evidence("Latest release notes", std::path::Path::new("."));
+        assert!(report.contains("Attempts:"));
+        assert!(report.contains("- brave_search:"));
+        assert!(report.contains("- google_search:"));
+        assert!(report.contains("- web_search:"));
+        assert!(report.contains("I will not invent conditions or citations."));
+    }
 }

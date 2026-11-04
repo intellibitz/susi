@@ -94,4 +94,29 @@ mod tests {
             Err(RangeError::TooLarge)
         );
     }
+
+    #[test]
+    fn table_slots_enforces_inverted_range_end_overflow_end_alignment_and_exact_slot_ceiling() {
+        let width = core::mem::size_of::<usize>();
+        assert_eq!(
+            table_slots(0x1000, 0x1000, 0x1200, 0x1100),
+            Err(RangeError::OutsideImage)
+        );
+        assert_eq!(
+            table_slots(0, usize::MAX, 0x1000, usize::MAX),
+            Err(RangeError::Overflow)
+        );
+        assert_eq!(
+            table_slots(0x1000, 0x1000, 0x1100, 0x1117),
+            Err(RangeError::Misaligned)
+        );
+        assert_eq!(
+            table_slots(0, usize::MAX, 0x1000, 0x1000 + 16_384 * width),
+            Ok(16_384)
+        );
+        assert_eq!(
+            table_slots(0, usize::MAX, 0x1000, 0x1000 + 16_385 * width),
+            Err(RangeError::TooLarge)
+        );
+    }
 }

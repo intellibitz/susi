@@ -27,4 +27,10 @@ mod tests {
         assert_eq!(HEADER_READ_TIMEOUT, std::time::Duration::from_secs(30));
         let _builder = connection_builder();
     }
+
+    #[test]
+    fn header_read_timeout_millis_is_nonzero_thirty_thousand() {
+        assert_eq!(HEADER_READ_TIMEOUT.as_millis(), 30_000);
+        assert!(!HEADER_READ_TIMEOUT.is_zero());
+    }
 }
