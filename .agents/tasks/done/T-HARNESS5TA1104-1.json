@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "HARNESS5TA1104",
-  "created_unix": 1793808779
+  "created_unix": 1793808779,
+  "closed": {
+    "at_unix": 1793809361,
+    "commit": "fe65fb82b1774e6dc87907151091d3995da89481",
+    "by": "HARNESS5TA1104"
+  }
 }
