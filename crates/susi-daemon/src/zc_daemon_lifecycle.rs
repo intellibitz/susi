@@ -45,4 +45,41 @@ mod zc_daemon_lifecycle_tests {
         let d2 = d.ensure_started(20);
         assert!(!d2.needs_restart(20));
     }
+
+    #[test]
+    fn stopped_lifecycle_never_needs_restart() {
+        let d = DaemonLifecycle {
+            running: false,
+            binary_mtime: 10,
+        };
+        assert!(!d.needs_restart(20));
+        assert!(!d.needs_restart(0));
+    }
+
+    #[test]
+    fn ensure_started_with_same_or_older_mtime_preserves_existing_mtime() {
+        let d = DaemonLifecycle {
+            running: true,
+            binary_mtime: 50,
+        };
+        let same = d.clone().ensure_started(50);
+        assert!(same.running);
+        assert_eq!(same.binary_mtime, 50);
+
+        let older = d.ensure_started(30);
+        assert!(older.running);
+        assert_eq!(older.binary_mtime, 50);
+    }
+
+    #[test]
+    fn daemon_lifecycle_serde_json_roundtrip() {
+        let d = DaemonLifecycle {
+            running: true,
+            binary_mtime: 1_700_000_000,
+        };
+        let json = serde_json::to_string(&d).expect("serialize DaemonLifecycle");
+        let restored: DaemonLifecycle =
+            serde_json::from_str(&json).expect("deserialize DaemonLifecycle");
+        assert_eq!(restored, d);
+    }
 }

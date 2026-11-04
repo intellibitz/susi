@@ -1,0 +1,19 @@
+{
+  "id": "T-DAEMONMODSB4T1104-1",
+  "title": "Expand 5 susi-daemon modules B (os_status, service_control, watchdog, zc_daemon_lifecycle, zc_keys_health_boot) to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "zc_daemon_lifecycle"
+    ]
+  },
+  "created_by": "DAEMONMODSB4T1104",
+  "created_unix": 1793791561
+}
