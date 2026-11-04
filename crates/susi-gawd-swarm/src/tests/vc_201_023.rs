@@ -52,3 +52,17 @@ fn vc_201_023_read_only_vs_reconcilable_crash_retry_outcomes() {
     assert!(reconcilable_out.completed);
     assert!(reconcilable_out.uncertain_external);
 }
+
+#[test]
+fn vc_201_023_action_class_equality_and_clone_hold_for_all_variants() {
+    let classes = [
+        ActionClass::ReadOnly,
+        ActionClass::Idempotent,
+        ActionClass::Reconcilable,
+        ActionClass::NonRetryable,
+    ];
+    for c in classes {
+        assert_eq!(c.clone(), c);
+    }
+    assert_ne!(ActionClass::ReadOnly, ActionClass::NonRetryable);
+}
