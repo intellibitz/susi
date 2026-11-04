@@ -4,16 +4,6 @@
   "goal": "CEO directive 2026-11-05: merge every Susi worktree. Port 722d3f832 and 8393e3326 (CIPERF, stdlib remap) onto main's native multi-host builder, and keep the stdlib-reuse candidate's evidence (2d7f3cf69, 2f1463cde). The reuse cache code is not forced onto main because it hard-pins builder and compiler_env hashes that main no longer has, is Windows-only where main also builds Linux sysroots, and its own evidence declares it a future-only candidate with no production pin. Old-schema task records are kept as evidence under .agents/evidence/stranded-1105/.",
   "size": "m",
   "deps": [],
-  "scopes": [
-    "toolchain/windows-stdlib/builder.rs",
-    "toolchain/windows-stdlib/tests/raw_archive_repro.rs",
-    ".agents/evidence/stdlib-reuse-1102.json",
-    ".agents/evidence/reuse-receipt-1102.json",
-    ".agents/evidence/stranded-1105/t-stdlibremap1102-1.json",
-    ".agents/evidence/stranded-1105/t-stdlibreuse1102-1.json",
-    ".agents/evidence/stranded-1105/t-reusereceipt1102-1.json",
-    ".agents/tasks/t-landallstdlibreuse1105-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,5 +17,10 @@
     ]
   },
   "created_by": "LANDALLSTDLIBREUSE1105",
-  "created_unix": 1793821943
+  "created_unix": 1793821943,
+  "closed": {
+    "at_unix": 1793824003,
+    "commit": "48c00faf06c63545c8ae0b2b951ad3a2b7fdf7c6",
+    "by": "LANDALLSTDLIBREUSE1105"
+  }
 }
