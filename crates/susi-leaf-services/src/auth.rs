@@ -88,4 +88,46 @@ mod tests {
             );
         }
     }
+
+    async fn supervisor_status(header: Option<HeaderValue>) -> StatusCode {
+        let app = Router::new()
+            .route("/", get(|| async { "reached" }))
+            .layer(axum::middleware::from_fn(supervisor));
+        app.oneshot(request_with(header)).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn supervisor_middleware_enforces_bearer_policy_on_layered_routes() {
+        for header in [
+            None,
+            Some(HeaderValue::from_static("Basic dXNlcjpwYXNz")),
+            Some(HeaderValue::from_static("Bearer")),
+            Some(HeaderValue::from_static(
+                "Bearer definitely-not-the-supervisor-token-9a7c2e",
+            )),
+            Some(HeaderValue::from_bytes(b"Bearer \xff\xfe").unwrap()),
+        ] {
+            let token_before = std::env::var("SUSI_HOST_TOKEN")
+                .ok()
+                .filter(|t| !t.trim().is_empty());
+            let status = supervisor_status(header.clone()).await;
+            let token_after = std::env::var("SUSI_HOST_TOKEN")
+                .ok()
+                .filter(|t| !t.trim().is_empty());
+            if token_before.is_none() && token_after.is_none() {
+                assert_eq!(status, StatusCode::OK, "open policy for {header:?}");
+            } else if token_before.is_some() && token_after.is_some() {
+                assert_eq!(
+                    status,
+                    StatusCode::UNAUTHORIZED,
+                    "armed policy for {header:?}"
+                );
+            } else {
+                assert!(
+                    matches!(status, StatusCode::OK | StatusCode::UNAUTHORIZED),
+                    "concurrent transition for {header:?}: {status}"
+                );
+            }
+        }
+    }
 }

@@ -1,0 +1,18 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-LEAFSVCSANDBOX1104-1",
+  "title": "Expand inline unit tests for susi-leaf-services (sandbox_svc, auth, paths_svc) and susi-sandbox",
+  "touch": [
+    "crates/susi-leaf-services/src/sandbox_svc.rs",
+    "crates/susi-leaf-services/src/auth.rs",
+    "crates/susi-leaf-services/src/paths_svc.rs",
+    "crates/susi-sandbox/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-leaf-services --all-features --lib",
+      "cargo test --offline --locked -p susi-sandbox --lib",
+      "cargo clippy --offline --locked -p susi-leaf-services -p susi-sandbox --all-features --all-targets -- -D warnings"
+    ]
+  }
+}
