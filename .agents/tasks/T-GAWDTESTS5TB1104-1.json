@@ -1,0 +1,22 @@
+{
+  "id": "T-GAWDTESTS5TB1104-1",
+  "title": "test(susi-gawd): advance 16 Wave B test suites to 5 unit tests each (#330)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "vc_201_014_tests::"
+    ]
+  },
+  "created_by": "GAWDTESTS5TB1104",
+  "created_unix": 1793814606
+}
