@@ -96,3 +96,111 @@ impl ImprovementScorecard {
             && self.dimension_improved(&self.operator_effort, &spec.operator_effort)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_spec() -> ScorecardSpec {
+        ScorecardSpec {
+            quality: DimensionSpec {
+                threshold: 0.80,
+                lower_is_better: false,
+            },
+            reliability: DimensionSpec {
+                threshold: 0.90,
+                lower_is_better: false,
+            },
+            latency: DimensionSpec {
+                threshold: 100.0,
+                lower_is_better: true,
+            },
+            resource: DimensionSpec {
+                threshold: 50.0,
+                lower_is_better: true,
+            },
+            operator_effort: DimensionSpec {
+                threshold: 2.0,
+                lower_is_better: true,
+            },
+            min_task_count: 10,
+        }
+    }
+
+    fn passing_scorecard() -> ImprovementScorecard {
+        ImprovementScorecard {
+            quality: DimensionScore {
+                name: "quality".to_string(),
+                value: 0.90,
+                uncertainty: 0.02,
+            },
+            reliability: DimensionScore {
+                name: "reliability".to_string(),
+                value: 0.95,
+                uncertainty: 0.01,
+            },
+            latency: DimensionScore {
+                name: "latency".to_string(),
+                value: 80.0,
+                uncertainty: 5.0,
+            },
+            resource: DimensionScore {
+                name: "resource".to_string(),
+                value: 40.0,
+                uncertainty: 2.0,
+            },
+            operator_effort: DimensionScore {
+                name: "operator_effort".to_string(),
+                value: 1.0,
+                uncertainty: 0.2,
+            },
+            task_count: 12,
+        }
+    }
+
+    #[test]
+    fn dimension_improved_respects_uncertainty_band_and_direction() {
+        let card = passing_scorecard();
+        let spec = sample_spec();
+        assert!(card.dimension_improved(&card.quality, &spec.quality));
+        assert!(card.dimension_improved(&card.latency, &spec.latency));
+
+        let wide_band = DimensionScore {
+            name: "quality".to_string(),
+            value: 0.95,
+            uncertainty: 0.85,
+        };
+        assert!(!card.dimension_improved(&wide_band, &spec.quality));
+    }
+
+    #[test]
+    fn sufficiently_sampled_enforces_min_task_count_and_floor_of_one() {
+        let mut card = passing_scorecard();
+        let mut spec = sample_spec();
+        assert!(card.sufficiently_sampled(&spec));
+        card.task_count = 9;
+        assert!(!card.sufficiently_sampled(&spec));
+
+        spec.min_task_count = 0;
+        card.task_count = 0;
+        assert!(!card.sufficiently_sampled(&spec));
+    }
+
+    #[test]
+    fn refuses_task_count_as_percent_distinguishes_workload_from_dimension() {
+        let card = passing_scorecard();
+        assert!(card.refuses_task_count_as_percent(ImprovementBasis::TaskCount));
+        assert!(!card.refuses_task_count_as_percent(ImprovementBasis::MeasuredDimension));
+    }
+
+    #[test]
+    fn summary_ok_requires_all_five_dimensions_and_sampling_floor() {
+        let mut card = passing_scorecard();
+        let spec = sample_spec();
+        assert!(card.summary_ok(&spec));
+        card.latency.value = 98.0;
+        assert!(!card.summary_ok(&spec));
+    }
+}

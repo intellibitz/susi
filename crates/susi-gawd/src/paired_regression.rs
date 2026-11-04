@@ -51,3 +51,120 @@ pub fn decide(trials: &[PairedTrial], min_samples: usize, confidence: f64) -> Re
         RegressionDecision::Inconclusive
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn decide_returns_inconclusive_when_trials_below_minimum_samples() {
+        let trials = vec![
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 20.0,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 20.0,
+            },
+        ];
+        assert_eq!(decide(&trials, 3, 0.95), RegressionDecision::Inconclusive);
+        assert_eq!(decide(&[], 1, 0.95), RegressionDecision::Inconclusive);
+    }
+
+    #[test]
+    fn decide_handles_zero_variance_improved_regressed_and_zero_delta() {
+        let improved = vec![
+            PairedTrial {
+                baseline: 1.0,
+                candidate: 2.0,
+            },
+            PairedTrial {
+                baseline: 3.0,
+                candidate: 4.0,
+            },
+        ];
+        assert_eq!(decide(&improved, 2, 0.95), RegressionDecision::Improved);
+
+        let regressed = vec![
+            PairedTrial {
+                baseline: 5.0,
+                candidate: 3.0,
+            },
+            PairedTrial {
+                baseline: 4.0,
+                candidate: 2.0,
+            },
+        ];
+        assert_eq!(decide(&regressed, 2, 0.95), RegressionDecision::Regressed);
+
+        let tie = vec![
+            PairedTrial {
+                baseline: 2.0,
+                candidate: 2.0,
+            },
+            PairedTrial {
+                baseline: 5.0,
+                candidate: 5.0,
+            },
+        ];
+        assert_eq!(decide(&tie, 2, 0.95), RegressionDecision::Inconclusive);
+    }
+
+    #[test]
+    fn decide_identifies_statistically_significant_improvement_and_regression() {
+        let improved = vec![
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 15.0,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 16.0,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 14.5,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 15.5,
+            },
+        ];
+        assert_eq!(decide(&improved, 4, 0.95), RegressionDecision::Improved);
+        assert_eq!(decide(&improved, 4, 0.99), RegressionDecision::Improved);
+
+        let regressed: Vec<PairedTrial> = improved
+            .iter()
+            .map(|t| PairedTrial {
+                baseline: t.candidate,
+                candidate: t.baseline,
+            })
+            .collect();
+        assert_eq!(decide(&regressed, 4, 0.99), RegressionDecision::Regressed);
+    }
+
+    #[test]
+    fn decide_returns_inconclusive_when_variance_exceeds_confidence_margin() {
+        let noisy = vec![
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 15.0,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 5.5,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 14.0,
+            },
+            PairedTrial {
+                baseline: 10.0,
+                candidate: 6.0,
+            },
+        ];
+        assert_eq!(decide(&noisy, 4, 0.90), RegressionDecision::Inconclusive);
+        assert_eq!(decide(&noisy, 4, 0.95), RegressionDecision::Inconclusive);
+    }
+}

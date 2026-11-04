@@ -73,3 +73,96 @@ impl LocalProtocol {
         }
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    const LOCAL: LocalProtocol = LocalProtocol {
+        wire_min: 1,
+        wire_max: 3,
+        ledger_min: 2,
+        ledger_max: 4,
+        min_security: 2,
+    };
+
+    #[test]
+    fn negotiate_accepts_offer_within_wire_ledger_and_security_bounds() {
+        let offer = ProtocolOffer {
+            wire_version: 2,
+            ledger_version: 3,
+            min_security: 2,
+            peer_security: 3,
+        };
+        assert_eq!(
+            LOCAL.negotiate(&offer),
+            NegotiateResult::Accept { wire: 2, ledger: 3 }
+        );
+    }
+
+    #[test]
+    fn negotiate_rejects_peer_with_insufficient_security_or_inconsistent_offer() {
+        let low_peer = ProtocolOffer {
+            wire_version: 2,
+            ledger_version: 3,
+            min_security: 2,
+            peer_security: 1,
+        };
+        assert!(matches!(
+            LOCAL.negotiate(&low_peer),
+            NegotiateResult::Reject { reason } if reason.contains("insecure")
+        ));
+
+        let inconsistent = ProtocolOffer {
+            wire_version: 2,
+            ledger_version: 3,
+            min_security: 4,
+            peer_security: 3,
+        };
+        assert!(matches!(
+            LOCAL.negotiate(&inconsistent),
+            NegotiateResult::Reject { reason } if reason.contains("insecure")
+        ));
+    }
+
+    #[test]
+    fn negotiate_rejects_out_of_range_wire_or_ledger_versions() {
+        let bad_wire = ProtocolOffer {
+            wire_version: 9,
+            ledger_version: 3,
+            min_security: 2,
+            peer_security: 2,
+        };
+        assert!(matches!(
+            LOCAL.negotiate(&bad_wire),
+            NegotiateResult::Reject { reason } if reason.contains("unsupported wire version")
+        ));
+
+        let bad_ledger = ProtocolOffer {
+            wire_version: 2,
+            ledger_version: 1,
+            min_security: 2,
+            peer_security: 2,
+        };
+        assert!(matches!(
+            LOCAL.negotiate(&bad_ledger),
+            NegotiateResult::Reject { reason } if reason.contains("unsupported ledger version")
+        ));
+    }
+
+    #[test]
+    fn negotiate_refuses_security_downgrade_when_peer_min_security_is_lower() {
+        let downgrade = ProtocolOffer {
+            wire_version: 2,
+            ledger_version: 3,
+            min_security: 1,
+            peer_security: 2,
+        };
+        assert!(matches!(
+            LOCAL.negotiate(&downgrade),
+            NegotiateResult::Reject { reason } if reason.contains("downgrade refused")
+        ));
+    }
+}

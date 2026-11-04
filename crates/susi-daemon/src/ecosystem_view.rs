@@ -153,3 +153,40 @@ pub fn report(
         }
     }))
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn command_path_returns_none_for_nonexistent_binary_name() {
+        assert!(command_path("susi-definitely-missing-binary-xyz-999").is_none());
+    }
+
+    #[test]
+    fn command_version_returns_none_for_missing_executable_path() {
+        let missing = Path::new("susi-missing-dir-xyz/susi-missing-exe");
+        assert!(command_version(missing).is_none());
+    }
+
+    #[test]
+    fn runtime_inventory_contains_all_twelve_canonical_runtime_entries() {
+        let inv = runtime_inventory();
+        assert_eq!(inv.len(), 12);
+        let ids: Vec<&str> = inv.iter().filter_map(|v| v["id"].as_str()).collect();
+        assert!(ids.contains(&"cuda"));
+        assert!(ids.contains(&"docker"));
+        assert!(ids.contains(&"rust"));
+    }
+
+    #[test]
+    fn runtime_inventory_entries_carry_id_command_and_installed_fields() {
+        for item in runtime_inventory() {
+            assert!(item["id"].is_string());
+            assert!(item["command"].is_string());
+            assert!(item["installed"].is_boolean());
+        }
+    }
+}

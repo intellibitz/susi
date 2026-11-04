@@ -77,3 +77,63 @@ pub fn overlapping_disjoint_blocked(a: &MembershipTransition, b: &MembershipTran
     }
     true
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn electorate_deduplicates_ids_and_computes_strict_majority_quorum() {
+        let e3 = Electorate::from_ids(["n1", "n2", "n3", "n1"]);
+        assert_eq!(e3.0.len(), 3);
+        assert_eq!(e3.quorum_size(), 2);
+
+        let e4 = Electorate::from_ids(["n1", "n2", "n3", "n4"]);
+        assert_eq!(e4.quorum_size(), 3);
+    }
+
+    #[test]
+    fn endorse_ignores_non_members_and_records_old_or_new_members() {
+        let old = Electorate::from_ids(["a", "b"]);
+        let new = Electorate::from_ids(["b", "c"]);
+        let mut tr = MembershipTransition::new(old, new);
+        tr.endorse("outsider");
+        assert!(tr.endorsements.is_empty());
+
+        tr.endorse("a");
+        tr.endorse("c");
+        assert_eq!(tr.endorsements.len(), 2);
+    }
+
+    #[test]
+    fn can_commit_requires_majority_of_both_old_and_new_electorates() {
+        let old = Electorate::from_ids(["a", "b", "c"]);
+        let new = Electorate::from_ids(["c", "d", "e"]);
+        let mut tr = MembershipTransition::new(old, new);
+        tr.endorse("a");
+        tr.endorse("b");
+        assert!(!tr.can_commit());
+
+        tr.endorse("c");
+        assert!(!tr.can_commit());
+
+        tr.endorse("d");
+        assert!(tr.can_commit());
+    }
+
+    #[test]
+    fn overlapping_disjoint_blocked_detects_disjoint_new_rosters_sharing_old_member() {
+        let old = Electorate::from_ids(["a", "b"]);
+        let mut t1 = MembershipTransition::new(old.clone(), Electorate::from_ids(["x"]));
+        let mut t2 = MembershipTransition::new(old, Electorate::from_ids(["y"]));
+        t1.endorse("a");
+        t1.endorse("b");
+        t1.endorse("x");
+        assert!(overlapping_disjoint_blocked(&t1, &t2));
+
+        t2.endorse("a");
+        t2.endorse("b");
+        t2.endorse("y");
+        assert!(!overlapping_disjoint_blocked(&t1, &t2));
+    }
+}

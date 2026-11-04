@@ -124,3 +124,58 @@ impl PatchFence {
         normalize_lexically(path).starts_with(normalize_lexically(&self.workspace))
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn isolate_rejects_empty_dot_and_separator_patch_ids() {
+        let root = std::env::temp_dir().join("susi-patch-fence-test-ids");
+        assert!(PatchFence::isolate(&root, "").is_err());
+        assert!(PatchFence::isolate(&root, ".").is_err());
+        assert!(PatchFence::isolate(&root, "..").is_err());
+        assert!(PatchFence::isolate(&root, "a/b").is_err());
+        assert!(PatchFence::isolate(&root, "a\\b").is_err());
+        assert!(PatchFence::isolate(&root, "a\0b").is_err());
+    }
+
+    #[test]
+    fn isolate_allocates_distinct_nonced_workspaces_for_same_patch_id() {
+        let root = std::env::temp_dir().join("susi-patch-fence-test-nonce");
+        let first = PatchFence::isolate(&root, "patch-alpha").unwrap();
+        let second = PatchFence::isolate(&root, "patch-alpha").unwrap();
+        assert_eq!(first.patch_id, "patch-alpha");
+        assert_ne!(first.workspace, second.workspace);
+        assert!(!first.applied);
+    }
+
+    #[test]
+    fn normalize_lexically_and_is_inside_fence_prevent_parent_traversal() {
+        let root = std::env::temp_dir().join("susi-patch-fence-test-lexical");
+        let fence = PatchFence::isolate(&root, "patch-beta").unwrap();
+        let inside = fence.workspace.join("src").join("..").join("lib.rs");
+        let outside = fence.workspace.join("..").join("escape.rs");
+        assert!(fence.is_inside_fence(&inside));
+        assert!(!fence.is_inside_fence(&outside));
+    }
+
+    #[test]
+    fn apply_in_isolation_writes_inside_workspace_and_refuses_escape() {
+        let root = std::env::temp_dir().join(format!("susi-patch-fence-apply-{}", next_nonce()));
+        let mut fence = PatchFence::isolate(&root, "patch-gamma").unwrap();
+        assert!(fence.apply_in_isolation("nested/file.txt", b"hi").is_err());
+
+        fence.ensure_isolated().unwrap();
+        fence.apply_in_isolation("nested/file.txt", b"ok").unwrap();
+        assert!(fence.applied);
+        assert_eq!(
+            std::fs::read(fence.workspace.join("nested/file.txt")).unwrap(),
+            b"ok"
+        );
+        assert!(fence
+            .apply_in_isolation("../../outside.txt", b"no")
+            .is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
