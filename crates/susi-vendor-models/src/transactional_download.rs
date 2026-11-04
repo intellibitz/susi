@@ -324,4 +324,26 @@ mod inline_tests {
         assert!(staged.with_extension("corrupt").is_file());
         let _ = std::fs::remove_dir_all(&store.root);
     }
+
+    #[test]
+    fn commit_staged_rejects_size_mismatch_and_leaves_artifact_unpublished() {
+        let store = temp_store("commit-bad-size");
+        let staged = store.staging_target("mismatch.bin");
+        std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        std::fs::write(&staged, b"123").unwrap();
+
+        let plan = DownloadPlan {
+            url: "https://example.invalid/mismatch.bin".to_string(),
+            dest: staged.clone(),
+            size: Some(99),
+            sha256: None,
+            max_retries: 1,
+        };
+        let err = store
+            .commit_staged("mismatch.bin", &plan, &|_| true)
+            .unwrap_err();
+        assert!(err.to_string().contains("does not match declared size"));
+        assert!(!store.is_ready("mismatch.bin"));
+        let _ = std::fs::remove_dir_all(&store.root);
+    }
 }

@@ -183,4 +183,20 @@ mod price_catalog_tests {
 
         assert!(cat.expected_cost_usd("unknown", 100, 100, 0.5).is_none());
     }
+
+    #[test]
+    fn expected_cost_usd_falls_back_to_input_rate_when_cache_rates_are_absent() {
+        let mut cat = PriceCatalog::empty(4);
+        cat.insert(PriceEntry {
+            model_id: "plain-model".into(),
+            input_usd_per_1m: 2.0,
+            output_usd_per_1m: 8.0,
+            cache_hit_usd_per_1m: None,
+            cache_miss_usd_per_1m: None,
+        });
+        let cost = cat
+            .expected_cost_usd("plain-model", 500_000, 250_000, 0.75)
+            .unwrap();
+        assert!((cost - 3.0).abs() < 1e-9);
+    }
 }

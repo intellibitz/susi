@@ -151,4 +151,14 @@ mod inline_tests {
         drop(f2);
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn sequential_read_windows_can_be_entered_and_dropped_repeatedly() {
+        for _ in 0..3 {
+            let win = ModelReadWindow::enter();
+            let nested = ModelReadWindow::enter();
+            drop(nested);
+            drop(win);
+        }
+    }
 }

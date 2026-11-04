@@ -355,4 +355,20 @@ mod tests {
         assert_eq!(json["docs_indexed"], 2);
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn ambient_start_as_str_and_scan_skip_ignored_directories() {
+        assert_eq!(AmbientStart::Started.as_str(), "started");
+        assert_eq!(AmbientStart::AlreadyRunning.as_str(), "already_running");
+        assert_eq!(AmbientStart::InternalPath.as_str(), "refused_internal_path");
+        let ws = std::env::temp_dir().join(format!("susi-ambient-skip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(ws.join("node_modules")).unwrap();
+        std::fs::create_dir_all(ws.join("target")).unwrap();
+        std::fs::write(ws.join("node_modules").join("pkg.md"), "ignored").unwrap();
+        std::fs::write(ws.join("target").join("build.rs"), "ignored").unwrap();
+        let mut state = HashMap::new();
+        assert_eq!(scan_with_state(&ws, &mut state), 0);
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

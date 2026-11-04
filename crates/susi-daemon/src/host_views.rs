@@ -671,4 +671,18 @@ mod tests {
         assert!(root == dir || dir.starts_with(&root));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn model_uninstall_rejects_non_gguf_extension_and_empty_name() {
+        assert!(
+            model_uninstall("weights.bin", None)
+                .unwrap_err()
+                .contains("not a path")
+        );
+        assert!(
+            model_uninstall("", None)
+                .unwrap_err()
+                .contains("not a path")
+        );
+    }
 }

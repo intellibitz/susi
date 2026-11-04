@@ -482,4 +482,21 @@ mod tests {
             Some("susi-host")
         );
     }
+
+    #[test]
+    fn nat_status_label_and_gossip_port_return_expected_values() {
+        use crate::nat::NatStatus;
+        assert_eq!(super::nat_status_label(NatStatus::Open), "open");
+        assert_eq!(super::nat_status_label(NatStatus::Symmetric), "symmetric");
+        assert_eq!(
+            super::nat_status_label(NatStatus::PortRestricted),
+            "port_restricted"
+        );
+        assert_eq!(
+            super::nat_status_label(NatStatus::TurnRelayed),
+            "turn_relayed"
+        );
+        assert_eq!(super::nat_status_label(NatStatus::Unknown), "unknown");
+        assert!(super::gossip_port() > 0);
+    }
 }
