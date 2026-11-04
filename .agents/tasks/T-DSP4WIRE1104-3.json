@@ -9,6 +9,7 @@
     "crates/susi-core/src/plane_bus.rs",
     "crates/susi-core/src/mac_policy.rs",
     "crates/susi-gawd/src/plane_handler.rs",
+    "crates/susi-gawd-swarm/src/ama/report.rs",
     "crates/susi-gmcp/src/tools/core.rs",
     "crates/susi-gmcp/src/tools/args.rs",
     "crates/susi-daemon/src/gmcp_bootstrap.rs",
