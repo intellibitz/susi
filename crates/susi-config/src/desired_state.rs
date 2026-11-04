@@ -249,4 +249,27 @@ mod tests {
         let round_tripped = round_trip_desired_state(&parsed).expect("round-trip succeeds");
         assert_eq!(round_tripped, parsed);
     }
+
+    #[test]
+    fn parse_desired_state_rejects_malformed_json_and_self_dependency_is_satisfied_when_id_exists()
+    {
+        assert!(parse_desired_state("{bad json").is_err());
+
+        let mut state_with_empty = DesiredState::empty_v1();
+        state_with_empty.models.push(entity("", "llm", &[]));
+        state_with_empty
+            .models
+            .push(entity("model:valid", "llm", &[]));
+        assert_eq!(
+            state_with_empty.all_ids(),
+            BTreeSet::from(["model:valid".to_string()])
+        );
+
+        let mut intra = DesiredState::empty_v1();
+        intra.models.push(entity("model:base", "llm", &[]));
+        intra
+            .models
+            .push(entity("model:finetune", "llm", &["model:base"]));
+        assert!(validate_desired_state(&intra).is_ok());
+    }
 }
