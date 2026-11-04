@@ -22,5 +22,10 @@
     ]
   },
   "created_by": "ERRSTDIOUPG1104",
-  "created_unix": 1793767777
+  "created_unix": 1793767777,
+  "closed": {
+    "at_unix": 1793768178,
+    "commit": "0d49eae6b7e29e65cd1eb31cd95a90a2ca60b34c",
+    "by": "ERRSTDIOUPG1104"
+  }
 }
