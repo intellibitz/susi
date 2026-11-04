@@ -80,3 +80,16 @@ fn zc_key_scope_env_process_wins() {
     }
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn zc_key_scope_uri_round_trips_for_cloud_and_host_scopes() {
+    let cloud = KeyRef::parse("key://cloud/GEMINI_API_KEY").unwrap();
+    assert_eq!(cloud.uri(), "key://cloud/GEMINI_API_KEY");
+    let cloud_again = KeyRef::parse(&cloud.uri()).unwrap();
+    assert_eq!(cloud_again, cloud);
+
+    let host = KeyRef::parse("key://host/service_token").unwrap();
+    assert_eq!(host.uri(), "key://host/service_token");
+    let host_again = KeyRef::parse(&host.uri()).unwrap();
+    assert_eq!(host_again, host);
+}

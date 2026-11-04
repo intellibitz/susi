@@ -73,3 +73,15 @@ fn setup_plan_apply_fails_when_tools_or_policy_are_cleared() {
     assert!(plan_no_policy.apply(&dir).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn setup_plan_detect_populates_steps_and_default_mission_status() {
+    let dir = std::env::temp_dir().join(format!("susi-setup-steps-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let plan = SetupPlan::detect(&dir);
+    assert!(!plan.steps.is_empty());
+    assert!(!plan.tools.is_empty());
+    assert!(!plan.policy.is_empty());
+    assert!(plan.consents_granted.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}

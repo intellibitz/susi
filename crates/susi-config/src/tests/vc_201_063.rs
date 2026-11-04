@@ -50,3 +50,15 @@ fn vc_201_063_empty_desired_state_and_unchanged_key_produce_zero_ops() {
     assert!(s.apply(&unchanged_plan).unwrap().is_empty());
     assert_eq!(s.values.get("k").map(String::as_str), Some("1"));
 }
+
+#[test]
+fn vc_201_063_plan_records_none_precondition_for_newly_inserted_key() {
+    let s = ConfigStore::default();
+    let desired = BTreeMap::from([("new_key".into(), "val".into())]);
+    let plan = s.plan(&desired);
+    assert_eq!(plan.ops.len(), 1);
+    assert_eq!(plan.ops[0].key, "new_key");
+    assert_eq!(plan.ops[0].from, None);
+    assert_eq!(plan.ops[0].to, "val");
+    assert_eq!(plan.preconditions.get("new_key"), Some(&None));
+}
