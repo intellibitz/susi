@@ -1,0 +1,20 @@
+{
+  "id": "T-DSP4WIRE1104-7",
+  "title": "D-SP-4 Stage 4a: CLI help snapshot and non-zero source scanner assertions",
+  "goal": "Add a recursive Cli::command() help/version snapshot test in src/cli/defs.rs against tests/fixtures/cli_help_snapshot.txt and add non-zero match count assertions to the path-based CLI source scanners so none can pass vacuously during Stage 4b-4z.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--bin",
+      "susi",
+      "cli_help_and_version_match_snapshot"
+    ]
+  },
+  "created_by": "DSP4WIRE1104",
+  "created_unix": 1793810148
+}
