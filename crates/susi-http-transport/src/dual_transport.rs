@@ -143,3 +143,99 @@ pub async fn negotiate_unbounded(
     }
     Some(MaybeTls::Plain(stream))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    async fn connected_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback");
+        let addr = listener.local_addr().expect("local addr");
+        let client_fut = TcpStream::connect(addr);
+        let accept_fut = listener.accept();
+        let (client, accepted) = tokio::join!(client_fut, accept_fut);
+        (client.expect("connect"), accepted.expect("accept").0)
+    }
+
+    #[tokio::test]
+    async fn loopback_plaintext_passes_with_require_tls_remote_and_roundtrips_async_io() {
+        let (mut client, server) = connected_pair().await;
+        client
+            .write_all(b"GET /health HTTP/1.1\r\n\r\n")
+            .await
+            .expect("write probe");
+
+        let negotiated = negotiate_unbounded(server, false, None, true, "[TEST]")
+            .await
+            .expect("loopback plaintext must pass even when require_tls_remote is true");
+        assert!(matches!(negotiated, MaybeTls::Plain(_)));
+
+        let mut transport = negotiated;
+        let mut req_buf = [0u8; 24];
+        transport
+            .read_exact(&mut req_buf)
+            .await
+            .expect("read through MaybeTls");
+        assert_eq!(&req_buf, b"GET /health HTTP/1.1\r\n\r\n");
+
+        transport
+            .write_all(b"HTTP/1.1 200 OK\r\n\r\n")
+            .await
+            .expect("write through MaybeTls");
+        transport.flush().await.expect("flush MaybeTls");
+        transport.shutdown().await.expect("shutdown MaybeTls");
+
+        let mut resp = Vec::new();
+        client
+            .read_to_end(&mut resp)
+            .await
+            .expect("read client reply");
+        assert_eq!(resp, b"HTTP/1.1 200 OK\r\n\r\n");
+    }
+
+    #[tokio::test]
+    async fn remote_plaintext_policy_and_unconfigured_tls_probe_drop_cleanly() {
+        // 1. Remote plaintext refused when require_tls_remote = true
+        let (mut c1, s1) = connected_pair().await;
+        c1.write_all(b"GET / HTTP/1.1\r\n\r\n")
+            .await
+            .expect("write c1");
+        assert!(negotiate_unbounded(s1, true, None, true, "[TEST]")
+            .await
+            .is_none());
+
+        // 2. Remote plaintext allowed when require_tls_remote = false
+        let (mut c2, s2) = connected_pair().await;
+        c2.write_all(b"GET / HTTP/1.1\r\n\r\n")
+            .await
+            .expect("write c2");
+        assert!(matches!(
+            negotiate_unbounded(s2, true, None, false, "[TEST]").await,
+            Some(MaybeTls::Plain(_))
+        ));
+
+        // 3. TLS ClientHello (0x16) dropped when no TlsAcceptor is configured
+        let (mut c3, s3) = connected_pair().await;
+        c3.write_all(&[0x16, 0x03, 0x01]).await.expect("write c3");
+        assert!(negotiate_unbounded(s3, false, None, false, "[TEST]")
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn bounded_drops_slowloris_connection_sending_no_first_byte() {
+        let (_idle_client, server) = connected_pair().await;
+        let result = bounded(
+            Duration::from_millis(25),
+            "[TEST]",
+            negotiate_unbounded(server, false, None, false, "[TEST]"),
+        )
+        .await;
+        assert!(result.is_none(), "idle connection must time out and drop");
+    }
+}

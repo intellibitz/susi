@@ -6,7 +6,7 @@ use hyper_util::server::conn::auto::Builder;
 
 /// A client must finish sending request headers within this window;
 /// without a timer hyper waits forever on a client trickling bytes.
-const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+pub const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Connection builder with the header-read bound applied.
 pub fn connection_builder() -> Builder<TokioExecutor> {
@@ -16,4 +16,15 @@ pub fn connection_builder() -> Builder<TokioExecutor> {
         .timer(TokioTimer::new())
         .header_read_timeout(HEADER_READ_TIMEOUT);
     builder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn header_read_timeout_is_thirty_seconds_and_builder_initializes() {
+        assert_eq!(HEADER_READ_TIMEOUT, std::time::Duration::from_secs(30));
+        let _builder = connection_builder();
+    }
 }
