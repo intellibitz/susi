@@ -534,7 +534,7 @@ impl ServerHandler for GmcpService {
                         }
                         // Synchronous registry tools cannot be interrupted after entry. A late
                         // cancellation remains a request, never a false claim of rollback.
-                        execute_registry(name, args, workspace)
+                        execute_registry(name, args, workspace, None)
                             .await
                             .map_err(Into::into)
                     })
@@ -553,7 +553,23 @@ impl ServerHandler for GmcpService {
                 .await
                 .map_err(internal)?;
         }
-        let result = execute_registry(name, args, workspace).await?;
+        // A watched call relays the tool's own progress lines between the
+        // started (0.0) and finished (1.0) notifications.
+        let result = match token.clone() {
+            Some(token) => {
+                let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+                let sink: crate::susi_core::progress::Sink = Arc::new(move |line: &str| {
+                    let _ = tx.send(line.to_string());
+                });
+                let relay = tokio::spawn(relay_progress(context.peer.clone(), token, rx));
+                // The sink (and with it the channel's sender) is dropped
+                // when the tool returns, which ends the relay.
+                let result = execute_registry(name, args, workspace, Some(sink)).await;
+                let _ = relay.await;
+                result?
+            }
+            None => execute_registry(name, args, workspace, None).await?,
+        };
         if let Some(token) = token {
             context
                 .peer
@@ -802,15 +818,71 @@ fn normalize_resource(mut response: ReadResourceResponse) -> ReadResourceRespons
     response
 }
 
+/// Least gap between relayed progress notifications: at most about ten a
+/// second. A line that arrives sooner waits, and a newer one replaces it.
+const PROGRESS_GAP: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Relay a watched tool's progress lines as `notifications/progress`,
+/// strictly between the started (0.0) and finished (1.0) notifications and
+/// rising with each line, coalesced to [`PROGRESS_GAP`]. Ends when the
+/// tool's sink is dropped, after sending the last pending line.
+async fn relay_progress(
+    peer: rmcp::service::Peer<RoleServer>,
+    token: ProgressToken,
+    mut lines: tokio::sync::mpsc::UnboundedReceiver<String>,
+) {
+    let mut sent = 0u32;
+    let mut last: Option<tokio::time::Instant> = None;
+    let mut pending: Option<String> = None;
+    loop {
+        let next = match (&pending, last) {
+            (Some(_), Some(at)) => {
+                match tokio::time::timeout_at(at + PROGRESS_GAP, lines.recv()).await {
+                    Ok(next) => next.map(Some),
+                    // The gap has passed: send what is waiting.
+                    Err(_) => Some(None),
+                }
+            }
+            _ => lines.recv().await.map(Some),
+        };
+        let closed = next.is_none();
+        if let Some(Some(line)) = next {
+            pending = Some(line);
+        }
+        let due = closed || last.is_none_or(|at| at.elapsed() >= PROGRESS_GAP);
+        if due {
+            if let Some(line) = pending.take() {
+                sent += 1;
+                let progress = f64::from(sent) / (f64::from(sent) + 1.0);
+                let _ = peer
+                    .notify_progress(
+                        ProgressNotificationParam::new(token.clone(), progress)
+                            .with_total(1.0)
+                            .with_message(line),
+                    )
+                    .await;
+                last = Some(tokio::time::Instant::now());
+            }
+        }
+        if closed {
+            return;
+        }
+    }
+}
+
 async fn execute_registry(
     name: String,
     args: Value,
     workspace: PathBuf,
+    progress: Option<crate::susi_core::progress::Sink>,
 ) -> Result<CallToolResult, ErrorData> {
-    let text =
-        tokio::task::spawn_blocking(move || ToolRegistry::execute_tool(&name, &args, &workspace))
-            .await
-            .map_err(internal)?;
+    let text = tokio::task::spawn_blocking(move || {
+        crate::susi_core::progress::with_sink(progress, || {
+            ToolRegistry::execute_tool(&name, &args, &workspace)
+        })
+    })
+    .await
+    .map_err(internal)?;
     Ok(if is_tool_result_error(&text) {
         CallToolResult::error(vec![ContentBlock::text(text)])
     } else {

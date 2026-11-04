@@ -23,6 +23,7 @@ macro_rules! mission_trace {
 }
 
 fn emit_final_report(report: &SusiMissionReport, callback: &dyn Fn(String)) {
+    crate::susi_core::progress::report(&report.completion_message());
     if !report.is_success() {
         eprintln!("{}", report.completion_message());
     }
@@ -285,6 +286,9 @@ impl SusiMasterAgent {
                 return report;
             }
         };
+        // Phase lines for a watched call (`mission_run` with a progress
+        // token); a no-op otherwise, so the CLI's output is unchanged.
+        crate::susi_core::progress::report("Mission started");
         // Mission-scoped evidence ledger (same contract as `solve`): tool
         // dispatches record receipts here, and citation answers resolve from
         // them at verification and during cloud recovery.
@@ -319,6 +323,11 @@ impl SusiMasterAgent {
             manifold.risk_profile
         );
 
+        crate::susi_core::progress::report(if manifold.requires_swarm {
+            "Planning the mission"
+        } else {
+            "Answering directly"
+        });
         // Hardware/model inventories and the complete genome audit belong to
         // swarm dispatch. A read-only question needs neither before inference.
         if manifold.requires_swarm {
@@ -573,6 +582,7 @@ impl SusiMasterAgent {
             mission_trace!();
 
             mission_trace!("\n[SUBSTRATE VERIFICATION RESULTS]");
+            crate::susi_core::progress::report("Verifying the answer");
             let mut verification_failed = false;
             let final_answer =
                 match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
@@ -680,9 +690,14 @@ impl SusiMasterAgent {
             return report;
         }
 
+        crate::susi_core::progress::report("Running the agent swarm");
         let start = std::time::Instant::now();
         let res = self.solve_with_streaming_trace(&goal, workspace, version, &|_| {});
         let elapsed = start.elapsed();
+        crate::susi_core::progress::report(&format!(
+            "Agent swarm finished in {:.1} s",
+            elapsed.as_secs_f64()
+        ));
 
         mission_trace!("\n- [Swarm Execution Latency] {:?}", elapsed);
 
