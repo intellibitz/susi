@@ -71,3 +71,105 @@ pub fn format_debt_report(items: &[DebtItem]) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_debt_includes_consent_settings_and_cloud_secret_sorted_and_deduplicated() {
+        let base = scan_debt(&[]);
+        assert!(base
+            .iter()
+            .any(|i| i.id == "secret:cloud_api_key" && i.kind == DebtKind::Secret));
+        for entry in SETTING_REGISTRY {
+            if matches!(entry.derivation, SettingDerivation::Consent) {
+                let expected_id = format!("setting:{}", entry.key);
+                assert!(base
+                    .iter()
+                    .any(|i| i.id == expected_id && i.kind == DebtKind::Consent));
+            }
+        }
+        assert!(base.windows(2).all(|w| w[0].id <= w[1].id));
+
+        let extra = vec![
+            DebtItem {
+                id: "secret:cloud_api_key".into(),
+                kind: DebtKind::Secret,
+                description: "duplicate should be ignored".into(),
+                removes_via: "T-DUP".into(),
+            },
+            DebtItem {
+                id: "env:custom_flag".into(),
+                kind: DebtKind::EnvVar,
+                description: "custom env flag".into(),
+                removes_via: "T-ENV-1".into(),
+            },
+            DebtItem {
+                id: "env:custom_flag".into(),
+                kind: DebtKind::EnvVar,
+                description: "duplicate extra should be ignored".into(),
+                removes_via: "T-ENV-2".into(),
+            },
+        ];
+        let with_extra = scan_debt(&extra);
+        assert_eq!(with_extra.len(), base.len() + 1);
+        assert!(with_extra.windows(2).all(|w| w[0].id < w[1].id));
+        let custom = with_extra
+            .iter()
+            .find(|i| i.id == "env:custom_flag")
+            .expect("custom extra item present");
+        assert_eq!(custom.removes_via, "T-ENV-1");
+    }
+
+    #[test]
+    fn format_debt_report_renders_empty_and_all_debt_kinds_and_roundtrips_serde() {
+        assert_eq!(format_debt_report(&[]), "zero-config debt: none\n");
+
+        let items = vec![
+            DebtItem {
+                id: "a".into(),
+                kind: DebtKind::Secret,
+                description: "secret desc".into(),
+                removes_via: "T-1".into(),
+            },
+            DebtItem {
+                id: "b".into(),
+                kind: DebtKind::Consent,
+                description: "consent desc".into(),
+                removes_via: "T-2".into(),
+            },
+            DebtItem {
+                id: "c".into(),
+                kind: DebtKind::EnvVar,
+                description: "envvar desc".into(),
+                removes_via: "T-3".into(),
+            },
+            DebtItem {
+                id: "d".into(),
+                kind: DebtKind::Prompt,
+                description: "prompt desc".into(),
+                removes_via: "T-4".into(),
+            },
+            DebtItem {
+                id: "e".into(),
+                kind: DebtKind::SetupStep,
+                description: "setup desc".into(),
+                removes_via: "T-5".into(),
+            },
+        ];
+        let report = format_debt_report(&items);
+        assert!(report.starts_with("zero-config debt: 5 item(s)\n"));
+        assert!(report.contains("- [secret] secret desc — removes via T-1\n"));
+        assert!(report.contains("- [consent] consent desc — removes via T-2\n"));
+        assert!(report.contains("- [envvar] envvar desc — removes via T-3\n"));
+        assert!(report.contains("- [prompt] prompt desc — removes via T-4\n"));
+        assert!(report.contains("- [setupstep] setup desc — removes via T-5\n"));
+
+        let json = serde_json::to_string(&items).expect("serialize DebtItems");
+        assert!(json.contains("\"setup_step\""));
+        assert!(json.contains("\"env_var\""));
+        let roundtrip: Vec<DebtItem> = serde_json::from_str(&json).expect("deserialize DebtItems");
+        assert_eq!(roundtrip, items);
+    }
+}
