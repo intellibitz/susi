@@ -322,4 +322,59 @@ mod tests {
             assert_eq!(BIN_NAME, "susi");
         }
     }
+
+    #[test]
+    fn id_and_digest_helpers_enforce_lowercase_64_char_sha256_contract() {
+        assert!(id(&"a".repeat(64)));
+        assert!(!id(&"A".repeat(64)));
+        assert!(!id("short"));
+        assert!(!id(&"g".repeat(64)));
+        let digest = digest_bytes(b"susi-release-payload");
+        assert!(id(&digest));
+        assert_eq!(digest.len(), 64);
+    }
+
+    #[test]
+    fn package_open_rejects_untrusted_release_id_and_manifest_digest_mismatch() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-pkg-open-err-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("manifest.txt"), b"susi-local-release-v1\n").unwrap();
+
+        assert!(Package::open(&dir, "not-a-valid-sha256").is_err());
+        assert!(Package::open(&dir, &"0".repeat(64)).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_open_rejects_unsupported_header_duplicate_fields_and_wrong_host() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-pkg-manifest-err-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+
+        for body in [
+            "unsupported-header-v0\nhost=x\n",
+            "susi-local-release-v1\nhost=x\nhost=x\n",
+            "susi-local-release-v1\nhost=foreign-platform-triple\n",
+        ] {
+            fs::write(dir.join("manifest.txt"), body.as_bytes()).unwrap();
+            let rel = digest_bytes(body.as_bytes());
+            assert!(Package::open(&dir, &rel).is_err());
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

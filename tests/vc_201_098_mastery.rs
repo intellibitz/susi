@@ -92,3 +92,53 @@ fn vc_201_098_mastery() {
         .iter()
         .any(|row| row.platform == HostPlatform::Windows && !row.sandbox));
 }
+
+#[test]
+fn vc_201_098_lifecycle_stages_cover_full_operator_journey_in_order() {
+    let stages = lifecycle_smoke();
+    assert_eq!(
+        stages,
+        [
+            LifecycleStage::Install,
+            LifecycleStage::Start,
+            LifecycleStage::Stop,
+            LifecycleStage::Upgrade,
+            LifecycleStage::LocalRuntime,
+        ]
+    );
+}
+
+#[test]
+fn vc_201_098_platform_matrix_covers_all_three_hosts_with_distinct_installers() {
+    let linux = PLATFORM_MATRIX
+        .iter()
+        .find(|c| c.platform == HostPlatform::Linux)
+        .expect("linux capability row");
+    assert!(linux.gpu && linux.sandbox);
+    assert_eq!(linux.installer, "install.sh");
+
+    let macos = PLATFORM_MATRIX
+        .iter()
+        .find(|c| c.platform == HostPlatform::Macos)
+        .expect("macos capability row");
+    assert!(!macos.gpu && macos.sandbox);
+    assert_eq!(macos.installer, "install.sh");
+
+    let windows = PLATFORM_MATRIX
+        .iter()
+        .find(|c| c.platform == HostPlatform::Windows)
+        .expect("windows capability row");
+    assert!(!windows.gpu && !windows.sandbox);
+    assert_eq!(windows.installer, "install.ps1");
+}
+
+#[test]
+fn vc_201_098_installer_fixtures_enforce_strict_shell_and_powershell_safety_headers() {
+    let sh = installer_body("install.sh");
+    assert!(sh.starts_with("#!/usr/bin/env bash"));
+    assert!(sh.contains("BASH_VERSION"));
+
+    let ps1 = installer_body("install.ps1");
+    assert!(ps1.contains("ErrorActionPreference"));
+    assert!(ps1.contains("Get-FileHash"));
+}
