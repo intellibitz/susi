@@ -302,4 +302,13 @@ mod tests {
         assert!(report.contains(&temp_ws.display().to_string()));
         let _ = std::fs::remove_dir_all(&temp_ws);
     }
+
+    #[test]
+    fn rules_of_counts_sum_to_total_compiled_rules_length() {
+        let total = AlphaSelf::rules_of(RuleKind::Mandate).count()
+            + AlphaSelf::rules_of(RuleKind::EngineProtocol).count()
+            + AlphaSelf::rules_of(RuleKind::RoadmapVector).count()
+            + AlphaSelf::rules_of(RuleKind::Evidence).count();
+        assert_eq!(total, AlphaSelf::RULES.len());
+    }
 }

@@ -117,4 +117,11 @@ mod surface_tests {
             TypeId::of::<susi_config::SusiConfig>()
         );
     }
+
+    #[test]
+    fn agent_meta_registry_global_singleton_returns_stable_reference() {
+        let a = AgentMetaRegistry::global() as *const AgentMetaRegistry;
+        let b = AgentMetaRegistry::global() as *const AgentMetaRegistry;
+        assert_eq!(a, b);
+    }
 }
