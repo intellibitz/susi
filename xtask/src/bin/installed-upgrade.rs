@@ -1,8 +1,21 @@
-//! Install an exact promoted Windows release through the release-sync process guard.
+//! Install an exact promoted release through the release-sync process guard.
 use sha2::{Digest, Sha256};
-use std::{env, error::Error, fs, path::PathBuf, process::Command};
+use std::{
+    env,
+    error::Error,
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
 
 fn qualified_path(report: &str, id: &str) -> Result<PathBuf> {
     if id.len() != 64
@@ -20,10 +33,126 @@ fn qualified_path(report: &str, id: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-fn run() -> Result<()> {
-    if !cfg!(windows) {
-        return Err("installed-upgrade requires Windows".into());
+fn verify_qualified_manifest(binary: &Path, id: &str) -> Result<(String, String)> {
+    let raw = fs::read(binary.with_file_name("manifest.txt"))?;
+    if sha256_hex(&raw) != id {
+        return Err("qualified manifest changed".into());
     }
+    let manifest = std::str::from_utf8(&raw)?;
+    let field = |name: &str| {
+        manifest
+            .lines()
+            .find_map(|line| line.strip_prefix(name))
+            .ok_or("missing manifest field")
+    };
+    Ok((
+        field("source=")?.to_string(),
+        field("artifact-sha256=")?.to_string(),
+    ))
+}
+
+#[cfg(windows)]
+fn execute_upgrade(root: &Path, binary: &Path, artifact_sha256: &str, source: &str) -> Result<()> {
+    let bash = PathBuf::from(env::var_os("ProgramFiles").ok_or("missing ProgramFiles")?)
+        .join("Git/bin/bash.exe");
+    // Use the same host lock and the same canonical release home as release-sync.
+    let script = r#"set -euo pipefail
+. scripts/posix-compat.sh
+export SUSI_HOME="$(cygpath -aw "$HOME/.susi")"
+exec 9>"$SUSI_HOME/release-sync.lock"
+flock -n 9 || { echo 'release updater busy' >&2; exit 75; }
+trap 'flock -u 9' EXIT
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/upgrade-qualified-windows.ps1 "$1" "$2" "$3"
+"#;
+    let status = Command::new(bash)
+        .current_dir(root)
+        .args(["-c", script, "installed-upgrade"])
+        .arg(binary)
+        .arg(artifact_sha256)
+        .arg(source)
+        .status()?;
+    if !status.success() {
+        return Err(format!("installed upgrade failed ({status})").into());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn execute_upgrade(_root: &Path, binary: &Path, artifact_sha256: &str, source: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let candidate_bytes = fs::read(binary)?;
+    if sha256_hex(&candidate_bytes) != artifact_sha256 {
+        return Err("Candidate SHA256 mismatch".into());
+    }
+    let susi_home = env::var_os("SUSI_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".susi")))
+        .ok_or("missing SUSI_HOME or HOME")?;
+    let bin_dir = susi_home.join("bin");
+    fs::create_dir_all(&bin_dir)?;
+
+    let scratch = bin_dir.join(format!(".qualified-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(&scratch)?;
+
+    let result = (|| -> Result<()> {
+        let stage_bin = scratch.join("susi");
+        fs::copy(binary, &stage_bin)?;
+        fs::set_permissions(&stage_bin, fs::Permissions::from_mode(0o755))?;
+        if sha256_hex(&fs::read(&stage_bin)?) != artifact_sha256 {
+            return Err("Staged SHA256 mismatch".into());
+        }
+        let version_out = Command::new(&stage_bin).arg("--version").output()?;
+        if !version_out.status.success() {
+            return Err("Staged version probe failed".into());
+        }
+        let version_line = String::from_utf8(version_out.stdout)?.trim().to_string();
+        let version_number = version_line
+            .strip_prefix("susi ")
+            .ok_or("Staged version probe returned unexpected format")?;
+
+        let target_bin = bin_dir.join("susi");
+        let prev_bin = bin_dir.join("susi.prev");
+        let marker = bin_dir.join("susi.build.json");
+        let prev_marker = bin_dir.join("susi.build.json.prev");
+
+        if target_bin.exists() {
+            fs::copy(&target_bin, &prev_bin)?;
+        }
+        if marker.exists() {
+            fs::copy(&marker, &prev_marker)?;
+        }
+
+        let installed_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let stage_marker = scratch.join("marker.json");
+        let marker_json = format!(
+            r#"{{"profile":"release","accelerator":null,"channel":"release","version":"{version_number}","commit":"{source}","installed_at":{installed_at}}}"#
+        );
+        fs::write(&stage_marker, marker_json)?;
+
+        if let Err(err) = fs::rename(&stage_bin, &target_bin) {
+            return Err(format!("Failed to swap staged binary: {err}").into());
+        }
+        if let Err(err) = fs::rename(&stage_marker, &marker) {
+            if prev_bin.exists() {
+                let _ = fs::copy(&prev_bin, &target_bin);
+            }
+            return Err(format!("Failed to update release marker: {err}").into());
+        }
+        println!("{version_line} installed; SHA256 {artifact_sha256}");
+        Ok(())
+    })();
+
+    let _ = fs::remove_dir_all(&scratch);
+    result
+}
+
+fn run() -> Result<()> {
     let args: Vec<_> = env::args().skip(1).collect();
     let (id, check_only) = match args.as_slice() {
         [id] => (id, false),
@@ -42,52 +171,12 @@ fn run() -> Result<()> {
         return Err(String::from_utf8_lossy(&report.stderr).into_owned().into());
     }
     let binary = qualified_path(&String::from_utf8(report.stdout)?, id)?;
-    let raw = fs::read(binary.with_file_name("manifest.txt"))?;
-    if Sha256::digest(&raw)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>()
-        != *id
-    {
-        return Err("qualified manifest changed".into());
-    }
-    let manifest = std::str::from_utf8(&raw)?;
-    let field = |name: &str| {
-        manifest
-            .lines()
-            .find_map(|line| line.strip_prefix(name))
-            .ok_or("missing manifest field")
-    };
+    let (source, artifact_sha256) = verify_qualified_manifest(&binary, id)?;
     if check_only {
-        println!(
-            "Verified release {id}, source {}, executable SHA256 {}",
-            field("source=")?,
-            field("artifact-sha256=")?
-        );
+        println!("Verified release {id}, source {source}, executable SHA256 {artifact_sha256}");
         return Ok(());
     }
-    let bash = PathBuf::from(env::var_os("ProgramFiles").ok_or("missing ProgramFiles")?)
-        .join("Git/bin/bash.exe");
-    // Use the same host lock and the same canonical release home as release-sync.
-    let script = r#"set -euo pipefail
-. scripts/posix-compat.sh
-export SUSI_HOME="$(cygpath -aw "$HOME/.susi")"
-exec 9>"$SUSI_HOME/release-sync.lock"
-flock -n 9 || { echo 'release updater busy' >&2; exit 75; }
-trap 'flock -u 9' EXIT
-powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/upgrade-qualified-windows.ps1 "$1" "$2" "$3"
-"#;
-    let status = Command::new(bash)
-        .current_dir(root)
-        .args(["-c", script, "installed-upgrade"])
-        .arg(binary)
-        .arg(field("artifact-sha256=")?)
-        .arg(field("source=")?)
-        .status()?;
-    if !status.success() {
-        return Err(format!("installed upgrade failed ({status})").into());
-    }
-    Ok(())
+    execute_upgrade(&root, &binary, &artifact_sha256, &source)
 }
 
 fn main() -> std::process::ExitCode {
@@ -114,6 +203,31 @@ mod tests {
         assert!(qualified_path(&report, &"b".repeat(64)).is_err());
         assert!(qualified_path(&report, "../escape").is_err());
         assert!(qualified_path(&report.replace("current", "previous"), &id).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn verifies_qualified_manifest_and_detects_tampering() -> Result<()> {
+        let dir = env::temp_dir().join(format!("susi-manifest-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir)?;
+        let binary = dir.join("susi");
+        let manifest_path = dir.join("manifest.txt");
+        let manifest_body = "source=0123456789abcdef0123456789abcdef01234567\nartifact-sha256=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\n";
+        fs::write(&manifest_path, manifest_body)?;
+        let id = sha256_hex(manifest_body.as_bytes());
+
+        let (source, artifact_sha256) = verify_qualified_manifest(&binary, &id)?;
+        assert_eq!(source, "0123456789abcdef0123456789abcdef01234567");
+        assert_eq!(
+            artifact_sha256,
+            "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+        );
+
+        fs::write(&manifest_path, format!("{manifest_body}tampered=1\n"))?;
+        assert!(verify_qualified_manifest(&binary, &id).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
         Ok(())
     }
 

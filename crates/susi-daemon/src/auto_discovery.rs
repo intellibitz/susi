@@ -4,10 +4,137 @@
 //! per newly added file from the cell watcher ([`spawn_cell`]). Catalog and
 //! capability priming lives in [`crate::discovery_pipeline`].
 
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::{Mutex, OnceLock};
+
+fn cell_sha256_hex(path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(hex::encode(Sha256::digest(&bytes)))
+}
+
+fn sidecar_path(path: &Path, ext: &str) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_str()?;
+    Some(path.with_file_name(format!("{file_name}.{ext}")))
+}
+
+/// Compute and persist the lowercase hex SHA-256 sidecar (`<file>.sha256`)
+/// authorizing `path` for the cell hot-plug loader (`NP-14`).
+pub fn register_cell(path: &Path) -> std::io::Result<String> {
+    let digest = cell_sha256_hex(path)?;
+    let sidecar = sidecar_path(path, "sha256").ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid cell filename")
+    })?;
+    std::fs::write(sidecar, format!("{digest}  {}\n", path.display()))?;
+    Ok(digest)
+}
+
+fn matches_sidecar_digest(sidecar: &Path, expected_hex: &str) -> bool {
+    let Ok(contents) = std::fs::read_to_string(sidecar) else {
+        return false;
+    };
+    contents
+        .split_whitespace()
+        .next()
+        .is_some_and(|token| token.eq_ignore_ascii_case(expected_hex))
+}
+
+fn matches_registry_json(dir: &Path, file_name: &str, expected_hex: &str) -> bool {
+    let registry_path = dir.join("registry.json");
+    let Ok(raw) = std::fs::read_to_string(registry_path) else {
+        return false;
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    if let Some(entry) = val.get(file_name) {
+        if entry
+            .as_str()
+            .is_some_and(|s| s.eq_ignore_ascii_case(expected_hex))
+        {
+            return true;
+        }
+        if entry
+            .get("sha256")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case(expected_hex))
+        {
+            return true;
+        }
+    }
+    let entries = val
+        .as_array()
+        .or_else(|| val.get("cells").and_then(|c| c.as_array()));
+    if let Some(list) = entries {
+        for item in list {
+            let file_ok = item.get("file").and_then(|v| v.as_str()) == Some(file_name);
+            let sha_ok = item
+                .get("sha256")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case(expected_hex));
+            if file_ok && sha_ok {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_signed_json_manifest(path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    let registered = val.get("registered_by").and_then(|v| v.as_str()) == Some("susi");
+    let has_proof = val
+        .get("sha256")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.trim().is_empty())
+        || val
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty());
+    registered && has_proof
+}
+
+/// Returns `true` only when `path` is registered by `susi` or carries a
+/// matching SHA-256 sidecar / signature (`NP-14`).
+pub fn is_authorized_cell(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if file_name == "registry.json" || file_name.ends_with(".sha256") || file_name.ends_with(".sig")
+    {
+        return false;
+    }
+    let Ok(digest) = cell_sha256_hex(path) else {
+        return false;
+    };
+    if sidecar_path(path, "sha256").is_some_and(|sidecar| matches_sidecar_digest(&sidecar, &digest))
+    {
+        return true;
+    }
+    if sidecar_path(path, "sig").is_some_and(|sidecar| matches_sidecar_digest(&sidecar, &digest)) {
+        return true;
+    }
+    if path
+        .parent()
+        .is_some_and(|dir| matches_registry_json(dir, file_name, &digest))
+    {
+        return true;
+    }
+    if file_name.ends_with(".json") && is_signed_json_manifest(path) {
+        return true;
+    }
+    false
+}
 
 /// Child processes of spawned process cells, keyed by their cell file.
 fn running_cells() -> &'static Mutex<HashMap<PathBuf, Child>> {
@@ -115,6 +242,23 @@ pub fn spawn_cell(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
+    if name == "registry.json" || name.ends_with(".sha256") || name.ends_with(".sig") {
+        return false;
+    }
+    let is_candidate = name.starts_with("susi-cell-")
+        || name.ends_with(".cell")
+        || name.ends_with(".json")
+        || name.ends_with(".wasm");
+    if !is_candidate {
+        return false;
+    }
+    if !is_authorized_cell(path) {
+        tracing::warn!(
+            "[auto_discovery] Refusing to launch unregistered/unsigned cell {} (NP-14)",
+            path.display()
+        );
+        return false;
+    }
     let path = path.to_path_buf();
     if name.starts_with("susi-cell-") || name.ends_with(".cell") {
         let token = match cell_token() {
@@ -239,10 +383,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[cfg(unix)]
     #[test]
     fn removed_process_cells_are_stopped() {
-        let cell = std::path::PathBuf::from(format!("/tmp/susi-cell-stop-{}", std::process::id()));
+        let cell = std::env::temp_dir().join(format!("susi-cell-stop-{}", std::process::id()));
+        #[cfg(windows)]
+        let child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        #[cfg(not(windows))]
         let child = std::process::Command::new("sleep")
             .arg("30")
             .spawn()
@@ -251,23 +401,110 @@ mod tests {
         track(cell.clone(), Ok(child));
         assert!(stop_cell(&cell), "tracked cell must be stopped");
         assert!(!stop_cell(&cell), "already stopped");
-        // Killed and reaped: the pid is gone.
-        let alive = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string()])
-            .output()
-            .is_ok_and(|o| o.status.success());
-        assert!(!alive, "cell process {pid} still running");
+        #[cfg(unix)]
+        {
+            let alive = std::process::Command::new("ps")
+                .args(["-p", &pid.to_string()])
+                .output()
+                .is_ok_and(|o| o.status.success());
+            assert!(!alive, "cell process {pid} still running");
+        }
+        #[cfg(windows)]
+        {
+            let _ = pid;
+        }
     }
 
-    #[cfg(unix)]
     #[test]
     fn exited_cells_are_reaped() {
-        let cell = std::path::PathBuf::from(format!("/tmp/susi-cell-reap-{}", std::process::id()));
+        let cell = std::env::temp_dir().join(format!("susi-cell-reap-{}", std::process::id()));
+        #[cfg(windows)]
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "exit", "0"])
+            .spawn()
+            .unwrap();
+        #[cfg(not(windows))]
         let mut child = std::process::Command::new("true").spawn().unwrap();
-        let _ = child.try_wait();
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        let _ = child.wait();
         track(cell.clone(), Ok(child));
         assert!(reap_exited_cells().contains(&cell));
         assert!(!stop_cell(&cell), "reaped cell is no longer tracked");
+    }
+
+    #[test]
+    fn unregistered_cells_are_refused_by_spawn_cell() {
+        let dir = std::env::temp_dir().join(format!("susi_np14_refuse_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let wasm_cell = dir.join("unregistered.wasm");
+        let bin_cell = dir.join("susi-cell-rogue");
+        let ext_cell = dir.join("rogue.cell");
+        let json_cell = dir.join("plugin.json");
+        std::fs::write(&wasm_cell, b"\0asm\x01\0\0\0").unwrap();
+        std::fs::write(&bin_cell, b"#!/bin/sh\necho rogue\n").unwrap();
+        std::fs::write(&ext_cell, b"rogue-binary").unwrap();
+        std::fs::write(&json_cell, r#"{"name":"unregistered"}"#).unwrap();
+
+        assert!(!is_authorized_cell(&wasm_cell));
+        assert!(!is_authorized_cell(&bin_cell));
+        assert!(!is_authorized_cell(&ext_cell));
+        assert!(!is_authorized_cell(&json_cell));
+
+        assert!(!spawn_cell(&wasm_cell));
+        assert!(!spawn_cell(&bin_cell));
+        assert!(!spawn_cell(&ext_cell));
+        assert!(!spawn_cell(&json_cell));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn register_cell_and_tamper_detection() {
+        let dir = std::env::temp_dir().join(format!("susi_np14_auth_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let cell_path = dir.join("verified.wasm");
+        std::fs::write(&cell_path, b"wasm-payload-v1").unwrap();
+        assert!(!is_authorized_cell(&cell_path));
+
+        let digest = register_cell(&cell_path).unwrap();
+        assert_eq!(digest.len(), 64);
+        assert!(is_authorized_cell(&cell_path));
+
+        // Sidecar files themselves are never treated as cells.
+        let sidecar = dir.join("verified.wasm.sha256");
+        assert!(sidecar.is_file());
+        assert!(!is_authorized_cell(&sidecar));
+        assert!(!spawn_cell(&sidecar));
+
+        // Tampering with the cell after registration invalidates authorization.
+        std::fs::write(&cell_path, b"wasm-payload-tampered").unwrap();
+        assert!(!is_authorized_cell(&cell_path));
+        assert!(!spawn_cell(&cell_path));
+
+        // Also verify registry.json and signed .json manifest authorization.
+        let reg_cell = dir.join("from-registry.cell");
+        std::fs::write(&reg_cell, b"registry-cell-bytes").unwrap();
+        let reg_sha = cell_sha256_hex(&reg_cell).unwrap();
+        std::fs::write(
+            dir.join("registry.json"),
+            format!(r#"{{"from-registry.cell": "{reg_sha}"}}"#),
+        )
+        .unwrap();
+        assert!(is_authorized_cell(&reg_cell));
+        assert!(!is_authorized_cell(&dir.join("registry.json")));
+        assert!(!spawn_cell(&dir.join("registry.json")));
+
+        let signed_manifest = dir.join("signed-plugin.json");
+        std::fs::write(
+            &signed_manifest,
+            r#"{"name":"demo","registered_by":"susi","sha256":"deadbeef"}"#,
+        )
+        .unwrap();
+        assert!(is_authorized_cell(&signed_manifest));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
