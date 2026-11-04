@@ -365,6 +365,7 @@ impl SusiRuntimeAdmin {
     /// (`Everyone`, `BUILTIN\Users`, `Authenticated Users`, `Guests`) are granted
     /// write, modify, or full-access permissions (`(F)`, `(M)`, `(W)`), or when
     /// `Everyone` is granted read access on a credential file.
+    #[cfg(any(not(unix), test))]
     #[must_use]
     pub(crate) fn windows_acl_is_overly_permissive(icacls_output: &str) -> bool {
         const BROAD_PRINCIPALS: &[&str] = &[

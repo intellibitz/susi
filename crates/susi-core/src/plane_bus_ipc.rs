@@ -470,6 +470,7 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
 
 /// Build the `icacls` arguments that restrict `path` exclusively to `username`
 /// (owner-only access parity with Unix `0600`).
+#[cfg(any(windows, test))]
 #[must_use]
 pub(crate) fn windows_secret_icacls_args(path: &Path, username: &str) -> Vec<String> {
     vec![
