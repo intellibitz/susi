@@ -522,6 +522,19 @@ jobs:
   # is exactly what reached main. A workspace-wide diff (`ALL`) lints the whole
   # workspace.
   #
+  # The root package's repo-wide guard tests run on every branch push, whatever
+  # the affected set (CEO decision 2026-11-04). They scan the whole tree, not
+  # their own crate: a PR that changed one crate, a task file or an xtask name
+  # merged green and broke them on main several times on 2026-11-04
+  # (unjustified panic allowances, BOM task files, the xtask rename, a
+  # download-guard false positive). Because they compile the root package on
+  # every push, the toolchain, cache, ONNX and system-dependency steps are no
+  # longer skipped for a push with an empty lint set.
+  #
+  # The inline merge gate (scripts/merge-gate.sh) does not re-run these guards
+  # on the merge tree: a semantic conflict between a green head and a newer
+  # main is left to main's full suite, which runs them after the merge lands.
+  #
   # The job name is a required status check (scripts/github-enforce.sh): renaming
   # it blocks every merge.
   check:
@@ -558,11 +571,11 @@ jobs:
       - name: Test harness contract
         run: scripts/check-test-harness-contract.sh
 
-      # Resolve scope before paying for a toolchain: a push that moves only
-      # .agents/ (task adds, close receipts) has an empty lint set, so the
-      # deps, mold, ONNX and clippy steps below would install ~90 s of
-      # toolchain for nothing. `lintcmd` empty is the "nothing to compile"
-      # verdict and gates them all.
+      # Resolve which crates clippy and the affected-crate tests cover. A push
+      # that moves only .agents/tasks/ or .github/ has an empty lint set
+      # (`lintcmd` empty skips clippy and the affected tests), but it still
+      # installs the toolchain: the root guard tests below run on every push,
+      # and a BOM in a task file is exactly what one of them refuses.
       - name: Resolve affected crates
         id: affected
         run: |
@@ -584,8 +597,6 @@ jobs:
               echo 'lintcmd=' >> "$GITHUB_OUTPUT"
               echo 'test_plan=' >> "$GITHUB_OUTPUT"
               echo 'has_tests=false' >> "$GITHUB_OUTPUT"
-              echo 'target_cache=false' >> "$GITHUB_OUTPUT"
-              echo 'onnx=false' >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -643,35 +654,18 @@ jobs:
           else
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
-          # xtask and susi-unsafe-ratchet are lightweight packages: recent
-          # branch gates spent 12–15 s restoring the workspace target archive
-          # for 1–9 s of clippy. Keep sccache for their compiles, and avoid
-          # restoring the workspace target archive when either is the only
-          # affected package.
-          target_cache=true
-          if [ "$pkgs" = "xtask" ] || [ "$pkgs" = "susi-unsafe-ratchet" ]; then target_cache=false; fi
-          echo "target_cache=$target_cache" >> "$GITHUB_OUTPUT"
-          # The ONNX prefetch builds susi-vendor-fastembed only to warm its CDN
-          # download; nothing else in the job can reach it. Pay for it only
-          # when the affected set intersects the crates that can pull it in
-          # (or when everything is being built anyway).
-          onnx=false
-          if [ "$pkgs" = "ALL" ]; then
-            onnx=true
-          elif [ -n "$pkgs" ]; then
-            rev=$(./scripts/ci-reverse-deps.sh susi-vendor-fastembed)
-            if comm -12 <(sort <<<"$pkgs") <(sort <<<"$rev") | grep -q .; then
-              onnx=true
-            fi
-          fi
-          echo "onnx=$onnx" >> "$GITHUB_OUTPUT"
+          # No per-package target-archive or ONNX decision any more: the root
+          # guard tests build the root package on every push, and the root
+          # package is the heaviest closure and reaches susi-vendor-fastembed
+          # (scripts/ci-reverse-deps.sh). An xtask-only push used to skip the
+          # archive for 1-9 s of clippy; it now compiles the root package too.
 
       - name: Install Rust
-        if: steps.affected.outputs.lintcmd != ''
         uses: dtolnay/rust-toolchain@stable
 
+      # RUSTC_WRAPPER names sccache for every compile in this job, the guard
+      # tests' included, so it is installed on every push.
       - name: Install sccache
-        if: steps.affected.outputs.lintcmd != ''
         uses: mozilla-actions/sccache-action@v0.0.10
         with:
           version: "v0.16.0"
@@ -687,8 +681,8 @@ jobs:
       # units are sccache's job now. A registry-only cache experiment measured
       # 139 s end-to-end (91 s Clippy); restoring target artifacts took 23 s
       # and reduced Clippy to 24 s, so keep the target archive enabled here.
+      # Read on every push: the root guard tests always build the root package.
       - name: Cache Cargo
-        if: steps.affected.outputs.lintcmd != '' && steps.affected.outputs.target_cache != 'false'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
@@ -696,21 +690,19 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
-        if: steps.affected.outputs.lintcmd != ''
         run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
-        if: steps.affected.outputs.lintcmd != ''
         run: scripts/ci-install-mold.sh
 
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
       # retry of its own, so one hiccup reddens this job (it did: main's
       # vendor-cells shard). Build it up front with bounded retries - only the
-      # build is retried, never the tests. Only the crates that can pull
-      # susi-vendor-fastembed into this job's build need it (ci-reverse-deps.sh);
-      # on a warm cache this is a cargo no-op.
+      # build is retried, never the tests. The root package reaches
+      # susi-vendor-fastembed (ci-reverse-deps.sh) and the guard tests below
+      # build it on every push, so this runs on every push; on a warm cache it
+      # is a cargo no-op.
       - name: Pre-fetch ONNX Runtime (bounded retries)
-        if: steps.affected.outputs.onnx == 'true'
         run: scripts/ci-prefetch-onnxruntime.sh
 
       # The lint job is main-only, so a lint break merges green and reddens main
@@ -724,6 +716,16 @@ jobs:
       - name: cargo clippy (affected crates and dependents)
         if: steps.affected.outputs.lintcmd != ''
         run: ${{ steps.affected.outputs.lintcmd }}
+
+      # Repo-wide guards (CEO decision 2026-11-04): these root-package targets
+      # read the whole source tree (crates/, xtask/, .agents/tasks/, docs), so
+      # a change outside the root package can break them. Run them on every
+      # branch push, unconditionally, in addition to the affected-crate tests;
+      # a failure fails this required check. They are mostly source scans
+      # (core_never_downloads_models_unasked also runs the built `susi` binary
+      # under an isolated home), so plain `cargo test` runs them; no nextest.
+      - name: Root-package guard tests (every branch push)
+        run: cargo test --locked -p susi --test architecture_tests --test socket_parity --test core_boot_starts_nothing --test core_never_downloads_models_unasked
 
       - name: Install cargo-nextest for branch tests
       # The native gate fixture (xtask local-workflow) runs `cargo deny`; without
