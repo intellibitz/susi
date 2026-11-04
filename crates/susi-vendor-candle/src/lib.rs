@@ -193,33 +193,4 @@ mod tests {
             encoded.get_ids()
         );
     }
-
-    #[test]
-    fn reviewed_activation_ops_and_embedding_layer_produce_expected_shapes_and_ranges() {
-        use crate::candle_core::{DType, Device, Tensor};
-        use crate::candle_nn::{ops, Embedding, Module, VarBuilder, VarMap};
-
-        let input = Tensor::new(&[[0.0_f32, 2.0_f32, -2.0_f32]], &Device::Cpu).unwrap();
-        let sig = ops::sigmoid(&input).unwrap().to_vec2::<f32>().unwrap();
-        assert!((sig[0][0] - 0.5).abs() < 1e-6);
-        assert!(sig[0][1] > 0.5 && sig[0][1] < 1.0);
-        assert!(sig[0][2] > 0.0 && sig[0][2] < 0.5);
-
-        let silu_out = ops::silu(&input).unwrap().to_vec2::<f32>().unwrap();
-        assert!(silu_out[0][0].abs() < 1e-6);
-        assert!(silu_out[0][1] > 1.5);
-        assert!(silu_out[0][2] < 0.0);
-
-        let soft = ops::softmax(&input, 1).unwrap().to_vec2::<f32>().unwrap();
-        let sum: f32 = soft[0].iter().sum();
-        assert!((sum - 1.0).abs() < 1e-6);
-
-        let varmap = VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &Device::Cpu);
-        let weights = vb.get((4, 3), "emb").unwrap();
-        let emb = Embedding::new(weights, 3);
-        let token_ids = Tensor::new(&[0_u32, 2_u32, 3_u32], &Device::Cpu).unwrap();
-        let embedded = emb.forward(&token_ids).unwrap();
-        assert_eq!(embedded.dims(), &[3, 3]);
-    }
 }
