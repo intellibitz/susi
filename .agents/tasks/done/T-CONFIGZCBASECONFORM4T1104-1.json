@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CONFIGZCBASECONFORM4T1104",
-  "created_unix": 1793778981
+  "created_unix": 1793778981,
+  "closed": {
+    "at_unix": 1793779456,
+    "commit": "4dbcfc7f8c3b45a5810f41ba00fc7edbd4efe340",
+    "by": "CONFIGZCBASECONFORM4T1104"
+  }
 }
