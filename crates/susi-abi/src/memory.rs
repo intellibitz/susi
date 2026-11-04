@@ -287,4 +287,44 @@ mod tests {
         assert_eq!(non_negative_hits.len(), 1);
         assert_eq!(non_negative_hits[0].fragment.id, "aligned");
     }
+
+    #[test]
+    fn equal_cosine_similarity_ties_preserve_deterministic_total_cmp_order_and_clone_contracts() {
+        let req = MemorySearchRequest {
+            namespace: "ns".into(),
+            query_embedding: vec![1.0, 0.0],
+            limit: 2,
+            min_score: 0.0,
+        };
+        let req2 = req.clone();
+        assert_eq!(req2.namespace, "ns");
+        assert_eq!(req2.limit, 2);
+
+        let store = InMemoryEpisodicStore::new();
+        for id in ["tie-a", "tie-b"] {
+            store
+                .store(MemoryFragment {
+                    id: id.into(),
+                    namespace: "ns".into(),
+                    embedding: vec![1.0, 0.0],
+                    payload: id.into(),
+                    timestamp_sec: 1,
+                })
+                .expect("store tie fragment");
+        }
+
+        let hits = store.search(req2).expect("search tied fragments");
+        assert_eq!(hits.len(), 2);
+        let cloned_hit = hits[0].clone();
+        assert_eq!(cloned_hit.fragment, hits[0].fragment);
+        for hit in &hits {
+            assert!((hit.cosine_similarity - 1.0).abs() < 1e-5);
+        }
+
+        let top_one = store
+            .search(MemorySearchRequest { limit: 1, ..req })
+            .expect("search limit 1");
+        assert_eq!(top_one.len(), 1);
+        assert_eq!(top_one[0].fragment.id, "tie-a");
+    }
 }

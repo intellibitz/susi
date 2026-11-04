@@ -23,8 +23,9 @@ pub mod inference_wire;
 #[cfg(test)]
 mod tests {
     use crate::inference_wire::{
-        openai_chat_body, openai_chat_text, openai_completions_body, openai_completions_text,
-        triton_body, triton_text, InferenceProtocol,
+        anthropic_cache_payload, anthropic_text, gemini_model_path, gemini_text, openai_chat_body,
+        openai_chat_text, openai_completions_body, openai_completions_text,
+        openai_to_anthropic_messages, triton_body, triton_text, InferenceProtocol,
     };
     use serde_json::json;
 
@@ -118,5 +119,51 @@ mod tests {
         assert!(openai_chat_text(&json!({"choices": []})).is_err());
         assert!(openai_completions_text(&json!({})).is_err());
         assert!(openai_completions_text(&json!({"choices": []})).is_err());
+    }
+
+    #[test]
+    fn anthropic_and_gemini_bodies_and_text_extractors_round_trip_through_inference_wire() {
+        let anthropic_req =
+            openai_to_anthropic_messages(&openai_chat_body("claude-sonnet-4-6", "hello", 1024))
+                .unwrap();
+        assert_eq!(anthropic_req["model"], "claude-sonnet-4-6");
+        assert_eq!(anthropic_req["max_tokens"], 1024);
+        assert_eq!(
+            anthropic_req["messages"],
+            json!([{"role": "user", "content": "hello"}])
+        );
+
+        let cached_req = anthropic_cache_payload("claude-sonnet-4-6", "sys", "hello", None, 1024);
+        assert_eq!(cached_req["model"], "claude-sonnet-4-6");
+        assert_eq!(cached_req["max_tokens"], 1024);
+
+        assert_eq!(
+            anthropic_text(&json!({"content": [{"type": "text", "text": "world"}]})).unwrap(),
+            "world"
+        );
+        assert_eq!(
+            anthropic_text(&json!({})).unwrap_err(),
+            "response carried no content[].text text"
+        );
+
+        assert_eq!(gemini_model_path("models/gemini-2.5-pro"), "gemini-2.5-pro");
+        assert_eq!(
+            gemini_text(&json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"thought": true, "text": "skip-thought"},
+                            {"text": "gem-out"}
+                        ]
+                    }
+                }]
+            }))
+            .unwrap(),
+            "gem-out"
+        );
+        assert_eq!(
+            gemini_text(&json!({})).unwrap_err(),
+            "response carried no candidates[0].content.parts[].text text"
+        );
     }
 }

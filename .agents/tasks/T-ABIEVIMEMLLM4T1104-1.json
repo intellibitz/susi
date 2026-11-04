@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ABIEVIMEMLLM4T1104-1",
+  "title": "test(abi,adapters-llm,build-policy): expand inline unit tests to 4 in evidence, memory, susi-adapters-llm, and susi-build-policy",
+  "touch": [
+    "crates/susi-abi/src/evidence.rs",
+    "crates/susi-abi/src/memory.rs",
+    "crates/susi-adapters-llm/src/lib.rs",
+    "crates/susi-build-policy/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-abi -p susi-adapters-llm -p susi-build-policy --lib",
+      "cargo clippy --offline --locked -p susi-abi -p susi-adapters-llm -p susi-build-policy --tests -- -D warnings"
+    ]
+  }
+}
