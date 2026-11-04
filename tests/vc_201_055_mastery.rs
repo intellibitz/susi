@@ -113,3 +113,87 @@ fn vc_201_055_mastery() {
     );
     assert_eq!(observed.healthy_replicas, 2);
 }
+
+#[test]
+fn reconciler_initial_provision_transitions_pending_to_healthy() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-init".into(),
+        target_backend: "modal".into(),
+        model_id: "qwen-coder".into(),
+        min_replicas: 3,
+        max_replicas: 6,
+        gpu_type: "H100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-init".into(),
+        target_backend: "modal".into(),
+        model_id: "qwen-coder".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+    let out = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(out.action, ReconcileAction::Provision);
+    assert!(!out.deduplicated);
+    assert_eq!(observed.phase, DeploymentPhase::Healthy);
+    assert_eq!(observed.active_replicas, 3);
+}
+
+#[test]
+fn reconciler_idempotent_reapply_returns_deduplicated_noop() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-noop".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama-3".into(),
+        min_replicas: 1,
+        max_replicas: 2,
+        gpu_type: "A10G".into(),
+        generation: 4,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-noop".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama-3".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+    let first = reconciler.reconcile(&desired, &mut observed);
+    let second = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(second.action, ReconcileAction::Noop);
+    assert!(second.deduplicated);
+    assert!(first.operation_id.starts_with("op-dep-noop-gen4-"));
+    assert!(second.operation_id.starts_with("op-dep-noop-gen4-"));
+}
+
+#[test]
+fn reconciler_rollback_without_prior_known_good_generation_returns_err() {
+    let mut reconciler = CloudReconciler::new();
+    let mut desired = DeploymentDesiredState {
+        deployment_id: "dep-no-good".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama-3".into(),
+        min_replicas: 1,
+        max_replicas: 2,
+        gpu_type: "A10G".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-no-good".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama-3".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Degraded,
+        last_operation_id: None,
+        observed_generation: 1,
+    };
+    assert!(reconciler.rollback(&mut desired, &mut observed).is_err());
+}

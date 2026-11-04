@@ -247,3 +247,89 @@ fn vc_201_046_mastery() {
         "All 50 prompts executed successfully"
     );
 }
+
+#[test]
+fn batcher_rejects_unsupported_backend_and_empty_flush_is_noop() {
+    let limits = BatchLimits {
+        max_batch: 4,
+        max_queue: 8,
+        max_wait_ms: 25,
+    };
+    let unsupported = MockBackend::new(false);
+    assert!(Batcher::new(limits.clone(), &unsupported).is_err());
+
+    let supported = MockBackend::new(true);
+    let mut batcher = Batcher::new(limits, &supported).unwrap();
+    assert!(!batcher.should_flush(1_000));
+    assert!(batcher.flush(1_000).is_empty());
+    assert_eq!(supported.invocations.get(), 0);
+}
+
+#[test]
+fn batcher_cancels_enqueued_request_before_backend_execution() {
+    let limits = BatchLimits {
+        max_batch: 4,
+        max_queue: 8,
+        max_wait_ms: 25,
+    };
+    let backend = MockBackend::new(true);
+    let mut batcher = Batcher::new(limits, &backend).unwrap();
+    let now = 5_000u64;
+    batcher
+        .submit(
+            Request {
+                id: 1,
+                prompt: "drop-me".into(),
+                deadline_ms: now + 500,
+            },
+            now,
+        )
+        .unwrap();
+    batcher
+        .submit(
+            Request {
+                id: 2,
+                prompt: "keep-me".into(),
+                deadline_ms: now + 500,
+            },
+            now,
+        )
+        .unwrap();
+    batcher.cancel(1).unwrap();
+    let results = batcher.flush(now + 10);
+    assert_eq!(results.len(), 2);
+    assert_eq!(batcher.outcome(1), Some(&BatchOutcome::Cancelled));
+    assert_eq!(
+        batcher.outcome(2),
+        Some(&BatchOutcome::Done {
+            output: "response:keep-me".into()
+        })
+    );
+    assert_eq!(backend.executed_prompts.get(), 1);
+}
+
+#[test]
+fn batcher_marks_expired_request_deadline_exceeded_without_invoking_backend() {
+    let limits = BatchLimits {
+        max_batch: 4,
+        max_queue: 8,
+        max_wait_ms: 25,
+    };
+    let backend = MockBackend::new(true);
+    let mut batcher = Batcher::new(limits, &backend).unwrap();
+    let now = 2_000u64;
+    batcher
+        .submit(
+            Request {
+                id: 99,
+                prompt: "expired".into(),
+                deadline_ms: now - 1,
+            },
+            now,
+        )
+        .unwrap();
+    let out = batcher.flush(now);
+    assert!(out.is_empty());
+    assert_eq!(batcher.outcome(99), Some(&BatchOutcome::DeadlineExceeded));
+    assert_eq!(backend.invocations.get(), 0);
+}
