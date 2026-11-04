@@ -45,3 +45,12 @@ fn vc_201_083_insert_populates_all_stores_and_get_reads_primary_before_delete() 
     assert!(s.semantic_index.contains("m4"));
     assert_eq!(s.replica.get("m4").map(String::as_str), Some("payload-4"));
 }
+
+#[test]
+fn vc_201_083_insert_after_delete_start_is_refused_by_tombstone() {
+    let mut s = MemoryStores::default();
+    assert!(s.insert("m5", "initial"));
+    s.delete_start("m5", 42);
+    assert!(!s.insert("m5", "reinsert-attempt"));
+    assert!(s.get("m5").is_none());
+}

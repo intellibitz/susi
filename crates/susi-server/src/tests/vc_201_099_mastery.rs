@@ -133,3 +133,11 @@ fn vc_201_099_six_operator_state_dimensions_are_distinct_and_non_empty() {
     assert_eq!(unique.len(), 6);
     assert!(dimensions.iter().all(|d| !d.is_empty()));
 }
+
+#[test]
+fn vc_201_099_read_json_body_accepts_empty_json_object() {
+    let empty_obj = hyper::body::Bytes::from_static(b"{}");
+    let parsed = crate::read_json_body(&empty_obj).unwrap();
+    assert!(parsed.is_object());
+    assert_eq!(parsed.as_object().unwrap().len(), 0);
+}

@@ -115,3 +115,19 @@ fn vc_201_041_mastery_serde_json_roundtrip_preserves_observed_and_unknown_varian
         serde_json::from_str(&serialized).expect("deserialize ResourceInventory");
     assert_eq!(decoded, inv);
 }
+
+#[test]
+fn vc_201_041_mastery_missing_single_critical_probe_flags_unknown_readiness() {
+    let inv = ResourceInventory::from_probes(ProbeInputs {
+        cpu_cores: Some(16),
+        ram_bytes: Some(64_000_000_000),
+        gpu_name: Some("RTX 4090".into()),
+        vram_bytes: Some(24_000_000_000),
+        disk_free_bytes: None,
+        models: Some(vec!["m1".into()]),
+        runtimes: Some(vec!["ollama".into()]),
+        now_unix: Some(1790960000),
+    });
+    assert!(inv.disk_free_bytes.is_unknown());
+    assert!(inv.has_unknown_readiness());
+}

@@ -87,3 +87,25 @@ fn vc_201_082_promotes_when_correctness_and_isolation_equal_baseline() {
         PromoteVerdict::Promote
     );
 }
+
+#[test]
+fn vc_201_082_rejects_stale_candidate_version_below_baseline() {
+    let baseline = RetrievalSuite {
+        version: 3,
+        answer_correctness: 0.90,
+        private_isolation: 0.95,
+        recall: 0.60,
+        index_size: 200,
+    };
+    let stale_cand = RetrievalSuite {
+        version: 2,
+        answer_correctness: 0.95,
+        private_isolation: 0.99,
+        recall: 0.80,
+        index_size: 210,
+    };
+    assert_eq!(
+        evaluate_promotion(&baseline, &stale_cand),
+        PromoteVerdict::RejectStaleSuiteVersion
+    );
+}

@@ -152,3 +152,30 @@ fn vc_201_051_failed_probe_status_on_unrecognized_fixture_shapes() {
     );
     assert_eq!(bad_errors.status, ProbeStatus::Failed);
 }
+
+#[test]
+fn vc_201_051_failed_streaming_and_unsupported_usage_when_expected_fields_missing() {
+    let bad_stream = probe_fixture(
+        "fixture-openai",
+        "gpt-test",
+        "2024-01",
+        ProbeKind::Streaming,
+        &FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({"object": "chat.completion"}),
+        },
+    );
+    assert_eq!(bad_stream.status, ProbeStatus::Failed);
+
+    let omitted_usage = probe_fixture(
+        "fixture-openai",
+        "gpt-test",
+        "2024-01",
+        ProbeKind::Usage,
+        &FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({"usage": {}}),
+        },
+    );
+    assert_eq!(omitted_usage.status, ProbeStatus::Unsupported);
+}

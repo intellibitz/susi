@@ -270,3 +270,27 @@ fn model_pricing_cache_rates_effective_cost_defaults_when_cache_rates_none() {
     assert!((miss_only - 10.0 / 1_000_000.0).abs() < 1e-12);
     assert!((hit_only - 6.0 / 1_000_000.0).abs() < 1e-12);
 }
+
+#[test]
+fn model_pricing_cache_rates_validate_accepts_zero_costs_and_equal_cache_hit_to_input() {
+    let zero_cost = ModelPricingRecord {
+        model_id: "local-free".into(),
+        input_cost_per_1m_tokens: 0.0,
+        output_cost_per_1m_tokens: 0.0,
+        cache_hit_cost_per_1m_tokens: Some(0.0),
+        cache_miss_cost_per_1m_tokens: Some(0.0),
+        latency_ms: Some(15.0),
+        throughput_tps: Some(120.0),
+        source: "local-bench".into(),
+        date: "2026-11-04".into(),
+    };
+    assert!(zero_cost.validate().is_ok());
+    assert_eq!(zero_cost.effective_cost_per_token(50_000, 0.5), 0.0);
+
+    let equal_cache = ModelPricingRecord {
+        cache_hit_cost_per_1m_tokens: Some(2.5),
+        input_cost_per_1m_tokens: 2.5,
+        ..zero_cost
+    };
+    assert!(equal_cache.validate().is_ok());
+}

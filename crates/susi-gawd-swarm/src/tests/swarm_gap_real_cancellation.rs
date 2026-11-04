@@ -201,6 +201,14 @@ fn swarm_gap_real_cancellation_zero_deadline_returns_deadline_exceeded() {
     assert_eq!(outcome, CancellableResult::DeadlineExceeded);
 }
 
+#[test]
+fn swarm_gap_real_cancellation_pre_cancelled_handle_returns_cancelled_immediately() {
+    let handle = CancellationHandle::with_deadline_after(Duration::from_secs(30));
+    handle.cancel();
+    let outcome = run_cancellable(&handle, || "never-runs").expect("run_cancellable");
+    assert_eq!(outcome, CancellableResult::Cancelled);
+}
+
 /// A killed process stays a zombie until its parent reaps it, and `kill -0`
 /// answers for a zombie too. The descendant's parent is the group the test
 /// just killed, so the container's init reaps it — a cloud container's init

@@ -122,3 +122,41 @@ fn vc_201_055_mastery_steady_state_noop_when_observed_matches_desired() {
     assert_eq!(second.action, ReconcileAction::Noop);
     assert_eq!(observed.phase, DeploymentPhase::Healthy);
 }
+
+#[test]
+fn vc_201_055_mastery_rollback_restores_last_known_good_generation() {
+    let mut reconciler = CloudReconciler::new();
+    let mut desired = DeploymentDesiredState {
+        deployment_id: "dep-mastery-rollback".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama3-8b".into(),
+        min_replicas: 2,
+        max_replicas: 4,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-mastery-rollback".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama3-8b".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+
+    reconciler.reconcile(&desired, &mut observed);
+    reconciler.run_health_check(&desired, &mut observed, true);
+
+    desired.generation = 2;
+    reconciler.reconcile(&desired, &mut observed);
+    reconciler.run_health_check(&desired, &mut observed, false);
+    assert_eq!(observed.phase, DeploymentPhase::Degraded);
+
+    let rb = reconciler.rollback(&mut desired, &mut observed).unwrap();
+    assert_eq!(rb.action, ReconcileAction::Rollback);
+    assert_eq!(desired.generation, 1);
+    assert_eq!(observed.observed_generation, 1);
+    assert_eq!(observed.phase, DeploymentPhase::RolledBack);
+}

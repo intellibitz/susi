@@ -1,0 +1,46 @@
+{
+  "id": "T-RELEASE50-1",
+  "title": "Cut Susi 0.21.50: bump the engine version, re-record VC-203 evidence, hand the tagged build to release.yml",
+  "goal": "Release main as 0.21.50. v0.21.48 (71633e121) and v0.21.49 (0fcf3e735) were tagged but never published: each tagged suite failed gmcp_requirements mastery on stale VC-203 evidence, because a susi-gmcp change (#1561, #1618) merged while the bump waited and core PR checks do not run gmcp_requirements. Bump the seven engine-version manifests, Cargo.lock, the README badge and the three ledgers (matching 4bf339c84), re-record VC-203 evidence on the bump branch (scripts/gmcp-record-evidence.sh, both phases) so the merged commit carries current evidence, and let the merge bot tag v0.21.50 and dispatch release.yml, which publishes the windows-x86_64 and linux-x86_64 binaries. Installed Windows production promotion is a separate, evidence-gated step and is not claimed by this cut.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/gmcp/evidence/vc-203-001.jsonl",
+    ".agents/gmcp/evidence/vc-203-002.jsonl",
+    ".agents/gmcp/evidence/vc-203-003.jsonl",
+    ".agents/gmcp/evidence/vc-203-004.jsonl",
+    ".agents/gmcp/evidence/vc-203-005.jsonl",
+    ".agents/gmcp/evidence/vc-203-006.jsonl",
+    ".agents/gmcp/evidence/vc-203-008.jsonl",
+    ".agents/gmcp/evidence/vc-203-009.jsonl",
+    ".agents/gmcp/evidence/vc-203-013.jsonl",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "cargo.lock",
+    "cargo.toml",
+    "readme.md",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml",
+    ".agents/tasks/t-release50-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "admin::version"
+    ]
+  },
+  "created_by": "RELEASE491104",
+  "created_unix": 1793813044
+}

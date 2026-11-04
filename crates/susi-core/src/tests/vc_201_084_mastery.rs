@@ -107,3 +107,10 @@ fn vc_201_084_mastery_converge_and_eligibility_hold() {
     a3.upsert(rec("gone", "revive", "p9", false, false));
     assert!(!a3.records.contains_key("gone"));
 }
+
+#[test]
+fn vc_201_084_mastery_merge_ignores_local_only_records_from_peer_slice() {
+    let mut replica = MemoryReplica::new();
+    replica.merge_from_peer(&[rec("peer-secret", "private", "p1", true, false)]);
+    assert!(!replica.records.contains_key("peer-secret"));
+}
