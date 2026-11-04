@@ -352,4 +352,57 @@ mod policy_tests {
         report.policy = CheckOutcome::Pass;
         assert!(report.promotion_ready());
     }
+
+    #[test]
+    fn executed_report_blocks_when_any_individual_check_fails() {
+        for (fmt, clippy, test, expected_blocker) in [
+            (
+                CheckOutcome::Fail,
+                CheckOutcome::Pass,
+                CheckOutcome::Pass,
+                "fmt",
+            ),
+            (
+                CheckOutcome::Pass,
+                CheckOutcome::Fail,
+                CheckOutcome::Pass,
+                "clippy",
+            ),
+            (
+                CheckOutcome::Pass,
+                CheckOutcome::Pass,
+                CheckOutcome::Skipped,
+                "test",
+            ),
+        ] {
+            let mut report = executed_report(fmt, clippy, test);
+            report.policy = CheckOutcome::Pass;
+            assert!(!report.promotion_ready());
+            assert_eq!(report.blocking_reasons(), vec![expected_blocker]);
+        }
+    }
+
+    #[test]
+    fn evaluate_transcript_never_sets_verified_execution_and_rejects_conflicts() {
+        let parsed = evaluate_transcript("fmt: pass\nclippy: ok\ntest: passed\n");
+        assert_eq!(parsed.fmt, CheckOutcome::Pass);
+        assert_eq!(parsed.clippy, CheckOutcome::Pass);
+        assert_eq!(parsed.test, CheckOutcome::Pass);
+        assert!(!parsed.promotion_ready());
+        assert!(parsed.blocking_reasons().contains(&"execution"));
+
+        let conflicting = evaluate_transcript("fmt: pass\nfmt: fail\n");
+        assert_eq!(conflicting.fmt, CheckOutcome::Fail);
+    }
+
+    #[test]
+    fn blocking_reasons_is_empty_when_all_four_checks_pass_and_command_matches() {
+        let mut report =
+            executed_report(CheckOutcome::Pass, CheckOutcome::Pass, CheckOutcome::Pass);
+        report.policy = CheckOutcome::Pass;
+        assert!(report.promotion_ready());
+        assert!(report.blocking_reasons().is_empty());
+        assert!(command_covers_full_gate(required_verify_command()));
+        assert!(!command_covers_full_gate("cargo test"));
+    }
 }

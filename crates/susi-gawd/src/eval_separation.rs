@@ -515,4 +515,76 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn evaluate_rejects_candidate_with_write_permissions() {
+        let corpus = sample_corpus("rev-write");
+        let input = EvalRunInput {
+            candidate: CandidateArtifact {
+                id: "cand-writer".into(),
+                actual_output: BTreeSet::from(["rubric".to_string()]),
+                expected_results: BTreeSet::from(["rubric".to_string()]),
+            },
+            candidate_can_write: true,
+            training_access: BTreeSet::new(),
+            memory_access: BTreeSet::new(),
+            measured: None,
+        };
+        let evidence = evaluate(&corpus, &input).expect("eval write attempt");
+        assert!(!evidence.contamination.contaminated);
+        assert_eq!(evidence.verdict, EvalVerdict::FailWriteAttempt);
+    }
+
+    #[test]
+    fn evaluate_detects_memory_access_contamination_on_held_out_fixture() {
+        let corpus = sample_corpus("rev-mem");
+        let input = EvalRunInput {
+            candidate: CandidateArtifact {
+                id: "cand-mem-leak".into(),
+                actual_output: BTreeSet::from(["rubric".to_string()]),
+                expected_results: BTreeSet::from(["rubric".to_string()]),
+            },
+            candidate_can_write: false,
+            training_access: BTreeSet::new(),
+            memory_access: BTreeSet::from(["h1".to_string()]),
+            measured: None,
+        };
+        let evidence = evaluate(&corpus, &input).expect("eval memory contamination");
+        assert!(evidence.contamination.contaminated);
+        assert_eq!(evidence.verdict, EvalVerdict::FailContaminated);
+    }
+
+    #[test]
+    fn evaluate_distinguishes_wrong_output_and_self_altered_expectations() {
+        let corpus = sample_corpus("rev-accuracy");
+        let wrong_output = EvalRunInput {
+            candidate: CandidateArtifact {
+                id: "cand-wrong".into(),
+                actual_output: BTreeSet::from(["incorrect".to_string()]),
+                expected_results: BTreeSet::from(["rubric".to_string()]),
+            },
+            candidate_can_write: false,
+            training_access: BTreeSet::new(),
+            memory_access: BTreeSet::new(),
+            measured: None,
+        };
+        let ev_wrong = evaluate(&corpus, &wrong_output).expect("eval wrong output");
+        assert!(!ev_wrong.contamination.contaminated);
+        assert_eq!(ev_wrong.verdict, EvalVerdict::FailWrongOutput);
+
+        let self_altered = EvalRunInput {
+            candidate: CandidateArtifact {
+                id: "cand-invented".into(),
+                actual_output: BTreeSet::from(["rubric".to_string()]),
+                expected_results: BTreeSet::from(["invented-truth".to_string()]),
+            },
+            candidate_can_write: false,
+            training_access: BTreeSet::new(),
+            memory_access: BTreeSet::new(),
+            measured: None,
+        };
+        let ev_altered = evaluate(&corpus, &self_altered).expect("eval self-altered");
+        assert!(!ev_altered.contamination.contaminated);
+        assert_eq!(ev_altered.verdict, EvalVerdict::FailSelfAlteredExpectations);
+    }
 }
