@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-LEAFUCELL1104-1",
+  "title": "feat(leaf-services,universal-cell): extract with_healthz and build_cell helpers and harden contract tests (D-OS-8)",
+  "status": "done", "completed_at": "2026-11-04T02:53:30Z",
+  "created_at": "2026-11-04T02:44:00Z",
+  "owner": "gemini",
+  "touch": [
+    "crates/susi-leaf-services/src/lib.rs",
+    "crates/susi-universal-cell/src/main.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-leaf-services",
+      "--all-features",
+      "--lib"
+    ]
+  }
+}

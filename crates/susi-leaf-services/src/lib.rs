@@ -103,15 +103,26 @@ pub fn run_standalone(name: &str) -> std::io::Result<()> {
     feature = "service-sandbox",
     feature = "service-native"
 ))]
-fn run(name: &str, port: u16, app: axum::Router) -> std::io::Result<()> {
+pub(crate) fn with_healthz(name: &str, app: axum::Router) -> axum::Router {
     let service = name.to_string();
-    let app = app.route(
+    app.route(
         "/healthz",
         axum::routing::get(move || {
             let service = service.clone();
             async move { axum::Json(serde_json::json!({ "service": service, "status": "ok" })) }
         }),
-    );
+    )
+}
+
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+fn run(name: &str, port: u16, app: axum::Router) -> std::io::Result<()> {
+    let app = with_healthz(name, app);
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -342,5 +353,123 @@ mod router_tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
         std::env::remove_var("SUSI_HOST_TOKEN");
+    }
+
+    async fn body_json(app: axum::Router, req: Request<Body>) -> (StatusCode, serde_json::Value) {
+        let resp = app.oneshot(req).await.unwrap();
+        let code = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 64)
+            .await
+            .unwrap();
+        let val = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        };
+        (code, val)
+    }
+
+    #[tokio::test]
+    async fn healthz_is_unauthenticated_across_all_five_leaf_routers() {
+        let _g = ENV_LOCK.lock().await;
+        let _home = isolated_home();
+        std::env::set_var("SUSI_HOST_TOKEN", "strict-sup-token");
+
+        let cases = [
+            ("susi-paths", super::paths_svc::router()),
+            ("susi-error", super::error_svc::router()),
+            ("susi-config", super::config_svc::router()),
+            ("susi-sandbox", super::sandbox_svc::router()),
+            ("susi-native", super::native_svc::router()),
+        ];
+
+        for (name, router) in cases {
+            let app = super::with_healthz(name, router);
+            let (code, body) = body_json(app, get("/healthz")).await;
+            assert_eq!(code, StatusCode::OK, "healthz failed for {name}");
+            assert_eq!(body["service"], name);
+            assert_eq!(body["status"], "ok");
+        }
+
+        std::env::remove_var("SUSI_HOST_TOKEN");
+    }
+
+    #[tokio::test]
+    async fn config_router_persists_and_reloads_global_config_with_host_token() {
+        let _g = ENV_LOCK.lock().await;
+        let home = isolated_home();
+        seed_host_token(home.path(), "cfg-token");
+
+        let (code, mut cfg_json) = body_json(
+            super::config_svc::router(),
+            bearer(get("/config"), "cfg-token"),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        cfg_json["instance_offset"] = serde_json::json!(42);
+
+        let save_status = status(
+            super::config_svc::router(),
+            bearer(post_json("/config", &cfg_json.to_string()), "cfg-token"),
+        )
+        .await;
+        assert_eq!(save_status, StatusCode::NO_CONTENT);
+
+        let (reload_code, reloaded) = body_json(
+            super::config_svc::router(),
+            bearer(post_json("/config/reload", ""), "cfg-token"),
+        )
+        .await;
+        assert_eq!(reload_code, StatusCode::OK);
+        assert_eq!(reloaded["instance_offset"], 42);
+    }
+
+    #[tokio::test]
+    async fn sandbox_router_executes_ensure_global_hash_cached_and_verify_integrity() {
+        let _g = ENV_LOCK.lock().await;
+        let home = isolated_home();
+        seed_host_token(home.path(), "sbx-token");
+
+        let global_dir = home.path().join("global-sbx");
+        let ensure_payload = serde_json::json!({ "global_dir": global_dir }).to_string();
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                bearer(
+                    post_json("/sandbox/ensure_global", &ensure_payload),
+                    "sbx-token"
+                )
+            )
+            .await,
+            StatusCode::NO_CONTENT
+        );
+
+        let bin_path = home.path().join("fake-susi-bin");
+        std::fs::write(&bin_path, b"deterministic-binary-bytes-1104").unwrap();
+        let bin_payload = serde_json::json!({
+            "bin_path": bin_path,
+            "global_dir": global_dir,
+        })
+        .to_string();
+
+        let (hash_code, hash_val) = body_json(
+            super::sandbox_svc::router(),
+            bearer(post_json("/daemon/hash_cached", &bin_payload), "sbx-token"),
+        )
+        .await;
+        assert_eq!(hash_code, StatusCode::OK);
+        let digest = hash_val.as_str().unwrap_or("");
+        assert_eq!(digest.len(), 64);
+
+        let (verify_code, verify_val) = body_json(
+            super::sandbox_svc::router(),
+            bearer(
+                post_json("/daemon/verify_integrity", &bin_payload),
+                "sbx-token",
+            ),
+        )
+        .await;
+        assert_eq!(verify_code, StatusCode::OK);
+        assert_eq!(verify_val, serde_json::json!(true));
     }
 }
