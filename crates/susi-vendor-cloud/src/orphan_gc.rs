@@ -285,4 +285,29 @@ mod tests {
         );
         assert!(report.foreign.is_empty());
     }
+
+    #[test]
+    fn reconcile_on_empty_slice_returns_empty_lists_and_preserves_dry_run_flag() {
+        let live_missions = BTreeSet::new();
+        let live_deployments = BTreeSet::new();
+        let mut called = false;
+
+        for dry_run in [true, false] {
+            let report = reconcile(
+                &[],
+                &Authoritative {
+                    live_missions: &live_missions,
+                    live_deployments: &live_deployments,
+                    now_unix: 5_000,
+                    dry_run,
+                },
+                &mut |_| called = true,
+            );
+            assert!(!called);
+            assert_eq!(report.dry_run, dry_run);
+            assert!(report.delete.is_empty());
+            assert!(report.keep.is_empty());
+            assert!(report.foreign.is_empty());
+        }
+    }
 }
