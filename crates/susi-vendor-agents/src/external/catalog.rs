@@ -249,3 +249,139 @@ pub fn resolve_program(program: &str) -> Option<PathBuf> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_kind_metadata_matches_execution_and_framework_contracts() {
+        assert_eq!(CatalogKind::Execution.label(), "agent");
+        assert_eq!(CatalogKind::Framework.label(), "framework");
+        assert_eq!(CatalogKind::Execution.list_hint(), "`susi agents list`");
+        assert_eq!(CatalogKind::Framework.list_hint(), "`susi frameworks list`");
+        assert_eq!(CatalogKind::Execution.config_subdir(), "execution-agents");
+        assert_eq!(CatalogKind::Framework.config_subdir(), "agent-engines");
+        assert_eq!(CatalogKind::Execution.run_subdir(), "execution-agents");
+        assert_eq!(CatalogKind::Framework.run_subdir(), "agent-engines");
+        assert_eq!(CatalogKind::Execution.pack_file(), "execution-agents.json");
+        assert_eq!(CatalogKind::Framework.pack_file(), "agent-engines.json");
+    }
+
+    #[test]
+    fn adapter_validate_and_is_cloud_check_command_acp_and_a2a() {
+        let valid_cmd = Adapter::Command {
+            program: "aider".into(),
+            args: vec!["--yes".into(), "--message".into()],
+        };
+        assert!(valid_cmd.validate().is_ok());
+        assert!(!valid_cmd.is_cloud());
+
+        let valid_acp = Adapter::Acp {
+            program: "codex-acp".into(),
+            args: vec!["--stdio".into()],
+        };
+        assert!(valid_acp.validate().is_ok());
+        assert!(!valid_acp.is_cloud());
+
+        let valid_a2a_http = Adapter::A2a {
+            url: "http://127.0.0.1:8080/agent".into(),
+            token_env: None,
+        };
+        assert!(valid_a2a_http.validate().is_ok());
+        assert!(valid_a2a_http.is_cloud());
+
+        let valid_a2a_https = Adapter::A2a {
+            url: "https://agents.example.com/a2a".into(),
+            token_env: Some("A2A_BEARER_TOKEN_1".into()),
+        };
+        assert!(valid_a2a_https.validate().is_ok());
+        assert!(valid_a2a_https.is_cloud());
+
+        for bad in [
+            Adapter::Command {
+                program: "   ".into(),
+                args: vec![],
+            },
+            Adapter::Command {
+                program: "bad\0bin".into(),
+                args: vec![],
+            },
+            Adapter::Command {
+                program: "ok".into(),
+                args: vec!["arg\0nul".into()],
+            },
+            Adapter::Acp {
+                program: String::new(),
+                args: vec![],
+            },
+            Adapter::Acp {
+                program: "acp\0bin".into(),
+                args: vec![],
+            },
+            Adapter::Acp {
+                program: "acp".into(),
+                args: vec!["bad\0arg".into()],
+            },
+            Adapter::A2a {
+                url: "ftp://example.com/agent".into(),
+                token_env: None,
+            },
+            Adapter::A2a {
+                url: "https://example.com/\0bad".into(),
+                token_env: None,
+            },
+            Adapter::A2a {
+                url: "https://example.com/a2a".into(),
+                token_env: Some(String::new()),
+            },
+            Adapter::A2a {
+                url: "https://example.com/a2a".into(),
+                token_env: Some("Bearer secret".into()),
+            },
+            Adapter::A2a {
+                url: "https://example.com/a2a".into(),
+                token_env: Some("KEY=val".into()),
+            },
+        ] {
+            assert!(bad.validate().is_err(), "expected invalid adapter: {bad:?}");
+        }
+    }
+
+    #[test]
+    fn catalog_with_host_dir_loads_valid_host_adapters_and_skips_malformed_json() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "susi-catalog-host-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(
+            temp_dir.join("custom-exec.json"),
+            r#"{"kind":"command","program":"custom-agent","args":["--run"]}"#,
+        )
+        .unwrap();
+        std::fs::write(temp_dir.join("broken.json"), b"{not valid json").unwrap();
+
+        let entries = catalog_with_host_dir(CatalogKind::Execution, &temp_dir).unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let custom = entries
+            .iter()
+            .find(|entry| entry.id == "custom-exec")
+            .expect("custom-exec host adapter should be loaded");
+        assert_eq!(custom.name, "custom-exec");
+        assert_eq!(custom.peer_name, "custom-exec");
+        assert_eq!(custom.rank, u8::MAX);
+        assert!(matches!(
+            &custom.adapter,
+            Adapter::Command { program, args }
+                if program == "custom-agent" && args == &vec!["--run".to_string()]
+        ));
+        assert!(!entries.iter().any(|entry| entry.id == "broken"));
+    }
+}
