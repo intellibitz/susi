@@ -2,7 +2,8 @@
   "schema": "susi/task/v1",
   "id": "T-GEMIMODTYPES1104-1",
   "title": "Zero-Surprise Starter Contract & GPU Telemetry Analytics in susi-gemi-models",
-  "status": "in_progress",
+  "status": "done",
+  "completed_at": "2026-11-04T02:36:00Z",
   "created_at": "2026-11-04T02:30:00Z",
   "owner": "GEMIMODTYPES1104",
   "touch": [
