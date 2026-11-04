@@ -870,4 +870,44 @@ mod download_progress_tests {
         assert_eq!(download_progress_line(&record, before), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn missing_or_malformed_record_returns_none() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-dl-progress-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("download_progress.json");
+        let before = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
+        assert_eq!(download_progress_line(&record, before), None);
+
+        std::fs::write(&record, b"{not-valid-json").unwrap();
+        assert_eq!(download_progress_line(&record, before), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn zero_expected_bytes_reports_megabytes_so_far_without_dividing_by_zero() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-dl-progress-zero-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("download_progress.json");
+        let before = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
+        std::fs::write(
+            &record,
+            r#"{"model_name":"stream.gguf","bytes_downloaded":5000000,"expected_bytes":0,"status":"RUNNING"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            download_progress_line(&record, before).as_deref(),
+            Some("Downloading stream.gguf: 5 MB so far")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn with_download_progress_returns_closure_output_immediately() {
+        let out = super::with_download_progress(|| 42usize);
+        assert_eq!(out, 42);
+    }
 }

@@ -152,4 +152,31 @@ mod tests {
         std::fs::remove_dir_all(root)?;
         Ok(())
     }
+
+    #[test]
+    fn opening_model_inventory_returns_empty_for_missing_directories() {
+        let missing =
+            std::env::temp_dir().join(format!("susi-opening-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&missing);
+        assert!(super::opening_model_inventory(&missing, &missing).is_empty());
+    }
+
+    #[test]
+    fn setup_subcommands_parse_plan_and_apply_flags() {
+        use crate::cli::defs::Cli;
+        use clap::Parser;
+
+        Cli::try_parse_from(["susi", "setup", "plan", "--json"]).expect("parse setup plan --json");
+        Cli::try_parse_from(["susi", "setup", "apply", "--cloud", "--json"])
+            .expect("parse setup apply --cloud --json");
+    }
+
+    #[test]
+    fn print_plan_executes_cleanly_for_detected_temp_home() {
+        let home = std::env::temp_dir().join(format!("susi-setup-plan-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&home);
+        let plan = susi_config::setup_workflow::SetupPlan::detect(&home);
+        super::print_plan(&plan);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

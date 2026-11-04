@@ -262,4 +262,42 @@ mod tests {
             Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
         }
     }
+
+    #[test]
+    fn broker_execute_rejects_none_and_conflicting_negotiate_flags() {
+        let ws = std::path::Path::new(".");
+        assert!(super::execute(None, ws)
+            .unwrap_err()
+            .to_string()
+            .contains("broker subcommand required"));
+        let err = super::execute(
+            Some(super::BrokerCommands::Negotiate {
+                request_id: "req-1".into(),
+                actor: "susi".into(),
+                approve: true,
+                deny: true,
+            }),
+            ws,
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("specify exactly one of --approve or --deny"));
+    }
+
+    #[test]
+    fn broker_execute_rejects_invalid_json_payload_on_send() {
+        let ws = std::path::Path::new(".");
+        let err = super::execute(
+            Some(super::BrokerCommands::Send {
+                from: "alice".into(),
+                to: "bob".into(),
+                topic: "ping".into(),
+                payload: "{invalid-json".into(),
+            }),
+            ws,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid payload JSON"));
+    }
 }
