@@ -27,6 +27,22 @@ pub struct FixReport {
     pub skipped: Vec<String>,
 }
 
+/// Parse a non-zero lock holder PID from either a plain integer (`"12345"`)
+/// or a JSON lock document (`{"pid": 12345}`).
+#[must_use]
+pub fn parse_lock_pid(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(pid) = trimmed.parse::<u32>() {
+        return (pid > 0).then_some(pid);
+    }
+    let val: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    let pid = u32::try_from(val.get("pid")?.as_u64()?).ok()?;
+    (pid > 0).then_some(pid)
+}
+
 /// Scan a home-like root for safe auto-fix opportunities.
 #[must_use]
 pub fn doctor_scan(root: &Path) -> Vec<DoctorFinding> {
@@ -55,6 +71,17 @@ pub fn doctor_scan(root: &Path) -> Vec<DoctorFinding> {
                 detail: "empty daemon.lock".into(),
                 safe: true,
             });
+        } else if let Ok(raw) = std::fs::read_to_string(&lock) {
+            if let Some(pid) = parse_lock_pid(&raw) {
+                if crate::process_probe::pid_alive(pid) == Some(false) {
+                    findings.push(DoctorFinding {
+                        kind: FixKind::StaleLock,
+                        path: lock.display().to_string(),
+                        detail: format!("stale daemon.lock (dead pid {pid})"),
+                        safe: true,
+                    });
+                }
+            }
         }
     }
     let hooks = root.join("hooks").join("pre-commit");
@@ -113,4 +140,79 @@ pub fn apply_safe_fixes(root: &Path, findings: &[DoctorFinding]) -> FixReport {
 pub fn susi_fix(root: &Path) -> FixReport {
     let findings = doctor_scan(root);
     apply_safe_fixes(root, &findings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_lock_pid_handles_plain_json_zero_and_malformed_inputs() {
+        assert_eq!(parse_lock_pid("12345\n"), Some(12345));
+        assert_eq!(parse_lock_pid("{\"pid\": 67890}"), Some(67890));
+        assert_eq!(parse_lock_pid("0"), None);
+        assert_eq!(parse_lock_pid("{\"pid\": 0}"), None);
+        assert_eq!(parse_lock_pid(""), None);
+        assert_eq!(parse_lock_pid("not-a-pid"), None);
+    }
+
+    #[test]
+    fn doctor_scan_and_susi_fix_reclaim_empty_and_dead_pid_locks_while_preserving_live_pid() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-zc-fix-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        let lock = root.join("daemon.lock");
+        std::fs::write(&lock, "").unwrap();
+        let report = susi_fix(&root);
+        assert!(
+            !lock.exists(),
+            "empty daemon.lock must be removed by susi_fix"
+        );
+        assert!(root.join("config").is_dir());
+        assert!(root.join("evidence").is_dir());
+        assert!(root.join("brain").is_dir());
+        assert!(root.join("tasks").is_dir());
+        assert!(report
+            .applied
+            .iter()
+            .any(|a| a.contains("removed stale lock")));
+
+        // Dead PID lock (well outside valid OS PID allocation table).
+        let dead_pid: u32 = 4_194_304 * 4 + 4;
+        if crate::process_probe::pid_alive(dead_pid) == Some(false) {
+            std::fs::write(&lock, format!("{{\"pid\": {dead_pid}}}")).unwrap();
+            let findings = doctor_scan(&root);
+            assert!(
+                findings.iter().any(|f| {
+                    f.kind == FixKind::StaleLock && f.detail.contains(&dead_pid.to_string())
+                }),
+                "dead PID daemon.lock must be flagged as StaleLock"
+            );
+            let _ = susi_fix(&root);
+            assert!(
+                !lock.exists(),
+                "dead PID daemon.lock must be removed by susi_fix"
+            );
+        }
+
+        // Live PID lock (this test runner's own PID) must never be flagged or removed.
+        let our_pid = std::process::id();
+        std::fs::write(&lock, format!("{{\"pid\": {our_pid}}}")).unwrap();
+        let live_findings = doctor_scan(&root);
+        assert!(
+            !live_findings.iter().any(|f| f.kind == FixKind::StaleLock),
+            "live PID daemon.lock must never be flagged as StaleLock"
+        );
+        let _ = susi_fix(&root);
+        assert!(lock.exists(), "live PID daemon.lock must remain untouched");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
