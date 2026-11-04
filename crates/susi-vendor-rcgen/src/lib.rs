@@ -80,4 +80,46 @@ mod tests {
         assert!(!cert.der().is_empty());
         Ok(())
     }
+
+    #[test]
+    fn consecutive_self_signed_generations_produce_distinct_keys_and_certificates(
+    ) -> Result<(), Error> {
+        let first = generate_simple_self_signed(vec!["localhost".to_string()])?;
+        let second = generate_simple_self_signed(vec!["localhost".to_string()])?;
+        assert!(!first.signing_key.der_bytes().is_empty());
+        assert_ne!(
+            first.signing_key.der_bytes(),
+            second.signing_key.der_bytes()
+        );
+        assert_ne!(
+            first.signing_key.serialize_pem(),
+            second.signing_key.serialize_pem()
+        );
+        assert_ne!(first.cert.der().as_ref(), second.cert.der().as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn rsa_signing_key_signs_empty_and_large_payloads_with_pkcs_rsa_sha256() -> Result<(), Error> {
+        let CertifiedKey { signing_key, .. } =
+            generate_simple_self_signed(vec!["susi.internal".to_string()])?;
+        assert_eq!(signing_key.algorithm(), &PKCS_RSA_SHA256);
+
+        let empty_sig = signing_key.sign(b"")?;
+        let large_payload = vec![0xA5u8; 8192];
+        let large_sig = signing_key.sign(&large_payload)?;
+        assert!(!empty_sig.is_empty());
+        assert!(!large_sig.is_empty());
+        assert_ne!(empty_sig, large_sig);
+        Ok(())
+    }
+
+    #[test]
+    fn generate_simple_self_signed_rejects_non_ascii_san_and_accepts_empty_names(
+    ) -> Result<(), Error> {
+        assert!(generate_simple_self_signed(vec!["non-ascii-\u{00ff}.local".to_string()]).is_err());
+        let empty = generate_simple_self_signed(Vec::<String>::new())?;
+        assert!(!empty.cert.der().is_empty());
+        Ok(())
+    }
 }
