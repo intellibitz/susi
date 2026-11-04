@@ -189,4 +189,23 @@ mod tests {
         assert!(!live.should_rekey);
         assert_eq!(live.reason, RekeyReason::NotDue);
     }
+
+    #[test]
+    fn evaluate_rekey_policy_with_zero_interval_only_triggers_on_member_removal() {
+        let zero_interval = RekeyPolicy {
+            interval_secs: 0,
+            rotate_on_member_removed: true,
+        };
+
+        let not_due = evaluate_rekey_policy(&zero_interval, 0, 0, Some(u64::MAX));
+        assert!(!not_due.should_rekey);
+        assert_eq!(not_due.reason, RekeyReason::NotDue);
+        assert_eq!(not_due.now_unix, u64::MAX);
+        assert_eq!(not_due.members_removed_since, 0);
+
+        let removed = evaluate_rekey_policy(&zero_interval, 0, 2, Some(u64::MAX));
+        assert!(removed.should_rekey);
+        assert_eq!(removed.reason, RekeyReason::MemberRemoved);
+        assert_eq!(removed.members_removed_since, 2);
+    }
 }

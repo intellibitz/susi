@@ -179,4 +179,27 @@ mod zc_env_classify_tests {
         assert_eq!(sample_val["name"], "SUSI_HOME");
         assert_eq!(sample_val["class"], "internal");
     }
+
+    #[test]
+    fn every_registered_var_roundtrips_through_classify_and_matches_its_partition_helper() {
+        let internal: HashSet<&str> = internal_names().into_iter().collect();
+        let test_only: HashSet<&str> = test_only_names().into_iter().collect();
+        let user_facing: HashSet<&str> = user_facing_names().into_iter().collect();
+
+        for entry in ENV_REGISTRY {
+            assert_eq!(classify(entry.name), Some(entry.class));
+            assert_eq!(
+                internal.contains(entry.name),
+                entry.class == EnvClass::Internal
+            );
+            assert_eq!(
+                test_only.contains(entry.name),
+                entry.class == EnvClass::Test
+            );
+            assert_eq!(
+                user_facing.contains(entry.name),
+                entry.class == EnvClass::UserFacing
+            );
+        }
+    }
 }
