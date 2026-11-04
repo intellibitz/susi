@@ -303,4 +303,25 @@ mod inline_tests {
             0
         );
     }
+
+    #[test]
+    fn schedule_preload_handles_zero_window_secs_and_tie_breaks_by_model_id() {
+        let events = vec![
+            ModelUseEvent {
+                model_id: "zeta".to_string(),
+                used_unix: 100,
+            },
+            ModelUseEvent {
+                model_id: "alpha".to_string(),
+                used_unix: 100,
+            },
+        ];
+        let policy = PreloadPolicy {
+            max_warm: 1,
+            window_secs: 0,
+        };
+        let ranked = schedule_preload(&events, &policy, Some(100));
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].model_id, "alpha");
+    }
 }

@@ -311,4 +311,22 @@ mod learned_classifier_tests {
         assert!(empty.predict("any prompt").is_none());
         assert!(empty.predict_posterior("any prompt").is_none());
     }
+
+    #[test]
+    fn learned_classifier_and_posterior_serde_json_roundtrip() {
+        let mut c = LearnedClassifier::default();
+        c.observe("cargo test rust compiler", "coding");
+        c.observe("cargo build clippy", "coding");
+        let encoded = serde_json::to_string(&c).expect("serialize LearnedClassifier");
+        let decoded: LearnedClassifier =
+            serde_json::from_str(&encoded).expect("deserialize LearnedClassifier");
+        assert_eq!(decoded.predict("cargo test"), Some("coding".to_string()));
+        let post = decoded
+            .predict_posterior("cargo test")
+            .expect("posterior must resolve");
+        let post_json = serde_json::to_string(&post).expect("serialize posterior");
+        let post_back: ClassificationPosterior =
+            serde_json::from_str(&post_json).expect("deserialize posterior");
+        assert_eq!(post_back, post);
+    }
 }
