@@ -67,3 +67,98 @@ pub fn bootstrap(
     }
     BootstrapResult::Ok
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_roster() -> BTreeSet<String> {
+        BTreeSet::from(["node-b".to_string(), "node-a".to_string()])
+    }
+
+    #[test]
+    fn sign_formats_sorted_roster_deterministically() {
+        let roster = sample_roster();
+        assert_eq!(
+            sign("leader-1", "snap-42", "tail-hash", &roster),
+            "leader-1:snap-42:tail-hash:node-a,node-b"
+        );
+    }
+
+    #[test]
+    fn bootstrap_accepts_valid_signed_manifest_with_trusted_anchor_and_roster() {
+        let roster = sample_roster();
+        let sig = sign("leader-1", "snap-1", "tail-1", &roster);
+        let manifest = SnapshotManifest {
+            snapshot_id: "snap-1".to_string(),
+            ledger_tail: "tail-1".to_string(),
+            roster: roster.clone(),
+            signature: sig,
+            signer: "leader-1".to_string(),
+        };
+        let anchors = vec![TrustAnchor {
+            peer_id: "leader-1".to_string(),
+            public_key: "ed25519:pub".to_string(),
+        }];
+        assert_eq!(bootstrap(&manifest, &anchors, &roster), BootstrapResult::Ok);
+    }
+
+    #[test]
+    fn bootstrap_rejects_missing_anchor_or_empty_public_key_or_tampered_sig() {
+        let roster = sample_roster();
+        let manifest = SnapshotManifest {
+            snapshot_id: "snap-1".to_string(),
+            ledger_tail: "tail-1".to_string(),
+            roster: roster.clone(),
+            signature: sign("leader-1", "snap-1", "tail-1", &roster),
+            signer: "leader-1".to_string(),
+        };
+        assert_eq!(
+            bootstrap(&manifest, &[], &roster),
+            BootstrapResult::MissingAnchor
+        );
+
+        let empty_key = vec![TrustAnchor {
+            peer_id: "leader-1".to_string(),
+            public_key: String::new(),
+        }];
+        assert_eq!(
+            bootstrap(&manifest, &empty_key, &roster),
+            BootstrapResult::Tampered
+        );
+
+        let mut tampered = manifest;
+        tampered.signature = "forged".to_string();
+        let anchors = vec![TrustAnchor {
+            peer_id: "leader-1".to_string(),
+            public_key: "ed25519:pub".to_string(),
+        }];
+        assert_eq!(
+            bootstrap(&tampered, &anchors, &roster),
+            BootstrapResult::Tampered
+        );
+    }
+
+    #[test]
+    fn bootstrap_rejects_unauthorized_roster_not_in_history() {
+        let roster = sample_roster();
+        let manifest = SnapshotManifest {
+            snapshot_id: "snap-1".to_string(),
+            ledger_tail: "tail-1".to_string(),
+            roster: roster.clone(),
+            signature: sign("leader-1", "snap-1", "tail-1", &roster),
+            signer: "leader-1".to_string(),
+        };
+        let anchors = vec![TrustAnchor {
+            peer_id: "leader-1".to_string(),
+            public_key: "ed25519:pub".to_string(),
+        }];
+        let partial_history = BTreeSet::from(["node-a".to_string()]);
+        assert_eq!(
+            bootstrap(&manifest, &anchors, &partial_history),
+            BootstrapResult::UnauthorizedRoster
+        );
+    }
+}
