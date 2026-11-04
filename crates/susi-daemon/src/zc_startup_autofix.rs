@@ -82,4 +82,52 @@ mod zc_startup_autofix_tests {
         assert!(home.join("bad.json.bak").is_file());
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn zc_startup_autofix_empty_issues_returns_empty_actions() {
+        let home = std::env::temp_dir().join("susi-autofix-empty");
+        let report = apply_startup_autofix(&home, &[]);
+        assert!(report.actions.is_empty());
+    }
+
+    #[test]
+    fn zc_startup_autofix_missing_stale_lock_is_idempotent() {
+        let home = std::env::temp_dir().join(format!(
+            "susi-autofix-nolock-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::create_dir_all(&home);
+        let report = apply_startup_autofix(
+            &home,
+            &[StartupIssue::StaleLock {
+                path: "nonexistent.lock".into(),
+            }],
+        );
+        assert_eq!(report.actions, vec!["removed stale lock nonexistent.lock"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn zc_startup_autofix_creates_nested_missing_directories() {
+        let home = std::env::temp_dir().join(format!(
+            "susi-autofix-nested-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::create_dir_all(&home);
+        let report = apply_startup_autofix(
+            &home,
+            &[StartupIssue::MissingDir {
+                path: "a/b/c".into(),
+            }],
+        );
+        assert_eq!(report.actions, vec!["created missing dir a/b/c"]);
+        assert!(home.join("a/b/c").is_dir());
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }
