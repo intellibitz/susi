@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "HARNESSROICHANNEL1104",
-  "created_unix": 1793773032
+  "created_unix": 1793773032,
+  "closed": {
+    "at_unix": 1793774079,
+    "commit": "7ebfa666e837c9ec4036b7993faec233312b8c44",
+    "by": "HARNESSROICHANNEL1104"
+  }
 }
