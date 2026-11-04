@@ -1,0 +1,24 @@
+{
+  "id": "T-ROOTINTTESTSI4T1104-1",
+  "title": "test(root): expand root pure-library integration tests wave I to 4 unit tests each",
+  "goal": "Expand 5 root pure-library integration test suites (vc_201_067_mastery, vc_201_076_mastery, vc_201_094_mastery, vc_201_095_mastery, vc_201_096_mastery) to 4 unit tests each",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "vc_201_067_mastery"
+    ]
+  },
+  "created_by": "ROOTINTTESTSI4T1104",
+  "created_unix": 1793794323,
+  "closed": {
+    "at_unix": 1793794616,
+    "commit": "ffddfd3ee3ad792d57165ef6ed864e2755edb024",
+    "by": "ROOTINTTESTSI4T1104"
+  }
+}

@@ -196,3 +196,74 @@ fn vc_201_047_mastery() {
         "Prewarmed resident set reduces cold starts by 66%"
     );
 }
+
+#[test]
+fn schedule_preload_filters_empty_ids_and_events_outside_window() {
+    let now = 50_000u64;
+    let events = vec![
+        ModelUseEvent {
+            model_id: "".into(),
+            used_unix: now - 1,
+        },
+        ModelUseEvent {
+            model_id: "ancient".into(),
+            used_unix: now - 9_999,
+        },
+    ];
+    let policy = PreloadPolicy {
+        max_warm: 3,
+        window_secs: 600,
+    };
+    assert!(schedule_preload(&events, &policy, Some(now)).is_empty());
+}
+
+#[test]
+fn schedule_preload_damped_retains_incumbent_within_hysteresis_margin() {
+    let now = 10_000u64;
+    let events = vec![
+        ModelUseEvent {
+            model_id: "incumbent".into(),
+            used_unix: now - 5,
+        },
+        ModelUseEvent {
+            model_id: "challenger".into(),
+            used_unix: now - 1,
+        },
+    ];
+    let policy = PreloadPolicy {
+        max_warm: 1,
+        window_secs: 100,
+    };
+    let damped = schedule_preload_damped(
+        &events,
+        &policy,
+        &["incumbent".to_string()],
+        &PreloadHysteresis { margin: 0.5 },
+        Some(now),
+    );
+    assert_eq!(damped.len(), 1);
+    assert_eq!(damped[0].model_id, "incumbent");
+}
+
+#[test]
+fn cold_starts_counts_only_events_missing_from_warm_resident_set() {
+    let events = vec![
+        ModelUseEvent {
+            model_id: "warm-a".into(),
+            used_unix: 1,
+        },
+        ModelUseEvent {
+            model_id: "cold-b".into(),
+            used_unix: 2,
+        },
+        ModelUseEvent {
+            model_id: "warm-a".into(),
+            used_unix: 3,
+        },
+    ];
+    assert_eq!(cold_starts(&events, &["warm-a".to_string()]), 1);
+    assert_eq!(
+        cold_starts(&events, &["warm-a".to_string(), "cold-b".to_string()]),
+        0
+    );
+}
