@@ -1,0 +1,20 @@
+{
+  "id": "T-PATHSSERVER4T1104-1",
+  "title": "test(paths,server,daemon): expand unit tests to 4 in susi-paths tests, vc_201_099_mastery, and gmcp_bootstrap",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "--tests"
+    ]
+  },
+  "created_by": "PATHSSERVER4T1104",
+  "created_unix": 1793800930
+}
