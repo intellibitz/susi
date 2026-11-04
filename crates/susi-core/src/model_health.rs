@@ -230,4 +230,21 @@ mod tests {
         let dead_back: ModelHealth = serde_json::from_str(&dead_json).unwrap();
         assert_eq!(dead_back, dead);
     }
+
+    #[test]
+    fn failure_class_hash_and_model_health_transitions_from_dead_to_healthy() {
+        let mut set = std::collections::HashSet::new();
+        set.insert(FailureClass::Network);
+        set.insert(FailureClass::ServiceError);
+        set.insert(FailureClass::Network);
+        assert_eq!(set.len(), 2);
+
+        let dead = ModelHealth::Dead {
+            class: FailureClass::Network,
+        };
+        assert!(dead.is_terminal());
+        let recovered = dead.mark_healthy();
+        assert!(recovered.is_usable());
+        assert!(!recovered.is_terminal());
+    }
 }

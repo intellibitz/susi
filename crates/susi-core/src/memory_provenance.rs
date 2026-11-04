@@ -339,4 +339,36 @@ mod inline_tests {
             "secret-body"
         );
     }
+
+    #[test]
+    fn authoritative_source_and_error_display_messages_format_all_variants() {
+        let user_src = ProvenanceSource::from("user");
+        assert_eq!(user_src.authoritative_name(), "user");
+        let sys_src = ProvenanceSource::from("system");
+        assert_eq!(sys_src.authoritative_name(), "system");
+
+        let mut prov = sample_provenance("alice", DataClassification::Confidential, 120);
+        prov.source = sys_src;
+        let rec = MemoryRecord::new("sys-rec", "body", prov);
+        assert_eq!(rec.authoritative_source(), "system");
+        assert_eq!(
+            rec.read_body("system", DataClassification::Confidential, 1_050)
+                .unwrap(),
+            "body"
+        );
+
+        let unauth_msg = MemoryAccessError::Unauthorized {
+            owner: "alice".into(),
+            caller: "mallory".into(),
+        }
+        .to_string();
+        assert!(unauth_msg.contains("alice") && unauth_msg.contains("mallory"));
+
+        let class_msg = MemoryAccessError::ClassificationDenied {
+            required: DataClassification::Restricted,
+            granted: DataClassification::Public,
+        }
+        .to_string();
+        assert!(class_msg.contains("Restricted") && class_msg.contains("Public"));
+    }
 }

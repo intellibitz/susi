@@ -594,4 +594,38 @@ mod tests {
             assert!(replay["decisions"].as_u64().unwrap() >= 1);
         });
     }
+
+    #[test]
+    fn sync_summary_aggregates_peer_totals_across_multiple_outcomes() {
+        let peers = vec![
+            SyncOutcome {
+                node_id: "p1".into(),
+                address: "10.0.0.1:9093".into(),
+                line: "p1 ok".into(),
+                pulled: 2,
+                already_held: 3,
+                rejected: 1,
+                pushed: 4,
+                push_rejected: 0,
+            },
+            SyncOutcome {
+                node_id: "p2".into(),
+                address: "10.0.0.2:9093".into(),
+                line: "p2 ok".into(),
+                pulled: 5,
+                already_held: 1,
+                rejected: 0,
+                pushed: 2,
+                push_rejected: 3,
+            },
+        ];
+        let summary = sync_summary(peers, Some("done"));
+        assert_eq!(summary["totals"]["pulled"], 7);
+        assert_eq!(summary["totals"]["already_held"], 4);
+        assert_eq!(summary["totals"]["rejected"], 1);
+        assert_eq!(summary["totals"]["pushed"], 6);
+        assert_eq!(summary["totals"]["push_rejected"], 3);
+        assert_eq!(summary["note"], "done");
+        assert_eq!(summary["peers"].as_array().unwrap().len(), 2);
+    }
 }
