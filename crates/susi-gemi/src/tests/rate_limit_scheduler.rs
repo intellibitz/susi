@@ -45,3 +45,16 @@ fn rate_limit_scheduler_ready_when_remaining_positive() {
         RateLimitDecision::Ready
     );
 }
+
+#[test]
+fn rate_limit_scheduler_empty_headers_ready_immediately() {
+    let h = HashMap::new();
+    let state = parse_rate_limit_headers(&h);
+    assert_eq!(state.retry_after_secs, None);
+    assert_eq!(state.remaining, None);
+    assert_eq!(state.reset_unix, None);
+    assert_eq!(
+        schedule_next_attempt(&state, Some(500)),
+        RateLimitDecision::Ready
+    );
+}

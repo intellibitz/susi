@@ -1,0 +1,19 @@
+{
+  "id": "T-GEMISUITESA4T1104-1",
+  "title": "Expand 5 susi-gemi tests suites (model_health_failure_classes, model_preload, model_pricing_cache_rates, rate_limit_scheduler, thermal_routing) to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "model_health_failure_classes"
+    ]
+  },
+  "created_by": "GEMISUITESA4T1104",
+  "created_unix": 1793790151
+}

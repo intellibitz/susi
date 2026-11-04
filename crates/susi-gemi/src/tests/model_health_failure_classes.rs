@@ -238,3 +238,40 @@ fn model_health_failure_classes() {
     // - Support recovery: retry after cooldown, manual recovery
     // - Export failure stats for analysis
 }
+
+#[test]
+fn model_health_failure_classes_malformed_marks_degraded_and_counts_failures() {
+    let mut health = ModelHealth::new("gemini-flash");
+    health.record_failure(FailureClass::Malformed, 500);
+    health.record_failure(FailureClass::Malformed, 510);
+    assert_eq!(health.state(), HealthState::Degraded);
+    assert!(!health.is_ready(520));
+    assert_eq!(health.failure_count(FailureClass::Malformed), 2);
+}
+
+#[test]
+fn model_health_failure_classes_cooling_exact_deadline_boundaries() {
+    let now = 2_000u64;
+    let mut rate_limited = ModelHealth::new("rate-limited-model");
+    rate_limited.record_failure(FailureClass::RateLimited, now);
+    assert!(!rate_limited.is_ready(now + 59));
+    assert!(rate_limited.is_ready(now + 60));
+
+    let mut timed_out = ModelHealth::new("timeout-model");
+    timed_out.record_failure(FailureClass::Timeout, now);
+    assert!(!timed_out.is_ready(now + 29));
+    assert!(timed_out.is_ready(now + 30));
+}
+
+#[test]
+fn model_health_failure_classes_registry_starts_empty_and_initializes_healthy() {
+    let mut registry = HealthRegistry::new();
+    assert_eq!(registry.get_health("any"), None);
+    let model = registry.get_or_create("fresh-model");
+    assert_eq!(model.state(), HealthState::Healthy);
+    assert!(model.is_ready(0));
+    assert_eq!(
+        registry.get_health("fresh-model"),
+        Some(HealthState::Healthy)
+    );
+}
