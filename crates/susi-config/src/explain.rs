@@ -348,4 +348,44 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn explain_key_env_override_supersedes_host_and_bundled_layers() {
+        let _guard = crate::env_test_lock();
+        let dir = std::env::temp_dir().join(format!(
+            "susi-explain-env-override-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let global_dir = dir.as_path();
+
+        let mut settings = SusiConfig::heal_defaults().clone();
+        settings.insert("port_offset".into(), DynamicValue::from(5));
+        fs::write(
+            SusiConfig::get_config_path(global_dir),
+            serde_json::to_string_pretty(&SusiConfig { settings }).expect("serialize host config"),
+        )
+        .expect("write host config.json");
+
+        unsafe {
+            std::env::set_var("SUSI_PORT_OFFSET", "25");
+        }
+        let explained = explain_key("port_offset", global_dir);
+        unsafe {
+            std::env::remove_var("SUSI_PORT_OFFSET");
+        }
+
+        assert_eq!(
+            explained.origin,
+            ConfigOrigin::Environment {
+                var: "SUSI_PORT_OFFSET".to_string()
+            }
+        );
+        assert_eq!(explained.value, DynamicValue::from(25));
+        assert!(explained.render().contains("(from env:SUSI_PORT_OFFSET)"));
+        assert_eq!(explained.layers.len(), 3);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -353,4 +353,39 @@ mod tests {
         );
         assert_eq!(lookup("nonexistent_key"), None);
     }
+
+    #[test]
+    fn every_registry_entry_roundtrips_lookup_and_five_derivations_partition_the_registry() {
+        for entry in SETTING_REGISTRY {
+            let found = lookup(entry.key).expect("every SETTING_REGISTRY key must resolve");
+            assert_eq!(found, entry);
+        }
+
+        let variants = [
+            (SettingDerivation::Constant, "\"constant\""),
+            (SettingDerivation::Hardware, "\"hardware\""),
+            (SettingDerivation::Detection, "\"detection\""),
+            (SettingDerivation::Measurement, "\"measurement\""),
+            (SettingDerivation::Consent, "\"consent\""),
+        ];
+        let mut total_partitioned = 0usize;
+        for (variant, expected_json) in variants {
+            let count = SETTING_REGISTRY
+                .iter()
+                .filter(|e| e.derivation == variant)
+                .count();
+            assert!(
+                count > 0,
+                "derivation {variant:?} must be represented in SETTING_REGISTRY"
+            );
+            total_partitioned += count;
+
+            let serialized = serde_json::to_string(&variant).expect("serialize derivation");
+            assert_eq!(serialized, expected_json);
+            let deserialized: SettingDerivation =
+                serde_json::from_str(&serialized).expect("deserialize derivation");
+            assert_eq!(deserialized, variant);
+        }
+        assert_eq!(total_partitioned, SETTING_REGISTRY.len());
+    }
 }
