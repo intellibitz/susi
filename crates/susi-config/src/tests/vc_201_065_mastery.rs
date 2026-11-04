@@ -131,3 +131,25 @@ fn vc_201_065_mastery_failed_migration_rolls_back_and_retries() {
     assert!(migrate_state_dir(&dir).is_err());
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn vc_201_065_mastery_migration_report_render_describes_migrated_and_noop_states() {
+    let dir = scratch("render");
+    fs::write(
+        SusiConfig::get_config_path(&dir),
+        r#"{"settings":{"trust_level":"high"}}"#,
+    )
+    .unwrap();
+
+    let first = migrate_state_dir(&dir).unwrap();
+    let first_rendered = first.render();
+    assert!(!first_rendered.is_empty());
+    assert!(first_rendered.contains(&STATE_SCHEMA_VERSION.to_string()));
+    assert!(first_rendered.contains("backup:"));
+
+    let second = migrate_state_dir(&dir).unwrap();
+    let second_rendered = second.render();
+    assert!(second_rendered.contains("noop"));
+    assert!(second_rendered.contains(&STATE_SCHEMA_VERSION.to_string()));
+    let _ = fs::remove_dir_all(&dir);
+}
