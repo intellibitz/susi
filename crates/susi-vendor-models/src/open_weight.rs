@@ -465,4 +465,12 @@ mod tests {
         );
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn definition_rejects_unknown_id_and_validate_ollama_tag_rejects_spaces_and_overlong() {
+        assert!(OpenWeightManager::definition("unknown-open-weight-xyz").is_err());
+        assert!(validate_ollama_tag("").is_err());
+        assert!(validate_ollama_tag("bad space").is_err());
+        assert!(validate_ollama_tag(&"a".repeat(121)).is_err());
+    }
 }

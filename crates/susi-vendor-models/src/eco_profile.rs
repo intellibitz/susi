@@ -562,4 +562,18 @@ mod tests {
         let back = parse(&text).unwrap();
         assert_eq!(back.id, "test-profile");
     }
+
+    #[test]
+    fn catalog_profile_kind_relaxes_wire_surface_requirements_and_load_bundled_rejects_bad_id() {
+        let mut cat = minimal();
+        cat.kind = ProfileKind::Catalog;
+        cat.endpoints.clear();
+        cat.auth.clear();
+        cat.capabilities.clear();
+        cat.errors.clear();
+        cat.rate_limits.clear();
+        assert!(!cat.is_api());
+        assert!(validate(&cat).is_empty());
+        assert!(load_bundled("INVALID ID!").is_err());
+    }
 }

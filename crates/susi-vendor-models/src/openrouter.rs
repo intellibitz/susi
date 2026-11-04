@@ -259,4 +259,14 @@ mod tests {
         assert_eq!(auto.model, "openrouter/auto");
         assert!(OpenRouterManager::definition("unknown-route-xyz").is_err());
     }
+
+    #[test]
+    fn attribution_headers_return_non_empty_defaults_and_validate_model_slug_enforces_bounds() {
+        let (referer, title) = attribution_headers();
+        assert!(!referer.trim().is_empty());
+        assert!(!title.trim().is_empty());
+        assert!(validate_model_slug("").is_err());
+        assert!(validate_model_slug("bad slug").is_err());
+        assert!(validate_model_slug(&"x".repeat(201)).is_err());
+    }
 }

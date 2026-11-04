@@ -353,4 +353,26 @@ mod inline_tests {
         assert!(rt.cancel().is_err());
         assert!(rt.unload().is_err());
     }
+
+    #[test]
+    fn supported_cancel_and_unload_transition_ready_runtime_back_to_discovered() {
+        let backend = FakeBackend {
+            present: Cell::new(true),
+            healthy: Cell::new(true),
+        };
+        let mut rt = Runtime::new(
+            "full-rt",
+            Capabilities {
+                can_cancel: true,
+                can_unload: true,
+            },
+            &backend,
+        );
+        rt.discover().unwrap();
+        rt.load("llama3").unwrap();
+        assert!(rt.ready().unwrap());
+        rt.cancel().unwrap();
+        rt.unload().unwrap();
+        assert_eq!(rt.status(), &RuntimeStatus::Discovered);
+    }
 }
