@@ -68,3 +68,24 @@ fn test_susi_run_empty_prompt_fails_cleanly() {
         "expected error message about missing prompt, got: stderr={stderr}, stdout={stdout}"
     );
 }
+
+#[test]
+fn unit_isolate_home_sets_isolated_environment_on_command() {
+    let scratch = std::env::temp_dir().join(format!("susi-run-unit-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&scratch);
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
+    isolate_home(&mut cmd, &scratch);
+    let envs: Vec<_> = cmd.get_envs().map(|(k, _)| k.to_os_string()).collect();
+    assert!(
+        envs.iter().any(|k| k == "HOME" || k == "USERPROFILE"),
+        "isolate_home must configure HOME or USERPROFILE environment variable"
+    );
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[test]
+fn unit_susi_binary_path_exists_and_is_file() {
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_susi"));
+    assert!(bin.exists(), "CARGO_BIN_EXE_susi must exist on disk");
+    assert!(bin.is_file(), "CARGO_BIN_EXE_susi must be a regular file");
+}

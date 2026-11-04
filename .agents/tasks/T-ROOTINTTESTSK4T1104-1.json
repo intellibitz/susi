@@ -1,0 +1,39 @@
+{
+  "id": "T-ROOTINTTESTSK4T1104-1",
+  "title": "Expand 10 root integration test suites Waves K & N to 4 unit tests each under D-OS-8",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "gmcp_roadmap",
+      "--test",
+      "main_failure_report",
+      "--test",
+      "thin_client_invariant",
+      "--test",
+      "vc_202_015_mastery",
+      "--test",
+      "windows_runtime_lifecycle",
+      "--test",
+      "moonshot_alias",
+      "--test",
+      "status_json_digest",
+      "--test",
+      "run_cli_tests",
+      "--test",
+      "vc_201_079_cli_verify",
+      "--test",
+      "zc_time_to_answer",
+      "--",
+      "unit_"
+    ]
+  },
+  "created_by": "ROOTINTTESTSK4T1104",
+  "created_unix": 1793795873
+}
