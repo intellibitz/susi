@@ -89,3 +89,71 @@ pub fn mask_credentials_from(
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_match_starts_and_contains_secret_pattern_respect_token_boundaries() {
+        let starts: Vec<usize> = secret_match_starts(
+            "sk-abc123 risk-assessment key=sk-def456 (sk-ghi789) task-queue disk-space",
+            "sk-",
+        )
+        .collect();
+        assert_eq!(starts, vec![0, 30, 41]);
+
+        let patterns = vec![String::new(), "sk-".to_string(), "ghp_".to_string()];
+        assert_eq!(
+            contains_secret_pattern(&patterns, "write a risk-assessment for task-queue"),
+            None
+        );
+        assert_eq!(
+            contains_secret_pattern(&patterns, "header Bearer sk-live-secret99"),
+            Some("sk-".to_string())
+        );
+        assert_eq!(
+            contains_secret_pattern(&patterns, "url=https://x:ghp_1234567890@github.com"),
+            Some("ghp_".to_string())
+        );
+    }
+
+    #[test]
+    fn redact_patterns_replaces_tokens_and_preserves_ordinary_words() {
+        let patterns = vec![String::new(), "sk-".to_string(), "ghp_".to_string()];
+        let input = "token sk-live_99-a and (ghp_SecretToken123) in task-queue / risk-assessment.";
+        let output = redact_patterns(&patterns, input);
+        assert_eq!(
+            output,
+            "token [REDACTED] and ([REDACTED]) in task-queue / risk-assessment."
+        );
+    }
+
+    #[test]
+    fn mask_credentials_from_redacts_qualifying_env_vars_and_skips_short_or_unrelated_vars() {
+        let vars = vec![
+            (
+                "OPENAI_API_KEY".to_string(),
+                "super-secret-openai-key".to_string(),
+            ),
+            (
+                "SUSI_HOST_TOKEN".to_string(),
+                "host-token-987654321".to_string(),
+            ),
+            (
+                "CLIENT_SECRET".to_string(),
+                "my-oauth-client-secret".to_string(),
+            ),
+            ("SHORT_API_KEY".to_string(), "short7".to_string()),
+            ("HOME".to_string(), "/home/developer-workspace".to_string()),
+            ("PATH".to_string(), "/usr/local/bin:/usr/bin".to_string()),
+        ];
+
+        let text = "keys: super-secret-openai-key, host-token-987654321, my-oauth-client-secret, short7, /home/developer-workspace";
+        let masked = mask_credentials_from(text, vars);
+        assert_eq!(
+            masked,
+            "keys: [REDACTED], [REDACTED], [REDACTED], short7, /home/developer-workspace"
+        );
+    }
+}
