@@ -23,5 +23,10 @@
     "title":  "B2 (PSP-03) MCP Tool Schema and Complexity Invariant Verification in susi-gmcp",
     "deps":  [
 
-             ]
+             ],
+    "closed":  {
+                   "at_unix":  1793774998,
+                   "by":  "GMCPB21104",
+                   "commit":  "57943ea22"
+               }
 }

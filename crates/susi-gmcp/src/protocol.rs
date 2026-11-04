@@ -881,8 +881,29 @@ mod tests {
     #[test]
     fn every_registered_mcp_tool_has_valid_typed_or_explicit_input_schema() {
         let service = GmcpService::new(std::env::temp_dir());
+        let noop_handler: ToolHandler =
+            Arc::new(|_req, _ctx| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+        let core_defs = crate::tools::args::core_tool_definitions();
+        assert!(
+            !core_defs.is_empty(),
+            "CoreTools definitions must not be empty"
+        );
+        for def in &core_defs {
+            service
+                .register_tool(def.clone(), noop_handler.clone())
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "core tool `{}` failed GmcpService::register_tool: {}",
+                        def.name, e.message
+                    )
+                });
+        }
+
         let tools = service.tools().expect("tools catalog must load");
-        assert!(!tools.is_empty(), "MCP tools catalog must not be empty");
+        assert!(
+            tools.len() >= core_defs.len(),
+            "MCP tools catalog must include all registered core tools"
+        );
 
         let mut core_checked = 0usize;
         for tool in &tools {
@@ -932,9 +953,10 @@ mod tests {
                 );
             }
         }
-        assert!(
-            core_checked > 0,
-            "at least one built-in core tool must be verified"
+        assert_eq!(
+            core_checked,
+            core_defs.len(),
+            "every built-in CoreTools handler must be verified"
         );
     }
 
