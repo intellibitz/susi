@@ -1,0 +1,25 @@
+{
+  "id": "T-ROOTS5TA1104-1",
+  "title": "test(core): advance 11 core crate-root and client modules to 5 inline unit tests",
+  "goal": "Advance 11 core crate-root and client modules from 4 to 5 inline unit tests each (D-OS-8 5-test floor).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-wire-client",
+      "--lib"
+    ]
+  },
+  "created_by": "ROOTS5TA1104",
+  "created_unix": 1793812000,
+  "closed": {
+    "at_unix": 1793811491,
+    "commit": "d15135820e67a9fc2bc7b828067f966b840fc6e1",
+    "by": "ROOTS5TA1104"
+  }
+}

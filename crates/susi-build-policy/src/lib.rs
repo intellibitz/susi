@@ -331,4 +331,11 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn include_release_tooling_is_noop_on_empty_gates_slice() {
+        let mut gates: Vec<Vec<String>> = Vec::new();
+        include_release_tooling(Path::new("."), &mut gates);
+        assert!(gates.is_empty());
+    }
 }

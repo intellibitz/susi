@@ -171,4 +171,10 @@ mod inline_tests {
         assert_eq!(cat.version, 1);
         assert!(cat.entries.is_empty());
     }
+
+    #[test]
+    fn set_selected_model_override_rejects_carriage_return_and_null_bytes() {
+        assert!(set_selected_model_override("model\rname").is_err());
+        assert!(set_selected_model_override("model\0name").is_err());
+    }
 }
