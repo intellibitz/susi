@@ -162,7 +162,8 @@ mod routing_ladder_tests;
 #[cfg(test)]
 #[path = "tests/thermal_routing.rs"]
 mod thermal_routing_tests;
-#[cfg(test)]
+// Drives the built-in Candle weight loader, which the slim default leaves out.
+#[cfg(all(test, feature = "local-engine"))]
 #[path = "tests/vc_201_042_native.rs"]
 mod vc_201_042_native_tests;
 #[cfg(test)]
