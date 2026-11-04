@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "VENDOR5TA1104",
-  "created_unix": 1793811524
+  "created_unix": 1793811524,
+  "closed": {
+    "at_unix": 1793811802,
+    "commit": "114a4287d8d2a6891de45f32580a73c9b32fc588",
+    "by": "VENDOR5TA1104"
+  }
 }
