@@ -95,3 +95,104 @@ pub fn rejects_target_install(src: &Path, dest_bin: &Path) -> bool {
 
 /// Allowed promotion command names (contract text).
 pub const ALLOWED_PROMOTERS: &[&str] = &["susi release", "scripts/susi-release-sync.sh"];
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_verification(verified: bool) -> Verification {
+        Verification {
+            verified,
+            review: None,
+            reviewer: None,
+            gates: Vec::new(),
+            regressions: Vec::new(),
+            fabricated: Vec::new(),
+            failover: None,
+            reasons: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn produce_release_candidate_requires_independent_verification() {
+        let unverified = sample_verification(false);
+        assert!(produce_release_candidate(&unverified, "exp-1", "sha256:abc", "manifest").is_err());
+
+        let verified = sample_verification(true);
+        let rc = produce_release_candidate(&verified, "exp-1", "sha256:abc", "manifest").unwrap();
+        assert_eq!(rc.experiment_id, "exp-1");
+        assert_eq!(rc.artifact_digest, "sha256:abc");
+    }
+
+    #[test]
+    fn decide_promotion_accepts_release_paths_with_non_empty_evidence() {
+        let rc = ReleaseCandidate {
+            experiment_id: "exp-2".to_string(),
+            evidence_manifest: "manifest.json".to_string(),
+            artifact_digest: "sha256:def".to_string(),
+        };
+        assert_eq!(
+            decide_promotion(&PromotionAttempt {
+                candidate: rc.clone(),
+                via: PromotionPath::SusiRelease,
+            }),
+            PromotionDecision::AcceptedReviewable
+        );
+        assert_eq!(
+            decide_promotion(&PromotionAttempt {
+                candidate: rc,
+                via: PromotionPath::ReleaseSyncScript,
+            }),
+            PromotionDecision::AcceptedReviewable
+        );
+    }
+
+    #[test]
+    fn decide_promotion_rejects_direct_install_and_whitespace_evidence() {
+        let rc = ReleaseCandidate {
+            experiment_id: "exp-3".to_string(),
+            evidence_manifest: "   ".to_string(),
+            artifact_digest: "sha256:def".to_string(),
+        };
+        assert_eq!(
+            decide_promotion(&PromotionAttempt {
+                candidate: rc.clone(),
+                via: PromotionPath::SusiRelease,
+            }),
+            PromotionDecision::Rejected("missing evidence or digest")
+        );
+        assert_eq!(
+            decide_promotion(&PromotionAttempt {
+                candidate: ReleaseCandidate {
+                    evidence_manifest: "ok".to_string(),
+                    ..rc
+                },
+                via: PromotionPath::DirectTargetInstall,
+            }),
+            PromotionDecision::Rejected("target/ install into ~/.susi/bin is forbidden")
+        );
+    }
+
+    #[test]
+    fn rejects_target_install_blocks_relative_and_susi_bin_destinations() {
+        assert!(rejects_target_install(
+            Path::new("/tmp/susi"),
+            Path::new("relative/bin/susi")
+        ));
+        let home_bin = if cfg!(windows) {
+            Path::new(r"C:\Users\alice\.susi\bin\susi.exe")
+        } else {
+            Path::new("/home/alice/.susi/bin/susi")
+        };
+        assert!(rejects_target_install(Path::new("/tmp/susi"), home_bin));
+
+        let staging = if cfg!(windows) {
+            Path::new(r"C:\Temp\staging\susi.exe")
+        } else {
+            Path::new("/tmp/staging/susi")
+        };
+        assert!(!rejects_target_install(Path::new("/tmp/susi"), staging));
+    }
+}
