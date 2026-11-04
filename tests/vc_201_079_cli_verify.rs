@@ -169,3 +169,47 @@ fn vc_201_079_cli_verify_reports_distinct_failures() {
     assert_ne!(code, 0);
     assert!(stderr.contains("unknown key"), "{stderr}");
 }
+
+#[test]
+fn unit_source_export_writes_valid_redacted_segments_json() {
+    let dir = root();
+    let raw = dir.join("unit-raw.json");
+    source_export(&raw);
+    let parsed: serde_json::Value = serde_json::from_slice(&std::fs::read(&raw).unwrap()).unwrap();
+    let segments = parsed
+        .as_array()
+        .or_else(|| parsed["segments"].as_array())
+        .unwrap();
+    assert_eq!(segments.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn unit_truncate_tamper_and_remove_first_helpers_mutate_segments() {
+    let dir = root();
+    let raw = dir.join("unit-mutate.json");
+    source_export(&raw);
+    let raw_val: serde_json::Value = serde_json::from_slice(&std::fs::read(&raw).unwrap()).unwrap();
+    let original = if raw_val.is_array() {
+        serde_json::json!({
+            "expected_len": 2,
+            "segments": raw_val,
+        })
+    } else {
+        raw_val
+    };
+
+    let mut t1 = original.clone();
+    truncate(&mut t1);
+    assert_eq!(t1["segments"].as_array().unwrap().len(), 1);
+
+    let mut t2 = original.clone();
+    tamper(&mut t2);
+    assert_eq!(t2["segments"][1]["redacted_body"], "evil");
+
+    let mut t3 = original;
+    remove_first(&mut t3);
+    assert_eq!(t3["expected_len"], 1);
+    assert_eq!(t3["segments"].as_array().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
