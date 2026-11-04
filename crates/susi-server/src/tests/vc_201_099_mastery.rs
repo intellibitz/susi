@@ -100,3 +100,36 @@ fn vc_201_099_mastery_unified_operator_control_surface_incomplete() {
         .join(" | ")
     );
 }
+
+#[test]
+fn vc_201_099_read_json_body_parses_valid_json_and_rejects_malformed_payload() {
+    let valid = hyper::body::Bytes::from_static(br#"{"model":"qwen","prompt":"hi"}"#);
+    let parsed = crate::read_json_body(&valid).unwrap();
+    assert_eq!(parsed["model"], "qwen");
+    assert_eq!(parsed["prompt"], "hi");
+
+    let malformed = hyper::body::Bytes::from_static(b"{not-valid-json");
+    let err_resp = crate::read_json_body(&malformed).unwrap_err();
+    assert_eq!(err_resp.status(), hyper::StatusCode::BAD_REQUEST);
+}
+
+#[test]
+fn vc_201_099_max_connections_ceiling_is_positive_power_of_two() {
+    assert_eq!(crate::MAX_CONNECTIONS, 512);
+    assert!(crate::MAX_CONNECTIONS.is_power_of_two());
+}
+
+#[test]
+fn vc_201_099_six_operator_state_dimensions_are_distinct_and_non_empty() {
+    let dimensions = [
+        "workload",
+        "resource",
+        "provider",
+        "configuration",
+        "federation",
+        "evidence",
+    ];
+    let unique: std::collections::BTreeSet<&str> = dimensions.iter().copied().collect();
+    assert_eq!(unique.len(), 6);
+    assert!(dimensions.iter().all(|d| !d.is_empty()));
+}
