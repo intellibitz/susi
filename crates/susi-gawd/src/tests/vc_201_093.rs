@@ -111,3 +111,30 @@ fn vc_201_093_restored_bundle_preserves_config_workflow_and_ledger_tail() {
         Some("k-val")
     );
 }
+
+#[test]
+fn vc_201_093_distinguishes_independent_rto_and_rpo_breaches_and_records_metrics() {
+    let backup = BackupBundle {
+        config: "cfg".into(),
+        workflow_state: "wf".into(),
+        keys: BTreeMap::new(),
+        ledger_tail: "tail-present".into(),
+        audit_anchor: "anchor-ok".into(),
+    };
+    let targets = DrTargets {
+        rto_ms: 500,
+        rpo_records: 2,
+        allow_key_restore: false,
+    };
+    let rto_breach = restore_from_backup(&backup, &targets, 501, 2);
+    assert!(!rto_breach.within_rto);
+    assert!(rto_breach.within_rpo);
+    assert_eq!(rto_breach.recovery_ms, 501);
+    assert_eq!(rto_breach.data_loss_records, 2);
+
+    let rpo_breach = restore_from_backup(&backup, &targets, 500, 3);
+    assert!(rpo_breach.within_rto);
+    assert!(!rpo_breach.within_rpo);
+    assert_eq!(rpo_breach.recovery_ms, 500);
+    assert_eq!(rpo_breach.data_loss_records, 3);
+}

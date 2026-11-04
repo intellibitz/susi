@@ -75,3 +75,17 @@ fn vc_201_079_multi_key_rotation_verifies_when_all_keys_present() {
     keys.insert("k2".into(), "secret-two".into());
     assert_eq!(AuditEvidence::verify(&export, &keys), Ok(()));
 }
+
+#[test]
+fn vc_201_079_wrong_key_secret_in_verification_map_detects_tampering() {
+    let mut a = AuditEvidence::new();
+    a.register_key("k1", "correct-secret");
+    a.append("event=deploy", "k1").unwrap();
+    let export = a.export();
+    let mut wrong_keys = BTreeMap::new();
+    wrong_keys.insert("k1".into(), "wrong-secret".into());
+    assert_eq!(
+        AuditEvidence::verify(&export, &wrong_keys),
+        Err(VerifyFailure::Tampering)
+    );
+}

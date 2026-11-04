@@ -89,3 +89,28 @@ fn vc_201_018_debug_and_staged_candidates_cannot_enter_production_directly() {
         );
     }
 }
+
+#[test]
+fn vc_201_018_unverified_cannot_produce_rc_and_decide_promotion_rejects_blank_evidence() {
+    let mut unverified = verified();
+    unverified.verified = false;
+    assert!(produce_release_candidate(&unverified, "e-bad", "sha256:abc", "ev").is_err());
+
+    let blank_digest = produce_release_candidate(&verified(), "e-empty", "   ", "ev").unwrap();
+    assert!(matches!(
+        decide_promotion(&PromotionAttempt {
+            candidate: blank_digest,
+            via: PromotionPath::SusiRelease,
+        }),
+        PromotionDecision::Rejected(_)
+    ));
+
+    let blank_ev = produce_release_candidate(&verified(), "e-empty", "sha256:abc", "   ").unwrap();
+    assert!(matches!(
+        decide_promotion(&PromotionAttempt {
+            candidate: blank_ev,
+            via: PromotionPath::ReleaseSyncScript,
+        }),
+        PromotionDecision::Rejected(_)
+    ));
+}

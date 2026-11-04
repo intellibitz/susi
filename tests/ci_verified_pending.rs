@@ -52,3 +52,10 @@ fn post_merge_acceptance_limits_batch_verification_to_two_tasks() {
         "post-merge acceptance must bound per-push verification batch size"
     );
 }
+
+#[test]
+fn test_workflow_includes_unsafe_ratchet_and_merge_jobs() {
+    let workflow = include_str!("../.github/workflows/test.yml");
+    assert!(workflow.contains("Unsafe Exposure Ratchet"));
+    assert!(workflow.contains("Re-run the acceptance of freshly merged tasks"));
+}

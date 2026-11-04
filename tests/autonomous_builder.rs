@@ -236,3 +236,31 @@ fn autonomous_builder_acceptance_rejects_a_missing_marker() {
     );
     std::fs::remove_dir_all(repo.parent().unwrap()).ok();
 }
+
+#[test]
+fn unit_fixture_creates_expected_task_and_identity_files() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (remote, repo) = fixture("fixture-files");
+    assert!(remote.is_dir());
+    assert!(repo.join("Cargo.toml").is_file());
+    assert!(repo.join(".agents/identity.json").is_file());
+    assert!(repo.join(".agents/tasks/T-INTELLIBITZ-901.json").is_file());
+    std::fs::remove_dir_all(repo.parent().unwrap()).ok();
+}
+
+#[test]
+fn unit_private_cargo_target_sets_and_restores_env_vars() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!("builder-env-{}", std::process::id()));
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let expected = root.join("private-cargo-target");
+    {
+        let _target = PrivateCargoTarget::new(&repo);
+        assert_eq!(
+            std::env::var_os("CARGO_TARGET_DIR").as_deref(),
+            Some(expected.as_os_str())
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
