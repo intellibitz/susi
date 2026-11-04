@@ -127,3 +127,129 @@ pub fn qualify_repo(repo_root: &Path, scratch_home: &Path) -> EaiResult<Qualific
     }
     qualify(scratch_home, &baseline)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::zc_debt_ratchet::DebtBaseline;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn qualification_verdict_and_release_notes_cover_holds_improved_regressed_and_all_debt_kinds() {
+        let holds = Qualification {
+            journey_ok: true,
+            ratchet: RatchetVerdict::Holds { count: 2 },
+            limits: Vec::new(),
+        };
+        assert!(holds.qualified());
+        let holds_notes = holds.release_notes_section();
+        assert!(holds_notes.contains("- Fresh-HOME journey: pass\n"));
+        assert!(holds_notes.contains("- Config debt: 2 (at baseline)\n"));
+        assert!(holds_notes.contains("None — no required inputs remain.\n"));
+
+        let improved = Qualification {
+            journey_ok: true,
+            ratchet: RatchetVerdict::Improved { now: 1, was: 3 },
+            limits: vec![
+                DebtItem {
+                    id: "1".into(),
+                    kind: DebtKind::Secret,
+                    description: "sec".into(),
+                    removes_via: "T-1".into(),
+                },
+                DebtItem {
+                    id: "2".into(),
+                    kind: DebtKind::Consent,
+                    description: "con".into(),
+                    removes_via: "T-2".into(),
+                },
+                DebtItem {
+                    id: "3".into(),
+                    kind: DebtKind::EnvVar,
+                    description: "env".into(),
+                    removes_via: "T-3".into(),
+                },
+                DebtItem {
+                    id: "4".into(),
+                    kind: DebtKind::Prompt,
+                    description: "prm".into(),
+                    removes_via: "T-4".into(),
+                },
+                DebtItem {
+                    id: "5".into(),
+                    kind: DebtKind::SetupStep,
+                    description: "stp".into(),
+                    removes_via: "T-5".into(),
+                },
+            ],
+        };
+        assert!(improved.qualified());
+        let improved_notes = improved.release_notes_section();
+        assert!(improved_notes.contains("- Config debt: 1 (down from 3)\n"));
+        assert!(improved_notes.contains("- [secret] sec (removes via T-1)\n"));
+        assert!(improved_notes.contains("- [consent] con (removes via T-2)\n"));
+        assert!(improved_notes.contains("- [env var] env (removes via T-3)\n"));
+        assert!(improved_notes.contains("- [prompt] prm (removes via T-4)\n"));
+        assert!(improved_notes.contains("- [setup step] stp (removes via T-5)\n"));
+
+        let journey_failed = Qualification {
+            journey_ok: false,
+            ratchet: RatchetVerdict::Holds { count: 2 },
+            limits: Vec::new(),
+        };
+        assert!(!journey_failed.qualified());
+        assert!(journey_failed
+            .release_notes_section()
+            .contains("- Fresh-HOME journey: FAIL\n"));
+
+        let regressed = Qualification {
+            journey_ok: true,
+            ratchet: RatchetVerdict::Regressed {
+                now: 4,
+                max: 2,
+                new_ids: vec!["env:a".into(), "prompt:b".into()],
+            },
+            limits: Vec::new(),
+        };
+        assert!(!regressed.qualified());
+        assert!(regressed
+            .release_notes_section()
+            .contains("- Config debt: 4 (REGRESSED above 2; new: env:a, prompt:b)\n"));
+    }
+
+    #[test]
+    fn qualify_and_qualify_repo_enforce_clean_scratch_home_and_pinned_baseline() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "susi_zc_qual_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let repo_root = root.join("repo");
+        let scratch_home = root.join("scratch");
+        std::fs::create_dir_all(&repo_root).unwrap();
+        std::fs::create_dir_all(&scratch_home).unwrap();
+
+        // Missing baseline file fails `qualify_repo`.
+        assert!(qualify_repo(&repo_root, &scratch_home).is_err());
+
+        // Pin baseline matching current scan_debt(&[]).
+        let baseline_path = repo_root.join(DEBT_BASELINE_REL);
+        std::fs::create_dir_all(baseline_path.parent().unwrap()).unwrap();
+        let baseline = DebtBaseline::from_scan(&[]);
+        baseline.save(&baseline_path).unwrap();
+
+        let ok_verdict = qualify_repo(&repo_root, &scratch_home).expect("qualify_repo succeeds");
+        assert!(ok_verdict.journey_ok);
+        assert!(ok_verdict.qualified());
+
+        // Pre-existing config.json in scratch_home fails the fresh-HOME journey.
+        std::fs::write(scratch_home.join("config.json"), b"{}").unwrap();
+        let dirty_verdict =
+            qualify(&scratch_home, &baseline_path).expect("qualify returns verdict");
+        assert!(!dirty_verdict.journey_ok);
+        assert!(!dirty_verdict.qualified());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
