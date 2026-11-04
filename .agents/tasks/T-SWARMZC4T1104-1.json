@@ -1,0 +1,20 @@
+{
+  "id": "T-SWARMZC4T1104-1",
+  "title": "test(swarm): expand unit tests to 4 in zc_nat_auto, zc_threshold_tuning, zc_trust_store, audit_payload_free_policy, and provider_key_liveness",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib"
+    ]
+  },
+  "created_by": "SWARMZC4T1104",
+  "created_unix": 1793787213
+}
