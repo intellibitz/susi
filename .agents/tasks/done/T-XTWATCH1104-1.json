@@ -19,5 +19,10 @@
                            ]
                },
     "created_by":  "XTWATCH1104",
-    "created_unix":  1793756373
+    "created_unix":  1793756373,
+    "closed":  {
+                   "at_unix":  1793756395,
+                   "commit":  "cc6cd24362a316269f0a11f8536617cca81421ce",
+                   "by":  "XTWATCH1104"
+               }
 }
