@@ -72,4 +72,21 @@ mod tests {
         assert!(value["properties"]["name"].is_object());
         assert!(value["properties"]["limit"].is_object());
     }
+
+    #[test]
+    fn rmcp_error_code_constants_are_distinct_and_cloneable() {
+        let codes = [
+            crate::model::ErrorCode::PARSE_ERROR,
+            crate::model::ErrorCode::INVALID_REQUEST,
+            crate::model::ErrorCode::METHOD_NOT_FOUND,
+            crate::model::ErrorCode::INVALID_PARAMS,
+            crate::model::ErrorCode::INTERNAL_ERROR,
+        ];
+        for (i, a) in codes.iter().enumerate() {
+            assert_eq!(&a.clone(), a);
+            for (j, b) in codes.iter().enumerate() {
+                assert_eq!(i == j, a == b);
+            }
+        }
+    }
 }

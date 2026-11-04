@@ -118,4 +118,9 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         assert!(error.contains("64 MiB"));
     }
+
+    #[test]
+    fn max_module_bytes_constant_is_exact_64_mib() {
+        assert_eq!(MAX_MODULE_BYTES, 64 * 1024 * 1024);
+    }
 }

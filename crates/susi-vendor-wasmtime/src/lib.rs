@@ -72,4 +72,10 @@ mod tests {
         assert!(wasm::WasmHost::execute_reflex(&bad_wat, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn wasm_cell_from_bytes_rejects_empty_and_invalid_wasm_payloads() {
+        assert!(cell::WasmCell::from_bytes(b"").is_err());
+        assert!(cell::WasmCell::from_bytes(b"not-valid-wat").is_err());
+    }
 }

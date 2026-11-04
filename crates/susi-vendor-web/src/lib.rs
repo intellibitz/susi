@@ -55,4 +55,11 @@ mod tests {
         let out = live_search::gather_live_evidence("", std::path::Path::new("."));
         assert!(out.contains("Admit a search tool"));
     }
+
+    #[test]
+    fn susi_core_reexport_is_reachable_from_vendor_web_root() {
+        assert!(!susi_core::plane_bus::tools::exists(
+            "__nonexistent_vendor_web_probe__"
+        ));
+    }
 }
