@@ -7,8 +7,7 @@
 // Optional POSIX/hosted compatibility fixtures execute shell scripts.
 // Native Windows delivery is covered by the Rust coordinator, bootstrap,
 // installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -132,6 +131,7 @@ impl Drop for World {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn a_red_main_is_attributed_to_its_merge_exactly_once() {
     let w = World::new("attributed");
@@ -169,6 +169,7 @@ fn sha_of_another_merge() -> &'static str {
     "1111111111111111111111111111111111111111"
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unattributable_sha_is_silent_and_successful() {
     let w = World::new("unattributable");
@@ -182,4 +183,21 @@ fn an_unattributable_sha_is_silent_and_successful() {
     assert_eq!(code, 0, "nothing to attribute is not an error: {out}");
     assert!(out.contains("no merged pull request records"), "{out}");
     assert_eq!(w.comments(), "", "no comment may be posted");
+}
+
+#[test]
+fn unit_path_with_prefix_prepends_directory_to_path() {
+    let prefix = std::env::temp_dir().join("susi-test-prefix-bin");
+    let joined = path_with_prefix(&prefix);
+    let first = std::env::split_paths(&joined).next().unwrap();
+    assert_eq!(first, prefix);
+}
+
+#[test]
+fn unit_sha_of_another_merge_and_script_command_invariants() {
+    assert_eq!(sha_of_another_merge().len(), 40);
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/report-main-failure.sh");
+    assert!(script.is_file());
+    let cmd = script_command(&script);
+    assert!(!cmd.get_program().is_empty());
 }

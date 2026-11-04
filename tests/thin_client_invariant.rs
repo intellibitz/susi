@@ -88,3 +88,20 @@ fn conformance_suite_links_only_the_wire_client_and_json() {
     allowed.push("susi-conformance");
     assert_closure("susi-conformance", &allowed);
 }
+
+#[test]
+fn unit_targets_list_exactly_windows_and_linux_x86_64() {
+    assert_eq!(
+        TARGETS,
+        ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+    );
+}
+
+#[test]
+fn unit_allowed_wire_client_excludes_async_and_http_runtimes() {
+    assert!(ALLOWED_WIRE_CLIENT.contains(&"susi-wire-client"));
+    assert!(ALLOWED_WIRE_CLIENT.contains(&"serde_json"));
+    assert!(!ALLOWED_WIRE_CLIENT.contains(&"tokio"));
+    assert!(!ALLOWED_WIRE_CLIENT.contains(&"reqwest"));
+    assert!(!ALLOWED_WIRE_CLIENT.contains(&"hyper"));
+}

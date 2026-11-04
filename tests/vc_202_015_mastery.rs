@@ -184,3 +184,53 @@ fn vc_202_015_mastery() {
 
     std::fs::remove_dir_all(repo.parent().unwrap()).ok();
 }
+
+#[test]
+fn unit_private_cargo_target_sets_and_restores_env_vars() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let tmp = std::env::temp_dir().join("vc202015-env-test/repo");
+    let before = std::env::var_os("CARGO_TARGET_DIR");
+    {
+        let _guard = PrivateCargoTarget::new(&tmp);
+        assert_eq!(
+            std::env::var_os("CARGO_TARGET_DIR"),
+            Some(
+                tmp.parent()
+                    .unwrap()
+                    .join("private-cargo-target")
+                    .into_os_string()
+            )
+        );
+    }
+    assert_eq!(std::env::var_os("CARGO_TARGET_DIR"), before);
+}
+
+#[test]
+fn unit_run_cycle_returns_err_when_selector_picks_no_task() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (_remote, repo) = fixture("no-task");
+    let res = run_cycle(
+        &repo,
+        "INTELLIBITZ",
+        |_open| None,
+        |_task| Some("agent".into()),
+        |_d| Ok(()),
+    );
+    assert!(res.is_err());
+    std::fs::remove_dir_all(repo.parent().unwrap()).ok();
+}
+
+#[test]
+fn unit_run_cycle_returns_err_when_router_picks_no_agent() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (_remote, repo) = fixture("no-agent");
+    let res = run_cycle(
+        &repo,
+        "INTELLIBITZ",
+        |open| open.first().map(|t| t.id.clone()),
+        |_task| None,
+        |_d| Ok(()),
+    );
+    assert!(res.is_err());
+    std::fs::remove_dir_all(repo.parent().unwrap()).ok();
+}

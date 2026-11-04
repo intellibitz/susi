@@ -361,3 +361,27 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
         output.join("receipt.json").display()
     );
 }
+
+#[test]
+fn unit_digest_computes_deterministic_sha256_hex() {
+    let dir = std::env::temp_dir().join(format!("susi-win-rt-digest-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("sample.bin");
+    fs::write(&f, b"windows-runtime-sample").unwrap();
+    let d1 = digest(&f);
+    let d2 = digest(&f);
+    assert_eq!(d1.len(), 64);
+    assert_eq!(d1, d2);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn unit_handoff_rejects_relative_and_mismatched_sysroots() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rel_err = handoff(root.to_str(), Some("relative/sysroot".into())).unwrap_err();
+    assert!(rel_err.contains("must be absolute"));
+
+    let other = std::env::temp_dir();
+    let mismatch_err = handoff(root.to_str(), Some(other.as_os_str().to_owned())).unwrap_err();
+    assert!(mismatch_err.contains("differs from the one used to compile"));
+}

@@ -36,3 +36,31 @@ fn gmcp_roadmap_is_structurally_complete() {
         "checker did not verify the complete requirement queue"
     );
 }
+
+#[test]
+fn unit_gmcp_roadmap_script_exists_and_is_non_empty() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script = root.join("scripts/check-gmcp-roadmap.sh");
+    let content = std::fs::read_to_string(&script).expect("read check-gmcp-roadmap.sh");
+    assert!(content.contains("336"));
+}
+
+#[test]
+fn unit_gmcp_roadmap_evidence_dir_contains_vc_203_artifacts() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let evidence_dir = root.join(".agents/gmcp/evidence");
+    assert!(evidence_dir.is_dir());
+    let count = std::fs::read_dir(&evidence_dir)
+        .expect("read evidence dir")
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().starts_with("VC-203-"))
+        .count();
+    assert!(count >= 1);
+}
+
+#[test]
+fn unit_gmcp_roadmap_cargo_manifest_dir_resolves_workspace_root() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(root.join("Cargo.toml").is_file());
+    assert!(root.join("crates/susi-gmcp/Cargo.toml").is_file());
+}
