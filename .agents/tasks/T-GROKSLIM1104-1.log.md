@@ -8,7 +8,7 @@ Base: cf475e86f (origin/main at task start)
 
 ## Status
 
-Measured. The default release leaves `local-engine` and `tools-rich` off. `cargo tree -p susi` does not contain `susi-vendor-candle`, `susi-vendor-fastembed`, `susi-vendor-chrome`, or `susi-vendor-tantivy`. The same tree with `--features plugins` links all four again. Checks, the claim, and the pull request follow this note.
+Measured, and the local checks passed. The push did not happen. `susi tasks claim` refuses because other live claims already reserve paths this branch edits, and the pre-push guard refuses a task with no claim. No pull request was opened.
 
 ## Baseline (default release, before this change)
 
@@ -76,6 +76,17 @@ Protocol smoke on that running daemon (no token printed):
 - `cargo deny --offline --locked check licenses` passed.
 - `cargo check -p susi --features plugins --offline --locked` passed. That build links Candle again.
 - `cargo clippy --workspace --all-targets --offline --locked -- -D warnings` passed.
+
+## Push blocked
+
+`git push` was refused before any ref was updated: commit `3fdce51b` names T-GROKSLIM1104-1, and nobody holds that claim. A directory-wide claim overlaps `T-DSP4WIRE1104-9` (`tests/socket_parity.rs` and `tests/architecture_tests.rs`). Claiming only the edited files still overlaps these live claims:
+
+- `crates/susi-daemon/src/ambient.rs` — T-DAEMON5TA1104-1 (about 470 min left)
+- `crates/susi-gemi/src/engines/runtime_native.rs` — T-GEMI5TE1104-1 (about 508 min left)
+- `crates/susi-gemi-models/src/lib.rs`, `lifecycle/provision.rs`, `lifecycle/selection.rs` — T-GEMIMODELS5TA1104-1 (about 84 min left)
+- `tests/distill_loop_tests.rs` — T-ROOTTESTS5TB1104-1 (about 212 min left)
+
+Those edits are the feature gate. They were not reverted, and the other claims were not released.
 
 ## Left
 
