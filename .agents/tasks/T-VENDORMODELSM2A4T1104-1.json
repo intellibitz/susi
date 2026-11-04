@@ -1,0 +1,20 @@
+{
+  "id": "T-VENDORMODELSM2A4T1104-1",
+  "title": "test(vendor-models): expand inline unit tests to 4 in accel_reserve, cloud_credentials, eco_query, frontier, and openrouter",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "--lib"
+    ]
+  },
+  "created_by": "VENDORMODELSM2A4T1104",
+  "created_unix": 1793785807
+}

@@ -107,4 +107,33 @@ mod tests {
         assert_eq!(pool.admit(50), AdmitDecision::Admitted { reservation: 50 });
         assert_eq!(pool.reserved_bytes, 950);
     }
+
+    #[test]
+    fn admit_rejects_zero_or_over_free_and_release_saturates_at_zero() {
+        let mut pool = AccelPool {
+            total_bytes: 1000,
+            reserved_bytes: 200,
+        };
+        assert_eq!(pool.admit(0), AdmitDecision::RejectedInsufficient);
+        assert_eq!(
+            pool.admit(pool.free() + 1),
+            AdmitDecision::RejectedInsufficient
+        );
+        pool.release(999_999);
+        assert_eq!(pool.reserved_bytes, 0);
+        assert_eq!(pool.free(), 1000);
+    }
+
+    #[test]
+    fn accel_pool_free_and_serde_json_roundtrip_preserve_state() {
+        let pool = AccelPool {
+            total_bytes: 2000,
+            reserved_bytes: 500,
+        };
+        assert_eq!(pool.free(), 1500);
+        assert_eq!(pool.headroom(), 100);
+        let json = serde_json::to_string(&pool).expect("serialize");
+        let back: AccelPool = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, pool);
+    }
 }

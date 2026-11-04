@@ -234,4 +234,30 @@ mod tests {
             .contains("absolute"));
         assert!(explain("definitely-not-an-entity", None).is_err());
     }
+
+    #[test]
+    fn kb_query_filters_by_kind_and_vendor_accurately() {
+        let vendors = kb_query(&json!({"action": "list", "kind": "vendor"})).unwrap();
+        let vendor_arr = vendors.as_array().expect("vendors array");
+        assert!(!vendor_arr.is_empty());
+        assert!(vendor_arr.iter().all(|v| v["kind"] == "vendor"));
+
+        let first_vendor = vendor_arr[0]["id"].as_str().expect("vendor id");
+        let searched =
+            kb_query(&json!({"action": "search", "vendor": first_vendor})).expect("search vendor");
+        assert!(searched["count"].as_u64().unwrap_or(0) >= 1);
+    }
+
+    #[test]
+    fn show_unknown_entity_and_load_kb_missing_dir_return_descriptive_errors() {
+        let err = show("nonexistent-entity-xyz", None).unwrap_err();
+        assert!(err.contains("susi ecosystem kb search"), "{err}");
+        let missing = load_kb(Some(Path::new("/nonexistent-eco-dir-1104"))).unwrap();
+        assert!(missing.entities.is_empty());
+        assert!(show(
+            "nonexistent-entity-xyz",
+            Some(Path::new("/nonexistent-eco-dir-1104"))
+        )
+        .is_err());
+    }
 }
