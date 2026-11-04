@@ -164,4 +164,17 @@ mod tests {
         assert!(!dir.join("cfg").join("present.json").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn higher_version_upgrade_persists_adapter_override_in_config_dir() {
+        let (dir, manager) = manager_without("present");
+        let valid = Adapter::Command {
+            program: "custom-runner".into(),
+            args: vec!["--fast".into()],
+        };
+        let verdict = upgrade_adapter(&manager, "present", &valid, 2).unwrap();
+        assert_eq!(verdict, SwitchVerdict::Switched);
+        assert!(dir.join("cfg").join("present.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

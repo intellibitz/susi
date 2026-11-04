@@ -131,4 +131,15 @@ mod brain_explain_tests {
             serde_json::from_str(&encoded).expect("deserialize explanation");
         assert_eq!(decoded, explanation);
     }
+
+    #[test]
+    fn explain_route_empty_candidates_and_routing_explanation_serde_roundtrip() {
+        let explanation = explain_route("fallback", &[], "no candidate scores");
+        assert_eq!(explanation.chosen, "fallback");
+        assert_eq!(explanation.reasons, vec!["no candidate scores".to_string()]);
+        let encoded = serde_json::to_string(&explanation).expect("serialize RoutingExplanation");
+        let decoded: RoutingExplanation =
+            serde_json::from_str(&encoded).expect("deserialize RoutingExplanation");
+        assert_eq!(decoded, explanation);
+    }
 }

@@ -371,4 +371,25 @@ mod inline_tests {
         let ranked = recommend_placement(&results);
         assert_eq!(ranked, vec![specs[3].clone(), specs[0].clone()]);
     }
+
+    #[test]
+    fn run_candidate_benchmark_marks_blank_reply_as_incorrect_and_empty_prompts_unsupported() {
+        let specs = format_quantization_matrix("ollama", "qwen");
+        let blank_provider = FakeProvider {
+            engine: "ollama".to_string(),
+            model: "qwen".to_string(),
+            reply: "   \n\t ".to_string(),
+            latency: Duration::from_millis(5),
+            fail: false,
+        };
+        let blank_res =
+            run_candidate_benchmark(&blank_provider, specs[0].clone(), 2048.0, &["prompt"]);
+        assert!(blank_res.supported);
+        assert!(!blank_res.correct);
+
+        let empty_res = run_candidate_benchmark(&blank_provider, specs[0].clone(), 2048.0, &[]);
+        assert!(!empty_res.supported);
+        assert!(!empty_res.correct);
+        assert_eq!(empty_res.tokens_per_sec, 0.0);
+    }
 }

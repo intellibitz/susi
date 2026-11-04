@@ -76,4 +76,22 @@ mod inline_tests {
             InferenceProtocol::from_config("openai")
         );
     }
+
+    #[test]
+    fn provider_builds_http_provider_for_catalog_coding_model() {
+        let manager = CodingModelManager::new().unwrap();
+        let catalog = CodingModelManager::catalog().unwrap();
+        assert!(!catalog.is_empty());
+        let first = &catalog[0];
+        match provider(&manager, &first.id) {
+            Ok(built) => assert_eq!(built.name(), format!("coding-{}", first.id)),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("API_KEY") || msg.contains("susi keys set"),
+                    "unexpected error: {msg}"
+                );
+            }
+        }
+    }
 }

@@ -641,4 +641,19 @@ mod inline_tests {
         assert_eq!(restored.restores[0].snapshot, snap_name);
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn begin_recovery_advances_ownership_epoch_and_clears_active_scopes() {
+        let mut m = PersistedMission::new("m-rec");
+        let initial_epoch = m.ownership;
+        m.set_active_scope("scope-a");
+        m.set_active_scope("scope-b");
+        m.clear_active_scope("scope-a");
+
+        let stale = m.begin_recovery("coord-2", 500);
+        assert_eq!(stale, vec!["scope-b".to_string()]);
+        assert!(m.ownership > initial_epoch);
+        assert_eq!(m.coordinator, "coord-2");
+        assert!(m.recovery.active_scopes.is_empty());
+    }
 }
