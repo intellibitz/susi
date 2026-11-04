@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "GEMISUITESA4T1104",
-  "created_unix": 1793790151
+  "created_unix": 1793790151,
+  "closed": {
+    "at_unix": 1793790321,
+    "commit": "86c17ca80558aea0d304bcb0065c2262f97f418a",
+    "by": "GEMISUITESA4T1104"
+  }
 }
