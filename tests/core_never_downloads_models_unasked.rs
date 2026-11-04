@@ -73,7 +73,7 @@ fn try_block_end(src: &str, open: usize) -> Option<usize> {
                 }
                 if bytes.get(j) == Some(&b'"') {
                     let close: Vec<u8> = std::iter::once(b'"')
-                        .chain(std::iter::repeat(b'#').take(hashes))
+                        .chain(std::iter::repeat_n(b'#', hashes))
                         .collect();
                     j += 1;
                     while j < bytes.len() && !bytes[j..].starts_with(&close) {
