@@ -74,4 +74,32 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn ingest_constitution_line_counts_imperatives_tiers_and_workspace_invariance() {
+        let (rules_a, comps_a) = AxiomSubstrate::ingest_constitution(Path::new("/alpha/ws"));
+        let (rules_b, comps_b) = AxiomSubstrate::ingest_constitution(Path::new("relative/beta"));
+        assert_eq!(rules_a, rules_b);
+        assert_eq!(comps_a, comps_b);
+
+        assert!(rules_a.lines().count() > AlphaSelf::RULES.len());
+        assert_eq!(comps_a.lines().count(), 1 + AlphaSelf::COMPONENTS.len());
+
+        for rule in AlphaSelf::RULES {
+            let expected_line = format!("- **{}** {}: {}", rule.cite, rule.title, rule.imperative);
+            assert!(
+                rules_a.contains(&expected_line),
+                "missing formatted rule entry for {}",
+                rule.cite
+            );
+        }
+        for comp in AlphaSelf::COMPONENTS {
+            let tier_tag = format!("({:?})", comp.tier);
+            assert!(
+                comps_a.contains(&tier_tag),
+                "missing tier tag {tier_tag} for {}",
+                comp.name
+            );
+        }
+    }
 }
