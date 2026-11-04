@@ -44,7 +44,7 @@ fn workspace(start: &Path) -> io::Result<PathBuf> {
     Ok(root)
 }
 
-#[cfg(windows)]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn conventional_windows_path(path: &Path) -> PathBuf {
     let text = path.as_os_str().to_string_lossy();
     if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
@@ -205,7 +205,6 @@ pub(crate) fn run(args: &[String]) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
     #[test]
     fn msvc_paths_preserve_drive_and_unc_roots_without_verbatim_prefix() {
         assert_eq!(
@@ -215,6 +214,10 @@ mod tests {
         assert_eq!(
             conventional_windows_path(Path::new(r"\\?\UNC\server\share\susi")),
             PathBuf::from(r"\\server\share\susi")
+        );
+        assert_eq!(
+            conventional_windows_path(Path::new("/tmp/susi")),
+            PathBuf::from("/tmp/susi")
         );
     }
 
@@ -285,5 +288,66 @@ mod tests {
         assert!(reject_redirect(&path).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "preserve");
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn private_target_creates_local_native_and_rejects_nested_file_collision() {
+        let dir = env::temp_dir().join(format!("susi-local-private-target-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let host = "x86_64-pc-windows-msvc";
+        let target = private_target(&dir, host, Profile::Debug).unwrap();
+        assert_eq!(target, dir.join("target").join("local-native"));
+        assert!(target.is_dir());
+
+        let host_dir = target.join(host);
+        fs::create_dir_all(&host_dir).unwrap();
+        fs::write(host_dir.join("debug"), "not-a-directory").unwrap();
+        assert!(private_target(&dir, host, Profile::Debug).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_locates_ancestor_with_cargo_and_xtask_manifests_and_rejects_unrelated_dir() {
+        let base = env::temp_dir().join(format!("susi-local-ws-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let ws_root = base.join("repo");
+        let nested = ws_root.join("crates/sub/src");
+        let unrelated = base.join("outside");
+        fs::create_dir_all(ws_root.join("xtask")).unwrap();
+        fs::create_dir_all(&nested).unwrap();
+        fs::create_dir_all(&unrelated).unwrap();
+        fs::write(ws_root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        fs::write(
+            ws_root.join("xtask/Cargo.toml"),
+            "[package]\nname = \"xtask\"\n",
+        )
+        .unwrap();
+
+        let resolved = workspace(&nested).unwrap();
+        assert!(resolved.join("xtask/Cargo.toml").is_file());
+        assert!(workspace(&unrelated).is_err());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn debug_build_command_omits_release_flag_and_uses_debug_directory() {
+        assert_eq!(Profile::Debug.directory(), "debug");
+        assert_eq!(Profile::Production.directory(), "release");
+        let command = build_command(
+            Path::new("workspace"),
+            Path::new("private-target"),
+            "x86_64-unknown-linux-gnu",
+            Profile::Debug,
+        );
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(!args.iter().any(|arg| arg == "--release"));
+        assert!(args.iter().any(|arg| arg == "--no-default-features"));
     }
 }
