@@ -1,0 +1,22 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CORESUITESD4T1104-1",
+  "title": "Expand susi-core bounded_io, vc_201_075, and vc_201_081 test suites to 4 unit tests",
+  "touch": [
+    "crates/susi-core/src/tests/bounded_io.rs",
+    "crates/susi-core/src/tests/vc_201_075.rs",
+    "crates/susi-core/src/tests/vc_201_081.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "bounded_io_tests"
+    ]
+  }
+}
