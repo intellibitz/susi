@@ -85,6 +85,7 @@ fn unit_crown_verify_isolate_home_sets_home_and_userprofile() {
         .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_os_string())))
         .collect();
     assert_eq!(envs.get("HOME"), Some(&scratch.as_os_str().to_os_string()));
+    #[cfg(windows)]
     assert_eq!(
         envs.get("USERPROFILE"),
         Some(&scratch.as_os_str().to_os_string())
