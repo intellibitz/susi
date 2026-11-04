@@ -284,4 +284,41 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn qualify_detects_improved_verdict_when_pinned_baseline_has_higher_max_debt_count() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "susi_zc_qual_improved_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let scratch_home = root.join("scratch");
+        std::fs::create_dir_all(&scratch_home).unwrap();
+
+        let baseline_path = root.join("baseline.json");
+        let mut baseline = DebtBaseline::from_scan(&[]);
+        let live_count = baseline.max_required;
+        baseline.max_required = live_count + 3;
+        baseline.known_ids.push("legacy:removed_debt".into());
+        baseline.save(&baseline_path).unwrap();
+
+        let verdict = qualify(&scratch_home, &baseline_path).expect("qualify improved baseline");
+        assert!(verdict.journey_ok);
+        assert!(verdict.qualified());
+        assert_eq!(
+            verdict.ratchet,
+            RatchetVerdict::Improved {
+                now: live_count,
+                was: live_count + 3,
+            }
+        );
+        let notes = verdict.release_notes_section();
+        assert!(notes.contains(&format!(
+            "- Config debt: {live_count} (down from {})\n",
+            live_count + 3
+        )));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
