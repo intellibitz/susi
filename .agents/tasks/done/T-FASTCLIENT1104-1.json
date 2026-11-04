@@ -19,5 +19,10 @@
                            ]
                },
     "created_by":  "FASTCLIENT1104",
-    "created_unix":  1793770977
+    "created_unix":  1793770977,
+    "closed":  {
+                   "at_unix":  1793771047,
+                   "commit":  "634b21bb8486928e4421791dd2bdebe5a3f5fec7",
+                   "by":  "FASTCLIENT1104"
+               }
 }
