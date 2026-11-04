@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GEMIMODSA4T1104-1",
+  "title": "Expand 5 crates/susi-gemi modules (confidence_escalation, consensus_mode, runtime_native, token_stream, learned_classifier) to 4 unit tests each",
+  "touch": [
+    "crates/susi-gemi/src/confidence_escalation.rs",
+    "crates/susi-gemi/src/consensus_mode.rs",
+    "crates/susi-gemi/src/engines/runtime_native.rs",
+    "crates/susi-gemi/src/engines/token_stream.rs",
+    "crates/susi-gemi/src/learned_classifier.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "confidence_escalation"
+    ]
+  }
+}

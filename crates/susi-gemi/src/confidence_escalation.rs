@@ -237,4 +237,24 @@ mod confidence_escalation_tests {
             "high-quality stream must cross lower Wald boundary A"
         );
     }
+
+    #[test]
+    fn confidence_and_evoi_safety_floor_boundary_semantics() {
+        assert!(!confidence_escalate(0.7, 0.7).escalate);
+        assert!(confidence_escalate(0.699, 0.7).escalate);
+
+        // Even when EVOI is negative (expensive frontier, low task value),
+        // cheap_confidence below safety_floor forces escalation.
+        let forced = evoi_escalate(EvoiEscalationInput {
+            cheap_confidence: 0.20,
+            frontier_reliability: 0.90,
+            cheap_cost_usd: 0.0,
+            frontier_cost_usd: 0.50,
+            task_value_usd: 0.05,
+            safety_floor: 0.35,
+        });
+        assert!(forced.escalate);
+        assert!(forced.evoi_usd < 0.0);
+        assert!(forced.reason.contains("safety floor"));
+    }
 }

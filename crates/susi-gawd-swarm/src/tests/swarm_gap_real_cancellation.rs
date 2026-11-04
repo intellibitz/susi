@@ -188,6 +188,19 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     let _ = fs::remove_dir_all(config_dir);
 }
 
+#[test]
+fn swarm_gap_real_cancellation_zero_deadline_returns_deadline_exceeded() {
+    let handle = CancellationHandle::with_deadline_after(Duration::ZERO);
+    let executed = Arc::new(AtomicBool::new(false));
+    let worker_executed = Arc::clone(&executed);
+    let outcome = run_cancellable(&handle, move || {
+        worker_executed.store(true, Ordering::Release);
+        "should-not-complete"
+    })
+    .expect("run_cancellable");
+    assert_eq!(outcome, CancellableResult::DeadlineExceeded);
+}
+
 /// A killed process stays a zombie until its parent reaps it, and `kill -0`
 /// answers for a zombie too. The descendant's parent is the group the test
 /// just killed, so the container's init reaps it — a cloud container's init
