@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "GEMITESTS5TA1104",
-  "created_unix": 1793812512
+  "created_unix": 1793812512,
+  "closed": {
+    "at_unix": 1793813326,
+    "commit": "ea500faf06e4de34e814f8c557b4be2e63dcabca",
+    "by": "GEMITESTS5TA1104"
+  }
 }
