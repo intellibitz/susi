@@ -90,4 +90,18 @@ mod zc_scorecard_tests {
         assert_eq!(s.score, 90.0);
         assert!((s.delta_since_release - (-5.0)).abs() < f64::EPSILON);
     }
+
+    #[test]
+    fn zc_scorecard_serde_json_roundtrip_preserves_remaining_steps() {
+        let card = scorecard(
+            vec![ManualStep {
+                description: "configure gpu".into(),
+                closing_task: "T-GPU-1".into(),
+            }],
+            85.0,
+        );
+        let json = serde_json::to_string(&card).expect("serialize ZcScorecard");
+        let restored: ZcScorecard = serde_json::from_str(&json).expect("deserialize ZcScorecard");
+        assert_eq!(restored, card);
+    }
 }
