@@ -224,4 +224,27 @@ mod tests {
         }))
         .is_err());
     }
+
+    #[test]
+    fn tool_document_parses_nested_models_array_when_is_error_is_absent() {
+        let doc = tool_document(&serde_json::json!({
+            "content": [{"type": "text", "text": "{\"models\":[{\"path\":\"qwen.gguf\"}]}"}]
+        }))
+        .unwrap();
+        assert_eq!(doc["models"][0]["path"], "qwen.gguf");
+    }
+
+    #[test]
+    fn tool_document_rejects_empty_content_when_not_marked_error() {
+        let err = tool_document(&serde_json::json!({"content": []})).unwrap_err();
+        assert!(err.contains("tool result is not a JSON document"));
+    }
+
+    #[test]
+    fn view_returns_structured_runtime_object_with_summary_and_models() {
+        let v = view();
+        assert!(v.is_object());
+        assert!(v["summary"].is_object());
+        assert!(v["models"].is_object());
+    }
 }
