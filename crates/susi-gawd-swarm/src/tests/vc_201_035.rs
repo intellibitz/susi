@@ -118,3 +118,16 @@ fn vc_201_035_independent_missions_update_without_cross_talk() {
     assert_eq!(store.mission("m2").map(String::as_str), Some("beta"));
     assert!(store.mission("m3").is_none());
 }
+
+#[test]
+fn vc_201_035_uninitialized_store_rejects_writes_before_first_epoch() {
+    let mut store = FencedMissionStore::new();
+    let verdict = store.write(MissionWrite {
+        mission_id: "m0".into(),
+        epoch: 1,
+        coordinator: "c1".into(),
+        payload: "unannounced".into(),
+    });
+    assert_ne!(verdict, WriteVerdict::Accepted);
+    assert!(store.mission("m0").is_none());
+}

@@ -89,3 +89,15 @@ fn vc_201_095_mastery_revoked_credential_requires_reauthorization_to_recover() {
     assert_eq!(deployment.state(), DeploymentState::Ready);
     assert_eq!(deployment.budget().spent(), 5);
 }
+
+#[test]
+fn vc_201_095_mastery_runtime_crash_recovers_within_remaining_budget() {
+    let mut deployment = DevDeployment::new("isolated-crash", "cred-ok", 30, 16);
+    deployment.start("cred-ok", 5).expect("start succeeds");
+    deployment.inject(DevFault::RuntimeCrash);
+    assert_eq!(deployment.state(), DeploymentState::Recovering);
+    deployment
+        .recover()
+        .expect("runtime crash recovers cleanly");
+    assert_eq!(deployment.state(), DeploymentState::Ready);
+}

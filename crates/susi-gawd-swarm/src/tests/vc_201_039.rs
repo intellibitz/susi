@@ -88,3 +88,11 @@ fn vc_201_039_unverified_capability_is_rejected_not_scored() {
         .iter()
         .any(|r| r.reason == "missing verified capability"));
 }
+
+#[test]
+fn vc_201_039_empty_peer_list_returns_no_candidate_and_no_rejections() {
+    let t = task(Residency::Anywhere);
+    let (best, rejections) = place(&t, &[]);
+    assert!(best.is_none());
+    assert!(rejections.is_empty());
+}
