@@ -125,3 +125,37 @@ fn vc_201_067_mastery_child_overrides_provenance_cycles_and_unknown() {
         "extends unknown profile refused"
     );
 }
+
+#[test]
+fn vc_201_067_mastery_resolving_unknown_root_profile_returns_error() {
+    assert!(ProfileSet::default().resolve("nonexistent").is_err());
+
+    let s = set(&[
+        (
+            "base",
+            profile(
+                EnvKind::Shared,
+                &[],
+                &[
+                    ("shared_key", json!("shared_val")),
+                    ("override", json!("base")),
+                ],
+            ),
+        ),
+        (
+            "dev",
+            profile(
+                EnvKind::Development,
+                &["base"],
+                &[("override", json!("dev_val")), ("dev_only", json!(true))],
+            ),
+        ),
+    ]);
+    s.validate().expect("valid two-profile hierarchy");
+    let resolved = s.resolve("dev").expect("resolve dev profile");
+    assert_eq!(resolved.values["shared_key"], json!("shared_val"));
+    assert_eq!(resolved.values["override"], json!("dev_val"));
+    assert_eq!(resolved.values["dev_only"], json!(true));
+    assert_eq!(resolved.provenance["shared_key"].profile, "base");
+    assert_eq!(resolved.provenance["override"].profile, "dev");
+}
