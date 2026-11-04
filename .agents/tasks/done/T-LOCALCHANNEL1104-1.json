@@ -19,5 +19,10 @@
                            ]
                },
     "created_by":  "LOCALCHANNEL1104",
-    "created_unix":  1793753876
+    "created_unix":  1793753876,
+    "closed":  {
+                   "at_unix":  1793753900,
+                   "commit":  "0feb337d833596636d94faf16309ad2bf7dc73de",
+                   "by":  "LOCALCHANNEL1104"
+               }
 }
