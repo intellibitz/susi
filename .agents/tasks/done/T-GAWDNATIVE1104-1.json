@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "GAWDNATIVE1104",
-  "created_unix": 1793770387
+  "created_unix": 1793770387,
+  "closed": {
+    "at_unix": 1793771219,
+    "commit": "9a8835530ce933779a9efa5968356fee8a36ed55",
+    "by": "GAWDNATIVE1104"
+  }
 }
