@@ -1,4 +1,4 @@
-﻿{
+{
   "id": "T-CONFCLI1104-1",
   "title": "OSN-26 cross-OS token discovery (ports.json + AppData/XDG fallback) and --signed-udp-ping CLI flags in susi-conformance",
   "state": "closed",
