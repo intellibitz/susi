@@ -291,7 +291,7 @@ mod inline_tests {
             dest: staged.clone(),
             size: Some(4),
             sha256: None,
-            chunk_size: 4,
+            max_retries: 1,
         };
         let report = store.commit_staged("tiny.bin", &plan, &|_| true).unwrap();
         assert!(report.published);
@@ -313,7 +313,7 @@ mod inline_tests {
             sha256: Some(
                 "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
             ),
-            chunk_size: 64,
+            max_retries: 1,
         };
         let report = store
             .commit_staged("corrupt.bin", &plan, &|_| true)
