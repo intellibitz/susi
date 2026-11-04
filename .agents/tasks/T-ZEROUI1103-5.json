@@ -1,0 +1,19 @@
+{
+  "id": "T-ZEROUI1103-5",
+  "title": "Every core CLI feature reachable over the socket: MCP tools for all socket-parity gaps, KNOWN_GAPS empty (plan B4)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "socket_parity"
+    ]
+  },
+  "created_by": "ZEROUI1103",
+  "created_unix": 1793761617
+}
