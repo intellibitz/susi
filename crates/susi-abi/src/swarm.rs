@@ -141,3 +141,77 @@ pub struct SwarmCellManifest {
     /// Unix timestamp of last observed heartbeat.
     pub last_heartbeat: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pheromone_kind_and_swarm_role_serialize_to_exact_snake_case_wire_tags() {
+        let kinds = [
+            (PheromoneKind::Intent, "\"intent\""),
+            (PheromoneKind::Observation, "\"observation\""),
+            (PheromoneKind::Claim, "\"claim\""),
+            (PheromoneKind::Receipt, "\"receipt\""),
+            (PheromoneKind::ConsensusVote, "\"consensus_vote\""),
+            (PheromoneKind::Heartbeat, "\"heartbeat\""),
+        ];
+        for (kind, expected) in kinds {
+            let encoded = serde_json::to_string(&kind).expect("serialize PheromoneKind");
+            assert_eq!(encoded, expected);
+            let decoded: PheromoneKind =
+                serde_json::from_str(&encoded).expect("deserialize PheromoneKind");
+            assert_eq!(decoded, kind);
+        }
+
+        let roles = [
+            (SwarmRole::Kernel, "\"kernel\""),
+            (SwarmRole::InferenceDriver, "\"inference_driver\""),
+            (SwarmRole::ToolDriver, "\"tool_driver\""),
+            (SwarmRole::PlannerCell, "\"planner_cell\""),
+            (SwarmRole::ReflexCell, "\"reflex_cell\""),
+            (SwarmRole::ExternalPeer, "\"external_peer\""),
+        ];
+        for (role, expected) in roles {
+            let encoded = serde_json::to_string(&role).expect("serialize SwarmRole");
+            assert_eq!(encoded, expected);
+            let decoded: SwarmRole = serde_json::from_str(&encoded).expect("deserialize SwarmRole");
+            assert_eq!(decoded, role);
+        }
+    }
+
+    #[test]
+    fn swarm_pheromone_and_cell_manifest_round_trip_serde() {
+        let pheromone = SwarmPheromone {
+            id: "phero-1104".to_string(),
+            topic: "intent.code.audit".to_string(),
+            emitter_id: "cell-gawd-1".to_string(),
+            kind: PheromoneKind::Intent,
+            intensity: 0.875,
+            payload: serde_json::json!({"crate": "susi-abi"}),
+            ttl_ms: 5000,
+            deposited_at: 1_700_000_500,
+        };
+        let encoded_p = serde_json::to_string(&pheromone).expect("serialize SwarmPheromone");
+        let decoded_p: SwarmPheromone =
+            serde_json::from_str(&encoded_p).expect("deserialize SwarmPheromone");
+        assert_eq!(decoded_p, pheromone);
+
+        let mut bloom = CapabilityBloom::empty();
+        bloom.insert_hash(0xCAFE_BABE);
+        let manifest = SwarmCellManifest {
+            cell_id: "cell-reflex-7".to_string(),
+            role: SwarmRole::ReflexCell,
+            capabilities: vec!["wasm.reflex".to_string(), "fast.gate".to_string()],
+            bloom_filter: bloom,
+            endpoint: "tcp://127.0.0.1:19095".to_string(),
+            trust_score: 0.99,
+            last_heartbeat: 1_700_000_600,
+        };
+        let encoded_m = serde_json::to_string(&manifest).expect("serialize SwarmCellManifest");
+        let decoded_m: SwarmCellManifest =
+            serde_json::from_str(&encoded_m).expect("deserialize SwarmCellManifest");
+        assert_eq!(decoded_m, manifest);
+        assert!(decoded_m.bloom_filter.may_contain_hash(0xCAFE_BABE));
+    }
+}
