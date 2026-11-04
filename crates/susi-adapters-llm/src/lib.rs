@@ -91,4 +91,32 @@ mod tests {
         );
         assert!(triton_text(&json!({})).is_err());
     }
+
+    #[test]
+    fn mixed_case_protocols_kimi_thinking_envelope_and_empty_choices_rejection() {
+        assert_eq!(
+            InferenceProtocol::from_config("AnThRoPiC"),
+            InferenceProtocol::Anthropic
+        );
+        assert_eq!(
+            InferenceProtocol::from_config("GeMiNi"),
+            InferenceProtocol::Gemini
+        );
+        assert_eq!(
+            InferenceProtocol::from_config("TrItOn"),
+            InferenceProtocol::Triton
+        );
+        assert_eq!(
+            InferenceProtocol::from_config("CoMpLeTiOnS"),
+            InferenceProtocol::OpenAiCompletions
+        );
+
+        let kimi = openai_chat_body("moonshot-v1-8k", "reason", 64);
+        assert_eq!(kimi["thinking"], json!({"type": "enabled"}));
+
+        assert!(openai_chat_text(&json!({})).is_err());
+        assert!(openai_chat_text(&json!({"choices": []})).is_err());
+        assert!(openai_completions_text(&json!({})).is_err());
+        assert!(openai_completions_text(&json!({"choices": []})).is_err());
+    }
 }
