@@ -1,0 +1,27 @@
+{
+  "id": "T-RESIDENTREAD-1",
+  "owner": "residentread1102",
+  "status": "implemented",
+  "title": "Reuse authenticated Windows model weights while the loaded model owns their write-denying handle",
+  "dependencies": [
+    "T-MODELREAD-1"
+  ],
+  "scopes": [
+    ".agents/tasks/T-RESIDENTREAD-1.json",
+    "crates/susi-vendor-models/src/model_read_window.rs",
+    "crates/susi-vendor-models/src/model_license.rs",
+    "crates/susi-gemi-models/src/model_cache.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "--offline",
+      "--locked",
+      "model_license::tests"
+    ]
+  },
+  "requirement": "All publisher authentications survive across worker threads. Skip weights hashing only for the same local unnamed stream and authenticated digest with a live writer-denying handle. Release on eviction, preserve alias/substitution/updated-receipt refusal, bound weak index to four, retain conservative fallback."
+}
