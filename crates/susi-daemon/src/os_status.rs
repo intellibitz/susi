@@ -630,4 +630,58 @@ mod tests {
         };
         assert_eq!(leader_display(&state, &older), "a");
     }
+
+    #[test]
+    fn leader_display_returns_non_empty_term_leader_when_term_is_ahead() {
+        let state = commit_log::ClusterState {
+            term: 3,
+            leader: "node-old".into(),
+            ..Default::default()
+        };
+        let newer = commit_log::TermState {
+            term: 4,
+            leader: "node-new".into(),
+            updated_at: 100,
+        };
+        assert_eq!(leader_display(&state, &newer), "node-new");
+    }
+
+    #[test]
+    fn leader_display_returns_none_placeholder_when_both_leaders_are_empty() {
+        let state = commit_log::ClusterState {
+            term: 2,
+            leader: String::new(),
+            ..Default::default()
+        };
+        let same_term = commit_log::TermState {
+            term: 2,
+            leader: String::new(),
+            updated_at: 0,
+        };
+        assert_eq!(leader_display(&state, &same_term), "(none)");
+    }
+
+    #[test]
+    fn peer_view_freshness_window_and_invalid_address_probe() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let fresh_peer = PeerView {
+            node_id: "peer-1".into(),
+            address: "invalid-address-without-port".into(),
+            trust_score: 0.95,
+            last_seen_secs: now,
+        };
+        assert!(fresh_peer.fresh());
+        assert!(!fresh_peer.probe());
+
+        let unseen_peer = PeerView {
+            node_id: "peer-0".into(),
+            address: "invalid-address".into(),
+            trust_score: 0.5,
+            last_seen_secs: 0,
+        };
+        assert!(!unseen_peer.fresh());
+    }
 }
