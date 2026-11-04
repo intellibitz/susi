@@ -63,3 +63,71 @@ fn vc_201_094_controller_releases_a_cancelled_reservation() {
     controller.release(reservation).expect("release once");
     assert_eq!(controller.in_flight(), LoadPoint::default());
 }
+
+#[test]
+fn vc_201_094_saturation_identifies_streaming_peer_repair_and_model_churn() {
+    let limits = CapacityLimits {
+        max_missions: 2,
+        max_streaming: 2,
+        max_peer_repair: 1,
+        max_model_churn: 1,
+    };
+    let s_sat = saturation(
+        &LoadPoint {
+            missions: 1,
+            streaming: 3,
+            peer_repair: 0,
+            model_churn: 0,
+        },
+        &limits,
+    );
+    assert_eq!(s_sat.saturated_on, Some("streaming"));
+
+    let p_sat = saturation(
+        &LoadPoint {
+            missions: 1,
+            streaming: 1,
+            peer_repair: 2,
+            model_churn: 0,
+        },
+        &limits,
+    );
+    assert_eq!(p_sat.saturated_on, Some("peer_repair"));
+
+    let m_sat = saturation(
+        &LoadPoint {
+            missions: 1,
+            streaming: 1,
+            peer_repair: 1,
+            model_churn: 2,
+        },
+        &limits,
+    );
+    assert_eq!(m_sat.saturated_on, Some("model_churn"));
+}
+
+#[test]
+fn vc_201_094_double_release_returns_underflow_without_corrupting_in_flight() {
+    let limits = CapacityLimits {
+        max_missions: 2,
+        max_streaming: 2,
+        max_peer_repair: 2,
+        max_model_churn: 2,
+    };
+    let mut controller = ControlPlaneCapacity::new(limits);
+    let res = controller
+        .reserve(LoadPoint {
+            missions: 1,
+            streaming: 1,
+            peer_repair: 0,
+            model_churn: 0,
+        })
+        .unwrap();
+    let dup = res;
+    assert_eq!(controller.release(res), Ok(()));
+    assert_eq!(
+        controller.release(dup),
+        Err(CapacityError::ReleaseUnderflow)
+    );
+    assert_eq!(controller.in_flight(), LoadPoint::default());
+}
