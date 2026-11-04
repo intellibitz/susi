@@ -1,0 +1,23 @@
+{
+  "id": "T-VENDORCLOUD3TEST1104-1",
+  "title": "Expand inline unit test suites across susi-vendor-cloud autoscale, failover_policy, orphan_gc, and preemptible",
+  "goal": "Add a 3rd inline unit test to autoscale.rs, failover_policy.rs, orphan_gc.rs, and preemptible.rs in susi-vendor-cloud",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-cloud",
+      "--lib"
+    ]
+  },
+  "created_by": "VENDORCLOUD3TEST1104",
+  "created_unix": 1793775481,
+  "closed": {
+    "at_unix": 1793775668,
+    "commit": "c70d7e74a3d77e9cc9841137150cff7cd8dec829",
+    "by": "VENDORCLOUD3TEST1104"
+  }
+}

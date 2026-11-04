@@ -217,4 +217,50 @@ mod tests {
         assert!(set.checkpoints.is_empty());
         assert_eq!(set.jobs.len(), 3);
     }
+
+    #[test]
+    fn evict_empty_set_zero_retry_budget_and_multi_cycle_duplicate_accounting() {
+        let mut set = PreemptibleSet::new(1);
+        set.ledger.productive_secs = 50;
+        assert!(set.evict().is_empty());
+        assert_eq!(set.ledger.duplicate_secs, 0);
+        assert_eq!(set.billed_secs(), 50);
+
+        set.jobs.insert(
+            "job-a".into(),
+            Job {
+                id: "job-a".into(),
+                checkpointable: true,
+                progress: 0.25,
+                compute_secs: 20,
+            },
+        );
+        assert_eq!(
+            set.evict(),
+            vec![EvictOutcome::Checkpointed {
+                id: "job-a".into(),
+                progress: 0.25,
+            }]
+        );
+        assert_eq!(set.ledger.duplicate_secs, 20);
+        assert!(set.resume(1, 0).is_empty());
+        assert_eq!(set.checkpoints.len(), 1);
+
+        let resumed = set.resume(2, 1);
+        assert_eq!(resumed.len(), 1);
+        if let Some(job) = set.jobs.get_mut("job-a") {
+            job.progress = 0.75;
+            job.compute_secs = 35;
+        }
+        set.fencing_token = 2;
+        assert_eq!(
+            set.evict(),
+            vec![EvictOutcome::Checkpointed {
+                id: "job-a".into(),
+                progress: 0.75,
+            }]
+        );
+        assert_eq!(set.ledger.duplicate_secs, 55);
+        assert_eq!(set.billed_secs(), 105);
+    }
 }
