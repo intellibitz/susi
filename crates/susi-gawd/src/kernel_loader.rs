@@ -63,7 +63,7 @@ impl SubstrateKernelLoader {
         use std::time::Duration;
 
         let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
-        let host_token = susi_paths::host_token();
+        let signed_ping = crate::susi_config::cluster_key::signed_ping("bootloader", 0, "0");
         let checks: &[(&str, u16, bool)] = &[
             ("GMCP/MCP HTTP", cfg.gmcp_port(), true),
             ("GEMI HTTP", cfg.gemi_port(), true),
@@ -80,7 +80,13 @@ impl SubstrateKernelLoader {
                 )
                 .is_ok()
             } else {
-                probe_udp_discovery_port(*port, host_token.as_deref(), Duration::from_millis(200))
+                probe_udp_discovery_port(
+                    *port,
+                    signed_ping
+                        .as_ref()
+                        .map(|(frame, nonce)| (frame.as_str(), nonce.as_str())),
+                    Duration::from_millis(200),
+                )
             };
             println!(
                 "    - {} (127.0.0.1:{}) ... {}",
@@ -96,20 +102,25 @@ impl SubstrateKernelLoader {
 
 /// Probe the authenticated UDP discovery endpoint (`B7`).
 ///
-/// Sends `SUSI_PING:<api_token>` to `127.0.0.1:{port}` and waits up to
-/// `timeout` for an authenticated `SUSI_ACK:<version>` reply. Fails closed
-/// (`false`) when no non-empty host token is available, when the responder
-/// drops an unauthenticated/mismatched ping, or when nothing is listening.
+/// Sends an HMAC-signed `SUSI_PING_SIG` frame to `127.0.0.1:{port}` and waits
+/// up to `timeout` for a `SUSI_PONG_SIG*` reply whose HMAC and echoed `nonce`
+/// verify under `cluster_key::verify_signed_pong`. Fails closed (`false`) when
+/// no signed ping is supplied, when the frame is unsigned, when the responder
+/// drops the ping or returns an unverified pong, or when nothing is listening.
 pub fn probe_udp_discovery_port(
     port: u16,
-    token: Option<&str>,
+    signed_ping_and_nonce: Option<(&str, &str)>,
     timeout: std::time::Duration,
 ) -> bool {
     use std::net::UdpSocket;
 
-    let Some(tok) = token.map(str::trim).filter(|t| !t.is_empty()) else {
+    let Some((frame, nonce)) = signed_ping_and_nonce else {
         return false;
     };
+    let (frame, nonce) = (frame.trim(), nonce.trim());
+    if !frame.starts_with("SUSI_PING_SIG") || nonce.is_empty() {
+        return false;
+    }
     let Ok(socket) = UdpSocket::bind("127.0.0.1:0") else {
         return false;
     };
@@ -118,28 +129,33 @@ pub fn probe_udp_discovery_port(
     {
         return false;
     }
-    let frame = format!("SUSI_PING:{tok}");
     if socket
         .send_to(frame.as_bytes(), format!("127.0.0.1:{port}"))
         .is_err()
     {
         return false;
     }
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 4096];
     let Ok((amt, _src)) = socket.recv_from(&mut buf) else {
         return false;
     };
-    buf[..amt].starts_with(b"SUSI_ACK:")
+    let Ok(reply) = std::str::from_utf8(&buf[..amt]) else {
+        return false;
+    };
+    crate::susi_config::cluster_key::verify_signed_pong(reply.trim(), nonce).is_some()
 }
 
 #[cfg(test)]
 mod tests {
     use super::probe_udp_discovery_port;
+    use crate::susi_config::cluster_key::{signed_ping, signed_pong, verify_signed_ping};
     use std::net::UdpSocket;
     use std::time::Duration;
 
     #[test]
-    fn probe_udp_discovery_port_succeeds_on_authenticated_ack() {
+    fn probe_udp_discovery_port_succeeds_on_signed_pong() {
+        let (frame, nonce) =
+            signed_ping("bootloader", 0, "0").expect("cluster.key must produce signed ping");
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
         server
             .set_read_timeout(Some(Duration::from_secs(2)))
@@ -147,24 +163,29 @@ mod tests {
         let port = server.local_addr().expect("local_addr").port();
 
         let handle = std::thread::spawn(move || {
-            let mut buf = [0u8; 256];
+            let mut buf = [0u8; 4096];
             if let Ok((amt, src)) = server.recv_from(&mut buf) {
-                if &buf[..amt] == b"SUSI_PING:test-token-b7" {
-                    let _ = server.send_to(b"SUSI_ACK:0.21.47", src);
+                let msg = String::from_utf8_lossy(&buf[..amt]);
+                if let Some((_id, _caps, _sum, _bloom, rx_nonce, _v2)) = verify_signed_ping(&msg) {
+                    if let Some(pong) = signed_pong("test-daemon", 0, "0", &rx_nonce, &[]) {
+                        let _ = server.send_to(pong.as_bytes(), src);
+                    }
                 }
             }
         });
 
         assert!(probe_udp_discovery_port(
             port,
-            Some("  test-token-b7\n"),
+            Some((&frame, &nonce)),
             Duration::from_millis(500),
         ));
         let _ = handle.join();
     }
 
     #[test]
-    fn probe_udp_discovery_port_rejects_missing_wrong_token_and_closed_port() {
+    fn probe_udp_discovery_port_rejects_unsigned_mismatched_nonce_and_closed_port() {
+        let (frame, nonce) =
+            signed_ping("bootloader", 0, "0").expect("cluster.key must produce signed ping");
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
         server
             .set_read_timeout(Some(Duration::from_millis(300)))
@@ -172,10 +193,13 @@ mod tests {
         let port = server.local_addr().expect("local_addr").port();
 
         let handle = std::thread::spawn(move || {
-            let mut buf = [0u8; 256];
-            if let Ok((amt, src)) = server.recv_from(&mut buf) {
-                if &buf[..amt] == b"SUSI_PING:expected-secret" {
-                    let _ = server.send_to(b"SUSI_ACK:0.21.47", src);
+            let mut buf = [0u8; 4096];
+            if let Ok((_amt, src)) = server.recv_from(&mut buf) {
+                // Responder replies with a pong bound to a different nonce.
+                if let Some(wrong_pong) =
+                    signed_pong("test-daemon", 0, "0", "deadbeef00112233", &[])
+                {
+                    let _ = server.send_to(wrong_pong.as_bytes(), src);
                 }
             }
         });
@@ -187,20 +211,25 @@ mod tests {
         ));
         assert!(!probe_udp_discovery_port(
             port,
-            Some("   "),
+            Some(("SUSI_PING:plaintext-secret", &nonce)),
             Duration::from_millis(100),
         ));
         assert!(!probe_udp_discovery_port(
             port,
-            Some("wrong-token"),
-            Duration::from_millis(150),
+            Some((&frame, "")),
+            Duration::from_millis(100),
+        ));
+        assert!(!probe_udp_discovery_port(
+            port,
+            Some((&frame, &nonce)),
+            Duration::from_millis(200),
         ));
         let _ = handle.join();
 
         // Port is now closed after `server` dropped in the responder thread.
         assert!(!probe_udp_discovery_port(
             port,
-            Some("expected-secret"),
+            Some((&frame, &nonce)),
             Duration::from_millis(100),
         ));
     }

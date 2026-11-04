@@ -884,21 +884,11 @@ impl SusiSupervisor {
                         // follows for pre-PKI peers. Both nonces are pending
                         // so either pong verifies.
                         if broadcast_due || !targets.is_empty() {
-                            let pings: Vec<(String, String)> = [
-                                crate::susi_config::cluster_key::signed_ping_v2(
-                                    &local_caps,
-                                    registry_checksum,
-                                    &local_bloom.to_hex(),
-                                ),
-                                crate::susi_config::cluster_key::signed_ping(
-                                    &local_caps,
-                                    registry_checksum,
-                                    &local_bloom.to_hex(),
-                                ),
-                            ]
-                            .into_iter()
-                            .flatten()
-                            .collect();
+                            let pings = signed_lan_discovery_frames(
+                                &local_caps,
+                                registry_checksum,
+                                &local_bloom.to_hex(),
+                            );
                             if !pings.is_empty() {
                                 let sent_at = std::time::Instant::now();
                                 for (_, nonce) in &pings {
@@ -929,16 +919,6 @@ impl SusiSupervisor {
                                         let _ = socket.send_to(signed.as_bytes(), &target);
                                     }
                                 }
-                            }
-                        }
-                        // Also speak the daemon's authenticated LAN ping dialect
-                        // when a host token is seeded (`B7`) — never broadcast
-                        // retired unauthenticated `SUSI_LAN_PING` or bare `SUSI_PING`.
-                        if broadcast_due {
-                            let host_token = susi_paths::host_token();
-                            if let Some(frame) = authenticated_lan_ping_frame(host_token.as_deref())
-                            {
-                                let _ = socket.send_to(&frame, format!("255.255.255.255:{}", port));
                             }
                         }
                         std::thread::sleep(Duration::from_millis(100));
@@ -2019,17 +1999,42 @@ impl SusiSupervisor {
     }
 }
 
-/// Format an authenticated `SUSI_PING:<api_token>` UDP discovery frame (`B7`).
+/// Build the HMAC-signed LAN discovery frames (`SUSI_PING_SIG2` + `SUSI_PING_SIG`)
+/// for UDP `9092` (`B7`).
 ///
-/// Returns `None` when no non-empty host token is seeded so the scout never
-/// broadcasts the retired unauthenticated `SUSI_LAN_PING` or bare `SUSI_PING`
-/// dialect on UDP `9092`.
-pub fn authenticated_lan_ping_frame(token: Option<&str>) -> Option<Vec<u8>> {
-    let trimmed = token?.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(format!("SUSI_PING:{trimmed}").into_bytes())
+/// Authenticates via HMAC over `cluster.key` without ever broadcasting
+/// `host_token` (`api_token`) or retired unauthenticated `SUSI_LAN_PING` on the
+/// LAN broadcast address. Sanitizes `caps_csv` to `cluster_key`'s wire-safe
+/// alphabet (`[A-Za-z0-9,._-]`) so `gmcp_http=<port>` tokens never cause
+/// `signed_ping_v2` / `signed_ping` to return `None`.
+pub fn signed_lan_discovery_frames(
+    caps_csv: &str,
+    checksum: u64,
+    bloom_hex: &str,
+) -> Vec<(String, String)> {
+    let sanitized_caps: String = caps_csv
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ',' | '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let wire_caps = if sanitized_caps.is_empty() {
+        "CORE"
+    } else {
+        sanitized_caps.as_str()
+    };
+    let wire_bloom = if bloom_hex.is_empty() { "0" } else { bloom_hex };
+    [
+        crate::susi_config::cluster_key::signed_ping_v2(wire_caps, checksum, wire_bloom),
+        crate::susi_config::cluster_key::signed_ping(wire_caps, checksum, wire_bloom),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 #[cfg(test)]
@@ -2534,12 +2539,16 @@ mod tests {
     }
 
     #[test]
-    fn authenticated_lan_ping_frame_requires_non_empty_token_and_retires_lan_ping() {
-        let frame = super::authenticated_lan_ping_frame(Some("secret\n"))
-            .expect("non-empty token must produce authenticated ping frame");
-        assert_eq!(frame, b"SUSI_PING:secret".to_vec());
-        assert_ne!(frame.as_slice(), b"SUSI_LAN_PING");
-        assert_eq!(super::authenticated_lan_ping_frame(None), None);
-        assert_eq!(super::authenticated_lan_ping_frame(Some("  ")), None);
+    fn signed_lan_discovery_frames_use_cluster_key_hmac_and_never_expose_host_token() {
+        let frames = super::signed_lan_discovery_frames("CORE,gmcp_http=9093", 42, "0");
+        assert_eq!(frames.len(), 2, "must produce v2 and v1 signed pings");
+        assert!(frames[0].0.starts_with("SUSI_PING_SIG2:"));
+        assert!(frames[1].0.starts_with("SUSI_PING_SIG:"));
+        for (frame, nonce) in &frames {
+            assert!(!frame.contains("SUSI_LAN_PING"));
+            let verified = crate::susi_config::cluster_key::verify_signed_ping(frame)
+                .expect("signed discovery frame must verify under cluster.key");
+            assert_eq!(&verified.4, nonce);
+        }
     }
 }
