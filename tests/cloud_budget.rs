@@ -144,3 +144,9 @@ fn cloud_budget_release_restores_full_capacity_and_denial_display_is_descriptive
     ledger.release(full);
     assert_eq!(ledger.account_exposure("cap-acct"), 0);
 }
+
+#[test]
+fn cloud_budget_unknown_account_exposure_is_zero() {
+    let ledger = BudgetLedger::new();
+    assert_eq!(ledger.account_exposure("nonexistent-account"), 0);
+}

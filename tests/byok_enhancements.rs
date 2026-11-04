@@ -133,3 +133,14 @@ fn test_byok_unknown_id_and_empty_provider_queries_return_none_or_empty(
     let _ = std::fs::remove_dir_all(&temp_dir);
     Ok(())
 }
+
+#[test]
+fn test_byok_empty_store_lists_no_credentials() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = unique_test_dir("empty-store")?;
+    let all = cloud_credentials::list_all(&temp_dir)?;
+    assert!(all.is_empty());
+    let gemini = cloud_credentials::list(&temp_dir, "GEMINI_API_KEY")?;
+    assert!(gemini.is_empty());
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(())
+}

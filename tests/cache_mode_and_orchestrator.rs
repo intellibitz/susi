@@ -264,3 +264,10 @@ fn test_tiered_orchestrator_worker_and_pro_routing() {
         "Prometheus metrics must export cached token gauge"
     );
 }
+
+#[test]
+fn test_gemini_cache_payload_without_cached_content_omits_reference_field() {
+    let payload = gemini_cache_payload("system prompt", "user prompt", None);
+    assert!(payload.get("cachedContent").is_none());
+    assert!(payload.get("contents").is_some());
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-ROOTTESTS5TA1104-1",
+  "title": "Advance 14 root tests/*.rs Wave A suites to 5-test floor",
+  "goal": "Ensure all 14 root tests/*.rs Wave A integration test suites contain at least 5 unit tests per D-OS-8.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "airgap_mode"
+    ]
+  },
+  "created_by": "ROOTTESTS5TA1104",
+  "created_unix": 1793818000
+}
