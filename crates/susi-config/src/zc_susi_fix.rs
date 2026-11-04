@@ -215,4 +215,58 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn doctor_scan_detects_hooks_missing_and_apply_safe_fixes_installs_stub_and_skips_unsafe_or_operator_items(
+    ) {
+        let root = std::env::temp_dir().join(format!("susi-zc-fix-hooks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["config", "evidence", "brain", "tasks", "hooks"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+
+        let scanned = doctor_scan(&root);
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].kind, FixKind::HooksMissing);
+        assert!(scanned[0].safe);
+
+        let mut findings = scanned;
+        findings.push(DoctorFinding {
+            kind: FixKind::MissingDir,
+            path: root.join("untrusted").display().to_string(),
+            detail: "manual migration".into(),
+            safe: false,
+        });
+        findings.push(DoctorFinding {
+            kind: FixKind::PortConflict,
+            path: String::new(),
+            detail: "port 8080 busy".into(),
+            safe: true,
+        });
+        findings.push(DoctorFinding {
+            kind: FixKind::KeyRegistrationPrompt,
+            path: String::new(),
+            detail: "missing cloud key".into(),
+            safe: true,
+        });
+
+        let report = apply_safe_fixes(&root, &findings);
+        let hook_path = root.join("hooks").join("pre-commit");
+        assert!(hook_path.is_file());
+        assert!(std::fs::read_to_string(&hook_path)
+            .unwrap()
+            .contains("installed by susi fix"));
+        assert_eq!(report.applied.len(), 1);
+        assert!(report.applied[0].starts_with("installed hook stub "));
+        assert_eq!(
+            report.skipped,
+            vec![
+                "unsafe: manual migration".to_string(),
+                "needs operator: port 8080 busy".to_string(),
+                "needs operator: missing cloud key".to_string(),
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
