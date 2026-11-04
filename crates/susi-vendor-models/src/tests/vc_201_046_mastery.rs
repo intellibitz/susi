@@ -109,3 +109,66 @@ fn vc_201_046_mastery_cancellation_and_deadline_exceeded_never_run_late() {
     assert_eq!(backend.invocations.get(), 1);
     assert_eq!(backend.batch_sizes.take(), vec![1]);
 }
+
+#[test]
+fn vc_201_046_mastery_max_batch_splits_queued_requests_into_bounded_chunks() {
+    let backend = TestBackend::new(true);
+    let mut batcher = Batcher::new(test_limits(2, 8, 100), &backend).unwrap();
+    let now = 2_000u64;
+
+    for id in 1..=3 {
+        batcher
+            .submit(
+                Request {
+                    id,
+                    prompt: format!("p{id}"),
+                    deadline_ms: now + 500,
+                },
+                now,
+            )
+            .unwrap();
+    }
+
+    let _ = batcher.flush(now + 10);
+    let _ = batcher.flush(now + 10);
+    let sizes = backend.batch_sizes.take();
+    assert_eq!(sizes, vec![2, 1]);
+    for id in 1..=3 {
+        assert_eq!(
+            batcher.outcome(id),
+            Some(&BatchOutcome::Done {
+                output: format!("res:p{id}")
+            })
+        );
+    }
+}
+
+#[test]
+fn vc_201_046_mastery_queue_capacity_limit_refuses_overflow_submissions() {
+    let backend = TestBackend::new(true);
+    let mut batcher = Batcher::new(test_limits(2, 2, 100), &backend).unwrap();
+    let now = 3_000u64;
+
+    for id in 1..=2 {
+        batcher
+            .submit(
+                Request {
+                    id,
+                    prompt: format!("q{id}"),
+                    deadline_ms: now + 500,
+                },
+                now,
+            )
+            .unwrap();
+    }
+
+    let overflow = batcher.submit(
+        Request {
+            id: 3,
+            prompt: "q3".into(),
+            deadline_ms: now + 500,
+        },
+        now,
+    );
+    assert!(overflow.is_err());
+}

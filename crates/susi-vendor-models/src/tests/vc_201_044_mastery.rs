@@ -118,3 +118,44 @@ fn vc_201_044_mastery_interrupted_download_preserves_recoverable_state() {
     assert_eq!(report.resumed_from, 20);
     assert!(store.is_ready("model.gguf"));
 }
+
+#[test]
+fn vc_201_044_mastery_clean_single_shot_publish_verifies_and_marks_ready() {
+    let root = temp_store_dir("single-shot");
+    let store = Store::new(&root);
+    let transport = MockTransport::new(vec![range_ok(PAYLOAD)]);
+
+    let plan = DownloadPlan {
+        url: "http://mock/model.gguf".into(),
+        dest: PathBuf::new(),
+        sha256: Some(sha256_hex(PAYLOAD)),
+        size: Some(PAYLOAD.len() as u64),
+        max_retries: 1,
+    };
+
+    let report = store
+        .publish("model.gguf", &plan, &|req| transport.call(req))
+        .unwrap();
+    assert!(report.published && report.verified);
+    assert_eq!(report.resumed_from, 0);
+    assert!(store.is_ready("model.gguf"));
+    assert!(store.recover().is_empty());
+}
+
+#[test]
+fn vc_201_044_mastery_size_mismatch_quarantines_and_never_marks_ready() {
+    let root = temp_store_dir("size-mismatch");
+    let store = Store::new(&root);
+    let transport = MockTransport::new(vec![range_ok(PAYLOAD)]);
+
+    let plan = DownloadPlan {
+        url: "http://mock/model.gguf".into(),
+        dest: PathBuf::new(),
+        sha256: Some(sha256_hex(PAYLOAD)),
+        size: Some((PAYLOAD.len() + 10) as u64),
+        max_retries: 0,
+    };
+
+    let _ = store.publish("model.gguf", &plan, &|req| transport.call(req));
+    assert!(!store.is_ready("model.gguf"));
+}

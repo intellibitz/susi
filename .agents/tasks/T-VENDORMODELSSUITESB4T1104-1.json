@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-VENDORMODELSSUITESB4T1104-1",
+  "title": "test(vendor-models): expand vc_201_041, vc_201_043, vc_201_044, vc_201_046, and vc_202_001 mastery test suites to 4 unit tests",
+  "touch": [
+    "crates/susi-vendor-models/src/tests/vc_201_041_mastery.rs",
+    "crates/susi-vendor-models/src/tests/vc_201_043_mastery.rs",
+    "crates/susi-vendor-models/src/tests/vc_201_044_mastery.rs",
+    "crates/susi-vendor-models/src/tests/vc_201_046_mastery.rs",
+    "crates/susi-vendor-models/src/tests/vc_202_001_mastery.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "--lib",
+      "vc_201_041_mastery_tests"
+    ]
+  }
+}
