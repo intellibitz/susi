@@ -1,0 +1,19 @@
+{
+  "id": "T-ROOTINTTESTSD4T1104-1",
+  "title": "Expand 5 pure in-process root integration test suites D to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "ci_verified_pending"
+    ]
+  },
+  "created_by": "ROOTINTTESTSD4T1104",
+  "created_unix": 1793795006
+}

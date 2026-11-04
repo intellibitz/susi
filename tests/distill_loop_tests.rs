@@ -180,3 +180,23 @@ fn an_untrainable_claim_is_retired_not_retried_forever() {
     assert_eq!(summary["untrainable"], 1, "{summary}");
     assert_eq!(summary["error"], 0, "{summary}");
 }
+
+#[test]
+fn fresh_workspace_summary_is_zeroed_and_below_threshold_does_not_distill() {
+    wire_test_substrate();
+    let workspace = test_home().join("workspace-fresh-below-threshold");
+    std::fs::create_dir_all(&workspace).unwrap();
+
+    let initial_summary = susi_gawd::reflex_trainer::distillation_summary(&workspace);
+    assert_eq!(initial_summary["published"], 0, "{initial_summary}");
+    assert_eq!(initial_summary["untrainable"], 0, "{initial_summary}");
+    assert_eq!(initial_summary["error"], 0, "{initial_summary}");
+
+    stage(&workspace, "list files in src", "list_directory");
+    let report =
+        susi_gawd::reflex_trainer::ReflexTrainer::audit_distillation_state(&workspace).unwrap();
+    assert!(!report.is_empty());
+    let after_summary = susi_gawd::reflex_trainer::distillation_summary(&workspace);
+    assert_eq!(after_summary["published"], 0, "{after_summary}");
+    assert_eq!(after_summary["error"], 0, "{after_summary}");
+}
