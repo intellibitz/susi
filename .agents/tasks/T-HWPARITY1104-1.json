@@ -1,0 +1,21 @@
+{
+  "id": "T-HWPARITY1104-1",
+  "title": "D-OS-1 and D-OS-2 cross-OS HardwareProfiler sysinfo parity and explicit load_avg reporting",
+  "goal": "Wire susi_config::host_metrics::cpu_brand() and memory() into HardwareProfiler across Windows, macOS, and Linux, and replace bare N/A load_avg on Windows with explicit Linux/macOS-only (Windows CPU X.X%) reporting.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "hardware"
+    ]
+  },
+  "created_by": "HWPARITY1104",
+  "created_unix": 1793753800
+}
