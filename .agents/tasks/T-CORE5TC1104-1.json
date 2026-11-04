@@ -1,0 +1,20 @@
+{
+  "id": "T-CORE5TC1104-1",
+  "title": "Advance 8 Wave C susi-core modules to 5 inline unit tests each (CEO Job #270)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "created_by": "CORE5TC1104",
+  "created_unix": 1793802580
+}

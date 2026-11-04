@@ -207,4 +207,21 @@ mod tests {
         assert_eq!(popped.workspace, ws);
         assert!(queue.is_empty());
     }
+
+    #[test]
+    fn ingest_classifies_wait_and_case_insensitive_stop_as_priority_one() {
+        let queue = SubstratePulseQueue::new();
+        let ws = PathBuf::from("/tmp/susi_priority_ws");
+        queue.ingest("WAIT for operator", &ws, "0.4.0").unwrap();
+        queue.ingest("STOP immediately", &ws, "0.4.0").unwrap();
+
+        let p1 = queue.pop().expect("first priority pulse");
+        let p2 = p1.clone();
+        assert_eq!(p2.priority, 1);
+        assert_eq!(p2.version, "0.4.0");
+
+        let second = queue.pop().expect("second priority pulse");
+        assert_eq!(second.priority, 1);
+        assert!(queue.is_empty());
+    }
 }
