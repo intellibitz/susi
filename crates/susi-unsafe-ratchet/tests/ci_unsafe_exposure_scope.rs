@@ -168,3 +168,17 @@ fn unsafe_ratchet_scope_triggers_when_mixed_batch_contains_any_tracked_input() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn unsafe_ratchet_scope_script_exists_and_workspace_fixture_creates_expected_files() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repository = crate_dir.parent().unwrap().parent().unwrap();
+    let script = repository.join(".github/workflows/unsafe-exposure-scope.sh");
+    assert!(script.is_file());
+    let root = workspace();
+    assert!(root.join("Cargo.toml").is_file());
+    assert!(root.join("src/lib.rs").is_file());
+    assert!(root.join("src/admin/release.rs").is_file());
+    assert!(root.join("tools/custom.rs").is_file());
+    let _ = fs::remove_dir_all(root);
+}
