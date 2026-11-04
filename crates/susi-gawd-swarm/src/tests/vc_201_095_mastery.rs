@@ -62,3 +62,30 @@ fn vc_201_095_mastery_failed_writes_do_not_spend_budget() {
         DeploymentState::Degraded(DegradedReason::DiskFull)
     );
 }
+
+#[test]
+fn vc_201_095_mastery_rejects_wrong_startup_credential_without_charging_budget() {
+    let mut deployment = DevDeployment::new("isolated-auth", "valid-cred", 25, 16);
+    assert!(deployment.start("wrong-cred", 10).is_err());
+    assert_eq!(deployment.state(), DeploymentState::Stopped);
+    assert_eq!(deployment.budget().spent(), 0);
+}
+
+#[test]
+fn vc_201_095_mastery_revoked_credential_requires_reauthorization_to_recover() {
+    let mut deployment = DevDeployment::new("isolated-revoke", "cred-v1", 30, 16);
+    deployment.start("cred-v1", 5).expect("start succeeds");
+    deployment.inject(DevFault::RevokedCredential);
+    assert_eq!(
+        deployment.state(),
+        DeploymentState::Degraded(DegradedReason::RevokedCredential)
+    );
+    // Plain recover() cannot bypass credential revocation; reauthorize() with a fresh credential restores Ready.
+    assert!(deployment.recover().is_err());
+    assert!(deployment.reauthorize("cred-v1").is_err());
+    deployment
+        .reauthorize("cred-v2")
+        .expect("fresh credential restores Ready");
+    assert_eq!(deployment.state(), DeploymentState::Ready);
+    assert_eq!(deployment.budget().spent(), 5);
+}
