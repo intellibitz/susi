@@ -1,0 +1,42 @@
+{
+  "id": "T-GROKSLIM1104-1",
+  "title": "Slim the default release core to a protocol socket",
+  "goal": "Measure the default release binary, then move bulk tools and the built-in local model engine out of the default build behind features that are off unless requested. Keep MCP, OpenAI-style, Anthropic Messages, and A2A ports working. Publish before/after size and time-to-ready.",
+  "size": "l",
+  "deps": [],
+  "scopes": [
+    "Cargo.toml",
+    "crates/susi-gmcp",
+    "crates/susi-daemon",
+    "crates/susi-gemi",
+    "crates/susi-gemi-models",
+    "crates/susi-vendor-candle",
+    "ARCHITECTURE.md",
+    "tests",
+    ".agents/tasks/T-GROKSLIM1104-1.json",
+    ".agents/tasks/T-GROKSLIM1104-1.log.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "slim_core"
+    ],
+    "criteria": [
+      "Default cargo build --release -p susi does not link tools-rich (chrome, tantivy, fastembed, syn) or the Candle local engine.",
+      "cargo build --release -p susi --features plugins links those optional pieces again.",
+      "MCP, OpenAI-style /v1/chat/completions, Anthropic /v1/messages, and A2A stay in the default binary.",
+      "Before and after size and time-to-ready are recorded in the task log and the pull request."
+    ]
+  },
+  "created_by": "GROK",
+  "created_unix": 1793817600,
+  "status": "in_progress"
+}

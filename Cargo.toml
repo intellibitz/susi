@@ -169,9 +169,9 @@ susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
 susi-vendor-candle = { path = "crates/susi-vendor-candle" }
 susi-adapters-llm = { path = "crates/susi-adapters-llm" }
-susi-gemi-models = { path = "crates/susi-gemi-models" }
-susi-gemi = { path = "crates/susi-gemi" }
-susi-gmcp = { path = "crates/susi-gmcp" }
+susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
+susi-gemi = { path = "crates/susi-gemi", default-features = false }
+susi-gmcp = { path = "crates/susi-gmcp", default-features = false }
 susi-harness = { path = "crates/susi-harness" }
 susi-gawd-agents = { path = "crates/susi-gawd-agents" }
 susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
@@ -211,7 +211,7 @@ susi-gawd-swarm = { workspace = true }
 susi-vendor-models = { workspace = true }
 
 [dependencies]
-susi-daemon = { path = "crates/susi-daemon" }
+susi-daemon = { path = "crates/susi-daemon", default-features = false }
 susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
@@ -281,6 +281,12 @@ default = []
 metal = ["susi-gemi/metal"]
 # Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
 tokio-console = ["dep:console-subscriber"]
+# Bulk specialist tools (browser, full-text index, embeddings, syn AST).
+tools-rich = ["susi-daemon/tools-rich", "susi-gmcp/tools-rich"]
+# Built-in Candle local model engine. Off in the default protocol socket.
+local-engine = ["susi-gemi/local-engine", "susi-daemon/local-engine"]
+# Opt-in bundle of the pieces the default core leaves out.
+plugins = ["tools-rich", "local-engine"]
 
 [profile.release]
 opt-level = 3 # High performance

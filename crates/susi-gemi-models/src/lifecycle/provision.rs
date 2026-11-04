@@ -149,7 +149,11 @@ impl ModelManager {
         if path.exists() {
             susi_vendor_models::model_license::verify_local(&path)
                 .map_err(crate::susi_error::EaiError::governance)?;
-            if susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok() {
+            #[cfg(feature = "local-engine")]
+            let parsed = susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok();
+            #[cfg(not(feature = "local-engine"))]
+            let parsed = false;
+            if parsed {
                 return Ok(());
             }
             return Err(crate::susi_error::EaiError::governance("Existing tokenizer is invalid; preserving its bytes rather than replacing a user-owned file"));
@@ -181,7 +185,17 @@ impl ModelManager {
                 token.as_deref(),
                 &|| false,
                 &|_, _| {},
-                &|p| susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok(),
+                &|p| {
+                    #[cfg(feature = "local-engine")]
+                    {
+                        susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok()
+                    }
+                    #[cfg(not(feature = "local-engine"))]
+                    {
+                        let _ = p;
+                        false
+                    }
+                },
                 expected_sha256.as_deref(),
             ) {
                 Ok(()) => {
