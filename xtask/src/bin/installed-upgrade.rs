@@ -69,6 +69,61 @@ fn format_release_marker_json(version_number: &str, source: &str, installed_at: 
     )
 }
 
+fn parse_upgrade_args(args: &[String]) -> Result<(String, bool, bool)> {
+    match args {
+        [id] if !id.starts_with('-') => Ok((id.clone(), false, false)),
+        [flag, id] if flag == "--check" && !id.starts_with('-') => Ok((id.clone(), true, false)),
+        [flag, id] if flag == "--verify-startup" && !id.starts_with('-') => {
+            Ok((id.clone(), false, true))
+        }
+        _ => Err(
+            "usage: installed-upgrade [--check | --verify-startup] <qualified-release-id>".into(),
+        ),
+    }
+}
+
+fn installed_binary_path_from(
+    susi_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Result<PathBuf> {
+    let root = susi_home
+        .or_else(|| home.map(|h| h.join(".susi")))
+        .ok_or("missing SUSI_HOME or HOME")?;
+    let exe = if cfg!(windows) { "susi.exe" } else { "susi" };
+    Ok(root.join("bin").join(exe))
+}
+
+fn installed_binary_path() -> Result<PathBuf> {
+    let susi_home = env::var_os("SUSI_HOME").map(PathBuf::from);
+    let home = env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    installed_binary_path_from(susi_home, home)
+}
+
+fn run_startup_gate(root: &Path, binary: &Path) -> Result<()> {
+    let status = Command::new("cargo")
+        .current_dir(root)
+        .args([
+            "run",
+            "--locked",
+            "--offline",
+            "-p",
+            "xtask",
+            "--bin",
+            "startup-gate",
+            "--",
+            "--susi",
+        ])
+        .arg(binary)
+        .arg("--skip-daemon-up")
+        .status()?;
+    if !status.success() {
+        return Err(format!("post-upgrade startup-gate failed ({status})").into());
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn execute_upgrade(root: &Path, binary: &Path, artifact_sha256: &str, source: &str) -> Result<()> {
     let bash = PathBuf::from(env::var_os("ProgramFiles").ok_or("missing ProgramFiles")?)
@@ -168,11 +223,7 @@ fn execute_upgrade(_root: &Path, binary: &Path, artifact_sha256: &str, source: &
 
 fn run() -> Result<()> {
     let args: Vec<_> = env::args().skip(1).collect();
-    let (id, check_only) = match args.as_slice() {
-        [id] => (id, false),
-        [flag, id] if flag == "--check" => (id, true),
-        _ => return Err("usage: installed-upgrade [--check] <qualified-release-id>".into()),
-    };
+    let (id, check_only, verify_startup) = parse_upgrade_args(&args)?;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("missing repository root")?
@@ -184,13 +235,17 @@ fn run() -> Result<()> {
     if !report.status.success() {
         return Err(String::from_utf8_lossy(&report.stderr).into_owned().into());
     }
-    let binary = qualified_path(&String::from_utf8(report.stdout)?, id)?;
-    let (source, artifact_sha256) = verify_qualified_manifest(&binary, id)?;
+    let binary = qualified_path(&String::from_utf8(report.stdout)?, &id)?;
+    let (source, artifact_sha256) = verify_qualified_manifest(&binary, &id)?;
     if check_only {
         println!("Verified release {id}, source {source}, executable SHA256 {artifact_sha256}");
         return Ok(());
     }
-    execute_upgrade(&root, &binary, &artifact_sha256, &source)
+    execute_upgrade(&root, &binary, &artifact_sha256, &source)?;
+    if verify_startup {
+        run_startup_gate(&root, &installed_binary_path()?)?;
+    }
+    Ok(())
 }
 
 fn main() -> std::process::ExitCode {
@@ -281,6 +336,44 @@ mod tests {
                 .and_then(serde_json::Value::as_u64),
             Some(1_762_250_000)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn parses_upgrade_args_and_resolves_installed_binary_path() -> Result<()> {
+        let id = "a".repeat(64);
+        assert_eq!(
+            parse_upgrade_args(std::slice::from_ref(&id))?,
+            (id.clone(), false, false)
+        );
+        assert_eq!(
+            parse_upgrade_args(&["--check".to_string(), id.clone()])?,
+            (id.clone(), true, false)
+        );
+        assert_eq!(
+            parse_upgrade_args(&["--verify-startup".to_string(), id.clone()])?,
+            (id.clone(), false, true)
+        );
+        assert!(parse_upgrade_args(&[]).is_err());
+        assert!(parse_upgrade_args(&["--unknown".to_string(), id]).is_err());
+        assert!(
+            parse_upgrade_args(&["--check".to_string(), "--verify-startup".to_string()]).is_err()
+        );
+
+        let expected_exe = if cfg!(windows) { "susi.exe" } else { "susi" };
+        assert_eq!(
+            installed_binary_path_from(Some(PathBuf::from("/custom/susi")), None)?,
+            PathBuf::from("/custom/susi").join("bin").join(expected_exe)
+        );
+        assert_eq!(
+            installed_binary_path_from(None, Some(PathBuf::from("/home/alice")))?,
+            PathBuf::from("/home/alice")
+                .join(".susi")
+                .join("bin")
+                .join(expected_exe)
+        );
+        assert!(installed_binary_path_from(None, None).is_err());
+        assert!(installed_binary_path()?.ends_with(expected_exe));
         Ok(())
     }
 
