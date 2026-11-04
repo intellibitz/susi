@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "DAEMONINLINEB4T1104",
-  "created_unix": 1793796717
+  "created_unix": 1793796717,
+  "closed": {
+    "at_unix": 1793797408,
+    "commit": "a5caf0bc4320c1cd7c9d39d199da0033cb4c6ca9",
+    "by": "DAEMONINLINEB4T1104"
+  }
 }
