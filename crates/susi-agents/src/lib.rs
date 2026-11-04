@@ -85,4 +85,16 @@ mod surface_tests {
             .unwrap_or_else(|e| e.into_inner());
         drop(reacquired);
     }
+
+    #[test]
+    fn discoverable_asset_and_high_density_context_store_re_exports_match_core_types() {
+        assert_eq!(
+            TypeId::of::<DiscoverableAsset>(),
+            TypeId::of::<susi_core::agent_types::DiscoverableAsset>()
+        );
+        assert_eq!(
+            TypeId::of::<HighDensityContextStore>(),
+            TypeId::of::<susi_core::agent_types::HighDensityContextStore>()
+        );
+    }
 }
