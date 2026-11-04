@@ -178,4 +178,16 @@ mod inline_tests {
             .is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn normalize_lexically_strips_curdir_and_patch_fence_round_trips_serde_json() {
+        let normalized = normalize_lexically(Path::new("alpha/./beta/../gamma"));
+        assert_eq!(normalized, PathBuf::from("alpha").join("gamma"));
+
+        let root = std::env::temp_dir().join("susi-patch-fence-serde");
+        let fence = PatchFence::isolate(&root, "patch-delta").unwrap();
+        let encoded = serde_json::to_string(&fence).unwrap();
+        let decoded: PatchFence = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, fence);
+    }
 }

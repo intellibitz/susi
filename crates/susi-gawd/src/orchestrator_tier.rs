@@ -484,4 +484,24 @@ mod tests {
             TieredOrchestrator::build_cache_request("deepseek-chat", "sys", "task", None, 512);
         assert!(deepseek_req.is_object());
     }
+
+    #[test]
+    fn select_model_falls_back_to_default_when_preferred_provider_unmatched() {
+        let orch = TieredOrchestrator::new("fallback-orch");
+        assert_eq!(
+            orch.select_model(ModelTier::Worker, Some("nonexistent-vendor")),
+            TieredModelCatalog::DEFAULT_WORKER
+        );
+        assert_eq!(
+            orch.select_model(ModelTier::Pro, Some("nonexistent-vendor")),
+            TieredModelCatalog::DEFAULT_PRO
+        );
+
+        let plans = orch.plan_mission("check", &["format file", "prove security invariant"]);
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].id, "subtask-1");
+        assert_eq!(plans[0].tier, ModelTier::Worker);
+        assert_eq!(plans[1].id, "subtask-2");
+        assert_eq!(plans[1].tier, ModelTier::Pro);
+    }
 }

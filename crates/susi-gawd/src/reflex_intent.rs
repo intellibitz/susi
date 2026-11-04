@@ -193,4 +193,28 @@ mod inline_tests {
         assert_eq!(verdict, ReflexVerdict::RejectCompilation);
         assert!(!called);
     }
+
+    #[test]
+    fn intent_fixture_round_trips_serde_json_and_empty_expect_action_is_malformed() {
+        let fixture = IntentFixture {
+            input: "status".into(),
+            expect_action: "ok".into(),
+        };
+        let encoded = serde_json::to_string(&fixture).expect("serialize IntentFixture");
+        let decoded: IntentFixture =
+            serde_json::from_str(&encoded).expect("deserialize IntentFixture");
+        assert_eq!(decoded, fixture);
+
+        let empty_action = IntentFixture {
+            input: "status".into(),
+            expect_action: String::new(),
+        };
+        let mut invoked = false;
+        let verdict = probe_reflex_with_executor("invalid rust", &empty_action, |_, _| {
+            invoked = true;
+            Ok("ok".into())
+        });
+        assert_eq!(verdict, ReflexVerdict::RejectMalformed);
+        assert!(!invoked);
+    }
 }
