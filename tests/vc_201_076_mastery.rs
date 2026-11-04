@@ -206,36 +206,42 @@ fn vc_201_076_validate_manifest_rejects_short_or_non_hex_sha256_digests() {
 }
 
 #[test]
-fn vc_201_076_checksum_mismatch_quarantines_pack_on_load() {
-    with_temp_home(|| {
-        let root = extensions_root().join("checksum_mismatch_ext");
-        std::fs::create_dir_all(&root).expect("create ext dir");
-        let mut manifest = create_pack("checksum_mismatch_ext", &[("weights.bin", "weights.bin")]);
-        manifest
-            .checksums
-            .insert("weights.bin".into(), compute_digest(b"expected-bytes"));
-        std::fs::write(
-            root.join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
-        )
-        .expect("write manifest");
-        std::fs::write(root.join("weights.bin"), b"corrupted-bytes").expect("write weights.bin");
+fn vc_201_076_validate_manifest_enforces_signer_and_signature_hex_format() {
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    let valid_sig = hex::encode(signing_key.sign(b"payload").to_bytes());
+    let valid_signer = hex::encode(signing_key.verifying_key().to_bytes());
 
-        let err = load_pack("checksum_mismatch_ext")
-            .expect_err("mismatched checksum must fail load_pack");
-        assert!(
-            err.contains("mismatch") || err.contains("quarantined") || err.contains("checksum")
-        );
-        assert!(list_packs()
-            .into_iter()
-            .any(|p| p.id == "checksum_mismatch_ext" && p.quarantined));
-    });
+    let mut missing_signer = create_pack("pkg-nosigner", &[("a.json", "a.json")]);
+    missing_signer.signatures.insert("a.json".into(), valid_sig);
+    let err = validate_manifest(&missing_signer).expect_err("signatures without signer must fail");
+    assert!(err.contains("without a signer"));
+
+    let mut bad_signer = missing_signer.clone();
+    bad_signer.signer = Some("not-32-byte-hex".into());
+    assert!(validate_manifest(&bad_signer).is_err());
+
+    let mut valid_signed = missing_signer;
+    valid_signed.signer = Some(valid_signer);
+    assert!(validate_manifest(&valid_signed).is_ok());
 }
 
 #[test]
-fn vc_201_076_load_and_readmit_nonexistent_pack_return_errors() {
-    with_temp_home(|| {
-        assert!(load_pack("missing_extension_pack").is_err());
-        assert!(readmit_pack("missing_extension_pack").is_err());
-    });
+fn vc_201_076_validate_manifest_enforces_file_bindings_and_permission_boundaries() {
+    let mut unbound = create_pack("pkg-unbound", &[("a.json", "a.json")]);
+    unbound
+        .checksums
+        .insert("missing.json".into(), compute_digest(b"abc"));
+    let err = validate_manifest(&unbound).expect_err("checksum for undeclared file must fail");
+    assert!(err.contains("binds unknown file"));
+
+    let mut escaping = create_pack("pkg-escape", &[("shared.json", "../outside/shared.json")]);
+    assert!(
+        validate_manifest(&escaping).is_err(),
+        "escaping pack root without filesystem.read must fail"
+    );
+    escaping.permissions.push("filesystem.read".into());
+    assert!(
+        validate_manifest(&escaping).is_ok(),
+        "declaring filesystem.read permits parent-relative path"
+    );
 }

@@ -146,3 +146,39 @@ fn vc_201_019_mastery() {
         ProposalCheck::Fresh
     );
 }
+
+#[test]
+fn vc_201_019_distinct_cause_or_counterexample_may_submit_without_prior_refs() {
+    let mut m = ExperimentMemory::default();
+    m.record(entry("p-alpha", "compile error", Some("case-1")));
+    assert!(m.may_resubmit(&entry("p-beta", "compile error", Some("case-2")), &[], &[]));
+    assert!(m.may_resubmit(&entry("p-gamma", "lint error", Some("case-1")), &[], &[]));
+}
+
+#[test]
+fn vc_201_019_whitespace_only_evidence_is_rejected_by_memory_and_ledger() {
+    let mut m = ExperimentMemory::default();
+    m.record(entry("p-ws", "panic in parser", Some("input-a")));
+    assert!(!m.may_resubmit(
+        &entry("p-ws-2", "panic in parser", Some("input-a")),
+        &[],
+        &["   ".into()]
+    ));
+
+    let mut l = ledger("ws-evidence");
+    l.record("patch", "m-ws", rejected("C-ws")).unwrap();
+    assert_eq!(
+        l.check_proposal("patch", "m-ws", &[], &["  \t  ".into()]),
+        ProposalCheck::Stale
+    );
+}
+
+#[test]
+fn vc_201_019_addressing_known_counterexample_id_marks_proposal_addressed() {
+    let mut l = ledger("known-ce");
+    l.record("patch", "m-ce", rejected("C-42")).unwrap();
+    assert_eq!(
+        l.check_proposal("patch", "m-ce", &["C-42".into()], &[]),
+        ProposalCheck::Addressed
+    );
+}
