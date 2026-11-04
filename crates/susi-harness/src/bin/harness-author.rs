@@ -237,4 +237,48 @@ mod tests {
             vec!["alpha-worker".to_string(), "beta-worker".to_string()]
         );
     }
+
+    #[test]
+    fn validates_numeric_flags_missing_values_and_each_required_argument() {
+        assert_eq!(
+            parse(args(&["--max-tasks", "nope"])).err().unwrap(),
+            "max-tasks must be a number"
+        );
+        assert_eq!(
+            parse(args(&["--timeout", "nope"])).err().unwrap(),
+            "timeout must be a number of seconds"
+        );
+        assert_eq!(
+            parse(args(&["--gateway"])).err().unwrap(),
+            "--gateway needs a value"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9188",
+                "--model",
+                "deepseek-flash",
+                "--vector",
+                "VC-203-001",
+            ]))
+            .err()
+            .unwrap(),
+            "--roadmap is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9188",
+                "--model",
+                "deepseek-flash",
+                "--roadmap",
+                ".agents/roadmap.json",
+                "--vector",
+                "   ",
+            ]))
+            .err()
+            .unwrap(),
+            "--vector is required"
+        );
+    }
 }

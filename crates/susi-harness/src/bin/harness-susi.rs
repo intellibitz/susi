@@ -298,4 +298,104 @@ mod tests {
         );
         assert_eq!(options.spec.prompt, "update harness");
     }
+
+    #[test]
+    fn validates_each_required_flag_and_invalid_timeout_or_missing_flag_value() {
+        assert_eq!(
+            parse(args(&["--repo", "r"])).err().unwrap(),
+            "--susi is required"
+        );
+        assert_eq!(
+            parse(args(&["--repo", "r", "--susi", "s"])).err().unwrap(),
+            "--name is required"
+        );
+        assert_eq!(
+            parse(args(&["--repo", "r", "--susi", "s", "--name", "n"]))
+                .err()
+                .unwrap(),
+            "--title is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo", "r", "--susi", "s", "--name", "n", "--title", "t",
+            ]))
+            .err()
+            .unwrap(),
+            "--accept is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo", "r", "--susi", "s", "--name", "n", "--title", "t", "--accept", "a",
+            ]))
+            .err()
+            .unwrap(),
+            "at least one --scope is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo", "r", "--susi", "s", "--name", "n", "--title", "t", "--accept", "a",
+                "--scope", "sc",
+            ]))
+            .err()
+            .unwrap(),
+            "--gateway and --model are required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--repo",
+                "r",
+                "--susi",
+                "s",
+                "--name",
+                "n",
+                "--title",
+                "t",
+                "--accept",
+                "a",
+                "--scope",
+                "sc",
+                "--gateway",
+                "g",
+                "--model",
+                "m",
+            ]))
+            .err()
+            .unwrap(),
+            "--state is required"
+        );
+        assert_eq!(
+            parse(args(&["--timeout", "nope"])).err().unwrap(),
+            "timeout must be a number of seconds"
+        );
+        assert_eq!(
+            parse(args(&["--state"])).err().unwrap(),
+            "--state needs a value"
+        );
+
+        let options = parse(args(&[
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--name",
+            "smoke",
+            "--title",
+            "docs",
+            "--accept",
+            "cargo test -p susi-harness",
+            "--scope",
+            "docs/harness.md",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--timeout",
+            "180",
+            "--state",
+            "state",
+            "run",
+        ]))
+        .unwrap();
+        assert_eq!(options.spec.timeout, Duration::from_secs(180));
+    }
 }
