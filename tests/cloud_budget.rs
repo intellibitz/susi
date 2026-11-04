@@ -83,3 +83,64 @@ fn cloud_budget() {
         .reserve(request("account", "key-b", policy, 600))
         .is_ok());
 }
+
+#[test]
+fn cloud_budget_free_headroom_allows_free_candidates_and_ask_first_prompts_for_paid() {
+    let ledger = BudgetLedger::new();
+    let free_res = ledger
+        .reserve(ReserveRequest {
+            account: "free-tier",
+            credential_fp: "fp-free",
+            model: "test-model",
+            policy: SpendPolicy::FreeOnly,
+            is_free_candidate: true,
+            free_headroom: FreeHeadroom::Available,
+            estimate: 0,
+        })
+        .expect("free candidate with available headroom must succeed");
+    ledger.commit(free_res, Some(0));
+    assert_eq!(ledger.account_exposure("free-tier"), 0);
+
+    let ask_first = SpendPolicy::AskFirst {
+        max_spend_micro: 5_000,
+    };
+    assert_eq!(
+        ledger
+            .reserve(request("ask-acct", "fp-1", ask_first, 250))
+            .expect_err("paid attempt under AskFirst must request consent"),
+        Denial::NeedsConsent { estimate: 250 }
+    );
+}
+
+#[test]
+fn cloud_budget_commit_with_actual_spend_reconciles_account_exposure() {
+    let policy = SpendPolicy::PaidAuthorized {
+        max_spend_micro: 1_000,
+    };
+    let ledger = BudgetLedger::new();
+    let res = ledger
+        .reserve(request("reconcile-acct", "fp-1", policy, 600))
+        .expect("initial reservation within cap");
+    assert_eq!(ledger.account_exposure("reconcile-acct"), 600);
+
+    ledger.commit(res, Some(225));
+    assert_eq!(ledger.account_exposure("reconcile-acct"), 225);
+}
+
+#[test]
+fn cloud_budget_release_restores_full_capacity_and_denial_display_is_descriptive() {
+    let policy = SpendPolicy::PaidAuthorized {
+        max_spend_micro: 500,
+    };
+    let ledger = BudgetLedger::new();
+    let full = ledger
+        .reserve(request("cap-acct", "fp-1", policy, 500))
+        .expect("reserve full cap");
+    let err = ledger
+        .reserve(request("cap-acct", "fp-1", policy, 1))
+        .expect_err("exceeding cap must fail");
+    assert!(err.to_string().contains("spend cap 500 would be exceeded"));
+
+    ledger.release(full);
+    assert_eq!(ledger.account_exposure("cap-acct"), 0);
+}

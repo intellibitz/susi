@@ -35,3 +35,32 @@ fn service_install_renders_per_platform() {
     assert!(render_unit(Platform::Launchd, bin).contains("ai.susi"));
     assert!(render_unit(Platform::Windows, bin).contains("sc.exe create"));
 }
+
+#[test]
+fn systemd_unit_includes_unit_service_and_install_sections() {
+    let unit = render_unit(Platform::Systemd, "/opt/susi/bin/susi");
+    assert!(unit.contains("[Unit]"));
+    assert!(unit.contains("[Service]"));
+    assert!(unit.contains("ExecStart=/opt/susi/bin/susi daemon"));
+    assert!(unit.contains("[Install]"));
+    assert!(unit.contains("WantedBy=default.target"));
+}
+
+#[test]
+fn launchd_plist_renders_xml_header_and_program_arguments_array() {
+    let plist = render_unit(Platform::Launchd, "/usr/local/bin/susi");
+    assert!(plist.starts_with("<?xml version=\"1.0\"?>"));
+    assert!(plist.contains("<key>ProgramArguments</key>"));
+    assert!(plist.contains("<string>/usr/local/bin/susi</string><string>daemon</string>"));
+}
+
+#[test]
+fn windows_sc_command_quotes_binary_path_and_sets_demand_start() {
+    assert_eq!(Platform::Windows, Platform::Windows);
+    assert_ne!(Platform::Windows, Platform::Systemd);
+    let cmd = render_unit(Platform::Windows, "C:\\Program Files\\susi\\susi.exe");
+    assert_eq!(
+        cmd,
+        "sc.exe create susi binPath= \"C:\\Program Files\\susi\\susi.exe daemon\" start= demand\n"
+    );
+}

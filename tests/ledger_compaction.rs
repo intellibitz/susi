@@ -164,3 +164,52 @@ fn snap_anchor_epoch(coordinator: &str) -> String {
         .expect("anchor must exist")
         .epoch
 }
+
+#[test]
+fn compact_on_empty_ledger_archives_zero_records() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new("compact-empty");
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0x44u8; 32])).unwrap();
+
+    let archived = commit_log::compact().expect("empty ledger compact must succeed");
+    assert_eq!(archived, 0);
+    assert!(commit_log::load().is_empty());
+}
+
+#[test]
+fn snap_anchor_epoch_returns_latest_epoch_for_coordinator() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new("compact-anchor");
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0x55u8; 32])).unwrap();
+
+    let r1 = decision("coord-a", "coord-a", "v1");
+    commit_log::append(&r1).unwrap();
+    let r2 = decision("coord-a", "coord-a", "v2");
+    commit_log::append(&r2).unwrap();
+
+    assert_eq!(snap_anchor_epoch("coord-a"), r2.epoch);
+}
+
+#[test]
+fn missing_seqs_floored_reports_only_gaps_above_snapshot_floor() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new("compact-floor");
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0x66u8; 32])).unwrap();
+
+    let r1 = decision("coord-f", "coord-f", "f1");
+    commit_log::append(&r1).unwrap();
+    let r2 = decision("coord-f", "coord-f", "f2");
+    commit_log::append(&r2).unwrap();
+
+    let missing = commit_log::missing_seqs_floored(&commit_log::load(), "coord-f", 4, 2);
+    assert_eq!(missing, vec![3]);
+}
