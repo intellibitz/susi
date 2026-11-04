@@ -449,6 +449,11 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
     }
     if let Ok(mut f) = opts.open(&path) {
         if f.write_all(candidate.as_bytes()).is_ok() {
+            drop(f);
+            #[cfg(windows)]
+            {
+                let _ = restrict_windows_secret_acl(&path);
+            }
             return candidate;
         }
     }
@@ -461,6 +466,36 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
         std::thread::sleep(Duration::from_millis(10));
     }
     candidate
+}
+
+/// Build the `icacls` arguments that restrict `path` exclusively to `username`
+/// (owner-only access parity with Unix `0600`).
+#[cfg(any(windows, test))]
+#[must_use]
+pub(crate) fn windows_secret_icacls_args(path: &Path, username: &str) -> Vec<String> {
+    vec![
+        path.display().to_string(),
+        "/inheritance:r".to_string(),
+        "/grant:r".to_string(),
+        format!("{username}:F"),
+    ]
+}
+
+/// Restrict a newly written Windows secret file's ACL to the current user via `icacls`
+/// (best-effort, non-blocking if `icacls` is unavailable).
+#[cfg(windows)]
+fn restrict_windows_secret_acl(path: &Path) -> bool {
+    let user = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_default();
+    let trimmed = user.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    std::process::Command::new("icacls")
+        .args(windows_secret_icacls_args(path, trimmed))
+        .output()
+        .is_ok_and(|out| out.status.success())
 }
 
 /// Constant-time comparison of a presented bus key; empty never matches.
@@ -1321,5 +1356,20 @@ mod tests {
         a.register("test.wired", Arc::new(Echo));
         assert!(b.is_wired("test.wired"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_secret_icacls_args_grants_only_owner() {
+        let p = Path::new("C:\\Users\\alice\\.susi\\bus\\secret");
+        let args = windows_secret_icacls_args(p, "alice");
+        assert_eq!(
+            args,
+            vec![
+                "C:\\Users\\alice\\.susi\\bus\\secret",
+                "/inheritance:r",
+                "/grant:r",
+                "alice:F"
+            ]
+        );
     }
 }
