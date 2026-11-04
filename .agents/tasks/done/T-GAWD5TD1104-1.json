@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "GAWD5TD1104",
-  "created_unix": 1793807443
+  "created_unix": 1793807443,
+  "closed": {
+    "at_unix": 1793807663,
+    "commit": "9e5db072b562c98e06ebd8a189de28c4a3cec697",
+    "by": "GAWD5TD1104"
+  }
 }
