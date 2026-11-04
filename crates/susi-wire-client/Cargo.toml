@@ -1,0 +1,13 @@
+[package]
+name = "susi-wire-client"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Std-only HTTP/1.1, SSE and MCP Streamable HTTP client for the local daemon's loopback socket."
+
+[dependencies]
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+
+[lints]
+workspace = true

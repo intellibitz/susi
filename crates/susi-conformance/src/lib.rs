@@ -9,7 +9,7 @@
 //! (`susi mcp serve`). Every check records its own wall-clock latency.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-pub mod http;
+pub use susi_wire_client::http;
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};

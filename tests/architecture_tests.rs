@@ -104,8 +104,11 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-native-client", 2),
     // No SUSI dependencies: a leaf, reachable from every rank above it.
     ("susi-http-transport", 0),
-    // Black-box client of the host contract: std + JSON only, no Susi crates.
-    ("susi-conformance", 0),
+    // std + JSON only, no Susi crates; loopback client of the host contract.
+    ("susi-wire-client", 0),
+    // Black-box client of the host contract: std + JSON only; HTTP framing
+    // from susi-wire-client.
+    ("susi-conformance", 1),
     ("susi-vendor-candle", 2),
     ("susi-adapters-llm", 2),
     ("susi-core", 3),

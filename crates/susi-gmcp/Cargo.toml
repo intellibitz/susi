@@ -42,6 +42,7 @@ tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-to
 
 [dev-dependencies]
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
+susi-wire-client = { path = "../susi-wire-client" }
 
 [features]
 default = ["tools-rich"]
