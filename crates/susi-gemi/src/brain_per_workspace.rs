@@ -37,4 +37,41 @@ mod brain_per_workspace_tests {
         assert_eq!(b.for_workspace("/a"), vec!["EV-1".to_string()]);
         assert!(b.for_workspace("/c").is_empty());
     }
+
+    #[test]
+    fn record_preserves_insertion_order_within_same_workspace() {
+        let mut b = WorkspaceBrain::default();
+        b.record("/ws", "EV-first");
+        b.record("/ws", "EV-second");
+        b.record("/ws", "EV-third");
+        assert_eq!(
+            b.for_workspace("/ws"),
+            vec![
+                "EV-first".to_string(),
+                "EV-second".to_string(),
+                "EV-third".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn by_workspace_maintains_deterministic_btreemap_key_ordering() {
+        let mut b = WorkspaceBrain::default();
+        b.record("/zeta", "EV-z");
+        b.record("/alpha", "EV-a");
+        b.record("/beta", "EV-b");
+        let keys: Vec<&str> = b.by_workspace.keys().map(String::as_str).collect();
+        assert_eq!(keys, vec!["/alpha", "/beta", "/zeta"]);
+    }
+
+    #[test]
+    fn workspace_brain_serde_json_roundtrip() {
+        let mut b = WorkspaceBrain::default();
+        b.record("/repo-1", "EV-10");
+        b.record("/repo-2", "EV-20");
+        let encoded = serde_json::to_string(&b).expect("serialize WorkspaceBrain");
+        let decoded: WorkspaceBrain =
+            serde_json::from_str(&encoded).expect("deserialize WorkspaceBrain");
+        assert_eq!(decoded, b);
+    }
 }

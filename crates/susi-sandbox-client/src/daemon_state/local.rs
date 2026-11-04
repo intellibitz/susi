@@ -136,4 +136,73 @@ mod tests {
         assert!(SusiDaemonState::calculate_binary_hash(&dir.join("missing")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn verify_binary_integrity_caches_baseline_and_matches_subsequent_checks() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-daemon-baseline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("susi-bin");
+        std::fs::write(&bin, b"baseline-v1").unwrap();
+
+        assert!(!dir.join("binary.hash").exists());
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &dir).unwrap());
+        assert!(dir.join("binary.hash").exists());
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &dir).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verify_binary_integrity_detects_modified_binary_bytes_and_updates_anchor() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-daemon-tamper-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("susi-bin");
+        std::fs::write(&bin, b"initial-payload").unwrap();
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &dir).unwrap());
+
+        std::fs::write(&bin, b"modified-payload-with-different-length").unwrap();
+        assert!(!SusiDaemonState::verify_binary_integrity(&bin, &dir).unwrap());
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &dir).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn calculate_binary_hash_cached_refreshes_cache_when_file_size_changes() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-daemon-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("susi-bin");
+        std::fs::write(&bin, b"short").unwrap();
+
+        let h1 = SusiDaemonState::calculate_binary_hash_cached(&bin, &dir).unwrap();
+        let h1_cached = SusiDaemonState::calculate_binary_hash_cached(&bin, &dir).unwrap();
+        assert_eq!(h1, h1_cached);
+        assert!(dir.join("binary.hash.cache").exists());
+
+        std::fs::write(&bin, b"longer-replacement-binary").unwrap();
+        let h2 = SusiDaemonState::calculate_binary_hash_cached(&bin, &dir).unwrap();
+        assert_ne!(h1, h2);
+        let cache_text = std::fs::read_to_string(dir.join("binary.hash.cache")).unwrap();
+        assert!(cache_text.ends_with(&h2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -177,3 +177,96 @@ fn model_pricing_cache_rates() {
     // Full implementation will load from catalog, rank by cost + cache efficiency,
     // and use these records in T-DEEPSEEK-88 (cost a task before choosing the model).
 }
+
+#[test]
+fn model_pricing_cache_rates_validate_rejects_empty_metadata_and_negative_costs() {
+    let base = ModelPricingRecord {
+        model_id: "m1".into(),
+        input_cost_per_1m_tokens: 1.0,
+        output_cost_per_1m_tokens: 2.0,
+        cache_hit_cost_per_1m_tokens: Some(0.1),
+        cache_miss_cost_per_1m_tokens: Some(1.0),
+        latency_ms: None,
+        throughput_tps: None,
+        source: "published".into(),
+        date: "2026-11-04".into(),
+    };
+    assert!(ModelPricingRecord {
+        model_id: String::new(),
+        ..base.clone()
+    }
+    .validate()
+    .is_err());
+    assert!(ModelPricingRecord {
+        source: String::new(),
+        ..base.clone()
+    }
+    .validate()
+    .is_err());
+    assert!(ModelPricingRecord {
+        date: String::new(),
+        ..base.clone()
+    }
+    .validate()
+    .is_err());
+    assert!(ModelPricingRecord {
+        input_cost_per_1m_tokens: -0.1,
+        ..base.clone()
+    }
+    .validate()
+    .is_err());
+    assert!(ModelPricingRecord {
+        output_cost_per_1m_tokens: -0.1,
+        ..base.clone()
+    }
+    .validate()
+    .is_err());
+    assert!(ModelPricingRecord {
+        cache_hit_cost_per_1m_tokens: Some(-0.1),
+        ..base.clone()
+    }
+    .validate()
+    .is_err());
+    assert!(ModelPricingRecord {
+        cache_miss_cost_per_1m_tokens: Some(-0.1),
+        ..base
+    }
+    .validate()
+    .is_err());
+}
+
+#[test]
+fn model_pricing_cache_rates_effective_cost_zero_when_input_tokens_zero() {
+    let rec = ModelPricingRecord {
+        model_id: "m1".into(),
+        input_cost_per_1m_tokens: 5.0,
+        output_cost_per_1m_tokens: 15.0,
+        cache_hit_cost_per_1m_tokens: Some(0.5),
+        cache_miss_cost_per_1m_tokens: Some(5.0),
+        latency_ms: None,
+        throughput_tps: None,
+        source: "published".into(),
+        date: "2026-11-04".into(),
+    };
+    assert_eq!(rec.effective_cost_per_token(0, 0.5), 0.0);
+}
+
+#[test]
+fn model_pricing_cache_rates_effective_cost_defaults_when_cache_rates_none() {
+    let rec = ModelPricingRecord {
+        model_id: "no-cache-meta".into(),
+        input_cost_per_1m_tokens: 4.0,
+        output_cost_per_1m_tokens: 6.0,
+        cache_hit_cost_per_1m_tokens: None,
+        cache_miss_cost_per_1m_tokens: None,
+        latency_ms: None,
+        throughput_tps: None,
+        source: "published".into(),
+        date: "2026-11-04".into(),
+    };
+    // cache_hit defaults to 0.0 and cache_miss defaults to input_cost_per_1m_tokens (4.0)
+    let miss_only = rec.effective_cost_per_token(100, 0.0);
+    let hit_only = rec.effective_cost_per_token(100, 1.0);
+    assert!((miss_only - 10.0 / 1_000_000.0).abs() < 1e-12);
+    assert!((hit_only - 6.0 / 1_000_000.0).abs() < 1e-12);
+}

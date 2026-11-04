@@ -53,4 +53,41 @@ mod tasks_from_ci_tests {
         assert!(drafts[0].accept.contains("workflow_compliance"));
         assert!(drafts[1].accept.starts_with("cargo test"));
     }
+
+    #[test]
+    fn tasks_from_ci_empty_slice_returns_empty_vec() {
+        let drafts = tasks_from_ci(&[]);
+        assert!(drafts.is_empty());
+    }
+
+    #[test]
+    fn tasks_from_ci_non_cargo_check_formats_integration_test_command() {
+        let drafts = tasks_from_ci(&[CiFailure {
+            job: "Unit".into(),
+            check: "repo_invariants".into(),
+            message: "failed".into(),
+        }]);
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].accept, "cargo test --test repo_invariants");
+    }
+
+    #[test]
+    fn tasks_from_ci_preserves_order_and_formats_title_with_job_and_check() {
+        let drafts = tasks_from_ci(&[
+            CiFailure {
+                job: "JobA".into(),
+                check: "check_one".into(),
+                message: "m1".into(),
+            },
+            CiFailure {
+                job: "JobB".into(),
+                check: "cargo clippy --all".into(),
+                message: "m2".into(),
+            },
+        ]);
+        assert_eq!(drafts.len(), 2);
+        assert_eq!(drafts[0].title, "Fix red CI: JobA / check_one");
+        assert_eq!(drafts[1].title, "Fix red CI: JobB / cargo clippy --all");
+        assert_eq!(drafts[1].accept, "cargo clippy --all");
+    }
 }
