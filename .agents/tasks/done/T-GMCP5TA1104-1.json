@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "GMCP5TA1104",
-  "created_unix": 1793810067
+  "created_unix": 1793810067,
+  "closed": {
+    "at_unix": 1793810845,
+    "commit": "93ec91e513ff42d2d4b94f7e0538d9ef80571942",
+    "by": "GMCP5TA1104"
+  }
 }
