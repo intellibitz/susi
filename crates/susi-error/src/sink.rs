@@ -94,4 +94,32 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn rotates_to_dot_one_when_existing_file_exceeds_metrics_cap() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-metrics-rotate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("error_metrics.jsonl");
+        let rotated = dir.join("error_metrics.jsonl.1");
+
+        let f = std::fs::File::create(&path).unwrap();
+        f.set_len(super::METRICS_CAP_BYTES + 1).unwrap();
+        drop(f);
+
+        super::append_metrics_line(&path, &serde_json::json!({"seq": 42})).unwrap();
+        assert_eq!(
+            std::fs::metadata(&rotated).unwrap().len(),
+            super::METRICS_CAP_BYTES + 1
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"seq\":42}\n");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

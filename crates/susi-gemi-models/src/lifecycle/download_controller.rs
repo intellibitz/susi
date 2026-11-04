@@ -4,11 +4,12 @@ use crate::susi_core::task_manager::{SwarmTaskManager, TaskHandle};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use super::model_manager::ModelManager;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelDownloadProgress {
     pub model_name: String,
     pub target_url: String,
@@ -16,6 +17,28 @@ pub struct ModelDownloadProgress {
     pub expected_bytes: u64,
     pub percentage: f32,
     pub status: String, // "RUNNING", "PAUSED", "COMPLETED", "STOPPED", "FAILED"
+}
+
+impl ModelDownloadProgress {
+    /// Percentage of expected bytes downloaded, clamped to `0.0..=100.0`
+    /// (`100.0` when `status == "COMPLETED"` and `expected_bytes == 0`, else `0.0`).
+    #[must_use]
+    pub fn computed_percentage(&self) -> f32 {
+        if self.expected_bytes > 0 {
+            ((self.bytes_downloaded as f64 / self.expected_bytes as f64) * 100.0).clamp(0.0, 100.0)
+                as f32
+        } else if self.status == "COMPLETED" {
+            100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// True when the download has reached a terminal lifecycle state.
+    #[must_use]
+    pub fn is_terminal(&self) -> bool {
+        matches!(self.status.as_str(), "COMPLETED" | "STOPPED" | "FAILED")
+    }
 }
 
 #[derive(Clone)]
@@ -29,13 +52,24 @@ pub struct ModelDownloadController {
     active_downloads: DashMap<String, ActiveDownloadTask>,
 }
 
+impl Default for ModelDownloadController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModelDownloadController {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            active_downloads: DashMap::new(),
+        }
+    }
+
     pub fn global() -> &'static Self {
         static CONTROLLER: std::sync::OnceLock<ModelDownloadController> =
             std::sync::OnceLock::new();
-        CONTROLLER.get_or_init(|| ModelDownloadController {
-            active_downloads: DashMap::new(),
-        })
+        CONTROLLER.get_or_init(Self::new)
     }
 
     pub fn start_download(&self, url: &str) -> Result<String, String> {
@@ -119,9 +153,9 @@ impl ModelDownloadController {
         ))
     }
 
-    pub fn get_progress(&self, target: &str) -> Option<ModelDownloadProgress> {
-        let progress_file = ModelManager::progress_path(target);
-        if let Ok(content) = fs::read_to_string(&progress_file) {
+    #[must_use]
+    pub fn progress_from_file(progress_file: &Path, target: &str) -> Option<ModelDownloadProgress> {
+        if let Ok(content) = fs::read_to_string(progress_file) {
             if let Ok(record) = serde_json::from_str::<ModelDownloadProgress>(&content) {
                 if record.target_url == target || record.model_name == target {
                     return Some(record);
@@ -129,6 +163,10 @@ impl ModelDownloadController {
             }
         }
         None
+    }
+
+    pub fn get_progress(&self, target: &str) -> Option<ModelDownloadProgress> {
+        Self::progress_from_file(&ModelManager::progress_path(target), target)
     }
 
     pub fn list_active(&self) -> Vec<ModelDownloadProgress> {
@@ -156,5 +194,174 @@ impl ModelDownloadController {
 
     pub fn has_active_downloads(&self) -> bool {
         !self.active_downloads.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_download_progress_percentage_terminal_and_serde_roundtrip() {
+        let running = ModelDownloadProgress {
+            model_name: "qwen3-0.6b.gguf".to_string(),
+            target_url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b.gguf"
+                .to_string(),
+            bytes_downloaded: 50,
+            expected_bytes: 200,
+            percentage: 25.0,
+            status: "RUNNING".to_string(),
+        };
+        assert!((running.computed_percentage() - 25.0).abs() < f32::EPSILON);
+        assert!(!running.is_terminal());
+
+        let json = serde_json::to_string(&running).unwrap();
+        let roundtrip: ModelDownloadProgress = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, running);
+
+        let zero_expected_running = ModelDownloadProgress {
+            expected_bytes: 0,
+            bytes_downloaded: 100,
+            status: "RUNNING".to_string(),
+            ..running.clone()
+        };
+        assert_eq!(zero_expected_running.computed_percentage(), 0.0);
+
+        let zero_expected_completed = ModelDownloadProgress {
+            expected_bytes: 0,
+            bytes_downloaded: 0,
+            status: "COMPLETED".to_string(),
+            ..running.clone()
+        };
+        assert_eq!(zero_expected_completed.computed_percentage(), 100.0);
+        assert!(zero_expected_completed.is_terminal());
+
+        let over_reported = ModelDownloadProgress {
+            bytes_downloaded: 500,
+            expected_bytes: 200,
+            status: "RUNNING".to_string(),
+            ..running.clone()
+        };
+        assert_eq!(over_reported.computed_percentage(), 100.0);
+
+        for (status, terminal) in [
+            ("RUNNING", false),
+            ("PAUSED", false),
+            ("QUEUED", false),
+            ("COMPLETED", true),
+            ("STOPPED", true),
+            ("FAILED", true),
+        ] {
+            let p = ModelDownloadProgress {
+                status: status.to_string(),
+                ..running.clone()
+            };
+            assert_eq!(
+                p.is_terminal(),
+                terminal,
+                "unexpected is_terminal for {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn progress_from_file_matches_target_url_or_model_name_and_rejects_mismatch_or_corrupt_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-dl-ctrl-progress-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("progress.json");
+        assert_eq!(
+            ModelDownloadController::progress_from_file(&file_path, "qwen3-0.6b.gguf"),
+            None
+        );
+
+        let progress = ModelDownloadProgress {
+            model_name: "qwen3-0.6b.gguf".to_string(),
+            target_url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b.gguf"
+                .to_string(),
+            bytes_downloaded: 1024,
+            expected_bytes: 4096,
+            percentage: 25.0,
+            status: "RUNNING".to_string(),
+        };
+        fs::write(&file_path, serde_json::to_string(&progress).unwrap()).unwrap();
+
+        assert_eq!(
+            ModelDownloadController::progress_from_file(&file_path, &progress.target_url),
+            Some(progress.clone())
+        );
+        assert_eq!(
+            ModelDownloadController::progress_from_file(&file_path, &progress.model_name),
+            Some(progress)
+        );
+        assert_eq!(
+            ModelDownloadController::progress_from_file(&file_path, "unrelated.gguf"),
+            None
+        );
+
+        fs::write(&file_path, "{corrupt json").unwrap();
+        assert_eq!(
+            ModelDownloadController::progress_from_file(&file_path, "qwen3-0.6b.gguf"),
+            None
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn controller_rejects_invalid_urls_synchronously_and_tracks_active_downloads_without_duplicate_spawn(
+    ) {
+        let controller = ModelDownloadController::default();
+        assert!(!controller.has_active_downloads());
+
+        for bad_url in [
+            "ftp://example.com/model.gguf",
+            "https://example.com/",
+            "https://example.com/..",
+            "https://example.com/.",
+        ] {
+            assert!(
+                controller.start_download(bad_url).is_err(),
+                "expected invalid URL {bad_url} to fail synchronously"
+            );
+            assert!(!controller.has_active_downloads());
+        }
+
+        let target_url =
+            "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/synthetic-unit-test.gguf"
+                .to_string();
+        let handle = SwarmTaskManager::global().register_task("model_download_test", &target_url);
+        controller.active_downloads.insert(
+            target_url.clone(),
+            ActiveDownloadTask {
+                target_url: target_url.clone(),
+                model_name: "synthetic-unit-test.gguf".to_string(),
+                task_handle: handle,
+            },
+        );
+
+        assert!(controller.has_active_downloads());
+        assert!(controller.is_downloading(&target_url));
+        assert!(!controller.is_downloading("https://example.com/other.gguf"));
+
+        let active = controller.list_active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].model_name, "synthetic-unit-test.gguf");
+        assert_eq!(active[0].target_url, target_url);
+        assert_eq!(active[0].bytes_downloaded, 0);
+        assert_eq!(active[0].status, "RUNNING");
+
+        let dup_msg = controller.start_download(&target_url).unwrap();
+        assert_eq!(
+            dup_msg,
+            format!("Download already active for: {target_url}")
+        );
     }
 }

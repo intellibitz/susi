@@ -154,3 +154,76 @@ pub fn resolve_key_ref(reference: &KeyRef, global_dir: &Path) -> EaiResult<Scope
         value,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn key_ref_parse_uri_and_redacted_render_contract() {
+        let env_ref = KeyRef::parse("key://env/OPENAI_API_KEY").unwrap();
+        assert_eq!(
+            env_ref,
+            KeyRef {
+                scope: KeyScope::Env,
+                name: "OPENAI_API_KEY".into()
+            }
+        );
+        assert_eq!(env_ref.uri(), "key://env/OPENAI_API_KEY");
+
+        let bare_ref = KeyRef::parse("OPENAI_API_KEY").unwrap();
+        assert_eq!(bare_ref, env_ref);
+
+        let cloud_ref = KeyRef::parse("key://cloud/HF_TOKEN").unwrap();
+        assert_eq!(cloud_ref.scope, KeyScope::CloudEnv);
+        assert_eq!(cloud_ref.uri(), "key://cloud/HF_TOKEN");
+
+        let host_ref = KeyRef::parse("key://host/api_token").unwrap();
+        assert_eq!(host_ref.scope, KeyScope::HostFile);
+        assert_eq!(host_ref.uri(), "key://host/api_token");
+
+        assert!(KeyRef::parse("key://env").is_err());
+        assert!(KeyRef::parse("key://env/").is_err());
+        assert!(KeyRef::parse("key://host/sub/token").is_err());
+        assert!(KeyRef::parse("key://vault/token").is_err());
+        assert!(KeyRef::parse("sk-live-secret-body").is_err());
+        assert!(KeyRef::parse("123_BAD").is_err());
+
+        let scoped = ScopedSecret {
+            reference: host_ref,
+            value: "top-secret-bearer".into(),
+        };
+        assert_eq!(scoped.render(), "key://host/api_token = [redacted]");
+        assert!(!scoped.render().contains("top-secret-bearer"));
+    }
+
+    #[test]
+    fn resolve_key_ref_reads_cloud_env_and_host_file_in_hermetic_tempdir() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_key_scope_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("cloud.env"), "HF_TOKEN=\"hf_test_token_123\"\n").unwrap();
+        fs::write(dir.join("api_token"), "  host_bearer_xyz  \n").unwrap();
+        fs::write(dir.join("empty_token"), "   \n").unwrap();
+
+        let cloud_resolved =
+            resolve_key_ref(&KeyRef::parse("key://cloud/HF_TOKEN").unwrap(), &dir).unwrap();
+        assert_eq!(cloud_resolved.value, "hf_test_token_123");
+
+        let host_resolved =
+            resolve_key_ref(&KeyRef::parse("key://host/api_token").unwrap(), &dir).unwrap();
+        assert_eq!(host_resolved.value, "host_bearer_xyz");
+
+        // Missing cloud alias, missing host file, and whitespace-only host file fail.
+        assert!(resolve_key_ref(&KeyRef::parse("key://cloud/MISSING_KEY").unwrap(), &dir).is_err());
+        assert!(resolve_key_ref(&KeyRef::parse("key://host/no_such_file").unwrap(), &dir).is_err());
+        assert!(resolve_key_ref(&KeyRef::parse("key://host/empty_token").unwrap(), &dir).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ZCKEYRINGEXP1104-1",
+  "agent": "ZCKEYRINGEXP1104",
+  "scope": [
+    "crates/susi-config/src/keyring_storage.rs",
+    "crates/susi-config/src/explain.rs"
+  ],
+  "summary": "test(susi-config): inline unit test suites for keyring_storage & explain",
+  "started_at": "2026-11-04T08:58:00Z",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  }
+}
