@@ -1531,4 +1531,23 @@ mod inline_tests {
             );
         }
     }
+
+    #[test]
+    fn bootstrap_registry_registers_workspace_io_and_transaction_tools() {
+        let registry = ToolRegistry::global();
+        bootstrap_registry(registry);
+        for name in [
+            "read_file",
+            "write_file",
+            "exec_command",
+            "tx_begin",
+            "tx_commit",
+            "tx_abort",
+        ] {
+            assert!(
+                registry.tools.contains_key(name),
+                "expected workspace/transaction tool {name} to be registered"
+            );
+        }
+    }
 }
