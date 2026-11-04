@@ -457,4 +457,92 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn diamond_inheritance_deduplicates_shared_ancestor_and_load_rejects_malformed_or_missing_files(
+    ) {
+        let mut set = ProfileSet::default();
+        set.profiles.insert(
+            "shared_root".into(),
+            Profile {
+                env: EnvKind::Shared,
+                extends: vec![],
+                values: [
+                    ("root_only".into(), json!("from_root")),
+                    ("diamond_key".into(), json!("from_root")),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        );
+        set.profiles.insert(
+            "parent_a".into(),
+            Profile {
+                env: EnvKind::Staging,
+                extends: vec!["shared_root".into()],
+                values: [("a_only".into(), json!("from_a"))].into_iter().collect(),
+            },
+        );
+        set.profiles.insert(
+            "parent_b".into(),
+            Profile {
+                env: EnvKind::Staging,
+                extends: vec!["shared_root".into()],
+                values: [("diamond_key".into(), json!("from_b"))]
+                    .into_iter()
+                    .collect(),
+            },
+        );
+        set.profiles.insert(
+            "prod".into(),
+            Profile {
+                env: EnvKind::Production,
+                extends: vec!["parent_a".into(), "parent_b".into()],
+                values: BTreeMap::new(),
+            },
+        );
+
+        let resolved = set.resolve("prod").expect("resolve diamond prod");
+        assert_eq!(
+            resolved
+                .chain
+                .iter()
+                .filter(|n| *n == "shared_root")
+                .count(),
+            1
+        );
+        assert_eq!(
+            resolved.chain,
+            vec!["shared_root", "parent_b", "parent_a", "prod"]
+        );
+        assert_eq!(resolved.values.get("root_only"), Some(&json!("from_root")));
+        assert_eq!(resolved.values.get("a_only"), Some(&json!("from_a")));
+        assert_eq!(resolved.values.get("diamond_key"), Some(&json!("from_b")));
+        assert_eq!(
+            resolved.provenance.get("diamond_key"),
+            Some(&Source {
+                profile: "parent_b".into(),
+                env: EnvKind::Staging,
+            })
+        );
+
+        let ws =
+            std::env::temp_dir().join(format!("susi_env_prof_malformed_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+
+        let missing_err = ProfileSet::load(&ws.join("missing.json"))
+            .expect_err("missing profile file must fail")
+            .to_string();
+        assert!(missing_err.contains("failed to read profile set"));
+
+        let bad_json_path = ws.join("malformed.json");
+        std::fs::write(&bad_json_path, "{ not valid json").unwrap();
+        let parse_err = ProfileSet::load(&bad_json_path)
+            .expect_err("malformed profile JSON must fail")
+            .to_string();
+        assert!(parse_err.contains("failed to parse profile set"));
+
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }
