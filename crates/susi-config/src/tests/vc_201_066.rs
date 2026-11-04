@@ -40,3 +40,9 @@ fn vc_201_066_invalid_secret_ref_syntax_and_missing_secret_resolution_fail_clean
     let missing_ref = SecretRef::parse("secret://agent_a/missing_key").unwrap();
     assert!(boundary.resolve(&missing_ref).is_err());
 }
+
+#[test]
+fn vc_201_066_redact_for_export_preserves_strings_without_secret_refs() {
+    let plain = "normal configuration line without secret URI";
+    assert_eq!(redact_for_export(plain), plain);
+}

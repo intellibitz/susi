@@ -91,3 +91,20 @@ fn zc_state_migration_empty_dir_without_config_initializes_schema_manifest() {
     assert!(!second.rolled_back);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn zc_state_migration_future_schema_version_is_preserved_as_noop() {
+    let dir = scratch("future_schema");
+    let future_version = STATE_SCHEMA_VERSION + 5;
+    fs::write(
+        dir.join("state.schema.json"),
+        format!(r#"{{"schema_version":{future_version}}}"#),
+    )
+    .unwrap();
+    let report = migrate_state_dir(&dir).unwrap();
+    assert!(!report.migrated);
+    assert!(!report.rolled_back);
+    assert_eq!(report.from_version, future_version);
+    assert_eq!(report.to_version, future_version);
+    let _ = fs::remove_dir_all(&dir);
+}

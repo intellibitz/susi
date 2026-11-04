@@ -55,3 +55,16 @@ fn keyring_storage_delete_and_missing_account_lookup_return_expected_results() {
     fb.delete("acct").unwrap();
     assert_eq!(fb.get("acct").unwrap(), None);
 }
+
+#[test]
+fn keyring_storage_service_name_is_non_empty_and_overwrite_updates_value() {
+    let svc = KeyringStorage::<FakeKeyring>::service_name();
+    assert!(!svc.is_empty());
+    let mut store = KeyringStorage::new(FakeKeyring::default());
+    store.put("gemini", "first-secret").unwrap();
+    store.put("gemini", "second-secret").unwrap();
+    assert_eq!(
+        store.get("gemini").unwrap().as_deref(),
+        Some("second-secret")
+    );
+}

@@ -132,3 +132,36 @@ fn native_overdue_child_is_killed_and_reaped() {
     std::thread::sleep(std::time::Duration::from_millis(1800));
     assert!(!marker.exists(), "timed-out child remained alive");
 }
+
+#[test]
+fn output_within_returns_not_found_error_for_nonexistent_program() {
+    let err = crate::bounded_cmd::output_within(
+        &mut std::process::Command::new("/nonexistent/susi/missing-cmd-xyz-999"),
+        std::time::Duration::from_secs(1),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn output_within_executes_current_test_binary_help_within_timeout() {
+    let exe = std::env::current_exe().expect("current test binary path");
+    let out = crate::bounded_cmd::output_within(
+        std::process::Command::new(exe).arg("--help"),
+        std::time::Duration::from_secs(10),
+    )
+    .expect("test binary --help should complete within timeout");
+    assert!(out.status.success());
+    assert!(!out.stdout.is_empty());
+}
+
+#[test]
+fn output_within_handles_zero_arg_list_query_on_current_test_binary() {
+    let exe = std::env::current_exe().expect("current test binary path");
+    let out = crate::bounded_cmd::output_within(
+        std::process::Command::new(exe).args(["--list", "--exact", "nonexistent_test_filter_xyz"]),
+        std::time::Duration::from_secs(10),
+    )
+    .expect("test binary --list should complete within timeout");
+    assert!(out.status.success());
+}

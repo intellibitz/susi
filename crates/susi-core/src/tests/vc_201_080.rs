@@ -71,3 +71,13 @@ fn vc_201_080_restore_from_rejects_unsigned_or_tampered_emergency_stop_files() {
         .contains("signature verification failed"));
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn vc_201_080_fresh_bus_accepts_work_across_all_scopes_before_stop() {
+    let mut bus = EmergencyStopBus::default();
+    assert!(!bus.rejects_new_work());
+    assert!(!bus.rejects_new_work_for_scope("global"));
+    bus.register_task(RunningTask::new("task-clean", true, false, "global"))
+        .expect("fresh bus must admit tasks");
+    assert!(bus.is_task_running("task-clean"));
+}
