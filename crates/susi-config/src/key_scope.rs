@@ -298,4 +298,22 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn key_ref_uri_formats_all_three_scopes_and_roundtrips_parse() {
+        for (uri, scope, name) in [
+            ("key://env/OPENAI_API_KEY", KeyScope::Env, "OPENAI_API_KEY"),
+            (
+                "key://cloud/GEMINI_API_KEY",
+                KeyScope::CloudEnv,
+                "GEMINI_API_KEY",
+            ),
+            ("key://host/api_token", KeyScope::HostFile, "api_token"),
+        ] {
+            let kr = KeyRef::parse(uri).unwrap();
+            assert_eq!(kr.scope, scope);
+            assert_eq!(kr.name, name);
+            assert_eq!(kr.uri(), uri);
+        }
+    }
 }

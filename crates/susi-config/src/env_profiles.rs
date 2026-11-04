@@ -545,4 +545,19 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn env_kind_serde_roundtrips_all_variants_and_empty_profile_set_rejects_unknown_profile() {
+        for (kind, tag) in [
+            (EnvKind::Development, "\"development\""),
+            (EnvKind::Staging, "\"staging\""),
+            (EnvKind::Production, "\"production\""),
+        ] {
+            let s = serde_json::to_string(&kind).unwrap();
+            assert_eq!(s, tag);
+            assert_eq!(serde_json::from_str::<EnvKind>(&s).unwrap(), kind);
+        }
+        let set = ProfileSet::default();
+        assert!(set.resolve("missing_profile").is_err());
+    }
 }
