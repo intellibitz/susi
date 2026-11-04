@@ -214,4 +214,14 @@ mod tests {
         assert_eq!(decoded_m, manifest);
         assert!(decoded_m.bloom_filter.may_contain_hash(0xCAFE_BABE));
     }
+
+    #[test]
+    fn empty_capability_bloom_contains_no_bits_and_default_matches_empty() {
+        let empty = CapabilityBloom::empty();
+        let default_bloom = CapabilityBloom::default();
+        assert_eq!(empty, default_bloom);
+        assert_eq!(empty.0, [0u8; 32]);
+        assert!(!empty.may_contain_hash(0));
+        assert!(!empty.may_contain_hash(u64::MAX));
+    }
 }

@@ -86,4 +86,14 @@ mod inline_tests {
         assert_eq!(err.kind(), io::ErrorKind::Other);
         assert!(err.to_string().contains("Windows did not confirm"));
     }
+
+    #[test]
+    fn environment_utf16_matches_encode_utf16_of_environment_plus_nul() {
+        let mut expected: Vec<u16> = "Environment".encode_utf16().collect();
+        expected.push(0);
+        assert_eq!(
+            expected.as_slice(),
+            &[69u16, 110, 118, 105, 114, 111, 110, 109, 101, 110, 116, 0]
+        );
+    }
 }

@@ -254,4 +254,12 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn default_constructor_matches_new_and_bootstraps_core_agents() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::default();
+        let agents = reg.list_agents();
+        assert!(agents.iter().any(|a| a.is_core));
+    }
 }

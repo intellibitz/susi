@@ -135,6 +135,10 @@ fn vc_201_051_checks_run_from_a_command_probe_has_a_production_caller() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let admin = std::fs::read_to_string(root.join("src/cli/admin_cli.rs")).unwrap();
     assert!(
+        admin.contains("pub(crate) fn run(subcommand: AdminCommands"),
+        "src/cli/admin_cli.rs must define `pub(crate) fn run(subcommand: AdminCommands`; update scanner path if moved"
+    );
+    assert!(
         admin.contains("AdminCommands::ProviderContract =>")
             && admin.contains("susi_daemon::host_views::provider_contract()"),
         "the admin command must call the shared provider-contract builder"
@@ -162,6 +166,11 @@ fn vc_201_051_checks_run_from_a_command_probe_has_a_production_caller() {
     // And the probe must not narrate: it composes measured claims.
     let module =
         std::fs::read_to_string(root.join("crates/susi-gemi/src/provider_contract.rs")).unwrap();
+    assert!(
+        module.contains("pub fn probe_credentialed_opt_in(")
+            && module.contains("pub fn fixture_checks("),
+        "provider_contract.rs must define probe_credentialed_opt_in and fixture_checks"
+    );
     for forbidden in ["solve_clean", "solve_stream", "SusiMasterAgent"] {
         assert!(
             !module.contains(forbidden),

@@ -305,4 +305,35 @@ mod inline_tests {
             Err(CapacityError::CounterOverflow)
         );
     }
+
+    #[test]
+    fn saturation_report_identifies_streaming_and_model_churn_and_roundtrips_serde() {
+        let streaming_over = LoadPoint {
+            missions: 1,
+            streaming: 9,
+            peer_repair: 0,
+            model_churn: 0,
+        };
+        assert_eq!(
+            saturation_report(&streaming_over, &TEST_LIMITS).saturated_on,
+            Some("streaming")
+        );
+
+        let churn_over = LoadPoint {
+            missions: 1,
+            streaming: 1,
+            peer_repair: 0,
+            model_churn: 2,
+        };
+        assert_eq!(
+            saturation_report(&churn_over, &TEST_LIMITS).saturated_on,
+            Some("model_churn")
+        );
+
+        let limits_json = serde_json::to_string(&TEST_LIMITS).expect("serialize CapacityLimits");
+        let limits_back: CapacityLimits =
+            serde_json::from_str(&limits_json).expect("deserialize CapacityLimits");
+        assert_eq!(limits_back, TEST_LIMITS);
+        assert!(!RECORDED_HARDWARE_PROFILE.is_empty());
+    }
 }

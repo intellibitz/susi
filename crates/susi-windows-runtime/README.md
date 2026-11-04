@@ -11,10 +11,12 @@ commit built for another host is not accepted.
 The compile-time allow-list is explicit: `x86_64` and `aarch64` with MSVC.
 Every other Windows target fails to compile. ARM64 (`aarch64-pc-windows-msvc`)
 is admitted only on a native ARM64 host so that host can produce its own
-evidence: core checks it on GitHub `windows-11-arm` runners for downstream
-certified builds (CEO decision 2026-11-03). It is not a published core release
+evidence. Core CI and official releases do not run or publish that target
+(CEO decision 2026-11-03). The native evidence belongs to Susi Commercial
+Apps, in its certified-core pipeline, and only for a published core tag whose
+runtime allow-list contains this target. It is not a published core release
 and is **not qualified**: no ARM64 result in this README is claimed until those
-native runs pass. At startup `image()` also refuses a PE image whose COFF
+commercial runs pass. At startup `image()` also refuses a PE image whose COFF
 Machine is not the build architecture (`0x8664` on x64, `0xAA64` on ARM64).
 
 The entry point calls the **compiler-generated C `main(int, char**)`** exactly
@@ -65,7 +67,7 @@ object for diagnostics) and use:
 - OS-UCRT import metadata plus `ucrt.lib` import metadata
 - import metadata for OS `kernelbase.dll`'s qualified `__chkstk` export
   (x64; on ARM64 the same export is a hypothesis recorded in
-  `xtask/bootstrap/os_ucrt.rs` that the native ARM64 checks must confirm)
+  `crates/susi-build-os-ucrt/src/lib.rs` that the native ARM64 checks must confirm)
 
 An import archive is not evidence that implementation was excluded: inspect the
 actual final link map and PE imports. Microsoft `exe_main`, `__scrt_*`, `msvcrt`

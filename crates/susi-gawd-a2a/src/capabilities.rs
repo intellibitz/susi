@@ -127,4 +127,18 @@ mod tests {
         assert_eq!(second.extended_agent_card, None);
         assert!(second.extensions.is_empty());
     }
+
+    #[test]
+    fn gawd_capabilities_as_capabilities_preserves_disabled_flags_through_json_serialization() {
+        let disabled = GawdCapabilities {
+            streaming: false,
+            push_notifications: false,
+        };
+        let a2a = disabled.as_capabilities();
+        let json = serde_json::to_string(&a2a).expect("serialize capabilities");
+        let roundtrip: ra2a::types::AgentCapabilities =
+            serde_json::from_str(&json).expect("deserialize capabilities");
+        assert_eq!(roundtrip.streaming, Some(false));
+        assert_eq!(roundtrip.push_notifications, Some(false));
+    }
 }

@@ -334,4 +334,11 @@ mod tests {
         assert_eq!(count, 1);
         assert_eq!(store.get("mistral").unwrap(), Some("mk-123".to_string()));
     }
+
+    #[test]
+    fn fake_keyring_default_is_empty_and_migrate_empty_cloud_env_returns_zero() {
+        let mut store = KeyringStorage::new(FakeKeyring::default());
+        assert_eq!(store.migrate_cloud_env("").unwrap(), 0);
+        assert_eq!(store.get("nonexistent").unwrap(), None);
+    }
 }

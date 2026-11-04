@@ -615,4 +615,18 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn setup_step_serde_roundtrip_and_clone_preserve_all_fields() {
+        let step = SetupStep {
+            id: "cloud_opt_in".into(),
+            description: "enable cloud".into(),
+            requires_consent: Some(ConsentKind::CloudApiKey),
+            applied: true,
+            blocked: false,
+        };
+        let json = serde_json::to_string(&step).expect("serialize SetupStep");
+        let decoded: SetupStep = serde_json::from_str(&json).expect("deserialize SetupStep");
+        assert_eq!(decoded, step.clone());
+    }
 }

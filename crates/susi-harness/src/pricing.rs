@@ -134,4 +134,25 @@ mod tests {
         assert_eq!(usage.cache_hit, 10);
         assert_eq!(usage.cache_miss(), 0);
     }
+
+    #[test]
+    fn token_usage_and_model_price_round_trip_serde_json_and_saturate_on_overflow() {
+        let usage = TokenUsage::new(5_000, 2_000, 1_000);
+        let usage_json = serde_json::to_string(&usage).unwrap();
+        let usage_back: TokenUsage = serde_json::from_str(&usage_json).unwrap();
+        assert_eq!(usage_back, usage);
+
+        let price = flash();
+        let price_json = serde_json::to_string(&price).unwrap();
+        let price_back: ModelPrice = serde_json::from_str(&price_json).unwrap();
+        assert_eq!(price_back, price);
+
+        let huge_price = ModelPrice {
+            input_miss: MicroUsd::from_micros(u64::MAX),
+            input_hit: MicroUsd::ZERO,
+            output: MicroUsd::ZERO,
+        };
+        let huge_usage = TokenUsage::new(u64::MAX, 0, 0);
+        assert_eq!(huge_price.cost(huge_usage), MicroUsd::from_micros(u64::MAX));
+    }
 }

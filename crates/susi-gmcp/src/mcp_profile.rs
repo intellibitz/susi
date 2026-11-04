@@ -128,6 +128,34 @@ mod eco_mcp_versions_tests {
         assert!(p.negotiate(&["1999-01-01"]).is_none());
         assert!(p.negotiated.is_none());
     }
+
+    #[test]
+    fn record_probe_updates_negotiated_version_and_registry_metadata() {
+        use crate::mcp_probe::McpProbeCheck;
+        use std::collections::BTreeMap;
+
+        let mut checks = BTreeMap::new();
+        checks.insert(
+            "initialize".to_string(),
+            McpProbeCheck {
+                passed: true,
+                detail: "passed".to_string(),
+            },
+        );
+        let report = McpProbeReport {
+            protocol_version: Some("2025-03-26".to_string()),
+            server_info: Some(serde_json::json!({"name": "srv", "version": "1.0"})),
+            capabilities: Some(serde_json::json!({})),
+            supports_list_changed: Some(true),
+            tools: vec!["tool_a".to_string()],
+            checks,
+        };
+        let mut profile = McpSpecProfile::default_profile();
+        profile.record_probe(&report);
+        assert_eq!(profile.negotiated.as_deref(), Some("2025-03-26"));
+        assert_eq!(profile.registry_metadata["probe_status"], "passed");
+        assert_eq!(profile.registry_metadata["supports_list_changed"], true);
+    }
 }
 
 #[cfg(test)]

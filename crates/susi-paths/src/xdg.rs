@@ -325,4 +325,21 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn unknown_os_falls_back_to_xdg_or_home_dot_dirs_like_linux() {
+        let home = Path::new("/home/bob");
+        assert_eq!(
+            config_dir_for("freebsd", Some(home), None, None),
+            Some(home.join(".config").join("susi"))
+        );
+        assert_eq!(
+            data_dir_for("freebsd", Some(home), None, None),
+            Some(home.join(".local/share").join("susi"))
+        );
+        assert_eq!(
+            cache_dir_for("freebsd", Some(home), None, None),
+            Some(home.join(".cache").join("susi"))
+        );
+    }
 }

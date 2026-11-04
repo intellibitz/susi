@@ -171,4 +171,21 @@ mod tests {
             assert!(is_broken_pipe_message(message), "{message}");
         }
     }
+
+    #[test]
+    fn is_broken_pipe_message_recognizes_both_stdout_and_stderr_across_all_supported_os_codes() {
+        for stream in ["stdout", "stderr"] {
+            for marker in [
+                "Broken pipe",
+                "os error 32",
+                "The pipe is being closed",
+                "os error 232",
+                "The pipe has been ended",
+                "os error 109",
+            ] {
+                let msg = format!("failed printing to {stream}: {marker}");
+                assert!(is_broken_pipe_message(&msg), "{msg}");
+            }
+        }
+    }
 }

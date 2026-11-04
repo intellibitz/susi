@@ -496,4 +496,20 @@ mod inline_tests {
             assert!(!scenario.trace.is_empty());
         }
     }
+
+    #[test]
+    fn recover_rejects_fourth_attempt_and_stopped_deployment() {
+        let mut stopped = DevDeployment::new("ns-stop", "cred", 20, 64);
+        assert_eq!(stopped.recover(), Err(DeploymentError::NotReady));
+
+        let mut dep = DevDeployment::new("ns-step", "cred", 50, 64);
+        dep.start("cred", 5).expect("start");
+        for _ in 0..3 {
+            dep.inject(DevFault::RuntimeCrash);
+            assert_eq!(dep.recover(), Ok(()));
+        }
+        dep.inject(DevFault::RuntimeCrash);
+        assert_eq!(dep.recover(), Err(DeploymentError::NotReady));
+        assert_eq!(dep.recovery_steps(), 4);
+    }
 }

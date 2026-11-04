@@ -287,4 +287,18 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn stub_admin_hooks_formats_nested_workspace_path_across_release_and_patch() {
+        let ws = Path::new("nested/sub/ws");
+        let stub = StubAdminHooks;
+        assert_eq!(
+            stub.execute_release(ws).unwrap(),
+            "release v1.0.0 from nested/sub/ws"
+        );
+        assert_eq!(
+            stub.apply_patch_cycle(ws, r#"{"id":7}"#, "strict").unwrap(),
+            r#"Patch Cycle Applied (strict) on nested/sub/ws: {"id":7}"#
+        );
+    }
 }

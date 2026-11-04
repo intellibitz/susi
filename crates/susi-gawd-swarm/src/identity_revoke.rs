@@ -191,4 +191,24 @@ mod inline_tests {
         assert!(store.historical_verifiable("k-revoked"));
         assert!(!store.historical_verifiable("k-never-existed"));
     }
+
+    #[test]
+    fn endorsements_outside_electorate_do_not_count_toward_quorum() {
+        let mut store = IdentityStore::default();
+        let electorate = three_peer_electorate();
+        let outsider_votes = BTreeSet::from([
+            "a".to_string(),
+            "outsider-1".to_string(),
+            "outsider-2".to_string(),
+        ]);
+        let key = KeyMaterial {
+            peer_id: "p1".to_string(),
+            key_id: "k1".to_string(),
+            public: "pub1".to_string(),
+        };
+        assert!(store
+            .rotate("p1", key, &outsider_votes, &electorate)
+            .is_err());
+        assert!(store.revoke("k1", &outsider_votes, &electorate).is_err());
+    }
 }

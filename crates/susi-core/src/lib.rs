@@ -262,4 +262,16 @@ mod inline_tests {
         };
         assert!(stop.active);
     }
+
+    #[test]
+    fn emergency_stop_clone_and_debug_work_via_crate_root() {
+        let stop = emergency_stop::EmergencyStop {
+            scope: "node-1".into(),
+            reason: "maintenance".into(),
+            active: false,
+        };
+        let cloned = stop.clone();
+        assert_eq!(cloned.scope, "node-1");
+        assert!(!format!("{cloned:?}").is_empty());
+    }
 }

@@ -903,4 +903,12 @@ mod tests {
         assert!(!cfg.model_catalog().is_empty());
         assert!(!cfg.eos_token_ids().is_empty());
     }
+
+    #[test]
+    fn default_config_and_heal_defaults_are_non_empty_and_contain_default_model() {
+        let def = SusiConfig::default();
+        assert!(!def.settings.is_empty());
+        assert!(!def.default_model().is_empty());
+        assert!(SusiConfig::heal_defaults().contains_key("default_model"));
+    }
 }

@@ -152,4 +152,11 @@ mod surface_tests {
         assert!(same::<MetaToolHandler, types::MetaToolHandler>());
         assert_eq!(format!("{:?}", MetaCategory::WasmReflex), "WasmReflex");
     }
+
+    #[test]
+    fn re_exported_error_and_config_crates_resolve_through_susi_tools_root() {
+        let err = susi_error::EaiError::internal("tools-root-probe");
+        assert!(err.to_string().contains("tools-root-probe"));
+        assert!(!susi_config::SusiConfig::default().settings.is_empty());
+    }
 }

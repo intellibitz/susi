@@ -138,4 +138,16 @@ mod tests {
             format!("{}|{}", workspace.display(), json!({"k": [1, 2]}))
         );
     }
+
+    #[test]
+    fn mcp_tool_clone_and_debug_preserve_name_and_description() {
+        let tool = super::McpTool {
+            name: "list_dir".into(),
+            description: "List directory contents".into(),
+        };
+        let cloned = tool.clone();
+        assert_eq!(cloned.name, "list_dir");
+        assert_eq!(cloned.description, "List directory contents");
+        assert!(format!("{cloned:?}").contains("list_dir"));
+    }
 }

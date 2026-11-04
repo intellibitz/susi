@@ -329,4 +329,19 @@ mod tests {
             .render_prometheus()
             .contains("susi_inference_errors_total 1"));
     }
+
+    #[test]
+    fn record_call_accumulates_prompt_cached_completion_and_cost_totals() {
+        let registry = InferenceTelemetry::new();
+        let u1 = TokenUsage::with_cache(100, 40, 30);
+        let u2 = TokenUsage::with_cache(50, 10, 20);
+        registry.record_call("m1", &u1, 500, false);
+        registry.record_call("m1", &u2, 250, false);
+        assert_eq!(registry.total_requests(), 2);
+        assert_eq!(registry.total_prompt_tokens(), 150);
+        assert_eq!(registry.total_completion_tokens(), 50);
+        assert_eq!(registry.total_cached_tokens(), 50);
+        assert_eq!(registry.total_cost_micros(), 750);
+        assert_eq!(registry.total_errors(), 0);
+    }
 }

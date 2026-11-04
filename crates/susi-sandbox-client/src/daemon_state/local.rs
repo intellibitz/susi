@@ -205,4 +205,27 @@ mod tests {
         assert!(cache_text.ends_with(&h2));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn check_status_returns_false_when_lock_file_is_absent_or_contains_non_numeric_pid() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-daemon-status-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ws = dir.join("ws");
+        assert!(!SusiDaemonState::check_status(&ws, &dir));
+
+        let lock = dir.join(format!(
+            "daemon_{}.lock",
+            hex::encode(ws.to_string_lossy().as_bytes())
+        ));
+        std::fs::write(&lock, "not-a-pid\n").unwrap();
+        assert!(!SusiDaemonState::check_status(&ws, &dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

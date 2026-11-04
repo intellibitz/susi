@@ -242,4 +242,20 @@ mod tests {
         assert_eq!(repo.local("user.name").as_deref(), Some("Operator"));
         assert_eq!(repo.local("user.email").as_deref(), Some("op@example.test"));
     }
+
+    #[test]
+    fn restore_returns_none_when_repo_local_identity_is_unchanged() {
+        let repo = Repo::new();
+        repo.git(&["config", "--local", "user.name", "StableUser"]);
+        repo.git(&["config", "--local", "user.email", "stable@example.test"]);
+        let mut cmd = Command::new("true");
+        repo.isolate(&mut cmd);
+        let guard = GitIdentityGuard::arm(&repo.0, &mut cmd).unwrap().unwrap();
+        assert_eq!(guard.restore().unwrap(), None);
+        assert_eq!(repo.local("user.name").as_deref(), Some("StableUser"));
+        assert_eq!(
+            repo.local("user.email").as_deref(),
+            Some("stable@example.test")
+        );
+    }
 }

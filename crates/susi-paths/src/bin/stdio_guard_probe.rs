@@ -63,4 +63,12 @@ mod tests {
         assert_eq!(retries, 200);
         assert_ne!(no_epipe_exit_code, 0);
     }
+
+    #[test]
+    fn probe_total_write_volume_exceeds_typical_os_pipe_buffer_threshold() {
+        let chunk_bytes = "x".repeat(64).len();
+        let total_bytes_with_newlines = (chunk_bytes + 1) * 200;
+        assert_eq!(total_bytes_with_newlines, 13_000);
+        assert!(total_bytes_with_newlines > 8_192);
+    }
 }

@@ -89,4 +89,21 @@ mod inline_tests {
         assert!(summary.contains("2 samples (0 distilled from the compiled genome this run)"));
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn audit_reasoning_substrate_ignores_blank_lines_when_counting_existing_samples() {
+        let ws = fresh_temp_workspace("interleaved");
+        let exp = crate::genome_distiller::experience_path(&ws);
+        std::fs::create_dir_all(exp.parent().unwrap()).unwrap();
+        std::fs::write(
+            &exp,
+            "\n{\"sample\":1}\n   \n{\"sample\":2}\n{\"sample\":3}\n\n",
+        )
+        .unwrap();
+
+        let summary = ReasoningTrainer::audit_reasoning_substrate(&ws).unwrap();
+        assert!(summary.contains("3 samples (0 distilled from the compiled genome this run)"));
+        assert!(summary.contains("Indexed by semantic search; no model is trained by this audit."));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

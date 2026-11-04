@@ -206,4 +206,17 @@ mod inline_tests {
             .unwrap_err()
             .contains("outside declared allowlist"));
     }
+
+    #[test]
+    fn parse_intent_spec_accepts_invariant_only_spec_and_run_checks_propagates_runner_errors() {
+        let inv_only = parse_intent_spec(
+            r#"{"fixtures":[],"invariants":[{"kind":"WhitespaceNormalize","a":"x","b":" x "}]}"#,
+        )
+        .unwrap();
+        assert!(inv_only.fixtures.is_empty());
+        assert_eq!(inv_only.invariants.len(), 1);
+
+        let err = run_checks(&inv_only, &|_| Err("sandbox crash".to_string())).unwrap_err();
+        assert!(err.contains("invariant whitespace: run failed: sandbox crash"));
+    }
 }
