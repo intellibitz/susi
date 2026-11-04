@@ -196,3 +196,130 @@ impl ExperimentLog {
         )
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use crate::scorecard::{DimensionScore, DimensionSpec};
+
+    #[test]
+    fn safe_file_stem_sanitizes_punctuation_and_empty_ids() {
+        assert_eq!(safe_file_stem("exp-01_a"), "exp-01_a");
+        assert_eq!(safe_file_stem("../evil/path"), "___evil_path");
+        assert_eq!(safe_file_stem(""), "_");
+    }
+
+    #[test]
+    fn propose_and_transition_enforce_valid_state_machine_and_reject_duplicates() {
+        let mut log = ExperimentLog::default();
+        log.propose("exp-1").unwrap();
+        assert!(log.propose("exp-1").is_err());
+
+        assert!(log
+            .transition("exp-1", ExperimentState::PromotionReady)
+            .is_err());
+        log.transition("exp-1", ExperimentState::Isolated).unwrap();
+        assert!(log.resume_requires_evaluation("exp-1"));
+
+        log.transition("exp-1", ExperimentState::Evaluated).unwrap();
+        assert!(!log.resume_requires_evaluation("exp-1"));
+        assert_eq!(
+            log.experiments.get("exp-1").map(|e| e.state),
+            Some(ExperimentState::Evaluated)
+        );
+    }
+
+    #[test]
+    fn durable_log_persists_and_reloads_state_and_transition_history() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-exp-log-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut log = ExperimentLog::load(dir.clone());
+        log.propose("exp-persist").unwrap();
+        log.transition("exp-persist", ExperimentState::Isolated)
+            .unwrap();
+
+        let reloaded = ExperimentLog::load(dir.clone());
+        assert!(reloaded.resume_requires_evaluation("exp-persist"));
+        assert_eq!(reloaded.applied_transitions.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn promote_with_scorecard_requires_all_dimensions_and_sample_floor() {
+        let mut log = ExperimentLog::default();
+        log.propose("exp-2").unwrap();
+        log.transition("exp-2", ExperimentState::Isolated).unwrap();
+        log.transition("exp-2", ExperimentState::Evaluated).unwrap();
+
+        let spec = ScorecardSpec {
+            quality: DimensionSpec {
+                threshold: 0.8,
+                lower_is_better: false,
+            },
+            reliability: DimensionSpec {
+                threshold: 0.9,
+                lower_is_better: false,
+            },
+            latency: DimensionSpec {
+                threshold: 100.0,
+                lower_is_better: true,
+            },
+            resource: DimensionSpec {
+                threshold: 50.0,
+                lower_is_better: true,
+            },
+            operator_effort: DimensionSpec {
+                threshold: 1.0,
+                lower_is_better: true,
+            },
+            min_task_count: 5,
+        };
+        let passing = ImprovementScorecard {
+            quality: DimensionScore {
+                name: "q".into(),
+                value: 0.95,
+                uncertainty: 0.02,
+            },
+            reliability: DimensionScore {
+                name: "r".into(),
+                value: 0.98,
+                uncertainty: 0.01,
+            },
+            latency: DimensionScore {
+                name: "l".into(),
+                value: 50.0,
+                uncertainty: 5.0,
+            },
+            resource: DimensionScore {
+                name: "res".into(),
+                value: 20.0,
+                uncertainty: 2.0,
+            },
+            operator_effort: DimensionScore {
+                name: "op".into(),
+                value: 0.1,
+                uncertainty: 0.05,
+            },
+            task_count: 10,
+        };
+        let mut undersampled = passing.clone();
+        undersampled.task_count = 2;
+        assert!(log
+            .promote_with_scorecard("exp-2", &undersampled, &spec)
+            .is_err());
+
+        log.promote_with_scorecard("exp-2", &passing, &spec)
+            .unwrap();
+        assert_eq!(
+            log.experiments.get("exp-2").map(|e| e.state),
+            Some(ExperimentState::PromotionReady)
+        );
+    }
+}

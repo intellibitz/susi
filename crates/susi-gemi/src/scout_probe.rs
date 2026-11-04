@@ -241,3 +241,65 @@ pub fn record_outcomes(report: &ScoutReport) -> usize {
     }
     n
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn scout_probes_predicates_match_expected_tokens_case_insensitively() {
+        assert_eq!(SCOUT_PROBES.len(), 6);
+        assert!((SCOUT_PROBES[0].check)("  ok \n"));
+        assert!((SCOUT_PROBES[1].check)("The answer is 15."));
+        assert!((SCOUT_PROBES[2].check)("Tokyo!"));
+        assert!((SCOUT_PROBES[3].check)("Blue"));
+        assert!((SCOUT_PROBES[4].check)("`let`"));
+        assert!((SCOUT_PROBES[5].check)("Carol is shortest"));
+    }
+
+    #[test]
+    fn transport_dead_marks_every_probe_as_transport_failure_with_none_fraction() {
+        let dead = ScoutReport::transport_dead("dead-provider", "connection refused".to_string());
+        assert_eq!(dead.probes, SCOUT_PROBES.len());
+        assert_eq!(dead.verified, 0);
+        assert_eq!(dead.transport_failures, SCOUT_PROBES.len());
+        assert_eq!(dead.verified_fraction(), None);
+    }
+
+    #[test]
+    fn probe_with_scores_correct_answers_and_truncates_long_previews() {
+        let long_suffix = "x".repeat(200);
+        let report = probe_with("mock-provider", &|prompt| {
+            if prompt.contains("OK") {
+                Ok("OK".to_string())
+            } else {
+                Ok(format!("15 tokyo red let carol {long_suffix}"))
+            }
+        });
+        assert_eq!(report.probes, 6);
+        assert_eq!(report.verified, 6);
+        assert_eq!(report.transport_failures, 0);
+        assert_eq!(report.verified_fraction(), Some(1.0));
+        assert!(report
+            .results
+            .iter()
+            .all(|r| r.answer_preview.as_ref().unwrap().chars().count() <= ANSWER_PREVIEW_CHARS));
+    }
+
+    #[test]
+    fn probe_with_classifies_empty_and_err_responses_as_transport_failures() {
+        let report = probe_with("flaky-provider", &|prompt| {
+            if prompt.contains("OK") {
+                Ok("   ".to_string())
+            } else if prompt.contains("7 plus 8") {
+                Err("timeout".to_string())
+            } else {
+                Ok("wrong answer".to_string())
+            }
+        });
+        assert_eq!(report.probes, 6);
+        assert_eq!(report.verified, 0);
+        assert_eq!(report.transport_failures, 2);
+        assert_eq!(report.verified_fraction(), Some(0.0));
+    }
+}

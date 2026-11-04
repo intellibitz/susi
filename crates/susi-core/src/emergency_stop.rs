@@ -204,3 +204,81 @@ impl EmergencyStopBus {
         }
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn scope_matches_handles_wildcards_exact_and_prefixed_scopes() {
+        assert!(scope_matches("fleet", "workspace/alpha"));
+        assert!(scope_matches("*", "workspace/alpha"));
+        assert!(scope_matches("global", "workspace/alpha"));
+        assert!(scope_matches("Workspace", "workspace"));
+        assert!(scope_matches("team", "team/sub"));
+        assert!(scope_matches("team", "team::sub"));
+        assert!(!scope_matches("team", "team_other"));
+    }
+
+    #[test]
+    fn register_task_admits_when_clear_and_rejects_when_matching_stop_active() {
+        let mut bus = EmergencyStopBus::default();
+        bus.register_task(RunningTask::new("t1", true, false, "team/a"))
+            .unwrap();
+        assert!(bus.is_task_running("t1"));
+
+        bus.apply_stop("team", "operator halt");
+        let err = bus
+            .register_task(RunningTask::new("t2", false, true, "team/b"))
+            .unwrap_err();
+        assert_eq!(err.scope, "team");
+        assert!(err.to_string().contains("operator halt"));
+        assert!(bus.status.unrecalled_external.contains("t2"));
+    }
+
+    #[test]
+    fn apply_stop_cancels_matching_tasks_and_records_unreachable_peers() {
+        let mut bus = EmergencyStopBus::default();
+        bus.register_peer("peer-ok", true);
+        bus.register_peer("peer-down", false);
+        bus.register_task(RunningTask::new("cancel-me", true, false, "prod/api"))
+            .unwrap();
+        bus.register_task(RunningTask::new("ext-me", false, true, "prod/ext"))
+            .unwrap();
+        bus.register_task(RunningTask::new("keep-me", true, false, "staging/api"))
+            .unwrap();
+
+        bus.apply_stop("prod", "incident");
+        assert!(bus.rejects_new_work());
+        assert!(bus.rejects_new_work_for_scope("prod/api"));
+        assert!(!bus.rejects_new_work_for_scope("staging/api"));
+        assert!(bus.status.cancelled_tasks.contains("cancel-me"));
+        assert!(!bus.status.cancelled_tasks.contains("keep-me"));
+        assert!(bus.status.unrecalled_external.contains("ext-me"));
+        assert!(bus.status.unreachable_peers.contains("peer-down"));
+        assert!(!bus.status.unreachable_peers.contains("peer-ok"));
+    }
+
+    #[test]
+    fn persist_and_restore_roundtrips_signed_status_and_detects_tampering() {
+        let dir = std::env::temp_dir().join(format!("susi-estop-inline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("estop.json");
+
+        let mut bus = EmergencyStopBus::default();
+        bus.apply_stop("fleet", "maintenance");
+        bus.persist_to(&path).unwrap();
+
+        let restored = EmergencyStopBus::restore_from(&path).unwrap();
+        assert_eq!(restored.status.stop, bus.status.stop);
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let tampered = raw.replace("maintenance", "forged");
+        std::fs::write(&path, tampered).unwrap();
+        assert!(EmergencyStopBus::restore_from(&path).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

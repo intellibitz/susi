@@ -278,3 +278,97 @@ pub fn recommend_placement(results: &[CandidateBenchmark]) -> Vec<CandidateSpec>
     });
     ranked.into_iter().map(|r| r.spec.clone()).collect()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn estimate_tokens_counts_words_with_floor_of_one() {
+        assert_eq!(estimate_tokens(""), 1);
+        assert_eq!(estimate_tokens("   \t\n "), 1);
+        assert_eq!(estimate_tokens("one"), 1);
+        assert_eq!(estimate_tokens("one two   three\nfour"), 4);
+    }
+
+    #[test]
+    fn format_quantization_matrix_enumerates_all_twelve_combinations() {
+        let matrix = format_quantization_matrix("llama_cpp", "qwen-7b");
+        assert_eq!(
+            matrix.len(),
+            ModelFormat::ALL.len() * Quantization::ALL.len()
+        );
+        assert_eq!(matrix.len(), 12);
+        assert_eq!(matrix[0].format.as_str(), "GGUF");
+        assert_eq!(matrix[0].quantization.as_str(), "Q4");
+        assert_eq!(matrix[11].format.as_str(), "AWQ");
+        assert_eq!(matrix[11].quantization.as_str(), "FP16");
+    }
+
+    #[test]
+    fn run_engine_benchmark_records_success_and_failure_samples() {
+        let ok_provider = FakeProvider {
+            engine: "test-eng".to_string(),
+            model: "test-mod".to_string(),
+            reply: "alpha beta gamma delta".to_string(),
+            latency: Duration::from_millis(15),
+            fail: false,
+        };
+        let samples = run_engine_benchmark(&ok_provider, &["p1", "p2"]);
+        assert_eq!(samples.len(), 2);
+        assert!(samples.iter().all(|s| s.success && s.tokens_per_sec > 0.0));
+        assert_eq!(samples[0].first_token_latency_ms, 15);
+
+        let fail_provider = FakeProvider {
+            fail: true,
+            ..ok_provider
+        };
+        let fail_samples = run_engine_benchmark(&fail_provider, &["p1"]);
+        assert_eq!(fail_samples.len(), 1);
+        assert!(!fail_samples[0].success);
+        assert_eq!(fail_samples[0].tokens_per_sec, 0.0);
+    }
+
+    #[test]
+    fn recommend_placement_filters_unsupported_or_incorrect_and_orders_by_tps() {
+        let specs = format_quantization_matrix("vllm", "coder");
+        let results = vec![
+            CandidateBenchmark {
+                spec: specs[0].clone(),
+                supported: true,
+                correct: true,
+                memory_mb: 4096.0,
+                tokens_per_sec: 50.0,
+                first_token_latency_ms: 10,
+            },
+            CandidateBenchmark {
+                spec: specs[1].clone(),
+                supported: false,
+                correct: true,
+                memory_mb: 4096.0,
+                tokens_per_sec: 999.0,
+                first_token_latency_ms: 5,
+            },
+            CandidateBenchmark {
+                spec: specs[2].clone(),
+                supported: true,
+                correct: false,
+                memory_mb: 4096.0,
+                tokens_per_sec: 888.0,
+                first_token_latency_ms: 5,
+            },
+            CandidateBenchmark {
+                spec: specs[3].clone(),
+                supported: true,
+                correct: true,
+                memory_mb: 4096.0,
+                tokens_per_sec: 120.0,
+                first_token_latency_ms: 8,
+            },
+        ];
+        let ranked = recommend_placement(&results);
+        assert_eq!(ranked, vec![specs[3].clone(), specs[0].clone()]);
+    }
+}
