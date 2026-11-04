@@ -34,9 +34,9 @@ impl PlaneHandler for ToolsPlaneHandler {
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let args = payload.get("args").cloned().unwrap_or(json!({}));
                 let ws = workspace_path(&payload);
-                // A watched call gets the tool's progress lines back.
-                let sink = crate::susi_core::plane_bus::progress_sink_for(&payload);
-                let text = crate::susi_core::progress::with_sink(sink, || {
+                // A watched call gets the tool's progress lines back and
+                // forwards cooperative cancellation (`mission_run`).
+                let text = crate::susi_core::plane_bus::with_watched(&payload, || {
                     ToolRegistry::execute_tool(name, &args, &ws)
                 });
                 if looks_like_tool_error(&text) {

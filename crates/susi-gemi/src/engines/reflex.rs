@@ -103,4 +103,11 @@ mod inline_tests {
         ));
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn reflex_decision_variants_distinguish_solved_payload_from_deep_reasoning() {
+        let a = ReflexDecision::Solved("ACTION: ping".to_string());
+        let b = ReflexDecision::RequiresDeepReasoning;
+        assert_ne!(format!("{a:?}"), format!("{b:?}"));
+    }
 }

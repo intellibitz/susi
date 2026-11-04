@@ -177,4 +177,20 @@ mod inline_tests {
             RateLimitDecision::Ready
         );
     }
+
+    #[test]
+    fn schedule_next_attempt_defaults_to_one_second_wait_when_zero_remaining_lacks_reset() {
+        let state = RateLimitState {
+            retry_after_secs: None,
+            remaining: Some(0),
+            reset_unix: None,
+        };
+        assert_eq!(
+            schedule_next_attempt(&state, Some(500)),
+            RateLimitDecision::Wait {
+                ready_unix: 501,
+                reason: "x-ratelimit-remaining is 0".to_string(),
+            }
+        );
+    }
 }

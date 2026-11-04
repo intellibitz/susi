@@ -77,4 +77,16 @@ mod tool_call_normalisation_tests {
             serde_json::from_str(&encoded).expect("deserialize NormalizedToolCall");
         assert_eq!(decoded, call);
     }
+
+    #[test]
+    fn normalize_tool_call_prefers_top_level_arguments_over_input() {
+        let raw = json!({
+            "name": "exec_cmd",
+            "arguments": {"cmd": "ls"},
+            "input": {"cmd": "ignored"}
+        });
+        let normalized = normalize_tool_call(&raw).expect("normalize tool call");
+        assert_eq!(normalized.name, "exec_cmd");
+        assert_eq!(normalized.arguments, json!({"cmd": "ls"}));
+    }
 }

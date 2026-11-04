@@ -1,0 +1,27 @@
+{
+  "id": "T-GEMI5TD1104-1",
+  "title": "test(gemi): expand Wave D inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--",
+      "retry_policy::retry_policy_tests"
+    ]
+  },
+  "created_by": "GEMI5TD1104",
+  "created_unix": 1793806599,
+  "closed": {
+    "at_unix": 1793806801,
+    "commit": "ef74c1b5c3ce29e918cdff4848e9f62faeac6835",
+    "by": "GEMI5TD1104"
+  }
+}
