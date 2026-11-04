@@ -1,0 +1,20 @@
+{
+  "id": "T-GMCPINLINEF4T1104-1",
+  "title": "test(gmcp,web,wire,paths): add 4 inline unit tests each in args, susi-vendor-web, susi-wire-client, and susi-paths probes",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "--bins"
+    ]
+  },
+  "created_by": "GMCPINLINEF4T1104",
+  "created_unix": 1793803230
+}

@@ -1638,3 +1638,58 @@ pub struct BrainPareto {
     /// Optional task class filter (e.g. reflex, chat, code, reasoning, estate_ops). Defaults to `code`.
     pub class: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    // Test-only assertions in inline unit tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    #[test]
+    fn no_args_schema_is_closed_empty_object() {
+        let schema = no_args();
+        assert_eq!(schema.get("type"), Some(&serde_json::json!("object")));
+        assert_eq!(schema.get("properties"), Some(&serde_json::json!({})));
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&serde_json::json!(false))
+        );
+        assert!(!schema.contains_key(PASSTHROUGH_KEY));
+    }
+
+    #[test]
+    fn passthrough_schema_carries_passthrough_marker_and_open_properties() {
+        let schema = passthrough();
+        assert_eq!(schema.get("type"), Some(&serde_json::json!("object")));
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(schema.get(PASSTHROUGH_KEY), Some(&serde_json::json!(true)));
+    }
+
+    #[test]
+    fn typed_schema_for_write_file_marks_path_and_content_required() {
+        let schema = typed::<WriteFile>();
+        assert_eq!(schema.get("type"), Some(&serde_json::json!("object")));
+        let required = schema
+            .get("required")
+            .and_then(|v| v.as_array())
+            .expect("WriteFile schema must have required array");
+        assert!(required.contains(&serde_json::json!("path")));
+        assert!(required.contains(&serde_json::json!("content")));
+    }
+
+    #[test]
+    fn core_input_schema_resolves_registered_handlers_and_returns_none_for_unknown() {
+        let defs = core_tool_definitions();
+        assert!(!defs.is_empty());
+        let status_schema = core_input_schema("status").expect("status schema must exist");
+        assert_eq!(
+            status_schema.get("type"),
+            Some(&serde_json::json!("object"))
+        );
+        assert!(core_input_schema("nonexistent_tool_xyz_999").is_none());
+    }
+}
