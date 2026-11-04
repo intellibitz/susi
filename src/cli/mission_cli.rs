@@ -234,25 +234,19 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 }
             }
         }
+        // `susi_daemon::adapter_ops::mcp_add` admits and hot-plugs the
+        // server; the MCP `mcp_add` tool calls the same function.
         Commands::McpAdd {
             name,
             command_or_url,
             args,
-        } => {
-            let res = susi_tools::GmcpClient::admit_mcp_server(&name, &command_or_url, &args);
-            println!("{}", res);
-            if res.starts_with("SUCCESS") {
-                // Hot-plug into the live capability registry when possible.
-                // The vendored global is the same catalog as susi_core's —
-                // both ride the shared bus rendezvous.
-                susi_gmcp::mcp_wrapper::auto_discover_mcp();
-                susi_gemi::engines::mcp_provider::register_mcp_inference_providers(
-                    susi_gemi::susi_core::registry::CapabilityRegistry::global(),
-                );
-            } else {
+        } => match susi_daemon::adapter_ops::mcp_add(&name, &command_or_url, &args) {
+            Ok(res) => println!("{}", res),
+            Err(res) => {
+                println!("{}", res);
                 std::process::exit(1);
             }
-        }
+        },
         Commands::Pulse { intent } => {
             let intent_str = intent.join(" ");
             match susi_gawd::admin::SusiAdmin::ingest_natural_intent(cwd, &intent_str) {
@@ -336,37 +330,48 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         },
         Commands::Keys { action } => keys_cli::run(action),
         Commands::Admin { subcommand } => admin_cli::run(subcommand, host),
+        // `susi_daemon::provider_ops` builds the ladder report; the MCP
+        // `verify_download_agent` tool returns the same document.
         Commands::VerifyDownloadAgent => {
-            match susi_gemi::models::ModelManager::verify_model_ladder(cwd) {
+            match susi_daemon::provider_ops::verify_download_agent(cwd) {
                 Ok(report) => {
+                    let text = |v: &serde_json::Value| {
+                        v.as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| v.to_string())
+                    };
                     println!("=== SUSI Model Download Agent & Network Verification Report ===");
-                    println!("- Network Status: {}", report.network_status);
-                    println!("- Download Agent Active: {}", report.download_agent_active);
+                    println!("- Network Status: {}", text(&report["network_status"]));
+                    println!(
+                        "- Download Agent Active: {}",
+                        text(&report["download_agent_active"])
+                    );
                     println!(
                         "- Total Discovered Models on System: {}",
-                        report.total_discovered_on_system
+                        text(&report["total_discovered_on_system"])
                     );
                     println!("\nModel Provisioning Steps:");
-                    let mut all_verified = !report.steps.is_empty();
-                    for step in &report.steps {
+                    let steps = report["steps"].as_array().cloned().unwrap_or_default();
+                    for step in &steps {
                         println!(
                             "  [Step {}] {} ({})",
-                            step.step, step.model_label, step.hf_repo
+                            text(&step["step"]),
+                            text(&step["model_label"]),
+                            text(&step["hf_repo"])
                         );
-                        println!("    - Status: {}", step.status);
-                        println!("    - Path: {}", step.path);
+                        println!("    - Status: {}", text(&step["status"]));
+                        println!("    - Path: {}", text(&step["path"]));
                         println!(
                             "    - Bytes: {} / {} ({:.1}%)",
-                            step.bytes_downloaded, step.expected_bytes, step.percentage
+                            text(&step["bytes_downloaded"]),
+                            text(&step["expected_bytes"]),
+                            step["percentage"].as_f64().unwrap_or(0.0)
                         );
-                        if !step.status.contains("COMPLETED") {
-                            all_verified = false;
-                        }
                     }
-                    if all_verified {
+                    if report["all_verified"].as_bool() == Some(true) {
                         println!(
                             "\nSUCCESS: all {} download steps completed and verified.",
-                            report.steps.len()
+                            steps.len()
                         );
                     } else {
                         println!(
@@ -400,8 +405,8 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             }
         }
         Commands::Benchmark => {
-            let report = susi_gemi::benchmark::BenchmarkRunner::run_and_render(cwd);
-            println!("{}", report);
+            // Same call as the MCP `benchmark_run` tool.
+            println!("{}", susi_daemon::provider_ops::benchmark(cwd));
         }
         Commands::Clean => match std::fs::remove_dir_all(cwd.join("target")) {
             Ok(()) => println!("Workspace build artifacts cleaned."),
@@ -545,20 +550,10 @@ fn uninstall(global_dir: &Path) {
 }
 
 fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
-    use susi_gemi::models::hardware::HardwareProfiler;
-
-    println!("=== SUSI SUBSTRATE SUMMARY ===");
-    let os_report = HardwareProfiler::audit_os_environment_care();
-
-    match SusiDaemon::check_status(workspace, global_dir) {
-        Some(pid) => println!("- Global Daemon: Active (PID: {})", pid),
-        None => println!("- Global Daemon: Inactive"),
+    // `susi_daemon::host_views::review` builds the summary; the MCP
+    // `operator_review` tool returns the same document.
+    let doc = susi_daemon::host_views::review(workspace, global_dir);
+    for line in doc["lines"].as_array().into_iter().flatten() {
+        println!("{}", line.as_str().unwrap_or_default());
     }
-    println!(
-        "- Environment Care ({}) : Reclaimable {}",
-        os_report.os_name, os_report.reclaimable_cache_formatted
-    );
-    println!("\nQuick Action Commands:");
-    println!("  susi os-clean  # Reclaim OS-level cache bloat");
-    println!("  susi status    # System health pulse");
 }

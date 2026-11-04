@@ -277,6 +277,19 @@ pub fn grant_covers(granted: &str, requested: &str) -> bool {
         .is_some_and(|rest| granted.ends_with('/') || rest.starts_with('/'))
 }
 
+/// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\server\share` becomes
+/// `\\server\share`; any other path is returned unchanged.
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path.to_path_buf(),
+    }
+}
+
 fn process_local_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     if getrandom::fill(&mut key).is_ok() {
@@ -779,7 +792,52 @@ impl MacPolicy {
         "meta_scout_agents", // capability listing from connected remotes
         "brave_search",      // web search (query leaves the host)
         "google_search",     // web search (query leaves the host)
+        "provider_probe",    // completion through a (usually paid) endpoint
+        "provider_pull",     // weights pulled from a model registry
+        "brain_probe",       // scout benchmark against a provider
+        "keys_check",        // each vendor's model list, with its key
+        "keys_models",       // the vendor's model list, with its key
+        "harness_author",    // plan authored through the metered gateway
+        "harness_run",       // mission tasks through the metered gateway
+        "harness_budget",    // provider balances fetched with their keys
+        "harness_plan",      // provider balances fetched with their keys
     ];
+
+    /// Extra requirements for storing an adapter document over the socket:
+    /// a stored adapter is run later by `agents_run`, `frameworks_run`,
+    /// retries or an MCP enable, so storing one that names a program needs
+    /// `process.exec`, and storing a remote A2A agent needs
+    /// `network.egress`. `kind` is the adapter kind the tool names.
+    fn adapter_document_requirements(
+        kind: Option<&str>,
+        doc: &serde_json::Value,
+    ) -> Vec<(&'static str, &'static str)> {
+        let kind = kind
+            .map(|k| k.trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let kind = kind.trim_end_matches('s');
+        match kind {
+            "agent" | "framework" => {
+                match doc.get("kind").and_then(|v| v.as_str()) {
+                    Some("a2a") => vec![(actions::NETWORK_EGRESS, "*")],
+                    // `command`, `acp`, or a shape the upgrade will refuse:
+                    // fail closed.
+                    _ => vec![(actions::PROCESS_EXEC, "*")],
+                }
+            }
+            "mcp" => {
+                let names_program = ["runner", "args", "package"]
+                    .iter()
+                    .any(|key| doc.get(*key).is_some_and(|v| !v.is_null()));
+                if names_program {
+                    vec![(actions::PROCESS_EXEC, "*")]
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
+        }
+    }
 
     /// Map a tool name to required (action, resource) pairs.
     pub fn requirements_for_tool(tool: &str) -> Vec<(&'static str, &'static str)> {
@@ -861,11 +919,43 @@ impl MacPolicy {
         }
 
         let mut reqs = Self::requirements_for_tool(tool);
-        // Task inspection is local unless `refresh` asks the cloud vendor.
-        if matches!(tool, "agents_status" | "frameworks_status")
-            && arg.get("refresh").and_then(|v| v.as_bool()) == Some(true)
+        // Task inspection is local unless `refresh` asks the cloud vendor;
+        // provider checks are local unless `live` lists the vendor's models,
+        // and the harness registry is local unless verified or discovered.
+        let flag = |key: &str| arg.get(key).and_then(|v| v.as_bool()) == Some(true);
+        if (matches!(tool, "agents_status" | "frameworks_status") && flag("refresh"))
+            || (matches!(tool, "provider_doctor" | "provider_models") && flag("live"))
+            || (tool == "harness_models"
+                && matches!(
+                    arg.get("mode").and_then(|v| v.as_str()),
+                    Some("verify" | "discover" | "available")
+                ))
         {
             reqs.push((actions::NETWORK_EGRESS, "*"));
+        }
+        // A harness run creates worktrees, runs builds and drives the susi
+        // binary per task; a stdio MCP server is a child process the daemon
+        // launches. Both are host program execution.
+        let stdio_mcp = tool == "mcp_add"
+            && !arg
+                .get("command_or_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_ascii_lowercase())
+                .is_some_and(|s| s.starts_with("http://") || s.starts_with("https://"));
+        if tool == "harness_run" || stdio_mcp {
+            reqs.push((actions::PROCESS_EXEC, "*"));
+        }
+        // Adapter overrides are host configuration a later run executes.
+        if matches!(tool, "adapter_configure" | "adapter_reset") {
+            reqs.push((actions::FILESYSTEM_WRITE, "*"));
+        }
+        if tool == "adapter_configure" {
+            if let Some(doc) = arg.get("adapter").filter(|v| v.is_object()) {
+                reqs.extend(Self::adapter_document_requirements(
+                    arg.get("kind").and_then(|v| v.as_str()),
+                    doc,
+                ));
+            }
         }
         for (action, resource) in reqs {
             if action == actions::NETWORK_EGRESS && self.blocks_network_by_default() {
@@ -881,6 +971,116 @@ impl MacPolicy {
             }
         }
         Ok(())
+    }
+
+    /// Resolve a workspace a socket caller names for a tool that acts on a
+    /// caller's working tree (the CLI's cwd). The socket has no caller cwd,
+    /// so the path must be absolute; it must be an existing directory and
+    /// not a filesystem root, and `subject` must hold `filesystem.write`
+    /// (`write`) or `filesystem.read` on it under this policy, so an
+    /// operator confines socket workspaces by narrowing those grants.
+    /// Returns the canonical path (without the Windows verbatim prefix).
+    pub fn confine_workspace(&self, subject: &str, path: &str, write: bool) -> EaiResult<PathBuf> {
+        let candidate = PathBuf::from(path.trim());
+        if !candidate.is_absolute() {
+            return Err(EaiError::config(
+                "workspace must be an absolute path (the socket has no caller working directory)",
+            ));
+        }
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|e| EaiError::config(format!("workspace {}: {e}", candidate.display())))?;
+        if !canonical.is_dir() {
+            return Err(EaiError::config(format!(
+                "workspace {} is not a directory",
+                canonical.display()
+            )));
+        }
+        let plain = strip_verbatim_prefix(&canonical);
+        if plain.parent().is_none() {
+            return Err(EaiError::config(format!(
+                "workspace {} is a filesystem root",
+                plain.display()
+            )));
+        }
+        let resource = plain.to_string_lossy().replace('\\', "/");
+        let action = if write {
+            actions::FILESYSTEM_WRITE
+        } else {
+            actions::FILESYSTEM_READ
+        };
+        if !self.is_permitted(subject, action, &resource) {
+            return Err(EaiError::governance(format!(
+                "MAC DENY: subject `{subject}` lacks {action} on workspace {resource} — grant it with `privacy_grant` (action {action}, resource {resource})"
+            )));
+        }
+        Ok(plain)
+    }
+
+    /// Resolve one file path a socket caller names for a tool to read
+    /// (`write == false`) or write. The socket has no caller working
+    /// directory, so the path must be absolute. The path need not exist
+    /// (an output, or a state file a run creates): its nearest existing
+    /// ancestor is canonicalized and the rest re-joined, and that rest may
+    /// not climb (`..`). `subject` must hold `filesystem.write` (`write`)
+    /// or `filesystem.read` on the resolved path, so an operator confines
+    /// socket file access by narrowing those grants. Returns the resolved
+    /// path (without the Windows verbatim prefix).
+    pub fn confine_path(&self, subject: &str, path: &str, write: bool) -> EaiResult<PathBuf> {
+        let candidate = PathBuf::from(path.trim());
+        if !candidate.is_absolute() {
+            return Err(EaiError::config(format!(
+                "{} must be an absolute path (the socket has no caller working directory)",
+                candidate.display()
+            )));
+        }
+        let mut existing = candidate.as_path();
+        let mut rest = Vec::new();
+        let base = loop {
+            match existing.canonicalize() {
+                Ok(base) => break base,
+                Err(error) => {
+                    let (Some(parent), Some(name)) = (existing.parent(), existing.file_name())
+                    else {
+                        return Err(EaiError::config(format!(
+                            "{}: {error}",
+                            candidate.display()
+                        )));
+                    };
+                    rest.push(name.to_os_string());
+                    existing = parent;
+                }
+            }
+        };
+        if candidate
+            .strip_prefix(existing)
+            .map(|tail| {
+                tail.components()
+                    .any(|c| !matches!(c, std::path::Component::Normal(_)))
+            })
+            .unwrap_or(true)
+        {
+            return Err(EaiError::config(format!(
+                "{} may not climb out of an existing directory",
+                candidate.display()
+            )));
+        }
+        let mut resolved = strip_verbatim_prefix(&base);
+        for name in rest.iter().rev() {
+            resolved.push(name);
+        }
+        let resource = resolved.to_string_lossy().replace('\\', "/");
+        let action = if write {
+            actions::FILESYSTEM_WRITE
+        } else {
+            actions::FILESYSTEM_READ
+        };
+        if !self.is_permitted(subject, action, &resource) {
+            return Err(EaiError::governance(format!(
+                "MAC DENY: subject `{subject}` lacks {action} on {resource} — grant it with `privacy_grant` (action {action}, resource {resource})"
+            )));
+        }
+        Ok(resolved)
     }
 
     /// Snapshot for CLI / telemetry.
@@ -901,6 +1101,39 @@ mod tests {
 
     fn policy(mode: PrivacyMode) -> MacPolicy {
         MacPolicy::new([7u8; 32], mode, matches!(mode, PrivacyMode::LocalOnly))
+    }
+
+    #[test]
+    fn socket_workspaces_are_absolute_existing_directories_the_policy_grants() {
+        let p = policy(PrivacyMode::Balanced);
+        let dir = std::env::temp_dir().join(format!("susi-mac-ws-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = dir.display().to_string();
+        assert!(p.confine_workspace("susi", "relative/dir", false).is_err());
+        assert!(p
+            .confine_workspace("susi", &dir.join("missing").display().to_string(), false)
+            .is_err());
+        let root = dir.ancestors().last().unwrap().display().to_string();
+        let refused = p.confine_workspace("susi", &root, false).unwrap_err();
+        assert!(refused.to_string().contains("filesystem root"), "{refused}");
+        // The seeded defaults grant `susi` read and write on `*`.
+        let resolved = p.confine_workspace("susi", &text, true).unwrap();
+        assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
+        assert_eq!(
+            resolved.canonicalize().unwrap(),
+            dir.canonicalize().unwrap()
+        );
+        // A subject with no grant on the path is refused.
+        let denied = p.confine_workspace("stranger", &text, false).unwrap_err();
+        assert!(denied.to_string().contains("MAC DENY"), "{denied}");
+        // A grant on the workspace (forward slashes, as the resource is
+        // spelled) admits that subject.
+        let resource = resolved.to_string_lossy().replace('\\', "/");
+        p.grant("stranger", actions::FILESYSTEM_READ, &resource, None)
+            .unwrap();
+        assert!(p.confine_workspace("stranger", &text, false).is_ok());
+        assert!(p.confine_workspace("stranger", &text, true).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1007,12 +1240,171 @@ mod tests {
             .authorize_tool("agents_status", &refresh, ws, None)
             .is_err());
         p.consent_egress("susi", 60).unwrap();
+        // harness_run also executes host programs; egress consent alone
+        // does not admit it (see harness_run_and_stdio_mcp_need_process_exec).
         for tool in MacPolicy::EGRESS_TOOLS {
-            assert!(p.authorize_tool(tool, &none, ws, None).is_ok(), "{tool}");
+            let verdict = p.authorize_tool(tool, &none, ws, None);
+            if *tool == "harness_run" {
+                assert!(verdict.is_err(), "{tool}");
+            } else {
+                assert!(verdict.is_ok(), "{tool}");
+            }
         }
         assert!(p
             .authorize_tool("agents_status", &refresh, ws, None)
             .is_ok());
+    }
+
+    #[test]
+    fn keyed_harness_reads_need_egress_under_local_only() {
+        let p = MacPolicy::new([7u8; 32], PrivacyMode::LocalOnly, true);
+        let ws = Path::new(".");
+        let none = serde_json::json!({});
+        for tool in ["harness_budget", "harness_plan"] {
+            assert_eq!(
+                MacPolicy::requirements_for_tool(tool),
+                vec![(actions::NETWORK_EGRESS, "*")],
+                "{tool}"
+            );
+            assert!(p.authorize_tool(tool, &none, ws, None).is_err(), "{tool}");
+        }
+        for mode in ["verify", "discover", "available"] {
+            let arg = serde_json::json!({ "mode": mode });
+            assert!(
+                p.authorize_tool("harness_models", &arg, ws, None).is_err(),
+                "{mode}"
+            );
+        }
+        let registry = serde_json::json!({ "mode": "registry" });
+        assert!(p
+            .authorize_tool("harness_models", &registry, ws, None)
+            .is_ok());
+        p.consent_egress("susi", 60).unwrap();
+        for tool in ["harness_budget", "harness_plan"] {
+            assert!(p.authorize_tool(tool, &none, ws, None).is_ok(), "{tool}");
+        }
+        let available = serde_json::json!({ "mode": "available" });
+        assert!(p
+            .authorize_tool("harness_models", &available, ws, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn harness_run_and_stdio_mcp_need_process_exec() {
+        // Egress allowed, process.exec revoked: what `privacy consent
+        // --egress` leaves under local_only, or an operator's revocation.
+        let p = policy(PrivacyMode::Balanced);
+        p.revoke("susi", actions::PROCESS_EXEC, "*").unwrap();
+        let ws = Path::new(".");
+        assert!(p.is_permitted("susi", actions::NETWORK_EGRESS, "*"));
+        let denied = p
+            .authorize_tool("harness_run", &serde_json::json!({}), ws, None)
+            .unwrap_err();
+        assert!(
+            denied.to_string().contains(actions::PROCESS_EXEC),
+            "{denied}"
+        );
+        let stdio = serde_json::json!({"name": "n", "command_or_url": "/usr/bin/evil"});
+        assert!(p.authorize_tool("mcp_add", &stdio, ws, None).is_err());
+        let http = serde_json::json!({"name": "n", "command_or_url": "HTTPS://mcp.example/x"});
+        assert!(p.authorize_tool("mcp_add", &http, ws, None).is_ok());
+        p.grant("susi", actions::PROCESS_EXEC, "*", None).unwrap();
+        assert!(p
+            .authorize_tool("harness_run", &serde_json::json!({}), ws, None)
+            .is_ok());
+        assert!(p.authorize_tool("mcp_add", &stdio, ws, None).is_ok());
+    }
+
+    #[test]
+    fn adapter_overrides_need_write_and_what_the_adapter_runs() {
+        let p = policy(PrivacyMode::Balanced);
+        let ws = Path::new(".");
+        let command = serde_json::json!({"kind": "agents", "id": "a",
+            "adapter": {"kind": "command", "program": "/bin/sh", "args": []}});
+        let acp = serde_json::json!({"kind": "frameworks", "id": "f",
+            "adapter": {"kind": "acp", "program": "x", "args": []}});
+        let a2a = serde_json::json!({"kind": "agents", "id": "r",
+            "adapter": {"kind": "a2a", "url": "https://agent.example"}});
+        let mcp_runner =
+            serde_json::json!({"kind": "mcp", "id": "m", "adapter": {"runner": "npx"}});
+        let model = serde_json::json!({"kind": "models", "id": "c", "adapter": {"model": "x"}});
+        assert_eq!(
+            MacPolicy::requirements_for_tool("adapter_configure"),
+            vec![(actions::FILESYSTEM_READ, "*")]
+        );
+        for arg in [&command, &acp, &a2a, &mcp_runner, &model] {
+            assert!(
+                p.authorize_tool("adapter_configure", arg, ws, None).is_ok(),
+                "{arg}"
+            );
+        }
+        // Without process.exec a program-naming adapter is refused; an A2A
+        // agent and a model override are not programs.
+        p.revoke("susi", actions::PROCESS_EXEC, "*").unwrap();
+        for arg in [&command, &acp, &mcp_runner] {
+            let denied = p.authorize_tool("adapter_configure", arg, ws, None);
+            assert!(denied.is_err(), "{arg}");
+        }
+        assert!(p
+            .authorize_tool("adapter_configure", &a2a, ws, None)
+            .is_ok());
+        assert!(p
+            .authorize_tool("adapter_configure", &model, ws, None)
+            .is_ok());
+        // Without egress the A2A agent is refused too.
+        p.revoke("susi", actions::NETWORK_EGRESS, "*").unwrap();
+        assert!(p
+            .authorize_tool("adapter_configure", &a2a, ws, None)
+            .is_err());
+        // Without filesystem.write no override is stored or dropped.
+        p.revoke("susi", actions::FILESYSTEM_WRITE, "*").unwrap();
+        let reset = serde_json::json!({"kind": "models", "id": "c"});
+        assert!(p.authorize_tool("adapter_reset", &reset, ws, None).is_err());
+        assert!(p
+            .authorize_tool("adapter_configure", &model, ws, None)
+            .is_err());
+    }
+
+    #[test]
+    fn socket_file_paths_are_absolute_and_confined_by_the_grants() {
+        let p = policy(PrivacyMode::LocalOnly);
+        let dir = std::env::temp_dir().join(format!("susi-mac-path-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!("susi-mac-out-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let granted = strip_verbatim_prefix(&dir.canonicalize().unwrap())
+            .to_string_lossy()
+            .replace('\\', "/");
+        p.grant("worker", actions::FILESYSTEM_WRITE, &granted, None)
+            .unwrap();
+        assert!(p.confine_path("worker", "rel/out.json", true).is_err());
+        // A new output (and a new directory under it) inside the grant.
+        let new_leaf = dir.join("sub").join("out.json");
+        let resolved = p
+            .confine_path("worker", &new_leaf.display().to_string(), true)
+            .unwrap();
+        assert!(resolved.ends_with(Path::new("sub").join("out.json")));
+        // Outside the grant, and a read the grant does not cover.
+        let denied = p
+            .confine_path(
+                "worker",
+                &outside.join("x.json").display().to_string(),
+                true,
+            )
+            .unwrap_err();
+        assert!(denied.to_string().contains("MAC DENY"), "{denied}");
+        assert!(p
+            .confine_path("worker", &new_leaf.display().to_string(), false)
+            .is_err());
+        // Climbing out of the granted directory resolves outside it.
+        let climb = format!(
+            "{}/../{}/x.json",
+            dir.display(),
+            outside.file_name().unwrap().to_string_lossy()
+        );
+        assert!(p.confine_path("worker", &climb, true).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[test]

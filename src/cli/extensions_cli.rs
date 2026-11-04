@@ -7,7 +7,7 @@ use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
 use susi_sandbox::extensions::{
-    active_pack, create_pack, list_packs, load_pack, unload_pack, validate_pack_dir,
+    create_pack, list_packs, load_report, status_report, unload_report, validate_report,
 };
 
 #[derive(Debug, Subcommand)]
@@ -33,42 +33,20 @@ pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {
             print_json(&list_packs())?;
         }
         ExtensionCommands::Status => {
-            let pack = active_pack();
-            print_json(&serde_json::json!({
-                "active": pack.id,
-                "root": pack.root,
-                "packs": list_packs(),
-            }))?;
+            print_json(&status_report())?;
         }
         ExtensionCommands::Create { id } => {
             let status = create_pack(&id).map_err(|e| anyhow::anyhow!(e))?;
             print_json(&status)?;
         }
         ExtensionCommands::Load { id } => {
-            let status = load_pack(&id).map_err(|e| anyhow::anyhow!(e))?;
-            print_json(&serde_json::json!({
-                "loaded": status,
-                "active": active_pack().id,
-            }))?;
+            print_json(&load_report(&id).map_err(|e| anyhow::anyhow!(e))?)?;
         }
         ExtensionCommands::Unload { id } => {
-            let status = unload_pack(&id).map_err(|e| anyhow::anyhow!(e))?;
-            print_json(&serde_json::json!({
-                "unloaded": status.id,
-                "active": active_pack().id,
-            }))?;
+            print_json(&unload_report(&id).map_err(|e| anyhow::anyhow!(e))?)?;
         }
         ExtensionCommands::Validate { path } => {
-            let (manifest, artifacts) = validate_pack_dir(&path).map_err(|e| anyhow::anyhow!(e))?;
-            print_json(&serde_json::json!({
-                "valid": true,
-                "id": manifest.id,
-                "version": manifest.version,
-                "apiVersion": manifest.api_version,
-                "permissions": manifest.permissions,
-                "signed": manifest.signer.is_some(),
-                "artifacts_sha256": artifacts,
-            }))?;
+            print_json(&validate_report(&path).map_err(|e| anyhow::anyhow!(e))?)?;
         }
     }
     Ok(())

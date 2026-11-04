@@ -85,6 +85,70 @@ impl PlaneHandler for GawdPlaneHandler {
 
                 Ok(json!({ "text": text }))
             }
+            topics::GAWD_PLAN_AUTONOMOUS => {
+                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                if goal.trim().is_empty() {
+                    return Ok(json!({ "error": "goal is required" }));
+                }
+                let ws = workspace_path(&payload);
+                let version = payload
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(env!("CARGO_PKG_VERSION"));
+                let max_steps = payload
+                    .get("max_steps")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(3);
+                match crate::ama::SusiMasterAgent::new()
+                    .solve_autonomous(goal, &ws, version, max_steps)
+                {
+                    Ok(report) => Ok(report.plan_summary()),
+                    Err(e) => Ok(json!({ "error": e.to_string() })),
+                }
+            }
+            topics::GAWD_PULSE_INGEST => {
+                let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
+                let ws = workspace_path(&payload);
+                match crate::admin::SusiAdmin::ingest_natural_intent(&ws, intent) {
+                    Ok(text) => Ok(json!({ "text": text })),
+                    Err(e) => Ok(json!({ "error": e.to_string() })),
+                }
+            }
+            topics::GAWD_AUDIT_COMPLIANCE => {
+                let ws = workspace_path(&payload);
+                match crate::admin::SusiAdmin::audit_compliance(&ws, Some("push")) {
+                    Ok(text) => Ok(json!({ "text": text })),
+                    Err(e) => Ok(json!({ "error": format!("Compliance audit failed: {e}") })),
+                }
+            }
+            topics::GAWD_AUDIT_EVIDENCE_EXPORT => {
+                let field = |key: &str| {
+                    payload
+                        .get(key)
+                        .and_then(|v| v.as_str())
+                        .map(std::path::PathBuf::from)
+                };
+                let (Some(input), Some(output)) = (field("input"), field("output")) else {
+                    return Ok(json!({ "error": "input and output are required" }));
+                };
+                match crate::audit_evidence::export_to_file(&input, &output) {
+                    Ok(segments) => Ok(json!({
+                        "segments": segments,
+                        "output": output.display().to_string(),
+                    })),
+                    Err(e) => Ok(json!({ "error": e })),
+                }
+            }
+            topics::GAWD_SUBSTRATE_REPORT => {
+                let ws = workspace_path(&payload);
+                match crate::ama::SusiMasterAgent::new().generate_substrate_report(&ws) {
+                    Ok(text) => Ok(json!({ "text": text })),
+                    Err(e) => Ok(json!({
+                        "error": format!("Failed to generate substrate report: {e}")
+                    })),
+                }
+            }
             topics::GAWD_SANITIZE => {
                 let input = payload.get("input").and_then(|v| v.as_str()).unwrap_or("");
                 match crate::ama::SusiMasterAgent::sanitize_input(input) {

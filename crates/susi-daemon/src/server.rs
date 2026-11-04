@@ -76,10 +76,34 @@ pub struct DaemonContext {
     _lock: DaemonLock,
 }
 
+/// The running daemon's shutdown flag, so an in-process request (the MCP
+/// `daemon_shutdown` tool) can stop the main loop the way SIGTERM does.
+static SHUTDOWN_SIGNAL: std::sync::OnceLock<Arc<AtomicBool>> = std::sync::OnceLock::new();
+
+/// Ask the daemon running in this process to shut down gracefully (its main
+/// loop exits and stops its children, as on SIGTERM). Returns `false` when
+/// no daemon runs in this process.
+pub fn request_shutdown() -> bool {
+    match SHUTDOWN_SIGNAL.get() {
+        Some(signal) => {
+            signal.store(true, Ordering::Release);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Whether a daemon runs in this process (see [`request_shutdown`]).
+pub fn daemon_in_process() -> bool {
+    SHUTDOWN_SIGNAL.get().is_some()
+}
+
 impl DaemonContext {
     pub fn new(lock: DaemonLock) -> Self {
+        let shutdown_signal = Arc::new(AtomicBool::new(false));
+        let _ = SHUTDOWN_SIGNAL.set(Arc::clone(&shutdown_signal));
         DaemonContext {
-            shutdown_signal: Arc::new(AtomicBool::new(false)),
+            shutdown_signal,
             _lock: lock,
         }
     }

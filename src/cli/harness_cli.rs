@@ -8,24 +8,14 @@
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
-use susi_harness::adapter::SusiTarget;
-use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
-use susi_harness::balance::Budgets;
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::cockpit::{serve, Cockpit, CommandAuthContext, CommandAuthorizer};
-use susi_harness::executor::NativeWorker;
-use susi_harness::fleet::{self, gather_budgets, total_spent, Fleet};
+use susi_harness::fleet;
 use susi_harness::money::MicroUsd;
-use susi_harness::policy::Policy;
-use susi_harness::providers::{Registry, Wire};
-use susi_harness::queue;
-use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
-use susi_harness::validate::{validate_plan, RepoFacts};
-use susi_harness::verify::{fetch_http, verify_registry};
+use susi_harness::operator::{self, ModelsMode};
+use susi_harness::providers::Registry;
 
 /// Where `--ledger` points when it is not given, in [`fleet::ledger_for`]'s
 /// order. One text for every command that takes it: the three copies said
@@ -269,6 +259,10 @@ pub enum HarnessCommands {
 
 /// Run one `susi harness` command.
 ///
+/// `plan`, `author`, `run`, `status`, `budget` and `models` call
+/// [`susi_harness::operator`], the library the MCP `harness_*` tools call
+/// too; operator notes go to stderr as they happen.
+///
 /// # Errors
 ///
 /// Returns the first error from authoring, validation, execution or I/O.
@@ -278,9 +272,22 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
     if let Some(error) = Registry::overlay_error() {
         bail!("{error}");
     }
+    let mut notes = |line: String| eprintln!("{line}");
     match action {
         HarnessCommands::Budget { ledger } => {
-            budget_report(&ledger.unwrap_or_else(|| fleet::default_ledger(cwd)), cwd)
+            let doc = operator::budget(
+                &ledger.unwrap_or_else(|| fleet::default_ledger(cwd)),
+                cwd,
+                &mut |_: String| {},
+            );
+            println!("{}", doc["report"].as_str().unwrap_or_default());
+            if let Some(roi) = doc["roi"].as_str() {
+                println!("ROI: {roi}");
+            }
+            for line in doc["alerts"].as_array().into_iter().flatten() {
+                eprintln!("{}", line.as_str().unwrap_or_default());
+            }
+            Ok(())
         }
         HarnessCommands::Models {
             verify,
@@ -288,16 +295,28 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             provider,
             available,
         } => {
-            if discover {
-                models_discover(provider.as_deref())
+            let mode = if discover {
+                ModelsMode::Discover
             } else if verify {
-                models_verify(provider.as_deref())
+                ModelsMode::Verify
             } else if available {
-                models_available(cwd)
+                ModelsMode::Available
             } else {
-                println!("{}", serde_json::to_string_pretty(&registry_json())?);
-                Ok(())
+                ModelsMode::Registry
+            };
+            let doc = operator::models(mode, provider.as_deref(), cwd, &mut notes)?;
+            println!("{}", serde_json::to_string_pretty(&doc)?);
+            let failed = if mode == ModelsMode::Verify {
+                operator::verify_failures(&doc)
+            } else {
+                Vec::new()
+            };
+            if !failed.is_empty() {
+                // The report is printed even when it fails, then the exit is
+                // non-zero so a caller can gate on drift without parsing it.
+                bail!("model verification failed for: {}", failed.join(", "));
             }
+            Ok(())
         }
         HarnessCommands::Gateway {
             port,
@@ -318,18 +337,8 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             cwd,
         ),
         HarnessCommands::Status { ledger, events } => {
-            let cockpit = Cockpit {
-                ledger_path: ledger,
-                events_path: events.unwrap_or_default(),
-                state_path: None,
-                plan_path: None,
-                controls_path: None,
-                catalogue_path: None,
-                graph_path: None,
-                budget: None,
-                mission: None,
-            };
-            println!("{}", serde_json::to_string_pretty(&cockpit.snapshot())?);
+            let snapshot = operator::status(ledger, events, None, None)?;
+            println!("{}", serde_json::to_string_pretty(&snapshot)?);
             Ok(())
         }
         HarnessCommands::Api {
@@ -356,9 +365,20 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             out,
             max_tasks,
             workers,
-        } => author(
-            &gateway, &model, &roadmap, &vector, &out, max_tasks, &workers, cwd,
-        ),
+        } => {
+            let opts = operator::AuthorOptions {
+                gateway,
+                model,
+                roadmap,
+                vector,
+                out,
+                max_tasks,
+                workers,
+            };
+            let doc = operator::author(&opts, cwd, &mut notes)?;
+            println!("{}", doc["message"].as_str().unwrap_or_default());
+            Ok(())
+        }
         HarnessCommands::PlanQueue {
             repo,
             out,
@@ -367,16 +387,20 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             workers,
             roadmap,
             gateway,
-        } => plan_queue(
-            &repo,
-            &out,
-            &mission,
-            limit,
-            &workers,
-            roadmap.as_deref(),
-            gateway.as_deref(),
-            cwd,
-        ),
+        } => {
+            let opts = operator::PlanQueueOptions {
+                repo,
+                out,
+                mission,
+                limit,
+                workers,
+                roadmap,
+                gateway,
+            };
+            let doc = operator::plan_queue(&opts, cwd, &mut notes)?;
+            println!("{}", doc["message"].as_str().unwrap_or_default());
+            Ok(())
+        }
         HarnessCommands::Run {
             plan,
             repo,
@@ -396,27 +420,45 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             attempts,
             adapter_state,
             susi,
-        } => run(
-            &plan,
-            &repo,
-            &state,
-            &gateway,
-            &model,
-            timeout,
-            parallel,
-            &prefix,
-            &workers,
-            &budget_usd,
-            catalogue,
-            &daily_usd,
-            &ledger.unwrap_or_else(|| fleet::default_ledger(cwd)),
-            &controls,
-            &rsi_log,
-            attempts,
-            &adapter_state,
-            susi,
-            cwd,
-        ),
+        } => {
+            let opts = operator::RunOptions {
+                plan,
+                repo,
+                state,
+                gateway,
+                model,
+                timeout,
+                parallel,
+                prefix,
+                workers,
+                budget_usd,
+                catalogue,
+                daily_usd,
+                ledger: ledger.unwrap_or_else(|| fleet::default_ledger(cwd)),
+                controls,
+                rsi_log,
+                attempts,
+                adapter_state,
+                susi: susi.unwrap_or_else(|| {
+                    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi"))
+                }),
+            };
+            let outcome = operator::run(&opts, cwd, &mut notes);
+            // The report prints first, then the budget line, whether or not
+            // the run succeeded.
+            let result = outcome
+                .report
+                .map_err(anyhow::Error::from)
+                .and_then(|report| {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    match operator::mission_failure(&report) {
+                        Some(failure) => Err(anyhow::anyhow!(failure)),
+                        None => Ok(()),
+                    }
+                });
+            println!("{}", outcome.budget_line);
+            result
+        }
         HarnessCommands::Scorecard {
             events,
             task,
@@ -425,73 +467,6 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             python,
         } => scorecard(&events, &task, json, require_complete, &python, cwd),
     }
-}
-
-/// Write a plan over dependency-ready queue tasks.
-#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
-/// The task ids a live claim already reserves, read from the shared remote.
-/// A planner that ignores them spends a mission discovering the overlap.
-fn claimed_ids(repo: &Path) -> Vec<String> {
-    let Ok(output) = std::process::Command::new("git")
-        .args(["ls-remote", "--refs", "origin", "refs/claims/*"])
-        .current_dir(repo)
-        .output()
-    else {
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.split_whitespace().nth(1))
-        .filter_map(|name| name.strip_prefix("refs/claims/"))
-        .map(str::to_string)
-        .collect()
-}
-
-#[allow(clippy::too_many_arguments)] // a command's flags, one per option
-fn plan_queue(
-    repo: &Path,
-    out: &Path,
-    mission: &str,
-    limit: usize,
-    workers: &str,
-    roadmap: Option<&str>,
-    gateway: Option<&str>,
-    cwd: &Path,
-) -> Result<()> {
-    let repo = if repo == Path::new(".") {
-        cwd.to_path_buf()
-    } else {
-        repo.to_path_buf()
-    };
-    let (budgets, _) = gather_budgets(&fleet::default_ledger(cwd));
-    alert_topups(&budgets);
-    let evidence = live_evidence(&fleet::default_ledger(cwd), cwd);
-    // Tasks go to the light workers, spread across them; the fixers and the
-    // orchestrator are not assigned first-line work.
-    let workers = resolve_fleet(
-        workers,
-        || default_catalogue(cwd),
-        &budgets,
-        &evidence,
-        gateway,
-    )?
-    .task_workers();
-    let claimed = claimed_ids(&repo);
-    let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
-    std::fs::write(out, serde_json::to_string_pretty(&plan)?)
-        .with_context(|| format!("write {}", out.display()))?;
-    println!(
-        "wrote {} — mission {} with {} task(s): {}",
-        out.display(),
-        plan.mission,
-        plan.tasks.len(),
-        plan.tasks
-            .iter()
-            .map(|task| format!("{} -> {}", task.key, task.task.as_deref().unwrap_or("new")))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    Ok(())
 }
 
 /// Run the repository's scorecard against the lifecycle ledger.
@@ -613,450 +588,6 @@ fn admit_command<'a>(
     )
 }
 
-#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
-fn author(
-    gateway: &str,
-    model: &str,
-    roadmap: &Path,
-    vector: &str,
-    out: &Path,
-    max_tasks: usize,
-    workers: &str,
-    cwd: &Path,
-) -> Result<()> {
-    let text = std::fs::read_to_string(roadmap)
-        .with_context(|| format!("read roadmap {}", roadmap.display()))?;
-    let document: serde_json::Value = serde_json::from_str(&text).context("parse roadmap")?;
-    let entry = document
-        .get("vectors")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|vectors| {
-            vectors.iter().find(|candidate| {
-                candidate.get("id").and_then(serde_json::Value::as_str) == Some(vector)
-            })
-        })
-        .with_context(|| format!("vector {vector} not found in {}", roadmap.display()))?;
-    let title = entry
-        .get("vector")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let target = entry
-        .get("mastery_target")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let narrative = entry
-        .get("progress")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let facts = RepoFacts::load(cwd).context("read the workspace's packages")?;
-    let (budgets, _) = gather_budgets(&fleet::default_ledger(cwd));
-    alert_topups(&budgets);
-    let fleet = resolve_fleet(
-        workers,
-        || default_catalogue(cwd),
-        &budgets,
-        &live_evidence(&fleet::default_ledger(cwd), cwd),
-        Some(gateway),
-    )?;
-    let request = AuthorRequest {
-        vector: format!("{vector} {title}"),
-        target: target.to_string(),
-        packages: facts.packages.iter().cloned().collect(),
-        workers: fleet.task_workers(),
-        narrative: tail(narrative, 4000),
-        max_tasks,
-        retry_hint: None,
-    };
-    // The orchestrator plans: `--model auto` is the fleet's strong model.
-    let config = AuthorConfig {
-        gateway_url: gateway.to_string(),
-        model: fleet::resolve_model(model, &fleet).map_err(|error| anyhow::anyhow!("{error}"))?,
-        timeout_secs: 300,
-    };
-    let plan = author_plan(&config, &request).context("author the plan")?;
-    let plan = match validate_plan(&plan, &facts) {
-        Ok(()) => plan,
-        Err(error) => {
-            // One corrective retry: the model that authored the plan is the
-            // cheapest fix for its own validation error, and the error text is
-            // the only useful instruction it can get.
-            eprintln!("the authored plan failed validation ({error}); retrying once");
-            let mut retry = request;
-            retry.retry_hint = Some(error.to_string());
-            let retried = author_plan(&config, &retry).context("author the plan (retry)")?;
-            validate_plan(&retried, &facts).context("validate the authored plan (retry)")?;
-            retried
-        }
-    };
-    std::fs::write(out, serde_json::to_string_pretty(&plan)?)
-        .with_context(|| format!("write {}", out.display()))?;
-    println!(
-        "wrote {} — mission {} with {} task(s): {}",
-        out.display(),
-        plan.mission,
-        plan.tasks.len(),
-        plan.tasks
-            .iter()
-            .map(|task| task.key.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    Ok(())
-}
-
-/// Run a plan under the budget gate.
-///
-/// Alerts on stderr before the first task when a keyed provider needs a
-/// top-up, and prints the one-line budget report on stdout after the run,
-/// whether or not the run succeeded.
-#[allow(clippy::too_many_arguments)] // a command's flags, one per option
-fn run(
-    plan_path: &Path,
-    repo: &Path,
-    state: &Path,
-    gateway: &str,
-    model: &str,
-    timeout: u64,
-    parallel: usize,
-    prefix: &str,
-    workers: &str,
-    budget_usd: &str,
-    catalogue: PathBuf,
-    daily_usd: &str,
-    ledger: &Path,
-    controls: &Path,
-    rsi_log: &Path,
-    attempts: usize,
-    adapter_state: &Path,
-    susi: Option<PathBuf>,
-    cwd: &Path,
-) -> Result<()> {
-    let (before, spent_before) = gather_budgets(ledger);
-    alert_topups(&before);
-    let outcome = run_mission(
-        plan_path,
-        repo,
-        state,
-        gateway,
-        model,
-        timeout,
-        parallel,
-        prefix,
-        workers,
-        budget_usd,
-        catalogue,
-        daily_usd,
-        ledger,
-        controls,
-        rsi_log,
-        attempts,
-        adapter_state,
-        susi,
-        cwd,
-        &before,
-    );
-    let (after, spent_after) = gather_budgets(ledger);
-    let spend = total_spent(&spent_after).checked_sub(total_spent(&spent_before));
-    let spend = spend.unwrap_or(MicroUsd::ZERO);
-    println!("{}", after.report_line(spend, Registry::builtin()));
-    outcome
-}
-
-/// `susi harness budget`: the report line and the top-up alert, read now.
-fn budget_report(ledger: &Path, cwd: &Path) -> Result<()> {
-    let path = if ledger.is_absolute() {
-        ledger.to_path_buf()
-    } else {
-        cwd.join(ledger)
-    };
-    let (budgets, spent) = gather_budgets(&path);
-    println!(
-        "{}",
-        budgets.report_line(total_spent(&spent), Registry::builtin())
-    );
-    let (entries, _) = susi_harness::ledger::read_entries_lenient(&path);
-    let (roi, _) = susi_harness::roi::RoiReport::from_entries(&entries);
-    if roi.frontier_baseline_micro_usd > 0 {
-        println!("ROI: {}", roi.summary_line());
-    }
-    alert_topups(&budgets);
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)] // a command's flags, one per option
-fn run_mission(
-    plan_path: &Path,
-    repo: &Path,
-    state: &Path,
-    gateway: &str,
-    model: &str,
-    timeout: u64,
-    parallel: usize,
-    prefix: &str,
-    workers: &str,
-    budget_usd: &str,
-    catalogue: PathBuf,
-    daily_usd: &str,
-    ledger: &Path,
-    controls: &Path,
-    rsi_log: &Path,
-    attempts: usize,
-    adapter_state: &Path,
-    susi: Option<PathBuf>,
-    cwd: &Path,
-    budgets: &Budgets,
-) -> Result<()> {
-    let plan = Plan::load(plan_path).with_context(|| format!("load {}", plan_path.display()))?;
-    // The default state is per mission, so two agents running missions in the
-    // same directory never resume or overwrite each other's progress.
-    let state_path = if state == Path::new("supervisor-state.json") {
-        cwd.join(format!("supervisor-{}.json", plan.mission))
-    } else {
-        state.to_path_buf()
-    };
-    let repo = if repo == Path::new(".") {
-        cwd.to_path_buf()
-    } else {
-        repo.to_path_buf()
-    };
-    let facts = RepoFacts::load(&repo).context("read the workspace's packages")?;
-    validate_plan(&plan, &facts).context("validate the plan")?;
-    let catalogue = PriceCatalogue::load(&catalogue).context("load the price catalogue")?;
-    let budget = MicroUsd::parse_usd(budget_usd)
-        .map(Budget::new)
-        .with_context(|| format!("--budget-usd {budget_usd} is not a dollar amount"))?;
-    let daily_cap = MicroUsd::parse_usd(daily_usd)
-        .with_context(|| format!("--daily-usd {daily_usd} is not a dollar amount"))?;
-    let spent_today = spent_today(ledger, now_unix_ms());
-    if spent_today.micros() >= daily_cap.micros() {
-        bail!(
-            "--daily-usd {} already spent today ({}): refusing to start another run",
-            daily_cap,
-            spent_today
-        );
-    }
-    // Every named worker stays on the ladder. The task's own model is moved to
-    // the front by the adapter, so a task assigned a non-default worker still
-    // has a stronger model to escalate to when it does not pass.
-    let fleet = resolve_fleet(
-        workers,
-        || Ok(catalogue.clone()),
-        budgets,
-        &live_evidence(ledger, cwd),
-        Some(gateway),
-    )?;
-    let orchestrator = fleet::resolve_model("auto", &fleet).unwrap_or_else(|_| "none".to_string());
-    // A task starts on a light worker: `--model auto` gives the fleet's first,
-    // and a named model is used as named. A failure escalates to the fixers.
-    let model = if model.trim() == "auto" {
-        fleet
-            .task_workers()
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("the fleet has no model to start tasks on"))?
-    } else {
-        model.to_string()
-    };
-    eprintln!(
-        "fleet: orchestrator {orchestrator}; workers {}; fixers {}",
-        fleet.workers.join(", "),
-        fleet.fixers.join(", ")
-    );
-    if !fleet.standby.is_empty() {
-        eprintln!(
-            "fleet: in reserve until a probe answers: {}",
-            fleet.standby.join(", ")
-        );
-    }
-    let alternates = mission_alternates(&fleet);
-    let susi_program =
-        susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
-    let target = SusiTarget::new(repo, susi_program);
-    let native = NativeWorker;
-    let executor = SusiExecutor {
-        target: &target,
-        runner: &native,
-        worktree_prefix: prefix.to_string(),
-        gateway_url: gateway.to_string(),
-        model: model.to_string(),
-        alternates,
-        catalogue: Some(catalogue),
-        budget: Some(budget),
-        ledger_path: ledger.to_path_buf(),
-        mission: plan.mission.clone(),
-        policy: Policy {
-            max_attempts: attempts.max(1),
-            ..Policy::default()
-        },
-        timeout: Duration::from_secs(timeout),
-        state_dir: adapter_state.to_path_buf(),
-        lifecycle_path: Some(rsi_log.to_path_buf()),
-        guard: std::sync::OnceLock::new(),
-        exhausted: AtomicBool::new(false),
-    };
-    let supervisor = Supervisor::new(&state_path, &executor)
-        .with_parallelism(parallel)
-        .with_controls(controls);
-    let report = supervisor.run(&plan).context("run the mission")?;
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    if !report.failed.is_empty() {
-        bail!(
-            "mission {} failed {} task(s)",
-            report.mission,
-            report.failed.len()
-        );
-    }
-    Ok(())
-}
-
-/// The models a mission's tasks may use: the fleet's ladder, then the models
-/// held in reserve for their refusal ([`Fleet::standby`]). A task's order
-/// leaves a refused model out until a probe answers; the reserve is what
-/// lets the before-each-task probe ([`fleet::readmit`]) reach a model that
-/// was refused when the run started, so one fixed or topped up mid-mission
-/// comes back without a restart.
-fn mission_alternates(fleet: &Fleet) -> Vec<String> {
-    let mut alternates = fleet.ladder.clone();
-    for model in &fleet.standby {
-        if !alternates.contains(model) {
-            alternates.push(model.clone());
-        }
-    }
-    alternates
-}
-
-/// Sum the ledger's priced spend for the UTC day containing `now_unix_ms`.
-///
-/// The rows are read one line at a time, as bytes
-/// ([`susi_harness::ledger::read_rows_lenient`]). Reading the file as one
-/// string turned a row torn inside a multi-byte character into "nothing spent
-/// today" for every later run, and dropped a real charge glued onto an
-/// ASCII tear, so `--daily-usd` let runs start past the cap.
-fn spent_today(ledger: &Path, now_unix_ms: u64) -> MicroUsd {
-    let (rows, skipped) = susi_harness::ledger::read_rows_lenient::<serde_json::Value>(ledger);
-    if skipped > 0 {
-        eprintln!(
-            "⚠ ledger {}: {skipped} line(s) could not be read and were skipped",
-            ledger.display()
-        );
-    }
-    let day = now_unix_ms / 86_400_000;
-    let total = rows
-        .iter()
-        .filter(|entry| {
-            entry
-                .get("started_unix_ms")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|started| started / 86_400_000 == day)
-        })
-        .filter_map(|entry| entry.get("cost").and_then(serde_json::Value::as_u64))
-        .fold(0u64, u64::saturating_add);
-    MicroUsd::from_micros(total)
-}
-
-/// Wall clock in milliseconds since the Unix epoch.
-fn now_unix_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
-}
-
-fn tail(text: &str, limit: usize) -> String {
-    if text.len() <= limit {
-        return text.to_string();
-    }
-    text.get(text.len() - limit..).unwrap_or(text).to_string()
-}
-
-/// The fleet for `--workers` ([`fleet::resolve_fleet_through`]), with each
-/// model left off named on stderr. A command that drives `gateway` asks it
-/// about a listed model whose key is not set here ([`fleet::gateway_answers`]):
-/// a gateway on an explicit upstream, or with its own key, routes it.
-fn resolve_fleet(
-    spec: &str,
-    catalogue: impl FnOnce() -> susi_error::EaiResult<PriceCatalogue>,
-    budgets: &Budgets,
-    evidence: &fleet::Evidence,
-    gateway: Option<&str>,
-) -> Result<Fleet> {
-    let ask = gateway.map(|url| move |model: &str| fleet::gateway_answers(url, model));
-    let check = ask.as_ref().map(|ask| ask as fleet::GatewayCheck<'_>);
-    let fleet = fleet::resolve_fleet_through(spec, catalogue, budgets, evidence, check)
-        .map_err(|error| anyhow::anyhow!("--workers {spec}: {error}"))?;
-    for note in &fleet.left_off {
-        eprintln!("⚠ {note}");
-    }
-    Ok(fleet)
-}
-
-/// What the real calls say about the models, probing the ones whose last call
-/// failed long enough ago ([`fleet::evidence`]); each probe is reported.
-fn live_evidence(ledger: &Path, cwd: &Path) -> fleet::Evidence {
-    let catalogue = default_catalogue(cwd).ok();
-    let evidence = fleet::evidence(ledger, catalogue.as_ref(), true);
-    for line in fleet::probe_report(&evidence) {
-        eprintln!("{line}");
-    }
-    evidence
-}
-
-/// Print the top-up and expiry alerts on stderr.
-fn alert_topups(budgets: &Budgets) {
-    for line in fleet::alerts(budgets) {
-        eprintln!("{line}");
-    }
-}
-
-/// The price catalogue at the workspace's default location, or the one built
-/// into the binary when the workspace has none.
-fn default_catalogue(cwd: &Path) -> susi_error::EaiResult<PriceCatalogue> {
-    PriceCatalogue::load_or_builtin(&cwd.join("deploy/harness/prices.json"))
-}
-
-/// Verify the registry's backend ids against the providers' live model lists.
-///
-/// Prints the report even when it fails, then exits non-zero so a caller can
-/// gate on drift without parsing the prose.
-fn models_verify(provider: Option<&str>) -> Result<()> {
-    let report = verify_registry(Registry::builtin(), provider, &fetch_http)
-        .context("verify the provider registry")?;
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    if report.ok {
-        return Ok(());
-    }
-    let failed = report
-        .providers
-        .iter()
-        .filter(|entry| !entry.ok)
-        .map(|entry| entry.provider.as_str())
-        .collect::<Vec<_>>();
-    bail!("model verification failed for: {}", failed.join(", "));
-}
-
-/// The chat models the keyed providers serve beyond the registry, as an
-/// overlay document with the prices they publish; the notes go to stderr so
-/// the document on stdout can be saved as it is.
-fn models_discover(provider: Option<&str>) -> Result<()> {
-    let discovery = susi_harness::verify::discover(Registry::builtin(), provider, &fetch_http)
-        .context("discover the providers' models")?;
-    for note in &discovery.notes {
-        eprintln!("{note}");
-    }
-    println!("{}", serde_json::to_string_pretty(&discovery)?);
-    Ok(())
-}
-
-fn models_available(cwd: &Path) -> Result<()> {
-    let catalogue = default_catalogue(cwd).ok();
-    let ledger = fleet::default_ledger(cwd);
-    let (budgets, _) = gather_budgets(&ledger);
-    let report =
-        fleet::available_report(catalogue.as_ref(), &budgets, &live_evidence(&ledger, cwd));
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    Ok(())
-}
-
 #[allow(clippy::too_many_arguments)]
 fn serve_gateway(
     port: u16,
@@ -1151,47 +682,6 @@ fn gateway_ingress(
     susi_harness::ingress::require_accounts_off_loopback(host, ingress.as_deref())
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(ingress)
-}
-
-/// The provider registry as JSON: each provider with its models, a flat model
-/// list a picker can filter, and the aliases that resolve to model ids.
-fn registry_json() -> serde_json::Value {
-    let registry = Registry::builtin();
-    let mut providers = Vec::new();
-    let mut models = Vec::new();
-    for provider in registry.providers() {
-        let wire = match provider.wire {
-            Wire::OpenAi => "openai",
-            Wire::Anthropic => "anthropic",
-        };
-        let mut records = Vec::new();
-        for model in &provider.models {
-            let record = serde_json::json!({
-                "id": model.id,
-                "provider": provider.id,
-                "backend": model.backend,
-                "context": model.capabilities.context,
-                "tools": model.capabilities.tools,
-                "streaming": model.capabilities.streaming,
-                "vision": model.capabilities.vision,
-                "cache": model.capabilities.cache,
-            });
-            records.push(record.clone());
-            models.push(record);
-        }
-        providers.push(serde_json::json!({
-            "id": provider.id,
-            "wire": wire,
-            "endpoint": provider.endpoint,
-            "key_env": provider.key_envs,
-            "models": records,
-        }));
-    }
-    serde_json::json!({
-        "providers": providers,
-        "models": models,
-        "aliases": registry.aliases(),
-    })
 }
 
 #[cfg(test)]
@@ -1428,9 +918,17 @@ mod tests {
             "{{\"started_unix_ms\":{now},\"cost\":3000000}}\n{{\"started_unix_ms\":{yesterday},\"cost\":10000000}}\n{{\"started_unix_ms\":{now},\"cost\":0,\"cached\":true}}\n"
         );
         std::fs::write(&ledger, body).expect("ledger");
-        assert_eq!(super::spent_today(&ledger, now).micros(), 3_000_000);
         assert_eq!(
-            super::spent_today(&dir.join("missing.jsonl"), now).micros(),
+            susi_harness::operator::spent_today(&ledger, now, &mut |_: String| {}).micros(),
+            3_000_000
+        );
+        assert_eq!(
+            susi_harness::operator::spent_today(
+                &dir.join("missing.jsonl"),
+                now,
+                &mut |_: String| {}
+            )
+            .micros(),
             0
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -1445,7 +943,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "susi-daily-cap-torn-{}-{}",
             std::process::id(),
-            super::now_unix_ms()
+            susi_harness::operator::now_unix_ms()
         ));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         let ledger = dir.join("ledger.jsonl");
@@ -1464,7 +962,10 @@ mod tests {
             std::str::from_utf8(&bytes).is_err(),
             "the tear must cut a character"
         );
-        assert_eq!(super::spent_today(&ledger, now).micros(), 5_000_000);
+        assert_eq!(
+            susi_harness::operator::spent_today(&ledger, now, &mut |_: String| {}).micros(),
+            5_000_000
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1475,7 +976,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "susi-daily-cap-glued-{}-{}",
             std::process::id(),
-            super::now_unix_ms()
+            susi_harness::operator::now_unix_ms()
         ));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         let ledger = dir.join("ledger.jsonl");
@@ -1484,7 +985,10 @@ mod tests {
             "{{\"started_unix_ms\":{now},\"cost\":1000000}}\n{{\"started_unix_ms\":{now},\"co{{\"started_unix_ms\":{now},\"cost\":4000000}}\n"
         );
         std::fs::write(&ledger, body).expect("ledger");
-        assert_eq!(super::spent_today(&ledger, now).micros(), 5_000_000);
+        assert_eq!(
+            susi_harness::operator::spent_today(&ledger, now, &mut |_: String| {}).micros(),
+            5_000_000
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1515,7 +1019,7 @@ mod tests {
         let checkout = std::env::temp_dir().join(format!(
             "susi-ledger-order-{}-{}",
             std::process::id(),
-            super::now_unix_ms()
+            susi_harness::operator::now_unix_ms()
         ));
         std::fs::create_dir_all(checkout.join("deploy/harness")).expect("checkout");
         std::fs::write(checkout.join("deploy/harness/prices.json"), "{}").expect("prices");
@@ -1532,13 +1036,13 @@ mod tests {
     /// mission after a top-up.
     #[test]
     fn a_mission_keeps_the_models_refused_at_its_start_within_reach_of_a_probe() {
-        let fleet = super::Fleet {
+        let fleet = susi_harness::fleet::Fleet {
             ladder: vec!["deepseek-flash".into(), "deepseek-pro".into()],
             standby: vec!["gemini-flash".into(), "deepseek-pro".into()],
-            ..super::Fleet::default()
+            ..susi_harness::fleet::Fleet::default()
         };
         assert_eq!(
-            super::mission_alternates(&fleet),
+            susi_harness::operator::mission_alternates(&fleet),
             vec!["deepseek-flash", "deepseek-pro", "gemini-flash"]
         );
     }

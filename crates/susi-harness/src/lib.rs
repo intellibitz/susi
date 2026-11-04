@@ -83,6 +83,7 @@ pub mod lifecycle;
 pub mod mcp;
 pub mod mission_control;
 pub mod money;
+pub mod operator;
 pub mod policy;
 pub mod pricing;
 pub mod providers;

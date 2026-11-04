@@ -4,7 +4,8 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
-use susi_agents::external::{catalog, Adapter, AgentManager, CatalogKind, RunStatus};
+use susi_agents::external::{catalog, AgentManager, CatalogKind};
+use susi_daemon::adapter_ops::{self, AdapterKind};
 
 #[derive(Debug, Subcommand)]
 pub enum FrameworkCommands {
@@ -66,50 +67,37 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
     let manager = AgentManager::frameworks(workspace)?;
     match action {
         FrameworkCommands::List => print_json(&catalog(CatalogKind::Framework)?)?,
-        FrameworkCommands::Setup { engine } => {
-            let definition = susi_agents::external::definition(CatalogKind::Framework, &engine)?;
-            print_json(&serde_json::json!({
-                "engine": definition.id,
-                "documentation": definition.documentation,
-                "adapter": manager.adapter(&engine)?,
-                "instructions": "Install the Python package (pip/uv). Set the adapter config_env to an absolute JSON file with either {\"script\":\"/abs/path.py\"} or {\"entrypoint\":\"module:callable\"}. The callable receives the prompt string. Model API keys stay in your environment. Run doctor, then run. No packages or credentials are provisioned implicitly."
-            }))?;
-        }
+        // `susi_daemon::adapter_ops` builds the doctor/setup/configure/reset
+        // documents and checks retries; the MCP `adapter_*` and
+        // `*_retry` tools call the same functions.
+        FrameworkCommands::Setup { engine } => print_json(
+            &adapter_ops::setup(AdapterKind::Frameworks, &engine, workspace)
+                .map_err(anyhow::Error::msg)?,
+        )?,
         FrameworkCommands::Doctor { engine } => {
-            let engines = match engine {
-                Some(id) => vec![susi_agents::external::definition(
-                    CatalogKind::Framework,
-                    &id,
-                )?],
-                None => catalog(CatalogKind::Framework)?,
-            };
-            let mut missing = false;
-            for engine in engines {
-                let result = manager.adapter(&engine.id).and_then(|a| a.preflight());
-                missing |= result.is_err();
-                print_json(&serde_json::json!({
-                    "engine": engine.id,
-                    "prerequisites_present": result.is_ok(),
-                    "detail": match result { Ok(s) => s, Err(e) => e.to_string() }
-                }))?;
+            let rows = adapter_ops::doctor(AdapterKind::Frameworks, engine.as_deref(), workspace)
+                .map_err(anyhow::Error::msg)?;
+            for row in &rows {
+                print_json(row)?;
             }
-            if missing {
-                bail!("one or more frameworks need setup");
+            if !adapter_ops::all_ready(&rows) {
+                bail!(
+                    "{}",
+                    adapter_ops::needs_setup_message(AdapterKind::Frameworks)
+                );
             }
         }
         FrameworkCommands::Configure { engine, file } => {
-            let adapter: Adapter = serde_json::from_slice(&std::fs::read(file)?)?;
-            let verdict =
-                susi_agents::adapter_upgrade::upgrade_adapter(&manager, &engine, &adapter, 2)?;
-            if verdict != susi_core::adapter_upgrade::SwitchVerdict::Switched {
-                bail!("adapter upgrade rejected: {verdict:?}");
-            }
-            print_json(&adapter)?;
+            let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+            print_json(
+                &adapter_ops::configure(AdapterKind::Frameworks, &engine, doc, workspace)
+                    .map_err(anyhow::Error::msg)?,
+            )?;
         }
-        FrameworkCommands::Reset { engine } => {
-            manager.reset(&engine)?;
-            print_json(&manager.adapter(&engine)?)?;
-        }
+        FrameworkCommands::Reset { engine } => print_json(
+            &adapter_ops::reset(AdapterKind::Frameworks, &engine, workspace)
+                .map_err(anyhow::Error::msg)?,
+        )?,
         FrameworkCommands::Run {
             engine,
             wait,
@@ -128,10 +116,7 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             )?;
         }
         FrameworkCommands::Retry { task_id, wait } => {
-            let old = manager.status(&task_id)?;
-            if old.status.active() || old.status == RunStatus::Unknown {
-                bail!("resolve the existing task before retrying to avoid duplicate execution");
-            }
+            let old = adapter_ops::retry_source(&manager, &task_id).map_err(anyhow::Error::msg)?;
             let run = manager.prepare(&old.agent, &old.prompt)?;
             launch(
                 &manager,

@@ -639,45 +639,811 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "brain_pareto",
+        "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers",
+        MetaCategory::IntelligenceBridge,
+        adapt(CoreTools::brain_pareto),
+    );
+
+    // Zero-UI plan B4 groups 2, 6, 11 and 12: CLI control-plane commands
+    // and the 9091 runtime routes, reachable over the standards socket.
+    ToolRegistry::register_meta_tool(
+        registry,
+        "inference_reset_provider",
+        "Re-admit a repaired inference provider after routing quarantine",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::inference_reset_provider),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "operator_snapshot",
+        "Unified operator state for the server workspace (same document as `susi top --json`)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::operator_snapshot),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "extensions_list",
-        "List installed and discoverable extension packs and their load/active/quarantine state",
+        "List installed extension packs",
         MetaCategory::SystemPrimitive,
         adapt(CoreTools::extensions_list),
     );
     ToolRegistry::register_meta_tool(
         registry,
         "extensions_status",
-        "Report the active extension pack and all discoverable extension packs",
+        "Active extension pack, its root, and every installed pack",
         MetaCategory::SystemPrimitive,
         adapt(CoreTools::extensions_status),
     );
     ToolRegistry::register_meta_tool(
         registry,
         "extensions_validate",
-        "Validate a pack directory against the host's manifest, path containment, signature and SHA-256 checksum rules without mutating host state",
+        "Check a pack directory against the host's admission rules (reads no host state)",
         MetaCategory::SystemPrimitive,
         adapt(CoreTools::extensions_validate),
     );
     ToolRegistry::register_meta_tool(
         registry,
         "extensions_load",
-        "Load and activate an installed extension pack after verifying its manifest, signatures and SHA-256 checksums",
-        MetaCategory::SystemPrimitive,
+        "Verify and activate an installed extension pack",
+        MetaCategory::WorkspaceIo,
         adapt(CoreTools::extensions_load),
     );
     ToolRegistry::register_meta_tool(
         registry,
         "extensions_unload",
-        "Unload and deactivate an extension pack while preserving its files on disk",
-        MetaCategory::SystemPrimitive,
+        "Deactivate an extension pack (files kept)",
+        MetaCategory::WorkspaceIo,
         adapt(CoreTools::extensions_unload),
     );
     ToolRegistry::register_meta_tool(
         registry,
-        "brain_pareto",
-        "Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers",
-        MetaCategory::IntelligenceBridge,
-        adapt(CoreTools::brain_pareto),
+        "plan_run",
+        "Solve a goal with the autonomous planning loop in the server workspace",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::plan_run),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "intent_ingest",
+        "Ingest a natural-language intent into the server workspace evidence ledger",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::intent_ingest),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "blackboard_show",
+        "Show the last mission blackboard (credential-redacted)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::blackboard_show),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "runtime_models_list",
+        "List models loaded in the inference cache",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::runtime_models_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "runtime_models_load",
+        "Load a model into the inference cache",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::runtime_models_load),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "runtime_models_unload",
+        "Evict a model from the inference cache",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::runtime_models_unload),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "placement_decision",
+        "Look up an audited inference-placement decision by id",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::placement_decision),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "context_graph_stats",
+        "Universal Context Graph node and edge counts by kind",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::context_graph_stats),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "context_graph_show",
+        "Most recent Universal Context Graph events for a workspace",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::context_graph_show),
+    );
+
+    // Zero-UI plan B4 groups 4, 5, 8 and 9: onboarding, assurance, context
+    // and IPC, and the OS view, reachable over the standards socket.
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_pending",
+        "List pending inter-app permission requests",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ipc_pending),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_check",
+        "Check whether an identity holds an inter-app permission scope",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ipc_check),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_revoke",
+        "Revoke an inter-app permission scope from an identity",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::ipc_revoke),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_list",
+        "List the inter-app permission grants an identity holds",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ipc_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "privacy_mode",
+        "Set the privacy mode (balanced, local_only, open)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::privacy_mode),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "privacy_grant",
+        "Grant a cryptographic capability token",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::privacy_grant),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "privacy_revoke",
+        "Revoke a capability grant",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::privacy_revoke),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "intent_list",
+        "List active intent-bus providers and needs",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::intent_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ambient_start",
+        "Start the background ambient indexer for the server workspace",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::ambient_start),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tx_list",
+        "List open multi-agent transactions in the server workspace",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::tx_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "context_graph_sample_os",
+        "Sample OS context into the Universal Context Graph",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::context_graph_sample_os),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "audit_verify",
+        "Verify the server workspace's tamper-evident audit chain",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::audit_verify),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "audit_query",
+        "Query redacted action history from the audit chain",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::audit_query),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "compliance_audit",
+        "Run the deterministic compliance audit",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::compliance_audit),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "audit_evidence_export",
+        "Export redacted audit segments in the verifiable format",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::audit_evidence_export),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "substrate_report",
+        "Compiled-constants substrate report",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::substrate_report),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "substrate_status",
+        "Pluggable / Sandbox / Governance / Host-contract / Reflexes status",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::substrate_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "crown_verify",
+        "Verify every Tier S USP",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::crown_verify),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "clean",
+        "Remove SUSI-owned residue and report bytes freed",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::clean),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "setup_plan",
+        "Detect the host and return the zero-config setup plan",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::setup_plan),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "setup_apply",
+        "Apply the zero-config setup plan (existing settings preserved)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::setup_apply),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ecosystem_scan",
+        "Scan (or return the last scan of) the local AI ecosystem",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ecosystem_scan),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ecosystem_start",
+        "Start an installed local AI engine",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::ecosystem_start),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ecosystem_kb",
+        "Query the cloud-AI-ecosystem knowledge base",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ecosystem_kb),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ecosystem_explain",
+        "Explain a knowledge-base component, standard or protocol",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ecosystem_explain),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_provision",
+        "Explicit cloud provisioning: probe, list or apply",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::os_provision),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_capabilities",
+        "Discover or invoke typed capability-bus capabilities",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::os_capabilities),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "services_start",
+        "Clear an operator stop on a supervised leaf service",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::services_start),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "services_stop",
+        "Stop a supervised leaf service and hold it down",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::services_stop),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "services_restart",
+        "Restart a supervised leaf service",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::services_restart),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "commits_audit",
+        "Whole-ledger consistency check of the commit log",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::commits_audit),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "commits_replay",
+        "Consensus view the commit ledger replays to",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::commits_replay),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "commits_show",
+        "Show one commit record by epoch prefix",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::commits_show),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "commits_sync",
+        "Commit-ledger anti-entropy with verified peers",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::commits_sync),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "commits_compact",
+        "Compact the commit ledger into a snapshot plus archive",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::commits_compact),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_probe",
+        "Cryptographically verify a peer host without admitting it",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::peers_probe),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_list",
+        "List the verified cluster roster, leader and banned members",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::peers_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_status",
+        "Every rostered member's cluster status side by side",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::peers_status),
+    );
+
+    // Zero-UI plan B4 group 3: providers, keys (presence only) and the
+    // brain, reachable over the standards socket.
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_list",
+        "List a provider control plane's curated models and readiness",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::provider_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_doctor",
+        "Check a provider control plane's readiness (no paid call)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::provider_doctor),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_setup",
+        "Show a provider model's setup instructions and effective wiring",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::provider_setup),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_configure",
+        "Store a host override for a provider model",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::provider_configure),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_reset",
+        "Drop a provider model's host override",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::provider_reset),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_pull",
+        "Pull an open-weight model's weights through Ollama",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::provider_pull),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_prefer",
+        "Prefer or clear a provider model for routing",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::provider_prefer),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_probe",
+        "Probe a model endpoint with a short completion (cloud probes are paid)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::provider_probe),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_models",
+        "List OpenRouter routes or the live models its key reaches",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::provider_models),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "keys_status",
+        "Report which cloud vendor keys are set (presence only, never values)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::keys_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "keys_prefer",
+        "Pin, clear or report the preferred cloud vendor",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::keys_prefer),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "keys_check",
+        "Check each vendor key against its model list (values never returned)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::keys_check),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "keys_models",
+        "List the models a vendor's valid key reaches",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::keys_models),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_status",
+        "Evidence-ranked providers for every task class",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::brain_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_budget",
+        "Set or report the budget dial and shared spend policy",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::brain_budget),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_classify",
+        "Show which task class a prompt routes as",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::brain_classify),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_explain",
+        "Explain the brain's routing decision for a prompt",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::brain_explain),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_export",
+        "Export the brain evidence bundle",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::brain_export),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_import",
+        "Merge a brain evidence bundle",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::brain_import),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_matrix",
+        "Show the measured model capability matrix",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::brain_matrix),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_cache",
+        "Show the measured prompt-cache hit rate and saving",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::brain_cache),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_reset",
+        "Forget every recorded brain outcome",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::brain_reset),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_bench",
+        "Run the fixed prompt set against the fake engine and record evidence",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::brain_bench),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "brain_probe",
+        "Probe a registered provider with the scout benchmark",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::brain_probe),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "benchmark_run",
+        "Measure local (and configured cloud) inference latency and throughput",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::benchmark_run),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "verify_download_agent",
+        "Verify network status and the hardware-selected model ladder",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::verify_download_agent),
+    );
+
+    // Zero-UI plan B4 group 7: adapter lifecycle for agents, frameworks,
+    // coding models and MCP servers.
+    ToolRegistry::register_meta_tool(
+        registry,
+        "adapter_doctor",
+        "Check agent, framework, coding-model or MCP adapter readiness",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::adapter_doctor),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "adapter_setup",
+        "Show an adapter's setup instructions and effective configuration",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::adapter_setup),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "adapter_configure",
+        "Store a host adapter override (verified upgrade for agents and frameworks)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::adapter_configure),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "adapter_reset",
+        "Drop a host adapter override and restore the bundled adapter",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::adapter_reset),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_retry",
+        "Run a finished external agent task again with its original prompt",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::agents_retry),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_retry",
+        "Run a finished agent-framework task again with its original prompt",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::frameworks_retry),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "mcp_add",
+        "Admit an MCP server into the registry and hot-plug it",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::mcp_add),
+    );
+
+    // Zero-UI plan B4 group 1: the self-build harness.
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_status",
+        "Harness API snapshot for a ledger: spend, tasks, workers, warnings",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::harness_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_budget",
+        "One-line harness budget report and top-up alerts",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::harness_budget),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_models",
+        "Harness provider registry, drift check, discovery or keyed models",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::harness_models),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_plan",
+        "Plan a batch of dependency-ready queue tasks",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::harness_plan),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_author",
+        "Author a plan for a roadmap vector through the metered gateway",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::harness_author),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_run",
+        "Start running a harness plan under the budget gate",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::harness_run),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "harness_runs",
+        "Harness missions this daemon started and their outcomes",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::harness_runs),
+    );
+
+    // Zero-UI plan B4 groups 2, 4, 9, 10 and 13: host views, maintenance
+    // and daemon lifecycle.
+    ToolRegistry::register_meta_tool(
+        registry,
+        "operator_status",
+        "Measured executable identity and substrate counts (as `susi status --json`)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::operator_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "operator_review",
+        "Daemon liveness and reclaimable OS cache (as `susi review`)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::operator_review),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_ecosystem",
+        "Local AI ecosystem: hardware, runtimes, models, adapters, MCP servers, AI processes",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_ecosystem),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_status",
+        "Substrate status: consensus, ledger, services, peers, endpoints, storage",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_runtime",
+        "Live AI processes by owner, managed-model residency and GPU memory",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_runtime),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "model_uninstall",
+        "Remove one SUSI-managed model file (refused while loaded or selected)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::model_uninstall),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_add",
+        "Join a peer by signed handshake and commit its admission",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::peers_add),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_remove",
+        "Evict and ban a verified peer, committed cluster-wide",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::peers_remove),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_unban",
+        "Lift a peer ban, committed cluster-wide",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::peers_unban),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "peers_rekey",
+        "Rotate the cluster key across every verified member",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::peers_rekey),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "daemon_shutdown",
+        "Stop this daemon instance after replying",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::daemon_shutdown),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "extensions_create",
+        "Create an empty extension pack shell (not activated)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::extensions_create),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "auto_status",
+        "Zero-config substrate readiness snapshot",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::auto_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "auto_prime",
+        "Re-run zero-config auto-prime (never enables MCP)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::auto_prime),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "deep_scan",
+        "Scan the home directory for model files and register them",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::deep_scan),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "config_reload",
+        "Reload config.json and report what is in effect",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::config_reload),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "provider_contract",
+        "Provider contract fixture checks (credentialed half opt-in)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::provider_contract),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "intent_ladder",
+        "Intent ladder scorecard, runs, verification, gap outbox and adoption",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::intent_ladder),
     );
 
     // No essential-MCP auto-link: core never configures or launches a

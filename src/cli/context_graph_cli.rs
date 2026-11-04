@@ -109,43 +109,7 @@ pub fn execute(action: Option<ContextGraphCommands>, workspace: &Path) -> Result
             );
         }
         ContextGraphCommands::Show { limit } => {
-            let subgraph = graph.workspace_subgraph(workspace);
-            let events: Vec<_> = subgraph
-                .nodes
-                .into_iter()
-                .map(|n| {
-                    serde_json::json!({
-                        "type": "node",
-                        "id": n.id.0,
-                        "kind": format!("{:?}", n.kind),
-                        "label": n.label,
-                        "created_at": n.created_at,
-                    })
-                })
-                .chain(subgraph.edges.into_iter().map(|e| {
-                    serde_json::json!({
-                        "type": "edge",
-                        "id": e.id,
-                        "source": e.source.0,
-                        "target": e.target.0,
-                        "kind": format!("{:?}", e.kind),
-                        "created_at": e.created_at,
-                    })
-                }))
-                .collect();
-            let out = if events.is_empty() {
-                serde_json::json!({
-                    "workspace": workspace.display().to_string(),
-                    "note": "no context-graph activity recorded for this workspace yet",
-                    "events": events,
-                })
-            } else {
-                serde_json::json!({
-                    "workspace": workspace.display().to_string(),
-                    "event_count": events.len().min(limit),
-                    "events": events.into_iter().take(limit).collect::<Vec<_>>(),
-                })
-            };
+            let out = graph.workspace_show(workspace, limit);
             println!("{}", serde_json::to_string_pretty(&out)?);
         }
         ContextGraphCommands::Related { node, depth } => {

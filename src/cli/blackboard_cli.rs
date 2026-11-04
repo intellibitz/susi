@@ -1,5 +1,5 @@
 //! Inspect the last mission blackboard (glass-box swarm shared state).
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Result};
 use clap::Subcommand;
 use std::path::Path;
 
@@ -12,15 +12,9 @@ pub enum BlackboardCommands {
 pub fn execute(action: Option<BlackboardCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(BlackboardCommands::Show) {
         BlackboardCommands::Show => {
-            let path = workspace.join(".susi").join("last_blackboard.json");
-            if !path.is_file() {
-                bail!(
-                    "no mission blackboard at {} — run a swarm mission first",
-                    path.display()
-                );
-            }
-            let text = std::fs::read_to_string(&path)?;
-            println!("{}", susi_agents::external::redact(&text));
+            let text = susi_core::agent_types::read_persisted_blackboard(workspace)
+                .map_err(|e| anyhow!(e))?;
+            println!("{text}");
         }
     }
     Ok(())

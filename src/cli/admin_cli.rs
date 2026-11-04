@@ -5,7 +5,6 @@ use super::defs::{AdminCommands, AuditEvidenceCommands};
 use super::mission_host::MissionHost;
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::Path;
 use susi::SUSI_VERSION;
 
@@ -81,47 +80,17 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             ],
         ),
         AdminCommands::AuditDeps => run_cargo(cwd, &["audit"]),
+        // `susi_daemon::host_views` builds these documents; the MCP
+        // `provider_contract`, `config_reload` and `intent_ladder` tools
+        // return the same ones.
         AdminCommands::ProviderContract => {
-            // The credentialed half stays opt-in (SUSI_PROVIDER_PROBE=1)
-            // and read-only — it proves auth and the error envelope and
-            // records the generation-dependent kinds as Unsupported
-            // rather than spending tokens to verify them.
-            let fixture = susi_gemi::provider_contract::fixture_checks("fixture", "*", "1");
-            let opted_in = std::env::var("SUSI_PROVIDER_PROBE").as_deref() == Ok("1");
-            let credentialed =
-                susi_gemi::provider_contract::probe_credentialed_opt_in("*", "*", "1")
-                    .unwrap_or_default();
-            let _ = crate::cli_json::print_json(&serde_json::json!({
-                "fixture": fixture,
-                "credentialed": {
-                    "opted_in": opted_in,
-                    "claims": credentialed,
-                },
-            }));
+            let _ = crate::cli_json::print_json(&susi_daemon::host_views::provider_contract());
         }
-        AdminCommands::Reload => match susi_sandbox::manager::SusiConfig::reload(global_dir) {
-            Ok(reloaded) => {
-                println!(
-                    "Dynamic configuration reloaded successfully from {}.",
-                    global_dir.join("config.json").display()
-                );
-                println!("- Engine: {}", reloaded.default_engine());
-                println!("- Model: {}", reloaded.default_model());
-                // Ladder resolution lives in gemi-models and takes that crate's
-                // vendored `SusiConfig` (same JSON on disk as the sandbox service).
-                let ladder_cfg =
-                    susi_gemi::models::susi_sandbox::manager::SusiConfig::load(global_dir)
-                        .unwrap_or_default();
-                println!(
-                    "- Model Ladder Steps: {}",
-                    susi_gemi::models::hf_discovery::resolve_model_ladder(&ladder_cfg).len()
-                );
-                println!(
-                    "- MCP Bootstrap Servers: {}",
-                    reloaded
-                        .bootstrap_mcp_servers::<Vec<serde_json::Value>>()
-                        .len()
-                );
+        AdminCommands::Reload => match susi_daemon::host_views::config_reload(global_dir) {
+            Ok(doc) => {
+                for line in doc["lines"].as_array().into_iter().flatten() {
+                    println!("{}", line.as_str().unwrap_or_default());
+                }
             }
             Err(e) => {
                 eprintln!("Config reload failed: {}", e);
@@ -135,111 +104,30 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             gaps,
             adopt_gap,
         } => {
-            let home = susi_paths::SusiDirs::substrate_home();
-            if let Some(id) = adopt_gap {
-                let root = super::tasks_cli::repo_root(cwd);
-                // Authored under the daemon's token, as before the outbox:
-                // the evidence is the substrate's, and the per-author bound
-                // on open authored tasks keeps applying to it.
-                match susi_gawd::intent_ladder::adopt_gap(&root, &home, &id, "SUSI") {
-                    Ok(adoption) if adoption.task.is_some() => {
-                        let _ = crate::cli_json::print_json(&serde_json::json!({
-                            "adopted": adoption.gap.intent,
-                            "task": adoption.task,
-                            // Empty when an open task here already named the
-                            // intent and the gap was linked to it.
-                            "authored": adoption.authored.tasks,
-                            "accept": format!(
-                                "susi admin intent-ladder --verify {}",
-                                adoption.gap.intent
-                            ),
-                        }));
-                    }
-                    Ok(adoption) => {
-                        eprintln!(
-                            "intent gap `{}` authored nothing in {}: it needs a checkout with \
-                             .agents/roadmap.json and .agents/tasks, and no roadmap vector may \
-                             already name the intent",
-                            adoption.gap.intent,
-                            root.display()
-                        );
-                        std::process::exit(1);
-                    }
-                    Err(e) => {
-                        eprintln!("intent gap adoption failed: {e}");
-                        std::process::exit(1);
-                    }
-                }
+            use susi_daemon::host_views::IntentLadder;
+            let action = if let Some(id) = adopt_gap {
+                IntentLadder::AdoptGap(id)
             } else if gaps {
-                let outbox = susi_gawd::intent_ladder::read_gaps(&home);
-                let pending: Vec<_> = outbox
-                    .pending()
-                    .map(|g| {
-                        serde_json::json!({
-                            "intent": g.intent,
-                            "grade": g.grade,
-                            "failures": g.failures,
-                            "adopt": g.adopt_command(),
-                        })
-                    })
-                    .collect();
-                let _ = crate::cli_json::print_json(&serde_json::json!({
-                    "outbox": susi_gawd::intent_ladder::gaps_path(&home),
-                    "pending": pending,
-                    "gaps": outbox.gaps,
-                }));
+                IntentLadder::Gaps
             } else if let Some(id) = verify {
-                let runner = match susi_gawd::intent_ladder::ProcessRunner::this_binary() {
-                    Ok(r) => r,
-                    Err(e) => {
-                        eprintln!("intent ladder runner unavailable: {e}");
-                        std::process::exit(1);
-                    }
-                };
-                match susi_gawd::intent_ladder::verify_intent(cwd, &id, &runner) {
-                    Ok(entry) => {
-                        let _ = crate::cli_json::print_json(&serde_json::json!(entry));
-                        if entry.verdict != "pass" {
-                            std::process::exit(1);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("intent verify failed: {e}");
-                        std::process::exit(1);
-                    }
-                }
-            } else if run || slice {
-                let card = if slice {
-                    susi_gawd::intent_ladder::startup_slice(&home, cwd)
-                } else {
-                    susi_gawd::intent_ladder::full_run(&home, cwd)
-                };
-                match card {
-                    Ok(card) => {
-                        let _ = crate::cli_json::print_json(&serde_json::json!({
-                            "ladder_revision": card.ladder_revision,
-                            "source": card.ladder_source,
-                            "entries": card.entries,
-                            "scorecard": susi_gawd::intent_ladder::scorecard_path(&home),
-                        }));
-                    }
-                    Err(e) => {
-                        eprintln!("intent ladder run failed: {e}");
-                        std::process::exit(1);
-                    }
-                }
+                IntentLadder::Verify(id)
+            } else if slice {
+                IntentLadder::Slice
+            } else if run {
+                IntentLadder::Run
             } else {
-                match susi_gawd::intent_ladder::read_scorecard(&home) {
-                    Some(card) => {
-                        let _ = crate::cli_json::print_json(&serde_json::json!(card));
-                    }
-                    None => {
-                        eprintln!(
-                            "no scorecard at {} — `--run` the ladder or `--slice` the start-up slice",
-                            susi_gawd::intent_ladder::scorecard_path(&home).display()
-                        );
+                IntentLadder::Scorecard
+            };
+            match susi_daemon::host_views::intent_ladder(&action, cwd) {
+                Ok(doc) => {
+                    let _ = crate::cli_json::print_json(&doc);
+                    if matches!(action, IntentLadder::Verify(_)) && doc["verdict"] != "pass" {
                         std::process::exit(1);
                     }
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
                 }
             }
         }
@@ -258,34 +146,16 @@ fn run_audit_evidence(action: AuditEvidenceCommands) {
 }
 
 fn read_audit_export(path: &Path) -> Result<susi_gawd::audit_evidence::AuditExport, String> {
-    let bytes =
-        fs::read(path).map_err(|error| format!("could not read {}: {error}", path.display()))?;
-    if let Ok(export) = serde_json::from_slice(&bytes) {
-        return Ok(export);
-    }
-    let segments: Vec<susi_gawd::audit_evidence::AuditSegment> = serde_json::from_slice(&bytes)
-        .map_err(|error| {
-            format!(
-                "{} is not a valid audit evidence export: {error}",
-                path.display()
-            )
-        })?;
-    Ok(susi_gawd::audit_evidence::AuditExport {
-        format: "susi-audit-evidence/v1".to_string(),
-        expected_len: segments.len(),
-        segments,
-    })
+    susi_gawd::audit_evidence::read_export(path)
 }
 
+/// One implementation with the MCP `audit_evidence_export` tool
+/// (`susi_gawd::audit_evidence::export_to_file`).
 fn export_audit_evidence(input: &Path, output: &Path) -> Result<(), String> {
-    let export = read_audit_export(input)?;
-    let encoded = serde_json::to_vec_pretty(&export)
-        .map_err(|error| format!("could not serialize audit evidence: {error}"))?;
-    fs::write(output, encoded)
-        .map_err(|error| format!("could not write {}: {error}", output.display()))?;
+    let segments = susi_gawd::audit_evidence::export_to_file(input, output)?;
     println!(
         "Audit evidence export written: {} segments to {}",
-        export.segments.len(),
+        segments,
         output.display()
     );
     Ok(())

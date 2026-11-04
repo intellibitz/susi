@@ -75,21 +75,6 @@ pub fn passthrough() -> Arc<JsonObject> {
     Arc::new(object)
 }
 
-/// "Takes no arguments over MCP" for a handler that reads only a bare-string
-/// argument. MCP `tools/call` always passes an object, so over the socket
-/// such a tool can only return its usage text; the description says so
-/// until the handler also accepts an object (plan B4 group 3).
-pub fn bare_string_only(argument: &str) -> Arc<JsonObject> {
-    let mut object = (*no_args()).clone();
-    object.insert(
-        "description".into(),
-        serde_json::json!(format!(
-            "This tool reads a bare-string {argument}, which MCP tools/call cannot pass (arguments are always an object); over MCP it returns only its usage text."
-        )),
-    );
-    Arc::new(object)
-}
-
 /// Every `CoreTools` handler's generated `#[tool]` definition (name,
 /// description and typed `inputSchema`), in handler order.
 pub fn core_tool_definitions() -> Vec<rmcp::model::Tool> {
@@ -186,12 +171,124 @@ pub fn core_tool_definitions() -> Vec<rmcp::model::Tool> {
         CoreTools::tx_commit_tool_attr(),
         CoreTools::tx_abort_tool_attr(),
         CoreTools::delegate_to_ide_tool_attr(),
+        // Plan B4 groups 2, 6, 11 and 12 (`control_plane.rs`).
+        CoreTools::operator_snapshot_tool_attr(),
         CoreTools::extensions_list_tool_attr(),
         CoreTools::extensions_status_tool_attr(),
         CoreTools::extensions_validate_tool_attr(),
         CoreTools::extensions_load_tool_attr(),
         CoreTools::extensions_unload_tool_attr(),
         CoreTools::brain_pareto_tool_attr(),
+        CoreTools::plan_run_tool_attr(),
+        CoreTools::intent_ingest_tool_attr(),
+        CoreTools::blackboard_show_tool_attr(),
+        CoreTools::runtime_models_list_tool_attr(),
+        CoreTools::runtime_models_load_tool_attr(),
+        CoreTools::runtime_models_unload_tool_attr(),
+        CoreTools::placement_decision_tool_attr(),
+        CoreTools::context_graph_stats_tool_attr(),
+        CoreTools::context_graph_show_tool_attr(),
+        // Plan B4 groups 4, 5, 8 and 9 (`host_ops.rs`).
+        CoreTools::ipc_pending_tool_attr(),
+        CoreTools::ipc_check_tool_attr(),
+        CoreTools::ipc_revoke_tool_attr(),
+        CoreTools::ipc_list_tool_attr(),
+        CoreTools::privacy_mode_tool_attr(),
+        CoreTools::privacy_grant_tool_attr(),
+        CoreTools::privacy_revoke_tool_attr(),
+        CoreTools::intent_list_tool_attr(),
+        CoreTools::ambient_start_tool_attr(),
+        CoreTools::tx_list_tool_attr(),
+        CoreTools::context_graph_sample_os_tool_attr(),
+        CoreTools::audit_verify_tool_attr(),
+        CoreTools::audit_query_tool_attr(),
+        CoreTools::compliance_audit_tool_attr(),
+        CoreTools::audit_evidence_export_tool_attr(),
+        CoreTools::substrate_report_tool_attr(),
+        CoreTools::substrate_status_tool_attr(),
+        CoreTools::crown_verify_tool_attr(),
+        CoreTools::clean_tool_attr(),
+        CoreTools::setup_plan_tool_attr(),
+        CoreTools::setup_apply_tool_attr(),
+        CoreTools::ecosystem_scan_tool_attr(),
+        CoreTools::ecosystem_start_tool_attr(),
+        CoreTools::ecosystem_kb_tool_attr(),
+        CoreTools::ecosystem_explain_tool_attr(),
+        CoreTools::os_provision_tool_attr(),
+        CoreTools::os_capabilities_tool_attr(),
+        CoreTools::services_start_tool_attr(),
+        CoreTools::services_stop_tool_attr(),
+        CoreTools::services_restart_tool_attr(),
+        CoreTools::commits_audit_tool_attr(),
+        CoreTools::commits_replay_tool_attr(),
+        CoreTools::commits_show_tool_attr(),
+        CoreTools::commits_sync_tool_attr(),
+        CoreTools::commits_compact_tool_attr(),
+        CoreTools::peers_probe_tool_attr(),
+        CoreTools::peers_list_tool_attr(),
+        CoreTools::peers_status_tool_attr(),
+        // Plan B4 group 3 (`provider_tools.rs`).
+        CoreTools::provider_list_tool_attr(),
+        CoreTools::provider_doctor_tool_attr(),
+        CoreTools::provider_setup_tool_attr(),
+        CoreTools::provider_configure_tool_attr(),
+        CoreTools::provider_reset_tool_attr(),
+        CoreTools::provider_pull_tool_attr(),
+        CoreTools::provider_prefer_tool_attr(),
+        CoreTools::provider_probe_tool_attr(),
+        CoreTools::provider_models_tool_attr(),
+        CoreTools::keys_status_tool_attr(),
+        CoreTools::keys_prefer_tool_attr(),
+        CoreTools::keys_check_tool_attr(),
+        CoreTools::keys_models_tool_attr(),
+        CoreTools::brain_status_tool_attr(),
+        CoreTools::brain_budget_tool_attr(),
+        CoreTools::brain_classify_tool_attr(),
+        CoreTools::brain_explain_tool_attr(),
+        CoreTools::brain_export_tool_attr(),
+        CoreTools::brain_import_tool_attr(),
+        CoreTools::brain_matrix_tool_attr(),
+        CoreTools::brain_cache_tool_attr(),
+        CoreTools::brain_reset_tool_attr(),
+        CoreTools::brain_bench_tool_attr(),
+        CoreTools::brain_probe_tool_attr(),
+        CoreTools::benchmark_run_tool_attr(),
+        CoreTools::verify_download_agent_tool_attr(),
+        // Plan B4 group 7 (`adapter_tools.rs`).
+        CoreTools::adapter_doctor_tool_attr(),
+        CoreTools::adapter_setup_tool_attr(),
+        CoreTools::adapter_configure_tool_attr(),
+        CoreTools::adapter_reset_tool_attr(),
+        CoreTools::agents_retry_tool_attr(),
+        CoreTools::frameworks_retry_tool_attr(),
+        CoreTools::mcp_add_tool_attr(),
+        // Plan B4 group 1 (`harness_tools.rs`).
+        CoreTools::harness_status_tool_attr(),
+        CoreTools::harness_budget_tool_attr(),
+        CoreTools::harness_models_tool_attr(),
+        CoreTools::harness_plan_tool_attr(),
+        CoreTools::harness_author_tool_attr(),
+        CoreTools::harness_run_tool_attr(),
+        CoreTools::harness_runs_tool_attr(),
+        // Plan B4 groups 2, 4, 9, 10 and 13 (`host_view_tools.rs`).
+        CoreTools::operator_status_tool_attr(),
+        CoreTools::operator_review_tool_attr(),
+        CoreTools::os_ecosystem_tool_attr(),
+        CoreTools::os_status_tool_attr(),
+        CoreTools::os_runtime_tool_attr(),
+        CoreTools::model_uninstall_tool_attr(),
+        CoreTools::peers_add_tool_attr(),
+        CoreTools::peers_remove_tool_attr(),
+        CoreTools::peers_unban_tool_attr(),
+        CoreTools::peers_rekey_tool_attr(),
+        CoreTools::daemon_shutdown_tool_attr(),
+        CoreTools::extensions_create_tool_attr(),
+        CoreTools::auto_status_tool_attr(),
+        CoreTools::auto_prime_tool_attr(),
+        CoreTools::deep_scan_tool_attr(),
+        CoreTools::config_reload_tool_attr(),
+        CoreTools::provider_contract_tool_attr(),
+        CoreTools::intent_ladder_tool_attr(),
     ]
 }
 
@@ -298,6 +395,9 @@ pub struct ApplyPatchCycle {
     pub description: String,
     /// Run apply+test in an isolated workspace copy named by this id, promoting only on success.
     pub isolate: Option<String>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -513,6 +613,9 @@ pub struct AgentsRun {
     pub agent: String,
     /// Task prompt.
     pub prompt: String,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -522,6 +625,9 @@ pub struct FrameworksRun {
     pub engine: String,
     /// Task prompt.
     pub prompt: String,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -531,6 +637,9 @@ pub struct ExternalTaskStatus {
     pub task_id: String,
     /// Recover cloud status after worker loss (default false).
     pub refresh: Option<bool>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -538,6 +647,9 @@ pub struct ExternalTaskStatus {
 pub struct ExternalTaskId {
     /// Durable task id returned by the run tool.
     pub task_id: String,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -547,6 +659,9 @@ pub struct ExternalTaskLogs {
     pub task_id: String,
     /// Read stderr instead of stdout (default false).
     pub stderr: Option<bool>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -556,6 +671,9 @@ pub struct ExternalTaskSend {
     pub task_id: String,
     /// Follow-up message for the cloud agent (must not be empty).
     pub message: String,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -612,6 +730,9 @@ pub struct SusiSolve {
     pub input: Option<String>,
     /// Alias of intent.
     pub prompt: Option<String>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 // ── Context graph ──────────────────────────────────────────────────────
@@ -638,6 +759,75 @@ pub struct ContextGraphIngest {
     pub workspace: Option<String>,
     /// Acting user.
     pub user: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ContextGraphShow {
+    /// Maximum events to return (default 20), as `susi context-graph show --limit`.
+    pub limit: Option<u64>,
+    /// Absolute workspace path whose events to show (default: the server
+    /// workspace). Only a filter on the shared graph; nothing under the path is read.
+    pub workspace: Option<String>,
+}
+
+// ── Extension packs (plan B4 group 11) ─────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ExtensionPackId {
+    /// Installed pack id: the directory name under the host extensions root,
+    /// `<config_dir>/extensions/<id>` (e.g. `commercial-default`).
+    pub id: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ExtensionsValidate {
+    /// Path of the pack directory to check (it holds manifest.json): absolute,
+    /// or relative to the server workspace (the socket has no caller working
+    /// directory).
+    pub path: String,
+}
+
+// ── Missions (plan B4 group 6) ─────────────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PlanRun {
+    /// Natural-language goal to solve via iterative planning.
+    pub goal: String,
+    /// Maximum number of planning steps (default 3), as `susi plan --max-steps`.
+    pub max_steps: Option<u32>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct IntentIngest {
+    /// Natural-language intent to record in the evidence ledger, as `susi pulse <intent…>`.
+    pub intent: String,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
+}
+
+// ── Runtime models and placement (plan B4 group 12) ────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct RuntimeModel {
+    /// Model id to load into, or evict from, the inference cache.
+    pub model: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PlacementDecision {
+    /// Decision id, `placement-<pid>-<unix>-<seq>`, from a placement response.
+    pub decision_id: String,
 }
 
 // ── Inter-app broker, privacy, intents ─────────────────────────────────
@@ -749,6 +939,9 @@ pub struct TxBegin {
     pub description: Option<String>,
     /// Workspace-relative files to snapshot.
     pub files: Option<Vec<String>>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]
@@ -758,20 +951,672 @@ pub struct TxId {
     pub id: String,
 }
 
-// ── Extension packs (PSP-20 / plan B4 group 11) ────────────────────────
+// ── Context and IPC (plan B4 group 8) ──────────────────────────────────
 
 #[derive(JsonSchema)]
 #[schemars(crate = "susi_vendor_mcp_server::schemars")]
-pub struct ExtensionPackId {
-    /// Extension pack id under `<config_dir>/extensions/<id>` (e.g. `commercial-default`).
+pub struct IpcPending {
+    /// Only requests addressed to this grantor (default: every pending request).
+    pub grantor: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct IpcScope {
+    /// Identity holding (or losing) the scope.
+    pub grantee: String,
+    /// Resource the scope covers.
+    pub resource: String,
+    /// Action on the resource.
+    pub action: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct IpcList {
+    /// Identity whose grants to list.
+    pub grantee: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PrivacyMode {
+    /// `balanced`, `local_only` (aliases `local-only`, `edge`, `strict`) or
+    /// `open` (alias `permissive`). Anything else is refused.
+    pub mode: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PrivacyGrant {
+    /// Subject receiving the capability (default "susi").
+    pub subject: Option<String>,
+    /// Capability action, e.g. "network.egress".
+    pub action: String,
+    /// Resource the capability covers (default "*").
+    pub resource: Option<String>,
+    /// Lifetime in seconds (default: the policy's default lifetime).
+    pub ttl_secs: Option<u64>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PrivacyRevoke {
+    /// Subject holding the capability (default "susi").
+    pub subject: Option<String>,
+    /// Capability action to revoke.
+    pub action: String,
+    /// Resource the capability covers (default "*").
+    pub resource: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ContextSampleOs {
+    /// Optional user name to associate with the sample.
+    pub user: Option<String>,
+    /// Absolute workspace path to tag the records with (default: the server
+    /// workspace). Only a tag on the shared graph; nothing under it is read.
+    pub workspace: Option<String>,
+}
+
+// ── Assurance (plan B4 group 5) ────────────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct AuditVerify {
+    /// Only count verified entries at or after this Unix timestamp; the full
+    /// chain is always checked.
+    pub since: Option<u64>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct AuditQuery {
+    /// Only records by this actor.
+    pub actor: Option<String>,
+    /// Only records for this mission id.
+    pub mission: Option<String>,
+    /// Only records of this kind.
+    pub kind: Option<String>,
+    /// Only records at or after this Unix timestamp.
+    pub since: Option<u64>,
+    /// Only records at or before this Unix timestamp.
+    pub until: Option<u64>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct AuditEvidenceExport {
+    /// Absolute path of a JSON array of redacted audit segments (or an
+    /// existing export).
+    pub input: String,
+    /// Absolute destination path for the independently verifiable export.
+    pub output: String,
+}
+
+// ── Onboarding (plan B4 group 4) ───────────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct SetupApply {
+    /// Grant cloud API key consent in this apply (default false), as
+    /// `susi setup apply --cloud`.
+    pub cloud: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct EcosystemScan {
+    /// Return the last persisted scan instead of scanning now (default
+    /// false): `susi ecosystem status` rather than `susi ecosystem scan`.
+    pub cached: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct EcosystemStart {
+    /// Engine id from `ecosystem_scan` (e.g. "ollama").
     pub id: String,
 }
 
 #[derive(JsonSchema)]
 #[schemars(crate = "susi_vendor_mcp_server::schemars")]
-pub struct ExtensionsValidate {
-    /// Path to a pack directory containing `manifest.json` (absolute or workspace-relative).
-    pub path: String,
+pub struct EcosystemKb {
+    /// `list` (default), `show`, `search` or `check`.
+    pub action: Option<String>,
+    /// Entity id (required for `show`).
+    pub id: Option<String>,
+    /// `search`: case-insensitive substring matched against id and name.
+    pub query: Option<String>,
+    /// `list` / `search`: restrict to one kind (component, vendor, standard,
+    /// protocol, spec-version, capability).
+    pub kind: Option<String>,
+    /// `search`: keep components having this capability (any vendor spelling).
+    pub capability: Option<String>,
+    /// `search`: keep the vendor itself and components it provides.
+    pub vendor: Option<String>,
+    /// Absolute path of a single store dir instead of the layered store.
+    pub dir: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct EcosystemExplain {
+    /// Entity id (e.g. "openai-chat-completions", "mcp", "a2a").
+    pub id: String,
+    /// Absolute path of a single store dir instead of the layered store.
+    pub dir: Option<String>,
+}
+
+// ── OS (plan B4 group 9) ───────────────────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct OsProvision {
+    /// `probe` (default: version-only probe of each cloud CLI), `list` or `apply`.
+    pub action: Option<String>,
+    /// Cloud kind for `list` / `apply` (e.g. "kubernetes", "docker", "aws").
+    pub kind: Option<String>,
+    /// `apply`: absolute path of the manifest to apply.
+    pub manifest: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct OsCapabilities {
+    /// `discover` (default) or `invoke`.
+    pub action: Option<String>,
+    /// `invoke`: capability id from `discover`.
+    pub id: Option<String>,
+    /// `invoke`: subject the call runs as (default "operator").
+    pub subject: Option<String>,
+    /// `invoke`: permission presented for the call (required for invoke).
+    pub permission: Option<String>,
+    /// `invoke`: capability arguments (default {}).
+    pub args: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `invoke`: timeout in milliseconds (default 30000).
+    pub timeout_ms: Option<u64>,
+    /// `invoke`: spend budget in micro-dollars (default unlimited).
+    pub budget_micros: Option<u64>,
+    /// Absolute workspace the CLI would run this in (default: the server
+    /// workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ServiceName {
+    /// Leaf service name: susi-paths, susi-error, susi-config, susi-sandbox
+    /// or susi-native.
+    pub name: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct CommitsShow {
+    /// Epoch hex prefix (unique), e.g. the first 12 characters `commit_log` shows.
+    pub epoch: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PeersProbe {
+    /// Peer host, optionally `host:port`.
+    pub host: String,
+    /// UDP discovery port (default: this node's effective discovery port).
+    pub port: Option<u16>,
+}
+
+// ── B4 group 3: providers, keys (presence only) and the brain ──────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderVendor {
+    /// Provider control plane: openweight, frontier or openrouter.
+    pub vendor: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderDoctor {
+    /// Provider control plane: openweight, frontier or openrouter.
+    pub vendor: String,
+    /// One model id (default: every curated model; openrouter has none).
+    pub model: Option<String>,
+    /// openrouter only: also list a sample of live model ids (proves the key).
+    pub live: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderSetup {
+    /// Provider control plane: openweight, frontier or openrouter.
+    pub vendor: String,
+    /// Model id (required for openweight and frontier).
+    pub model: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderConfigure {
+    /// Provider control plane: openweight or frontier.
+    pub vendor: String,
+    /// Model id to override.
+    pub model: String,
+    /// Override document (engine, model id, protocol, key variable name and
+    /// so on). Pass this or `file`.
+    #[serde(rename = "override")]
+    pub override_doc: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Absolute path to the override JSON file (the CLI's file argument).
+    pub file: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderModel {
+    /// Provider control plane: openweight or frontier.
+    pub vendor: String,
+    /// Model id.
+    pub model: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderPull {
+    /// Open-weight model id whose weights `ollama pull` fetches.
+    pub model: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderPrefer {
+    /// Provider control plane: openweight, frontier or openrouter.
+    pub vendor: String,
+    /// Model (openrouter: catalog id or raw slug) to prefer.
+    pub model: Option<String>,
+    /// Clear the pin (openrouter: clear the pinned model, keep the cloud preference).
+    pub clear: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderProbe {
+    /// openweight, frontier, openrouter, or coding (`susi models probe`).
+    pub vendor: String,
+    /// Model id (not used by openrouter, which probes its effective model).
+    pub model: Option<String>,
+    /// Prompt (default "Reply with exactly: ok"). Cloud probes are paid.
+    pub prompt: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ProviderModels {
+    /// List the live model ids the OpenRouter key reaches instead of the curated routes.
+    pub live: Option<bool>,
+    /// Most live ids to return (default 50).
+    pub limit: Option<u64>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct KeysPrefer {
+    /// Cloud vendor to prefer (omit, without clear, to report the preference).
+    pub vendor: Option<String>,
+    /// Clear the preferred cloud vendor.
+    pub clear: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct KeysCheck {
+    /// One vendor (default: every vendor with a key).
+    pub vendor: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct KeysModels {
+    /// Vendor whose model list the key reaches.
+    pub vendor: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainStatus {
+    /// Top ranked providers per task class (default 5).
+    pub top: Option<u64>,
+    /// Only this task class (e.g. reflex, chat, code, reasoning, estate_ops).
+    pub class: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainBudget {
+    /// Budget dial: low, balanced or max.
+    pub level: Option<String>,
+    /// Free inference only (sets the dial to low).
+    pub free_only: Option<bool>,
+    /// Authorize paid inference within the limits below (explicit spend authorization).
+    pub allow_paid: Option<bool>,
+    /// Spend cap in micro-dollars (default 10000000 with allow_paid).
+    pub max_spend_microusd: Option<u64>,
+    /// Token cap for the window.
+    pub max_tokens: Option<u64>,
+    /// Request cap for the window.
+    pub max_requests: Option<u64>,
+    /// Parallel request cap.
+    pub max_parallel: Option<u64>,
+    /// Start a new accounting window.
+    pub new_window: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainPrompt {
+    /// Prompt to classify or explain.
+    pub prompt: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainExport {
+    /// Absolute path to write the bundle to (default: return the bundle).
+    pub out: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainImport {
+    /// Absolute path to the evidence bundle to merge.
+    pub file: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainBench {
+    /// Absolute path for the JSONL evidence (default ~/.susi/brain_bench.jsonl).
+    pub out: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainProbe {
+    /// Registered provider name (see brain_status).
+    pub provider: String,
+    /// Do not record the outcomes as brain evidence.
+    pub no_record: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct SelectModel {
+    /// Model name or id to select as the active substrate.
+    pub model: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ScoutModel {
+    /// HTTPS URL of the model artifact to download, license-admit and verify.
+    pub url: String,
+}
+
+// ── B4 group 7: adapters ───────────────────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct AdapterDoctor {
+    /// Adapter family: agents, frameworks, models or mcp.
+    pub kind: String,
+    /// One adapter id (default: every adapter in the catalog).
+    pub id: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct AdapterId {
+    /// Adapter family: agents, frameworks, models or mcp.
+    pub kind: String,
+    /// Adapter id (agent, framework engine, coding model or MCP server).
+    pub id: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct AdapterConfigure {
+    /// Adapter family: agents, frameworks, models or mcp.
+    pub kind: String,
+    /// Adapter id.
+    pub id: String,
+    /// Adapter (or override) document; pass this or `file`.
+    pub adapter: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Absolute path to the adapter JSON file (the CLI's file argument).
+    pub file: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct TaskRetry {
+    /// Durable id of a finished task to run again with its original prompt.
+    pub task_id: String,
+    /// Absolute workspace the task belongs to (default: the server
+    /// workspace); admitted only where the MAC policy grants filesystem.write.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct McpAdd {
+    /// Registry name for the server.
+    pub name: String,
+    /// Stdio command, or a streamable HTTP MCP URL (http:// or https://).
+    pub command_or_url: String,
+    /// Extra argv for a stdio server.
+    pub args: Option<Vec<String>>,
+}
+
+// ── B4 group 1: the self-build harness ─────────────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct HarnessStatus {
+    /// Absolute path to the ledger the gateway writes.
+    pub ledger: String,
+    /// Absolute path to the event feed.
+    pub events: Option<String>,
+    /// Absolute path to a supervisor resume state (shows task progress).
+    pub state: Option<String>,
+    /// Absolute path to the plan the supervisor runs.
+    pub plan: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct HarnessBudget {
+    /// Absolute path to the ledger (default: the repository's default ledger).
+    pub ledger: Option<String>,
+    /// Absolute repository path the default ledger is resolved in (default:
+    /// the substrate home).
+    pub repo: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct HarnessModels {
+    /// registry (default, no network), verify, discover or available.
+    pub mode: Option<String>,
+    /// One provider id (verify and discover only).
+    pub provider: Option<String>,
+    /// Absolute repository path (available: its catalogue and ledger).
+    pub repo: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct HarnessPlan {
+    /// Absolute path to the susi target repository.
+    pub repo: String,
+    /// Absolute path the plan is written to.
+    pub out: String,
+    /// Mission id (default roadmap-batch).
+    pub mission: Option<String>,
+    /// Upper bound on tasks in the batch (default 1).
+    pub limit: Option<u64>,
+    /// Worker models, comma-separated (default auto).
+    pub workers: Option<String>,
+    /// Only tasks whose roadmap vector is this id.
+    pub roadmap: Option<String>,
+    /// Gateway the plan will run through.
+    pub gateway: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct HarnessAuthor {
+    /// Absolute path to the susi target repository.
+    pub repo: String,
+    /// Gateway base URL (the harness gateway).
+    pub gateway: String,
+    /// Vector id, e.g. VC-203-001.
+    pub vector: String,
+    /// Absolute path the plan is written to.
+    pub out: String,
+    /// Model id the gateway prices (default auto).
+    pub model: Option<String>,
+    /// Absolute roadmap path (default: .agents/roadmap.json in the repository).
+    pub roadmap: Option<String>,
+    /// Upper bound on tasks (default 3).
+    pub max_tasks: Option<u64>,
+    /// Worker models, comma-separated (default auto).
+    pub workers: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct HarnessRun {
+    /// Absolute path to the susi target repository.
+    pub repo: String,
+    /// Absolute path to the plan to run.
+    pub plan: String,
+    /// Gateway base URL (the harness gateway).
+    pub gateway: String,
+    /// Model id the gateway prices (default auto).
+    pub model: Option<String>,
+    /// Per-turn deadline in seconds (default 900).
+    pub timeout: Option<u64>,
+    /// Tasks prepared at once (default 1; landing is always serial).
+    pub parallel: Option<u64>,
+    /// Worktree name prefix (default harness).
+    pub prefix: Option<String>,
+    /// Escalation models, comma-separated (default auto).
+    pub workers: Option<String>,
+    /// Mission cap in dollars (default 5).
+    pub budget_usd: Option<String>,
+    /// Daily spend ceiling in dollars (default 25).
+    pub daily_usd: Option<String>,
+    /// Hard cap on attempts per task (default 3).
+    pub attempts: Option<u64>,
+    /// Absolute supervisor state path (default: per mission in the repository).
+    pub state: Option<String>,
+    /// Absolute price catalogue path (default: deploy/harness/prices.json in the repository).
+    pub catalogue: Option<String>,
+    /// Absolute ledger path (default: the repository's default ledger).
+    pub ledger: Option<String>,
+    /// Absolute control log path (default: out/control.jsonl in the repository).
+    pub controls: Option<String>,
+    /// Absolute lifecycle ledger path (default: .agents/rsi-loop.jsonl in the repository).
+    pub rsi_log: Option<String>,
+    /// Absolute adapter state directory (default: harness-state in the repository).
+    pub adapter_state: Option<String>,
+}
+
+// ── B4 groups 2, 4, 9, 10 and 13: host views and maintenance ───────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct WorkspaceView {
+    /// Absolute workspace to report on (the CLI's working directory;
+    /// default: the server workspace). Admitted only where the MAC policy
+    /// grants filesystem.read.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct OperatorStatus {
+    /// Absolute workspace to report on (the CLI's working directory;
+    /// default: the server workspace). Admitted only where the MAC policy
+    /// grants filesystem.read.
+    pub workspace: Option<String>,
+    /// true: the whole `susi status` view (missions with prompts, resumable
+    /// DAG nodes, rollback snapshots, brain leaders and unfit providers,
+    /// routing, spend, approvals) instead of the `--json` identity summary.
+    pub detail: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ModelUninstall {
+    /// One SUSI-managed `.gguf` filename (not a path).
+    pub name: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct IntentLadderArgs {
+    /// scorecard (default), run, slice, gaps, verify or adopt_gap.
+    pub mode: Option<String>,
+    /// Intent id (verify and adopt_gap).
+    pub id: Option<String>,
+    /// Absolute workspace (the checkout run, verify and adopt_gap act on;
+    /// default: the server workspace), admitted by the MAC policy.
+    pub workspace: Option<String>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PeersAdd {
+    /// IP or hostname of the peer daemon to join (may include `:port`).
+    pub host: String,
+    /// UDP discovery port (default: the host-contract port plus port_offset).
+    pub port: Option<u16>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PeerName {
+    /// node_id or address (prefix) of the peer.
+    pub peer: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct PeersRekey {
+    /// Rotate even when some members fail to stage (they are stranded and
+    /// must be re-provisioned with the new key).
+    pub force: Option<bool>,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct LedgerVerify {
+    /// Refetch every pinned upstream and fail closed on drift (network)
+    /// instead of verifying the local corpus.
+    pub drift: Option<bool>,
+    /// With drift: an absolute pre-fetched corpus directory to compare
+    /// instead of the network.
+    pub refetched: Option<String>,
+    /// Absolute workspace (the checkout holding `.agents/gmcp`; default: the
+    /// server workspace); admitted only where the MAC policy grants it.
+    pub workspace: Option<String>,
 }
 
 #[derive(JsonSchema)]

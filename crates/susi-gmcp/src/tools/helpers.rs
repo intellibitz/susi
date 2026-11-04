@@ -14,6 +14,10 @@ pub(super) fn external_agent_control(
         .get("task_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| EaiError::protocol("task_id is required"))?;
+    // Tasks live in the workspace the CLI ran them in; the socket takes an
+    // optional, MAC-policy-admitted `workspace` (cancel and send write).
+    let write = !matches!(action, "status" | "logs");
+    let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, write)?;
     for kind in ["execution", "framework"] {
         if let Ok(v) = agents::external_control(workspace, kind, id, action, arg) {
             if action == "logs" {

@@ -117,6 +117,13 @@ impl PlaneHandler for ToolsPlaneHandler {
 /// mentions an error is not misclassified.
 fn looks_like_tool_error(text: &str) -> bool {
     let t = text.trim_start();
+    // A JSON document is a result, never a flattened error: a report row's
+    // `detail` (sorted first) can quote an `... Error:` line near the head.
+    if (t.starts_with('{') || t.starts_with('['))
+        && serde_json::from_str::<serde_json::Value>(t).is_ok()
+    {
+        return false;
+    }
     if t.starts_with("[FAIL]") || (t.starts_with('[') && t.contains("Error")) {
         return true;
     }
@@ -227,6 +234,10 @@ mod tests {
         assert!(looks_like_tool_error("[FAIL] MCP: connection refused"));
         assert!(looks_like_tool_error("[Tool Error] missing arg"));
         assert!(looks_like_tool_error("Sandbox Error: path denied"));
+        assert!(!looks_like_tool_error(
+            "{\n  \"models\": [{\"detail\": \"Internal Engine Error: set KEY\"}]\n}"
+        ));
+        assert!(looks_like_tool_error("[Error] not json"));
         assert!(looks_like_tool_error("Governance Violation: blocked"));
         // Legitimate output must not be misclassified.
         assert!(!looks_like_tool_error("the answer is 42"));

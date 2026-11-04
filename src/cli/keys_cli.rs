@@ -31,27 +31,12 @@ pub(crate) fn run(action: Option<KeyCommands>) {
             }
         }
         Some(KeyCommands::Prefer { vendor, clear }) => {
-            if clear {
-                match susi_gemi::engines::routing::InferenceRouter::clear_preferred_cloud() {
-                    Ok(msg) => println!("{}", msg),
-                    Err(e) => {
-                        eprintln!("{}", e);
-                        std::process::exit(1);
-                    }
+            match susi_daemon::provider_ops::keys_prefer(vendor.as_deref(), clear) {
+                Ok(msg) => println!("{}", msg),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(1);
                 }
-            } else if let Some(v) = vendor {
-                match susi_gemi::engines::routing::InferenceRouter::set_preferred_cloud(&v) {
-                    Ok(msg) => println!("{}", msg),
-                    Err(e) => {
-                        eprintln!("{}", e);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                println!(
-                    "{}",
-                    susi_gemi::engines::routing::InferenceRouter::preference_status()
-                );
             }
         }
         Some(KeyCommands::Check { vendor }) => run_check(vendor.as_deref()),
@@ -68,23 +53,27 @@ pub(crate) fn run(action: Option<KeyCommands>) {
     }
 }
 
+// `susi_daemon::provider_ops` builds the key documents (presence only);
+// the MCP `keys_*` tools return the same ones.
 fn print_keys_status() {
+    let status = susi_daemon::provider_ops::keys_status();
     println!("Cloud API key status (values never shown):");
-    for (vendor, env, present) in susi_gemi::engines::http_provider::list_api_key_status() {
+    for row in status["keys"].as_array().into_iter().flatten() {
         println!(
             "  {:<12} {:<22} {}",
-            vendor,
-            env,
-            if present { "set" } else { "missing" }
+            row["vendor"].as_str().unwrap_or_default(),
+            row["env"].as_str().unwrap_or_default(),
+            if row["present"].as_bool() == Some(true) {
+                "set"
+            } else {
+                "missing"
+            }
         );
     }
-    println!(
-        "\n{}",
-        susi_gemi::engines::routing::InferenceRouter::preference_status()
-    );
+    println!("\n{}", status["preference"].as_str().unwrap_or_default());
     println!(
         "\nSet:    susi keys set <vendor>\nPrefer: susi keys prefer <vendor>\nFile:   {}",
-        susi_gemi::engines::http_provider::cloud_env_path().display()
+        status["cloud_env_path"].as_str().unwrap_or_default()
     );
 }
 
@@ -119,7 +108,7 @@ fn prompt_api_key(vendor: &str) -> io::Result<String> {
 }
 
 fn run_check(vendor: Option<&str>) {
-    let rows = match susi_gemi::models::cloud_manage::check(vendor) {
+    let rows = match susi_daemon::provider_ops::keys_check(vendor) {
         Ok(rows) => rows,
         Err(e) => {
             eprintln!("{e}");
@@ -145,25 +134,22 @@ fn run_check(vendor: Option<&str>) {
             r.vendor, state, r.model_count, default
         );
     }
-    let bad = rows
-        .iter()
-        .any(|r| matches!(r.state, susi_gemi::models::cloud_manage::KeyState::Rejected));
-    if bad {
+    if susi_daemon::provider_ops::any_key_rejected(&rows) {
         std::process::exit(2);
     }
 }
 
 fn run_models(vendor: &str) {
-    match susi_gemi::models::cloud_manage::check(Some(vendor)) {
+    match susi_daemon::provider_ops::keys_models(vendor) {
         Ok(rows) => {
-            for r in rows {
-                if r.state != susi_gemi::models::cloud_manage::KeyState::Valid {
-                    eprintln!("{}: key state {:?}; no model list", r.vendor, r.state);
-                    std::process::exit(1);
-                }
-                println!("{} — {} models", r.vendor, r.model_count);
-                for m in r.models {
-                    println!("  {m}");
+            for r in rows.as_array().into_iter().flatten() {
+                println!(
+                    "{} — {} models",
+                    r["vendor"].as_str().unwrap_or_default(),
+                    r["model_count"]
+                );
+                for m in r["models"].as_array().into_iter().flatten() {
+                    println!("  {}", m.as_str().unwrap_or_default());
                 }
             }
         }

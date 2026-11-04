@@ -1,8 +1,7 @@
 //! Deterministic top frontier model control plane (no daemon for list/doctor/setup).
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
+use anyhow::{bail, Error, Result};
 use clap::Subcommand;
-use susi_gemi::models::frontier::{FrontierManager, FrontierOverride};
 
 #[derive(Debug, Subcommand)]
 pub enum FrontierCommands {
@@ -35,73 +34,38 @@ pub enum FrontierCommands {
 }
 
 pub fn execute(action: Option<FrontierCommands>) -> Result<()> {
+    // `susi_daemon::provider_ops` builds every document; the MCP
+    // `provider_*` tools return the same ones.
+    use susi_daemon::provider_ops::{self as ops, Vendor};
     let action = action.unwrap_or(FrontierCommands::List);
-    let manager = FrontierManager::new()?;
     match action {
-        FrontierCommands::List => {
-            let preferred = manager.preferred();
-            let rows: Vec<_> = FrontierManager::catalog()?
-                .into_iter()
-                .map(|m| {
-                    let effective = manager.effective(&m.id).unwrap_or(m.clone());
-                    let readiness = manager.preflight(&m.id);
-                    serde_json::json!({
-                        "model": effective,
-                        "preferred": preferred.as_deref() == Some(m.id.as_str()),
-                        "prerequisites_present": readiness.is_ok(),
-                        "detail": match readiness { Ok(s) => s, Err(e) => e.to_string() }
-                    })
-                })
-                .collect();
-            print_json(&serde_json::json!({
-                "status": manager.status(),
-                "models": rows,
-            }))?;
-        }
+        FrontierCommands::List => print_json(&ops::list(Vendor::Frontier).map_err(Error::msg)?)?,
         FrontierCommands::Doctor { model } => {
-            let models = match model {
-                Some(id) => vec![FrontierManager::definition(&id)?],
-                None => FrontierManager::catalog()?,
-            };
-            let mut missing = false;
-            for m in models {
-                let result = manager.preflight(&m.id);
-                missing |= result.is_err();
-                print_json(&serde_json::json!({
-                    "model": m.id,
-                    "prerequisites_present": result.is_ok(),
-                    "detail": match result { Ok(s) => s, Err(e) => e.to_string() }
-                }))?;
+            let docs =
+                ops::doctor(Vendor::Frontier, model.as_deref(), false).map_err(Error::msg)?;
+            for doc in &docs {
+                print_json(doc)?;
             }
-            if missing {
+            if !ops::all_ready(&docs) {
                 bail!("one or more frontier models need setup");
             }
         }
-        FrontierCommands::Setup { model } => print_json(&manager.setup(&model)?)?,
+        FrontierCommands::Setup { model } => {
+            print_json(&ops::setup(Vendor::Frontier, Some(&model)).map_err(Error::msg)?)?
+        }
         FrontierCommands::Configure { model, file } => {
-            let over: FrontierOverride = serde_json::from_slice(&std::fs::read(file)?)?;
-            print_json(&manager.configure(&model, &over)?)?;
+            let over: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+            print_json(&ops::configure(Vendor::Frontier, &model, over).map_err(Error::msg)?)?;
         }
-        FrontierCommands::Reset { model } => print_json(&manager.reset(&model)?)?,
-        FrontierCommands::Prefer { model, clear } => {
-            if clear {
-                println!("{}", susi_gemi::frontier_ext::prefer("", true)?);
-            } else {
-                let Some(model) = model.filter(|s| !s.trim().is_empty()) else {
-                    bail!("model id required (or pass --clear)");
-                };
-                println!("{}", susi_gemi::frontier_ext::prefer(&model, false)?);
-            }
+        FrontierCommands::Reset { model } => {
+            print_json(&ops::reset(Vendor::Frontier, &model).map_err(Error::msg)?)?
         }
+        FrontierCommands::Prefer { model, clear } => println!(
+            "{}",
+            ops::prefer(Vendor::Frontier, model.as_deref(), clear).map_err(Error::msg)?
+        ),
         FrontierCommands::Probe { model, prompt } => {
-            let output = susi_gemi::frontier_ext::probe(&model, &prompt)?;
-            let def = manager.effective(&model)?;
-            print_json(&serde_json::json!({
-                "model": def.id,
-                "api_id": def.model,
-                "engine": def.engine,
-                "output": output,
-            }))?;
+            print_json(&ops::probe("frontier", Some(&model), &prompt).map_err(Error::msg)?)?
         }
     }
     Ok(())

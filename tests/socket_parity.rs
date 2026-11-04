@@ -6,8 +6,10 @@
 //! direct subcommand of a variant that has them) to a socket surface: an MCP
 //! tool, an A2A skill, or a 9091 route. Commands the plan exempts (daemon
 //! lifecycle, install, local tooling, workflow, tasks, admin
-//! release/lint/audit-deps) are listed in `EXEMPT`. Everything else is a
-//! `KNOWN_GAPS` entry, grouped like plan item B4, which B4 burns down.
+//! release/lint/audit-deps), process entry points and socket clients are
+//! listed in `EXEMPT` with their reason. Everything else was a `KNOWN_GAPS`
+//! entry, grouped like plan item B4; B4 burned the list down to empty and
+//! the ratchet keeps it there.
 //!
 //! The test fails when:
 //! - a CLI command is neither mapped, exempt nor allow-listed;
@@ -65,8 +67,14 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("context-graph related", &[Mcp("context_graph_query")]),
     (
         "context-graph stats",
-        &[Route("GET", "/context-graph/stats")],
+        &[
+            Mcp("context_graph_stats"),
+            Route("GET", "/context-graph/stats"),
+        ],
     ),
+    // The graph is the one substrate-home log the CLI and daemon share; the
+    // workspace is only a filter key, passed as an absolute path.
+    ("context-graph show", &[Mcp("context_graph_show")]),
     ("context-graph compact", &[Mcp("context_graph_compact")]),
     ("context-graph ingest", &[Mcp("context_graph_ingest")]),
     ("broker grant", &[Mcp("ipc_grant")]),
@@ -87,17 +95,236 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("os route", &[Mcp("inference_placement")]),
     (
         "os route-reset",
-        &[Route("POST", "/runtime/providers/reset")],
+        &[
+            Mcp("inference_reset_provider"),
+            Route("POST", "/runtime/providers/reset"),
+        ],
     ),
     ("models list", &[Mcp("coding_models_list")]),
     ("models prefer", &[Mcp("coding_models_prefer")]),
     ("run", &[Route("POST", "/v1/chat/completions")]),
+    // Packs live in the shared config dir, so the daemon and the CLI act on
+    // the same state; `validate` takes an absolute path over the socket.
     ("extensions list", &[Mcp("extensions_list")]),
     ("extensions status", &[Mcp("extensions_status")]),
     ("extensions validate", &[Mcp("extensions_validate")]),
     ("extensions load", &[Mcp("extensions_load")]),
     ("extensions unload", &[Mcp("extensions_unload")]),
     ("brain pareto", &[Mcp("brain_pareto")]),
+    // B4 group 8: the broker, MAC policy and intent bus are host state the
+    // CLI and the daemon share; none of these reads the caller's cwd.
+    ("broker pending", &[Mcp("ipc_pending")]),
+    ("broker check", &[Mcp("ipc_check")]),
+    ("broker revoke", &[Mcp("ipc_revoke")]),
+    ("broker list", &[Mcp("ipc_list")]),
+    ("privacy mode", &[Mcp("privacy_mode")]),
+    ("privacy grant", &[Mcp("privacy_grant")]),
+    ("privacy revoke", &[Mcp("privacy_revoke")]),
+    ("intent list", &[Mcp("intent_list")]),
+    // The sample lands in the shared substrate-home graph; the workspace is
+    // only its tag, passed as an absolute path.
+    ("context-graph sample-os", &[Mcp("context_graph_sample_os")]),
+    // B4 group 5: explicit absolute paths, and SUSI-owned residue.
+    (
+        "admin audit-evidence export",
+        &[Mcp("audit_evidence_export")],
+    ),
+    ("os clean", &[Mcp("clean")]),
+    ("os-clean", &[Mcp("clean")]),
+    // B4 group 4: setup and the ecosystem scan live in the shared config
+    // dir; the knowledge base takes an absolute store dir.
+    ("setup plan", &[Mcp("setup_plan")]),
+    ("setup apply", &[Mcp("setup_apply")]),
+    ("ecosystem scan", &[Mcp("ecosystem_scan")]),
+    ("ecosystem status", &[Mcp("ecosystem_scan")]),
+    ("ecosystem start", &[Mcp("ecosystem_start")]),
+    ("ecosystem kb", &[Mcp("ecosystem_kb")]),
+    ("ecosystem explain", &[Mcp("ecosystem_explain")]),
+    // B4 group 9: cloud CLIs, the service table, the replicated ledger and
+    // the peer roster are host state; services_restart terminates with the
+    // platform's own process tool on Windows and Unix.
+    ("os provision", &[Mcp("os_provision")]),
+    ("services start", &[Mcp("services_start")]),
+    ("services stop", &[Mcp("services_stop")]),
+    ("services restart", &[Mcp("services_restart")]),
+    ("commits audit", &[Mcp("commits_audit")]),
+    ("commits replay", &[Mcp("commits_replay")]),
+    ("commits show", &[Mcp("commits_show")]),
+    ("commits sync", &[Mcp("commits_sync")]),
+    ("commits compact", &[Mcp("commits_compact")]),
+    ("peers probe", &[Mcp("peers_probe")]),
+    ("peers list", &[Mcp("peers_list")]),
+    ("peers status", &[Mcp("peers_status")]),
+    // B4 group 3: providers, keys and the brain. Provider, key, brain and
+    // routing state is host state in the config dir; the tools call
+    // `susi_daemon::provider_ops`, as the CLI does. Key values never cross.
+    ("openweight list", &[Mcp("provider_list")]),
+    ("openweight doctor", &[Mcp("provider_doctor")]),
+    ("openweight setup", &[Mcp("provider_setup")]),
+    ("openweight pull", &[Mcp("provider_pull")]),
+    ("openweight configure", &[Mcp("provider_configure")]),
+    ("openweight reset", &[Mcp("provider_reset")]),
+    ("openweight prefer", &[Mcp("provider_prefer")]),
+    ("openweight probe", &[Mcp("provider_probe")]),
+    ("frontier list", &[Mcp("provider_list")]),
+    ("frontier doctor", &[Mcp("provider_doctor")]),
+    ("frontier setup", &[Mcp("provider_setup")]),
+    ("frontier configure", &[Mcp("provider_configure")]),
+    ("frontier reset", &[Mcp("provider_reset")]),
+    ("frontier prefer", &[Mcp("provider_prefer")]),
+    ("frontier probe", &[Mcp("provider_probe")]),
+    ("openrouter list", &[Mcp("provider_list")]),
+    ("openrouter doctor", &[Mcp("provider_doctor")]),
+    ("openrouter setup", &[Mcp("provider_setup")]),
+    ("openrouter prefer", &[Mcp("provider_prefer")]),
+    ("openrouter probe", &[Mcp("provider_probe")]),
+    ("openrouter models", &[Mcp("provider_models")]),
+    ("models probe", &[Mcp("provider_probe")]),
+    ("keys list", &[Mcp("keys_status")]),
+    ("keys prefer", &[Mcp("keys_prefer")]),
+    ("keys check", &[Mcp("keys_check")]),
+    ("keys models", &[Mcp("keys_models")]),
+    ("brain status", &[Mcp("brain_status")]),
+    ("brain budget", &[Mcp("brain_budget")]),
+    ("brain classify", &[Mcp("brain_classify")]),
+    ("brain explain", &[Mcp("brain_explain")]),
+    ("brain export", &[Mcp("brain_export")]),
+    ("brain import", &[Mcp("brain_import")]),
+    ("brain matrix", &[Mcp("brain_matrix")]),
+    ("brain cache", &[Mcp("brain_cache")]),
+    ("brain reset", &[Mcp("brain_reset")]),
+    ("brain bench", &[Mcp("brain_bench")]),
+    ("brain probe", &[Mcp("brain_probe")]),
+    ("benchmark", &[Mcp("benchmark_run")]),
+    // select_model and scout_model read an object now; the daemon downloads
+    // on its agent where the exiting CLI downloads in the foreground.
+    ("select-model", &[Mcp("select_model")]),
+    ("scout-model", &[Mcp("scout_model")]),
+    ("verify-download-agent", &[Mcp("verify_download_agent")]),
+    // B4 group 7: adapter overrides are host configuration; retry reads
+    // the task in the server workspace, or a policy-admitted `workspace`.
+    ("agents doctor", &[Mcp("adapter_doctor")]),
+    ("agents setup", &[Mcp("adapter_setup")]),
+    ("agents configure", &[Mcp("adapter_configure")]),
+    ("agents reset", &[Mcp("adapter_reset")]),
+    ("agents retry", &[Mcp("agents_retry")]),
+    ("frameworks doctor", &[Mcp("adapter_doctor")]),
+    ("frameworks setup", &[Mcp("adapter_setup")]),
+    ("frameworks configure", &[Mcp("adapter_configure")]),
+    ("frameworks reset", &[Mcp("adapter_reset")]),
+    ("frameworks retry", &[Mcp("frameworks_retry")]),
+    ("models doctor", &[Mcp("adapter_doctor")]),
+    ("models setup", &[Mcp("adapter_setup")]),
+    ("models configure", &[Mcp("adapter_configure")]),
+    ("models reset", &[Mcp("adapter_reset")]),
+    ("mcp doctor", &[Mcp("adapter_doctor")]),
+    ("mcp setup", &[Mcp("adapter_setup")]),
+    ("mcp configure", &[Mcp("adapter_configure")]),
+    ("mcp reset", &[Mcp("adapter_reset")]),
+    ("mcp-add", &[Mcp("mcp_add")]),
+    // B4 group 1: the harness operator commands call
+    // `susi_harness::operator`; paths are absolute and `repo` (the CLI's
+    // cwd) is admitted by the MAC policy. A run starts on a daemon thread.
+    ("harness status", &[Mcp("harness_status")]),
+    ("harness budget", &[Mcp("harness_budget")]),
+    ("harness models", &[Mcp("harness_models")]),
+    ("harness plan", &[Mcp("harness_plan")]),
+    ("harness author", &[Mcp("harness_author")]),
+    // A socket run always drives the daemon's own binary: the CLI's
+    // `--susi` override is a local operator choice the socket refuses.
+    ("harness run", &[Mcp("harness_run"), Mcp("harness_runs")]),
+    // B4 groups 2, 4 and 9: host views built by `susi_daemon` view modules
+    // (`status_report`, `host_views`, `ecosystem_view`, `os_status`,
+    // `runtime_view`) and roster changes by `susi_core::peer_admin`, the
+    // functions the CLI calls. A `workspace` argument stands in for the
+    // CLI's cwd and is admitted by the MAC policy.
+    // `operator_status` is `susi status --json`; with `detail` it is the
+    // whole human view (`status_report::to_json` of the `UnifiedStatus`
+    // that `render` prints).
+    ("status", &[Mcp("operator_status")]),
+    ("review", &[Mcp("operator_review")]),
+    ("os ecosystem", &[Mcp("os_ecosystem")]),
+    ("os status", &[Mcp("os_status")]),
+    ("os runtime", &[Mcp("os_runtime")]),
+    // `os manage <service|model|mcp|agent|framework>` is an alias facade
+    // over other commands; each of its actions has its tool.
+    (
+        "os manage",
+        &[
+            Mcp("os_services"),
+            Mcp("services_start"),
+            Mcp("services_stop"),
+            Mcp("services_restart"),
+            Mcp("os_logs"),
+            Mcp("coding_models_list"),
+            Mcp("coding_models_prefer"),
+            Mcp("scout_model"),
+            Mcp("model_uninstall"),
+            Mcp("runtime_models_load"),
+            Mcp("runtime_models_unload"),
+            Mcp("leading_mcp_list"),
+            Mcp("leading_mcp_enable"),
+            Mcp("leading_mcp_disable"),
+            Mcp("adapter_doctor"),
+            Mcp("adapter_configure"),
+            Mcp("adapter_reset"),
+            Mcp("agents_list"),
+            Mcp("agents_run"),
+            Mcp("agents_tasks"),
+            Mcp("agents_cancel"),
+            Mcp("frameworks_list"),
+            Mcp("frameworks_run"),
+            Mcp("frameworks_tasks"),
+            Mcp("frameworks_cancel"),
+        ],
+    ),
+    ("peers add", &[Mcp("peers_add")]),
+    ("peers remove", &[Mcp("peers_remove")]),
+    ("peers unban", &[Mcp("peers_unban")]),
+    ("peers rekey", &[Mcp("peers_rekey")]),
+    // B4 group 10: `susi stop` stops this instance's daemons; over the
+    // socket the daemon replies first, then makes the same call.
+    ("stop", &[Mcp("daemon_shutdown")]),
+    // Formerly unassigned (bucket 13).
+    ("extensions create", &[Mcp("extensions_create")]),
+    ("auto status", &[Mcp("auto_status")]),
+    ("auto prime", &[Mcp("auto_prime")]),
+    ("deep-scan", &[Mcp("deep_scan")]),
+    ("admin reload", &[Mcp("config_reload")]),
+    ("admin provider-contract", &[Mcp("provider_contract")]),
+    ("admin intent-ladder", &[Mcp("intent_ladder")]),
+    // Formerly workspace-bound (bucket 15): each tool now takes an
+    // optional `workspace` (the CLI's cwd), absolute, an existing directory
+    // and admitted by the MAC policy (filesystem.read, or filesystem.write
+    // for tools that change it); without it the tool acts on the server
+    // workspace as before.
+    ("<goal>", &[Mcp("intent_ingest"), Mcp("susi_solve")]),
+    ("automate", &[Mcp("susi_solve")]),
+    ("agents run", &[Mcp("agents_run")]),
+    ("agents tasks", &[Mcp("agents_tasks")]),
+    ("frameworks run", &[Mcp("frameworks_run")]),
+    ("frameworks tasks", &[Mcp("frameworks_tasks")]),
+    ("mcp ledger", &[Mcp("ledger_verify")]),
+    ("patch", &[Mcp("apply_patch_cycle")]),
+    ("ambient pulse", &[Mcp("ambient_pulse")]),
+    ("ambient start", &[Mcp("ambient_start")]),
+    ("tx begin", &[Mcp("tx_begin")]),
+    ("tx list", &[Mcp("tx_list")]),
+    ("bloat-audit", &[Mcp("bloat_audit")]),
+    ("top", &[Mcp("operator_snapshot")]),
+    ("plan", &[Mcp("plan_run")]),
+    ("pulse", &[Mcp("intent_ingest")]),
+    ("admin pulse", &[Mcp("intent_ingest")]),
+    ("blackboard show", &[Mcp("blackboard_show")]),
+    ("audit verify", &[Mcp("audit_verify")]),
+    ("audit query", &[Mcp("audit_query")]),
+    ("audit", &[Mcp("compliance_audit")]),
+    ("admin audit", &[Mcp("compliance_audit")]),
+    ("substrate-report", &[Mcp("substrate_report")]),
+    ("substrate status", &[Mcp("substrate_status")]),
+    ("crown verify", &[Mcp("crown_verify")]),
+    ("crown status", &[Mcp("crown_verify")]),
+    ("os capabilities", &[Mcp("os_capabilities")]),
 ];
 
 /// The plan's explicit exemptions (B3): no socket equivalent is needed. A
@@ -107,8 +334,10 @@ const EXEMPT: &[(&str, &str)] = &[
         "start",
         "daemon lifecycle: starting a stopped daemon stays with the CLI the desktop runs",
     ),
-    ("stop", "daemon lifecycle"),
-    ("restart", "daemon lifecycle"),
+    (
+        "restart",
+        "daemon lifecycle: a daemon cannot start its own successor after it stops; restarting stays with the CLI the desktop runs (stop is mapped to daemon_shutdown)",
+    ),
     ("daemon-start", "daemon lifecycle (internal entry)"),
     ("service-run", "daemon lifecycle (leaf-service spawn mode)"),
     ("install", "install"),
@@ -129,6 +358,51 @@ const EXEMPT: &[(&str, &str)] = &[
     ("admin release", "admin release tooling"),
     ("admin lint", "admin release tooling"),
     ("admin audit-deps", "admin release tooling"),
+    (
+        "admin audit-evidence verify",
+        "takes signing secrets (key-id=secret) as arguments; verification stays local so secrets never cross the socket",
+    ),
+    (
+        "harness scorecard",
+        "runs scripts/check-rsi-scorecard.py, which the Rust-only migration deleted (5a90467ad): the CLI command itself no longer works, so there is no capability to expose until it is rebuilt natively",
+    ),
+    (
+        "mcp serve",
+        "process entry point: runs Susi's MCP stdio server; the socket is that MCP server",
+    ),
+    (
+        "mcp call",
+        "socket client: calls a tool on another MCP endpoint; the desktop calls tools/call on the socket itself, where registered servers' tools are served as server:tool proxies",
+    ),
+    (
+        "mcp tools",
+        "socket client: lists another MCP endpoint's tools; the desktop calls tools/list on the socket itself",
+    ),
+    ("gemi", "process entry point: serves the GEMI HTTP listener"),
+    (
+        "harness api",
+        "process entry point: serves the harness JSON/SSE API on its own port",
+    ),
+    (
+        "harness gateway",
+        "process entry point: serves the metered multi-provider gateway on its own port",
+    ),
+    (
+        "agents worker",
+        "process entry point: the detached worker `agents run` spawns; over the socket tasks run on daemon threads (agents_run, agents_retry)",
+    ),
+    (
+        "frameworks worker",
+        "process entry point: the detached worker `frameworks run` spawns; over the socket tasks run on daemon threads (frameworks_run, frameworks_retry)",
+    ),
+    (
+        "admin sync",
+        "admin release tooling: rewrites the version strings across a Susi source checkout",
+    ),
+    (
+        "admin verify",
+        "admin release tooling: checks the version strings across a Susi source checkout",
+    ),
 ];
 
 /// B4 groups (1-12) plus three buckets the plan has not assigned yet, each
@@ -136,211 +410,34 @@ const EXEMPT: &[(&str, &str)] = &[
 /// down (each B4 PR lowers it with the gaps it closes); raising one is a
 /// visible edit that review must justify.
 const GROUPS: &[(u8, &str, usize)] = &[
-    (1, "Harness (PSP-21, PSP-12)", 7),
-    (2, "Operator view", 3),
-    (3, "Providers (PSP-24)", 41),
-    (4, "Onboarding (PSP-25)", 8),
-    (5, "Assurance (PSP-26)", 12),
-    (6, "Missions (PSP-27)", 4),
-    (7, "Adapters (PSP-28)", 19),
-    (8, "Context and IPC (PSP-29)", 11),
-    (9, "OS (PSP-30)", 20),
+    (1, "Harness (PSP-21, PSP-12)", 0),
+    (2, "Operator view", 0),
+    (3, "Providers (PSP-24)", 0),
+    (4, "Onboarding (PSP-25)", 0),
+    (5, "Assurance (PSP-26)", 0),
+    (6, "Missions (PSP-27)", 0),
+    (7, "Adapters (PSP-28)", 0),
+    (8, "Context and IPC (PSP-29)", 0),
+    (9, "OS (PSP-30)", 0),
     (10, "Lifecycle (PSP-19)", 0),
     (11, "Extensions (PSP-20, corrected)", 0),
     (12, "9091 replacements (PSP-04 prerequisite)", 0),
-    (13, "Not assigned to a B4 group yet", 10),
-    (14, "Proposed exemption: process entry points or socket clients (needs a plan decision)", 8),
-    (15, "Workspace-bound: the CLI runs in the caller's cwd, the socket serves only the daemon's substrate home (needs an optional, policy-confined workspace argument)", 12),
+    (13, "Not assigned to a B4 group yet", 0),
+    (14, "Proposed exemption: process entry points or socket clients (needs a plan decision)", 0),
+    (15, "Workspace-bound: the CLI runs in the caller's cwd, the socket serves only the daemon's substrate home (needs an optional, policy-confined workspace argument)", 0),
 ];
 
 /// Ratchet on the whole allow-list: it only shrinks. Lower this with every
 /// gap closed; never raise it to park a new command.
-const MAX_KNOWN_GAPS: usize = 155;
+const MAX_KNOWN_GAPS: usize = 0;
 
 /// Commands with no socket surface yet: (command, B4 group, the MCP tool(s)
 /// the plan names for it — empty when the plan names none). When every
 /// planned tool exists the entry must move to `MAPPED`.
 const KNOWN_GAPS: &[(&str, u8, &[&str])] = &[
-    // 1. Harness
-    // `harness author` authors from a roadmap vector; `harness_plan` plans
-    // queue batches (`harness plan`), so it does not close this gap.
-    ("harness author", 1, &[]),
-    ("harness plan", 1, &["harness_plan"]),
-    ("harness run", 1, &["harness_run"]),
-    ("harness scorecard", 1, &["harness_scorecard"]),
-    ("harness status", 1, &["harness_status"]),
-    ("harness models", 1, &["harness_models"]),
-    ("harness budget", 1, &["harness_budget"]),
-    // 2. Operator view
-    ("top", 2, &["operator_snapshot"]),
-    ("review", 2, &[]),
-    // MCP `status` reports engine version, hardware and downloads, not
-    // status_cli's missions, queue, routing, spend, approvals and pid.
-    ("status", 2, &[]),
-    // 3. Providers
-    ("brain status", 3, &["brain_status"]),
-    ("brain explain", 3, &["brain_explain"]),
-    ("brain bench", 3, &["benchmark_run"]),
-    ("benchmark", 3, &["benchmark_run"]),
-    ("brain budget", 3, &[]),
-    ("brain classify", 3, &[]),
-    ("brain export", 3, &[]),
-    ("brain import", 3, &[]),
-    ("brain matrix", 3, &[]),
-    ("brain cache", 3, &[]),
-    ("brain reset", 3, &[]),
-    ("brain probe", 3, &["provider_probe"]),
-    ("keys list", 3, &["keys_status"]),
-    ("keys prefer", 3, &["provider_prefer"]),
-    ("keys check", 3, &[]),
-    ("keys models", 3, &[]),
-    ("models probe", 3, &["provider_probe"]),
-    ("openweight list", 3, &["provider_list"]),
-    ("openweight doctor", 3, &["provider_doctor"]),
-    ("openweight prefer", 3, &["provider_prefer"]),
-    ("openweight probe", 3, &["provider_probe"]),
-    ("openweight setup", 3, &[]),
-    ("openweight pull", 3, &[]),
-    ("openweight configure", 3, &[]),
-    ("openweight reset", 3, &[]),
-    ("frontier list", 3, &["provider_list"]),
-    ("frontier doctor", 3, &["provider_doctor"]),
-    ("frontier prefer", 3, &["provider_prefer"]),
-    ("frontier probe", 3, &["provider_probe"]),
-    ("frontier setup", 3, &[]),
-    ("frontier configure", 3, &[]),
-    ("frontier reset", 3, &[]),
-    ("openrouter list", 3, &["provider_list"]),
-    ("openrouter doctor", 3, &["provider_doctor"]),
-    ("openrouter prefer", 3, &["provider_prefer"]),
-    ("openrouter probe", 3, &["provider_probe"]),
-    ("openrouter setup", 3, &[]),
-    ("openrouter models", 3, &[]),
-    // select_model / scout_model read only a bare string; MCP tools/call
-    // always passes an object, so over the socket they return usage text.
-    ("select-model", 3, &[]),
-    ("scout-model", 3, &[]),
-    // verify_model_download_agent checks local GGUF files; the CLI runs the
-    // provisioning ladder (network probe, steps, background provisioner).
-    ("verify-download-agent", 3, &[]),
-    // 4. Onboarding
-    ("setup plan", 4, &["setup_plan"]),
-    ("setup apply", 4, &["setup_apply"]),
-    ("ecosystem scan", 4, &["ecosystem_scan"]),
-    ("ecosystem status", 4, &["ecosystem_scan"]),
-    ("ecosystem start", 4, &["ecosystem_start"]),
-    ("ecosystem kb", 4, &["ecosystem_kb"]),
-    ("ecosystem explain", 4, &["ecosystem_explain"]),
-    ("os ecosystem", 4, &["ecosystem_scan"]),
-    // 5. Assurance
-    ("audit verify", 5, &["audit_verify"]),
-    ("audit query", 5, &["audit_query"]),
-    ("admin audit-evidence export", 5, &["audit_evidence_export"]),
-    ("admin audit-evidence verify", 5, &[]),
-    // Bare `susi audit` and `susi admin audit` run the same compliance audit.
-    ("audit", 5, &[]),
-    ("admin audit", 5, &[]),
-    // sovereign_dashboard counts audit events; the CLI serves
-    // generate_substrate_report (version, model, axioms, topology).
-    ("substrate-report", 5, &[]),
-    ("substrate status", 5, &["substrate_status"]),
-    ("crown verify", 5, &["crown_verify"]),
-    ("crown status", 5, &["crown_verify"]),
-    ("os clean", 5, &["clean"]),
-    ("os-clean", 5, &["clean"]),
-    // 6. Missions
-    ("plan", 6, &["plan_run"]),
-    ("pulse", 6, &["intent_ingest"]),
-    ("admin pulse", 6, &["intent_ingest"]),
-    ("blackboard show", 6, &["blackboard_show"]),
-    // 7. Adapters
-    ("agents doctor", 7, &[]),
-    ("agents setup", 7, &[]),
-    ("agents configure", 7, &[]),
-    ("agents reset", 7, &[]),
-    ("agents retry", 7, &["agents_retry"]),
-    ("frameworks doctor", 7, &[]),
-    ("frameworks setup", 7, &[]),
-    ("frameworks configure", 7, &[]),
-    ("frameworks reset", 7, &[]),
-    ("frameworks retry", 7, &["frameworks_retry"]),
-    ("models doctor", 7, &[]),
-    ("models setup", 7, &[]),
-    ("models configure", 7, &[]),
-    ("models reset", 7, &[]),
-    ("mcp doctor", 7, &[]),
-    ("mcp setup", 7, &[]),
-    ("mcp configure", 7, &[]),
-    ("mcp reset", 7, &[]),
-    ("mcp-add", 7, &[]),
-    // 8. Context and IPC
-    ("broker pending", 8, &["ipc_pending"]),
-    ("broker check", 8, &["ipc_check"]),
-    ("broker revoke", 8, &["ipc_revoke"]),
-    ("broker list", 8, &["ipc_list"]),
-    ("privacy mode", 8, &["privacy_mode"]),
-    ("privacy grant", 8, &["privacy_grant"]),
-    ("privacy revoke", 8, &["privacy_revoke"]),
-    ("intent list", 8, &["intent_list"]),
-    ("ambient start", 8, &["ambient_start"]),
-    ("tx list", 8, &["tx_list"]),
-    ("context-graph sample-os", 8, &[]),
-    // 9. OS
-    ("os provision", 9, &["os_provision"]),
-    ("os manage", 9, &["os_manage"]),
-    ("os capabilities", 9, &["os_capabilities"]),
-    ("os status", 9, &[]),
-    // GET /runtime/models covers only loaded models, not process ownership,
-    // stale binaries or per-pid GPU memory.
-    ("os runtime", 9, &[]),
-    ("services start", 9, &["services_start"]),
-    ("services stop", 9, &["services_stop"]),
-    // os_services restart runs `kill -TERM`, which does not work on Windows.
-    ("services restart", 9, &[]),
-    ("commits audit", 9, &["commits_audit"]),
-    ("commits replay", 9, &["commits_replay"]),
-    ("commits show", 9, &[]),
-    ("commits sync", 9, &[]),
-    ("commits compact", 9, &[]),
-    ("peers probe", 9, &["peers_probe"]),
-    ("peers list", 9, &[]),
-    ("peers add", 9, &[]),
-    ("peers remove", 9, &[]),
-    ("peers unban", 9, &[]),
-    ("peers rekey", 9, &[]),
-    ("peers status", 9, &[]),
-    // 13. Not assigned to a B4 group yet
-    ("extensions create", 13, &[]),
-    ("auto status", 13, &[]),
-    ("auto prime", 13, &[]),
-    ("deep-scan", 13, &[]),
-    ("admin sync", 13, &[]),
-    ("admin verify", 13, &[]),
-    ("admin reload", 13, &[]),
-    ("admin provider-contract", 13, &[]),
-    ("admin intent-ladder", 13, &[]),
-    // 14. Proposed exemptions (not in the plan's list)
-    ("mcp serve", 14, &[]),
-    ("mcp call", 14, &[]),
-    ("mcp tools", 14, &[]),
-    ("gemi", 14, &[]),
-    ("harness api", 14, &[]),
-    ("harness gateway", 14, &[]),
-    ("agents worker", 14, &[]),
-    ("frameworks worker", 14, &[]),
-    // 15. Workspace-bound: the tools exist but act only on the substrate home.
-    ("<goal>", 15, &[]),
-    ("agents run", 15, &[]),
-    ("agents tasks", 15, &[]),
-    ("frameworks run", 15, &[]),
-    ("frameworks tasks", 15, &[]),
-    ("mcp ledger", 15, &[]),
-    ("context-graph show", 15, &[]),
-    ("patch", 15, &[]),
-    ("ambient pulse", 15, &[]),
-    ("tx begin", 15, &[]),
-    ("bloat-audit", 15, &[]),
-    ("automate", 15, &[]),
+    // Empty: B4 closed every gap (groups 1-14 mapped or exempted, bucket 15
+    // mapped through the policy-confined `workspace` argument). A new CLI
+    // command gets a socket surface in MAPPED, or a reasoned EXEMPT entry.
 ];
 
 fn root() -> PathBuf {
@@ -637,8 +734,9 @@ fn parity_tables_name_real_commands_and_served_surfaces() {
 
 #[test]
 fn known_gaps_are_ratcheted() {
+    let excess = KNOWN_GAPS.len().saturating_sub(MAX_KNOWN_GAPS);
     assert!(
-        KNOWN_GAPS.len() <= MAX_KNOWN_GAPS,
+        excess == 0,
         "KNOWN_GAPS grew to {} (ratchet {MAX_KNOWN_GAPS}): give the new command a socket surface in MAPPED instead of parking it as a gap",
         KNOWN_GAPS.len()
     );

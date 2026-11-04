@@ -386,3 +386,9 @@ mod intent_ladder_startup_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_008.rs"]
 mod vc_202_008_tests;
+
+/// Threads in the rayon pool the swarm runs on (`susi crown`'s
+/// concurrency check reads it without a rayon edge of its own).
+pub fn swarm_pool_threads() -> usize {
+    rayon::current_num_threads()
+}

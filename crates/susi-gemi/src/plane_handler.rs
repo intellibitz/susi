@@ -430,6 +430,37 @@ impl PlaneHandler for GemiPlaneHandler {
                 };
                 result.map_err(|e| e.to_string())
             }
+            topics::GEMI_ECOSYSTEM_START => {
+                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                if id.trim().is_empty() {
+                    return Err("id is required".to_string());
+                }
+                crate::models::local_ecosystem::start(
+                    id,
+                    &crate::models::local_ecosystem::HostProbe,
+                )
+                .map(|message| json!({ "id": id, "message": message }))
+            }
+            topics::GEMI_ECOSYSTEM_KB => crate::models::eco_query::kb_query(&payload),
+            topics::GEMI_ECOSYSTEM_EXPLAIN => {
+                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                if id.trim().is_empty() {
+                    return Err("id is required".to_string());
+                }
+                let dir = payload
+                    .get("dir")
+                    .and_then(|v| v.as_str())
+                    .map(std::path::PathBuf::from);
+                if dir.as_ref().is_some_and(|d| !d.is_absolute()) {
+                    return Err("dir must be an absolute path".to_string());
+                }
+                crate::models::eco_query::explain(id, dir.as_deref())
+            }
+            topics::GEMI_OPERATOR_SNAPSHOT => {
+                let ws = workspace_path(&payload);
+                serde_json::to_value(crate::operator_report::sample_operator_state(&ws))
+                    .map_err(|e| e.to_string())
+            }
             topics::GEMI_TELEMETRY_SAMPLE => {
                 let snap = telemetry::sample();
                 serde_json::to_value(snap).map_err(|e| e.to_string())
