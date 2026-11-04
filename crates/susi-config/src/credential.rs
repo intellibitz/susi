@@ -268,4 +268,12 @@ mod tests {
             .resolve_scoped_credential("padded_scoped", &deploy_boundary)
             .is_err());
     }
+
+    #[test]
+    fn credential_ref_returns_err_when_setting_key_is_absent() {
+        let cfg = SusiConfig::default();
+        assert!(cfg
+            .credential_ref("nonexistent_credential_setting_1104")
+            .is_err());
+    }
 }

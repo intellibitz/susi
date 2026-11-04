@@ -187,4 +187,14 @@ mod malformed_quote_tests {
         std::env::remove_var(key);
         assert_eq!(env_or_cloud_env(key), Err(std::env::VarError::NotPresent));
     }
+
+    #[test]
+    fn parse_env_file_ignores_empty_comment_and_blank_value_lines() {
+        assert!(parse_env_file("").is_empty());
+        assert!(parse_env_file("# comment\n  \nNO_EQUALS_HERE\nEMPTY_KEY=\n").is_empty());
+        assert_eq!(
+            parse_env_file("VALID_KEY=ok\n"),
+            vec![("VALID_KEY".into(), "ok".into())]
+        );
+    }
 }
