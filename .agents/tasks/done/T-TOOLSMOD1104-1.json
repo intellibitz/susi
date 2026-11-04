@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "TOOLSMOD1104",
-  "created_unix": 1793765204
+  "created_unix": 1793765204,
+  "closed": {
+    "at_unix": 1793765549,
+    "commit": "752c0f0c1ad25108e6c5ea9f68be44eb191b8653",
+    "by": "TOOLSMOD1104"
+  }
 }
