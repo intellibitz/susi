@@ -167,4 +167,26 @@ mod inline_tests {
         assert_eq!(decide(&noisy, 4, 0.90), RegressionDecision::Inconclusive);
         assert_eq!(decide(&noisy, 4, 0.95), RegressionDecision::Inconclusive);
     }
+
+    #[test]
+    fn paired_trial_and_regression_decision_round_trip_serde_json() {
+        let trial = PairedTrial {
+            baseline: 12.5,
+            candidate: 14.0,
+        };
+        let encoded = serde_json::to_string(&trial).expect("serialize PairedTrial");
+        let decoded: PairedTrial = serde_json::from_str(&encoded).expect("deserialize PairedTrial");
+        assert_eq!(decoded, trial);
+
+        for decision in [
+            RegressionDecision::Improved,
+            RegressionDecision::Regressed,
+            RegressionDecision::Inconclusive,
+        ] {
+            let json = serde_json::to_string(&decision).expect("serialize RegressionDecision");
+            let back: RegressionDecision =
+                serde_json::from_str(&json).expect("deserialize RegressionDecision");
+            assert_eq!(back, decision);
+        }
+    }
 }

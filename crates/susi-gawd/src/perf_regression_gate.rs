@@ -135,4 +135,49 @@ mod perf_regression_gate_tests {
         assert_eq!(decisions, vec![RegressionDecision::Pass]);
         assert!(!gate_blocks_release(&decisions));
     }
+
+    #[test]
+    fn bench_sample_round_trips_serde_json_and_multiple_metrics_preserve_order() {
+        let sample = BenchSample {
+            name: "qps".into(),
+            value: 250.5,
+        };
+        let encoded = serde_json::to_string(&sample).expect("serialize BenchSample");
+        let decoded: BenchSample = serde_json::from_str(&encoded).expect("deserialize BenchSample");
+        assert_eq!(decoded, sample);
+
+        let base = vec![
+            BenchSample {
+                name: "m1".into(),
+                value: 100.0,
+            },
+            BenchSample {
+                name: "m2".into(),
+                value: 100.0,
+            },
+        ];
+        let cand = vec![
+            BenchSample {
+                name: "m1".into(),
+                value: 98.0,
+            },
+            BenchSample {
+                name: "m2".into(),
+                value: 70.0,
+            },
+        ];
+        let decisions = perf_regression_gate(&base, &cand, 5.0);
+        assert_eq!(
+            decisions,
+            vec![
+                RegressionDecision::Pass,
+                RegressionDecision::Fail {
+                    name: "m2".into(),
+                    baseline: 100.0,
+                    candidate: 70.0,
+                }
+            ]
+        );
+        assert!(gate_blocks_release(&decisions));
+    }
 }
