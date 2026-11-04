@@ -429,4 +429,29 @@ mod report_tests {
             assert_eq!(value["observation"], format!("Mission status: {status}"));
         }
     }
+
+    #[test]
+    fn plan_summary_and_final_answer_for_sink_preserve_fields_and_redact_secrets() {
+        let secret = "sk-proj-vc201074-plan-summary-secret";
+        let report = SusiMissionReport {
+            goal: "summarize plan".into(),
+            status: "SUCCESS".into(),
+            agents: vec![],
+            interactions: vec![],
+            plan: Some(PlanRecord {
+                steps: vec!["step-1".into()],
+                score: 0.95,
+                consensus: Some(0.9),
+                failed_step: None,
+            }),
+            final_answer: format!("Please print the access token {secret}"),
+        };
+        let summary = report.plan_summary();
+        assert_eq!(summary["status"], "SUCCESS");
+        assert!(summary["agents"].as_array().unwrap().is_empty());
+
+        let safe_sink = report.final_answer_for_sink();
+        assert!(!safe_sink.contains(secret));
+        assert!(safe_sink.contains("[REDACTED_UNTRUSTED_CREDENTIAL_REQUEST]"));
+    }
 }

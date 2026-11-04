@@ -1692,4 +1692,23 @@ mod tests {
         );
         assert!(core_input_schema("nonexistent_tool_xyz_999").is_none());
     }
+
+    #[test]
+    fn core_tool_definitions_have_unique_non_empty_names_and_descriptions() {
+        let defs = core_tool_definitions();
+        let mut names = std::collections::BTreeSet::new();
+        for tool in &defs {
+            assert!(!tool.name.is_empty());
+            assert!(
+                tool.description.as_deref().is_some_and(|d| !d.is_empty()),
+                "tool {} missing description",
+                tool.name
+            );
+            assert!(
+                names.insert(tool.name.to_string()),
+                "duplicate tool definition: {}",
+                tool.name
+            );
+        }
+    }
 }

@@ -257,4 +257,17 @@ mod tests {
         let err = send(err_call, json!({"action": "ping"})).unwrap_err();
         assert!(err.to_string().contains("plane rejected call"));
     }
+
+    #[test]
+    fn kind_describe_and_admits_cover_all_five_json_argument_shapes() {
+        assert_eq!(Kind::Str.describe(), "a string");
+        assert_eq!(Kind::Bool.describe(), "a boolean");
+        assert_eq!(Kind::U64.describe(), "a non-negative integer");
+        assert_eq!(Kind::Object.describe(), "an object");
+        assert_eq!(Kind::StrArray.describe(), "an array of strings");
+
+        assert!(Kind::StrArray.admits(&json!([])));
+        assert!(Kind::StrArray.admits(&json!(["a", "b"])));
+        assert!(!Kind::StrArray.admits(&json!(["a", 2])));
+    }
 }
