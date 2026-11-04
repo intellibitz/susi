@@ -229,4 +229,32 @@ mod tests {
                 .contains("unknown services action")
         );
     }
+
+    #[test]
+    fn reply_builds_structured_service_action_payload() {
+        let with_pid = reply("gmcp", "restart", Some(4242), true, "restarted".into());
+        assert_eq!(with_pid["service"], "gmcp");
+        assert_eq!(with_pid["action"], "restart");
+        assert_eq!(with_pid["pid"], 4242);
+        assert_eq!(with_pid["changed"], true);
+        assert_eq!(with_pid["message"], "restarted");
+
+        let without_pid = reply("gemi", "start", None, false, "noop".into());
+        assert!(without_pid["pid"].is_null());
+        assert_eq!(without_pid["changed"], false);
+    }
+
+    #[test]
+    fn empty_service_name_is_refused_across_all_actions() {
+        for action in ["start", "stop", "restart"] {
+            let err = control(action, "").expect_err("empty service name must fail");
+            assert!(err.contains("unknown service"), "action={action} err={err}");
+        }
+    }
+
+    #[test]
+    fn control_refuses_blank_action_and_validates_action_before_service() {
+        let err = control("", "not-a-service").expect_err("blank action must fail");
+        assert!(err.contains("unknown services action"), "err={err}");
+    }
 }
