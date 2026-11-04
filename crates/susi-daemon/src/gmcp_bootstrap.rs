@@ -646,7 +646,8 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
 
     // Zero-UI plan B4 groups 2, 6, 11 and 12: CLI control-plane commands
-    // and the 9091 runtime routes, reachable over the standards socket.
+    // and the runtime model / placement tools that replaced the 9091 runtime
+    // routes, reachable over the standards socket.
     ToolRegistry::register_meta_tool(
         registry,
         "inference_reset_provider",

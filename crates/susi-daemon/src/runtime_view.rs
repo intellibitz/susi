@@ -13,7 +13,7 @@
 //! - **gpu** — per-process GPU memory from `nvidia-smi`, when available.
 //!
 //! `loaded` is authoritative: it comes from the daemon's inference cache via
-//! `GET /runtime/models` on the GEMI port. `open_by` is observed separately
+//! the MCP `runtime_models_list` tool. `open_by` is observed separately
 //! from `/proc/<pid>/maps` and `/proc/<pid>/fd` and only covers files a
 //! process still maps or holds open. It is Linux-only, and the view says so
 //! (`open_by_observed`, `open_by_scope`) on every other OS.
@@ -260,7 +260,7 @@ fn parse_gpu_apps(csv: &str) -> BTreeMap<u32, u64> {
 /// Build the runtime view as JSON. Shared by `susi os runtime`, the
 /// `running_ai_processes` section of `susi os ecosystem` and the MCP
 /// `os_runtime` tool; `loaded_models` reads the daemon's inference cache
-/// (over the GEMI port from the CLI, in process inside the daemon).
+/// (over the daemon's MCP socket from the CLI, in process inside the daemon).
 pub fn view(
     loaded_models: impl FnOnce() -> Result<serde_json::Value, String>,
 ) -> serde_json::Value {

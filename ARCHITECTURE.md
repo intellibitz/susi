@@ -43,11 +43,13 @@ placement targets, not separate products:
 | **Local** | Candle/GGUF and Ollama models, CPU/GPU residency and eviction, local MCP/CLI agents, Wasm reflexes, Docker sandbox, workspace memory | `CapabilityRegistry`, MAC/privacy policy, evidence receipts, HMAC audit, budgets, placement decision |
 | **Cloud** | Configured OpenAI-compatible/Anthropic/Gemini/OpenRouter providers, remote MCP, A2A peers, managed external agents | the same registry, policy, evidence, audit, budget, and placement contracts; credentials remain explicit operator configuration |
 
-`susi os route` and `GET /runtime/placement` execute the same placement policy
+`susi os route` and the MCP `inference_placement` tool execute the same placement policy
 used by completion requests. Each executed plan carries a
 `placement-<pid>-<unix>-<seq>` id in the response body/SSE/header and records
-`INFERENCE_PLACEMENT` in the signed audit chain. Authenticated callers resolve
-the correlation through `GET /runtime/placement/decisions/{id}`; the result
+`INFERENCE_PLACEMENT` in the signed audit chain as a compact decision record
+(contract, target, provider, reason, policy and the request constraints) that
+fits the audit detail cap, so it always parses back. Authenticated callers resolve
+the correlation through the MCP `placement_decision` tool; the result
 includes the audit timestamp and entry hash.
 
 Append-only durability is also a cross-plane contract. Audit writers hold a
