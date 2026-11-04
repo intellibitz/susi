@@ -1,0 +1,26 @@
+{
+  "id": "T-SWARMSUITESA4T1104-1",
+  "title": "Expand 5 2-test suites in crates/susi-gawd-swarm/src/tests/ (audit_action_choke_point, vc_201_024, vc_201_026, vc_201_029, vc_201_034) to 4 tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "audit_action_choke_point"
+    ]
+  },
+  "created_by": "SWARMSUITESA4T1104",
+  "created_unix": 1793787989,
+  "closed": {
+    "at_unix": 1793788197,
+    "commit": "5e9a661f0f12e2d16ac0f121b735327021f4de67",
+    "by": "SWARMSUITESA4T1104"
+  }
+}

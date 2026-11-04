@@ -248,3 +248,73 @@ fn audit_action_choke_point_production_dispatch() {
     assert_eq!(records[0].outcome, AuditOutcome::Partial);
     assert!(records[0].redacted);
 }
+
+#[test]
+fn audit_action_choke_point_mission_lease_and_evidence_variants() {
+    let choke = AuditChokePoint::new();
+    let actions = [
+        Action {
+            kind: ActionKind::AdmitMission,
+            actor: "planner".to_string(),
+            description: "Admit mission M-100".to_string(),
+            timestamp_unix: 2001,
+        },
+        Action {
+            kind: ActionKind::ReleaseLease,
+            actor: "lease-mgr".to_string(),
+            description: "Release GPU lease L-9".to_string(),
+            timestamp_unix: 2002,
+        },
+        Action {
+            kind: ActionKind::RecordEvidence,
+            actor: "verifier".to_string(),
+            description: "Attach SHA-256 receipt".to_string(),
+            timestamp_unix: 2003,
+        },
+    ];
+    for action in &actions {
+        choke.emit(action);
+    }
+    assert_eq!(choke.action_count(), 3);
+    let records = choke.get_records();
+    assert_eq!(records[0].action_kind, ActionKind::AdmitMission);
+    assert_eq!(records[0].evidence_id, "7-2001");
+    assert_eq!(records[1].action_kind, ActionKind::ReleaseLease);
+    assert_eq!(records[1].evidence_id, "9-2002");
+    assert_eq!(records[2].action_kind, ActionKind::RecordEvidence);
+    assert_eq!(records[2].evidence_id, "8-2003");
+}
+
+#[test]
+fn audit_action_choke_point_concurrent_emissions_preserve_all_state_changes() {
+    let choke = Arc::new(AuditChokePoint::new());
+    let mut handles = Vec::new();
+    for idx in 0..4_u64 {
+        let shared = Arc::clone(&choke);
+        handles.push(std::thread::spawn(move || {
+            shared.emit(&Action {
+                kind: ActionKind::Query,
+                actor: format!("worker-{idx}"),
+                description: "read-only status check".to_string(),
+                timestamp_unix: 3000 + idx,
+            });
+            shared.emit(&Action {
+                kind: ActionKind::Update,
+                actor: format!("worker-{idx}"),
+                description: format!("checkpoint {idx}"),
+                timestamp_unix: 3100 + idx,
+            });
+        }));
+    }
+    for handle in handles {
+        assert!(handle.join().is_ok());
+    }
+    assert_eq!(choke.action_count(), 4);
+    let records = choke.get_records();
+    for idx in 0..4_u64 {
+        let expected_actor = format!("worker-{idx}");
+        assert!(records
+            .iter()
+            .any(|r| r.actor == expected_actor && r.action_kind == ActionKind::Update));
+    }
+}
