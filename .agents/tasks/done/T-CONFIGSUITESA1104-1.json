@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "CONFIGSUITESA1104",
-  "created_unix": 1793782494
+  "created_unix": 1793782494,
+  "closed": {
+    "at_unix": 1793782668,
+    "commit": "b6498f30834d98a7bd5ed4a28d613976dffef352",
+    "by": "CONFIGSUITESA1104"
+  }
 }
