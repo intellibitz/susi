@@ -160,4 +160,39 @@ mod tests {
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
         }
     }
+
+    #[tokio::test]
+    async fn sandbox_routes_reject_forged_bearer_tokens_with_unauthorized() {
+        for auth_header in ["Bearer forged-invalid-token-1104", "Basic dXNlcjpwYXNz"] {
+            for (method, uri, body) in [
+                ("POST", "/sandbox/ensure_global", r#"{"global_dir":"/g"}"#),
+                ("POST", "/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#),
+                ("GET", "/daemon/status?workspace=/w&global_dir=/g", ""),
+                (
+                    "POST",
+                    "/daemon/verify_integrity",
+                    r#"{"bin_path":"/b","global_dir":"/g"}"#,
+                ),
+                (
+                    "POST",
+                    "/daemon/hash_cached",
+                    r#"{"bin_path":"/b","global_dir":"/g"}"#,
+                ),
+            ] {
+                let request = Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("authorization", auth_header)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap();
+                let status = router().oneshot(request).await.unwrap().status();
+                assert_eq!(
+                    status,
+                    StatusCode::UNAUTHORIZED,
+                    "{method} {uri} ({auth_header})"
+                );
+            }
+        }
+    }
 }

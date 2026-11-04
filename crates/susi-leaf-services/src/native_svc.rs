@@ -95,4 +95,32 @@ mod tests {
             "{status}"
         );
     }
+
+    #[tokio::test]
+    async fn wasm_execute_rejects_malformed_json_or_unauthorized_and_missing_wasm_file_returns_error(
+    ) {
+        let malformed_req = Request::post("/wasm/execute")
+            .header("content-type", "application/json")
+            .body(Body::from("{not json"))
+            .unwrap();
+        let malformed_status = router().oneshot(malformed_req).await.unwrap().status();
+        assert!(
+            malformed_status == StatusCode::BAD_REQUEST
+                || malformed_status == StatusCode::UNAUTHORIZED,
+            "malformed /wasm/execute -> {malformed_status}"
+        );
+
+        let missing_req = Request::post("/wasm/execute")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"wasm_path":"/nonexistent/susi_missing_reflex_1104.wasm","arg":"--ping"}"#,
+            ))
+            .unwrap();
+        let missing_status = router().oneshot(missing_req).await.unwrap().status();
+        assert!(
+            missing_status == StatusCode::INTERNAL_SERVER_ERROR
+                || missing_status == StatusCode::UNAUTHORIZED,
+            "missing wasm /wasm/execute -> {missing_status}"
+        );
+    }
 }
