@@ -1,0 +1,26 @@
+{
+    "id":  "T-ROOTINTTESTSC4T1104-1",
+    "title":  "Expand root src/lib.rs, src/hooks.rs, and 3 integration tests to 4 unit tests each",
+    "goal":  "",
+    "size":  "m",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "--test",
+                               "fuzz_smoke"
+                           ]
+               },
+    "created_by":  "ROOTINTTESTSC4T1104",
+    "created_unix":  1793793923,
+    "closed":  {
+                   "at_unix":  1793794499,
+                   "commit":  "5ddb002b5df8d047d39a3bce3263a19e468bc4c7",
+                   "by":  "ROOTINTTESTSC4T1104"
+               }
+}
