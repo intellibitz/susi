@@ -21,5 +21,10 @@
     ]
   },
   "created_by": "UDPSIG1104",
-  "created_unix": 1793770800
+  "created_unix": 1793770800,
+  "closed": {
+    "commit": "295497e46",
+    "by": "UDPSIG1104",
+    "at_unix": 1793771700
+  }
 }
