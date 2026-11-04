@@ -91,3 +91,84 @@ pub fn evaluate_rekey_policy(
         members_removed_since,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evaluate_rekey_policy_covers_all_four_reasons_and_disabled_arms() {
+        let policy = RekeyPolicy::default();
+        assert_eq!(policy.interval_secs, 30 * 24 * 60 * 60);
+        assert!(policy.rotate_on_member_removed);
+
+        let last = 1_000_000;
+        let before_due = last + policy.interval_secs - 1;
+        let at_due = last + policy.interval_secs;
+
+        let not_due = evaluate_rekey_policy(&policy, last, 0, Some(before_due));
+        assert!(!not_due.should_rekey);
+        assert_eq!(not_due.reason, RekeyReason::NotDue);
+        assert_eq!(not_due.last_activated_unix, last);
+        assert_eq!(not_due.now_unix, before_due);
+        assert_eq!(not_due.members_removed_since, 0);
+
+        let schedule_due = evaluate_rekey_policy(&policy, last, 0, Some(at_due));
+        assert!(schedule_due.should_rekey);
+        assert_eq!(schedule_due.reason, RekeyReason::ScheduleDue);
+
+        let member_removed = evaluate_rekey_policy(&policy, last, 2, Some(before_due));
+        assert!(member_removed.should_rekey);
+        assert_eq!(member_removed.reason, RekeyReason::MemberRemoved);
+        assert_eq!(member_removed.members_removed_since, 2);
+
+        let both = evaluate_rekey_policy(&policy, last, 1, Some(at_due));
+        assert!(both.should_rekey);
+        assert_eq!(both.reason, RekeyReason::ScheduleAndMemberRemoved);
+
+        let disabled = RekeyPolicy {
+            interval_secs: 0,
+            rotate_on_member_removed: false,
+        };
+        let disabled_decision = evaluate_rekey_policy(&disabled, 0, 5, Some(at_due));
+        assert!(!disabled_decision.should_rekey);
+        assert_eq!(disabled_decision.reason, RekeyReason::NotDue);
+    }
+
+    #[test]
+    fn rekey_schedule_decision_and_policy_serde_roundtrip() {
+        let policy = RekeyPolicy::default();
+        let policy_json = serde_json::to_string(&policy).expect("serialize policy");
+        let policy_back: RekeyPolicy =
+            serde_json::from_str(&policy_json).expect("deserialize policy");
+        assert_eq!(policy_back, policy);
+
+        let cases = [
+            (RekeyReason::ScheduleDue, "\"schedule_due\"", true),
+            (RekeyReason::MemberRemoved, "\"member_removed\"", true),
+            (
+                RekeyReason::ScheduleAndMemberRemoved,
+                "\"schedule_and_member_removed\"",
+                true,
+            ),
+            (RekeyReason::NotDue, "\"not_due\"", false),
+        ];
+
+        for (reason, expected_wire, should_rekey) in cases {
+            let reason_json = serde_json::to_string(&reason).expect("serialize reason");
+            assert_eq!(reason_json, expected_wire);
+
+            let decision = RekeyScheduleDecision {
+                should_rekey,
+                reason,
+                last_activated_unix: 100,
+                now_unix: 200,
+                members_removed_since: 3,
+            };
+            let json = serde_json::to_string(&decision).expect("serialize decision");
+            let back: RekeyScheduleDecision =
+                serde_json::from_str(&json).expect("deserialize decision");
+            assert_eq!(back, decision);
+        }
+    }
+}
