@@ -383,4 +383,26 @@ mod tests {
         assert_eq!(std::fs::read_to_string(ws.join("b.txt")).unwrap(), "v2");
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn begin_rejects_path_escape_and_get_list_open_track_active_transactions() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        let mgr = TxManager::default();
+        assert!(mgr
+            .begin(&ws, "escape", &["../outside.txt".into()], BTreeMap::new())
+            .is_err());
+        assert!(mgr.list_open().is_empty());
+
+        std::fs::write(ws.join("ok.txt"), "v1").unwrap();
+        let tx = mgr
+            .begin(&ws, "valid", &["ok.txt".into()], BTreeMap::new())
+            .unwrap();
+        assert_eq!(mgr.list_open().len(), 1);
+        assert_eq!(mgr.get(&tx.id).unwrap().description, "valid");
+        mgr.commit(&tx.id, &ws).unwrap();
+        assert!(mgr.get(&tx.id).is_none());
+        assert!(mgr.list_open().is_empty());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

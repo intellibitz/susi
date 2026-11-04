@@ -230,4 +230,27 @@ mod inline_tests {
         assert_eq!(restored.kind, JobKind::Resumable);
         assert!((restored.progress - 0.6).abs() < 1e-9);
     }
+
+    #[test]
+    fn drain_orders_outcomes_deterministically_by_job_id_and_clears_active_queue() {
+        let mut mgr = DrainManager::new();
+        mgr.submit(Job {
+            id: "z-job".to_string(),
+            kind: JobKind::OneShot,
+            progress: 0.1,
+        })
+        .unwrap();
+        mgr.submit(Job {
+            id: "a-job".to_string(),
+            kind: JobKind::Resumable,
+            progress: 0.9,
+        })
+        .unwrap();
+
+        let outcomes = mgr.drain();
+        assert_eq!(outcomes.len(), 2);
+        assert!(mgr.job("a-job").is_none());
+        assert!(mgr.job("z-job").is_none());
+        assert!(mgr.drain().is_empty());
+    }
 }

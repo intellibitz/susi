@@ -158,4 +158,26 @@ mod inline_tests {
             Err(PromoteVerdict::RejectStaleSuiteVersion)
         );
     }
+
+    #[test]
+    fn evaluate_promotion_rejects_nan_answer_correctness_or_private_isolation() {
+        let base = baseline();
+        let nan_correctness = RetrievalSuite {
+            answer_correctness: f64::NAN,
+            ..base.clone()
+        };
+        assert_eq!(
+            evaluate_promotion(&base, &nan_correctness),
+            PromoteVerdict::RejectUnmeasuredMetrics
+        );
+
+        let nan_isolation = RetrievalSuite {
+            private_isolation: f64::NAN,
+            ..base
+        };
+        assert_eq!(
+            evaluate_promotion(&baseline(), &nan_isolation),
+            PromoteVerdict::RejectUnmeasuredMetrics
+        );
+    }
 }

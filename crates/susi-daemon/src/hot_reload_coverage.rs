@@ -95,4 +95,16 @@ mod hot_reload_coverage_tests {
             ]
         );
     }
+
+    #[test]
+    fn hot_reload_event_serde_roundtrip_preserves_key_and_applied_flag() {
+        let ev = HotReloadEvent {
+            key: "log_level".into(),
+            applied: true,
+        };
+        let encoded = serde_json::to_string(&ev).expect("serialize HotReloadEvent");
+        let decoded: HotReloadEvent =
+            serde_json::from_str(&encoded).expect("deserialize HotReloadEvent");
+        assert_eq!(decoded, ev);
+    }
 }

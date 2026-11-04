@@ -457,4 +457,22 @@ mod audit_export_tests {
         assert_eq!(out, 42);
         assert_eq!(sink.records().len(), 1);
     }
+
+    #[test]
+    fn parse_ndjson_line_rejects_invalid_json_and_unredacted_action_is_refused() {
+        assert!(parse_ndjson_line("{not-valid-json").is_err());
+        let mut action = AuditAction::new(
+            AuditActionKind::SecretAccess,
+            "actor-1",
+            AuditTarget::identifier("secret-id"),
+            AuditOutcome::Denied,
+            5,
+            0,
+            "corr-sec",
+        )
+        .unwrap();
+        action.redacted = false;
+        let choke = AuditChokePoint::new(RecordingAuditSink::default());
+        assert!(choke.dispatch(&action).is_err());
+    }
 }

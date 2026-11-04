@@ -372,4 +372,52 @@ mod inline_tests {
             })
         );
     }
+
+    #[test]
+    fn flush_marks_requests_whose_deadline_elapsed_while_queued_as_deadline_exceeded() {
+        let eng = EngineBatchBackend::new(|prompts: &[String]| {
+            prompts.iter().map(|p| format!("ok:{p}")).collect()
+        });
+        let mut batcher = Batcher::new(
+            BatchLimits {
+                max_batch: 4,
+                max_queue: 4,
+                max_wait_ms: 50,
+            },
+            &eng,
+        )
+        .unwrap();
+
+        batcher
+            .submit(
+                Request {
+                    id: 10,
+                    prompt: "stale".into(),
+                    deadline_ms: 120,
+                },
+                100,
+            )
+            .unwrap();
+        batcher
+            .submit(
+                Request {
+                    id: 11,
+                    prompt: "fresh".into(),
+                    deadline_ms: 200,
+                },
+                100,
+            )
+            .unwrap();
+
+        let outcomes = batcher.flush(150);
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(eng.invocations(), 1);
+        assert_eq!(batcher.outcome(10), Some(&BatchOutcome::DeadlineExceeded));
+        assert_eq!(
+            batcher.outcome(11),
+            Some(&BatchOutcome::Done {
+                output: "ok:fresh".into()
+            })
+        );
+    }
 }

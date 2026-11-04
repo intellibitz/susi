@@ -136,4 +136,30 @@ mod tests {
         let back: AccelPool = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, pool);
     }
+
+    #[test]
+    fn sequential_admissions_and_partial_releases_maintain_exact_headroom_bounds() {
+        let mut pool = AccelPool {
+            total_bytes: 1000,
+            reserved_bytes: 0,
+        };
+        assert_eq!(
+            pool.admit(300),
+            AdmitDecision::Admitted { reservation: 300 }
+        );
+        assert_eq!(
+            pool.admit(400),
+            AdmitDecision::Admitted { reservation: 400 }
+        );
+        assert_eq!(pool.free(), 300);
+
+        pool.release(300);
+        assert_eq!(pool.reserved_bytes, 400);
+        assert_eq!(
+            pool.admit(550),
+            AdmitDecision::Admitted { reservation: 550 }
+        );
+        assert_eq!(pool.free(), 50);
+        assert_eq!(pool.admit(1), AdmitDecision::RejectedInsufficient);
+    }
 }

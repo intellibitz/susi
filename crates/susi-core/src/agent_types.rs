@@ -285,4 +285,15 @@ mod tests {
         assert!(read_back.contains("PlannerAgent"));
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn default_high_density_context_store_supports_insert_and_iteration() {
+        let store = HighDensityContextStore::default();
+        assert!(store.is_empty());
+        store.insert("agent-a".into(), "out-a".into());
+        store.insert("agent-b".into(), "out-b".into());
+        assert_eq!(store.len(), 2);
+        let count = store.iter().count();
+        assert_eq!(count, 2);
+    }
 }

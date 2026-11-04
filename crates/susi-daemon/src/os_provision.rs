@@ -134,4 +134,18 @@ mod tests {
                 .contains("apply requires kind")
         );
     }
+
+    #[test]
+    fn dispatch_rejects_blank_action_and_non_string_action_defaults_to_probe_contract() {
+        assert!(
+            dispatch(&json!({"action": "   "}))
+                .unwrap_err()
+                .contains("unknown provision action")
+        );
+        assert!(
+            dispatch(&json!({"action": "delete"}))
+                .unwrap_err()
+                .contains("expected probe, list or apply")
+        );
+    }
 }

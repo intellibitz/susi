@@ -305,4 +305,15 @@ mod inline_tests {
             assert!(snap.unavailable.contains_key("thermal_zones"));
         }
     }
+
+    #[test]
+    fn telemetry_snapshot_serde_skips_empty_unavailable_and_detects_memory_readings() {
+        let mut snap = TelemetrySnapshot::empty();
+        let json_empty = serde_json::to_value(&snap).expect("serialize empty snapshot");
+        assert!(json_empty.get("unavailable").is_none());
+
+        snap.mem_total_mb = Some(16_384);
+        snap.mem_available_mb = Some(8_192);
+        assert!(snap.has_readings());
+    }
 }

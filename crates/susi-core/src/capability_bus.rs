@@ -387,4 +387,38 @@ mod inline_tests {
         assert_eq!(receipt.subject, "agent-a");
         assert_eq!(receipt.cost_micros, 30);
     }
+
+    #[test]
+    fn dispatch_propagates_handler_failure_and_zero_caller_timeout_as_errors() {
+        let mut bus = CapabilityBus::default();
+        bus.register(CapabilityDescriptor::new(
+            "cap.adapter",
+            CapabilitySurface::Adapter,
+            "invoke",
+            "adapter.run",
+            100,
+            50,
+        ))
+        .unwrap();
+
+        let zero_timeout =
+            CapabilityRequest::new("cap.adapter", "agent-z", ["adapter.run".into()], 0, 50);
+        assert_eq!(
+            bus.dispatch(&zero_timeout, |_| unreachable!()),
+            Err(CapabilityError::TimeoutExceeded {
+                elapsed_ms: 0,
+                limit_ms: 0,
+            })
+        );
+
+        let valid_req =
+            CapabilityRequest::new("cap.adapter", "agent-z", ["adapter.run".into()], 50, 50);
+        let err = bus
+            .dispatch(&valid_req, |_| Err("downstream failed".into()))
+            .unwrap_err();
+        assert_eq!(
+            err,
+            CapabilityError::HandlerFailed("downstream failed".into())
+        );
+    }
 }

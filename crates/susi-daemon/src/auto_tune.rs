@@ -141,4 +141,20 @@ mod tests {
             TuneDirection::Hold
         );
     }
+
+    #[test]
+    fn apply_tune_with_hold_advice_leaves_scheduler_target_unchanged() {
+        let scheduler = ElasticScheduler::new(1, 8);
+        let targets = SlaTargets {
+            max_avg_resolution_ms: Some(1000),
+            min_success_rate: Some(0.50),
+        };
+        assert_eq!(
+            apply_tune(&scheduler, &SwarmMetricsSnapshot::default(), &targets),
+            8
+        );
+        let steady = snapshot(4, 3, 250);
+        assert_eq!(apply_tune(&scheduler, &steady, &targets), 8);
+        assert_eq!(scheduler.target_concurrency(), 8);
+    }
 }

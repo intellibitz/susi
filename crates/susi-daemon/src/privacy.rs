@@ -92,4 +92,11 @@ mod inline_tests {
             assert_eq!(PrivacyMode::parse_persisted(mode.as_str()), Some(mode));
         }
     }
+
+    #[test]
+    fn privacy_mode_parse_handles_case_and_whitespace_cleanly() {
+        assert_eq!(PrivacyMode::parse("  LOCAL_ONLY  "), PrivacyMode::LocalOnly);
+        assert_eq!(PrivacyMode::parse("OPEN"), PrivacyMode::Open);
+        assert_eq!(PrivacyMode::parse("Balanced"), PrivacyMode::Balanced);
+    }
 }
