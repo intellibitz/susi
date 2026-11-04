@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "DAEMON5TA1104",
-  "created_unix": 1793803876
+  "created_unix": 1793803876,
+  "closed": {
+    "at_unix": 1793804868,
+    "commit": "8ec4a85fdc32d7c514c3e0eeab71b1fc93aa7008",
+    "by": "DAEMON5TA1104"
+  }
 }
