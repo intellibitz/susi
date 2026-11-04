@@ -847,3 +847,91 @@ pub fn run_pass(home: &Path, now: u64) -> EaiResult<PassReport> {
     let observed = observe();
     run_pass_with(home, desired.as_ref(), &observed, now, &SystemActuate)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use crate::susi_config::desired_state::DesiredRef;
+
+    struct MockActuate;
+    impl Actuate for MockActuate {
+        fn act(&self, action: &Action) -> Verdict {
+            Verdict::Applied(format!("mock-applied:{}", action.id()))
+        }
+    }
+
+    fn decl(id: &str, kind: &str) -> DesiredRef {
+        DesiredRef {
+            id: id.into(),
+            kind: kind.into(),
+            requires: Vec::new(),
+            extra: std::collections::BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn action_kind_as_str_and_blast_classification_match_contract() {
+        assert_eq!(ActionKind::WarmModel.as_str(), "warm_model");
+        assert_eq!(ActionKind::WarmModel.blast(), Blast::Low);
+        assert_eq!(ActionKind::CollectOrphan.blast(), Blast::Low);
+        assert_eq!(ActionKind::DrainRuntime.as_str(), "drain_runtime");
+        assert_eq!(ActionKind::DrainRuntime.blast(), Blast::High);
+        assert_eq!(ActionKind::RotateKey.blast(), Blast::High);
+    }
+
+    #[test]
+    fn plan_diffs_desired_and_observed_into_expected_reconciliation_actions() {
+        let mut desired = DesiredState::empty_v1();
+        desired.models = vec![decl("m-warm", "warm"), decl("m-cold", "cold")];
+        desired.runtimes = vec![decl("svc-a", "running")];
+        desired.providers = vec![decl("openai", "live")];
+        let observed = Observed {
+            loaded_models: vec!["m-cold".into(), "m-orphan".into()],
+            services: vec![ServiceObs {
+                name: "svc-a".into(),
+                up: false,
+                stopped: true,
+                external: false,
+            }],
+            cooled_providers: vec!["openai".into()],
+        };
+        let actions = plan(&desired, &observed);
+        let ids: Vec<String> = actions.iter().map(Action::id).collect();
+        assert!(ids.contains(&"warm_model:m-warm".to_string()));
+        assert!(ids.contains(&"evict_model:m-cold".to_string()));
+        assert!(ids.contains(&"collect_orphan:m-orphan".to_string()));
+        assert!(ids.contains(&"start_runtime:svc-a".to_string()));
+        assert!(ids.contains(&"rotate_key:openai".to_string()));
+    }
+
+    #[test]
+    fn approve_and_consume_grant_execute_one_shot_approval_lifecycle() {
+        let home = std::env::temp_dir().join(format!("susi-estate-grant-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let grant = approve(&home, "drain_runtime:svc-a", 1_000).unwrap();
+        assert!(grant.is_file());
+        assert!(consume_grant(&home, "drain_runtime:svc-a"));
+        assert!(!consume_grant(&home, "drain_runtime:svc-a"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn run_pass_with_records_applied_verdicts_and_updates_loop_state_journal() {
+        let home = std::env::temp_dir().join(format!("susi-estate-pass-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let mut desired = DesiredState::empty_v1();
+        desired.models = vec![decl("qwen-coder", "warm")];
+        let observed = Observed::default();
+        let report = run_pass_with(&home, Some(&desired), &observed, 2_000, &MockActuate).unwrap();
+        assert_eq!(report.pass, 1);
+        assert!(!report.resumed);
+        assert_eq!(report.summary().applied, 1);
+
+        let saved = LoopState::load(&state_path(&home));
+        assert_eq!(saved.last_completed, 1);
+        assert!(saved.in_flight.is_none());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

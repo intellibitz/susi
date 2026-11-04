@@ -664,3 +664,61 @@ pub fn report(workspace: &Path) -> serde_json::Value {
     );
     body
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn primed_catalogs_combine_agents_and_coding_models_only() {
+        let primed = std::hint::black_box(&PRIMED);
+        assert!(primed.coding_models);
+        assert!(primed.execution_agents);
+        assert!(primed.frameworks);
+        assert_eq!(PRIMED, Catalogs::ALL);
+        assert_ne!(PRIMED, Catalogs::NONE);
+    }
+
+    #[test]
+    fn check_constructor_populates_tier_s_and_fields() {
+        let item = check("probe_id", true, false, "probe detail");
+        assert_eq!(item.id, "probe_id");
+        assert_eq!(item.tier, "S");
+        assert!(item.critical);
+        assert!(!item.holds);
+        assert_eq!(item.detail, "probe detail");
+    }
+
+    #[test]
+    fn parses_as_json_validates_files_and_rejects_malformed_or_missing() {
+        let dir = std::env::temp_dir().join(format!("susi-crown-inline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let good = dir.join("good.json");
+        let bad = dir.join("bad.json");
+        let missing = dir.join("missing.json");
+        std::fs::write(&good, r#"{"ok":true}"#).unwrap();
+        std::fs::write(&bad, "{not json").unwrap();
+
+        assert!(parses_as_json(&good));
+        assert!(!parses_as_json(&bad));
+        assert!(!parses_as_json(&missing));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn governance_check_vetoes_destructive_and_clears_benign_probes() {
+        let dir = std::env::temp_dir().join(format!("susi-crown-gov-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let gov = governance_check(&dir);
+        assert_eq!(gov.id, "governance_first");
+        assert!(gov.critical);
+        assert!(gov.holds, "detail: {}", gov.detail);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

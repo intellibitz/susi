@@ -175,3 +175,132 @@ pub fn cold_starts(events: &[ModelUseEvent], warm_ids: &[String]) -> usize {
         .filter(|e| !warm.contains(e.model_id.as_str()))
         .count()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn default_preload_policy_uses_three_warm_models_and_twenty_four_hour_window() {
+        let policy = PreloadPolicy::default();
+        assert_eq!(policy.max_warm, 3);
+        assert_eq!(policy.window_secs, 24 * 60 * 60);
+    }
+
+    #[test]
+    fn schedule_preload_ranks_by_frequency_and_recency_while_filtering_expired_and_empty() {
+        let policy = PreloadPolicy {
+            max_warm: 2,
+            window_secs: 100,
+        };
+        let events = vec![
+            ModelUseEvent {
+                model_id: "expired-model".to_string(),
+                used_unix: 800,
+            },
+            ModelUseEvent {
+                model_id: String::new(),
+                used_unix: 995,
+            },
+            ModelUseEvent {
+                model_id: "model-a".to_string(),
+                used_unix: 950,
+            },
+            ModelUseEvent {
+                model_id: "model-a".to_string(),
+                used_unix: 990,
+            },
+            ModelUseEvent {
+                model_id: "model-b".to_string(),
+                used_unix: 980,
+            },
+            ModelUseEvent {
+                model_id: "model-c".to_string(),
+                used_unix: 910,
+            },
+        ];
+        let ranked = schedule_preload(&events, &policy, Some(1_000));
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(ranked[0].model_id, "model-a");
+        assert_eq!(ranked[0].uses_in_window, 2);
+        assert_eq!(ranked[0].last_used_unix, 990);
+        assert_eq!(ranked[1].model_id, "model-b");
+    }
+
+    #[test]
+    fn schedule_preload_damped_retains_incumbent_until_challenger_clears_hysteresis_margin() {
+        let policy = PreloadPolicy {
+            max_warm: 1,
+            window_secs: 100,
+        };
+        let events = vec![
+            ModelUseEvent {
+                model_id: "incumbent".to_string(),
+                used_unix: 920,
+            },
+            ModelUseEvent {
+                model_id: "challenger".to_string(),
+                used_unix: 990,
+            },
+        ];
+        let incumbents = vec!["incumbent".to_string()];
+
+        let retained = schedule_preload_damped(
+            &events,
+            &policy,
+            &incumbents,
+            &PreloadHysteresis { margin: 1.0 },
+            Some(1_000),
+        );
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].model_id, "incumbent");
+
+        let evicted = schedule_preload_damped(
+            &events,
+            &policy,
+            &incumbents,
+            &PreloadHysteresis { margin: 0.5 },
+            Some(1_000),
+        );
+        assert_eq!(evicted.len(), 1);
+        assert_eq!(evicted[0].model_id, "challenger");
+    }
+
+    #[test]
+    fn cold_starts_counts_events_whose_model_id_is_absent_from_warm_set() {
+        let events = vec![
+            ModelUseEvent {
+                model_id: "warm-1".to_string(),
+                used_unix: 10,
+            },
+            ModelUseEvent {
+                model_id: "cold-1".to_string(),
+                used_unix: 20,
+            },
+            ModelUseEvent {
+                model_id: "warm-2".to_string(),
+                used_unix: 30,
+            },
+            ModelUseEvent {
+                model_id: "cold-2".to_string(),
+                used_unix: 40,
+            },
+        ];
+        let warm = vec!["warm-1".to_string(), "warm-2".to_string()];
+        assert_eq!(cold_starts(&events, &warm), 2);
+        assert_eq!(
+            cold_starts(
+                &events,
+                &[
+                    "warm-1".to_string(),
+                    "warm-2".to_string(),
+                    "cold-1".to_string(),
+                    "cold-2".to_string()
+                ]
+            ),
+            0
+        );
+    }
+}

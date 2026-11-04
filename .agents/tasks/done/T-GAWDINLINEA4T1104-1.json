@@ -1,0 +1,27 @@
+{
+  "id": "T-GAWDINLINEA4T1104-1",
+  "title": "Add 40 inline unit tests across 10 susi-gawd modules Waves A and C under D-OS-8",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "GAWDINLINEA4T1104",
+  "created_unix": 1793797950,
+  "closed": {
+    "at_unix": 1793798683,
+    "commit": "f002b6a0b0765c79838d4f3f27dba7e7528379fc",
+    "by": "GAWDINLINEA4T1104"
+  }
+}

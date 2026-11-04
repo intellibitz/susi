@@ -106,3 +106,67 @@ fn content_checksum(
 const fn fnv1a(h: u64, b: u8) -> u64 {
     (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn pack_bundle_sorts_inputs_and_produces_order_independent_checksum() {
+        let b1 = pack_bundle(
+            vec!["susi".into(), "susi-daemon".into()],
+            vec!["qwen".into(), "llama".into()],
+            vec!["ext-b".into(), "ext-a".into()],
+        );
+        let b2 = pack_bundle(
+            vec!["susi-daemon".into(), "susi".into()],
+            vec!["llama".into(), "qwen".into()],
+            vec!["ext-a".into(), "ext-b".into()],
+        );
+        assert_eq!(b1.checksum, b2.checksum);
+        assert_eq!(b1.models, vec!["llama", "qwen"]);
+    }
+
+    #[test]
+    fn import_bundle_succeeds_when_all_artifacts_are_present_and_checksum_matches() {
+        let bundle = pack_bundle(
+            vec!["susi".into()],
+            vec!["qwen-coder".into()],
+            vec!["pack-v1".into()],
+        );
+        let available: BTreeSet<String> = ["susi", "qwen-coder", "pack-v1"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let report = import_bundle(&bundle, &available);
+        assert!(report.checksum_ok);
+        assert!(report.is_complete());
+    }
+
+    #[test]
+    fn import_bundle_reports_missing_artifacts_without_remote_fallback() {
+        let bundle = pack_bundle(
+            vec!["susi".into()],
+            vec!["qwen-coder".into()],
+            vec!["pack-v1".into()],
+        );
+        let available: BTreeSet<String> = ["susi"].into_iter().map(String::from).collect();
+        let report = import_bundle(&bundle, &available);
+        assert!(report.checksum_ok);
+        assert!(!report.is_complete());
+        assert_eq!(report.missing_models, vec!["qwen-coder"]);
+        assert_eq!(report.missing_extension_metadata, vec!["pack-v1"]);
+    }
+
+    #[test]
+    fn import_bundle_detects_tampered_checksum_and_marks_incomplete() {
+        let mut bundle = pack_bundle(vec!["susi".into()], vec![], vec![]);
+        bundle.checksum = "0000000000000000".into();
+        let available: BTreeSet<String> = ["susi"].into_iter().map(String::from).collect();
+        let report = import_bundle(&bundle, &available);
+        assert!(!report.checksum_ok);
+        assert!(!report.is_complete());
+    }
+}

@@ -1287,3 +1287,63 @@ pub fn adopt_gap(ws: &Path, home: &Path, intent: &str, agent: &str) -> EaiResult
     write_gaps(home, &outbox)?;
     Ok(adoption)
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn grade_names_and_ordering_progress_from_trivial_to_extreme() {
+        assert_eq!(Grade::Trivial.name(), "trivial");
+        assert_eq!(Grade::Easy.name(), "easy");
+        assert_eq!(Grade::Moderate.name(), "moderate");
+        assert_eq!(Grade::Hard.name(), "hard");
+        assert_eq!(Grade::Extreme.name(), "extreme");
+        assert!(Grade::Trivial < Grade::Easy);
+        assert!(Grade::Easy < Grade::Moderate);
+        assert!(Grade::Moderate < Grade::Hard);
+        assert!(Grade::Hard < Grade::Extreme);
+    }
+
+    #[test]
+    fn check_path_safe_rejects_empty_parent_hidden_and_accepts_relative_normal_paths() {
+        assert!(!check_path_safe(""));
+        assert!(!check_path_safe(".."));
+        assert!(!check_path_safe("a/../b"));
+        assert!(!check_path_safe(".hidden/file.txt"));
+        assert!(!check_path_safe("dir/.secret"));
+        assert!(!check_path_safe("/abs/path.txt"));
+        assert!(check_path_safe("notes.txt"));
+        assert!(check_path_safe("sub/output.json"));
+    }
+
+    #[test]
+    fn bundled_ladder_loads_and_slice_policies_filter_by_grade_and_ceiling() {
+        let ladder = IntentLadder::bundled();
+        assert_eq!(ladder.schema, LADDER_SCHEMA);
+        assert!(ladder.revision >= 1);
+        assert!(!ladder.intents.is_empty());
+
+        let startup = SlicePolicy::startup();
+        let planned_startup = startup.plan(&ladder);
+        assert!(planned_startup.len() <= SLICE_MAX_INTENTS);
+        assert!(planned_startup.iter().all(|i| i.grade <= Grade::Easy));
+
+        let full = SlicePolicy::full();
+        assert_eq!(full.plan(&ladder).len(), ladder.intents.len());
+    }
+
+    #[test]
+    fn from_json_validates_schema_revision_rationale_unique_ids_and_budgets() {
+        let bad_schema = r#"{"schema":"wrong","revision":1,"authored_by":"test","rationale":"why","intents":[]}"#;
+        assert!(IntentLadder::from_json(bad_schema).is_err());
+
+        let zero_rev = r#"{"schema":"susi.intent_ladder/v1","revision":0,"authored_by":"test","rationale":"why","intents":[]}"#;
+        assert!(IntentLadder::from_json(zero_rev).is_err());
+
+        let valid = r#"{"schema":"susi.intent_ladder/v1","revision":2,"authored_by":"test","rationale":"coverage","intents":[{"id":"r1","grade":"trivial","intent":"say hi","check":{"kind":"stdout_marker","needle":"hi"},"budget":{"seconds":5,"micros":0}}]}"#;
+        let parsed = IntentLadder::from_json(valid).unwrap();
+        assert_eq!(parsed.revision, 2);
+        assert_eq!(parsed.intents.len(), 1);
+    }
+}

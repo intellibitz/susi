@@ -323,3 +323,95 @@ impl CloudReconciler {
 const fn fnv1a(h: u64, b: u8) -> u64 {
     (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_desired(gen: u64, min: u32, max: u32) -> DeploymentDesiredState {
+        DeploymentDesiredState {
+            deployment_id: "dep-1".into(),
+            target_backend: "vllm".into(),
+            model_id: "qwen-coder".into(),
+            min_replicas: min,
+            max_replicas: max,
+            gpu_type: "A100".into(),
+            generation: gen,
+        }
+    }
+
+    fn sample_observed(gen: u64, active: u32, phase: DeploymentPhase) -> DeploymentObservedState {
+        DeploymentObservedState {
+            deployment_id: "dep-1".into(),
+            target_backend: "vllm".into(),
+            model_id: "qwen-coder".into(),
+            active_replicas: active,
+            healthy_replicas: active,
+            phase,
+            last_operation_id: None,
+            observed_generation: gen,
+        }
+    }
+
+    #[test]
+    fn compute_operation_id_is_deterministic_and_sensitive_to_action() {
+        let id1 =
+            CloudReconciler::compute_operation_id("dep-1", 1, "vllm", ReconcileAction::Provision);
+        let id2 =
+            CloudReconciler::compute_operation_id("dep-1", 1, "vllm", ReconcileAction::Provision);
+        let id3 =
+            CloudReconciler::compute_operation_id("dep-1", 1, "vllm", ReconcileAction::ScaleUp);
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn reconcile_provisions_generation_mismatch_and_deduplicates_repeat_call() {
+        let mut rec = CloudReconciler::new();
+        let desired = sample_desired(2, 2, 4);
+        let mut obs = sample_observed(1, 0, DeploymentPhase::Pending);
+
+        let first = rec.reconcile(&desired, &mut obs);
+        assert_eq!(first.action, ReconcileAction::Provision);
+        assert!(!first.deduplicated);
+        assert_eq!(obs.observed_generation, 2);
+        assert_eq!(obs.active_replicas, 2);
+
+        let noop = rec.reconcile(&desired, &mut obs);
+        assert_eq!(noop.action, ReconcileAction::Noop);
+    }
+
+    #[test]
+    fn reconcile_scales_up_and_down_within_replica_bounds() {
+        let mut rec = CloudReconciler::new();
+        let desired = sample_desired(1, 2, 4);
+        let mut low = sample_observed(1, 1, DeploymentPhase::Healthy);
+        let up = rec.reconcile(&desired, &mut low);
+        assert_eq!(up.action, ReconcileAction::ScaleUp);
+        assert_eq!(low.active_replicas, 2);
+
+        let mut high = sample_observed(1, 6, DeploymentPhase::Healthy);
+        let down = rec.reconcile(&desired, &mut high);
+        assert_eq!(down.action, ReconcileAction::ScaleDown);
+        assert_eq!(high.active_replicas, 4);
+    }
+
+    #[test]
+    fn health_check_and_rollback_restore_previous_known_good_generation() {
+        let mut rec = CloudReconciler::new();
+        let gen1 = sample_desired(1, 2, 4);
+        let mut obs = sample_observed(1, 2, DeploymentPhase::Healthy);
+        rec.run_health_check(&gen1, &mut obs, true);
+
+        let mut gen2 = sample_desired(2, 3, 6);
+        rec.run_health_check(&gen2, &mut obs, false);
+        assert_eq!(obs.phase, DeploymentPhase::Degraded);
+
+        let outcome = rec.rollback(&mut gen2, &mut obs).unwrap();
+        assert_eq!(outcome.action, ReconcileAction::Rollback);
+        assert_eq!(gen2.generation, 1);
+        assert_eq!(obs.phase, DeploymentPhase::RolledBack);
+    }
+}
