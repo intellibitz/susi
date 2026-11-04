@@ -276,4 +276,57 @@ mod tests {
         assert!(prom
             .contains("susi_model_cost_micros_total{model=\"anthropic/claude-3-5-sonnet\"} 2100"));
     }
+
+    #[test]
+    fn token_usage_constructors_and_zero_call_registry_defaults() {
+        let basic = TokenUsage::new(120, 30);
+        assert_eq!(basic.prompt_tokens, 120);
+        assert_eq!(basic.completion_tokens, 30);
+        assert_eq!(basic.cached_tokens, 0);
+        assert_eq!(basic.total_tokens, 150);
+
+        let cached = TokenUsage::with_cache(200, 50, 80);
+        assert_eq!(cached.cached_tokens, 80);
+        assert_eq!(cached.total_tokens, 250);
+        let wire: susi_core::inference_wire::TokenUsage = cached.into();
+        assert_eq!(wire.prompt_tokens, 200);
+        assert_eq!(wire.cached_tokens, 80);
+
+        let registry = InferenceTelemetry::new();
+        assert_eq!(registry.total_requests(), 0);
+        assert_eq!(registry.total_prompt_tokens(), 0);
+        assert_eq!(registry.total_cached_tokens(), 0);
+        assert_eq!(registry.total_completion_tokens(), 0);
+        assert_eq!(registry.total_cost_micros(), 0);
+        assert_eq!(registry.total_errors(), 0);
+    }
+
+    #[test]
+    fn render_prometheus_tracks_multiple_models_independently() {
+        let registry = InferenceTelemetry::new();
+        let u1 = TokenUsage::new(50, 25);
+        let u2 = TokenUsage::with_cache(100, 40, 20);
+        registry.record_call("model-alpha", &u1, 300, false);
+        registry.record_call("model-beta", &u2, 900, false);
+        registry.record_call("model-beta", &u2, 600, false);
+
+        let prom = registry.render_prometheus();
+        assert!(prom.contains("susi_model_requests_total{model=\"model-alpha\"} 1"));
+        assert!(prom.contains("susi_model_cost_micros_total{model=\"model-alpha\"} 300"));
+        assert!(prom.contains("susi_model_requests_total{model=\"model-beta\"} 2"));
+        assert!(prom.contains("susi_model_cost_micros_total{model=\"model-beta\"} 1500"));
+    }
+
+    #[test]
+    fn error_only_call_increments_errors_and_requests_together() {
+        let registry = InferenceTelemetry::new();
+        let zero_usage = TokenUsage::new(0, 0);
+        registry.record_call("failing-model", &zero_usage, 0, true);
+        assert_eq!(registry.total_requests(), 1);
+        assert_eq!(registry.total_errors(), 1);
+        assert_eq!(registry.total_cost_micros(), 0);
+        assert!(registry
+            .render_prometheus()
+            .contains("susi_inference_errors_total 1"));
+    }
 }
