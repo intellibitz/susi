@@ -209,4 +209,19 @@ mod tests {
         let json = serde_json::to_string(&EventKind::CreditLow).unwrap();
         assert_eq!(json, "\"credit_low\"");
     }
+
+    #[test]
+    fn read_events_skips_blank_lines_and_reports_line_number_on_malformed_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let first = Event::new(1, 10, EventKind::MissionStarted, "started");
+        let valid = serde_json::to_string(&first).unwrap();
+        std::fs::write(&path, format!("\n  \n{valid}\n\n")).unwrap();
+        let events = read_events(&path).unwrap();
+        assert_eq!(events, vec![first]);
+
+        std::fs::write(&path, format!("{valid}\n{{not-json}}\n")).unwrap();
+        let err = read_events(&path).unwrap_err().to_string();
+        assert!(err.contains("line 2:"), "unexpected error: {err}");
+    }
 }

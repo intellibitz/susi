@@ -745,4 +745,18 @@ mod tests {
         assert!(summary.contains("resp cache"), "{summary}");
         assert!(summary.contains("SOVA arbitrage"), "{summary}");
     }
+
+    #[test]
+    fn reliability_permille_decays_monotonically_with_consecutive_failures_and_clamps_bounds() {
+        let r0 = SovaArbitrageEngine::reliability_permille(18, 2, 0);
+        let r1 = SovaArbitrageEngine::reliability_permille(18, 2, 1);
+        let r2 = SovaArbitrageEngine::reliability_permille(18, 2, 2);
+        let r3 = SovaArbitrageEngine::reliability_permille(18, 2, 3);
+        assert!(r0 > r1 && r1 > r2 && r2 > r3);
+        assert_eq!(SovaArbitrageEngine::reliability_permille(0, 10_000, 5), 50);
+        assert_eq!(
+            SovaArbitrageEngine::reliability_permille(100_000, 0, 0),
+            995
+        );
+    }
 }
