@@ -1,0 +1,14 @@
+{
+  "id": "T-SIGNALPARSE-1",
+  "owner": "signalparse1103",
+  "status": "verified-source",
+  "title": "Make the selected signal registry callback readable to the unsafe exposure auditor",
+  "scopes": [
+    ".agents/tasks/T-SIGNALPARSE-1.json",
+    "vendor/signal-hook-registry"
+  ],
+  "upstream": "signal-hook-registry 1.4.8",
+  "registry_archive_sha256": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b",
+  "delta": "Single four-byte insertion (dyn + space) in the upstream callback type alias. The project uses a pinned compiler supporting explicit trait objects; every other upstream implementation byte and original attribution remain unchanged.",
+  "accept": "Execute the original crate tests and show Geiger measures its previously unreadable source. The root manifest/lock join must be committed by their owner before normal workspace use."
+}
