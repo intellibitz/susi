@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "DSP4WIRE1104",
-  "created_unix": 1793782474
+  "created_unix": 1793782474,
+  "closed": {
+    "at_unix": 1793786155,
+    "commit": "ef188ab8f61a258169a57e81fcc5f29e5ca9183a",
+    "by": "DSP4WIRE1104"
+  }
 }
