@@ -401,6 +401,7 @@ fn append_file_bounded(path: &Path, line: &str, max_bytes: u64) -> EaiResult<()>
 }
 
 #[cfg(test)]
+// Test-only assertions in inline unit tests.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod inline_tests {
     use super::*;
