@@ -932,21 +932,23 @@ mod hosted_scripts {
     }
 }
 
+/// A susi-unsafe-ratchet-only push used to skip the workspace target archive.
+/// The branch gate now runs the root package's guard tests on every push (CEO
+/// decision 2026-11-04), so every push builds the root package and the archive
+/// is restored unconditionally; no lightweight-package skip may return.
 #[test]
-fn ratchet_gate_skips_large_target_cache() {
+fn ratchet_gate_restores_target_cache_for_the_root_guard_build() {
     let workflow =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/test.yml");
     let workflow = std::fs::read_to_string(workflow).unwrap();
     assert!(
-        workflow.contains(
-            r#"if [ "$pkgs" = "xtask" ] || [ "$pkgs" = "susi-unsafe-ratchet" ]; then target_cache=false; fi"#
-        ),
-        "the lightweight package must skip the workspace target archive"
+        !workflow.contains("target_cache"),
+        "no package decision may skip the target archive the root guard build reads"
     );
     assert!(
         workflow.contains(
-            "if: steps.affected.outputs.lintcmd != '' && steps.affected.outputs.target_cache != 'false'"
+            "      - name: Cache Cargo\n        uses: Swatinem/rust-cache@v2\n        with:\n          shared-key: lint\n          cache-targets: \"true\""
         ),
-        "the target cache step must remain controlled by the package decision"
+        "the branch gate restores main's lint target archive on every push"
     );
 }
