@@ -134,4 +134,46 @@ mod tests {
             .contains("Task not found"));
         assert!(reply_summary(&json!({"result": {}})).is_err());
     }
+
+    #[test]
+    fn a2a_version_constant_and_multi_part_newline_joining_contract() {
+        assert_eq!(A2A_VERSION, "1.0");
+        let multi = json!({
+            "result": {
+                "message": {
+                    "parts": [
+                        {"text": "line1"},
+                        {"other": 1},
+                        {"text": "line2"}
+                    ]
+                }
+            }
+        });
+        assert_eq!(
+            reply_summary(&multi).unwrap(),
+            "message: line1\nline2".to_string()
+        );
+    }
+
+    #[test]
+    fn reply_summary_rejects_empty_document_and_missing_state_defaults_to_unknown() {
+        let err = reply_summary(&json!({})).unwrap_err();
+        assert!(err.contains("neither result nor error"), "{err}");
+
+        let task_unknown = json!({
+            "result": {
+                "task": {
+                    "status": {
+                        "message": {
+                            "parts": [{"text": "ok"}]
+                        }
+                    }
+                }
+            }
+        });
+        assert_eq!(
+            reply_summary(&task_unknown).unwrap(),
+            "task unknown: ok".to_string()
+        );
+    }
 }

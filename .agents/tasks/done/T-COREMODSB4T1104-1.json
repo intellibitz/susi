@@ -1,0 +1,20 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-COREMODSB4T1104-1",
+  "title": "Expand inline unit tests to 4 in susi-core a2a_wire, intent_bus, peer_probe, and substrate_hygiene",
+  "touch": [
+    "crates/susi-core/src/a2a_wire.rs",
+    "crates/susi-core/src/intent_bus.rs",
+    "crates/susi-core/src/peer_probe.rs",
+    "crates/susi-core/src/substrate_hygiene.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-core --lib a2a_wire",
+      "cargo test --offline --locked -p susi-core --lib intent_bus",
+      "cargo test --offline --locked -p susi-core --lib peer_probe",
+      "cargo test --offline --locked -p susi-core --lib substrate_hygiene",
+      "cargo clippy --offline --locked -p susi-core --tests -- -D warnings"
+    ]
+  }
+}

@@ -492,4 +492,48 @@ mod tests {
         assert!(!matches.is_empty());
         assert_eq!(matches[0].provider, "TestAgent");
     }
+
+    #[test]
+    fn jaccard_and_hash_embed_handle_empty_or_short_tokens_deterministically() {
+        assert_eq!(jaccard_similarity("", "rust unit tests"), 0.0);
+        assert_eq!(jaccard_similarity("a b", "c d"), 0.0);
+        let emb = hash_embed("rust cargo test");
+        assert_eq!(emb.len(), 64);
+        assert_eq!(hash_embed(""), vec![0.0; 64]);
+    }
+
+    #[test]
+    fn match_goal_to_capabilities_and_clear_reset_bus_state() {
+        let bus = IntentBus::default();
+        let caps = vec![
+            (
+                "TestRunner".to_string(),
+                "write and run rust unit tests".to_string(),
+            ),
+            ("Bakery".to_string(), "bake sourdough bread".to_string()),
+        ];
+        let matched = bus.match_goal_to_capabilities("write rust unit tests", &caps, 0.15, 5);
+        assert!(!matched.is_empty());
+        assert_eq!(matched[0].0, "TestRunner");
+
+        bus.advertise(
+            "ProviderA",
+            "analyze code quality",
+            serde_json::Value::Null,
+            None,
+        );
+        let _ = bus.need(
+            "RequesterB",
+            "analyze code quality",
+            serde_json::Value::Null,
+            None,
+            0.15,
+            5,
+        );
+        assert!(!bus.providers().is_empty());
+        assert!(!bus.needs().is_empty());
+        bus.clear();
+        assert!(bus.providers().is_empty());
+        assert!(bus.needs().is_empty());
+    }
 }
