@@ -58,3 +58,49 @@ pub fn register_local_embed_provider() {
 /// The explicit embedding-model install, re-exported so the CLI reaches it
 /// through this crate instead of linking the embedding engine directly.
 pub use susi_vendor_fastembed::{install_on_request, INSTALL_SOURCE};
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn local_embed_provider_reports_canonical_name_and_downcasts_via_as_any() {
+        let provider = LocalEmbedProvider;
+        assert_eq!(provider.name(), "susi-fastembed");
+        assert!(provider
+            .as_any()
+            .downcast_ref::<LocalEmbedProvider>()
+            .is_some());
+    }
+
+    #[test]
+    fn local_embed_provider_generate_rejects_chat_prompts_as_embedding_only() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt
+            .block_on(LocalEmbedProvider.generate("hello"))
+            .unwrap_err();
+        assert!(err.to_string().contains("embedding-only provider"));
+    }
+
+    #[test]
+    fn local_embed_provider_health_check_returns_boolean_status() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let healthy = rt.block_on(LocalEmbedProvider.is_healthy()).unwrap();
+        assert_eq!(healthy, !susi_vendor_fastembed::load_failed());
+    }
+
+    #[test]
+    fn register_local_embed_provider_is_idempotent_and_exposes_install_source() {
+        register_local_embed_provider();
+        register_local_embed_provider();
+        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        assert!(registry.get_provider("susi-fastembed").is_some());
+        assert_eq!(INSTALL_SOURCE, "embeddings");
+    }
+}
