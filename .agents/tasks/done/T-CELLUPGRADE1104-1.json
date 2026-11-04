@@ -19,5 +19,10 @@
                            ]
                },
     "created_by":  "CELLUPGRADE1104",
-    "created_unix":  1793753061
+    "created_unix":  1793753061,
+    "closed":  {
+                   "at_unix":  1793753088,
+                   "commit":  "6b70e56f7b8e3192f8b33827abbf2fff1eda960a",
+                   "by":  "CELLUPGRADE1104"
+               }
 }
