@@ -111,4 +111,20 @@ mod inline_tests {
         let ranked = prioritize(&[]);
         assert!(ranked.is_empty());
     }
+
+    #[test]
+    fn gap_proposal_negative_eval_cost_and_serde_json_round_trip() {
+        let prop = GapProposal {
+            pattern: "oom".to_string(),
+            frequency: 3,
+            impact: 4.5,
+            eval_cost: -2.0,
+            receipts: vec!["rcpt-1".to_string()],
+        };
+        assert!((prop.score() - 13.5).abs() < 1e-9);
+
+        let json = serde_json::to_string(&prop).unwrap();
+        let decoded: GapProposal = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, prop);
+    }
 }

@@ -85,4 +85,15 @@ mod inline_tests {
         assert!(!inv.holds);
         assert_eq!(inv.counterexample, Some("drop_table".to_string()));
     }
+
+    #[test]
+    fn intent_invariant_round_trips_through_serde_json_and_empty_allowlist_rejects() {
+        let denied = action_in_allowlist("noop", &[]);
+        assert!(!denied.holds);
+        assert_eq!(denied.counterexample.as_deref(), Some("noop"));
+
+        let json = serde_json::to_string(&denied).unwrap();
+        let decoded: IntentInvariant = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, denied);
+    }
 }
