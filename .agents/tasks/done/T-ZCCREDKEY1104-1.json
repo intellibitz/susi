@@ -1,0 +1,25 @@
+{
+  "id": "T-ZCCREDKEY1104-1",
+  "title": "VC-201-066 Scoped Key References and Config Credential Boundary Inline Contract Suites in susi-config",
+  "goal": "Add comprehensive inline #[cfg(test)] mod tests suites in crates/susi-config/src/key_scope.rs and crates/susi-config/src/credential.rs covering KeyRef::parse/uri, ScopedSecret::render, resolve_key_ref on cloud.env and host files, SusiConfig::credential_ref, resolve_credential, resolve_scoped_credential, and resolve_api_key_env.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ZCCREDKEY1104-1.json",
+    "crates/susi-config/src/key_scope.rs",
+    "crates/susi-config/src/credential.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "ZCCREDKEY1104",
+  "created_unix": 1793778960
+}
