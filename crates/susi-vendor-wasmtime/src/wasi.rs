@@ -413,3 +413,129 @@ pub(crate) fn link(linker: &mut Linker<Context>, module: &Module) -> Result<(), 
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasmi::{Engine, Store};
+
+    #[test]
+    fn context_new_validates_argument_and_initializes_state() {
+        let ctx = Context::new("payload-arg").unwrap();
+        assert_eq!(
+            ctx.args,
+            vec![b"reflex\0".to_vec(), b"payload-arg\0".to_vec()]
+        );
+        assert_eq!(ctx.closed, [false; 3]);
+        assert_eq!(ctx.output_bytes, 0);
+        assert!(ctx.stdout.is_empty());
+        assert!(ctx.memory.is_none());
+
+        assert!(Context::new("bad\0arg").is_err());
+        let oversized = "a".repeat(OUTPUT_LIMIT + 1);
+        assert!(Context::new(&oversized).is_err());
+    }
+
+    #[test]
+    fn address_arg_fd_open_and_clock_nanos_behave_correctly() {
+        assert_eq!(address(0), 0);
+        assert_eq!(address(4096), 4096);
+        assert_eq!(address(-1), u32::MAX as usize);
+
+        let values = [Val::I32(19), Val::I64(42)];
+        assert_eq!(arg(&values, 0), Ok(19));
+        assert_eq!(arg(&values, 1), Err(INVAL));
+        assert_eq!(arg(&values, 2), Err(INVAL));
+
+        let mut ctx = Context::new("x").unwrap();
+        assert!(fd_open(&ctx, 0));
+        assert!(fd_open(&ctx, 1));
+        assert!(fd_open(&ctx, 2));
+        assert!(!fd_open(&ctx, -1));
+        assert!(!fd_open(&ctx, 3));
+        ctx.closed[2] = true;
+        assert!(!fd_open(&ctx, 2));
+
+        assert!(clock_nanos(&ctx, 0).unwrap() > 0);
+        let _ = clock_nanos(&ctx, 1).unwrap();
+        assert_eq!(clock_nanos(&ctx, 2), Err(NOTSUP));
+        assert_eq!(clock_nanos(&ctx, 99), Err(NOTSUP));
+    }
+
+    #[test]
+    fn memory_read_write_and_write_u32_enforce_bounds() {
+        let engine = Engine::default();
+        let wat = r#"(module
+            (import "test" "probe" (func $probe))
+            (memory (export "memory") 1)
+            (func (export "_start") (call $probe))
+        )"#;
+        let wasm = wat::parse_str(wat).unwrap();
+        let module = Module::new(&engine, &wasm).unwrap();
+        let mut store = Store::new(&engine, Context::new("test").unwrap());
+        let mut linker = Linker::new(&engine);
+        linker
+            .func_wrap("test", "probe", |mut caller: Caller<'_, Context>| {
+                write(&mut caller, 16, b"wasi-bytes").unwrap();
+                write_u32(&mut caller, 32, 0xCAFE_BABE).unwrap();
+
+                let mem = memory(&caller).unwrap();
+                let mut text = [0u8; 10];
+                mem.read(&caller, 16, &mut text).unwrap();
+                assert_eq!(&text, b"wasi-bytes");
+
+                let mut word = [0u8; 4];
+                mem.read(&caller, 32, &mut word).unwrap();
+                assert_eq!(u32::from_le_bytes(word), 0xCAFE_BABE);
+
+                assert_eq!(write(&mut caller, -1, b"x"), Err(FAULT));
+                assert_eq!(write_u32(&mut caller, 65_534, 1), Err(FAULT));
+
+                caller.data_mut().memory = None;
+                assert!(memory(&caller).is_err());
+                assert_eq!(write(&mut caller, 0, b"x"), Err(FAULT));
+            })
+            .unwrap();
+        let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
+        store.data_mut().memory = instance.get_memory(&store, "memory");
+        instance
+            .get_typed_func::<(), ()>(&store, "_start")
+            .unwrap()
+            .call(&mut store, ())
+            .unwrap();
+    }
+
+    #[test]
+    fn link_preview1_executes_args_stdout_and_proc_exit_statuses() {
+        let wat = r#"(module
+            (import "wasi_snapshot_preview1" "args_sizes_get" (func $args_sizes_get (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "args_get" (func $args_get (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+            (memory (export "memory") 1)
+            (func (export "run") (param $code i32)
+                (drop (call $args_sizes_get (i32.const 0) (i32.const 4)))
+                (drop (call $args_get (i32.const 64) (i32.const 512)))
+                (i32.store (i32.const 128) (i32.load (i32.const 68)))
+                (i32.store (i32.const 132) (i32.const 9))
+                (drop (call $fd_write (i32.const 1) (i32.const 128) (i32.const 1) (i32.const 160)))
+                (call $proc_exit (local.get $code))
+            )
+        )"#;
+        let engine = Engine::default();
+        let wasm = wat::parse_str(wat).unwrap();
+        let module = Module::new(&engine, &wasm).unwrap();
+
+        for (exit_code, expected) in [(0, "hello-arg"), (7, "hello-arg")] {
+            let mut store = Store::new(&engine, Context::new(expected).unwrap());
+            let mut linker = Linker::new(&engine);
+            link(&mut linker, &module).unwrap();
+            let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
+            store.data_mut().memory = instance.get_memory(&store, "memory");
+            let run = instance.get_typed_func::<i32, ()>(&store, "run").unwrap();
+            let err = run.call(&mut store, exit_code).unwrap_err();
+            assert_eq!(err.i32_exit_status(), Some(exit_code));
+            assert_eq!(store.data().stdout, expected.as_bytes());
+        }
+    }
+}
