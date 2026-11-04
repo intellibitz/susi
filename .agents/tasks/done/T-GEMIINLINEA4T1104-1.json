@@ -1,0 +1,27 @@
+{
+  "id": "T-GEMIINLINEA4T1104-1",
+  "title": "test(gemi): expand inline unit tests to 4 in capability_matrix, coding_models_ext, context_assembly, engine_benchmark, frontier_ext",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "GEMIINLINEA4T1104",
+  "created_unix": 1793797605,
+  "closed": {
+    "at_unix": 1793797925,
+    "commit": "a0ab369f771c61b1e6d261b1d0a55f000dc5681f",
+    "by": "GEMIINLINEA4T1104"
+  }
+}

@@ -51,3 +51,35 @@ pub fn probe(id: &str, prompt: &str) -> Result<String> {
         .map_err(|e| susi_error::eai_err!(e.to_string()))?;
     Ok(crate::susi_config::redact_credentials(&text))
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn probe_rejects_empty_prompt_immediately() {
+        let err = probe("any-frontier-id", "").unwrap_err();
+        assert!(err.to_string().contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn probe_rejects_whitespace_only_prompt_immediately() {
+        let err = probe("any-frontier-id", "  \t\n ").unwrap_err();
+        assert!(err.to_string().contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn provider_returns_err_for_unknown_frontier_model_id() {
+        let manager = FrontierManager::new().unwrap();
+        let res = provider(&manager, "nonexistent-frontier-model-xyz-999");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn prefer_returns_err_for_unknown_frontier_model_when_not_clearing() {
+        let res = prefer("nonexistent-frontier-model-xyz-999", false);
+        assert!(res.is_err());
+    }
+}

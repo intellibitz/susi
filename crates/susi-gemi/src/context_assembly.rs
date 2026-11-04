@@ -269,3 +269,65 @@ pub fn cache_report_at(path: &Path) -> CacheReport {
 pub fn cache_report() -> CacheReport {
     cache_report_at(&default_journal_path())
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn approx_tokens_enforces_minimum_one_and_scales_by_quarter_chars() {
+        assert_eq!(approx_tokens(""), 1);
+        assert_eq!(approx_tokens("abc"), 1);
+        assert_eq!(approx_tokens("abcd"), 1);
+        assert_eq!(approx_tokens(&"x".repeat(40)), 10);
+    }
+
+    #[test]
+    fn cache_defect_labels_are_distinct_and_kebab_case() {
+        let d1 = CacheDefect::LateInstructionReordered.label();
+        let d2 = CacheDefect::NoInstructionPrefix.label();
+        let d3 = CacheDefect::PrefixUnderThreshold.label();
+        assert_eq!(d1, "late-instruction-reordered");
+        assert_eq!(d2, "no-instruction-prefix");
+        assert_eq!(d3, "prefix-under-threshold");
+        assert_ne!(d1, d2);
+        assert_ne!(d2, d3);
+    }
+
+    #[test]
+    fn assemble_hoists_late_system_turns_and_flags_defects() {
+        let turns = vec![
+            ("user".to_string(), "hello".to_string()),
+            ("system".to_string(), "be concise".to_string()),
+            ("assistant".to_string(), "hi".to_string()),
+        ];
+        let ctx = assemble(&turns);
+        assert!(ctx.prompt.starts_with("system: be concise\n\nuser: hello"));
+        assert!(ctx.defects.contains(&CacheDefect::LateInstructionReordered));
+        assert!(ctx.defects.contains(&CacheDefect::PrefixUnderThreshold));
+        assert!(!ctx.defects.contains(&CacheDefect::NoInstructionPrefix));
+    }
+
+    #[test]
+    fn record_assembly_at_and_cache_report_at_aggregate_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("context_cache.jsonl");
+        let turns = vec![
+            ("user".to_string(), "first turn".to_string()),
+            ("assistant".to_string(), "second turn".to_string()),
+        ];
+        let ctx = assemble(&turns);
+        record_assembly_at(&journal, None, &ctx);
+        record_assembly_at(&journal, Some("unpriced-provider-xyz"), &ctx);
+        let report = cache_report_at(&journal);
+        assert_eq!(report.calls, 2);
+        assert_eq!(report.calls_below_cache_threshold, 2);
+        assert!((report.mean_cacheable_fraction - ctx.cacheable_fraction).abs() < 1e-6);
+        assert_eq!(
+            report.defects.get(CacheDefect::NoInstructionPrefix.label()),
+            Some(&2)
+        );
+    }
+}
