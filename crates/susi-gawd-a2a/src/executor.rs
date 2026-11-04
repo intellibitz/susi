@@ -463,4 +463,35 @@ mod tests {
         assert_eq!(cancel_task.status.state, TaskState::Canceled);
         assert!(cancel_task.status.message.is_none());
     }
+
+    #[tokio::test]
+    async fn inflight_permit_lifecycle_run_mission_and_skill_metadata_contracts() {
+        assert_eq!(MAX_INFLIGHT_REQUESTS, 32);
+        let permit = InflightPermit::try_acquire().expect("inflight permit must be available");
+        drop(permit);
+        let permit_again =
+            InflightPermit::try_acquire().expect("inflight permit must be reusable after drop");
+        drop(permit_again);
+
+        let ok_res = run_mission(
+            Arc::new(|input| Ok(format!("ran:{input}"))),
+            "ping".to_string(),
+        )
+        .await;
+        assert_eq!(ok_res, Ok("ran:ping".to_string()));
+
+        let err_res = run_mission(
+            Arc::new(|_| Err("runner failed".to_string())),
+            "ping".to_string(),
+        )
+        .await;
+        assert_eq!(err_res, Err("runner failed".to_string()));
+
+        for s in GawdA2AExecutor::skills() {
+            assert_eq!(s.input_modes, vec!["text/plain".to_string()]);
+            assert_eq!(s.output_modes, vec!["text/plain".to_string()]);
+            assert!(!s.description.is_empty());
+            assert!(!s.tags.is_empty());
+        }
+    }
 }
