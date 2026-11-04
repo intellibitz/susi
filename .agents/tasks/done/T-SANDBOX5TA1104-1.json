@@ -1,0 +1,25 @@
+{
+  "id": "T-SANDBOX5TA1104-1",
+  "title": "Advance susi-sandbox, susi-sandbox-client, and susi-gawd-a2a modules from 4 to 5 inline unit tests (CEO Job #317)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-sandbox",
+      "--lib"
+    ]
+  },
+  "created_by": "SANDBOX5TA1104",
+  "created_unix": 1793810964,
+  "closed": {
+    "at_unix": 1793811411,
+    "commit": "ed24893c93275d2857f1b4c72e797f02dcd212f2",
+    "by": "SANDBOX5TA1104"
+  }
+}

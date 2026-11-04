@@ -427,10 +427,15 @@ fn only_user_request_entry_points_allow_an_on_demand_engine_start() {
         "crates/susi-gemi/src/engines/http_provider.rs", // unit test only
     ];
     let mut offenders = Vec::new();
+    let mut matched_entry_points = std::collections::BTreeSet::new();
     for (rel, text) in first_party_sources() {
         let code = code_only(&text);
-        if code.contains("OnDemandEngineStart::allow()") && !entry_points.contains(&rel.as_str()) {
-            offenders.push(format!("{rel} takes the on-demand engine-start guard"));
+        if code.contains("OnDemandEngineStart::allow()") {
+            if entry_points.contains(&rel.as_str()) {
+                matched_entry_points.insert(rel.clone());
+            } else {
+                offenders.push(format!("{rel} takes the on-demand engine-start guard"));
+            }
         }
         // Unattended work never holds the guard: the daemon crate (boot,
         // maintenance, scheduled missions, pulse worker) and the brain scout
@@ -444,6 +449,12 @@ fn only_user_request_entry_points_allow_an_on_demand_engine_start() {
         }
     }
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+    for ep in entry_points {
+        assert!(
+            matched_entry_points.contains(ep),
+            "expected entry point `{ep}` did not match `OnDemandEngineStart::allow()`; update scanner path if moved"
+        );
+    }
 
     // In the GAWD plane only the forwarded goal (`gawd.mission.run`, the
     // `mission_run` tool) runs as the user's request; `gawd.mission.solve`,

@@ -485,4 +485,11 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp);
     }
+
+    #[test]
+    fn parse_cli_args_rejects_missing_host_or_token_file_value_and_short_help_flag() {
+        assert!(parse_cli_args(&["--host".into()], 0, None).is_err());
+        assert!(parse_cli_args(&["--token-file".into()], 0, None).is_err());
+        assert_eq!(parse_cli_args(&["-h".into()], 0, None).unwrap_err(), "help");
+    }
 }

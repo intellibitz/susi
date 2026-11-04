@@ -62,4 +62,16 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].data, "payload");
     }
+
+    #[test]
+    fn http_response_empty_body_decodes_to_empty_text_and_missing_header_is_none() {
+        let resp = http::Response {
+            status: 204,
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        assert_eq!(resp.status, 204);
+        assert!(resp.text().is_empty());
+        assert_eq!(resp.header("content-type"), None);
+    }
 }

@@ -494,4 +494,24 @@ mod tests {
             assert!(!s.tags.is_empty());
         }
     }
+
+    #[tokio::test]
+    async fn execute_rejects_message_with_empty_parts_vec_without_invoking_runner() {
+        let called = Arc::new(AtomicBool::new(false));
+        let called_flag = Arc::clone(&called);
+        let executor = GawdA2AExecutor::with_runner(Arc::new(move |_| {
+            called_flag.store(true, Ordering::SeqCst);
+            Ok("should not run".to_string())
+        }));
+        let queue = EventQueue::new(4);
+        let mut rx = queue.subscribe();
+        let mut ctx = RequestContext::new("task-empty-parts", "ctx-empty-parts");
+        ctx.message = Some(Message::user(vec![]));
+        executor.execute(&ctx, &queue).await.unwrap();
+        let StreamResponse::Task(task) = rx.try_recv().unwrap() else {
+            panic!("expected Task event");
+        };
+        assert_eq!(task.status.state, TaskState::Failed);
+        assert!(!called.load(Ordering::SeqCst));
+    }
 }

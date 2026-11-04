@@ -94,4 +94,20 @@ mod inline_tests {
         let _status = SusiDaemonState::check_status(&root, &root);
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn verify_binary_integrity_returns_false_after_binary_modification_then_recovers() {
+        let root =
+            std::env::temp_dir().join(format!("susi_daemon_state_mutate_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create root");
+        let bin = root.join("fake.exe");
+        fs::write(&bin, b"v1-binary-bytes").expect("write v1");
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &root).expect("initial verify"));
+
+        fs::write(&bin, b"v2-modified-binary-bytes").expect("write v2");
+        assert!(!SusiDaemonState::verify_binary_integrity(&bin, &root).expect("detect change"));
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &root).expect("re-anchored verify"));
+        let _ = fs::remove_dir_all(&root);
+    }
 }

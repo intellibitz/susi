@@ -166,4 +166,16 @@ mod tests {
         let redacted = redact_patterns(&overlapping, "first=sk-live-abc_123,second=sk-test-999!");
         assert_eq!(redacted, "first=[REDACTED],second=[REDACTED]!");
     }
+
+    #[test]
+    fn mask_credentials_from_on_empty_text_or_empty_vars_returns_original_text() {
+        assert_eq!(
+            mask_credentials_from("", Vec::<(String, String)>::new()),
+            ""
+        );
+        assert_eq!(
+            mask_credentials_from("safe message", Vec::<(String, String)>::new()),
+            "safe message"
+        );
+    }
 }

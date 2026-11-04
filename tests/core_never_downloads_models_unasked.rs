@@ -611,6 +611,7 @@ fn only_explicit_user_requests_call_the_download_functions() {
         ),
     ];
     let mut offenders = Vec::new();
+    let mut matched_allowed = std::collections::BTreeSet::new();
     for (rel, code) in first_party_code() {
         for (function, files) in &allowed {
             let defines = code.contains(&format!("fn {function}("));
@@ -624,8 +625,14 @@ fn only_explicit_user_requests_call_the_download_functions() {
                     }
                 }
             }
-            if calls(&rest, function) && !files.contains(&rel.as_str()) {
-                offenders.push(format!("{rel} calls {function}()"));
+            if calls(&rest, function) {
+                if files.contains(&rel.as_str()) {
+                    matched_allowed.insert((*function, rel.clone()));
+                } else {
+                    offenders.push(format!("{rel} calls {function}()"));
+                }
+            } else if defines && files.contains(&rel.as_str()) {
+                matched_allowed.insert((*function, rel.clone()));
             }
         }
     }
@@ -634,6 +641,14 @@ fn only_explicit_user_requests_call_the_download_functions() {
         "only explicit user requests may download a model:\n{}",
         offenders.join("\n")
     );
+    for (function, files) in &allowed {
+        for file in *files {
+            assert!(
+                matched_allowed.contains(&(*function, (*file).to_string())),
+                "allowed download caller `{file}` did not call `{function}()`; update scanner path if moved"
+            );
+        }
+    }
 
     // Inside the model crate the starter's downloads run only in the
     // explicit install, and the background controller only for an explicit
