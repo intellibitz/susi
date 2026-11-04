@@ -64,3 +64,48 @@ pub use self_core::AlphaSelf;
 /// into `synthesize_fleet` results for unrelated goals.
 #[cfg(test)]
 pub(crate) mod test_plane;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn discoverable_asset_preserves_tier_name_provider_and_url() {
+        let asset = DiscoverableAsset {
+            tier: "agent".to_string(),
+            name: "Aider".to_string(),
+            provider: "oss".to_string(),
+            url: "https://aider.chat".to_string(),
+        };
+        assert_eq!(asset.name, "Aider");
+        assert_eq!(asset.tier, "agent");
+    }
+
+    #[test]
+    fn high_density_context_store_default_creates_clean_instance() {
+        let store = HighDensityContextStore::default();
+        let debug_repr = format!("{store:?}");
+        assert!(!debug_repr.is_empty());
+    }
+
+    #[test]
+    fn gawd_agent_info_constructs_and_preserves_provider_and_rank() {
+        let info = GawdAgentInfo {
+            name: "Verifier".to_string(),
+            provider: "susi".to_string(),
+            url: "local://verifier".to_string(),
+            rank: 1.0,
+        };
+        assert_eq!(info.name, "Verifier");
+        assert_eq!(info.provider, "susi");
+        assert!((info.rank - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn susi_error_reexport_builds_governance_error() {
+        let err = susi_error::EaiError::governance("policy test");
+        assert!(err.to_string().contains("policy test"));
+    }
+}

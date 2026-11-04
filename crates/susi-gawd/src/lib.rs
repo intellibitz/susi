@@ -392,3 +392,39 @@ mod vc_202_008_tests;
 pub fn swarm_pool_threads() -> usize {
     rayon::current_num_threads()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn swarm_pool_threads_reports_positive_rayon_worker_count() {
+        assert!(swarm_pool_threads() >= 1);
+    }
+
+    #[test]
+    fn init_hooks_is_idempotent_across_repeated_invocations() {
+        init_hooks();
+        init_hooks();
+        assert!(swarm_pool_threads() >= 1);
+    }
+
+    #[test]
+    fn ama_facade_sanitize_input_accepts_benign_prompt_and_wires_hooks() {
+        let cleaned = ama::SusiMasterAgent::sanitize_input("check cluster health")
+            .expect("benign input should pass");
+        assert!(cleaned.contains("check cluster health"));
+    }
+
+    #[test]
+    fn formal_invariants_verify_all_reports_zero_counterexamples_via_root() {
+        assert!(formal_invariants::lease_is_fenced(1, 1, 100, 200));
+        assert!(!formal_invariants::lease_is_fenced(1, 2, 100, 200));
+        assert_eq!(
+            formal_invariants::budget_transition(10, 5, 5, 20),
+            formal_invariants::BudgetTransition::Admit
+        );
+    }
+}

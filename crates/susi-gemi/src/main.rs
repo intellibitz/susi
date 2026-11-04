@@ -100,3 +100,68 @@ async fn handle_infer(req: SyscallRequest) -> SyscallResponse {
         },
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use susi_gemi::susi_abi::syscall::SyscallOp;
+
+    fn infer_request(id: &str, payload: serde_json::Value) -> SyscallRequest {
+        SyscallRequest {
+            id: id.to_string(),
+            caller_id: "test-caller".to_string(),
+            op: SyscallOp::Infer,
+            token: None,
+            workspace: Some(".".to_string()),
+            payload,
+            timestamp: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_infer_rejects_missing_prompt_field_with_error_status() {
+        let resp = handle_infer(infer_request("inf-1", serde_json::json!({}))).await;
+        assert_eq!(resp.id, "inf-1");
+        assert_eq!(resp.status, SyscallStatus::Error);
+        assert!(resp
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("missing prompt"));
+    }
+
+    #[tokio::test]
+    async fn handle_infer_rejects_whitespace_only_prompt_with_error_status() {
+        let resp = handle_infer(infer_request(
+            "inf-2",
+            serde_json::json!({ "prompt": "   \t\n " }),
+        ))
+        .await;
+        assert_eq!(resp.id, "inf-2");
+        assert_eq!(resp.status, SyscallStatus::Error);
+        assert_eq!(resp.data, serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn handle_infer_rejects_non_string_prompt_payload_with_error_status() {
+        let resp = handle_infer(infer_request("inf-3", serde_json::json!({ "prompt": 123 }))).await;
+        assert_eq!(resp.id, "inf-3");
+        assert_eq!(resp.status, SyscallStatus::Error);
+    }
+
+    #[test]
+    fn inference_swarm_cell_registers_inference_and_text_generation_capabilities() {
+        let bind_addr = cell_bind_addr(cell_ports::GEMI);
+        let mut cell = SwarmCell::new(
+            "gemi-infer-01".to_string(),
+            SwarmRole::InferenceDriver,
+            format!("tcp://{bind_addr}"),
+        );
+        cell.register_capability("inference");
+        cell.register_capability("text-generation");
+        assert_eq!(cell.manifest.role, SwarmRole::InferenceDriver);
+        assert_eq!(cell.manifest.capabilities.len(), 2);
+    }
+}

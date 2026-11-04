@@ -33,3 +33,71 @@ pub struct McpServerConfig {
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn mcp_server_config_serde_roundtrip_preserves_unknown_flattened_fields() {
+        let raw = r#"{
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+            "cwd": "/tmp/work",
+            "transport": "stdio"
+        }"#;
+        let cfg: McpServerConfig = serde_json::from_str(raw).expect("parse config");
+        assert_eq!(cfg.command, "npx");
+        assert_eq!(cfg.args.len(), 2);
+        assert_eq!(cfg.extra.get("cwd"), Some(&serde_json::json!("/tmp/work")));
+
+        let reserialized = serde_json::to_value(&cfg).expect("reserialize");
+        assert_eq!(reserialized["transport"], "stdio");
+    }
+
+    #[test]
+    fn mcp_server_config_deserializes_optional_env_map() {
+        let raw = r#"{
+            "command": "mcp-bin",
+            "args": [],
+            "env": {"MCP_MODE": "strict"}
+        }"#;
+        let cfg: McpServerConfig = serde_json::from_str(raw).expect("parse config");
+        assert_eq!(
+            cfg.env
+                .as_ref()
+                .and_then(|e| e.get("MCP_MODE"))
+                .map(String::as_str),
+            Some("strict")
+        );
+    }
+
+    #[test]
+    fn mcp_server_config_defaults_env_to_none_when_omitted() {
+        let raw = r#"{"command": "http://127.0.0.1:9999/mcp", "args": []}"#;
+        let cfg: McpServerConfig = serde_json::from_str(raw).expect("parse config");
+        assert!(cfg.env.is_none());
+        assert!(cfg.extra.is_empty());
+    }
+
+    #[test]
+    fn mcp_server_config_clone_preserves_command_args_and_extra() {
+        let mut extra = HashMap::new();
+        extra.insert("timeout_ms".into(), serde_json::json!(5000));
+        let cfg = McpServerConfig {
+            command: "server".into(),
+            args: vec!["--stdio".into()],
+            env: None,
+            extra,
+        };
+        let cloned = cfg.clone();
+        assert_eq!(cloned.command, "server");
+        assert_eq!(cloned.args, vec!["--stdio".to_string()]);
+        assert_eq!(
+            cloned.extra.get("timeout_ms"),
+            Some(&serde_json::json!(5000))
+        );
+    }
+}

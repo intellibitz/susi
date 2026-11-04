@@ -103,3 +103,68 @@ async fn handle_plan(req: SyscallRequest) -> SyscallResponse {
         },
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use susi_gawd::susi_abi::syscall::SyscallOp;
+
+    fn sample_request(id: &str, payload: serde_json::Value) -> SyscallRequest {
+        SyscallRequest {
+            id: id.to_string(),
+            caller_id: "test-caller".to_string(),
+            op: SyscallOp::Infer,
+            token: None,
+            workspace: Some(".".to_string()),
+            payload,
+            timestamp: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_plan_rejects_missing_goal_field_with_error_status() {
+        let resp = handle_plan(sample_request("req-1", serde_json::json!({}))).await;
+        assert_eq!(resp.id, "req-1");
+        assert_eq!(resp.status, SyscallStatus::Error);
+        assert!(resp
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("missing goal"));
+    }
+
+    #[tokio::test]
+    async fn handle_plan_rejects_whitespace_only_goal_with_error_status() {
+        let resp = handle_plan(sample_request(
+            "req-2",
+            serde_json::json!({ "goal": "   \t\n  " }),
+        ))
+        .await;
+        assert_eq!(resp.id, "req-2");
+        assert_eq!(resp.status, SyscallStatus::Error);
+        assert_eq!(resp.data, serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn handle_plan_rejects_empty_intent_fallback_with_error_status() {
+        let resp = handle_plan(sample_request("req-3", serde_json::json!({ "intent": "" }))).await;
+        assert_eq!(resp.id, "req-3");
+        assert_eq!(resp.status, SyscallStatus::Error);
+    }
+
+    #[test]
+    fn planner_swarm_cell_registers_scheduling_and_planner_capabilities() {
+        let bind_addr = cell_bind_addr(cell_ports::GAWD);
+        let mut cell = SwarmCell::new(
+            "gawd-planner-01".to_string(),
+            SwarmRole::PlannerCell,
+            format!("tcp://{bind_addr}"),
+        );
+        cell.register_capability("swarm-scheduling");
+        cell.register_capability("autonomous-planner");
+        assert_eq!(cell.manifest.role, SwarmRole::PlannerCell);
+        assert_eq!(cell.manifest.capabilities.len(), 2);
+    }
+}
