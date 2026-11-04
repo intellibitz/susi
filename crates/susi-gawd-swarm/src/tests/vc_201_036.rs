@@ -64,3 +64,42 @@ fn vc_201_036_rejects_tampered_missing_unauthorized() {
         BootstrapResult::UnauthorizedRoster
     );
 }
+
+#[test]
+fn vc_201_036_sign_is_deterministic_and_sensitive_to_all_inputs() {
+    let r1 = BTreeSet::from(["a".into(), "b".into()]);
+    let r2 = BTreeSet::from(["a".into(), "c".into()]);
+    let base = sign("a", "snap-1", "tail-1", &r1);
+    assert_eq!(base, sign("a", "snap-1", "tail-1", &r1));
+    assert_ne!(base, sign("b", "snap-1", "tail-1", &r1));
+    assert_ne!(base, sign("a", "snap-2", "tail-1", &r1));
+    assert_ne!(base, sign("a", "snap-1", "tail-2", &r1));
+    assert_ne!(base, sign("a", "snap-1", "tail-1", &r2));
+}
+
+#[test]
+fn vc_201_036_bootstrap_accepts_secondary_trust_anchor() {
+    let roster = BTreeSet::from(["peer-1".into(), "peer-2".into()]);
+    let history = BTreeSet::from(["peer-1".into(), "peer-2".into(), "peer-3".into()]);
+    let manifest = SnapshotManifest {
+        snapshot_id: "snap-42".into(),
+        ledger_tail: "tail-42".into(),
+        roster: roster.clone(),
+        signature: sign("peer-2", "snap-42", "tail-42", &roster),
+        signer: "peer-2".into(),
+    };
+    let anchors = vec![
+        TrustAnchor {
+            peer_id: "peer-1".into(),
+            public_key: "pk-1".into(),
+        },
+        TrustAnchor {
+            peer_id: "peer-2".into(),
+            public_key: "pk-2".into(),
+        },
+    ];
+    assert_eq!(
+        bootstrap(&manifest, &anchors, &history),
+        BootstrapResult::Ok
+    );
+}
