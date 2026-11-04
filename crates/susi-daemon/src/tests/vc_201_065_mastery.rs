@@ -85,3 +85,19 @@ fn vc_201_065_mastery_manifest_is_read_at_runtime() {
         "the manifest file must be named and read"
     );
 }
+
+#[test]
+fn vc_201_065_mastery_schema_version_constant_is_positive_and_persisted() {
+    const { assert!(susi_config::state_migration::STATE_SCHEMA_VERSION > 0) };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let migration = std::fs::read_to_string(root.join("../susi-config/src/state_migration.rs"))
+        .expect("state_migration.rs must be readable");
+    assert!(
+        migration.contains("STATE_SCHEMA_VERSION"),
+        "state_migration.rs must define STATE_SCHEMA_VERSION"
+    );
+    assert!(
+        migration.contains("write_version"),
+        "state_migration.rs must persist the target schema version after migration"
+    );
+}

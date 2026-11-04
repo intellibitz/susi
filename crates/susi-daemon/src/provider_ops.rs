@@ -892,4 +892,16 @@ mod tests {
             assert_eq!(row.as_object().unwrap().len(), 3, "presence only: {row}");
         }
     }
+
+    #[test]
+    fn all_ready_empty_and_any_key_rejected_evaluate_deterministically() {
+        assert!(all_ready(&[]));
+        assert!(!any_key_rejected(&[]));
+        let classified = brain_classify("prove formal theorem about prime numbers");
+        assert!(
+            classified["task_class"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+    }
 }
