@@ -218,3 +218,48 @@ mod vc_201_089_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_090.rs"]
 mod vc_201_090_tests;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn receipt_archive_constants_expose_canonical_relative_path_and_schema() {
+        assert!(!std::hint::black_box(ARCHIVE_REL).is_empty());
+        assert!(!std::hint::black_box(ARCHIVE_SCHEMA).is_empty());
+    }
+
+    #[test]
+    fn emergency_stop_running_task_and_stop_status_construct_via_crate_root() {
+        let task = emergency_stop::RunningTask::new("t-1", true, false, "fleet");
+        assert_eq!(task.id, "t-1");
+        assert!(task.cancellable);
+        let status = emergency_stop::StopStatus::default();
+        assert!(status.stop.is_none());
+    }
+
+    #[test]
+    fn discoverable_asset_and_agent_profile_roundtrip_json_via_crate_root() {
+        let asset = DiscoverableAsset {
+            tier: "core".into(),
+            name: "planner".into(),
+            provider: "susi".into(),
+            url: "local://planner".into(),
+        };
+        let json = serde_json::to_string(&asset).expect("serialize");
+        let decoded: DiscoverableAsset = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.name, "planner");
+    }
+
+    #[test]
+    fn self_alias_susi_core_resolves_error_and_emergency_stop_types() {
+        let stop = susi_core::emergency_stop::EmergencyStop {
+            scope: "fleet".into(),
+            reason: "drill".into(),
+            active: true,
+        };
+        assert!(stop.active);
+    }
+}

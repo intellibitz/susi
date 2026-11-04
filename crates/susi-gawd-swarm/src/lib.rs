@@ -256,3 +256,40 @@ mod vc_202_020_mastery_tests;
 pub fn init() {
     susi_gawd_agents::dag_hooks::init(dag::dispatch_mission_dag);
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn init_wires_mission_dag_hook_idempotently() {
+        init();
+        init();
+        let sanitized = SusiMasterAgent::sanitize_input("verify swarm status")
+            .expect("benign input should sanitize");
+        assert!(sanitized.contains("verify swarm status"));
+    }
+
+    #[test]
+    fn fault_matrix_run_matrix_passes_all_scenarios_via_swarm_root() {
+        let report = fault_matrix::run_matrix();
+        assert!(report.all_passed());
+        assert!(!report.scenarios.is_empty());
+    }
+
+    #[test]
+    fn fault_kind_serde_roundtrip_preserves_variant() {
+        let kind = fault_matrix::FaultKind::Partition;
+        let json = serde_json::to_string(&kind).expect("serialize");
+        let decoded: fault_matrix::FaultKind = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, kind);
+    }
+
+    #[test]
+    fn susi_error_reexport_constructs_process_error_from_swarm_root() {
+        let err = susi_error::EaiError::process("swarm root test");
+        assert!(err.to_string().contains("swarm root test"));
+    }
+}

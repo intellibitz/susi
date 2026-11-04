@@ -133,4 +133,22 @@ mod inline_tests {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.contains("err-msg"), "{stderr}");
     }
+
+    #[test]
+    fn output_within_kills_and_returns_timed_out_for_slow_command() {
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "ping -n 5 127.0.0.1 >nul"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut c = Command::new("sh");
+            c.args(["-c", "sleep 5"]);
+            c
+        };
+        let err = output_within(&mut cmd, Duration::from_millis(50)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+    }
 }

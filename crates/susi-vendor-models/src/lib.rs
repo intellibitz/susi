@@ -138,3 +138,37 @@ pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
 pub mod eco_engine_capability_map;
 pub mod eco_gpu_clouds;
 pub mod eco_live_probe;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn set_selected_model_override_rejects_empty_and_whitespace_names() {
+        assert!(set_selected_model_override("").is_err());
+        assert!(set_selected_model_override("   \t  ").is_err());
+    }
+
+    #[test]
+    fn set_selected_model_override_rejects_control_characters() {
+        let err =
+            set_selected_model_override("gpt-4o\ninjected").expect_err("newline must be rejected");
+        assert!(err.contains("expected a non-empty single-line id"));
+    }
+
+    #[test]
+    fn set_selected_model_override_rejects_overlong_names_above_512_bytes() {
+        let long_name = "m".repeat(513);
+        assert!(set_selected_model_override(&long_name).is_err());
+    }
+
+    #[test]
+    fn price_catalog_and_model_read_window_are_accessible_from_vendor_models_root() {
+        let _win = model_license::ModelReadWindow::enter();
+        let cat = price_catalog::PriceCatalog::empty(1);
+        assert_eq!(cat.version, 1);
+        assert!(cat.entries.is_empty());
+    }
+}

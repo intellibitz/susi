@@ -128,8 +128,11 @@ fn looks_like_tool_failure(text: &str) -> bool {
 }
 
 #[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::looks_like_tool_failure;
+    use super::*;
+    use susi_gmcp::susi_abi::syscall::SyscallOp;
 
     #[test]
     fn classifies_flattened_tool_failures() {
@@ -145,5 +148,50 @@ mod tests {
         assert!(!looks_like_tool_failure(
             "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
         ));
+    }
+
+    #[test]
+    fn looks_like_tool_failure_treats_valid_json_documents_as_non_failures() {
+        assert!(!looks_like_tool_failure(
+            r#"{"detail":"Sandbox Error: quoted in JSON report"}"#
+        ));
+        assert!(!looks_like_tool_failure(
+            r#"[{"msg":"Governance Violation: quoted"}]"#
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_tool_rejects_missing_tool_name_with_error_status() {
+        let req = SyscallRequest {
+            id: "tool-1".to_string(),
+            caller_id: "caller".to_string(),
+            op: SyscallOp::ToolCall,
+            token: None,
+            workspace: Some(".".to_string()),
+            payload: serde_json::json!({}),
+            timestamp: 1,
+        };
+        let resp = handle_tool(req).await;
+        assert_eq!(resp.id, "tool-1");
+        assert_eq!(resp.status, SyscallStatus::Error);
+        assert!(resp
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("missing tool name"));
+    }
+
+    #[test]
+    fn tool_driver_swarm_cell_registers_mcp_and_system_tools_capabilities() {
+        let bind_addr = cell_bind_addr(cell_ports::GMCP);
+        let mut cell = SwarmCell::new(
+            "gmcp-tools-01".to_string(),
+            SwarmRole::ToolDriver,
+            format!("tcp://{bind_addr}"),
+        );
+        cell.register_capability("mcp-protocol");
+        cell.register_capability("system-tools");
+        assert_eq!(cell.manifest.role, SwarmRole::ToolDriver);
+        assert_eq!(cell.manifest.capabilities.len(), 2);
     }
 }
