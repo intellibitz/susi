@@ -56,3 +56,43 @@ fn cleanup_runs_retention_stays_bounded() {
          so a busy week cannot rebuild the backlog between nightly runs"
     );
 }
+
+#[test]
+fn cleanup_runs_workflow_declares_schedule_and_workflow_dispatch_triggers() {
+    let text = std::fs::read_to_string(root().join(".github/workflows/cleanup-runs.yml"))
+        .expect("read cleanup-runs.yml");
+    let body = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(body.contains("schedule:"));
+    assert!(body.contains("cron:"));
+    assert!(body.contains("workflow_dispatch:"));
+}
+
+#[test]
+fn cleanup_runs_workflow_scopes_actions_write_and_contents_read_permissions() {
+    let text = std::fs::read_to_string(root().join(".github/workflows/cleanup-runs.yml"))
+        .expect("read cleanup-runs.yml");
+    let body = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(body.contains("actions: write"));
+    assert!(body.contains("contents: read"));
+}
+
+#[test]
+fn cleanup_runs_workflow_filters_completed_runs_and_runs_board_hygiene() {
+    let text = std::fs::read_to_string(root().join(".github/workflows/cleanup-runs.yml"))
+        .expect("read cleanup-runs.yml");
+    let body = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(body.contains("status=completed"));
+    assert!(body.contains("scripts/check-board-hygiene.sh --apply"));
+}

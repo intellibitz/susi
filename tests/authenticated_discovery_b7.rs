@@ -78,3 +78,23 @@ fn daemon_udp_discovery_listener_and_bootloader_probe_enforce_signed_ping_sig() 
         "crates/susi-gawd/src/kernel_loader.rs must probe UDP 9092 with cluster_key::signed_ping and verify_signed_pong"
     );
 }
+
+#[test]
+fn production_prefix_strips_cfg_test_suffix_and_preserves_unsplit_input() {
+    let sample = "fn prod() {}\n#[cfg(test)]\nmod tests { fn helper() {} }";
+    assert_eq!(production_prefix(sample), "fn prod() {}\n");
+    assert_eq!(production_prefix("fn only_prod() {}"), "fn only_prod() {}");
+}
+
+#[test]
+fn cluster_key_signed_ping_and_pong_helpers_remain_wired_in_config() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cluster_key_raw =
+        std::fs::read_to_string(root.join("crates/susi-config/src/cluster_key.rs"))
+            .expect("read crates/susi-config/src/cluster_key.rs");
+    let prod = production_prefix(&cluster_key_raw);
+    assert!(prod.contains("pub fn signed_ping"));
+    assert!(prod.contains("pub fn verify_signed_ping"));
+    assert!(prod.contains("pub fn signed_pong"));
+    assert!(prod.contains("pub fn verify_signed_pong"));
+}
