@@ -14,7 +14,11 @@
     "crates/susi-gawd-swarm/src/ama/master.rs",
     "crates/susi-gmcp/src/protocol.rs",
     "crates/susi-gmcp/src/protocol_tests.rs",
-    ".agents/gmcp/evidence"
+    ".agents/gmcp/evidence",
+    "tests/first_goal_opening.rs",
+    "tests/crown_verify_tests.rs",
+    "tests/moonshot_alias.rs",
+    "tests/run_cli_tests.rs"
   ],
   "accept": {
     "cmd": [
