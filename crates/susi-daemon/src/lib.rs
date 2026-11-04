@@ -95,3 +95,40 @@ pub use service_supervision::{RestartEvent, ServiceStatus, Supervisor, WorkerSta
 pub mod eco_drift_alerts;
 pub mod eco_probe_scheduler;
 pub mod estate_loop;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn crown_primed_surface_exposes_all_four_subsystems_via_daemon_root() {
+        let primed = std::hint::black_box(&crown::PRIMED);
+        assert!(primed.coding_models);
+        assert!(primed.execution_agents);
+        assert!(primed.frameworks);
+    }
+
+    #[test]
+    fn estate_loop_action_kind_serde_roundtrips_snake_case() {
+        let kind = estate_loop::ActionKind::WarmModel;
+        let json = serde_json::to_string(&kind).expect("serialize");
+        assert_eq!(json, "\"warm_model\"");
+        let decoded: estate_loop::ActionKind = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, kind);
+    }
+
+    #[test]
+    fn susi_engine_hooks_reports_non_empty_package_version() {
+        use susi_tools::EngineHooks;
+        let v = SusiEngineHooks.engine_version();
+        assert!(!v.is_empty());
+    }
+
+    #[test]
+    fn susi_error_reexport_constructs_process_error_from_daemon_root() {
+        let err = susi_error::EaiError::process("daemon test");
+        assert!(err.to_string().contains("daemon test"));
+    }
+}
