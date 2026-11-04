@@ -1,0 +1,27 @@
+{
+  "id": "T-HARNESSROICHANNEL1104-1",
+  "title": "test(harness,config): expand inline contract suites for roi, channel_bindings, key_rotation, and state_migration",
+  "goal": "D-OS-8: expand 2-test modules in susi-harness and susi-config",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSROICHANNEL1104",
+  "created_unix": 1793773032,
+  "closed": {
+    "at_unix": 1793774079,
+    "commit": "7ebfa666e837c9ec4036b7993faec233312b8c44",
+    "by": "HARNESSROICHANNEL1104"
+  }
+}

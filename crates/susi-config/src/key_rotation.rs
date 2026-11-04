@@ -332,4 +332,33 @@ UNSTAMPED_API_KEY=secret_unstamped_val_789
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn empty_keys_list_export_prefix_parsing_and_corrupt_ages_load_fail_cleanly() {
+        assert_eq!(format_keys_list(&[]), "");
+
+        let dir = unique_temp_dir("corrupt-and-export");
+        let ages_path = KeyAges::path_in(&dir);
+        std::fs::write(&ages_path, b"{not valid json").expect("write corrupt key-ages.json");
+        assert!(KeyAges::load(&ages_path).is_err());
+
+        let mut ages = KeyAges::default();
+        let now_unix = 100 * 86_400;
+        ages.stamp("GEMINI_API_KEY", now_unix - 10 * 86_400);
+
+        let env_text =
+            "\n# leading comment\n   \nexport GEMINI_API_KEY=ai-secret-value\n# trailing comment\n";
+        let statuses = key_statuses(env_text, &ages, now_unix, DEFAULT_MAX_AGE_DAYS);
+        assert_eq!(
+            statuses,
+            vec![KeyStatus {
+                key: "GEMINI_API_KEY".to_string(),
+                set_unix: Some(now_unix - 10 * 86_400),
+                age_days: Some(10),
+                needs_rotation: false,
+            }]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
