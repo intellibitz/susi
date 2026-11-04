@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ROOTHOOKS5TA1104",
-  "created_unix": 1793816920
+  "created_unix": 1793816920,
+  "closed": {
+    "at_unix": 1793817149,
+    "commit": "34d9a1beb43eea9c69380fa160ce8218321dc69d",
+    "by": "ROOTHOOKS5TA1104"
+  }
 }
