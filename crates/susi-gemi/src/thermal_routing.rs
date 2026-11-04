@@ -146,3 +146,78 @@ impl LocalWorkGate {
         self.queued
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn thermal_router_sustained_heat_transitions_to_unfit_thermal_and_recovers() {
+        let mut router = ThermalRouter::new(85.0, 75.0, 2);
+        assert_eq!(router.state(), HostFitness::Fit);
+        assert!(router.local_ok_for_latency_sensitive());
+
+        let hot = ThermalSample {
+            temp_c: 88.0,
+            power_w: 50.0,
+            power_cap_w: 100.0,
+            util_pct: 90.0,
+        };
+        assert_eq!(router.observe(hot), HostFitness::Fit);
+        assert_eq!(router.observe(hot), HostFitness::UnfitThermal);
+        assert!(router.prefer_cloud());
+
+        let cool = ThermalSample {
+            temp_c: 70.0,
+            power_w: 30.0,
+            power_cap_w: 100.0,
+            util_pct: 20.0,
+        };
+        assert_eq!(router.observe(cool), HostFitness::Recovering);
+        assert_eq!(router.observe(cool), HostFitness::Fit);
+        assert!(!router.prefer_cloud());
+    }
+
+    #[test]
+    fn thermal_router_power_cap_saturation_transitions_to_unfit_power() {
+        let mut router = ThermalRouter::new(85.0, 75.0, 2);
+        let capped = ThermalSample {
+            temp_c: 65.0,
+            power_w: 99.0,
+            power_cap_w: 100.0,
+            util_pct: 95.0,
+        };
+        assert_eq!(router.observe(capped), HostFitness::Fit);
+        assert_eq!(router.observe(capped), HostFitness::UnfitPower);
+        assert!(router.prefer_cloud());
+    }
+
+    #[test]
+    fn thermal_router_observe_unknown_prefers_cloud_until_real_sample() {
+        let mut router = ThermalRouter::new(85.0, 75.0, 1);
+        assert_eq!(router.observe_unknown(), HostFitness::Unknown);
+        assert!(router.prefer_cloud());
+
+        let normal = ThermalSample {
+            temp_c: 60.0,
+            power_w: 25.0,
+            power_cap_w: 100.0,
+            util_pct: 15.0,
+        };
+        assert_eq!(router.observe(normal), HostFitness::Fit);
+        assert!(router.local_ok_for_latency_sensitive());
+    }
+
+    #[test]
+    fn local_work_gate_queues_under_pressure_and_drains_when_fit() {
+        let mut gate = LocalWorkGate::new(2);
+        assert_eq!(gate.queued(), 0);
+        assert_eq!(gate.admit(HostFitness::UnfitThermal), (false, 1));
+        assert_eq!(gate.admit(HostFitness::UnfitPower), (false, 2));
+        assert_eq!(gate.admit(HostFitness::Recovering), (false, 2));
+        assert_eq!(gate.admit(HostFitness::Fit), (true, 0));
+        assert_eq!(gate.queued(), 0);
+    }
+}
