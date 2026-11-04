@@ -135,4 +135,21 @@ mod surface_tests {
         assert_eq!(hooks::hooks().engine_version(), "unknown");
         assert!(std::ptr::eq(ToolRegistry::global(), ToolRegistry::global()));
     }
+
+    #[test]
+    fn meta_tool_and_leading_mcp_types_resolve_through_crate_root() {
+        fn same<T: 'static, U: 'static>() -> bool {
+            std::any::TypeId::of::<T>() == std::any::TypeId::of::<U>()
+        }
+        assert!(same::<
+            LeadingMcpDefinition,
+            leading_mcp::LeadingMcpDefinition,
+        >());
+        assert!(same::<LeadingMcpManager, leading_mcp::LeadingMcpManager>());
+        assert!(same::<LeadingMcpOverride, leading_mcp::LeadingMcpOverride>());
+        assert!(same::<McpTool, types::McpTool>());
+        assert!(same::<MetaTool, types::MetaTool>());
+        assert!(same::<MetaToolHandler, types::MetaToolHandler>());
+        assert_eq!(format!("{:?}", MetaCategory::WasmReflex), "WasmReflex");
+    }
 }
