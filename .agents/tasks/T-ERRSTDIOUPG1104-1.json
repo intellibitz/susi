@@ -1,0 +1,26 @@
+{
+  "id": "T-ERRSTDIOUPG1104-1",
+  "title": "test: error contract, adapter upgrade, stdio pipe guard and tool types inline suites",
+  "goal": "D-OS-8: expand single-test leaf modules in susi-error, susi-agents, susi-paths, susi-tools",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-error",
+      "-p",
+      "susi-agents",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-tools",
+      "--lib"
+    ]
+  },
+  "created_by": "ERRSTDIOUPG1104",
+  "created_unix": 1793767777
+}
