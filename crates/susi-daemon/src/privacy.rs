@@ -44,3 +44,52 @@ pub fn set_privacy_mode(mode: &str) -> std::io::Result<serde_json::Value> {
         "blocks_cloud_inference": policy.blocks_cloud_inference(),
     }))
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn wire_mac_policy_is_idempotent_across_calls() {
+        let dir = std::env::temp_dir().join("susi-privacy-inline-wire");
+        wire_mac_policy(&dir);
+        wire_mac_policy(&dir);
+        let _ = MacPolicy::global().mode();
+    }
+
+    #[test]
+    fn privacy_mode_parse_maps_synonyms_and_defaults_to_balanced() {
+        assert_eq!(PrivacyMode::parse("local_only"), PrivacyMode::LocalOnly);
+        assert_eq!(PrivacyMode::parse("edge"), PrivacyMode::LocalOnly);
+        assert_eq!(PrivacyMode::parse("open"), PrivacyMode::Open);
+        assert_eq!(PrivacyMode::parse("unknown_mode"), PrivacyMode::Balanced);
+    }
+
+    #[test]
+    fn privacy_mode_parse_persisted_rejects_unknown_strings() {
+        assert_eq!(
+            PrivacyMode::parse_persisted("balanced"),
+            Some(PrivacyMode::Balanced)
+        );
+        assert_eq!(
+            PrivacyMode::parse_persisted("local_only"),
+            Some(PrivacyMode::LocalOnly)
+        );
+        assert_eq!(
+            PrivacyMode::parse_persisted("open"),
+            Some(PrivacyMode::Open)
+        );
+        assert_eq!(PrivacyMode::parse_persisted("corrupted"), None);
+    }
+
+    #[test]
+    fn privacy_mode_as_str_roundtrips_with_parse_persisted() {
+        for mode in [
+            PrivacyMode::Balanced,
+            PrivacyMode::LocalOnly,
+            PrivacyMode::Open,
+        ] {
+            assert_eq!(PrivacyMode::parse_persisted(mode.as_str()), Some(mode));
+        }
+    }
+}
