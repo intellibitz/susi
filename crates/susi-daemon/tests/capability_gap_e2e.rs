@@ -120,14 +120,14 @@ fn engine_hooks_init_registers_core_builtin_tools_deterministically() {
 #[test]
 fn env_guard_isolation_restores_substrate_vars_after_drop() {
     let key = "SUSI_CAPABILITY_GAP_E2E_PROBE";
-    std::env::set_var(key, "before");
     {
         let mut guard = susi_paths::test_env::EnvGuard::isolated();
-        guard.set(key, "inside");
-        assert_eq!(std::env::var(key).unwrap(), "inside");
+        guard.set(key, "first");
+        assert_eq!(std::env::var(key).unwrap(), "first");
+        guard.set(key, "second");
+        assert_eq!(std::env::var(key).unwrap(), "second");
     }
-    assert_eq!(std::env::var(key).unwrap(), "before");
-    std::env::remove_var(key);
+    assert!(std::env::var_os(key).is_none());
 }
 
 #[test]
