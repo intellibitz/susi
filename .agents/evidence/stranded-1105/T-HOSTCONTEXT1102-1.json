@@ -1,0 +1,43 @@
+{
+  "id": "T-HOSTCONTEXT1102-1",
+  "title": "Verify Windows production registration in the user's actual host context",
+  "deps": [],
+  "scopes": ["src/installed_channel/transaction.rs", "src/installed_channel/tests.rs", "src/installed_channel/host_task.rs", "src/installed_channel.rs", "src/cli/defs.rs", "crates/susi-harness/src/channel_bindings.rs", ".agents/tasks/T-HOSTCONTEXT1102-1.json"],
+  "acceptance": [
+    "A packaged caller must not report a real host installation when only its virtualized view can launch the release.",
+    "A fresh unpackaged process must resolve the expected installed entry, verify the package identity and launch the accepted version without human configuration.",
+    "Preserve existing processes, unrelated PATH entries and the prior verified release. Retain failure evidence if the host cannot be reached."
+  ],
+  "host_handoff_probe": {
+    "installed_version": "0.21.42",
+    "expected_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+    "action": "Run the admitted package directly with install-release --status --expect and its release ID",
+    "principal": "current user, InteractiveToken, LeastPrivilege",
+    "task_result": 0,
+    "elapsed_ms_after_start_request": 55869,
+    "temporary_task_removed": true,
+    "scope": "Read-only host status under parallel build load."
+  },
+  "development_binary_handoff": {
+    "expected_installed_release": "eab16850fcbd5e1b4789316a0b978fd87fba9db6dc71ce94a1070103adb89b65",
+    "correct_status_exit": 0,
+    "correct_status_elapsed_ms": 1734,
+    "wrong_release_status_exit": 1,
+    "wrong_release_elapsed_ms_including_observer": 1525,
+    "wrong_release_worker_receipt": "installed release differs from the requested target",
+    "wrong_release_scheduled_tasks_remaining": 0,
+    "final_debug_binary_sha256": "adee125a624b7466de6793cbc233b45160b2c85b18070f727c0aa197e8976252",
+    "final_correct_status_ms": 2921,
+    "final_wrong_status_ms": 1503,
+    "final_new_response_directories": 0,
+    "deep_path_fixture": "A 264-character executable path reproduced Windows error 3. The corrected version probe and installation interruption/rollback/tamper suite passed in this same scratch layout.",
+    "interactive_fixture_aba": "6.51 seconds including fixture compilation. An explicitly verified packaged parent scheduled three ordinary user processes through the product handoff. Each applied a transition to a private channel. The parent independently launched A, B, and restored A. The fixture omits real PATH and shortcut registration.",
+    "client_termination": "Killed the packaged status client after observing its registered task. The ordinary worker verified the exact installed 0.21.42 release, removed its own registration and left its result for recovery. A fresh client retried successfully. Combined interruption and retry took 2785 ms.",
+    "self_removal_fixture_aba": "5.39 seconds including fixture compilation. Registration started each worker exactly once and each worker released its working directory before publishing the result.",
+    "scheduler_origin": "A packaged client pointed SystemRoot, WINDIR, and PATH to a private directory containing a decoy schtasks.exe. The decoy never executed. The real worker verified the expected installed release and the client exited zero in 5267 ms. An earlier observer timed out before recording a result.",
+    "verified_machine_root_source": "9d4d87c60afc2819a57f00868d3934d02f257037",
+    "verified_machine_root_debug_sha256": "1362c1c5efb149900560e0e37422b5f3f8eb1e4c60516d60092be06b16918586",
+    "verified_machine_root_checks": "Strict Clippy succeeded for the Susi binary and susi-harness targets. All 73 regular CLI tests passed. The separate interactive A-B-A fixture passed in 11.22s and the native shortcut/expandable PATH idempotence test passed.",
+    "scope": "Packaged development caller, ordinary Windows host worker, read-only real release status and isolated fixture A-B-A. End-to-end installation and rollback of qualified packages with real registration through a packaged caller remain open."
+  }
+}

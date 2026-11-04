@@ -3,6 +3,9 @@
 use crate::cli::defs::Commands;
 use std::process::ExitCode;
 
+#[cfg(windows)]
+#[path = "installed_channel/host_task.rs"]
+mod host_task;
 #[path = "installed_channel/package.rs"]
 mod package;
 #[path = "installed_channel/transaction.rs"]
@@ -21,16 +24,20 @@ pub(crate) fn manage(command: &Commands) -> ExitCode {
         rollback,
         status,
         expect,
+        host_worker,
     } = command
     else {
         return ExitCode::FAILURE;
     };
     let result = transaction::manage(
-        id.as_deref(),
-        previous.as_deref(),
-        *rollback,
-        *status,
-        expect.as_deref(),
+        transaction::Request {
+            release: id.as_deref(),
+            previous: previous.as_deref(),
+            rollback: *rollback,
+            status: *status,
+            expected: expect.as_deref(),
+        },
+        *host_worker,
     );
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -49,13 +56,21 @@ pub(crate) fn dispatch() -> Option<ExitCode> {
     let mut args = std::env::args_os().skip(1);
     let command = args.next();
     if command.as_deref() == Some(std::ffi::OsStr::new("install")) && args.next().is_none() {
-        return Some(match transaction::manage(None, None, false, true, None) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("Installed Susi verification failed: {error}");
-                ExitCode::FAILURE
-            }
-        });
+        return Some(
+            match transaction::manage(
+                transaction::Request {
+                    status: true,
+                    ..Default::default()
+                },
+                false,
+            ) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("Installed Susi verification failed: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+        );
     }
     if command.as_deref() == Some(std::ffi::OsStr::new("install-release")) {
         return None;
