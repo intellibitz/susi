@@ -42,3 +42,26 @@ fn cli_output_contract_guard_exits_cleanly_on_a_closed_stdout() {
         "the broken-pipe guard must not report a panic: {stderr}"
     );
 }
+
+#[test]
+fn no_epipe_sentinel_exit_code_is_distinct_from_success() {
+    assert_eq!(NO_EPIPE, 3);
+    assert_ne!(NO_EPIPE, 0);
+}
+
+#[test]
+fn stdio_guard_probe_binary_path_is_present_on_disk() {
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_stdio_guard_probe"));
+    assert!(bin.is_file(), "expected probe binary at {}", bin.display());
+}
+
+#[test]
+fn cli_output_contract_guard_exits_with_no_epipe_when_stdout_is_fully_drained() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_stdio_guard_probe"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("run the stdio guard probe to completion");
+    assert_eq!(out.status.code(), Some(NO_EPIPE));
+    assert!(!out.stdout.is_empty());
+}
