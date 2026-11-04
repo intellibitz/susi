@@ -200,4 +200,20 @@ mod inline_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn get_falls_back_to_cache_and_replica_when_not_tombstoned() {
+        let mut stores = MemoryStores::default();
+        stores
+            .cache
+            .insert("cached-only".into(), "from-cache".into());
+        stores
+            .replica
+            .insert("replica-only".into(), "from-replica".into());
+        assert_eq!(stores.get("cached-only"), Some("from-cache"));
+        assert_eq!(stores.get("replica-only"), Some("from-replica"));
+
+        stores.delete_start("cached-only", 500);
+        assert_eq!(stores.get("cached-only"), None);
+    }
 }
