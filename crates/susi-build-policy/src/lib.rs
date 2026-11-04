@@ -221,4 +221,63 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn include_release_tooling_splices_before_double_dash_or_at_end_for_workspace_gates() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-vendor-splice-order-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("crates/susi-core")).unwrap();
+        std::fs::write(root.join("crates/susi-core/Cargo.toml"), "[package]").unwrap();
+
+        let mut gates = vec![
+            vec![
+                "test".into(),
+                "--workspace".into(),
+                "--".into(),
+                "--nocapture".into(),
+            ],
+            vec![
+                "clippy".into(),
+                "--workspace".into(),
+                "--all-targets".into(),
+            ],
+            vec!["test".into(), "-p".into(), "susi-core".into(), "--".into()],
+            vec!["check".into(), "--workspace".into()],
+            Vec::new(),
+        ];
+        include_release_tooling(&root, &mut gates);
+
+        assert_eq!(
+            gates[0],
+            [
+                "test",
+                "--workspace",
+                "--features",
+                "xtask/release-tooling",
+                "--",
+                "--nocapture"
+            ]
+        );
+        assert_eq!(
+            gates[1],
+            [
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--features",
+                "xtask/release-tooling"
+            ]
+        );
+        assert_eq!(gates[2], ["test", "-p", "susi-core", "--"]);
+        assert_eq!(gates[3], ["check", "--workspace"]);
+        assert!(gates[4].is_empty());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
