@@ -513,4 +513,24 @@ mod tests {
             json!({"action": "brain_probe", "provider": "local", "no_record": true})
         );
     }
+
+    #[test]
+    fn brain_status_and_provider_models_forward_optional_filters_and_limits() {
+        PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
+        let ws = Path::new(".");
+        assert_eq!(
+            sent(CoreTools::brain_status(
+                &json!({"top": 5, "class": "code"}),
+                ws
+            )),
+            json!({"action": "brain_status", "top": 5, "class": "code"})
+        );
+        assert_eq!(
+            sent(CoreTools::provider_models(
+                &json!({"live": true, "limit": 10}),
+                ws
+            )),
+            json!({"action": "openrouter_models", "live": true, "limit": 10})
+        );
+    }
 }

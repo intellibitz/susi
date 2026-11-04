@@ -259,4 +259,16 @@ mod tests {
         assert!(added.get("args").is_none());
         assert!(CoreTools::adapter_doctor(&json!({"kind": 123}), &ws).is_err());
     }
+
+    #[test]
+    fn adapter_reset_and_frameworks_retry_reject_mistyped_or_relative_arguments() {
+        PlaneBus::global().register(topics::DAEMON_ADAPTERS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        assert!(CoreTools::adapter_reset(&json!({"kind": "mcp", "id": 99}), &ws).is_err());
+        assert!(CoreTools::frameworks_retry(
+            &json!({"task_id": "t1", "workspace": "relative/ws"}),
+            &ws
+        )
+        .is_err());
+    }
 }

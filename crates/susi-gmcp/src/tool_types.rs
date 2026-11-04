@@ -99,4 +99,23 @@ mod inline_tests {
         let out = tool.execute(&json!(7), Path::new("/tmp/ws")).unwrap();
         assert_eq!(out, "ws:7");
     }
+
+    #[test]
+    fn meta_category_debug_formatting_identifies_all_seven_variants() {
+        let labels: Vec<String> = [
+            MetaCategory::SystemPrimitive,
+            MetaCategory::WorkspaceIo,
+            MetaCategory::McpProxy,
+            MetaCategory::WasmReflex,
+            MetaCategory::IntelligenceBridge,
+            MetaCategory::CodingSpecialist,
+            MetaCategory::AssistantSpecialist,
+        ]
+        .into_iter()
+        .map(|c| format!("{c:?}"))
+        .collect();
+        assert_eq!(labels.len(), 7);
+        assert!(labels.contains(&"WasmReflex".to_string()));
+        assert!(labels.contains(&"IntelligenceBridge".to_string()));
+    }
 }
