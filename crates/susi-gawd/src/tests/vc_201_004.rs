@@ -22,3 +22,14 @@ fn vc_201_004_missing_receipt_invalidates() {
     assert!(!r.validates_against(b"binary", None));
     assert!(r.validates_against(b"binary", Some(&r)));
 }
+
+#[test]
+fn vc_201_004_mismatched_suite_or_source_revision_invalidates_comparison() {
+    let base = EvalReceipt::new("rev1", b"binary", "suite-a", "env", 0);
+    let diff_suite = EvalReceipt::new("rev1", b"binary", "suite-b", "env", 0);
+    let diff_rev = EvalReceipt::new("rev2", b"binary", "suite-a", "env", 1);
+
+    assert!(!base.validates_against(b"binary", Some(&diff_suite)));
+    assert!(!base.validates_against(b"binary", Some(&diff_rev)));
+    assert_eq!(diff_rev.exit_status, 1);
+}
