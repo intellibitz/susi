@@ -1,0 +1,24 @@
+{
+  "id": "T-CONFIGZCBASECONFORM4T1104-1",
+  "title": "Expand inline unit test suites (3->4) across susi-config zc_bare_susi, zc_path, lib, and susi-conformance binary",
+  "goal": "Add a 4th inline unit test to susi-config zc_bare_susi.rs, zc_path.rs, lib.rs, and susi-conformance bin/susi-conformance.rs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-conformance"
+    ]
+  },
+  "created_by": "CONFIGZCBASECONFORM4T1104",
+  "created_unix": 1793778981,
+  "closed": {
+    "at_unix": 1793779456,
+    "commit": "4dbcfc7f8c3b45a5810f41ba00fc7edbd4efe340",
+    "by": "CONFIGZCBASECONFORM4T1104"
+  }
+}
