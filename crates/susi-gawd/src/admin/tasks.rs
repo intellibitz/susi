@@ -2330,6 +2330,22 @@ pub const VERIFY_BUDGET_SECS: u64 = 20 * 60;
 /// sweep.
 pub const VERIFY_ONE_TIMEOUT_SECS: u64 = 12 * 60;
 
+fn read_merged_task(done: &Path, id: &str) -> EaiResult<Task> {
+    let path = done.join(format!("{id}.json"));
+    let bytes = std::fs::read(&path).map_err(|error| {
+        EaiError::io(format!(
+            "cannot read merged task {id} at {}: {error}",
+            path.display()
+        ))
+    })?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        EaiError::config(format!(
+            "invalid merged task {id} at {}: {error}",
+            path.display()
+        ))
+    })
+}
+
 /// [`verify_merged`] with an explicit total budget.
 pub fn verify_merged_within(
     ws: &Path,
@@ -2349,8 +2365,7 @@ pub fn verify_merged_within(
 
     let mut out = Vec::new();
     for record in candidates {
-        let task: Task =
-            serde_json::from_slice(&std::fs::read(done.join(format!("{}.json", record.task)))?)?;
+        let task = read_merged_task(&done, &record.task)?;
         // One acceptance cannot outlive the sweep's remaining budget: the
         // check that would cross it is deferred whole, not started late.
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -3729,6 +3744,28 @@ fn ensure_open_on_main_synced(ws: &Path, id: &str) -> EaiResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merged_task_errors_name_the_task_and_record_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "T-BAD-1";
+        let path = dir.path().join(format!("{id}.json"));
+        let missing = read_merged_task(dir.path(), id).unwrap_err().to_string();
+        assert!(missing.contains(id));
+        assert!(missing.contains(&path.display().to_string()));
+        assert!(missing.contains("cannot read merged task"));
+
+        std::fs::write(
+            &path,
+            r#"{"id":"T-BAD-1","title":"missing provenance","accept":{"cmd":["cargo","test"]}}"#,
+        )
+        .unwrap();
+        let invalid = read_merged_task(dir.path(), id).unwrap_err().to_string();
+        assert!(invalid.contains(id));
+        assert!(invalid.contains(&path.display().to_string()));
+        assert!(invalid.contains("missing field `created_by`"));
+        assert!(invalid.contains("invalid merged task"));
+    }
 
     /// These legacy records blocked post-merge acceptance before a command ran.
     /// Preserve their original owner/time while requiring the full Task schema.
