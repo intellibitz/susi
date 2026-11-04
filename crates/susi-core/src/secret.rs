@@ -116,4 +116,37 @@ mod tests {
         // The only disclosure point is named and explicit.
         assert_eq!(secret.expose(), "sk-1234567890abcdef");
     }
+
+    #[test]
+    fn secret_deserialize_roundtrips_value_while_serialize_emits_redacted() {
+        let s: Secret = serde_json::from_str("\"my-raw-secret\"").expect("deserialize secret");
+        assert_eq!(s.expose(), "my-raw-secret");
+        assert_eq!(Secret::redacted(), REDACTED);
+        assert_eq!(
+            serde_json::to_string(&s).expect("serialize"),
+            "\"[REDACTED]\""
+        );
+    }
+
+    #[test]
+    fn secret_clone_eq_and_hash_preserve_value_equality() {
+        let s1 = Secret::new("tok-1");
+        let s2 = s1.clone();
+        let s3 = Secret::new("tok-2");
+        assert_eq!(s1, s2);
+        assert_ne!(s1, s3);
+
+        let mut set = std::collections::HashSet::new();
+        set.insert(s1);
+        set.insert(s2);
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn empty_secret_still_formats_as_redacted_marker() {
+        let empty = Secret::new("");
+        assert_eq!(empty.expose(), "");
+        assert_eq!(format!("{empty}"), REDACTED);
+        assert_eq!(format!("{empty:?}"), REDACTED);
+    }
 }

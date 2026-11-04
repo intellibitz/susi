@@ -55,4 +55,33 @@ mod zc_privacy_default_tests {
         assert!(!s.needs_prompt());
         assert!(s.allows_cloud());
     }
+
+    #[test]
+    fn consent_once_with_local_only_clears_prompt_but_still_disallows_cloud() {
+        let mut s = PrivacyState::default();
+        s.consent_once(PrivacyPreset::LocalOnly);
+        assert!(!s.needs_prompt());
+        assert!(!s.allows_cloud());
+    }
+
+    #[test]
+    fn consent_once_with_open_preset_allows_cloud_and_clears_prompt() {
+        let mut s = PrivacyState::default();
+        s.consent_once(PrivacyPreset::Open);
+        assert!(!s.needs_prompt());
+        assert!(s.allows_cloud());
+        assert_eq!(s.preset, PrivacyPreset::Open);
+    }
+
+    #[test]
+    fn privacy_state_and_preset_serialize_as_snake_case_json() {
+        let s = PrivacyState {
+            preset: PrivacyPreset::AllowlistedClouds,
+            consented: true,
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(json.contains("\"allowlisted_clouds\""), "{json}");
+        let back: PrivacyState = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, s);
+    }
 }
