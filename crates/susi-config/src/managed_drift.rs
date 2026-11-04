@@ -398,4 +398,19 @@ mod tests {
         assert!(rep.conflicts.is_empty());
         assert_eq!(rep.repaired, desired);
     }
+
+    #[test]
+    fn empty_owned_set_marks_drift_items_as_unowned_and_reconcile_records_conflict() {
+        let desired = json!({"k": 1});
+        let observed = json!({"k": 2});
+        let items = drift(&desired, &observed, &BTreeSet::new());
+        assert_eq!(items.len(), 1);
+        assert!(!items[0].owned);
+        assert_eq!(items[0].kind, DriftKind::Changed);
+
+        let rep = reconcile(&desired, &observed, &BTreeSet::new(), &["k".to_string()]);
+        assert!(rep.applied.is_empty());
+        assert_eq!(rep.conflicts.len(), 1);
+        assert_eq!(rep.conflicts[0].key, "k");
+    }
 }

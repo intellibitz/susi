@@ -69,4 +69,20 @@ mod tests {
         drop(guard);
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn isolated_home_places_all_resolved_susi_dirs_under_swapped_home() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp =
+            std::env::temp_dir().join(format!("susi_paths_probe_home_{}", std::process::id()));
+        let mut guard = susi_paths::test_env::EnvGuard::isolated();
+        for var in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"] {
+            guard.remove(var);
+        }
+        guard.set("HOME", &tmp);
+        assert_eq!(SusiDirs::home_dir(), tmp);
+        assert!(SusiDirs::config_dir().starts_with(&tmp));
+        assert!(SusiDirs::data_dir().starts_with(&tmp));
+        assert!(SusiDirs::cache_dir().starts_with(&tmp));
+    }
 }

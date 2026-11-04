@@ -515,4 +515,17 @@ mod tests {
             .await
             .expect("server task exits cleanly on corrupt stream");
     }
+
+    #[test]
+    fn wire_frame_heartbeat_and_syscall_response_encode_decode_roundtrip() {
+        let hb = WireFrame::new(MessageType::Heartbeat, b"{}".to_vec())
+            .encode()
+            .expect("encode heartbeat");
+        let (decoded, consumed) = WireFrame::decode(&hb).expect("decode heartbeat");
+        assert_eq!(consumed, hb.len());
+        assert_eq!(decoded.msg_type, MessageType::Heartbeat);
+        assert_eq!(decoded.payload, b"{}");
+        let stream = super::super::wire::FrameStream::new();
+        assert_eq!(stream.buffered(), 0);
+    }
 }

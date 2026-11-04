@@ -151,4 +151,11 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn request_with_none_has_no_authorization_and_root_uri_is_preserved() {
+        let req = request_with(None);
+        assert_eq!(req.uri().path(), "/");
+        assert!(authorization(&req).is_none());
+    }
 }

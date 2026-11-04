@@ -276,4 +276,14 @@ mod tests {
             assert!(uptime_secs().is_some_and(|s| s > 0));
         }
     }
+
+    #[test]
+    fn kernel_version_and_long_os_version_never_return_whitespace_only_strings() {
+        if let Some(kv) = kernel_version() {
+            assert!(!kv.trim().is_empty());
+        }
+        if let Some(osv) = long_os_version() {
+            assert!(!osv.trim().is_empty());
+        }
+    }
 }

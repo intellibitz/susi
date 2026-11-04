@@ -75,4 +75,13 @@ mod surface_tests {
             assert_eq!(err, format!("unsupported HTTP method {method}"));
         }
     }
+
+    #[test]
+    fn refused_url_produces_http_loopback_probe_endpoint_and_put_delete_fail_on_refused_port() {
+        let url = refused_url();
+        assert!(url.starts_with("http://127.0.0.1:"));
+        assert!(url.ends_with("/probe"));
+        assert!(http_call_with_body("PUT", &url, &[], Some(b"{}"), 1, 0).is_err());
+        assert!(http_call("DELETE", &url, &[], 1, 0).is_err());
+    }
 }

@@ -373,4 +373,18 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn no_local_model_installed_implements_std_error_and_preserves_custom_fields() {
+        let custom = NoLocalModelInstalled {
+            model: "custom-starter-q4".to_string(),
+            size_bytes: 750_000_000,
+            install_command: "susi os manage model install starter",
+        };
+        assert_eq!(custom.clone(), custom);
+        assert_eq!(custom.size_mb(), 750);
+        let err_ref: &dyn std::error::Error = &custom;
+        assert!(err_ref.source().is_none());
+        assert!(err_ref.to_string().contains("custom-starter-q4"));
+    }
 }

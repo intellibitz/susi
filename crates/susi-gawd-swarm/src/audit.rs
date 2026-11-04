@@ -98,4 +98,22 @@ mod inline_tests {
         }
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn audit_action_from_legacy_builds_valid_action_and_rejects_empty_actor() {
+        let action = AuditAction::from_legacy("swarm_tool", "detail", AuditOutcome::Succeeded)
+            .expect("from_legacy valid");
+        assert_eq!(action.outcome, AuditOutcome::Succeeded);
+
+        let bad_actor = AuditAction::new(
+            AuditActionKind::ToolExecution,
+            "",
+            AuditTarget::identifier("swarm_sync"),
+            AuditOutcome::Succeeded,
+            0,
+            0,
+            "corr-1",
+        );
+        assert!(bad_actor.is_err());
+    }
 }
