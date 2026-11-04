@@ -119,4 +119,33 @@ mod tests {
             Err(RangeError::TooLarge)
         );
     }
+
+    #[test]
+    fn table_slots_enforces_exact_image_boundaries_including_end_marker_width() {
+        let width = core::mem::size_of::<usize>();
+        let base = 0x4000;
+        let image_size = 0x1000;
+        let limit = base + image_size;
+        assert_eq!(
+            table_slots(base, image_size, base, limit - width),
+            Ok((image_size - width) / width)
+        );
+        assert_eq!(
+            table_slots(base, image_size, base, limit),
+            Err(RangeError::OutsideImage)
+        );
+    }
+
+    #[test]
+    fn range_error_traits_and_single_slot_table_calculation() {
+        let width = core::mem::size_of::<usize>();
+        assert_eq!(table_slots(0x2000, 0x100, 0x2000, 0x2000 + width), Ok(1));
+
+        let err = RangeError::Misaligned;
+        let copied = err;
+        assert_eq!(err, copied);
+        assert_ne!(err, RangeError::Overflow);
+        assert_ne!(err, RangeError::OutsideImage);
+        assert_ne!(err, RangeError::TooLarge);
+    }
 }
