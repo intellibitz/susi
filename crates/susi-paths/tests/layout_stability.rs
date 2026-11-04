@@ -13,8 +13,11 @@
 //! else may resolve paths concurrently.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 use susi_paths::test_env::EnvGuard;
 use susi_paths::SusiDirs;
+
+static LAYOUT_LOCK: Mutex<()> = Mutex::new(());
 
 fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -32,6 +35,7 @@ fn scratch(tag: &str) -> PathBuf {
 
 #[test]
 fn creating_legacy_dir_mid_process_keeps_the_xdg_layout() {
+    let _guard = LAYOUT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Scrubs SUSI_HOME/SUSI_PORT_OFFSET; everything touched is restored on drop.
     let mut env = EnvGuard::isolated();
     for var in ["SUSI_XDG", "XDG_DATA_HOME", "XDG_CACHE_HOME"] {
@@ -80,4 +84,41 @@ fn creating_legacy_dir_mid_process_keeps_the_xdg_layout() {
     for dir in [home, legacy_home, instance] {
         let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+#[test]
+fn scratch_creates_unique_existing_temp_directory() {
+    let d1 = scratch("unit-a");
+    let d2 = scratch("unit-b");
+    assert!(d1.is_dir());
+    assert!(d2.is_dir());
+    assert_ne!(d1, d2);
+    let _ = std::fs::remove_dir_all(d1);
+    let _ = std::fs::remove_dir_all(d2);
+}
+
+#[test]
+fn susi_home_override_pins_config_and_data_dirs_to_instance_root() {
+    let _guard = LAYOUT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut env = EnvGuard::isolated();
+    let instance = scratch("pinned-instance");
+    env.set("SUSI_HOME", &instance);
+    assert_eq!(SusiDirs::config_dir(), instance);
+    assert_eq!(SusiDirs::data_dir(), instance);
+    drop(env);
+    let _ = std::fs::remove_dir_all(instance);
+}
+
+#[test]
+fn legacy_home_with_existing_dot_susi_resolves_to_dot_susi() {
+    let _guard = LAYOUT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut env = EnvGuard::isolated();
+    env.remove("SUSI_XDG");
+    let legacy = scratch("legacy-unit");
+    let dot_susi = legacy.join(".susi");
+    std::fs::create_dir_all(&dot_susi).unwrap();
+    env.set("HOME", &legacy);
+    assert_eq!(SusiDirs::config_dir(), dot_susi);
+    drop(env);
+    let _ = std::fs::remove_dir_all(legacy);
 }

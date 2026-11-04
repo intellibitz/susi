@@ -1457,3 +1457,78 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     // No essential-MCP auto-link: core never configures or launches a
     // third-party MCP server on its own (zero-UI plan A8).
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_registry_registers_core_system_primitives() {
+        let registry = ToolRegistry::global();
+        bootstrap_registry(registry);
+        for name in ["status", "ledger_verify", "identity", "self_validate"] {
+            assert!(
+                registry.tools.contains_key(name),
+                "expected core primitive tool {name} to be registered"
+            );
+        }
+    }
+
+    #[test]
+    fn bootstrap_registry_registers_group_11_extension_tools() {
+        let registry = ToolRegistry::global();
+        bootstrap_registry(registry);
+        for name in [
+            "extensions_list",
+            "extensions_status",
+            "extensions_validate",
+            "extensions_load",
+            "extensions_unload",
+            "extensions_create",
+        ] {
+            assert!(
+                registry.tools.contains_key(name),
+                "expected extension tool {name} to be registered"
+            );
+        }
+    }
+
+    #[test]
+    fn bootstrap_registry_registers_runtime_model_and_placement_tools() {
+        let registry = ToolRegistry::global();
+        bootstrap_registry(registry);
+        for name in [
+            "runtime_models_list",
+            "runtime_models_load",
+            "runtime_models_unload",
+            "placement_decision",
+            "inference_placement",
+        ] {
+            assert!(
+                registry.tools.contains_key(name),
+                "expected runtime/placement tool {name} to be registered"
+            );
+        }
+    }
+
+    #[test]
+    fn bootstrap_registry_registers_zero_config_and_lifecycle_tools() {
+        let registry = ToolRegistry::global();
+        bootstrap_registry(registry);
+        for name in [
+            "auto_status",
+            "auto_prime",
+            "deep_scan",
+            "config_reload",
+            "daemon_shutdown",
+            "intent_ladder",
+        ] {
+            assert!(
+                registry.tools.contains_key(name),
+                "expected zero-config/lifecycle tool {name} to be registered"
+            );
+        }
+    }
+}
