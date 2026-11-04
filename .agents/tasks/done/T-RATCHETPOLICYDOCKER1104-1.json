@@ -22,5 +22,10 @@
     ]
   },
   "created_by": "RATCHETPOLICYDOCKER1104",
-  "created_unix": 1793771925
+  "created_unix": 1793771925,
+  "closed": {
+    "at_unix": 1793772589,
+    "commit": "de32e03f9d102c6d2cce6085f74055a200bf3183",
+    "by": "RATCHETPOLICYDOCKER1104"
+  }
 }
