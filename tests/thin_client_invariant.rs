@@ -28,6 +28,38 @@ const ALLOWED_WIRE_CLIENT: &[&str] = &[
     "zmij",
 ];
 
+/// Cross-platform packages in `susi-cli-defs`'s `clap` closure.
+const ALLOWED_CLI_DEFS_COMMON: &[&str] = &[
+    "anstream",
+    "anstyle",
+    "anstyle-parse",
+    "anstyle-query",
+    "clap",
+    "clap_builder",
+    "clap_derive",
+    "clap_lex",
+    "colorchoice",
+    "heck",
+    "idna_adapter",
+    "is_terminal_polyfill",
+    "proc-macro2",
+    "quote",
+    "strsim",
+    "susi-cli-defs",
+    "susi-vendor-clap",
+    "syn",
+    "unicode-ident",
+    "utf8parse",
+];
+
+/// Windows-only console styling packages pulled by `anstream` on `x86_64-pc-windows-msvc`.
+const ALLOWED_CLI_DEFS_WINDOWS_ONLY: &[&str] = &[
+    "anstyle-wincon",
+    "once_cell_polyfill",
+    "windows-link",
+    "windows-sys",
+];
+
 /// Package names in the normal and build graph of `package` on `target`.
 /// A failing `cargo tree` fails the test with its stderr; it never skips.
 fn closure(package: &str, target: &str) -> BTreeSet<String> {
@@ -61,23 +93,39 @@ fn closure(package: &str, target: &str) -> BTreeSet<String> {
         .collect()
 }
 
-fn assert_closure(package: &str, allowed: &[&str]) {
+fn assert_closure_on_target(package: &str, target: &str, allowed: &[&str]) {
     let allowed: BTreeSet<String> = allowed.iter().map(|p| (*p).to_string()).collect();
+    let actual = closure(package, target);
+    let added: Vec<_> = actual.difference(&allowed).collect();
+    let removed: Vec<_> = allowed.difference(&actual).collect();
+    assert!(
+        added.is_empty() && removed.is_empty(),
+        "{package} on {target} links packages outside its reviewed allow-list \
+         (added {added:?}, gone {removed:?}); update the list only after review"
+    );
+}
+
+fn assert_closure(package: &str, allowed: &[&str]) {
     for target in TARGETS {
-        let actual = closure(package, target);
-        let added: Vec<_> = actual.difference(&allowed).collect();
-        let removed: Vec<_> = allowed.difference(&actual).collect();
-        assert!(
-            added.is_empty() && removed.is_empty(),
-            "{package} on {target} links packages outside its reviewed allow-list \
-             (added {added:?}, gone {removed:?}); update the list only after review"
-        );
+        assert_closure_on_target(package, target, allowed);
     }
 }
 
 #[test]
 fn wire_client_links_only_std_and_json() {
     assert_closure("susi-wire-client", ALLOWED_WIRE_CLIENT);
+}
+
+#[test]
+fn cli_defs_links_only_the_clap_closure() {
+    let mut win_allowed = ALLOWED_CLI_DEFS_COMMON.to_vec();
+    win_allowed.extend_from_slice(ALLOWED_CLI_DEFS_WINDOWS_ONLY);
+    assert_closure_on_target("susi-cli-defs", "x86_64-pc-windows-msvc", &win_allowed);
+    assert_closure_on_target(
+        "susi-cli-defs",
+        "x86_64-unknown-linux-gnu",
+        ALLOWED_CLI_DEFS_COMMON,
+    );
 }
 
 /// The conformance suite reuses the wire client's HTTP framing and stays a

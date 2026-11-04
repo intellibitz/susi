@@ -152,7 +152,7 @@ pub enum TaskCommands {
         limit: usize,
         /// Wall-clock budget for the whole sweep, seconds; what does not fit is
         /// deferred to the next run rather than holding the job
-        #[arg(long, default_value_t = susi_gawd::admin::tasks::VERIFY_BUDGET_SECS)]
+        #[arg(long, default_value_t = susi_cli_defs::VERIFY_BUDGET_SECS)]
         budget_secs: u64,
     },
 }
