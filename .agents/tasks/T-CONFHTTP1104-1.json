@@ -1,0 +1,22 @@
+﻿{
+  "id": "T-CONFHTTP1104-1",
+  "title": "B1 strict HTTP/1.1 chunked CRLF framing validation and loopback wire tests in susi-conformance/src/http.rs",
+  "state": "open",
+  "created_by": "CONFHTTP1104",
+  "created_at_unix": 1793758800,
+  "scope": {
+    "files": [
+      "crates/susi-conformance/src/http.rs"
+    ]
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-conformance"
+    ]
+  }
+}
