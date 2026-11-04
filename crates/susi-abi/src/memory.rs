@@ -327,4 +327,27 @@ mod tests {
         assert_eq!(top_one.len(), 1);
         assert_eq!(top_one[0].fragment.id, "tie-a");
     }
+
+    #[test]
+    fn empty_store_search_returns_empty_and_zero_norm_cosine_similarity_is_zero() {
+        let store = InMemoryEpisodicStore::new();
+        let hits = store
+            .search(MemorySearchRequest {
+                namespace: "empty".into(),
+                query_embedding: vec![1.0, 0.0],
+                limit: 10,
+                min_score: -1.0,
+            })
+            .expect("search empty store");
+        assert!(hits.is_empty());
+
+        assert_eq!(
+            InMemoryEpisodicStore::cosine_similarity(&[0.0, 0.0], &[1.0, 2.0]),
+            0.0
+        );
+        assert_eq!(
+            InMemoryEpisodicStore::cosine_similarity(&[1.0], &[1.0, 2.0]),
+            0.0
+        );
+    }
 }

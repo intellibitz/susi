@@ -117,4 +117,19 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn put_and_patch_on_config_routes_require_host_token() {
+        for (method, uri, body) in [
+            ("PUT", "/config", "{}"),
+            ("PATCH", "/config", "{}"),
+            ("PUT", "/config/reload", ""),
+        ] {
+            assert_eq!(
+                status(method, uri, body).await,
+                StatusCode::UNAUTHORIZED,
+                "{method} {uri}"
+            );
+        }
+    }
 }

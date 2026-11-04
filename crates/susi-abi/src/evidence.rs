@@ -202,4 +202,29 @@ mod tests {
             assert_eq!(decoded, receipt);
         }
     }
+
+    #[test]
+    fn grounded_claim_and_session_summary_clone_and_debug_preserve_fields() {
+        let claim = GroundedClaim {
+            claim_id: "c-1104".to_string(),
+            proposition: "All unit tests pass".to_string(),
+            confidence: 1.0,
+            receipt_citations: vec!["r-1".to_string(), "r-2".to_string()],
+            verified: true,
+        };
+        let cloned_claim = claim.clone();
+        assert_eq!(cloned_claim, claim);
+        assert!(format!("{cloned_claim:?}").contains("c-1104"));
+
+        let summary = EvidenceSessionSummary {
+            session_id: "s-1104".to_string(),
+            workspace_root: "/ws".to_string(),
+            total_receipts: 2,
+            verified_claims: 1,
+            created_at: 99,
+        };
+        let cloned_summary = summary.clone();
+        assert_eq!(cloned_summary, summary);
+        assert!(format!("{cloned_summary:?}").contains("s-1104"));
+    }
 }

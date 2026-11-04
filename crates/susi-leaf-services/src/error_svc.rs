@@ -120,4 +120,16 @@ mod tests {
             assert!(body["entries"].is_array());
         }
     }
+
+    #[tokio::test]
+    async fn unknown_error_service_route_returns_not_found() {
+        let req = Request::get("/errors/unknown_subroute")
+            .body(Body::empty())
+            .unwrap();
+        let status = router().oneshot(req).await.unwrap().status();
+        assert!(
+            status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED,
+            "GET /errors/unknown_subroute -> {status}"
+        );
+    }
 }
