@@ -149,3 +149,13 @@ fn unit_isolate_home_redirects_home_and_userprofile_to_target_directory() {
         Some(&target.as_os_str().to_os_string())
     );
 }
+
+#[test]
+fn unit_susi_binary_constant_points_to_existing_executable() {
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_susi"));
+    assert!(
+        bin.is_file(),
+        "expected susi executable at {}",
+        bin.display()
+    );
+}

@@ -72,3 +72,14 @@ fn cross_platform_diagnostics_reports_host_state() {
     assert_eq!(diag.platform, PlatformKind::current());
     assert!(diag.gpu_script_available);
 }
+
+#[test]
+fn uninstall_service_command_covers_all_three_platforms() {
+    let cfg = ServiceConfig::default_daemon("susi");
+    let linux = uninstall_service_command(PlatformKind::Linux, &cfg);
+    let macos = uninstall_service_command(PlatformKind::MacOS, &cfg);
+    let windows = uninstall_service_command(PlatformKind::Windows, &cfg);
+    assert!(!linux.is_empty());
+    assert!(!macos.is_empty());
+    assert!(!windows.is_empty());
+}

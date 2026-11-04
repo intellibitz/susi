@@ -200,3 +200,11 @@ fn fresh_workspace_summary_is_zeroed_and_below_threshold_does_not_distill() {
     assert_eq!(after_summary["published"], 0, "{after_summary}");
     assert_eq!(after_summary["error"], 0, "{after_summary}");
 }
+
+#[test]
+fn test_home_helper_is_deterministic_within_process() {
+    let first = test_home();
+    let second = test_home();
+    assert_eq!(first, second);
+    assert!(first.to_string_lossy().contains("susi_distill_loop_"));
+}
