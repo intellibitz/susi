@@ -53,4 +53,13 @@ mod inline_tests {
         assert!(json_capped::<serde_json::Value>(Cursor::new(body), 1024).is_err());
         assert_eq!(JSON_BODY_CAP, 16 * 1024 * 1024);
     }
+
+    #[test]
+    fn json_capped_deserializes_empty_array_and_nested_objects() {
+        let arr: Vec<u32> = json_capped(Cursor::new(b"[]"), 64).unwrap();
+        assert!(arr.is_empty());
+        let nested: serde_json::Value =
+            json_capped(Cursor::new(br#"{"outer":{"inner":[1,2]}}"#), 128).unwrap();
+        assert_eq!(nested["outer"]["inner"][1], 2);
+    }
 }

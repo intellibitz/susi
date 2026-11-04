@@ -189,3 +189,35 @@ mod vc_202_020_rate_mastery_tests;
 #[cfg(test)]
 #[path = "tests/worker_may_be_an_agent.rs"]
 mod worker_may_be_an_agent_tests;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn models_tier_reexport_exposes_default_starters() {
+        let starters = models::zc_first_model::default_starters();
+        assert_eq!(starters.len(), 2);
+    }
+
+    #[test]
+    fn engines_capability_hierarchy_is_accessible_from_gemi_root() {
+        use engines::capability::ModelCapability;
+        assert!(ModelCapability::Basic < ModelCapability::Coding);
+        assert!(ModelCapability::Coding < ModelCapability::Reasoning);
+    }
+
+    #[test]
+    fn engines_capability_of_classifies_opus_as_reasoning_via_root() {
+        use engines::capability::{of, ModelCapability};
+        assert_eq!(of("claude-opus-4"), ModelCapability::Reasoning);
+    }
+
+    #[test]
+    fn models_intent_task_complexity_escalates_from_gemi_root() {
+        use models::intent::TaskComplexity;
+        assert_eq!(TaskComplexity::Trivial.escalate(), TaskComplexity::Simple);
+    }
+}

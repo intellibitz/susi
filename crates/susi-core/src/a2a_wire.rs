@@ -176,4 +176,25 @@ mod tests {
             "task unknown: ok".to_string()
         );
     }
+
+    #[test]
+    fn reply_summary_falls_back_to_multiple_artifacts_joined_by_newline() {
+        let reply = json!({
+            "result": {
+                "task": {
+                    "status": {
+                        "state": "completed"
+                    },
+                    "artifacts": [
+                        {"parts": [{"text": "first-artifact"}]},
+                        {"parts": [{"text": "second-artifact"}]}
+                    ]
+                }
+            }
+        });
+        assert_eq!(
+            reply_summary(&reply).unwrap(),
+            "task completed: first-artifact\nsecond-artifact".to_string()
+        );
+    }
 }
