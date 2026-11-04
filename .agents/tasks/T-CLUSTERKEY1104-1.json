@@ -1,0 +1,13 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CLUSTERKEY1104-1",
+  "agent": "CLUSTERKEY1104",
+  "branch": "cluster-key-inline-1104",
+  "goal": "Add inline unit tests for the env-free logic of susi-config cluster_key.rs that the external suite does not reach: HMAC/MAC reference vectors, wire-safety, key rotation lifecycle (stage/activate/expiry/revoke), strict roster and ban-list fail-closed behaviour, member signature and binding verification, and malformed handshake-frame rejection (D-OS-8)",
+  "touch": [
+    "crates/susi-config/src/cluster_key.rs"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-config", "--lib"]
+  }
+}
