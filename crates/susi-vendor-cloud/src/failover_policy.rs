@@ -253,4 +253,26 @@ mod tests {
         assert!(rendered.contains("ep-cloud: privacy requires local"));
         assert!(rendered.ends_with("ep-slow: deadline; ep-expensive: budget)"));
     }
+
+    #[test]
+    fn route_accepts_exact_deadline_and_budget_boundaries_and_handles_empty_candidates() {
+        let constraints = RouteConstraints {
+            needs_capability: "tool:search".into(),
+            privacy: Privacy::LocalOnly,
+            deadline_ms: 100,
+            budget_cents: 50,
+        };
+        let exact = Endpoint {
+            est_latency_ms: 100,
+            cost_cents: 50,
+            ..base_endpoint("ep-exact")
+        };
+        assert_eq!(route(&constraints, std::slice::from_ref(&exact)), Ok(exact));
+
+        let empty_err = route(&constraints, &[]);
+        assert_eq!(empty_err, Err(NoRoute { refusals: vec![] }));
+        if let Err(err) = empty_err {
+            assert_eq!(err.to_string(), "no policy-preserving route ()");
+        }
+    }
 }
