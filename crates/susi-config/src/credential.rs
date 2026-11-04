@@ -242,4 +242,30 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn credential_ref_trims_surrounding_whitespace_and_rejects_non_string_json_setting_values() {
+        let mut cfg = SusiConfig::default();
+        cfg.settings
+            .insert("padded_scoped".into(), json!("  secret://deploy/key  "));
+        cfg.settings
+            .insert("padded_key".into(), json!("  key://host/api_token  "));
+        cfg.settings.insert("numeric_cred".into(), json!(12345));
+
+        assert_eq!(
+            cfg.credential_ref("padded_scoped").unwrap().display(),
+            "secret://deploy/key"
+        );
+        assert_eq!(
+            cfg.credential_ref("padded_key").unwrap().display(),
+            "key://host/api_token"
+        );
+        assert!(cfg.credential_ref("numeric_cred").is_err());
+
+        let mut vault = SecretVault::default();
+        let deploy_boundary = vault.issue_boundary("deploy");
+        assert!(cfg
+            .resolve_scoped_credential("padded_scoped", &deploy_boundary)
+            .is_err());
+    }
 }
