@@ -1,0 +1,25 @@
+{
+  "id": "T-CONFIGSUITESC4T1104-1",
+  "title": "Expand unit tests to 4 in susi-config zc_config_all_optional, zc_debt_report, setup_workflow, and windows_model_identity (CEO Job #144, D-OS-8)",
+  "goal": "Expand unit tests to 4 in susi-config zc_config_all_optional, zc_debt_report, setup_workflow, and windows_model_identity",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "CONFIGSUITESC4T1104",
+  "created_unix": 1793782466,
+  "closed": {
+    "at_unix": 1793782829,
+    "commit": "4f9b85a643cd869aecd16b2fd6dfde3225c1c78c",
+    "by": "CONFIGSUITESC4T1104"
+  }
+}
