@@ -101,3 +101,54 @@ fn vc_201_051_credentialed_opt_in_off_by_default() {
     }
     assert!(probe_credentialed_opt_in("x", "y", "z").is_none());
 }
+
+#[test]
+fn vc_201_051_failed_probe_status_on_unrecognized_fixture_shapes() {
+    let bad_auth = probe_fixture(
+        "fixture-openai",
+        "gpt-test",
+        "2024-01",
+        ProbeKind::Authentication,
+        &FixtureResponse {
+            http_status: 500,
+            body: serde_json::json!({}),
+        },
+    );
+    assert_eq!(bad_auth.status, ProbeStatus::Failed);
+
+    let bad_tools = probe_fixture(
+        "fixture-openai",
+        "gpt-test",
+        "2024-01",
+        ProbeKind::ToolCalls,
+        &FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({"choices": [{"message": {}}]}),
+        },
+    );
+    assert_eq!(bad_tools.status, ProbeStatus::Failed);
+
+    let bad_embed = probe_fixture(
+        "fixture-openai",
+        "gpt-test",
+        "2024-01",
+        ProbeKind::Embeddings,
+        &FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({"object": "not_a_list"}),
+        },
+    );
+    assert_eq!(bad_embed.status, ProbeStatus::Failed);
+
+    let bad_errors = probe_fixture(
+        "fixture-openai",
+        "gpt-test",
+        "2024-01",
+        ProbeKind::Errors,
+        &FixtureResponse {
+            http_status: 200,
+            body: serde_json::json!({"ok": true}),
+        },
+    );
+    assert_eq!(bad_errors.status, ProbeStatus::Failed);
+}
