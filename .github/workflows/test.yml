@@ -725,7 +725,7 @@ jobs:
       # (core_never_downloads_models_unasked also runs the built `susi` binary
       # under an isolated home), so plain `cargo test` runs them; no nextest.
       - name: Root-package guard tests (every branch push)
-        run: cargo test --locked -p susi --test architecture_tests --test socket_parity --test core_boot_starts_nothing --test core_never_downloads_models_unasked
+        run: cargo test --locked -p susi --test architecture_tests --test socket_parity --test core_boot_starts_nothing --test core_never_downloads_models_unasked --test core_docs_promise_no_ui_or_plugins
 
       - name: Install cargo-nextest for branch tests
       # The native gate fixture (xtask local-workflow) runs `cargo deny`; without
