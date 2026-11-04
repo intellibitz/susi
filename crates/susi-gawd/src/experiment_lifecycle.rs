@@ -322,4 +322,22 @@ mod inline_tests {
             Some(ExperimentState::PromotionReady)
         );
     }
+
+    #[test]
+    fn transition_rejects_unknown_experiment_and_supports_isolated_to_rejected() {
+        let mut log = ExperimentLog::default();
+        assert_eq!(
+            log.transition("missing-id", ExperimentState::Isolated),
+            Err("unknown".to_string())
+        );
+        log.propose("exp-iso-fail").unwrap();
+        log.transition("exp-iso-fail", ExperimentState::Isolated)
+            .unwrap();
+        log.transition("exp-iso-fail", ExperimentState::Rejected)
+            .unwrap();
+        assert_eq!(
+            log.experiments.get("exp-iso-fail").map(|e| e.state),
+            Some(ExperimentState::Rejected)
+        );
+    }
 }
