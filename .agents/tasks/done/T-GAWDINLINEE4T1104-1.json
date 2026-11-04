@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "GAWDINLINEE4T1104",
-  "created_unix": 1793798375
+  "created_unix": 1793798375,
+  "closed": {
+    "at_unix": 1793798715,
+    "commit": "8be25acc400c32bf74cd22a75d9a167c6df4f904",
+    "by": "GAWDINLINEE4T1104"
+  }
 }
