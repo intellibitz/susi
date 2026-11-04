@@ -8,8 +8,9 @@ An agent operating system is not a chat window. It is a runtime that schedules
 work, admits spend before spending it, isolates agents from each other and from
 the host, and journals every action so a mission can be replayed, audited and
 learned from. SUSI already has that kernel. What it does not have yet are the
-five seams that let anyone plug in a model, a tool, an agent or a UI without
-recompiling it.
+five seams that let anyone plug in a model, a tool or an agent, or point an
+external client at its API, without recompiling it. Core itself ships no UI
+and bundles no plugins; those live in Susi Commercial Apps.
 
 ## The kernel model
 
@@ -22,7 +23,7 @@ recompiling it.
 | Processes | one agent turn per task ([`executor`](../crates/susi-harness/src/executor.rs)) | Isolated, budgeted unit of work |
 | IPC | [`event`](../crates/susi-harness/src/event.rs), [`control`](../crates/susi-harness/src/control.rs) | Typed messages, operator commands, journal |
 | Filesystem | [`adapter`](../crates/susi-harness/src/adapter.rs) | Worktree, claim, acceptance, finish |
-| Shell | [`cockpit`](../crates/susi-harness/src/cockpit.rs), [`api`](../crates/susi-harness/src/api.rs) (JSON/SSE only) | Status, control, spend, replay |
+| Operator API | [`cockpit`](../crates/susi-harness/src/cockpit.rs), [`api`](../crates/susi-harness/src/api.rs) (JSON/SSE only; no UI) | Status, control, spend, replay |
 
 Four invariants hold the model together:
 
@@ -33,7 +34,7 @@ Four invariants hold the model together:
 3. **Spend is admitted before dispatch.** A call that cannot be priced or
    cannot fit the cap is refused, not discovered on the bill.
 4. **The journal is the only history.** Ledger + events + control log are
-   append-only; the cockpit is a view, never a second source of truth.
+   append-only; the harness API is a view, never a second source of truth.
 
 ## What exists
 
@@ -61,8 +62,9 @@ Four invariants hold the model together:
   executor: there is no external agent runtime to start or select.
 - **Isolation.** Every task gets a worktree, a claimed task id and a scope; the
   adapter lands it through the repository's own `workflow finish`.
-- **A shell.** The cockpit serves a snapshot and an SSE feed, and operator
-  commands are validated and logged, then applied at the next task boundary.
+- **An operator API.** The harness API serves a JSON snapshot and an SSE
+  feed (no UI), and operator commands are validated and logged, then applied
+  at the next task boundary.
 
 ## Components
 
@@ -79,13 +81,13 @@ network call:
 | Spend caps and routing policy | [`budget.rs`](../crates/susi-harness/src/budget.rs) + [`policy.rs`](../crates/susi-harness/src/policy.rs) — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
 | The worker loop | [`worker.rs`](../crates/susi-harness/src/worker.rs) + [`agents.rs`](../crates/susi-harness/src/agents.rs) — in-process tool loop and agent graph |
 | MCP tools | [`mcp.rs`](../crates/susi-harness/src/mcp.rs) + [`tools.rs`](../crates/susi-harness/src/tools.rs) — stdio/HTTP client, tool records, approval policy |
-| Plugin manifests | [`plugins.rs`](../crates/susi-harness/src/plugins.rs) — `harness.plugins.json`, capability-scoped records |
+| Plugin manifests | Retracted: the harness plugin registry (`plugins.rs`, `harness.plugins.json`) was removed; core admits installed extension packs through `susi extensions` and MCP servers through `susi mcp-add`, and plugins live in Susi Commercial Apps |
 
 ## The seams that were missing
 
 These closed the gap between "a gateway that meters" and "an orchestration layer
 that can be handed work": a provider registry, a public ingress, a tool and MCP
-layer, an agent graph, and a plugin manifest.
+layer, an agent graph, and (since retracted) a plugin manifest.
 
 ### 1. Provider registry
 
@@ -128,7 +130,7 @@ and no per-tool sandbox profile.
 Now: a tool record — name, JSON schema, handler (`native` or `mcp`), policy
 (`auto`, `ask`, `deny`), sandbox — plus an MCP client over stdio and HTTP and an
 MCP server that exposes susi's own tools. Approvals travel through the control
-log, so the cockpit asks and the supervisor applies.
+log, so the operator answers through the harness API and the supervisor applies.
 
 ### 4. Agent graph
 
@@ -141,14 +143,16 @@ topology is plan → fan out coders into disjoint worktrees → review the diff
 against acceptance → integrate. Every node is budgeted; the reviewer is a
 different agent with its own scope.
 
-### 5. Plugins
+### 5. Plugins (retracted)
 
-Everything is compiled in: adding a provider, a tool or an agent means a crate
+Everything was compiled in: adding a provider, a tool or an agent meant a crate
 change and a release.
 
-Now: a manifest loaded at startup, out-of-process over MCP first and in-process
-as WASM components later. A plugin that asks for a capability the manifest did
-not declare is refused.
+A harness plugin manifest loaded at startup once closed this seam. It was
+retracted with the zero-UI directive (2026-11-03): the harness has no plugin
+registry. Core admits what the user installs through its standard protocols
+(MCP servers, installed extension packs, the provider registry's override
+document), and curated plugins live in Susi Commercial Apps.
 
 ## Capability-scoped agents
 
@@ -179,13 +183,12 @@ its own budget.
 | 2 | ✅ Public ingress, per-key budgets, `/v1/models`, direct mode | `cargo test -p susi-harness --lib ingress` | T-HARNESSOS-3 |
 | 3 | ✅ Tool registry, MCP client, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |
 | 4 | ✅ Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
-| 5 | ✅ Plugin manifest, JSON today (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
+| 5 | Retracted: plugin manifest removed with the zero-UI directive; plugins live in Susi Commercial Apps | none (no harness plugin registry) | T-HARNESSOS-6 |
 | 6 | ✅ Mission control: graph, per-agent spend, approvals, replay | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
 | 7 | ✅ Live agent-graph missions: `harness-mission` runs planner, coders and reviewer as real turns (reviewer acceptance is "the run succeeded" until a verdict protocol exists) | proof mission below still needs provider keys and worktrees | T-HARNESSOS-12 |
 
-The manifest is `harness.plugins.json` rather than TOML: the tree carries no
-TOML parser, and the data format here is JSON. See
-[plugins.rs](../crates/susi-harness/src/plugins.rs).
+Retracted: the phase-5 manifest was `harness.plugins.json` rather than TOML: the
+tree carries no TOML parser, and the data format here is JSON.
 
 Phase 7 is wired: a mission with an `agents` block and no `dry_run` runs the
 graph for real — each role is one native worker turn in its own
@@ -208,7 +211,7 @@ that turns a roadmap vector into a validated plan; coders that run tools and
 the repository's acceptance; a reviewer that gates each diff; merges that land
 through the normal pull request path; a ledger total under the cap. `kill -9`
 mid-run, restart, and it resumes without double-spending or re-serving
-completed work. The cockpit's `replay` reassembles that journal — the event
+completed work. The harness API's `replay` reassembles that journal — the event
 feed, the ledger rows and the graph handoffs — into one deterministic,
 read-only timeline.
 
@@ -244,14 +247,15 @@ it can be handed work and trusted with the resources to do it.
 - **Runaway agents.** Turn caps, stall guards and per-agent budgets are not
   optional; a loop that reads forever must be stopped before it spends the
   mission.
-- **Plugin security.** A manifest is a capability list, not a promise: deny by
-  default, and refuse undeclared access at the host boundary.
+- **Pack security.** An extension-pack manifest is a capability list, not a
+  promise: deny by default, and refuse undeclared access at the host boundary.
 - **Scope creep.** The fastest way to lose the kernel is to grow a UI framework
   or a workflow DSL inside it.
 
 ## Non-goals
 
-- A general-purpose chat product; the cockpit is a control surface.
+- A general-purpose chat product or any UI; the harness API is a control
+  surface, and visual views live in Susi Commercial Apps.
 - A workflow DSL; plans are data validated against the repository.
 - A vector database or memory service in the kernel; memory is a tool.
 - Multi-tenant billing; one operator, keys map to budgets.

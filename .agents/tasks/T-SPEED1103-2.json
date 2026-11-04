@@ -1,0 +1,19 @@
+{
+  "id": "T-SPEED1103-2",
+  "title": "Core docs match the code: no UI, bundled plugins, auto-launch, auto-download or macOS/ARM core release promises, plus a doc-ban test (plan E1)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "created_by": "SPEED1103",
+  "created_unix": 1793767743
+}

@@ -5,7 +5,7 @@ host files win; unknown keys are preserved on write-back). Core bundles no
 launchable vendor catalog and seeds no extension pack: packs installed under
 `~/.susi/extensions/<id>/` (by the user or the commercial desktop) carry
 vendor opinions such as MCP servers and agent adapters; see `ARCHITECTURE.md`
-plugin triad.
+admission protocols.
 
 ## Authority map
 
