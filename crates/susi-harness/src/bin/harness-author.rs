@@ -200,4 +200,41 @@ mod tests {
         assert!(parse(args(&["--gateway", "g"])).is_err());
         assert!(parse(args(&["--nope"])).is_err());
     }
+
+    #[test]
+    fn tails_strings_at_boundary_and_parses_custom_workers_and_overrides() {
+        assert_eq!(tail("hello", 5), "hello");
+        assert_eq!(tail("hi", 10), "hi");
+        assert_eq!(tail("abcdef", 3), "def");
+
+        let options = parse(args(&[
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--repo",
+            "custom-repo",
+            "--roadmap",
+            ".agents/roadmap.json",
+            "--vector",
+            "VC-203-002",
+            "--out",
+            "out/authored.json",
+            "--max-tasks",
+            "7",
+            "--timeout",
+            "450",
+            "--workers",
+            " alpha-worker , , beta-worker , ",
+        ]))
+        .unwrap();
+        assert_eq!(options.repo, PathBuf::from("custom-repo"));
+        assert_eq!(options.out, PathBuf::from("out/authored.json"));
+        assert_eq!(options.max_tasks, 7);
+        assert_eq!(options.timeout, 450);
+        assert_eq!(
+            options.workers,
+            vec!["alpha-worker".to_string(), "beta-worker".to_string()]
+        );
+    }
 }

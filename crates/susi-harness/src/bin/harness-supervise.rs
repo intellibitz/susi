@@ -256,4 +256,67 @@ mod tests {
         assert!(parse(args(&["--plan", "p"])).is_err());
         assert!(parse(args(&["--nope"])).is_err());
     }
+
+    #[test]
+    fn validates_budget_catalogue_numeric_flags_attempt_clamping_and_alternates() {
+        let base = [
+            "--plan",
+            "plan.json",
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--adapter-state",
+            "state",
+        ];
+
+        let mut with_budget_no_cat = base.to_vec();
+        with_budget_no_cat.extend_from_slice(&["--budget-usd", "1.50"]);
+        let budget_err = parse(args(&with_budget_no_cat)).err().unwrap();
+        assert!(
+            budget_err.contains("--budget-usd needs --catalogue"),
+            "unexpected error: {budget_err}"
+        );
+
+        let mut bad_attempts = base.to_vec();
+        bad_attempts.extend_from_slice(&["--attempts", "abc"]);
+        assert_eq!(
+            parse(args(&bad_attempts)).err().unwrap(),
+            "attempts must be a number"
+        );
+
+        let mut bad_timeout = base.to_vec();
+        bad_timeout.extend_from_slice(&["--timeout", "xyz"]);
+        assert_eq!(
+            parse(args(&bad_timeout)).err().unwrap(),
+            "timeout must be a number of seconds"
+        );
+
+        let mut bad_parallel = base.to_vec();
+        bad_parallel.extend_from_slice(&["--parallel", "nope"]);
+        assert_eq!(
+            parse(args(&bad_parallel)).err().unwrap(),
+            "parallel must be a number"
+        );
+
+        let mut clamped_and_alts = base.to_vec();
+        clamped_and_alts.extend_from_slice(&[
+            "--attempts",
+            "0",
+            "--alternate",
+            "gemini-flash",
+            "--alternate",
+            "qwen-coder",
+        ]);
+        let options = parse(args(&clamped_and_alts)).unwrap();
+        assert_eq!(options.max_attempts, 1);
+        assert_eq!(
+            options.alternates,
+            vec!["gemini-flash".to_string(), "qwen-coder".to_string()]
+        );
+    }
 }
