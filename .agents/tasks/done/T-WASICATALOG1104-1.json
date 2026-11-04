@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "WASICATALOG1104",
-  "created_unix": 1793770919
+  "created_unix": 1793770919,
+  "closed": {
+    "at_unix": 1793770966,
+    "commit": "43476d1069f45881fbd80f945c9fc19aff446b31",
+    "by": "WASICATALOG1104"
+  }
 }
