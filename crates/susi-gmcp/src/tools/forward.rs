@@ -231,4 +231,30 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn forward_and_send_format_pretty_json_and_propagate_call_errors() {
+        fn ok_call(v: Value) -> Result<Value, String> {
+            Ok(json!({ "received": v }))
+        }
+        fn err_call(_v: Value) -> Result<Value, String> {
+            Err("plane rejected call".into())
+        }
+
+        let pretty = forward(
+            ok_call,
+            "ping",
+            &json!({"name": "alpha"}),
+            &[("name", Kind::Str)],
+            json!({"extra": true}),
+        )
+        .unwrap();
+        let decoded: Value = serde_json::from_str(&pretty).unwrap();
+        assert_eq!(decoded["received"]["action"], "ping");
+        assert_eq!(decoded["received"]["name"], "alpha");
+        assert_eq!(decoded["received"]["extra"], true);
+
+        let err = send(err_call, json!({"action": "ping"})).unwrap_err();
+        assert!(err.to_string().contains("plane rejected call"));
+    }
 }

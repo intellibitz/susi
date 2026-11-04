@@ -1,0 +1,25 @@
+{
+  "id": "T-GMCPINLINED4T1104-1",
+  "title": "Expand Wave D susi-gmcp modules to 4 inline unit tests each (CEO Job #263)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--lib"
+    ]
+  },
+  "created_by": "GMCPINLINED4T1104",
+  "created_unix": 1793801412,
+  "closed": {
+    "at_unix": 1793801598,
+    "commit": "e69c4b4ad50471c70c648c93b12a8b3e05faef42",
+    "by": "GMCPINLINED4T1104"
+  }
+}
