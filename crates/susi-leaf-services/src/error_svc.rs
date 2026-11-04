@@ -86,4 +86,38 @@ mod tests {
         let response = router().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
+
+    #[tokio::test]
+    async fn recent_errors_rejects_non_get_methods_and_serves_json_or_unauthorized_on_get() {
+        for method in ["POST", "DELETE"] {
+            let req = Request::builder()
+                .method(method)
+                .uri("/errors/recent")
+                .body(Body::empty())
+                .unwrap();
+            let status = router().oneshot(req).await.unwrap().status();
+            assert!(
+                status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::UNAUTHORIZED,
+                "{method} /errors/recent -> {status}"
+            );
+        }
+
+        let get_req = Request::get("/errors/recent?n=0")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router().oneshot(get_req).await.unwrap();
+        let status = resp.status();
+        assert!(
+            status == StatusCode::OK || status == StatusCode::UNAUTHORIZED,
+            "GET /errors/recent?n=0 -> {status}"
+        );
+        if status == StatusCode::OK {
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(body["returned"], 0);
+            assert!(body["entries"].is_array());
+        }
+    }
 }
