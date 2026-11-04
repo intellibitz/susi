@@ -1,0 +1,14 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CFGJSONTYPES1104-1",
+  "agent": "CFGJSONTYPES1104",
+  "branch": "config-json-types-1104",
+  "goal": "Add inline unit test suites to susi-config json_util.rs (atomic writes, private secret/file install, workspace confinement, default merging) and types.rs (dynamic model/checkpoint getters, chat templates, prompts, messages, typed defaults) (D-OS-8)",
+  "touch": [
+    "crates/susi-config/src/json_util.rs",
+    "crates/susi-config/src/types.rs"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-config", "--lib"]
+  }
+}
