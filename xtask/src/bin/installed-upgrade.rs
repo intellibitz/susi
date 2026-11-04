@@ -51,6 +51,24 @@ fn verify_qualified_manifest(binary: &Path, id: &str) -> Result<(String, String)
     ))
 }
 
+#[cfg_attr(windows, allow(dead_code))]
+fn parse_staged_version_line(stdout: &str) -> Result<(String, String)> {
+    let trimmed = stdout.trim();
+    let version_number = trimmed
+        .strip_prefix("susi ")
+        .filter(|ver| !ver.trim().is_empty())
+        .ok_or("Staged version probe returned unexpected format")?
+        .to_string();
+    Ok((trimmed.to_string(), version_number))
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+fn format_release_marker_json(version_number: &str, source: &str, installed_at: u64) -> String {
+    format!(
+        r#"{{"profile":"release","accelerator":null,"channel":"release","version":"{version_number}","commit":"{source}","installed_at":{installed_at}}}"#
+    )
+}
+
 #[cfg(windows)]
 fn execute_upgrade(root: &Path, binary: &Path, artifact_sha256: &str, source: &str) -> Result<()> {
     let bash = PathBuf::from(env::var_os("ProgramFiles").ok_or("missing ProgramFiles")?)
@@ -108,10 +126,8 @@ fn execute_upgrade(_root: &Path, binary: &Path, artifact_sha256: &str, source: &
         if !version_out.status.success() {
             return Err("Staged version probe failed".into());
         }
-        let version_line = String::from_utf8(version_out.stdout)?.trim().to_string();
-        let version_number = version_line
-            .strip_prefix("susi ")
-            .ok_or("Staged version probe returned unexpected format")?;
+        let (version_line, version_number) =
+            parse_staged_version_line(&String::from_utf8(version_out.stdout)?)?;
 
         let target_bin = bin_dir.join("susi");
         let prev_bin = bin_dir.join("susi.prev");
@@ -130,9 +146,7 @@ fn execute_upgrade(_root: &Path, binary: &Path, artifact_sha256: &str, source: &
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let stage_marker = scratch.join("marker.json");
-        let marker_json = format!(
-            r#"{{"profile":"release","accelerator":null,"channel":"release","version":"{version_number}","commit":"{source}","installed_at":{installed_at}}}"#
-        );
+        let marker_json = format_release_marker_json(&version_number, source, installed_at);
         fs::write(&stage_marker, marker_json)?;
 
         if let Err(err) = fs::rename(&stage_bin, &target_bin) {
@@ -228,6 +242,45 @@ mod tests {
         assert!(verify_qualified_manifest(&binary, &id).is_err());
 
         let _ = fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[test]
+    fn parses_staged_version_and_formats_release_marker() -> Result<()> {
+        let (line, ver) = parse_staged_version_line("susi 0.21.47\n")?;
+        assert_eq!(line, "susi 0.21.47");
+        assert_eq!(ver, "0.21.47");
+        assert!(parse_staged_version_line("unexpected 0.21.47").is_err());
+        assert!(parse_staged_version_line("susi   ").is_err());
+
+        let marker = format_release_marker_json(
+            &ver,
+            "0123456789abcdef0123456789abcdef01234567",
+            1_762_250_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&marker)?;
+        assert_eq!(
+            parsed.get("profile").and_then(serde_json::Value::as_str),
+            Some("release")
+        );
+        assert_eq!(
+            parsed.get("channel").and_then(serde_json::Value::as_str),
+            Some("release")
+        );
+        assert_eq!(
+            parsed.get("version").and_then(serde_json::Value::as_str),
+            Some("0.21.47")
+        );
+        assert_eq!(
+            parsed.get("commit").and_then(serde_json::Value::as_str),
+            Some("0123456789abcdef0123456789abcdef01234567")
+        );
+        assert_eq!(
+            parsed
+                .get("installed_at")
+                .and_then(serde_json::Value::as_u64),
+            Some(1_762_250_000)
+        );
         Ok(())
     }
 
