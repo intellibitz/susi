@@ -133,4 +133,70 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn cancel_and_send_reject_command_and_acp_adapters_with_consistent_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "susi-cloud-cancel-send-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        for adapter in [
+            Adapter::Command {
+                program: "echo".into(),
+                args: vec!["hi".into()],
+            },
+            Adapter::Acp {
+                program: "acp-bin".into(),
+                args: vec![],
+            },
+        ] {
+            let run = sample_run(&temp_dir, adapter);
+            let cancel_err = cancel(&run).unwrap_err().to_string();
+            let send_err = send(&run, "ping").unwrap_err().to_string();
+            assert!(cancel_err.contains("not a cloud adapter"), "{cancel_err}");
+            assert!(send_err.contains("not a cloud adapter"), "{send_err}");
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn sample_run_preserves_workspace_prompt_and_timestamps_when_cloud_entrypoints_fail() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "susi-cloud-preserve-fields-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let manager =
+            AgentManager::with_config(&temp_dir, CatalogKind::Execution, temp_dir.join("config"))
+                .unwrap();
+
+        let mut run = sample_run(
+            &temp_dir,
+            Adapter::Command {
+                program: "echo".into(),
+                args: vec![],
+            },
+        );
+        assert!(execute(&manager, &mut run).is_err());
+        assert!(refresh(&manager, &mut run).is_err());
+        assert_eq!(run.workspace, temp_dir);
+        assert_eq!(run.prompt, "verify cloud seam");
+        assert_eq!(run.created_at, 1);
+        assert_eq!(run.updated_at, 1);
+        assert!(run.pid.is_none());
+        assert!(run.exit_code.is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

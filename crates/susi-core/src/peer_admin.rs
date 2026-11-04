@@ -1062,4 +1062,39 @@ mod tests {
         drop(env);
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn endorse_targets_filters_self_loopback_and_non_explicit_rows() {
+        let roster = vec![
+            serde_json::json!({
+                "admission": "explicit",
+                "node_id": "self-node",
+                "address": "10.0.0.1:9093"
+            }),
+            serde_json::json!({
+                "admission": "explicit",
+                "node_id": "loop-v4",
+                "address": "127.0.0.1:9093"
+            }),
+            serde_json::json!({
+                "admission": "explicit",
+                "node_id": "loop-host",
+                "address": "localhost:9093"
+            }),
+            serde_json::json!({
+                "admission": "discovered",
+                "node_id": "disc-1",
+                "address": "10.0.0.2:9093"
+            }),
+            serde_json::json!({
+                "admission": "explicit",
+                "node_id": "peer-ok",
+                "address": "10.0.0.3:9093"
+            }),
+        ];
+        assert_eq!(
+            endorse_targets(&roster, "self-node"),
+            vec![("peer-ok".to_string(), "10.0.0.3:9093".to_string())]
+        );
+    }
 }

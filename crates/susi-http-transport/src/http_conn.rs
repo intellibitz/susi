@@ -33,4 +33,16 @@ mod tests {
         assert_eq!(HEADER_READ_TIMEOUT.as_millis(), 30_000);
         assert!(!HEADER_READ_TIMEOUT.is_zero());
     }
+
+    #[test]
+    fn header_read_timeout_subsecond_nanos_are_zero_and_secs_match_thirty() {
+        assert_eq!(HEADER_READ_TIMEOUT.subsec_nanos(), 0);
+        assert_eq!(HEADER_READ_TIMEOUT.as_secs(), 30);
+    }
+
+    #[tokio::test]
+    async fn multiple_connection_builders_construct_independently_in_tokio_runtime() {
+        let _first = connection_builder();
+        let _second = connection_builder();
+    }
 }
