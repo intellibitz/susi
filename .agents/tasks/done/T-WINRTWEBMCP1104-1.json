@@ -22,5 +22,10 @@
     ]
   },
   "created_by": "WINRTWEBMCP1104",
-  "created_unix": 1793776193
+  "created_unix": 1793776193,
+  "closed": {
+    "at_unix": 1793776557,
+    "commit": "c96a4257b9df31dec955b79f9a599526fe8ff2a1",
+    "by": "WINRTWEBMCP1104"
+  }
 }
