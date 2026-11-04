@@ -1,0 +1,36 @@
+{
+  "id": "T-DSP4WIRE1104-4",
+  "title": "D-SP-4 Stage 2c: live progress for watched tool calls (mission phase lines as MCP notifications/progress)",
+  "goal": "A tools/call that carries a progressToken gets the tool's own progress lines as notifications/progress between the started (0.0) and finished (1.0) ones, coalesced to about 10 a second. Lines cross plane-bus hops on a bus stream (tools plane, GAWD plane). The mission reports phase lines (started, planning or answering, swarm running and finished, verifying, completion); unwatched calls and the CLI are unchanged.",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-DSP4WIRE1104-4.json",
+    "crates/susi-core/src/progress.rs",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-tools/src/plane_handler.rs",
+    "crates/susi-gawd/src/plane_handler.rs",
+    "crates/susi-gawd-swarm/src/ama/master.rs",
+    "crates/susi-gmcp/src/protocol.rs",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    ".agents/gmcp/evidence",
+    "tests/first_goal_opening.rs",
+    "tests/crown_verify_tests.rs",
+    "tests/moonshot_alias.rs",
+    "tests/run_cli_tests.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "progress"
+    ]
+  },
+  "created_by": "DSP4WIRE1104",
+  "created_unix": 1793798296
+}

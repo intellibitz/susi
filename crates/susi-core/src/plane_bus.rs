@@ -278,6 +278,77 @@ fn req_ok(topic: &str, payload: Value) -> Value {
     req(topic, payload).unwrap_or_else(|e| json!({ "error": e }))
 }
 
+/// Payload key naming the bus stream a watched request's progress lines
+/// travel back on.
+const PROGRESS_STREAM: &str = "progress_stream";
+
+/// [`req`] for a call this thread's caller may be watching
+/// ([`crate::progress`]). With a sink installed, the handler is given a
+/// bus stream ([`progress_sink_for`]) and the lines it reports reach the
+/// sink while the request is still running; without one this is [`req`].
+fn req_watched(topic: &str, mut payload: Value) -> Result<Value, String> {
+    let Some(sink) = crate::progress::current() else {
+        return req(topic, payload);
+    };
+    let (stream_id, rx) = PlaneBus::global().open_stream();
+    payload[PROGRESS_STREAM] = json!(stream_id);
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let finished = done.clone();
+    // Relay while the request blocks this thread; once it has returned,
+    // drain what is already queued and stop at the first quiet gap.
+    let relay = std::thread::spawn(move || loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(50)) {
+            Ok(chunk) => {
+                if let Some(line) = chunk.get("message").and_then(Value::as_str) {
+                    sink(line);
+                }
+            }
+            Err(flume::RecvTimeoutError::Timeout) => {
+                if finished.load(std::sync::atomic::Ordering::Acquire) {
+                    break;
+                }
+            }
+            Err(flume::RecvTimeoutError::Disconnected) => break,
+        }
+    });
+    // Ends the relay and closes the stream on every way out, a panic too.
+    struct Watch {
+        done: Arc<std::sync::atomic::AtomicBool>,
+        relay: Option<std::thread::JoinHandle<()>>,
+        stream_id: String,
+    }
+    impl Drop for Watch {
+        fn drop(&mut self) {
+            self.done.store(true, std::sync::atomic::Ordering::Release);
+            if let Some(relay) = self.relay.take() {
+                let _ = relay.join();
+            }
+            PlaneBus::global().stream_close(&self.stream_id);
+        }
+    }
+    let _watch = Watch {
+        done,
+        relay: Some(relay),
+        stream_id,
+    };
+    req(topic, payload)
+}
+
+/// The progress sink a plane handler installs ([`crate::progress::with_sink`])
+/// for a watched request: each line goes back over the request's stream.
+/// `None` when nobody watches the request.
+#[must_use]
+pub fn progress_sink_for(payload: &Value) -> Option<crate::progress::Sink> {
+    let stream_id = payload
+        .get(PROGRESS_STREAM)
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    Some(Arc::new(move |line: &str| {
+        PlaneBus::global().stream_emit(&stream_id, json!({ "message": line }));
+    }))
+}
+
 // ── Gemi facade (call sites use these instead of `susi_gemi::*`) ──────────
 
 pub mod gemi {
@@ -976,13 +1047,17 @@ pub mod gawd {
     /// handler may start a stopped local engine on demand, and the answer
     /// carries the mission's status and the CLI exit code (0 only for an
     /// explicitly successful mission), never an outcome guessed from prose.
+    ///
+    /// When this thread's call is watched ([`crate::progress`]), the
+    /// mission's progress lines come back over a bus stream while it runs
+    /// and reach the watcher as they arrive.
     pub fn run_mission(
         intent: &str,
         workspace: &Path,
         version: &str,
         model: Option<&str>,
     ) -> Value {
-        req_ok(
+        req_watched(
             topics::GAWD_MISSION_RUN,
             json!({
                 "intent": intent,
@@ -991,6 +1066,7 @@ pub mod gawd {
                 "model": model
             }),
         )
+        .unwrap_or_else(|e| json!({ "error": e }))
     }
 
     /// Generative mission solve (`/v1/chat/completions`): the model's own
@@ -1392,8 +1468,10 @@ pub mod tools {
             .unwrap_or(false)
     }
 
+    /// Run tool `name`. A watched call ([`crate::progress`]) gets the
+    /// tool's progress lines back while it runs ([`super::req_watched`]).
     pub fn execute_tool(name: &str, args: &Value, workspace: &Path) -> EaiResult<String> {
-        let v = req(
+        let v = super::req_watched(
             topics::TOOLS_EXECUTE,
             json!({
                 "name": name,
@@ -1870,6 +1948,47 @@ mod facade_marshal_tests {
         fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
             Ok(json!([]))
         }
+    }
+
+    /// Reports three lines through whatever sink the request installs.
+    struct Reporter;
+
+    impl PlaneHandler for Reporter {
+        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+            let watched = progress_sink_for(&payload).is_some();
+            crate::progress::with_sink(progress_sink_for(&payload), || {
+                for line in ["one", "two", "three"] {
+                    crate::progress::report(line);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            });
+            Ok(json!({ "watched": watched }))
+        }
+    }
+
+    /// A watched request carries its handler's progress lines back over the
+    /// bus while it runs, in order; an unwatched one gets no stream.
+    #[test]
+    fn watched_requests_relay_progress_lines_across_the_bus() {
+        let _g = wire();
+        let topic = "test.progress.reporter";
+        PlaneBus::global().register(topic, Arc::new(Reporter));
+        let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen = lines.clone();
+        let sink: crate::progress::Sink = Arc::new(move |line: &str| {
+            seen.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(line.to_string());
+        });
+        let watched = crate::progress::with_sink(Some(sink), || req_watched(topic, json!({})));
+        assert_eq!(watched.unwrap()["watched"], true);
+        assert_eq!(
+            *lines.lock().unwrap_or_else(|e| e.into_inner()),
+            ["one", "two", "three"]
+        );
+        let unwatched = req_watched(topic, json!({})).unwrap();
+        assert_eq!(unwatched["watched"], false);
+        assert!(progress_sink_for(&json!({ "progress_stream": "" })).is_none());
     }
 
     fn wire() -> std::sync::MutexGuard<'static, ()> {

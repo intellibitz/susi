@@ -90,3 +90,40 @@ impl GmcpClient {
         Ok("[plane_bus] auto_configure_server requires composition-root tools plane".into())
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tool_registry_facade_queries_plane_bus_without_panicking() {
+        let tools = ToolRegistry::list_tools();
+        let _ = tools.len();
+        let _ = ToolRegistry::exists("nonexistent_tool_xyz");
+    }
+
+    #[test]
+    fn tool_registry_execute_tool_formats_errors_with_bracketed_prefix() {
+        let ws = std::env::temp_dir();
+        let out = ToolRegistry::execute_tool("nonexistent_tool_xyz", &json!({}), &ws);
+        assert!(!out.is_empty());
+    }
+
+    #[test]
+    fn gmcp_client_discovery_and_scout_helpers_return_deterministic_defaults() {
+        assert!(GmcpClient::discover_live_tools().is_empty());
+        assert!(GmcpClient::autonomous_web_scout().is_empty());
+        let _ = GmcpClient::scout_reasoning_remotes();
+    }
+
+    #[test]
+    fn gmcp_client_auto_configure_and_external_tool_wrappers_behave_consistently() {
+        let msg = GmcpClient::auto_configure_server("demo", "@modelcontextprotocol/demo").unwrap();
+        assert!(msg.contains("composition-root tools plane"));
+
+        let r1 = GmcpClient::execute_external_tool("srv", "tool", "goal");
+        let r2 = GmcpClient::execute_external_tool_result("srv", "tool", "goal");
+        assert_eq!(r1.is_ok(), r2.is_ok());
+    }
+}

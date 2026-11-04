@@ -1,0 +1,25 @@
+{
+  "id": "T-GMCPINLINEB4T1104-1",
+  "title": "Expand 5 Wave B susi-gmcp leaf modules to 4 inline unit tests each (CEO Job #257)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--lib"
+    ]
+  },
+  "created_by": "GMCPINLINEB4T1104",
+  "created_unix": 1793800926,
+  "closed": {
+    "at_unix": 1793801296,
+    "commit": "81c8d05d3d51edffa2bdf5cd4e0b39612c237e85",
+    "by": "GMCPINLINEB4T1104"
+  }
+}
