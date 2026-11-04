@@ -76,4 +76,26 @@ mod tests {
         assert!(!super::first_slow("unit: slow"));
         assert!(super::first_slow("unit: other"));
     }
+
+    #[test]
+    fn phase_preserves_complex_return_types_and_invokes_once() {
+        let mut count = 0usize;
+        let out: Result<&'static str, &'static str> = phase("unit: result", || {
+            count += 1;
+            Ok("booted")
+        });
+        assert_eq!(out, Ok("booted"));
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn finished_completes_for_fast_and_backdated_slow_instants() {
+        let now = super::Instant::now();
+        super::finished("unit: fast-finished", now);
+        if let Some(backdated) = now.checked_sub(super::SLOW_PHASE + super::Duration::from_secs(1))
+        {
+            super::finished("unit: backdated-slow-finished", backdated);
+            assert!(!super::first_slow("unit: backdated-slow-finished"));
+        }
+    }
 }

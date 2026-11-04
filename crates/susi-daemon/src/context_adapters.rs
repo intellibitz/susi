@@ -197,4 +197,33 @@ mod tests {
         // The Linux adapter is best-effort; this just verifies it does not panic.
         let _ = sample_os_context_once(None, None);
     }
+
+    #[test]
+    fn sample_os_report_includes_sampled_count_os_and_unavailable_map() {
+        let report = sample_os_report(Some(Path::new(".")), Some("unit-tester"));
+        assert_eq!(report["os"].as_str(), Some(std::env::consts::OS));
+        assert!(report["sampled"].as_u64().is_some());
+        assert!(report["unavailable"].is_object());
+    }
+
+    #[test]
+    fn unavailable_os_context_matches_platform_capabilities() {
+        let gaps = unavailable_os_context();
+        if cfg!(target_os = "linux") {
+            assert!(gaps.is_empty());
+        } else {
+            assert_eq!(gaps.len(), 1);
+            assert_eq!(gaps[0].0, "active_window");
+            assert!(gaps[0].1.contains(std::env::consts::OS));
+        }
+    }
+
+    #[test]
+    fn sample_os_context_once_accepts_workspace_and_user_scope() {
+        let tmp = std::env::temp_dir();
+        let count = sample_os_context_once(Some(tmp.as_path()), Some("scoped-user"));
+        if !cfg!(target_os = "linux") {
+            assert_eq!(count, 1);
+        }
+    }
 }
