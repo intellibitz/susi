@@ -98,4 +98,21 @@ mod tests {
         assert_eq!(denied.path_snippet_for_os("/opt/susi/bin", false), None);
         assert_eq!(denied.path_snippet_for_os("C:\\susi\\bin", true), None);
     }
+
+    #[test]
+    fn path_consent_env_constant_serde_roundtrip_and_whitespace_token_trimming() {
+        assert_eq!(PathConsent::ENV, "SUSI_PATH_CONSENT");
+
+        for flag in [true, false] {
+            let consent = PathConsent { granted: flag };
+            let json = serde_json::to_string(&consent).expect("serialize PathConsent");
+            let decoded: PathConsent =
+                serde_json::from_str(&json).expect("deserialize PathConsent");
+            assert_eq!(decoded, consent);
+        }
+
+        assert!(PathConsent::from_env_value(Some("  1  ")).granted);
+        assert!(PathConsent::from_env_value(Some("\tTRUE\r\n")).granted);
+        assert!(!PathConsent::from_env_value(Some("true_ish")).granted);
+    }
 }
