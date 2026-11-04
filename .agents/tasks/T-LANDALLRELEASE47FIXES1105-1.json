@@ -1,0 +1,27 @@
+{
+  "id": "T-LANDALLRELEASE47FIXES1105-1",
+  "title": "Land stranded RELEASE47 Windows and workflow fixes onto main",
+  "goal": "Port 03e8c3547, 408508735 and a44d18b10 from susi-agent-release47-1103 onto current main, keeping main's newer behavior; land only what main does not already carry (the isolated release gate home creates AppData/Local so PowerShell module analysis caching stays out of the candidate checkout).",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    "xtask/src/bin/local-release.rs",
+    ".agents/tasks/t-landallrelease47fixes1105-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release"
+    ]
+  },
+  "created_by": "LANDALLRELEASE47FIXES1105",
+  "created_unix": 1793821575
+}
