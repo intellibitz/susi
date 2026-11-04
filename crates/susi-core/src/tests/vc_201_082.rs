@@ -65,3 +65,25 @@ fn vc_201_082_promotes_when_quality_holds() {
         PromoteVerdict::Promote
     );
 }
+
+#[test]
+fn vc_201_082_promotes_when_correctness_and_isolation_equal_baseline() {
+    let baseline = RetrievalSuite {
+        version: 1,
+        answer_correctness: 0.90,
+        private_isolation: 0.88,
+        recall: 0.50,
+        index_size: 120,
+    };
+    let equal_cand = RetrievalSuite {
+        version: 2,
+        answer_correctness: 0.90,
+        private_isolation: 0.88,
+        recall: 0.65,
+        index_size: 135,
+    };
+    assert_eq!(
+        evaluate_promotion(&baseline, &equal_cand),
+        PromoteVerdict::Promote
+    );
+}
