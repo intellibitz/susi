@@ -288,4 +288,47 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn ratchet_unsafe_is_clean_when_unchanged_and_sbom_changes_ignores_provenance_only_diff() {
+        let baseline = [UnsafeExposure {
+            crate_name: "pinned-crate".into(),
+            unsafe_fns: 4,
+            first_party_exception: false,
+        }];
+        let base_sbom = [
+            SbomEntry {
+                crate_name: "pinned-crate".into(),
+                version: "2.1.0".into(),
+                provenance: "registry+https://github.com/rust-lang/crates.io-index".into(),
+            },
+            SbomEntry {
+                crate_name: "helper-crate".into(),
+                version: "0.4.2".into(),
+                provenance: "path+file:///vendor/helper-crate".into(),
+            },
+        ];
+        let cur_sbom = [
+            SbomEntry {
+                crate_name: "helper-crate".into(),
+                version: "0.4.2".into(),
+                provenance: "vendored".into(),
+            },
+            SbomEntry {
+                crate_name: "pinned-crate".into(),
+                version: "2.1.0".into(),
+                provenance: "vendored".into(),
+            },
+        ];
+
+        assert!(sbom_changes(&base_sbom, &cur_sbom).is_empty());
+        assert_eq!(
+            ratchet_unsafe(&baseline, &[], &base_sbom, &cur_sbom),
+            GeigerVerdict::Clean
+        );
+        assert_eq!(
+            ratchet_unsafe(&baseline, &baseline, &base_sbom, &cur_sbom),
+            GeigerVerdict::Clean
+        );
+    }
 }
