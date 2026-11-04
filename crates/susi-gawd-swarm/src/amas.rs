@@ -2004,15 +2004,33 @@ impl SusiSupervisor {
 ///
 /// Authenticates via HMAC over `cluster.key` without ever broadcasting
 /// `host_token` (`api_token`) or retired unauthenticated `SUSI_LAN_PING` on the
-/// LAN broadcast address.
+/// LAN broadcast address. Sanitizes `caps_csv` to `cluster_key`'s wire-safe
+/// alphabet (`[A-Za-z0-9,._-]`) so `gmcp_http=<port>` tokens never cause
+/// `signed_ping_v2` / `signed_ping` to return `None`.
 pub fn signed_lan_discovery_frames(
     caps_csv: &str,
     checksum: u64,
     bloom_hex: &str,
 ) -> Vec<(String, String)> {
+    let sanitized_caps: String = caps_csv
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ',' | '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let wire_caps = if sanitized_caps.is_empty() {
+        "CORE"
+    } else {
+        sanitized_caps.as_str()
+    };
+    let wire_bloom = if bloom_hex.is_empty() { "0" } else { bloom_hex };
     [
-        crate::susi_config::cluster_key::signed_ping_v2(caps_csv, checksum, bloom_hex),
-        crate::susi_config::cluster_key::signed_ping(caps_csv, checksum, bloom_hex),
+        crate::susi_config::cluster_key::signed_ping_v2(wire_caps, checksum, wire_bloom),
+        crate::susi_config::cluster_key::signed_ping(wire_caps, checksum, wire_bloom),
     ]
     .into_iter()
     .flatten()
