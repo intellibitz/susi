@@ -132,4 +132,12 @@ mod inline_tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn hardware_snapshot_and_broadcast_lock_request_execute_cleanly() {
+        let hooks = SusiEngineHooks;
+        let snap = hooks.hardware_snapshot();
+        let _ = (snap.available_ram_gb, snap.acceleration_active);
+        let _ = hooks.broadcast_lock_request("unit-test-resource-lock");
+    }
 }

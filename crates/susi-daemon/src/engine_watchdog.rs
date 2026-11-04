@@ -148,4 +148,25 @@ mod engine_watchdog_tests {
         assert_eq!(w2.on_health_check(&down), WatchdogAction::MarkUnfit);
         assert_eq!(w2.on_health_check(&up), WatchdogAction::None);
     }
+
+    #[test]
+    fn engine_handle_and_watchdog_action_serde_roundtrip() {
+        let handle = EngineHandle {
+            id: "ollama-local".into(),
+            healthy: true,
+        };
+        let h_json = serde_json::to_string(&handle).expect("serialize handle");
+        let h_back: EngineHandle = serde_json::from_str(&h_json).expect("deserialize handle");
+        assert_eq!(h_back, handle);
+
+        for action in [
+            WatchdogAction::Restart { backoff_ms: 250 },
+            WatchdogAction::MarkUnfit,
+            WatchdogAction::None,
+        ] {
+            let a_json = serde_json::to_string(&action).expect("serialize action");
+            let a_back: WatchdogAction = serde_json::from_str(&a_json).expect("deserialize action");
+            assert_eq!(a_back, action);
+        }
+    }
 }

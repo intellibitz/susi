@@ -934,4 +934,17 @@ mod inline_tests {
         assert!(saved.in_flight.is_none());
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn run_pass_with_without_desired_state_completes_cleanly_with_zero_actions() {
+        let home = std::env::temp_dir().join(format!("susi-estate-none-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let observed = Observed::default();
+        let report = run_pass_with(&home, None, &observed, 3_000, &MockActuate).unwrap();
+        assert_eq!(report.pass, 1);
+        assert!(!report.resumed);
+        assert!(report.receipts.is_empty());
+        assert_eq!(report.summary().applied, 0);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }
