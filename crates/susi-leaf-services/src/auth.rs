@@ -130,4 +130,25 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn request_with_empty_or_whitespace_authorization_header_is_extracted_and_rejected_by_host_token(
+    ) {
+        assert_eq!(
+            authorization(&request_with(Some(HeaderValue::from_static("")))),
+            Some("")
+        );
+        assert_eq!(
+            authorization(&request_with(Some(HeaderValue::from_static("   ")))),
+            Some("   ")
+        );
+
+        for raw in ["", "   ", "Bearer ", "Bearer    "] {
+            assert_eq!(
+                host_token_status(Some(HeaderValue::from_static(raw))).await,
+                StatusCode::UNAUTHORIZED,
+                "expected 401 for {raw:?}"
+            );
+        }
+    }
 }
