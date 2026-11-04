@@ -64,3 +64,15 @@ fn vc_201_061_wrong_schema_version_rejected() {
     let json = r#"{"schema_version":"susi.desired_state/v0","models":[]}"#;
     assert!(parse_desired_state(json).is_err());
 }
+
+#[test]
+fn vc_201_061_empty_v1_round_trips_and_validates() {
+    let empty = DesiredState::empty_v1();
+    assert_eq!(empty.schema_version, DESIRED_STATE_SCHEMA);
+    assert!(empty.models.is_empty());
+    assert!(empty.runtimes.is_empty());
+    assert!(empty.tools.is_empty());
+    assert!(validate_desired_state(&empty).is_ok());
+    let round_tripped = round_trip_desired_state(&empty).unwrap();
+    assert_eq!(round_tripped, empty);
+}

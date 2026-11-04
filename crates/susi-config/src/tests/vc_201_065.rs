@@ -71,3 +71,18 @@ fn vc_201_065_migration_preserves_existing_custom_settings() {
     assert_eq!(manifest["schema_version"], STATE_SCHEMA_VERSION);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn vc_201_065_migration_report_records_from_and_to_schema_versions() {
+    let dir = scratch("versions");
+    let r1 = migrate_state_dir(&dir).unwrap();
+    assert_eq!(r1.from_version, 0);
+    assert_eq!(r1.to_version, STATE_SCHEMA_VERSION);
+    assert!(r1.migrated);
+
+    let r2 = migrate_state_dir(&dir).unwrap();
+    assert_eq!(r2.from_version, STATE_SCHEMA_VERSION);
+    assert_eq!(r2.to_version, STATE_SCHEMA_VERSION);
+    assert!(!r2.migrated);
+    let _ = fs::remove_dir_all(&dir);
+}
