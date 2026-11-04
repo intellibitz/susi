@@ -220,4 +220,16 @@ mod inline_tests {
         assert_eq!(gate.admit(HostFitness::Fit), (true, 0));
         assert_eq!(gate.queued(), 0);
     }
+
+    #[test]
+    fn local_work_gate_zero_capacity_never_queues_under_pressure() {
+        let router = ThermalRouter::new(85.0, 75.0, 0);
+        assert_eq!(router.sustained_needed, 1);
+
+        let mut gate = LocalWorkGate::new(0);
+        assert_eq!(gate.admit(HostFitness::UnfitThermal), (false, 0));
+        assert_eq!(gate.admit(HostFitness::Unknown), (false, 0));
+        assert_eq!(gate.queued(), 0);
+        assert_eq!(gate.admit(HostFitness::Fit), (true, 0));
+    }
 }

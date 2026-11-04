@@ -214,4 +214,19 @@ mod retry_policy_tests {
             }
         );
     }
+
+    #[test]
+    fn retry_storm_budget_default_and_clamping_keep_tokens_bounded() {
+        let mut default_budget = RetryStormBudget::default();
+        assert_eq!(default_budget.capacity_tokens, 10.0);
+        assert_eq!(default_budget.available_tokens, 10.0);
+        assert_eq!(default_budget.deposit_per_request, 0.1);
+        default_budget.note_primary_request();
+        assert_eq!(default_budget.available_tokens, 10.0);
+
+        let clamped = RetryStormBudget::new(0.2, 5.0);
+        assert_eq!(clamped.capacity_tokens, 1.0);
+        assert_eq!(clamped.available_tokens, 1.0);
+        assert_eq!(clamped.deposit_per_request, 1.0);
+    }
 }

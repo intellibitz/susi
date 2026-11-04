@@ -42,4 +42,16 @@ mod inline_tests {
         let mapped = from_candle(CandleError::Msg("oom".to_string()));
         assert!(!mapped.to_string().trim().is_empty());
     }
+
+    #[test]
+    fn from_candle_preserves_multi_level_chained_context() {
+        let chained = CandleError::Msg("nan logit".to_string())
+            .context("decoder layer 4")
+            .context("greedy sample step");
+        let mapped = from_candle(chained);
+        let text = mapped.to_string();
+        assert!(text.contains("nan logit"));
+        assert!(text.contains("decoder layer 4"));
+        assert!(text.contains("greedy sample step"));
+    }
 }

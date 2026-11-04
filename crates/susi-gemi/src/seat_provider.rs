@@ -212,4 +212,17 @@ mod inline_tests {
         let any_ref = seat.as_any();
         assert!(any_ref.downcast_ref::<SeatProvider>().is_some());
     }
+
+    #[test]
+    fn seat_provider_with_zero_allowance_reports_unhealthy_and_exhausted_headroom() {
+        let mut spec = sample_spec();
+        spec.calls_per_window = 0;
+        let seat = SeatProvider::new(spec);
+        assert_eq!(seat.quota_headroom(), Some((0, 0)));
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert!(!rt.block_on(seat.is_healthy()).unwrap());
+    }
 }

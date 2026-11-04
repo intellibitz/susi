@@ -911,4 +911,11 @@ mod tests {
             "persistent draft rejections must auto-disengage"
         );
     }
+
+    #[test]
+    fn optimal_draft_gamma_returns_zero_when_max_gamma_is_zero() {
+        let (gamma, speedup) = optimal_draft_gamma(0.90, 0.05, 0);
+        assert_eq!(gamma, 0);
+        assert!((speedup - 1.0).abs() < 1e-9);
+    }
 }
