@@ -22,5 +22,10 @@
     ]
   },
   "created_by": "DAEMONINLINEA4T1104",
-  "created_unix": 1793796752
+  "created_unix": 1793796752,
+  "closed": {
+    "at_unix": 1793797801,
+    "commit": "1e5110c772ef503210d2ea03843d934d10d2b10f",
+    "by": "DAEMONINLINEA4T1104"
+  }
 }
