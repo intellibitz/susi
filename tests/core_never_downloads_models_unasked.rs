@@ -44,9 +44,63 @@ fn try_block_end(src: &str, open: usize) -> Option<usize> {
     if bytes.get(open) != Some(&b'{') {
         return None;
     }
+    // Braces inside string literals, char literals and comments do not count
+    // (e.g. a test that writes "{corrupt json" must not unbalance its module).
     let mut depth = 0usize;
-    for (i, b) in bytes.iter().enumerate().skip(open) {
-        match b {
+    let mut i = open;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'r' if matches!(bytes.get(i + 1), Some(b'"') | Some(b'#'))
+                && (i == 0 || !is_ident(bytes[i - 1])) =>
+            {
+                let mut hashes = 0;
+                let mut j = i + 1;
+                while bytes.get(j) == Some(&b'#') {
+                    hashes += 1;
+                    j += 1;
+                }
+                if bytes.get(j) == Some(&b'"') {
+                    let close: Vec<u8> = std::iter::once(b'"')
+                        .chain(std::iter::repeat(b'#').take(hashes))
+                        .collect();
+                    j += 1;
+                    while j < bytes.len() && !bytes[j..].starts_with(&close) {
+                        j += 1;
+                    }
+                    i = j + close.len() - 1;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                // A char literal like '{' or '\''; a lifetime has no closing quote nearby.
+                if bytes.get(i + 2) == Some(&b'\'') {
+                    i += 2;
+                } else if bytes.get(i + 1) == Some(&b'\\') {
+                    if let Some(off) = bytes[i + 2..].iter().take(10).position(|&c| c == b'\'') {
+                        i += 2 + off;
+                    }
+                }
+            }
             b'{' => depth += 1,
             b'}' => {
                 depth = depth.checked_sub(1)?;
@@ -56,6 +110,7 @@ fn try_block_end(src: &str, open: usize) -> Option<usize> {
             }
             _ => {}
         }
+        i += 1;
     }
     None
 }
@@ -72,8 +127,16 @@ fn test_module_ranges(src: &str) -> Vec<(usize, usize)> {
         let Some(mod_at) = rest.find("mod ") else {
             continue;
         };
+        // Only further attributes (e.g. `#[allow(clippy::unwrap_used)]`) may sit
+        // between `#[cfg(test)]` and `mod`; anything else means the cfg is not
+        // on this module.
         let between = &rest["#[cfg(test)]".len()..mod_at];
-        if !between.trim().is_empty() {
+        let only_attributes = between
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .all(|line| line.starts_with("#[") && line.ends_with(']'));
+        if !only_attributes {
             continue;
         }
         let Some(open) = rest[mod_at..].find(['{', ';']) else {
