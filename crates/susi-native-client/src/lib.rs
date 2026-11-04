@@ -333,4 +333,88 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&temp_home);
     }
+
+    #[test]
+    fn execute_reflex_sends_bearer_token_and_wasm_path_payload_and_surfaces_http_error_body() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let temp_home = std::env::temp_dir().join(format!(
+            "susi_native_client_payload_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_home);
+        std::fs::create_dir_all(&temp_home).expect("create temp SUSI_HOME");
+        std::fs::write(temp_home.join("api_token"), "secret-tok\n").expect("seed api_token");
+        std::fs::write(
+            temp_home.join("daemon.lock"),
+            format!("{}\n", std::process::id()),
+        )
+        .expect("seed daemon.lock");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let port = listener.local_addr().expect("listener addr").port();
+
+        let prev_susi_home = std::env::var_os("SUSI_HOME");
+        let prev_native_port = std::env::var_os("SUSI_NATIVE_PORT");
+        std::env::set_var("SUSI_HOME", &temp_home);
+        std::env::set_var("SUSI_NATIVE_PORT", port.to_string());
+
+        let server = std::thread::spawn(move || {
+            let (mut s1, _) = listener.accept().expect("accept 1st request");
+            let (head1, body1) = read_http_request(&mut s1);
+            assert!(
+                head1
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer secret-tok"),
+                "{head1}"
+            );
+            let parsed1: serde_json::Value = serde_json::from_str(&body1).expect("parse json 1");
+            assert_eq!(parsed1["wasm_path"], "/reflex/test.wasm");
+            assert_eq!(parsed1["arg"], r#"{"x":1}"#);
+            let resp1_body = r#"{"output":"{\"ok\":true}"}"#;
+            write!(
+                s1,
+                "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                resp1_body.len(),
+                resp1_body
+            )
+            .expect("write 200 response");
+            s1.flush().expect("flush 200");
+            drop(s1);
+
+            let (mut s2, _) = listener.accept().expect("accept 2nd request");
+            let _ = read_http_request(&mut s2);
+            let resp2_body = "trap: unreachable";
+            write!(
+                s2,
+                "HTTP/1.0 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                resp2_body.len(),
+                resp2_body
+            )
+            .expect("write 500 response");
+            s2.flush().expect("flush 500");
+            drop(s2);
+        });
+
+        let ok_out = WasmHost::execute_reflex(Path::new("/reflex/test.wasm"), r#"{"x":1}"#)
+            .expect("200 OK reflex execution");
+        assert_eq!(ok_out, r#"{"ok":true}"#);
+
+        let err_out = WasmHost::execute_reflex(Path::new("/reflex/test.wasm"), r#"{"x":1}"#)
+            .expect_err("500 plain-text error must fail");
+        assert!(
+            err_out.to_string().contains("trap: unreachable"),
+            "unexpected error: {err_out}"
+        );
+
+        server.join().expect("join server thread");
+        match prev_susi_home {
+            Some(v) => std::env::set_var("SUSI_HOME", v),
+            None => std::env::remove_var("SUSI_HOME"),
+        }
+        match prev_native_port {
+            Some(v) => std::env::set_var("SUSI_NATIVE_PORT", v),
+            None => std::env::remove_var("SUSI_NATIVE_PORT"),
+        }
+        let _ = std::fs::remove_dir_all(&temp_home);
+    }
 }

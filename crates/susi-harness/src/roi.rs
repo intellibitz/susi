@@ -705,4 +705,44 @@ mod tests {
             } if selected_model == "capable-pro"
         ));
     }
+
+    #[test]
+    fn token_usage_clamps_cached_to_input_and_roi_report_summary_line_formats_verdict() {
+        let clamped = TokenUsage::new(100, 250, 40);
+        assert_eq!(clamped.input, 100);
+        assert_eq!(clamped.cache_hit, 100);
+        assert_eq!(clamped.cache_miss(), 0);
+        assert_eq!(clamped.total(), 140);
+
+        let price = ModelPrice {
+            input_miss: MicroUsd::from_micros(300_000),
+            input_hit: MicroUsd::from_micros(30_000),
+            output: MicroUsd::from_micros(1_200_000),
+        };
+        let usage = TokenUsage::new(50_000, 40_000, 2_000);
+        let entry = LedgerEntry {
+            mission: "m-summary".into(),
+            task: "t-summary".into(),
+            attempt: 1,
+            model: "deepseek-chat".into(),
+            provider: "deepseek".into(),
+            usage,
+            price,
+            cost: price.cost(usage),
+            cached: false,
+            reported: false,
+            started_unix_ms: 1,
+            ended_unix_ms: 2,
+            outcome: Outcome::Completed,
+        };
+        let (report, _) = RoiReport::from_entries(&[entry]);
+        let summary = report.summary_line();
+        assert!(!summary.is_empty());
+        assert!(summary.contains("saved "), "{summary}");
+        assert!(summary.contains("frontier"), "{summary}");
+        assert!(summary.contains("ROI)"), "{summary}");
+        assert!(summary.contains("prompt cache"), "{summary}");
+        assert!(summary.contains("resp cache"), "{summary}");
+        assert!(summary.contains("SOVA arbitrage"), "{summary}");
+    }
 }
