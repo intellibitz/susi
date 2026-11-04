@@ -1097,4 +1097,36 @@ mod tests {
             vec![("peer-ok".to_string(), "10.0.0.3:9093".to_string())]
         );
     }
+
+    #[test]
+    fn remove_and_unban_refuse_ambiguous_prefix_matching_multiple_members() {
+        let _lock = commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!(
+            "susi-peer-admin-ambig-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("SUSI_HOME", &home);
+
+        let entries = serde_json::json!([
+            {"node_id": "node-alpha", "address": "10.0.0.10:9093", "admission": "explicit"},
+            {"node_id": "node-beta", "address": "10.0.0.11:9093", "admission": "explicit"}
+        ]);
+        std::fs::create_dir_all(registry_path().parent().unwrap()).unwrap();
+        std::fs::write(registry_path(), serde_json::to_string(&entries).unwrap()).unwrap();
+        std::fs::write(banned_path(), serde_json::to_string(&entries).unwrap()).unwrap();
+
+        let (rem_res, _, _) = collect(|out| remove(out, "node-"));
+        assert!(rem_res.unwrap_err().contains("refuse to mass-evict"));
+
+        let (unban_res, _, _) = collect(|out| unban(out, "node-"));
+        assert!(unban_res.unwrap_err().contains("refuse to mass-unban"));
+
+        drop(env);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

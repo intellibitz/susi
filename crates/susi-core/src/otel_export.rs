@@ -490,4 +490,19 @@ mod inline_tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn redact_attr_value_scrubs_nested_objects_arrays_and_non_string_secrets() {
+        let nested = serde_json::json!({
+            "client_secret": 98765,
+            "safe_count": 42,
+            "tokens": ["tok-a", "tok-b"]
+        });
+        let out = redact_attr_value("payload", &nested);
+        assert_eq!(out["client_secret"], serde_json::json!("[REDACTED]"));
+        assert_eq!(out["safe_count"], serde_json::json!(42));
+
+        let arr = redact_attr_value("api_token", &serde_json::json!(["raw-1", 123]));
+        assert_eq!(arr, serde_json::json!(["[REDACTED]", "[REDACTED]"]));
+    }
 }

@@ -288,4 +288,16 @@ mod tests {
             "remote-node"
         ));
     }
+
+    #[test]
+    fn registry_and_banned_paths_target_expected_json_filenames() {
+        assert_eq!(
+            registry_path().file_name().and_then(|n| n.to_str()),
+            Some("peers.json")
+        );
+        assert_eq!(
+            banned_path().file_name().and_then(|n| n.to_str()),
+            Some("peers_banned.json")
+        );
+    }
 }
