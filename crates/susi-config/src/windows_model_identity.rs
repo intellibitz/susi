@@ -164,4 +164,24 @@ mod tests {
         drop((a1, a2, b1));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn volume_guid_rejects_short_paths_missing_closing_brace_and_colon_streams() {
+        assert!(volume_guid(&[]).is_none());
+        let parsed = |s: &str| volume_guid(&s.encode_utf16().collect::<Vec<_>>());
+        assert!(parsed(r"\\?\Volume{1234").is_none());
+        assert!(parsed(r"\\?\Volume{12345678-1234-ABCD-9876-aabbccddeeff_weights.gguf").is_none());
+        assert!(parsed(r"\\?\Volume{12345678-1234-ABCD-9876-aabbccddeeff}\m\w.gguf:ads").is_none());
+    }
+
+    #[test]
+    fn volume_guid_accepts_uppercase_and_lowercase_hex_digits_and_preserves_exact_units() {
+        let raw = r"\\?\Volume{01234567-89ab-cdef-FEDC-BA9876543210}\model.gguf";
+        let units: Vec<u16> = raw.encode_utf16().collect();
+        let guid = volume_guid(&units).expect("valid volume guid");
+        assert_eq!(
+            String::from_utf16(&guid).unwrap(),
+            "01234567-89ab-cdef-FEDC-BA9876543210"
+        );
+    }
 }

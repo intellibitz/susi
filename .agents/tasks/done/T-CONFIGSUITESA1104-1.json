@@ -1,0 +1,25 @@
+{
+  "id": "T-CONFIGSUITESA1104-1",
+  "title": "Expand unit tests to 4 in susi-config state_migration, vc_201_063, vc_201_065_mastery, and vc_201_066 (CEO Job #141, D-OS-8)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "CONFIGSUITESA1104",
+  "created_unix": 1793782494,
+  "closed": {
+    "at_unix": 1793782668,
+    "commit": "b6498f30834d98a7bd5ed4a28d613976dffef352",
+    "by": "CONFIGSUITESA1104"
+  }
+}

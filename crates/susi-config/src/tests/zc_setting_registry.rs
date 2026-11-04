@@ -56,3 +56,17 @@ fn zc_setting_registry_lookup_and_keys() {
     assert_eq!(keys.len(), SETTING_REGISTRY.len());
     assert!(keys.contains(&"default_model"));
 }
+
+#[test]
+fn zc_setting_registry_keys_are_unique_and_lookup_matches_every_entry() {
+    let keys = crate::setting_registry::registry_keys();
+    assert_eq!(keys.len(), SETTING_REGISTRY.len());
+    let unique: std::collections::BTreeSet<&str> = keys.iter().copied().collect();
+    assert_eq!(unique.len(), keys.len(), "registry keys must be unique");
+
+    for entry in SETTING_REGISTRY {
+        let found = crate::setting_registry::lookup(entry.key).expect("every entry must resolve");
+        assert_eq!(found.key, entry.key);
+        assert_eq!(found.derivation, entry.derivation);
+    }
+}

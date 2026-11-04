@@ -37,3 +37,22 @@ fn state_backup_dry_run_and_version_checks() {
     };
     assert!(restore(&bad, 1).unwrap_err().contains("unsupported"));
 }
+
+#[test]
+fn state_backup_wrong_key_fails_authentication() {
+    let mut sections = BTreeMap::new();
+    sections.insert("config".into(), b"{\"ok\":true}".to_vec());
+    let bundle = backup(&sections, 7, false).unwrap();
+    let err = restore(&bundle, 8).unwrap_err();
+    assert!(err.contains("authentication"), "{err}");
+}
+
+#[test]
+fn state_backup_empty_sections_non_dry_run_roundtrips_cleanly() {
+    let empty = BTreeMap::new();
+    let bundle = backup(&empty, 9, false).unwrap();
+    assert!(!bundle.manifest.dry_run);
+    assert!(bundle.manifest.sections.is_empty());
+    let out = restore(&bundle, 9).unwrap();
+    assert!(out.is_empty());
+}

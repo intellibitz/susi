@@ -26,3 +26,17 @@ fn vc_201_066_display_is_reference_not_value() {
     let r = SecretRef::parse("secret://a/b").unwrap();
     assert_eq!(r.display(), "secret://a/b");
 }
+
+#[test]
+fn vc_201_066_invalid_secret_ref_syntax_and_missing_secret_resolution_fail_cleanly() {
+    assert!(SecretRef::parse("http://not-secret/a").is_none());
+    assert!(SecretRef::parse("secret://missing_slash").is_none());
+    assert!(SecretRef::parse("secret:///empty_scope").is_none());
+    assert!(SecretRef::parse("secret://empty_name/").is_none());
+
+    let mut v = SecretVault::default();
+    let boundary = v.issue_boundary("agent_a");
+    assert_eq!(boundary.scope(), "agent_a");
+    let missing_ref = SecretRef::parse("secret://agent_a/missing_key").unwrap();
+    assert!(boundary.resolve(&missing_ref).is_err());
+}

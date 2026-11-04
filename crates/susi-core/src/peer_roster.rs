@@ -252,4 +252,16 @@ mod tests {
         drop(env);
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn divergence_warnings_detects_term_divergence_and_ignores_unreachable_error_rows() {
+        let rows = vec![
+            json!({"node": "a", "term": 2, "leader": "a", "key_epoch": "e1"}),
+            json!({"node": "b", "term": 5, "leader": "a", "key_epoch": "e1"}),
+            json!({"node": "c", "error": "timeout", "term": 99, "leader": "z", "key_epoch": "e9"}),
+        ];
+        let warnings = divergence_warnings(&rows);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("different terms"));
+    }
 }

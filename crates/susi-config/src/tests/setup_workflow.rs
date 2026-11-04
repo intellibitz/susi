@@ -1,6 +1,6 @@
 //! Unit coverage for setup plan (integration test is zc_setup_workflow).
 
-use crate::setup_workflow::{ConsentKind, SetupPlan};
+use crate::setup_workflow::{ConsentKind, MissionStatus, SetupPlan};
 
 #[test]
 fn setup_plan_detect_apply_rerun_idempotent() {
@@ -26,5 +26,50 @@ fn setup_plan_detect_apply_rerun_idempotent() {
     assert!(s3
         .iter()
         .all(|l| l.starts_with("skip ") || l.contains("already")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn setup_plan_grant_consent_is_idempotent_and_preserves_order() {
+    let dir = std::env::temp_dir().join(format!("susi-setup-consent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut plan = SetupPlan::detect(&dir);
+    plan.grant_consent(ConsentKind::Telemetry);
+    plan.grant_consent(ConsentKind::Telemetry);
+    plan.grant_consent(ConsentKind::NetworkEgress);
+    assert_eq!(
+        plan.consents_granted,
+        vec![ConsentKind::Telemetry, ConsentKind::NetworkEgress]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn setup_plan_completion_check_blocks_when_local_runtime_missing() {
+    let dir = std::env::temp_dir().join(format!("susi-setup-block-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut plan = SetupPlan::detect(&dir);
+    plan.available_engines.clear();
+    let c = plan.completion_check(&dir).expect("completion_check");
+    assert!(!c.ready());
+    assert_eq!(c.mission.status, MissionStatus::Blocked);
+    assert!(c
+        .missing_prerequisites
+        .iter()
+        .any(|p| p == "an available local runtime"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn setup_plan_apply_fails_when_tools_or_policy_are_cleared() {
+    let dir = std::env::temp_dir().join(format!("susi-setup-fail-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut plan = SetupPlan::detect(&dir);
+    plan.tools.clear();
+    assert!(plan.apply(&dir).is_err());
+
+    let mut plan_no_policy = SetupPlan::detect(&dir);
+    plan_no_policy.policy.clear();
+    assert!(plan_no_policy.apply(&dir).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }

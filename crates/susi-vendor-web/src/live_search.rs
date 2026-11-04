@@ -74,4 +74,25 @@ mod tests {
         assert!(report.contains("- web_search:"));
         assert!(report.contains("I will not invent conditions or citations."));
     }
+
+    #[test]
+    fn gather_live_evidence_with_empty_goal_still_reports_unavailable_without_panicking() {
+        let report = gather_live_evidence("", std::path::Path::new("."));
+        assert!(report.contains("Live search data unavailable"));
+        assert!(report.contains("brave_search"));
+        assert!(report.contains("google_search"));
+        assert!(report.contains("web_search"));
+    }
+
+    #[test]
+    fn gather_live_evidence_preserves_bullet_order_for_all_three_search_tools() {
+        let report = gather_live_evidence("probe", std::path::Path::new("."));
+        let brave = report.find("- brave_search:").expect("brave_search bullet");
+        let google = report
+            .find("- google_search:")
+            .expect("google_search bullet");
+        let web = report.find("- web_search:").expect("web_search bullet");
+        assert!(brave < google);
+        assert!(google < web);
+    }
 }
