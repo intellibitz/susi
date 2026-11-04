@@ -34,3 +34,19 @@ fn vc_201_063_replay_is_idempotent() {
     assert!(r2.iter().all(|l| l.starts_with("skip")));
     assert_eq!(s.values.get("a").map(String::as_str), Some("2"));
 }
+
+#[test]
+fn vc_201_063_empty_desired_state_and_unchanged_key_produce_zero_ops() {
+    let mut s = ConfigStore::default();
+    let empty_plan = s.plan(&BTreeMap::new());
+    assert!(empty_plan.ops.is_empty());
+    assert!(s.apply(&empty_plan).unwrap().is_empty());
+
+    s.values.insert("k".into(), "1".into());
+    let current = s.values.clone();
+    let unchanged_plan = s.plan(&current);
+    assert!(unchanged_plan.ops.is_empty());
+    assert!(unchanged_plan.preconditions.is_empty());
+    assert!(s.apply(&unchanged_plan).unwrap().is_empty());
+    assert_eq!(s.values.get("k").map(String::as_str), Some("1"));
+}
