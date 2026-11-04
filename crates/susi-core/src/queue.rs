@@ -164,4 +164,47 @@ mod tests {
         );
         assert_eq!(pulse.version, "0.3.0");
     }
+
+    #[test]
+    fn priority_pulses_pop_before_standard_pulses() {
+        let queue = SubstratePulseQueue::new();
+        let ws = PathBuf::from("/tmp/susi_ws");
+        queue.ingest("normal task", &ws, "0.3.0").unwrap();
+        queue.ingest("please stop and wait", &ws, "0.3.0").unwrap();
+
+        let first = queue.pop().expect("priority pulse must pop first");
+        assert_eq!(first.intent, "please stop and wait");
+        assert_eq!(first.priority, 1);
+
+        let second = queue.pop().expect("standard pulse must pop second");
+        assert_eq!(second.intent, "normal task");
+        assert_eq!(second.priority, 0);
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn clear_drains_both_priority_and_standard_lanes() {
+        let queue = SubstratePulseQueue::new();
+        let ws = PathBuf::from("/tmp/susi_ws");
+        queue.ingest("standard work", &ws, "0.3.0").unwrap();
+        queue.ingest("correction needed", &ws, "0.3.0").unwrap();
+        assert!(!queue.is_empty());
+
+        queue.clear();
+        assert!(queue.is_empty());
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn register_consumer_drains_pending_wake_and_pop_blocking_returns_queued_entry() {
+        let queue = SubstratePulseQueue::new();
+        let ws = PathBuf::from("/tmp/susi_ws");
+        queue.ingest("pre-registered pulse", &ws, "0.3.0").unwrap();
+        queue.register_consumer();
+
+        let popped = queue.pop_blocking();
+        assert_eq!(popped.intent, "pre-registered pulse");
+        assert_eq!(popped.workspace, ws);
+        assert!(queue.is_empty());
+    }
 }

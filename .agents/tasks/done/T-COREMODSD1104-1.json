@@ -1,0 +1,25 @@
+{
+  "id": "T-COREMODSD1104-1",
+  "title": "test(core): expand inline unit tests to 4 in queue, secret, and zc modules",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "created_by": "COREMODSD1104",
+  "created_unix": 1793785146,
+  "closed": {
+    "at_unix": 1793785366,
+    "commit": "bb9907bef2c327fc89414e85ff6b17190f40abef",
+    "by": "COREMODSD1104"
+  }
+}

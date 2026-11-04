@@ -44,4 +44,34 @@ mod zc_egress_allowlist_tests {
         assert!(allows(&a, "api.anthropic.com"));
         assert!(!allows(&a, "evil.example"));
     }
+
+    #[test]
+    fn allowlist_from_vendors_maps_hf_and_huggingface_aliases_to_huggingface_co() {
+        let hf_short = allowlist_from_vendors(&["hf"]);
+        let hf_long = allowlist_from_vendors(&["huggingface"]);
+        assert_eq!(hf_short.hosts.len(), 1);
+        assert_eq!(hf_long.hosts.len(), 1);
+        assert!(allows(&hf_short, "huggingface.co"));
+        assert!(allows(&hf_long, "huggingface.co"));
+    }
+
+    #[test]
+    fn allowlist_from_vendors_ignores_unknown_vendors_and_deduplicates() {
+        let a = allowlist_from_vendors(&["unknown", "openai", "openai"]);
+        assert_eq!(a.hosts.len(), 1);
+        assert!(allows(&a, "api.openai.com"));
+        assert!(!allows(&a, "unknown"));
+    }
+
+    #[test]
+    fn egress_allowlist_default_is_empty_and_serde_roundtrips() {
+        let empty = EgressAllowlist::default();
+        assert!(empty.hosts.is_empty());
+        assert!(!allows(&empty, "api.openai.com"));
+
+        let populated = allowlist_from_vendors(&["openai", "hf"]);
+        let json = serde_json::to_string(&populated).expect("serialize");
+        let back: EgressAllowlist = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, populated);
+    }
 }
