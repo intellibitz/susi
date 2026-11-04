@@ -1,0 +1,28 @@
+{
+    "id":  "T-FASTCLIENT1104-1",
+    "title":  "Zero-timeout client path when daemon.lock is absent (D-SP-3/FAST-06) and native Windows installer convergence (D-OS-7)",
+    "goal":  "",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-paths",
+                               "--lib",
+                               "loopback"
+                           ]
+               },
+    "created_by":  "FASTCLIENT1104",
+    "created_unix":  1793770977,
+    "closed":  {
+                   "at_unix":  1793771047,
+                   "commit":  "634b21bb8486928e4421791dd2bdebe5a3f5fec7",
+                   "by":  "FASTCLIENT1104"
+               }
+}
