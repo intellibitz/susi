@@ -60,7 +60,7 @@ git update-ref "refs/claims/$task" "$claim"
 git update-ref refs/claim-agents/FIXTURE "$claim"
 git push --quiet origin "$claim:refs/claims/$task" "$claim:refs/claim-agents/FIXTURE"
 if [ "$existing" != absent ]; then
-    receipt=$(jq -nc --arg head "$accepted" --arg branch "$existing" '{task:"T-FIXTURE-1",agent:"FIXTURE",head:$head,closed_unix:1} + (if $branch == "legacy" then {} else {branch:$branch} end)' | git hash-object -w --stdin)
+    receipt=$(jq -nc --arg head "$accepted" --arg branch "$existing" '{task:"T-FIXTURE-1",agent:"FIXTURE",head:$head,closed_unix:1,scopes:["src/example.rs"]} + (if $branch == "legacy" then {} else {branch:$branch} end)' | git hash-object -w --stdin)
     git update-ref "refs/closed/$task" "$receipt"
     git push --quiet origin "$receipt:refs/closed/$task"
 fi
@@ -121,4 +121,9 @@ fn publication_rejects_an_existing_receipt_from_another_branch() {
 #[test]
 fn publication_does_not_invent_a_branch_for_a_legacy_receipt() {
     publication_case("legacy");
+}
+
+#[test]
+fn publication_accepts_an_existing_receipt_for_the_same_branch() {
+    publication_case("fixture");
 }
