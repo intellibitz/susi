@@ -566,11 +566,17 @@ const GOAL_KEY: &str = "<goal>";
 /// `GOAL_KEY` for the free-text goal.
 fn cli_commands() -> Vec<String> {
     let defs = read("src/cli/defs.rs");
-    let mut keys = Vec::new();
-    if defs.contains("intent: Vec<String>,") {
-        keys.push(GOAL_KEY.to_string());
-    }
-    for variant in enum_variants(&defs, "Commands") {
+    assert!(
+        defs.contains("intent: Vec<String>,"),
+        "src/cli/defs.rs must define the trailing `intent: Vec<String>,` field"
+    );
+    let mut keys = vec![GOAL_KEY.to_string()];
+    let top_variants = enum_variants(&defs, "Commands");
+    assert!(
+        !top_variants.is_empty(),
+        "src/cli/defs.rs `Commands` enum yielded zero variants"
+    );
+    for variant in top_variants {
         let Some((module, enum_name)) = &variant.subcommand else {
             keys.push(variant.cli.clone());
             continue;
@@ -617,6 +623,11 @@ fn cli_commands() -> Vec<String> {
             }
         }
     }
+    assert!(
+        keys.len() >= 100,
+        "cli_commands scanner must discover the full CLI surface, got {}",
+        keys.len()
+    );
     keys
 }
 

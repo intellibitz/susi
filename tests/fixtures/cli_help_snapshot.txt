@@ -1,0 +1,3609 @@
+=== version ===
+susi <VERSION>
+
+=== susi ===
+susi: RSI swarm AI OS for hosting, provisioning, and managing local and cloud AI — GAWD, GEMI & GMCP
+
+Usage: susi [INTENT]... [COMMAND]
+
+Commands:
+  agents                 Manage external task executors end to end
+  frameworks             Manage agent frameworks/engines end to end (LangGraph, CrewAI, …)
+  start                  Ensure the global susi daemon is running and report host-contract endpoints
+  stop                   Stop the global susi daemon (deterministic control plane — never a mission)
+  restart                Restart the global susi daemon (stop then start — never a mission)
+  install                Initialize sandboxed .susi environment
+  install-release        Activate a qualified Windows release or restore the previous verified release
+  local                  Build, test, integrate and qualify Susi locally through native guarded tools
+  uninstall              Clean up sandboxed .susi environment
+  mcp                    Manage leading MCP tool servers, or serve SUSI's native MCP stdio endpoint
+  extensions             Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions) [alias: ext]
+  auto                   Zero-config auto substrate: packs, MCP, models, peers readiness
+  setup                  One end-to-end ecosystem setup: detect, consent, apply (safe to rerun)
+  workflow               Check that this checkout follows the susi workflow — run this first
+  harness                Harness orchestration: author a plan, run a mission, serve the harness API
+  tasks                  The shared task queue: add, claim (atomic), close (only when the check passes)
+  brain                  The brain: which model susi trusts for which kind of work (evidence-ranked)
+  ecosystem              Local AI ecosystem: installed engines/runtimes, GPU backends, explicit start [alias: eco]
+  blackboard             Inspect the last mission blackboard (swarm shared state) [alias: bb]
+  context-graph          Inspect and query the universal context graph [alias: cg]
+  broker                 Inter-app permission and message broker
+  telemetry              Sample host telemetry (thermal / battery / load)
+  patch                  Apply a patch and run tests, rolling back on failure
+  plan                   Solve a goal using the autonomous planning loop
+  privacy                Privacy mode, egress consent, and cryptographic capability grants
+  intent                 Semantic intent bus (advertise / need / match)
+  ambient                Ambient FS → context graph / vector index sync
+  tx                     Multi-agent transactional snapshots
+  substrate              Pluggable / Sandbox / Governance / Host-contract / Reflexes status
+  crown                  Tier S crown: verify every USP holds (Truth, Evidence, Swarm, …)
+  gemi                   Start GEMI REST server
+  status                 Inspect workspace health report
+  services               Leaf-service process table: supervised pids, live health, restart
+  commits                Audit the replicated quorum-commit ledger (signature-verified)
+  os                     Operating-system view: consensus term/leader, services, verified peers
+  peers                  Verified cluster roster: list peers, revoke a member's trust
+  substrate-report       Report on autonomous invisible work performed by the substrate
+  bloat-audit            Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+  models                 Manage leading developer/agent models end to end
+  openweight             Manage top open-weight frontier models end to end (Ollama/vLLM pull + prefer + probe) [alias: ow]
+  frontier               Manage top frontier models end to end (Claude / GPT / DeepSeek / Gemini / Llama) [alias: fm]
+  openrouter             Manage OpenRouter end to end (keys, prefer, probe, live models) [alias: or]
+  keys                   Cloud API keys — list, set, prefer, remove (like `models` for backends) [alias: key]
+  select-model           Select or override active model
+  deep-scan              Parallel deep scan of substrate home for local models
+  mcp-add                Open-admit an MCP server (stdio command or HTTP URL) into ~/.susi/mcp_config.json
+  verify-download-agent  Verify model download agent, network status, and the hardware-selected model ladder
+  scout-model            Scout or install model substrate via live foreground network stream
+  benchmark              Measure real local inference latency/tokens-per-sec, and compare against a cloud endpoint if SUSI_BENCH_CLOUD_API_BASE is set
+  pulse                  Ingest a natural language intent into sovereign memory (evidence.json)
+  automate               First-class automation: run an autonomous evidence-gated swarm mission
+  review                 Review daemon and OS environment status
+  os-clean               Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed
+  audit                  Perform compliance audit and verify the tamper-evident audit chain
+  admin                  Administrative commands
+  clean                  Clean workspace build artifacts
+  run                    Direct streaming model execution (local Ollama/llama.cpp/Candle or cloud)
+  top                    Unified operator control surface: workload, resources, providers, config, federation, and evidence
+  daemon-start           Internal daemon start (always binds to substrate home; --workspace kept for compat)
+  help                   Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [INTENT]...  Natural language intent or pulse
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+=== susi agents ===
+Manage external task executors end to end
+
+Usage: susi agents <COMMAND>
+
+Commands:
+  list       Show curated executors, native adapters, and installation documentation
+  doctor     Check local prerequisites (does not invoke a paid model)
+  setup      Show setup instructions and the effective adapter configuration
+  configure  Load an adapter JSON file into trusted host configuration
+  reset      Remove a host override and restore the bundled adapter
+  run        Start a task; defaults to a detached worker with durable output
+  tasks      List durable tasks in the current workspace
+  status     Inspect a task; --refresh queries a cloud provider after worker loss/completion
+  logs       Read the end of the task's captured output
+  cancel     Request cancellation; cloud tasks are stopped through their native API
+  send       Send a follow-up to an existing cloud task; then use status --refresh
+  retry      Run a new task with the original prompt (does not resume the vendor session)
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi agents list ===
+Show curated executors, native adapters, and installation documentation
+
+Usage: susi agents list
+
+Options:
+  -h, --help  Print help
+
+=== susi agents doctor ===
+Check local prerequisites (does not invoke a paid model)
+
+Usage: susi agents doctor [AGENT]
+
+Arguments:
+  [AGENT]  
+
+Options:
+  -h, --help  Print help
+
+=== susi agents setup ===
+Show setup instructions and the effective adapter configuration
+
+Usage: susi agents setup <AGENT>
+
+Arguments:
+  <AGENT>  
+
+Options:
+  -h, --help  Print help
+
+=== susi agents configure ===
+Load an adapter JSON file into trusted host configuration
+
+Usage: susi agents configure <AGENT> <FILE>
+
+Arguments:
+  <AGENT>  
+  <FILE>   
+
+Options:
+  -h, --help  Print help
+
+=== susi agents reset ===
+Remove a host override and restore the bundled adapter
+
+Usage: susi agents reset <AGENT>
+
+Arguments:
+  <AGENT>  
+
+Options:
+  -h, --help  Print help
+
+=== susi agents run ===
+Start a task; defaults to a detached worker with durable output
+
+Usage: susi agents run [OPTIONS] <AGENT> <PROMPT>
+
+Arguments:
+  <AGENT>   
+  <PROMPT>  Task prompt, passed as a single argv value, never evaluated by a shell
+
+Options:
+      --wait  Wait for the task to finish in this process
+  -h, --help  Print help
+
+=== susi agents tasks ===
+List durable tasks in the current workspace
+
+Usage: susi agents tasks
+
+Options:
+  -h, --help  Print help
+
+=== susi agents status ===
+Inspect a task; --refresh queries a cloud provider after worker loss/completion
+
+Usage: susi agents status [OPTIONS] <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+      --refresh  
+  -h, --help     Print help
+
+=== susi agents logs ===
+Read the end of the task's captured output
+
+Usage: susi agents logs [OPTIONS] <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+      --stderr         
+      --bytes <BYTES>  [default: 65536]
+  -h, --help           Print help
+
+=== susi agents cancel ===
+Request cancellation; cloud tasks are stopped through their native API
+
+Usage: susi agents cancel <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi agents send ===
+Send a follow-up to an existing cloud task; then use status --refresh
+
+Usage: susi agents send <TASK_ID> <MESSAGE>
+
+Arguments:
+  <TASK_ID>  
+  <MESSAGE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi agents retry ===
+Run a new task with the original prompt (does not resume the vendor session)
+
+Usage: susi agents retry [OPTIONS] <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+      --wait  
+  -h, --help  Print help
+
+=== susi agents worker ===
+Usage: susi agents worker <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks ===
+Manage agent frameworks/engines end to end (LangGraph, CrewAI, …)
+
+Usage: susi frameworks <COMMAND>
+
+Commands:
+  list       Show the ten agent frameworks/engines and setup documentation
+  doctor     Check local prerequisites (does not invoke a paid model)
+  setup      Show setup instructions and the effective adapter configuration
+  configure  Load an adapter JSON file into trusted host configuration
+  reset      Remove a host override and restore the bundled adapter
+  run        Start a task; defaults to a detached worker with durable output
+  tasks      List durable framework tasks in the current workspace
+  status     
+  logs       
+  cancel     
+  retry      
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks list ===
+Show the ten agent frameworks/engines and setup documentation
+
+Usage: susi frameworks list
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks doctor ===
+Check local prerequisites (does not invoke a paid model)
+
+Usage: susi frameworks doctor [ENGINE]
+
+Arguments:
+  [ENGINE]  
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks setup ===
+Show setup instructions and the effective adapter configuration
+
+Usage: susi frameworks setup <ENGINE>
+
+Arguments:
+  <ENGINE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks configure ===
+Load an adapter JSON file into trusted host configuration
+
+Usage: susi frameworks configure <ENGINE> <FILE>
+
+Arguments:
+  <ENGINE>  
+  <FILE>    
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks reset ===
+Remove a host override and restore the bundled adapter
+
+Usage: susi frameworks reset <ENGINE>
+
+Arguments:
+  <ENGINE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks run ===
+Start a task; defaults to a detached worker with durable output
+
+Usage: susi frameworks run [OPTIONS] <ENGINE> <PROMPT>
+
+Arguments:
+  <ENGINE>  
+  <PROMPT>  
+
+Options:
+      --wait  
+  -h, --help  Print help
+
+=== susi frameworks tasks ===
+List durable framework tasks in the current workspace
+
+Usage: susi frameworks tasks
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks status ===
+Usage: susi frameworks status [OPTIONS] <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+      --refresh  
+  -h, --help     Print help
+
+=== susi frameworks logs ===
+Usage: susi frameworks logs [OPTIONS] <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+      --stderr         
+      --bytes <BYTES>  [default: 65536]
+  -h, --help           Print help
+
+=== susi frameworks cancel ===
+Usage: susi frameworks cancel <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi frameworks retry ===
+Usage: susi frameworks retry [OPTIONS] <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+      --wait  
+  -h, --help  Print help
+
+=== susi frameworks worker ===
+Usage: susi frameworks worker <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi start ===
+Ensure the global susi daemon is running and report host-contract endpoints
+
+Usage: susi start
+
+Options:
+  -h, --help  Print help
+
+=== susi stop ===
+Stop the global susi daemon (deterministic control plane — never a mission)
+
+Usage: susi stop
+
+Options:
+  -h, --help  Print help
+
+=== susi restart ===
+Restart the global susi daemon (stop then start — never a mission)
+
+Usage: susi restart
+
+Options:
+  -h, --help  Print help
+
+=== susi install ===
+Initialize sandboxed .susi environment
+
+Usage: susi install
+
+Options:
+  -h, --help  Print help
+
+=== susi install-release ===
+Activate a qualified Windows release or restore the previous verified release
+
+Usage: susi install-release [OPTIONS]
+
+Options:
+      --id <ID>              Trusted SHA-256 release ID supplied by the local production qualifier
+      --previous <PREVIOUS>  Qualified predecessor in the adjacent sibling release directory
+      --rollback             Restore the previously admitted release
+      --status               Verify the installed selector, executable, PATH and Start Menu entry
+      --expect <EXPECT>      Require this specific release for verification or rollback
+  -h, --help                 Print help
+
+=== susi local ===
+Build, test, integrate and qualify Susi locally through native guarded tools
+
+Usage: susi local <ARGS>...
+
+Arguments:
+  <ARGS>...  build debug|production, workflow <command>, or release <command>
+
+Options:
+  -h, --help  Print help
+
+=== susi uninstall ===
+Clean up sandboxed .susi environment
+
+Usage: susi uninstall
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp ===
+Manage leading MCP tool servers, or serve SUSI's native MCP stdio endpoint
+
+Usage: susi mcp [COMMAND]
+
+Commands:
+  serve      Run SUSI's native MCP stdio server (default when bare `susi mcp`)
+  list       Show the top MCP tool servers and enablement/readiness
+  doctor     Check launchers and required env vars (does not start servers)
+  setup      Show setup instructions and the effective adapter
+  enable     Write the leading MCP into ~/.susi/mcp_config.json
+  disable    Remove a leading MCP from ~/.susi/mcp_config.json
+  configure  Override runner/args/env_keys/package via JSON file
+  reset      Remove a host override and restore the bundled leading MCP entry
+  status     Show enablement status for the top MCP servers
+  ledger     Verify the pinned GMCP normative requirements ledger (.agents/gmcp): vendored corpus hashes, verbatim clauses, and complete row classification — the shipped production path for VC-203-001. `--drift` instead refetches every pinned upstream and fails closed on a changed or unreachable source
+  call       Invoke a tool on a peer MCP endpoint (`host:port`) over the session-aware channel — the same path cluster replication uses
+  tools      List the tools a peer MCP endpoint exposes (`tools/list` over the session-aware channel) — discover the surface before `mcp call`
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp serve ===
+Run SUSI's native MCP stdio server (default when bare `susi mcp`)
+
+Usage: susi mcp serve
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp list ===
+Show the top MCP tool servers and enablement/readiness
+
+Usage: susi mcp list
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp doctor ===
+Check launchers and required env vars (does not start servers)
+
+Usage: susi mcp doctor [SERVER]
+
+Arguments:
+  [SERVER]  
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp setup ===
+Show setup instructions and the effective adapter
+
+Usage: susi mcp setup <SERVER>
+
+Arguments:
+  <SERVER>  
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp enable ===
+Write the leading MCP into ~/.susi/mcp_config.json
+
+Usage: susi mcp enable <SERVER>
+
+Arguments:
+  <SERVER>  
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp disable ===
+Remove a leading MCP from ~/.susi/mcp_config.json
+
+Usage: susi mcp disable <SERVER>
+
+Arguments:
+  <SERVER>  
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp configure ===
+Override runner/args/env_keys/package via JSON file
+
+Usage: susi mcp configure <SERVER> <FILE>
+
+Arguments:
+  <SERVER>  
+  <FILE>    
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp reset ===
+Remove a host override and restore the bundled leading MCP entry
+
+Usage: susi mcp reset <SERVER>
+
+Arguments:
+  <SERVER>  
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp status ===
+Show enablement status for the top MCP servers
+
+Usage: susi mcp status
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp ledger ===
+Verify the pinned GMCP normative requirements ledger (.agents/gmcp): vendored corpus hashes, verbatim clauses, and complete row classification — the shipped production path for VC-203-001. `--drift` instead refetches every pinned upstream and fails closed on a changed or unreachable source
+
+Usage: susi mcp ledger [OPTIONS]
+
+Options:
+      --drift                  Check upstream standards drift instead of the local corpus
+      --refetched <REFETCHED>  With `--drift`: compare this pre-fetched corpus directory (keyed by manifest document name) instead of the network — the deterministic path tests and air-gapped checks use
+  -h, --help                   Print help
+
+=== susi mcp call ===
+Invoke a tool on a peer MCP endpoint (`host:port`) over the session-aware channel — the same path cluster replication uses
+
+Usage: susi mcp call [OPTIONS] <ADDR> <TOOL> [ARGS]
+
+Arguments:
+  <ADDR>  Peer address, e.g. 127.0.0.1:9093 (canonical GMCP-HTTP + port_offset)
+  <TOOL>  Tool name as exposed by the peer's tools/list
+  [ARGS]  JSON arguments object, e.g. '{"coordinator":"node-a"}' (default {}) [default: {}]
+
+Options:
+      --token <TOKEN>  Bearer token (default: cluster peer bearer for remote members, ~/.susi/api_token for loopback)
+  -h, --help           Print help
+
+=== susi mcp tools ===
+List the tools a peer MCP endpoint exposes (`tools/list` over the session-aware channel) — discover the surface before `mcp call`
+
+Usage: susi mcp tools [OPTIONS] <ADDR>
+
+Arguments:
+  <ADDR>  Peer address, e.g. 127.0.0.1:9093 (canonical GMCP-HTTP + port_offset)
+
+Options:
+      --token <TOKEN>  Bearer token (default: cluster peer bearer for remote members, ~/.susi/api_token for loopback)
+  -h, --help           Print help
+
+=== susi extensions ===
+Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions)
+
+Usage: susi extensions [COMMAND]
+
+Commands:
+  list      List installed packs (default when bare `susi extensions`)
+  status    Show active pack and substrate root
+  create    Create an empty pack shell under ~/.susi/extensions/<id>/
+  load      Load (activate) a pack
+  unload    Unload a pack (keeps files; falls back to compiled defaults)
+  validate  Check a pack directory against the host's admission rules (for pack authors; reads and changes no host state)
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi extensions list ===
+List installed packs (default when bare `susi extensions`)
+
+Usage: susi extensions list
+
+Options:
+  -h, --help  Print help
+
+=== susi extensions status ===
+Show active pack and substrate root
+
+Usage: susi extensions status
+
+Options:
+  -h, --help  Print help
+
+=== susi extensions create ===
+Create an empty pack shell under ~/.susi/extensions/<id>/
+
+Usage: susi extensions create <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi extensions load ===
+Load (activate) a pack
+
+Usage: susi extensions load <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi extensions unload ===
+Unload a pack (keeps files; falls back to compiled defaults)
+
+Usage: susi extensions unload <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi extensions validate ===
+Check a pack directory against the host's admission rules (for pack authors; reads and changes no host state)
+
+Usage: susi extensions validate <PATH>
+
+Arguments:
+  <PATH>  
+
+Options:
+  -h, --help  Print help
+
+=== susi auto ===
+Zero-config auto substrate: packs, MCP, models, peers readiness
+
+Usage: susi auto [COMMAND]
+
+Commands:
+  status  Show zero-config auto substrate readiness (default). A snapshot of what the last prime wrote: the full report is refreshed only by `auto prime` and commands that prime every catalog (missions, in-process `mcp call`); the daemon and other commands prime only what they read, and the daemon never probes agent frameworks
+  prime   Re-run auto-prime now (models/installed peers; never enables MCP)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi auto status ===
+Show zero-config auto substrate readiness (default). A snapshot of what the last prime wrote: the full report is refreshed only by `auto prime` and commands that prime every catalog (missions, in-process `mcp call`); the daemon and other commands prime only what they read, and the daemon never probes agent frameworks
+
+Usage: susi auto status
+
+Options:
+  -h, --help  Print help
+
+=== susi auto prime ===
+Re-run auto-prime now (models/installed peers; never enables MCP)
+
+Usage: susi auto prime
+
+Options:
+  -h, --help  Print help
+
+=== susi setup ===
+One end-to-end ecosystem setup: detect, consent, apply (safe to rerun)
+
+Usage: susi setup [COMMAND]
+
+Commands:
+  plan   Detect hardware/engines/keys/agents and print the plan (default)
+  apply  Apply the plan (optionally grant cloud consent)
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi setup plan ===
+Detect hardware/engines/keys/agents and print the plan (default)
+
+Usage: susi setup plan [OPTIONS]
+
+Options:
+      --json  Machine-readable plan for automation
+  -h, --help  Print help
+
+=== susi setup apply ===
+Apply the plan (optionally grant cloud consent)
+
+Usage: susi setup apply [OPTIONS]
+
+Options:
+      --cloud  Grant cloud API key consent in this apply
+      --json   Machine-readable result for automation
+  -h, --help   Print help
+
+=== susi workflow ===
+Check that this checkout follows the susi workflow — run this first
+
+Usage: susi workflow <COMMAND>
+
+Commands:
+  sync          Fetch and merge origin/main into a clean agent worktree
+  finish        Verify, close, push, publish the close receipt and release ownership. A cloud session's release is applied by GitHub Actions; finish returns once that request is published, and the next claim waits only for what the run still has left. The branch run and the merge stay the machinery's (a red run is reported at the next `sync`)
+  watch         Keep the clean primary checkout current with remote main (local process)
+  start         Create your own worktree on a fresh branch off origin/main, ready to work in (hooks installed, primary checkout parked). Prints `cd <path>`
+  prune         Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim token and git author, never the shared git login or `PRIMARY`. `check` and `start` do this for you; run it to fix a borrowed identity by hand. Reclaim finished agent worktrees that have merged into origin/main
+  own-identity  
+  guard         Mandates 49/50 at the git hooks (`.githooks/workflow-guard` execs this): refuse commits in the primary checkout or on main, and a push that deletes, rewrites or is behind origin/main. `push` reads the refs git hands the pre-push hook on stdin. Needs git only: no shell or coreutils
+  fetch-refs    Fetch branch tips, task claims and close receipts from the remote in one round trip: the snapshot the push guard and CI's compliance job judge from (`scripts/fetch-workflow-refs.sh` is CI's copy of it)
+  seed-target   Give a worktree a cargo target of its own, warm from the clone's snapshot of origin/main (`scripts/seed-target.sh` execs this): a link to the old shared target is replaced (the link only), a missing or empty target is copied from the snapshot and stripped to registry and git crates, a target that holds a build is left alone. Never fails
+  park-primary  Keep the primary checkout parked at origin/main so nobody works in it (`scripts/park-primary.sh` execs this): on `main`, fast-forwarded; detached there only when another worktree holds `main`. Refuses, and says why, when parking would lose uncommitted or unmerged work
+  check         Check that this checkout follows the susi workflow (Mandates 49-51)
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi workflow sync ===
+Fetch and merge origin/main into a clean agent worktree
+
+Usage: susi workflow sync
+
+Options:
+  -h, --help  Print help
+
+=== susi workflow finish ===
+Verify, close, push, publish the close receipt and release ownership. A cloud session's release is applied by GitHub Actions; finish returns once that request is published, and the next claim waits only for what the run still has left. The branch run and the merge stay the machinery's (a red run is reported at the next `sync`)
+
+Usage: susi workflow finish [OPTIONS] <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+      --wait     Poll the branch run in-line instead: stop on a red run, hand off on green or at the SUSI_FINISH_WAIT_MAX budget (the old default)
+      --no-wait  Hand off at the push (the default; kept for scripts that pass it)
+  -h, --help     Print help
+
+=== susi workflow watch ===
+Keep the clean primary checkout current with remote main (local process)
+
+Usage: susi workflow watch
+
+Options:
+  -h, --help  Print help
+
+=== susi workflow start ===
+Create your own worktree on a fresh branch off origin/main, ready to work in (hooks installed, primary checkout parked). Prints `cd <path>`
+
+Usage: susi workflow start [OPTIONS] [NAME] [BASE]
+
+Arguments:
+  [NAME]  Branch/worktree name (default: <agent>-<yyyymmdd>-<hhmmss>-<pid>)
+  [BASE]  The commit to branch from (default: origin/main)
+
+Options:
+      --agent <AGENT>  Who you are (default: $SUSI_AGENT, else the agent tool you run inside — never your git login)
+  -h, --help           Print help
+
+=== susi workflow prune ===
+Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim token and git author, never the shared git login or `PRIMARY`. `check` and `start` do this for you; run it to fix a borrowed identity by hand. Reclaim finished agent worktrees that have merged into origin/main
+
+Usage: susi workflow prune [OPTIONS]
+
+Options:
+      --apply  Actually remove the worktrees (default: report only)
+      --all    Remove finished worktrees of all agents, not just yours
+  -h, --help   Print help
+
+=== susi workflow own-identity ===
+Usage: susi workflow own-identity
+
+Options:
+  -h, --help  Print help
+
+=== susi workflow guard ===
+Mandates 49/50 at the git hooks (`.githooks/workflow-guard` execs this): refuse commits in the primary checkout or on main, and a push that deletes, rewrites or is behind origin/main. `push` reads the refs git hands the pre-push hook on stdin. Needs git only: no shell or coreutils
+
+Usage: susi workflow guard <STAGE>
+
+Arguments:
+  <STAGE>  The hook that is running [possible values: commit, merge, push]
+
+Options:
+  -h, --help  Print help (see more with '--help')
+
+=== susi workflow fetch-refs ===
+Fetch branch tips, task claims and close receipts from the remote in one round trip: the snapshot the push guard and CI's compliance job judge from (`scripts/fetch-workflow-refs.sh` is CI's copy of it)
+
+Usage: susi workflow fetch-refs [REMOTE]
+
+Arguments:
+  [REMOTE]  The remote to fetch from [default: origin]
+
+Options:
+  -h, --help  Print help
+
+=== susi workflow seed-target ===
+Give a worktree a cargo target of its own, warm from the clone's snapshot of origin/main (`scripts/seed-target.sh` execs this): a link to the old shared target is replaced (the link only), a missing or empty target is copied from the snapshot and stripped to registry and git crates, a target that holds a build is left alone. Never fails
+
+Usage: susi workflow seed-target [OPTIONS] [DIR]
+
+Arguments:
+  [DIR]  The worktree to seed (default: the one this runs in)
+
+Options:
+      --background    Replace a link now and copy in a detached process (the hooks)
+      --refresh       Rebuild origin/main in a clone of its own and republish the snapshot (the primary watcher runs this)
+      --force         With --refresh: refresh a snapshot younger than SUSI_SEED_REFRESH_SECS too
+      --export <DIR>  Export this checkout's target as a snapshot at DIR: copied, stripped to registry and git crates, and marked (the cloud target seed workflow publishes it; scripts/cloud-target-seed.sh unpacks it)
+      --log <FILE>    With --refresh: write the refresh's report and build output here. Otherwise: append the seeding's report here instead of stderr (the background copy, which may hold no caller's output)
+  -h, --help          Print help
+
+=== susi workflow park-primary ===
+Keep the primary checkout parked at origin/main so nobody works in it (`scripts/park-primary.sh` execs this): on `main`, fast-forwarded; detached there only when another worktree holds `main`. Refuses, and says why, when parking would lose uncommitted or unmerged work
+
+Usage: susi workflow park-primary [OPTIONS]
+
+Options:
+      --sync-only  Only fast-forward an already-parked `main`, silently or not at all: never switch a branch or touch a dirty tree (every workflow check and hook runs this)
+  -h, --help       Print help
+
+=== susi workflow check ===
+Check that this checkout follows the susi workflow (Mandates 49-51)
+
+Usage: susi workflow check [OPTIONS]
+
+Options:
+      --json           Machine-readable output
+      --agent <AGENT>  Who you are (default: $SUSI_AGENT, your worktree branch, or your git user)
+  -h, --help           Print help
+
+=== susi harness ===
+Harness orchestration: author a plan, run a mission, serve the harness API
+
+Usage: susi harness <COMMAND>
+
+Commands:
+  author     Author a plan from a roadmap vector, through the metered gateway
+  plan       Plan a batch of dependency-ready queue tasks; each entry claims its id
+  run        Run a plan: prepare in parallel, land in order, persist after each task
+  scorecard  Print the self-build (RSI) scorecard for the mission lifecycle ledger
+  api        Serve the harness JSON/SSE API: spend, tasks, workers, warnings and operator commands
+  status     Print the harness API snapshot for a ledger
+  models     Print the provider registry, models and aliases as JSON (no network)
+  budget     Print the one-line budget report and any top-up alert, without running
+  gateway    Serve the metered multi-provider gateway directly from susi
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi harness author ===
+Author a plan from a roadmap vector, through the metered gateway
+
+Usage: susi harness author [OPTIONS] --gateway <GATEWAY> <VECTOR>
+
+Arguments:
+  <VECTOR>  Vector id, e.g. VC-203-001
+
+Options:
+      --gateway <GATEWAY>      Gateway base URL (the harness gateway)
+      --model <MODEL>          Model id the gateway prices (such as `deepseek-pro`) [default: auto]
+      --roadmap <ROADMAP>      Roadmap file [default: .agents/roadmap.json]
+      --out <OUT>              Where to write the plan [default: plan.json]
+      --max-tasks <MAX_TASKS>  Upper bound on tasks [default: 3]
+      --workers <WORKERS>      Worker models tasks are spread across (comma-separated) [default: auto]
+  -h, --help                   Print help
+
+=== susi harness plan ===
+Plan a batch of dependency-ready queue tasks; each entry claims its id
+
+Usage: susi harness plan [OPTIONS]
+
+Options:
+      --repo <REPO>        The susi target repository [default: .]
+      --out <OUT>          Where to write the plan [default: plan.json]
+      --mission <MISSION>  Mission id [default: roadmap-batch]
+      --limit <LIMIT>      Upper bound on tasks in the batch [default: 1]
+      --workers <WORKERS>  Worker models, assigned round-robin (comma-separated) [default: auto]
+      --roadmap <ROADMAP>  Only tasks whose roadmap vector is this id
+      --gateway <GATEWAY>  Gateway the plan will run through: a listed worker whose provider has no key set here stays when that gateway answers for it (an explicit --upstream, or a gateway with its own key)
+  -h, --help               Print help
+
+=== susi harness run ===
+Run a plan: prepare in parallel, land in order, persist after each task
+
+Usage: susi harness run [OPTIONS] --gateway <GATEWAY> <PLAN>
+
+Arguments:
+  <PLAN>  Plan file
+
+Options:
+      --repo <REPO>                    The susi target repository [default: .]
+      --state <STATE>                  Supervisor resume state [default: supervisor-state.json]
+      --gateway <GATEWAY>              Gateway base URL (the harness gateway)
+      --model <MODEL>                  Model id the gateway prices [default: auto]
+      --timeout <TIMEOUT>              Per-turn deadline, seconds [default: 900]
+      --parallel <PARALLEL>            Tasks prepared at once (landing is always serial) [default: 1]
+      --prefix <PREFIX>                Worktree name prefix [default: harness]
+      --workers <WORKERS>              Models a task may escalate to when its own model does not pass (comma-separated) [default: auto]
+      --budget-usd <BUDGET_USD>        Mission cap in dollars [default: 5]
+      --catalogue <CATALOGUE>          Price catalogue used to rank workers and bound spend [default: deploy/harness/prices.json]
+      --daily-usd <DAILY_USD>          Daily spend ceiling in dollars, checked against the ledger before a run [default: 25]
+      --ledger <LEDGER>                Ledger the gateway writes (spend authority) (default: `SUSI_HARNESS_LEDGER` if set, else `out/ledger.jsonl` in a susi workspace, else `harness/ledger.jsonl` in the data home, `~/.susi` unless `SUSI_HOME` is set; the same default standalone `susi-harness` uses)
+      --controls <CONTROLS>            Control log the harness API writes pause/resume/abort to [default: out/control.jsonl]
+      --rsi-log <RSI_LOG>              Self-build lifecycle ledger the RSI scorecard reads [default: .agents/rsi-loop.jsonl]
+      --attempts <ATTEMPTS>            Hard cap on attempts per task [default: 3]
+      --adapter-state <ADAPTER_STATE>  Where the adapter keeps prompts and results [default: harness-state]
+      --susi <SUSI>                    The susi binary the adapter drives (default: this one)
+  -h, --help                           Print help
+
+=== susi harness scorecard ===
+Print the self-build (RSI) scorecard for the mission lifecycle ledger
+
+Usage: susi harness scorecard [OPTIONS]
+
+Options:
+      --events <EVENTS>   Lifecycle ledger the supervisor writes [default: .agents/rsi-loop.jsonl]
+      --task <TASK>       Limit the report to one task (repeatable)
+      --json              Machine-readable report
+      --require-complete  Fail unless every task reached every phase
+      --python <PYTHON>   Python executable [default: python]
+  -h, --help              Print help
+
+=== susi harness api ===
+Serve the harness JSON/SSE API: spend, tasks, workers, warnings and operator commands
+
+Usage: susi harness api [OPTIONS] --ledger <LEDGER>
+
+Options:
+      --ledger <LEDGER>          Ledger the gateway writes
+      --events <EVENTS>          Event feed (default: beside the ledger)
+      --state <STATE>            Supervisor resume state to show task progress
+      --plan <PLAN>              Plan the supervisor is running
+      --controls <CONTROLS>      Control log the operator's commands are appended to
+      --catalogue <CATALOGUE>    Price catalogue, so each worker's rate is shown
+      --graph <GRAPH>            Agent-graph bus file (overrides SUSI_HARNESS_GRAPH and the graph.jsonl beside the ledger)
+      --budget-usd <BUDGET_USD>  Mission cap in dollars
+      --mission <MISSION>        Mission to focus
+      --host <HOST>              Interface to bind [default: 127.0.0.1]
+      --port <PORT>              Port to bind [default: 9181]
+  -h, --help                     Print help
+
+=== susi harness status ===
+Print the harness API snapshot for a ledger
+
+Usage: susi harness status [OPTIONS] --ledger <LEDGER>
+
+Options:
+      --ledger <LEDGER>  Ledger the gateway wrote
+      --events <EVENTS>  Event feed (optional)
+  -h, --help             Print help
+
+=== susi harness models ===
+Print the provider registry, models and aliases as JSON (no network)
+
+Usage: susi harness models [OPTIONS]
+
+Options:
+      --verify               Check each selected provider's live models endpoint for drift
+      --discover             List the chat models each keyed provider serves beyond the registry, as an overlay with the prices it publishes
+      --provider <PROVIDER>  Limit the check to one provider id (requires --verify or --discover)
+      --available            Filter for models with valid API keys present and sort by budget cost
+  -h, --help                 Print help
+
+=== susi harness budget ===
+Print the one-line budget report and any top-up alert, without running
+
+Usage: susi harness budget [OPTIONS]
+
+Options:
+      --ledger <LEDGER>  Ledger the spend is read from (default: `SUSI_HARNESS_LEDGER` if set, else `out/ledger.jsonl` in a susi workspace, else `harness/ledger.jsonl` in the data home, `~/.susi` unless `SUSI_HOME` is set; the same default standalone `susi-harness` uses)
+  -h, --help             Print help
+
+=== susi harness gateway ===
+Serve the metered multi-provider gateway directly from susi
+
+Usage: susi harness gateway [OPTIONS]
+
+Options:
+      --port <PORT>            Port to bind (default: 9180) [default: 9180]
+      --host <HOST>            Interface to bind (default: 127.0.0.1). Any address other machines can reach needs --accounts with at least one account [default: 127.0.0.1]
+      --catalogue <CATALOGUE>  Price catalogue [default: deploy/harness/prices.json]
+      --ledger <LEDGER>        Ledger path (default: `SUSI_HARNESS_LEDGER` if set, else `out/ledger.jsonl` in a susi workspace, else `harness/ledger.jsonl` in the data home, `~/.susi` unless `SUSI_HOME` is set; the same default standalone `susi-harness` uses)
+      --upstream <UPSTREAM>    Upstream URL or "direct" for multi-provider routing [default: direct]
+      --timeout <TIMEOUT>      Upstream call timeout in seconds [default: 120]
+      --accounts <ACCOUNTS>    Accounts file: every caller must present a bearer token naming one of its accounts (optional on loopback, required on any other host)
+  -h, --help                   Print help
+
+=== susi tasks ===
+The shared task queue: add, claim (atomic), close (only when the check passes)
+
+Usage: susi tasks [COMMAND]
+
+Commands:
+  list         List open tasks with who holds each claim (default)
+  add          Add a task; it needs an acceptance command that decides "done"
+  author       Author backlog artifacts from a spec file: vectors into .agents/roadmap.json and tasks into .agents/tasks/, both through the same gates a human's edits meet. The spec is {"rationale","vectors":[{"id","priority","vector","mastery_target","type","depends_on"}], "tasks":[{"title","goal","size","deps","accept","roadmap"}]}. The path is rate-bound: an agent may hold AUTHORED_OPEN_MAX open authored tasks. With --unqueued and no file, susi's own coverage audit drafts a "Verify mastery" task for every unqueued vector through the same path. With --from-failures and no file, a mission that did not succeed drafts its own repair task, deduplicated by failure kind
+  authored     List open machine-authored tasks — the review surface for the author path
+  eval-corpus  Load the versioned RSI corpus, judge one candidate run against its held-out suite, and durably record the contamination/promotion evidence (VC-201-001). `--input` is a JSON file shaped {"candidate":{"id","actual_output","expected_results"}, "candidate_can_write","training_access","memory_access"}
+  roadmap      Roadmap coverage and mastery: which vectors have tasks, and which of them claim delivery in their own narrative
+  claim        Claim a task (atomic; fails if someone else holds a live claim)
+  renew        Renew an owned live task lease, retaining its scopes
+  release      Give up a claim
+  close        Run the acceptance check and, only if it passes, close the task
+  audit        Reconcile what agents accepted against what actually reached origin/main
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi tasks list ===
+List open tasks with who holds each claim (default)
+
+Usage: susi tasks list [OPTIONS]
+
+Options:
+      --done  Also show closed tasks
+      --json  Emit machine-readable JSON (this is already the default; accepted so scripts can be explicit, matching `susi tasks audit --json`)
+  -h, --help  Print help
+
+=== susi tasks add ===
+Add a task; it needs an acceptance command that decides "done"
+
+Usage: susi tasks add [OPTIONS] --accept <ACCEPT> <TITLE>
+
+Arguments:
+  <TITLE>  
+
+Options:
+      --goal <GOAL>        [default: ""]
+      --size <SIZE>        s | m | l [default: m]
+      --dep <DEPS>         Task ids that must close first (repeatable)
+      --accept <ACCEPT>    Acceptance command, split on spaces, e.g. "cargo test -p susi-gemi brain"
+      --roadmap <ROADMAP>  Roadmap vector this delivers (VC-<n>-<n>, from .agents/roadmap.json)
+      --agent <AGENT>      Who is adding it (default: $SUSI_AGENT, your worktree branch, or your git user)
+  -h, --help               Print help
+
+=== susi tasks author ===
+Author backlog artifacts from a spec file: vectors into .agents/roadmap.json and tasks into .agents/tasks/, both through the same gates a human's edits meet. The spec is {"rationale","vectors":[{"id","priority","vector","mastery_target","type","depends_on"}], "tasks":[{"title","goal","size","deps","accept","roadmap"}]}. The path is rate-bound: an agent may hold AUTHORED_OPEN_MAX open authored tasks. With --unqueued and no file, susi's own coverage audit drafts a "Verify mastery" task for every unqueued vector through the same path. With --from-failures and no file, a mission that did not succeed drafts its own repair task, deduplicated by failure kind
+
+Usage: susi tasks author [OPTIONS] [FILE]
+
+Arguments:
+  [FILE]  Spec JSON file (omit with --unqueued / --from-failures)
+
+Options:
+      --unqueued       Author verification tasks for every unqueued roadmap vector
+      --from-failures  Author repair tasks from recorded mission failures
+      --agent <AGENT>  
+  -h, --help           Print help
+
+=== susi tasks authored ===
+List open machine-authored tasks — the review surface for the author path
+
+Usage: susi tasks authored
+
+Options:
+  -h, --help  Print help
+
+=== susi tasks eval-corpus ===
+Load the versioned RSI corpus, judge one candidate run against its held-out suite, and durably record the contamination/promotion evidence (VC-201-001). `--input` is a JSON file shaped {"candidate":{"id","actual_output","expected_results"}, "candidate_can_write","training_access","memory_access"}
+
+Usage: susi tasks eval-corpus --corpus <FILE> --input <FILE>
+
+Options:
+      --corpus <FILE>  Path to the corpus JSON document
+      --input <FILE>   Path to the JSON-encoded eval run (candidate + access sets)
+  -h, --help           Print help
+
+=== susi tasks roadmap ===
+Roadmap coverage and mastery: which vectors have tasks, and which of them claim delivery in their own narrative
+
+Usage: susi tasks roadmap [OPTIONS]
+
+Options:
+      --uncovered  Only vectors no task is linked to
+      --unqueued   Only vectors that do not claim delivery and have nothing queued
+  -h, --help       Print help
+
+=== susi tasks claim ===
+Claim a task (atomic; fails if someone else holds a live claim)
+
+Usage: susi tasks claim [OPTIONS] <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+      --scope <SCOPES>  Reserve a repo-relative file/directory (repeatable); overlapping claims fail
+      --unscoped        Claim with no reservation at all (deliberate: the commit hook and CI then refuse any code under it)
+      --agent <AGENT>   
+      --hours <HOURS>   Lease length; an expired claim can be taken over. Defaults to 4h, or 12h for a size-l task, which will not finish inside a shorter one
+  -h, --help            Print help
+
+=== susi tasks renew ===
+Renew an owned live task lease, retaining its scopes
+
+Usage: susi tasks renew [OPTIONS] <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+      --agent <AGENT>  
+      --hours <HOURS>  Lease length. Defaults to the claim's own: 4h, or 12h for a size-l task
+  -h, --help           Print help
+
+=== susi tasks release ===
+Give up a claim
+
+Usage: susi tasks release [OPTIONS] <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+      --agent <AGENT>      
+      --force              Release a claim held by someone else
+      --abandon <ABANDON>  Give up an accepted task whose work is not merged yet, recording why. Without it a close that is not on origin/main is held, not dropped
+  -h, --help               Print help
+
+=== susi tasks close ===
+Run the acceptance check and, only if it passes, close the task
+
+Usage: susi tasks close [OPTIONS] <ID>
+
+Arguments:
+  <ID>  
+
+Options:
+      --agent <AGENT>  
+  -h, --help           Print help
+
+=== susi tasks audit ===
+Reconcile what agents accepted against what actually reached origin/main
+
+Usage: susi tasks audit [OPTIONS]
+
+Options:
+      --json    Machine-readable report — the per-agent ranking input (Mandate 56)
+      --strict  Exit non-zero when any accepted task is still unpublished
+  -h, --help    Print help
+
+=== susi tasks verify-merged ===
+Re-run the acceptance of merged tasks against this tree (CI, main only)
+
+Usage: susi tasks verify-merged [OPTIONS]
+
+Options:
+      --limit <LIMIT>              How many unverified merges one run may check [default: 5]
+      --budget-secs <BUDGET_SECS>  Wall-clock budget for the whole sweep, seconds; what does not fit is deferred to the next run rather than holding the job [default: 1200]
+  -h, --help                       Print help
+
+=== susi brain ===
+The brain: which model susi trusts for which kind of work (evidence-ranked)
+
+Usage: susi brain [COMMAND]
+
+Commands:
+  status    Show the evidence-ranked providers for every task class (default)
+  budget    Set shared cloud spending and request limits
+  classify  Show which task class a prompt is routed as
+  explain   Explain the brain's routing decision for a prompt
+  export    Export brain evidence bundle to portable JSON format
+  import    Import and merge brain evidence bundle from a file
+  matrix    Show the measured capability matrix: every model's success rate, latency and cost per verified outcome at each task class
+  pareto    Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers
+  cache     Show the measured prompt-cache hit rate and the estimated saving cache-first context assembly has realised so far
+  reset     Forget all recorded outcomes (new account, changed model lineup)
+  bench     Run the fixed prompt set against a fake or configured engine; record evidence
+  probe     Probe a registered provider with the fixed scout benchmark and record the verified outcomes as brain evidence
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi brain status ===
+Show the evidence-ranked providers for every task class (default)
+
+Usage: susi brain status [OPTIONS]
+
+Options:
+      --top <TOP>      Number of top ranked providers to show per class [default: 5]
+      --class <CLASS>  Filter by specific task class (e.g. reflex, chat, code, reasoning, estate_ops)
+      --json           Output raw JSON instead of human summary table
+  -h, --help           Print help
+
+=== susi brain budget ===
+Set shared cloud spending and request limits
+
+Usage: susi brain budget [OPTIONS]
+
+Options:
+      --free-only
+          
+      --allow-paid
+          Authorize paid inference within the configured limits
+      --level <LEVEL>
+          Budget dial setting: low, balanced, or max
+      --max-spend-microusd <MAX_SPEND_MICROUSD>
+          
+      --max-tokens <MAX_TOKENS>
+          
+      --max-requests <MAX_REQUESTS>
+          
+      --max-parallel <MAX_PARALLEL>
+          
+      --new-window
+          Explicitly start a new accounting window; unresolved calls forbid reset
+  -h, --help
+          Print help
+
+=== susi brain classify ===
+Show which task class a prompt is routed as
+
+Usage: susi brain classify [PROMPT]...
+
+Arguments:
+  [PROMPT]...  
+
+Options:
+  -h, --help  Print help
+
+=== susi brain explain ===
+Explain the brain's routing decision for a prompt
+
+Usage: susi brain explain [PROMPT]...
+
+Arguments:
+  [PROMPT]...  
+
+Options:
+  -h, --help  Print help
+
+=== susi brain export ===
+Export brain evidence bundle to portable JSON format
+
+Usage: susi brain export [OPTIONS]
+
+Options:
+      --out <OUT>  Output file path (defaults to stdout if omitted)
+  -h, --help       Print help
+
+=== susi brain import ===
+Import and merge brain evidence bundle from a file
+
+Usage: susi brain import <FILE>
+
+Arguments:
+  <FILE>  Path to bundle file
+
+Options:
+  -h, --help  Print help
+
+=== susi brain matrix ===
+Show the measured capability matrix: every model's success rate, latency and cost per verified outcome at each task class
+
+Usage: susi brain matrix
+
+Options:
+  -h, --help  Print help
+
+=== susi brain pareto ===
+Show the 3D Pareto frontier, Wilson 95% lower confidence bounds, and Bayesian UCB1 exploration-exploitation indices across providers
+
+Usage: susi brain pareto [OPTIONS]
+
+Options:
+      --class <CLASS>  Filter by specific task class (e.g. reflex, chat, code, reasoning, estate_ops)
+  -h, --help           Print help
+
+=== susi brain cache ===
+Show the measured prompt-cache hit rate and the estimated saving cache-first context assembly has realised so far
+
+Usage: susi brain cache
+
+Options:
+  -h, --help  Print help
+
+=== susi brain reset ===
+Forget all recorded outcomes (new account, changed model lineup)
+
+Usage: susi brain reset
+
+Options:
+  -h, --help  Print help
+
+=== susi brain bench ===
+Run the fixed prompt set against a fake or configured engine; record evidence
+
+Usage: susi brain bench [OPTIONS]
+
+Options:
+      --out <OUT>  Write JSONL evidence under this path (default: ~/.susi/brain_bench.jsonl)
+  -h, --help       Print help
+
+=== susi brain probe ===
+Probe a registered provider with the fixed scout benchmark and record the verified outcomes as brain evidence
+
+Usage: susi brain probe [OPTIONS] <PROVIDER>
+
+Arguments:
+  <PROVIDER>  Registered provider name (see `susi brain` ranking output)
+
+Options:
+      --no-record  Do not record the outcomes into the brain evidence store
+  -h, --help       Print help
+
+=== susi ecosystem ===
+Local AI ecosystem: installed engines/runtimes, GPU backends, explicit start
+
+Usage: susi ecosystem [COMMAND]
+
+Commands:
+  scan     Scan hardware and installed local AI ecosystems now (default)
+  status   Show what the last startup scan found
+  start    Start an installed engine that needs no further input (e.g. ollama, local-ai)
+  kb       Cloud-AI ecosystem knowledge base: show, search, list, check
+  explain  Explain a component, standard or protocol from the knowledge base: what it is, its versions, who implements it, how susi uses it
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi ecosystem scan ===
+Scan hardware and installed local AI ecosystems now (default)
+
+Usage: susi ecosystem scan
+
+Options:
+  -h, --help  Print help
+
+=== susi ecosystem status ===
+Show what the last startup scan found
+
+Usage: susi ecosystem status
+
+Options:
+  -h, --help  Print help
+
+=== susi ecosystem start ===
+Start an installed engine that needs no further input (e.g. ollama, local-ai)
+
+Usage: susi ecosystem start <ID>
+
+Arguments:
+  <ID>  Engine id from `susi ecosystem scan`
+
+Options:
+  -h, --help  Print help
+
+=== susi ecosystem kb ===
+Cloud-AI ecosystem knowledge base: show, search, list, check
+
+Usage: susi ecosystem kb [COMMAND]
+
+Commands:
+  list    List entity ids, kinds and names
+  show    Show one entity by id, with its incoming and outgoing relations
+  search  Search entities by id/name substring, with filters
+  check   Run schema + consistency checks over the store (nonzero exit on issues)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi ecosystem kb list ===
+List entity ids, kinds and names
+
+Usage: susi ecosystem kb list [OPTIONS]
+
+Options:
+      --kind <KIND>  Restrict to one kind: component|vendor|standard|protocol|spec-version|capability
+      --dir <DIR>    Read a single store dir instead of the layered bundled+user store
+  -h, --help         Print help
+
+=== susi ecosystem kb show ===
+Show one entity by id, with its incoming and outgoing relations
+
+Usage: susi ecosystem kb show [OPTIONS] <ID>
+
+Arguments:
+  <ID>  Entity id (e.g. `openai`, `cap-tool-calling`)
+
+Options:
+      --dir <DIR>  
+  -h, --help       Print help
+
+=== susi ecosystem kb search ===
+Search entities by id/name substring, with filters
+
+Usage: susi ecosystem kb search [OPTIONS] [QUERY]
+
+Arguments:
+  [QUERY]  Case-insensitive substring matched against id and name
+
+Options:
+      --kind <KIND>              Restrict to one kind
+      --capability <CAPABILITY>  Keep components having this capability (any vendor spelling: "tool calling", "function calling", "tools" all match)
+      --vendor <VENDOR>          Keep the vendor itself and components it `provides`
+      --dir <DIR>                
+  -h, --help                     Print help
+
+=== susi ecosystem kb check ===
+Run schema + consistency checks over the store (nonzero exit on issues)
+
+Usage: susi ecosystem kb check [OPTIONS]
+
+Options:
+      --dir <DIR>  
+  -h, --help       Print help
+
+=== susi ecosystem explain ===
+Explain a component, standard or protocol from the knowledge base: what it is, its versions, who implements it, how susi uses it
+
+Usage: susi ecosystem explain [OPTIONS] <ID>
+
+Arguments:
+  <ID>  Entity id (e.g. `openai-chat-completions`, `mcp`, `a2a`)
+
+Options:
+      --dir <DIR>  Read a single store dir instead of the layered bundled+user store
+  -h, --help       Print help
+
+=== susi blackboard ===
+Inspect the last mission blackboard (swarm shared state)
+
+Usage: susi blackboard [COMMAND]
+
+Commands:
+  show  Show `.susi/last_blackboard.json` from the current workspace (default)
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi blackboard show ===
+Show `.susi/last_blackboard.json` from the current workspace (default)
+
+Usage: susi blackboard show
+
+Options:
+  -h, --help  Print help
+
+=== susi context-graph ===
+Inspect and query the universal context graph
+
+Usage: susi context-graph [COMMAND]
+
+Commands:
+  show       Show the most recent context-graph events for this workspace
+  related    Show nodes/edges related to a specific node id
+  stats      Summary statistics for the loaded graph
+  compact    Compact the append-only context-graph log
+  ingest     Ingest external context events from a JSONL file
+  sample-os  Sample OS-level context (active window, process list) and record it
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi context-graph show ===
+Show the most recent context-graph events for this workspace
+
+Usage: susi context-graph show [OPTIONS]
+
+Options:
+  -l, --limit <LIMIT>  Maximum events to display [default: 20]
+  -h, --help           Print help
+
+=== susi context-graph related ===
+Show nodes/edges related to a specific node id
+
+Usage: susi context-graph related [OPTIONS] --node <NODE>
+
+Options:
+  -n, --node <NODE>    Node id to expand from
+  -d, --depth <DEPTH>  Expansion depth [default: 2]
+  -h, --help           Print help
+
+=== susi context-graph stats ===
+Summary statistics for the loaded graph
+
+Usage: susi context-graph stats
+
+Options:
+  -h, --help  Print help
+
+=== susi context-graph compact ===
+Compact the append-only context-graph log
+
+Usage: susi context-graph compact
+
+Options:
+  -h, --help  Print help
+
+=== susi context-graph ingest ===
+Ingest external context events from a JSONL file
+
+Usage: susi context-graph ingest [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  Path to a JSONL file where each line is {"source":"...","label":"...","payload":{...}}
+
+Options:
+  -w, --workspace <WORKSPACE>  Optional workspace to associate with every ingested event
+  -h, --help                   Print help
+
+=== susi context-graph sample-os ===
+Sample OS-level context (active window, process list) and record it
+
+Usage: susi context-graph sample-os [OPTIONS]
+
+Options:
+  -u, --user <USER>  Optional user name to associate with the sample
+  -h, --help         Print help
+
+=== susi broker ===
+Inter-app permission and message broker
+
+Usage: susi broker [COMMAND]
+
+Commands:
+  grant      Grant a permission scope to an identity
+  request    Request a permission (opens a negotiation)
+  negotiate  Resolve a pending permission request
+  pending    List pending permission requests
+  check      Check whether an identity holds a scope
+  revoke     Revoke a permission scope from an identity
+  list       List grants for an identity
+  send       Send a message to another identity (requires dispatch grant)
+  receive    Receive messages for an identity
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi broker grant ===
+Grant a permission scope to an identity
+
+Usage: susi broker grant [OPTIONS] --grantor <GRANTOR> --grantee <GRANTEE> --resource <RESOURCE> --action <ACTION>
+
+Options:
+      --grantor <GRANTOR>    Identity issuing the grant
+  -g, --grantee <GRANTEE>    
+  -r, --resource <RESOURCE>  
+  -a, --action <ACTION>      
+  -t, --ttl-secs <TTL_SECS>  
+  -h, --help                 Print help
+
+=== susi broker request ===
+Request a permission (opens a negotiation)
+
+Usage: susi broker request [OPTIONS] --requester <REQUESTER> --resource <RESOURCE> --action <ACTION>
+
+Options:
+  -r, --requester <REQUESTER>  
+  -o, --grantor <GRANTOR>      [default: susi]
+  -R, --resource <RESOURCE>    
+  -a, --action <ACTION>        
+  -t, --ttl-secs <TTL_SECS>    
+  -h, --help                   Print help
+
+=== susi broker negotiate ===
+Resolve a pending permission request
+
+Usage: susi broker negotiate [OPTIONS] --request-id <REQUEST_ID> --actor <ACTOR>
+
+Options:
+  -r, --request-id <REQUEST_ID>  
+  -a, --actor <ACTOR>            
+      --approve                  
+      --deny                     
+  -h, --help                     Print help
+
+=== susi broker pending ===
+List pending permission requests
+
+Usage: susi broker pending [OPTIONS]
+
+Options:
+  -g, --grantor <GRANTOR>  
+  -h, --help               Print help
+
+=== susi broker check ===
+Check whether an identity holds a scope
+
+Usage: susi broker check --grantee <GRANTEE> --resource <RESOURCE> --action <ACTION>
+
+Options:
+  -g, --grantee <GRANTEE>    
+  -r, --resource <RESOURCE>  
+  -a, --action <ACTION>      
+  -h, --help                 Print help
+
+=== susi broker revoke ===
+Revoke a permission scope from an identity
+
+Usage: susi broker revoke --grantee <GRANTEE> --resource <RESOURCE> --action <ACTION>
+
+Options:
+  -g, --grantee <GRANTEE>    
+  -r, --resource <RESOURCE>  
+  -a, --action <ACTION>      
+  -h, --help                 Print help
+
+=== susi broker list ===
+List grants for an identity
+
+Usage: susi broker list --grantee <GRANTEE>
+
+Options:
+  -g, --grantee <GRANTEE>  
+  -h, --help               Print help
+
+=== susi broker send ===
+Send a message to another identity (requires dispatch grant)
+
+Usage: susi broker send --from <FROM> --to <TO> --topic <TOPIC> --payload <PAYLOAD>
+
+Options:
+  -f, --from <FROM>        
+  -t, --to <TO>            
+      --topic <TOPIC>      Message topic
+  -p, --payload <PAYLOAD>  JSON payload string
+  -h, --help               Print help
+
+=== susi broker receive ===
+Receive messages for an identity
+
+Usage: susi broker receive [OPTIONS] --recipient <RECIPIENT>
+
+Options:
+  -r, --recipient <RECIPIENT>  
+  -l, --limit <LIMIT>          [default: 10]
+  -h, --help                   Print help
+
+=== susi telemetry ===
+Sample host telemetry (thermal / battery / load)
+
+Usage: susi telemetry [COMMAND]
+
+Commands:
+  sample  Sample thermal/battery/load telemetry now
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi telemetry sample ===
+Sample thermal/battery/load telemetry now
+
+Usage: susi telemetry sample
+
+Options:
+  -h, --help  Print help
+
+=== susi patch ===
+Apply a patch and run tests, rolling back on failure
+
+Usage: susi patch [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  JSON file containing a PatchRequest
+
+Options:
+      --auto-apply  Override auto_apply (still requires workspace confinement)
+  -h, --help        Print help
+
+=== susi plan ===
+Solve a goal using the autonomous planning loop
+
+Usage: susi plan [OPTIONS] <GOAL>
+
+Arguments:
+  <GOAL>  Natural language goal to solve via iterative planning
+
+Options:
+  -m, --max-steps <MAX_STEPS>  Maximum number of planning steps [default: 3]
+  -h, --help                   Print help
+
+=== susi privacy ===
+Privacy mode, egress consent, and cryptographic capability grants
+
+Usage: susi privacy [COMMAND]
+
+Commands:
+  status   Show privacy mode and active capability grants
+  mode     Set privacy mode: balanced | local_only | open
+  grant    Grant a cryptographic capability token
+  revoke   Revoke a capability grant
+  consent  Explicit consent for network egress (and cloud inference under local_only)
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi privacy status ===
+Show privacy mode and active capability grants
+
+Usage: susi privacy status
+
+Options:
+  -h, --help  Print help
+
+=== susi privacy mode ===
+Set privacy mode: balanced | local_only | open
+
+Usage: susi privacy mode <MODE>
+
+Arguments:
+  <MODE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi privacy grant ===
+Grant a cryptographic capability token
+
+Usage: susi privacy grant [OPTIONS] --action <ACTION>
+
+Options:
+  -s, --subject <SUBJECT>    [default: susi]
+  -a, --action <ACTION>      
+  -r, --resource <RESOURCE>  [default: *]
+  -t, --ttl-secs <TTL_SECS>  
+  -h, --help                 Print help
+
+=== susi privacy revoke ===
+Revoke a capability grant
+
+Usage: susi privacy revoke [OPTIONS] --action <ACTION>
+
+Options:
+  -s, --subject <SUBJECT>    [default: susi]
+  -a, --action <ACTION>      
+  -r, --resource <RESOURCE>  [default: *]
+  -h, --help                 Print help
+
+=== susi privacy consent ===
+Explicit consent for network egress (and cloud inference under local_only)
+
+Usage: susi privacy consent [OPTIONS]
+
+Options:
+      --egress               
+  -s, --subject <SUBJECT>    [default: susi]
+  -t, --ttl-secs <TTL_SECS>  [default: 3600]
+  -h, --help                 Print help
+
+=== susi intent ===
+Semantic intent bus (advertise / need / match)
+
+Usage: susi intent [COMMAND]
+
+Commands:
+  advertise  Advertise a provider capability (NL intent)
+  need       Publish a need and print matched providers
+  list       List active providers and needs
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi intent advertise ===
+Advertise a provider capability (NL intent)
+
+Usage: susi intent advertise --from <FROM> --intent <INTENT>
+
+Options:
+  -f, --from <FROM>      
+  -i, --intent <INTENT>  
+  -h, --help             Print help
+
+=== susi intent need ===
+Publish a need and print matched providers
+
+Usage: susi intent need [OPTIONS] --from <FROM> --intent <INTENT>
+
+Options:
+  -f, --from <FROM>            
+  -i, --intent <INTENT>        
+  -m, --min-score <MIN_SCORE>  [default: 0.2]
+  -l, --limit <LIMIT>          [default: 5]
+  -h, --help                   Print help
+
+=== susi intent list ===
+List active providers and needs
+
+Usage: susi intent list
+
+Options:
+  -h, --help  Print help
+
+=== susi ambient ===
+Ambient FS → context graph / vector index sync
+
+Usage: susi ambient [COMMAND]
+
+Commands:
+  pulse  Scan workspace once, record changes, refresh semantic index
+  start  Start background ambient indexer for this workspace (process-local)
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi ambient pulse ===
+Scan workspace once, record changes, refresh semantic index
+
+Usage: susi ambient pulse
+
+Options:
+  -h, --help  Print help
+
+=== susi ambient start ===
+Start background ambient indexer for this workspace (process-local)
+
+Usage: susi ambient start
+
+Options:
+  -h, --help  Print help
+
+=== susi tx ===
+Multi-agent transactional snapshots
+
+Usage: susi tx [COMMAND]
+
+Commands:
+  begin   Begin a transaction snapshotting the given files (comma-separated)
+  commit  Commit an open transaction
+  abort   Abort and restore snapshotted files
+  list    List open transactions
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi tx begin ===
+Begin a transaction snapshotting the given files (comma-separated)
+
+Usage: susi tx begin [OPTIONS] --description <DESCRIPTION>
+
+Options:
+  -d, --description <DESCRIPTION>  
+  -f, --files <FILES>              [default: ""]
+  -h, --help                       Print help
+
+=== susi tx commit ===
+Commit an open transaction
+
+Usage: susi tx commit --id <ID>
+
+Options:
+  -i, --id <ID>  
+  -h, --help     Print help
+
+=== susi tx abort ===
+Abort and restore snapshotted files
+
+Usage: susi tx abort --id <ID>
+
+Options:
+  -i, --id <ID>  
+  -h, --help     Print help
+
+=== susi tx list ===
+List open transactions
+
+Usage: susi tx list
+
+Options:
+  -h, --help  Print help
+
+=== susi substrate ===
+Pluggable / Sandbox / Governance / Host-contract / Reflexes status
+
+Usage: susi substrate [COMMAND]
+
+Commands:
+  status  Show Pluggable / Sandbox / Governance / Host-contract / Reflexes status (default)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi substrate status ===
+Show Pluggable / Sandbox / Governance / Host-contract / Reflexes status (default)
+
+Usage: susi substrate status
+
+Options:
+  -h, --help  Print help
+
+=== susi crown ===
+Tier S crown: verify every USP holds (Truth, Evidence, Swarm, …)
+
+Usage: susi crown [COMMAND]
+
+Commands:
+  verify  Verify all Tier S USPs (default). Exit non-zero if any critical USP fails
+  status  Same as verify but always exit 0 (report only)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi crown verify ===
+Verify all Tier S USPs (default). Exit non-zero if any critical USP fails
+
+Usage: susi crown verify
+
+Options:
+  -h, --help  Print help
+
+=== susi crown status ===
+Same as verify but always exit 0 (report only)
+
+Usage: susi crown status
+
+Options:
+  -h, --help  Print help
+
+=== susi gemi ===
+Start GEMI REST server
+
+Usage: susi gemi
+
+Options:
+  -h, --help  Print help
+
+=== susi status ===
+Inspect workspace health report
+
+Usage: susi status [OPTIONS]
+
+Options:
+      --json  Emit measured health and executable identity as one JSON object
+  -h, --help  Print help
+
+=== susi services ===
+Leaf-service process table: supervised pids, live health, restart
+
+Usage: susi services [COMMAND]
+
+Commands:
+  status   Show every leaf service, its supervised pid, and live health (default)
+  restart  Terminate a supervised service; the daemon respawns it on its next probe
+  stop     Stop a supervised service and hold it down — the supervisor will not respawn it until `susi services start` clears the stop flag. Distinct from restart: the service stays dead by operator intent
+  start    Clear an operator stop and let the supervisor bring the service up
+  logs     Tail a supervised service's log file (the daemon redirects each spawned service's stderr to `substrate_home/logs/<name>.log`)
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi services status ===
+Show every leaf service, its supervised pid, and live health (default)
+
+Usage: susi services status [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON — agent callers get the process table as data instead of parsing the table view
+  -h, --help  Print help
+
+=== susi services restart ===
+Terminate a supervised service; the daemon respawns it on its next probe
+
+Usage: susi services restart <NAME>
+
+Arguments:
+  <NAME>  Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
+
+Options:
+  -h, --help  Print help
+
+=== susi services stop ===
+Stop a supervised service and hold it down — the supervisor will not respawn it until `susi services start` clears the stop flag. Distinct from restart: the service stays dead by operator intent
+
+Usage: susi services stop <NAME>
+
+Arguments:
+  <NAME>  Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
+
+Options:
+  -h, --help  Print help
+
+=== susi services start ===
+Clear an operator stop and let the supervisor bring the service up
+
+Usage: susi services start <NAME>
+
+Arguments:
+  <NAME>  Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
+
+Options:
+  -h, --help  Print help
+
+=== susi services logs ===
+Tail a supervised service's log file (the daemon redirects each spawned service's stderr to `substrate_home/logs/<name>.log`)
+
+Usage: susi services logs [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
+
+Options:
+  -n, --lines <LINES>  Number of trailing lines to print [default: 50]
+  -h, --help           Print help
+
+=== susi commits ===
+Audit the replicated quorum-commit ledger (signature-verified)
+
+Usage: susi commits [COMMAND]
+
+Commands:
+  list     List commit records, newest first (default)
+  show     Print the full record (including committed value) for an epoch prefix
+  audit    Whole-ledger consistency check: signature failures, sequence gaps, equivocation, and commits from non-elected coordinators
+  replay   Fold the ledger into the cluster's consensus view (term, leader, per-coordinator high-water marks) — the state machine is a pure function of the log
+  sync     Proactively pull records this node is missing from verified peers — the receive-path repair only fires when a *push* arrives, so a node that was offline during replication needs this to catch up
+  compact  Fold the ledger into a snapshot and move pre-snapshot records to commit_log.archive.jsonl — bounds the live file's growth (Raft's InstallSnapshot analog). Local storage management, not a consensus event: the compacted and uncompacted views of the same history are identical
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi commits list ===
+List commit records, newest first (default)
+
+Usage: susi commits list [OPTIONS]
+
+Options:
+  -n, --limit <LIMIT>              Maximum records to show [default: 20]
+      --coordinator <COORDINATOR>  Only records from this coordinator
+      --term <TERM>                Only records sealed under this consensus term
+      --kind <KIND>                Only records of this kind (decision, member_add, member_remove, member_unban)
+      --json                       Emit machine-readable JSON instead of the table — the form agents and scripts should consume
+  -h, --help                       Print help
+
+=== susi commits show ===
+Print the full record (including committed value) for an epoch prefix
+
+Usage: susi commits show [OPTIONS] <EPOCH>
+
+Arguments:
+  <EPOCH>  Epoch hex prefix, e.g. the first 12 chars shown by `susi commits`
+
+Options:
+      --json  Emit machine-readable JSON — verification results ride inside the object instead of trailing human lines
+  -h, --help  Print help
+
+=== susi commits audit ===
+Whole-ledger consistency check: signature failures, sequence gaps, equivocation, and commits from non-elected coordinators
+
+Usage: susi commits audit [OPTIONS]
+
+Options:
+      --strict  Exit nonzero when anomalies are found — lets CI and operators gate on ledger health instead of eyeballing output
+      --json    Emit machine-readable JSON — agents and CI get structured anomalies instead of parsing log lines
+  -h, --help    Print help
+
+=== susi commits replay ===
+Fold the ledger into the cluster's consensus view (term, leader, per-coordinator high-water marks) — the state machine is a pure function of the log
+
+Usage: susi commits replay [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON — the consensus view as data
+  -h, --help  Print help
+
+=== susi commits sync ===
+Proactively pull records this node is missing from verified peers — the receive-path repair only fires when a *push* arrives, so a node that was offline during replication needs this to catch up
+
+Usage: susi commits sync
+
+Options:
+  -h, --help  Print help
+
+=== susi commits compact ===
+Fold the ledger into a snapshot and move pre-snapshot records to commit_log.archive.jsonl — bounds the live file's growth (Raft's InstallSnapshot analog). Local storage management, not a consensus event: the compacted and uncompacted views of the same history are identical
+
+Usage: susi commits compact
+
+Options:
+  -h, --help  Print help
+
+=== susi os ===
+Operating-system view: consensus term/leader, services, verified peers
+
+Usage: susi os [OPTIONS] [COMMAND]
+
+Commands:
+  status        Full substrate status: consensus, services, peers (default)
+  clean         Remove stray heavyweight files flagged in `~/.susi/bin` and report reclaimed space
+  ecosystem     Discover the local AI ecosystem: hardware, runtimes, models, agents, frameworks, MCP servers, and running AI processes
+  runtime       Live runtime view: AI processes by owner (SUSI vs external), managed models with observed residency, and per-process GPU memory
+  route         Explain the live local-versus-cloud inference placement decision
+  route-reset   Re-admit a repaired cloud provider after routing quarantine
+  manage        Unified lifecycle facade for local AI ecosystem components
+  provision     Explicit cloud/local host provision. The 30s OS tick runs no operator CLI; probe/list/apply run only on request — that is the OS contract, not a silent cloud API
+  capabilities  The unified capability bus: discover every A2A/MCP/HTTP/adapter capability through one typed catalog, or dispatch one through its permission/timeout/cost contract (Mcp tools only today)
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+      --json  Emit machine-readable JSON instead of the table view
+  -h, --help  Print help
+
+=== susi os status ===
+Full substrate status: consensus, services, peers (default)
+
+Usage: susi os status [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON instead of the table view
+  -h, --help  Print help
+
+=== susi os clean ===
+Remove stray heavyweight files flagged in `~/.susi/bin` and report reclaimed space
+
+Usage: susi os clean
+
+Options:
+  -h, --help  Print help
+
+=== susi os ecosystem ===
+Discover the local AI ecosystem: hardware, runtimes, models, agents, frameworks, MCP servers, and running AI processes
+
+Usage: susi os ecosystem [OPTIONS]
+
+Options:
+      --json    Emit machine-readable JSON
+      --doctor  Exit unsuccessfully when installed components are unhealthy
+  -h, --help    Print help
+
+=== susi os runtime ===
+Live runtime view: AI processes by owner (SUSI vs external), managed models with observed residency, and per-process GPU memory
+
+Usage: susi os runtime [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON
+  -h, --help  Print help
+
+=== susi os route ===
+Explain the live local-versus-cloud inference placement decision
+
+Usage: susi os route [OPTIONS]
+
+Options:
+      --json                 Emit machine-readable JSON
+      --requires <REQUIRES>  Required model capability, for example `vision`
+      --max-cost <MAX_COST>  Maximum acceptable request-cost hint in USD
+      --no-cloud             Prohibit placement on cloud providers
+  -h, --help                 Print help
+
+=== susi os route-reset ===
+Re-admit a repaired cloud provider after routing quarantine
+
+Usage: susi os route-reset <PROVIDER>
+
+Arguments:
+  <PROVIDER>  Exact provider id shown by `susi os route --json`
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage ===
+Unified lifecycle facade for local AI ecosystem components
+
+Usage: susi os manage <COMMAND>
+
+Commands:
+  service    Manage a supervised SUSI service
+  model      Manage a local or cloud model definition
+  mcp        Manage an MCP tool server
+  agent      Manage an external execution agent
+  framework  Manage an agent framework
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage service ===
+Manage a supervised SUSI service
+
+Usage: susi os manage service <COMMAND>
+
+Commands:
+  status   
+  start    
+  stop     
+  restart  
+  logs     
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage service status ===
+Usage: susi os manage service status
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage service start ===
+Usage: susi os manage service start <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage service stop ===
+Usage: susi os manage service stop <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage service restart ===
+Usage: susi os manage service restart <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage service logs ===
+Usage: susi os manage service logs [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -n, --lines <LINES>  [default: 50]
+  -h, --help           Print help
+
+=== susi os manage model ===
+Manage a local or cloud model definition
+
+Usage: susi os manage model <COMMAND>
+
+Commands:
+  list       
+  doctor     
+  install    Download a GGUF model from an HTTPS URL into SUSI-managed storage, `starter`: the audited local starter model and its tokenizer, or `embeddings`: the semantic-search embedding model
+  uninstall  Remove a GGUF model and paired tokenizer from SUSI-managed storage
+  load       Load a model into the daemon's inference cache (warm start)
+  unload     Evict a model from the daemon's inference cache, freeing its memory
+  prefer     
+  configure  
+  reset      
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model list ===
+Usage: susi os manage model list
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model doctor ===
+Usage: susi os manage model doctor [NAME]
+
+Arguments:
+  [NAME]  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model install ===
+Download a GGUF model from an HTTPS URL into SUSI-managed storage, `starter`: the audited local starter model and its tokenizer, or `embeddings`: the semantic-search embedding model
+
+Usage: susi os manage model install <SOURCE>
+
+Arguments:
+  <SOURCE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model uninstall ===
+Remove a GGUF model and paired tokenizer from SUSI-managed storage
+
+Usage: susi os manage model uninstall <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model load ===
+Load a model into the daemon's inference cache (warm start)
+
+Usage: susi os manage model load <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model unload ===
+Evict a model from the daemon's inference cache, freeing its memory
+
+Usage: susi os manage model unload <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model prefer ===
+Usage: susi os manage model prefer <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model configure ===
+Usage: susi os manage model configure <NAME> <FILE>
+
+Arguments:
+  <NAME>  
+  <FILE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage model reset ===
+Usage: susi os manage model reset <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp ===
+Manage an MCP tool server
+
+Usage: susi os manage mcp <COMMAND>
+
+Commands:
+  list       
+  doctor     
+  install    Install/admit a managed MCP server into the active configuration
+  uninstall  Uninstall/remove a managed MCP server from the active configuration
+  configure  
+  reset      
+  status     
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp list ===
+Usage: susi os manage mcp list
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp doctor ===
+Usage: susi os manage mcp doctor [NAME]
+
+Arguments:
+  [NAME]  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp install ===
+Install/admit a managed MCP server into the active configuration
+
+Usage: susi os manage mcp install <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp uninstall ===
+Uninstall/remove a managed MCP server from the active configuration
+
+Usage: susi os manage mcp uninstall <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp configure ===
+Usage: susi os manage mcp configure <NAME> <FILE>
+
+Arguments:
+  <NAME>  
+  <FILE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp reset ===
+Usage: susi os manage mcp reset <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage mcp status ===
+Usage: susi os manage mcp status
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent ===
+Manage an external execution agent
+
+Usage: susi os manage agent <COMMAND>
+
+Commands:
+  list       
+  doctor     
+  configure  
+  reset      
+  run        
+  tasks      
+  cancel     
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent list ===
+Usage: susi os manage agent list
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent doctor ===
+Usage: susi os manage agent doctor [NAME]
+
+Arguments:
+  [NAME]  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent configure ===
+Usage: susi os manage agent configure <NAME> <FILE>
+
+Arguments:
+  <NAME>  
+  <FILE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent reset ===
+Usage: susi os manage agent reset <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent run ===
+Usage: susi os manage agent run [OPTIONS] <NAME> <PROMPT>
+
+Arguments:
+  <NAME>    
+  <PROMPT>  
+
+Options:
+      --wait  
+  -h, --help  Print help
+
+=== susi os manage agent tasks ===
+Usage: susi os manage agent tasks
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage agent cancel ===
+Usage: susi os manage agent cancel <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework ===
+Manage an agent framework
+
+Usage: susi os manage framework <COMMAND>
+
+Commands:
+  list       
+  doctor     
+  configure  
+  reset      
+  run        
+  tasks      
+  cancel     
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework list ===
+Usage: susi os manage framework list
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework doctor ===
+Usage: susi os manage framework doctor [NAME]
+
+Arguments:
+  [NAME]  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework configure ===
+Usage: susi os manage framework configure <NAME> <FILE>
+
+Arguments:
+  <NAME>  
+  <FILE>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework reset ===
+Usage: susi os manage framework reset <NAME>
+
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework run ===
+Usage: susi os manage framework run [OPTIONS] <NAME> <PROMPT>
+
+Arguments:
+  <NAME>    
+  <PROMPT>  
+
+Options:
+      --wait  
+  -h, --help  Print help
+
+=== susi os manage framework tasks ===
+Usage: susi os manage framework tasks
+
+Options:
+  -h, --help  Print help
+
+=== susi os manage framework cancel ===
+Usage: susi os manage framework cancel <TASK_ID>
+
+Arguments:
+  <TASK_ID>  
+
+Options:
+  -h, --help  Print help
+
+=== susi os provision ===
+Explicit cloud/local host provision. The 30s OS tick runs no operator CLI; probe/list/apply run only on request — that is the OS contract, not a silent cloud API
+
+Usage: susi os provision <COMMAND>
+
+Commands:
+  probe  PATH version-probe of kubectl/docker/aws/gcloud/az (on request only)
+  list   Live inventory (`kubectl get nodes`, `docker ps`, cloud instance list)
+  apply  Apply a Kubernetes manifest (`kubectl apply -f`). Other kinds refuse
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os provision probe ===
+PATH version-probe of kubectl/docker/aws/gcloud/az (on request only)
+
+Usage: susi os provision probe [OPTIONS]
+
+Options:
+      --json  
+  -h, --help  Print help
+
+=== susi os provision list ===
+Live inventory (`kubectl get nodes`, `docker ps`, cloud instance list)
+
+Usage: susi os provision list [OPTIONS] <KIND>
+
+Arguments:
+  <KIND>  kubernetes|docker|aws|gcp|azure
+
+Options:
+      --json  
+  -h, --help  Print help
+
+=== susi os provision apply ===
+Apply a Kubernetes manifest (`kubectl apply -f`). Other kinds refuse
+
+Usage: susi os provision apply <KIND> <MANIFEST>
+
+Arguments:
+  <KIND>      kubernetes (kubectl-only)
+  <MANIFEST>  Manifest file path
+
+Options:
+  -h, --help  Print help
+
+=== susi os capabilities ===
+The unified capability bus: discover every A2A/MCP/HTTP/adapter capability through one typed catalog, or dispatch one through its permission/timeout/cost contract (Mcp tools only today)
+
+Usage: susi os capabilities [COMMAND]
+
+Commands:
+  discover  List every discovered capability (default)
+  invoke    Dispatch one capability through its permission/timeout/cost contract
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi os capabilities discover ===
+List every discovered capability (default)
+
+Usage: susi os capabilities discover [OPTIONS]
+
+Options:
+      --json  
+  -h, --help  Print help
+
+=== susi os capabilities invoke ===
+Dispatch one capability through its permission/timeout/cost contract
+
+Usage: susi os capabilities invoke [OPTIONS] --permission <PERMISSION> <ID>
+
+Arguments:
+  <ID>  Capability id to dispatch (as shown by discover)
+
+Options:
+      --subject <SUBJECT>              Subject credited/audited for the invocation [default: operator]
+      --permission <PERMISSION>        Permission held by the subject, e.g. `capability:tool`
+      --args <ARGS>                    JSON args passed to the invoked tool [default: {}]
+      --timeout-ms <TIMEOUT_MS>        [default: 30000]
+      --budget-micros <BUDGET_MICROS>  [default: 18446744073709551615]
+      --json                           
+  -h, --help                           Print help
+
+=== susi peers ===
+Verified cluster roster: list peers, revoke a member's trust
+
+Usage: susi peers [COMMAND]
+
+Commands:
+  list    List verified peers and banned members (default)
+  add     Bootstrap cluster membership: send a cluster-key-signed discovery ping to a host and persist the verified responder as an explicit member. Fails closed when the peer doesn't hold our cluster.key
+  probe   Probe a peer without persisting anything: the same signed-ping → signed-pong handshake `peers add` performs, reporting only the responder's attested identity and its standing in this node's roster. The non-destructive way to test reachability and cluster.key compatibility before (or instead of) `peers add`
+  remove  Evict a peer: revoke persisted trust AND ban re-verification. The ban is enforced at the signed-pong handshake — the peer cannot rejoin until `susi peers unban` lifts it
+  unban   Lift a ban so a previously evicted peer can re-verify
+  rekey   Rotate the cluster key across every verified member — the only way to truly revoke an evicted member's cluster.key. Two-phase: a `cluster_rekey` record commits WHICH key members stage; a `cluster_rekey_activate` record then triggers rotation. If any member fails to stage, the rotation aborts safely (nothing activates anywhere) unless `--force` is given. Members that don't acknowledge activation are cryptographically stranded
+  status  Cluster-wide consensus view: call `cluster_status` on every rostered member (member-signed requests) and print each node's term, leader view, ledger size, and key epoch side by side — divergence shows up directly as differing terms, epochs, or record counts
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi peers list ===
+List verified peers and banned members (default)
+
+Usage: susi peers list [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON instead of the table view
+  -h, --help  Print help
+
+=== susi peers add ===
+Bootstrap cluster membership: send a cluster-key-signed discovery ping to a host and persist the verified responder as an explicit member. Fails closed when the peer doesn't hold our cluster.key
+
+Usage: susi peers add [OPTIONS] <HOST>
+
+Arguments:
+  <HOST>  IP or hostname of the peer daemon to join (may include :port)
+
+Options:
+      --port <PORT>  UDP discovery port (default: host-contract 9092 + port_offset)
+  -h, --help         Print help
+
+=== susi peers probe ===
+Probe a peer without persisting anything: the same signed-ping → signed-pong handshake `peers add` performs, reporting only the responder's attested identity and its standing in this node's roster. The non-destructive way to test reachability and cluster.key compatibility before (or instead of) `peers add`
+
+Usage: susi peers probe [OPTIONS] <HOST>
+
+Arguments:
+  <HOST>  IP or hostname of the peer daemon to probe (may include :port)
+
+Options:
+      --port <PORT>  UDP discovery port (default: host-contract 9092 + port_offset)
+  -h, --help         Print help
+
+=== susi peers remove ===
+Evict a peer: revoke persisted trust AND ban re-verification. The ban is enforced at the signed-pong handshake — the peer cannot rejoin until `susi peers unban` lifts it
+
+Usage: susi peers remove <PEER>
+
+Arguments:
+  <PEER>  node_id or address prefix of the peer to evict
+
+Options:
+  -h, --help  Print help
+
+=== susi peers unban ===
+Lift a ban so a previously evicted peer can re-verify
+
+Usage: susi peers unban <PEER>
+
+Arguments:
+  <PEER>  node_id or address of the banned peer to restore
+
+Options:
+  -h, --help  Print help
+
+=== susi peers rekey ===
+Rotate the cluster key across every verified member — the only way to truly revoke an evicted member's cluster.key. Two-phase: a `cluster_rekey` record commits WHICH key members stage; a `cluster_rekey_activate` record then triggers rotation. If any member fails to stage, the rotation aborts safely (nothing activates anywhere) unless `--force` is given. Members that don't acknowledge activation are cryptographically stranded
+
+Usage: susi peers rekey [OPTIONS]
+
+Options:
+      --force  Proceed to activation even when some members failed to stage — those members will be stranded and must be re-provisioned with the new key manually
+  -h, --help   Print help
+
+=== susi peers status ===
+Cluster-wide consensus view: call `cluster_status` on every rostered member (member-signed requests) and print each node's term, leader view, ledger size, and key epoch side by side — divergence shows up directly as differing terms, epochs, or record counts
+
+Usage: susi peers status [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON instead of the table view
+  -h, --help  Print help
+
+=== susi service-run ===
+Run one leaf service in-process — the daemon's spawn mode: the staged `susi` binary re-execs itself as `service-run <name>` so supervised services need no sibling binaries on disk
+
+Usage: susi service-run [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  Leaf service name: susi-paths | susi-error | susi-config | susi-sandbox | susi-native
+
+Options:
+      --port <PORT>  Port override (defaults to the service's contract port env var)
+  -h, --help         Print help
+
+=== susi substrate-report ===
+Report on autonomous invisible work performed by the substrate
+
+Usage: susi substrate-report
+
+Options:
+  -h, --help  Print help
+
+=== susi bloat-audit ===
+Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+
+Usage: susi bloat-audit
+
+Options:
+  -h, --help  Print help
+
+=== susi models ===
+Manage leading developer/agent models end to end
+
+Usage: susi models [COMMAND]
+
+Commands:
+  list       Show the top developer/agent-focused models and readiness
+  doctor     Check credentials/endpoints (does not call a paid model)
+  setup      Show setup instructions and the effective model wiring
+  configure  Override engine/model/protocol/api_key_env via JSON file
+  reset      Remove a host override and restore the bundled coding-model entry
+  prefer     Prefer a coding model for subsequent routing (`selected_model_override`)
+  probe      Paid probe: send a short completion to verify auth and model id
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi models list ===
+Show the top developer/agent-focused models and readiness
+
+Usage: susi models list
+
+Options:
+  -h, --help  Print help
+
+=== susi models doctor ===
+Check credentials/endpoints (does not call a paid model)
+
+Usage: susi models doctor [MODEL]
+
+Arguments:
+  [MODEL]  
+
+Options:
+  -h, --help  Print help
+
+=== susi models setup ===
+Show setup instructions and the effective model wiring
+
+Usage: susi models setup <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi models configure ===
+Override engine/model/protocol/api_key_env via JSON file
+
+Usage: susi models configure <MODEL> <FILE>
+
+Arguments:
+  <MODEL>  
+  <FILE>   
+
+Options:
+  -h, --help  Print help
+
+=== susi models reset ===
+Remove a host override and restore the bundled coding-model entry
+
+Usage: susi models reset <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi models prefer ===
+Prefer a coding model for subsequent routing (`selected_model_override`)
+
+Usage: susi models prefer <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi models probe ===
+Paid probe: send a short completion to verify auth and model id
+
+Usage: susi models probe <MODEL> [PROMPT]
+
+Arguments:
+  <MODEL>   
+  [PROMPT]  [default: "Reply with exactly: ok"]
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight ===
+Manage top open-weight frontier models end to end (Ollama/vLLM pull + prefer + probe)
+
+Usage: susi openweight [COMMAND]
+
+Commands:
+  list       Show the top open-weight frontier models and readiness
+  doctor     Check local endpoint / pull status (does not download weights)
+  setup      Show setup instructions and effective wiring
+  pull       Pull weights via `ollama pull <tag>`
+  configure  Override engine/ollama_tag/protocol via JSON file
+  reset      Remove a host override and restore the bundled entry
+  prefer     Prefer an open-weight model for local routing
+  probe      Local probe: short completion via Ollama/vLLM
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight list ===
+Show the top open-weight frontier models and readiness
+
+Usage: susi openweight list
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight doctor ===
+Check local endpoint / pull status (does not download weights)
+
+Usage: susi openweight doctor [MODEL]
+
+Arguments:
+  [MODEL]  
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight setup ===
+Show setup instructions and effective wiring
+
+Usage: susi openweight setup <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight pull ===
+Pull weights via `ollama pull <tag>`
+
+Usage: susi openweight pull <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight configure ===
+Override engine/ollama_tag/protocol via JSON file
+
+Usage: susi openweight configure <MODEL> <FILE>
+
+Arguments:
+  <MODEL>  
+  <FILE>   
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight reset ===
+Remove a host override and restore the bundled entry
+
+Usage: susi openweight reset <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi openweight prefer ===
+Prefer an open-weight model for local routing
+
+Usage: susi openweight prefer [OPTIONS] [MODEL]
+
+Arguments:
+  [MODEL]  
+
+Options:
+      --clear  Clear the preferred open-weight pin
+  -h, --help   Print help
+
+=== susi openweight probe ===
+Local probe: short completion via Ollama/vLLM
+
+Usage: susi openweight probe <MODEL> [PROMPT]
+
+Arguments:
+  <MODEL>   
+  [PROMPT]  [default: "Reply with exactly: ok"]
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier ===
+Manage top frontier models end to end (Claude / GPT / DeepSeek / Gemini / Llama)
+
+Usage: susi frontier [COMMAND]
+
+Commands:
+  list       Show the top frontier models and readiness
+  doctor     Check credentials/endpoints (does not call a paid model)
+  setup      Show setup instructions and effective wiring
+  configure  Override engine/model/protocol/api_key_env via JSON file
+  reset      Remove a host override and restore the bundled entry
+  prefer     Prefer a frontier model for subsequent routing
+  probe      Probe: short completion via cloud or local endpoint
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier list ===
+Show the top frontier models and readiness
+
+Usage: susi frontier list
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier doctor ===
+Check credentials/endpoints (does not call a paid model)
+
+Usage: susi frontier doctor [MODEL]
+
+Arguments:
+  [MODEL]  
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier setup ===
+Show setup instructions and effective wiring
+
+Usage: susi frontier setup <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier configure ===
+Override engine/model/protocol/api_key_env via JSON file
+
+Usage: susi frontier configure <MODEL> <FILE>
+
+Arguments:
+  <MODEL>  
+  <FILE>   
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier reset ===
+Remove a host override and restore the bundled entry
+
+Usage: susi frontier reset <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi frontier prefer ===
+Prefer a frontier model for subsequent routing
+
+Usage: susi frontier prefer [OPTIONS] [MODEL]
+
+Arguments:
+  [MODEL]  
+
+Options:
+      --clear  Clear the preferred frontier pin
+  -h, --help   Print help
+
+=== susi frontier probe ===
+Probe: short completion via cloud or local endpoint
+
+Usage: susi frontier probe <MODEL> [PROMPT]
+
+Arguments:
+  <MODEL>   
+  [PROMPT]  [default: "Reply with exactly: ok"]
+
+Options:
+  -h, --help  Print help
+
+=== susi openrouter ===
+Manage OpenRouter end to end (keys, prefer, probe, live models)
+
+Usage: susi openrouter [COMMAND]
+
+Commands:
+  list    Show OpenRouter status and curated routes
+  doctor  Check key + endpoint readiness (does not call a paid model unless --live)
+  setup   Show setup instructions and effective wiring
+  prefer  Prefer OpenRouter for cloud routing; optionally pin a model/route id
+  probe   Paid probe: short completion via the effective OpenRouter model
+  models  List curated routes, or live provider model ids with --live
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi openrouter list ===
+Show OpenRouter status and curated routes
+
+Usage: susi openrouter list
+
+Options:
+  -h, --help  Print help
+
+=== susi openrouter doctor ===
+Check key + endpoint readiness (does not call a paid model unless --live)
+
+Usage: susi openrouter doctor [OPTIONS]
+
+Options:
+      --live  Also hit GET /models to verify the key works
+  -h, --help  Print help
+
+=== susi openrouter setup ===
+Show setup instructions and effective wiring
+
+Usage: susi openrouter setup
+
+Options:
+  -h, --help  Print help
+
+=== susi openrouter prefer ===
+Prefer OpenRouter for cloud routing; optionally pin a model/route id
+
+Usage: susi openrouter prefer [OPTIONS] [MODEL]
+
+Arguments:
+  [MODEL]  Catalog id (e.g. claude-sonnet) or raw OpenRouter model slug
+
+Options:
+      --clear-model  Clear the pinned model (keep cloud preference)
+  -h, --help         Print help
+
+=== susi openrouter probe ===
+Paid probe: short completion via the effective OpenRouter model
+
+Usage: susi openrouter probe [PROMPT]
+
+Arguments:
+  [PROMPT]  [default: "Reply with exactly: ok"]
+
+Options:
+  -h, --help  Print help
+
+=== susi openrouter models ===
+List curated routes, or live provider model ids with --live
+
+Usage: susi openrouter models [OPTIONS]
+
+Options:
+      --live           
+      --limit <LIMIT>  [default: 50]
+  -h, --help           Print help
+
+=== susi keys ===
+Cloud API keys — list, set, prefer, remove (like `models` for backends)
+
+Usage: susi keys [COMMAND]
+
+Commands:
+  set     Save a vendor API key and register the cloud provider
+  list    Show which known vendors have a key configured (never prints secrets)
+  prefer  Prefer a cloud vendor when several keys are registered (e.g. paid over free)
+  remove  Remove a vendor API key from ~/.susi/cloud.env
+  check   Live-check registered keys against each vendor (one read-only /models call each)
+  models  List the models a vendor serves right now (uses the registered key)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi keys set ===
+Save a vendor API key and register the cloud provider
+
+Usage: susi keys set <VENDOR> [API_KEY]
+
+Arguments:
+  <VENDOR>   Vendor: openai, anthropic, gemini, deepseek, kimi, minimax, openrouter, …
+  [API_KEY]  API key (omit to be prompted, or pipe via stdin)
+
+Options:
+  -h, --help  Print help
+
+=== susi keys list ===
+Show which known vendors have a key configured (never prints secrets)
+
+Usage: susi keys list
+
+Options:
+  -h, --help  Print help
+
+=== susi keys prefer ===
+Prefer a cloud vendor when several keys are registered (e.g. paid over free)
+
+Usage: susi keys prefer [OPTIONS] [VENDOR]
+
+Arguments:
+  [VENDOR]  Vendor to prefer (openai, deepseek, …). Omit to show current preference
+
+Options:
+      --clear  Clear the sticky preferred cloud
+  -h, --help   Print help
+
+=== susi keys remove ===
+Remove a vendor API key from ~/.susi/cloud.env
+
+Usage: susi keys remove <VENDOR>
+
+Arguments:
+  <VENDOR>  
+
+Options:
+  -h, --help  Print help
+
+=== susi keys check ===
+Live-check registered keys against each vendor (one read-only /models call each)
+
+Usage: susi keys check [VENDOR]
+
+Arguments:
+  [VENDOR]  Vendor or alias (e.g. xai, grok, together). Omit to check every cloud vendor
+
+Options:
+  -h, --help  Print help
+
+=== susi keys models ===
+List the models a vendor serves right now (uses the registered key)
+
+Usage: susi keys models <VENDOR>
+
+Arguments:
+  <VENDOR>  Vendor or alias (e.g. fireworks, deepinfra)
+
+Options:
+  -h, --help  Print help
+
+=== susi select-model ===
+Select or override active model
+
+Usage: susi select-model <MODEL>
+
+Arguments:
+  <MODEL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi deep-scan ===
+Parallel deep scan of substrate home for local models
+
+Usage: susi deep-scan
+
+Options:
+  -h, --help  Print help
+
+=== susi mcp-add ===
+Open-admit an MCP server (stdio command or HTTP URL) into ~/.susi/mcp_config.json
+
+Usage: susi mcp-add <NAME> <COMMAND_OR_URL> [ARGS]...
+
+Arguments:
+  <NAME>            Registry name for the server
+  <COMMAND_OR_URL>  Stdio command or streamable HTTP MCP URL (`http://…` / `https://…`)
+  [ARGS]...         Extra argv for stdio MCP servers
+
+Options:
+  -h, --help  Print help
+
+=== susi verify-download-agent ===
+Verify model download agent, network status, and the hardware-selected model ladder
+
+Usage: susi verify-download-agent
+
+Options:
+  -h, --help  Print help
+
+=== susi scout-model ===
+Scout or install model substrate via live foreground network stream
+
+Usage: susi scout-model <URL>
+
+Arguments:
+  <URL>  
+
+Options:
+  -h, --help  Print help
+
+=== susi benchmark ===
+Measure real local inference latency/tokens-per-sec, and compare against a cloud endpoint if SUSI_BENCH_CLOUD_API_BASE is set
+
+Usage: susi benchmark
+
+Options:
+  -h, --help  Print help
+
+=== susi pulse ===
+Ingest a natural language intent into sovereign memory (evidence.json)
+
+Usage: susi pulse [INTENT]...
+
+Arguments:
+  [INTENT]...  
+
+Options:
+  -h, --help  Print help
+
+=== susi automate ===
+First-class automation: run an autonomous evidence-gated swarm mission
+
+Usage: susi automate [INTENT]...
+
+Arguments:
+  [INTENT]...  
+
+Options:
+  -h, --help  Print help
+
+=== susi review ===
+Review daemon and OS environment status
+
+Usage: susi review
+
+Options:
+  -h, --help  Print help
+
+=== susi os-clean ===
+Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed
+
+Usage: susi os-clean
+
+Options:
+  -h, --help  Print help
+
+=== susi audit ===
+Perform compliance audit and verify the tamper-evident audit chain
+
+Usage: susi audit [COMMAND]
+
+Commands:
+  verify  Verify every audit record, optionally reporting entries since a Unix timestamp
+  query   Query redacted action history by actor, mission, kind, and time
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi audit verify ===
+Verify every audit record, optionally reporting entries since a Unix timestamp
+
+Usage: susi audit verify [OPTIONS]
+
+Options:
+      --since <SINCE>  Only count verified entries at or after this Unix timestamp; the full chain is checked
+  -h, --help           Print help
+
+=== susi audit query ===
+Query redacted action history by actor, mission, kind, and time
+
+Usage: susi audit query [OPTIONS]
+
+Options:
+      --actor <ACTOR>      
+      --mission <MISSION>  
+      --kind <KIND>        
+      --since <SINCE>      
+      --until <UNTIL>      
+      --json               Emit the query result as a JSON array
+  -h, --help               Print help
+
+=== susi admin ===
+Administrative commands
+
+Usage: susi admin <COMMAND>
+
+Commands:
+  sync               Synchronize version consistency
+  pulse              Ingest pulse via admin
+  audit              Compliance audit
+  audit-evidence     Export and independently verify redacted audit evidence [alias: evidence]
+  verify             Verify version alignment
+  release            Full release orchestration. With --cut, also bumps the engine version and pushes the matching vX.Y.Z tag atomically, so a git tag (what actually makes a new release appear on GitHub - release.yml only triggers on a pushed `v*.*.*` tag) can never again drift out of sync with the version number the way it did under the old bump-on-every-push scheme
+  lint               Run clippy
+  audit-deps         Run cargo audit
+  reload             Dynamic configuration hot-reload
+  provider-contract  Provider contract checks: fixture-backed checks always; credentialed live probes when SUSI_PROVIDER_PROBE=1
+  intent-ladder      The graded user-intent ladder: print the last scorecard (default), run the full ladder hermetically (--run), or just the bounded start-up slice (--slice). The daemon records failing rungs in the host outbox (--gaps); an agent adopts one as a repair task in its own checkout (--adopt-gap)
+  help               Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi admin sync ===
+Synchronize version consistency
+
+Usage: susi admin sync
+
+Options:
+  -h, --help  Print help
+
+=== susi admin pulse ===
+Ingest pulse via admin
+
+Usage: susi admin pulse [INTENT]...
+
+Arguments:
+  [INTENT]...  
+
+Options:
+  -h, --help  Print help
+
+=== susi admin audit ===
+Compliance audit
+
+Usage: susi admin audit
+
+Options:
+  -h, --help  Print help
+
+=== susi admin audit-evidence ===
+Export and independently verify redacted audit evidence
+
+Usage: susi admin audit-evidence <COMMAND>
+
+Commands:
+  export  Wrap a JSON segment list in the stable file format
+  verify  Verify a file against one or more key-id=secret pairs
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi admin audit-evidence export ===
+Wrap a JSON segment list in the stable file format
+
+Usage: susi admin audit-evidence export --input <FILE> --output <FILE>
+
+Options:
+      --input <FILE>   JSON array of redacted audit segments (or an existing export)
+      --output <FILE>  Destination for the independently verifiable export
+  -h, --help           Print help
+
+=== susi admin audit-evidence verify ===
+Verify a file against one or more key-id=secret pairs
+
+Usage: susi admin audit-evidence verify [OPTIONS] --input <FILE>
+
+Options:
+      --input <FILE>      Export file to verify [alias: --file]
+      --key <KEY=SECRET>  Signing key in key-id=secret form; repeat for multiple keys [alias: --keys]
+  -h, --help              Print help
+
+=== susi admin verify ===
+Verify version alignment
+
+Usage: susi admin verify
+
+Options:
+  -h, --help  Print help
+
+=== susi admin release ===
+Full release orchestration. With --cut, also bumps the engine version and pushes the matching vX.Y.Z tag atomically, so a git tag (what actually makes a new release appear on GitHub - release.yml only triggers on a pushed `v*.*.*` tag) can never again drift out of sync with the version number the way it did under the old bump-on-every-push scheme
+
+Usage: susi admin release [OPTIONS]
+
+Options:
+      --cut <CUT>  
+  -h, --help       Print help
+
+=== susi admin lint ===
+Run clippy
+
+Usage: susi admin lint
+
+Options:
+  -h, --help  Print help
+
+=== susi admin audit-deps ===
+Run cargo audit
+
+Usage: susi admin audit-deps
+
+Options:
+  -h, --help  Print help
+
+=== susi admin reload ===
+Dynamic configuration hot-reload
+
+Usage: susi admin reload
+
+Options:
+  -h, --help  Print help
+
+=== susi admin provider-contract ===
+Provider contract checks: fixture-backed checks always; credentialed live probes when SUSI_PROVIDER_PROBE=1
+
+Usage: susi admin provider-contract
+
+Options:
+  -h, --help  Print help
+
+=== susi admin intent-ladder ===
+The graded user-intent ladder: print the last scorecard (default), run the full ladder hermetically (--run), or just the bounded start-up slice (--slice). The daemon records failing rungs in the host outbox (--gaps); an agent adopts one as a repair task in its own checkout (--adopt-gap)
+
+Usage: susi admin intent-ladder [OPTIONS]
+
+Options:
+      --run             Run every rung now — hermetic, wall-clock bounded
+      --slice           Run only the start-up slice
+      --verify <ID>     Re-check one intent id hermetically — the acceptance a repair task's close runs; exits nonzero unless the intent passes
+      --gaps            Print the host outbox of failing rungs (`<home>/intent-gaps.json`)
+      --adopt-gap <ID>  Author the outbox gap for this intent id as a repair task in the current checkout, and mark it adopted
+  -h, --help            Print help
+
+=== susi clean ===
+Clean workspace build artifacts
+
+Usage: susi clean
+
+Options:
+  -h, --help  Print help
+
+=== susi run ===
+Direct streaming model execution (local Ollama/llama.cpp/Candle or cloud)
+
+Usage: susi run [OPTIONS] [PROMPT]...
+
+Arguments:
+  [PROMPT]...  Positional model name and/or prompt tokens
+
+Options:
+  -m, --model <MODEL>    Model name (e.g. `qwen2.5-coder:7b`, `claude-3-7-sonnet`, `deepseek-chat`)
+  -s, --system <SYSTEM>  System prompt / instructions
+      --no-stream        Disable streaming output (buffers complete response before printing)
+      --json             Output JSON with metadata (duration, token throughput, serving backend)
+  -h, --help             Print help
+
+=== susi top ===
+Unified operator control surface: workload, resources, providers, config, federation, and evidence
+
+Usage: susi top [OPTIONS]
+
+Options:
+      --json             Output the operator control surface state as JSON
+      --filter <FILTER>  Filter to a specific state dimension: workload, resources, providers, config, federation, evidence
+  -h, --help             Print help
+
+=== susi daemon-start ===
+Internal daemon start (always binds to substrate home; --workspace kept for compat)
+
+Usage: susi daemon-start [OPTIONS]
+
+Options:
+      --workspace <WORKSPACE>  [default: ""]
+  -h, --help                   Print help
+

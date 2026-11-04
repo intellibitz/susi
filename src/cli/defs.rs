@@ -1286,4 +1286,50 @@ mod tests {
             "the bundled scout pulse must stay removed"
         );
     }
+
+    fn collect_help_snapshot(cmd: &mut clap::Command, path: &[String], out: &mut String) {
+        let label = path.join(" ");
+        let help = cmd.render_help().to_string();
+        out.push_str(&format!("=== {label} ===\n{help}\n"));
+        let names: Vec<String> = cmd
+            .get_subcommands()
+            .filter(|sub| sub.get_name() != "help")
+            .map(|sub| sub.get_name().to_string())
+            .collect();
+        for name in names {
+            let sub = cmd.find_subcommand_mut(&name).expect("subcommand exists");
+            let mut next_path = path.to_vec();
+            next_path.push(name);
+            collect_help_snapshot(sub, &next_path, out);
+        }
+    }
+
+    fn render_cli_help_snapshot() -> String {
+        let mut root = <Cli as CommandFactory>::command().version(env!("CARGO_PKG_VERSION"));
+        root.build();
+        let raw_version = root.render_version();
+        assert_eq!(
+            raw_version,
+            format!("susi {}\n", env!("CARGO_PKG_VERSION")),
+            "--version output must report the binary's package version"
+        );
+        let version = raw_version.replace(env!("CARGO_PKG_VERSION"), "<VERSION>");
+        let mut out = format!("=== version ===\n{version}\n");
+        collect_help_snapshot(&mut root, &["susi".to_string()], &mut out);
+        out.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn cli_help_and_version_match_snapshot() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let snapshot_path = root.join("tests/fixtures/cli_help_snapshot.txt");
+        let actual = render_cli_help_snapshot();
+        let expected = std::fs::read_to_string(&snapshot_path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", snapshot_path.display()))
+            .replace("\r\n", "\n");
+        assert_eq!(
+            actual, expected,
+            "CLI help/version output drifted from tests/fixtures/cli_help_snapshot.txt"
+        );
+    }
 }
