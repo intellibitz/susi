@@ -110,3 +110,24 @@ fn vc_201_001_from_json_round_trip_verified() {
     assert_eq!(loaded, corpus);
     assert_eq!(loaded.held_out_ids().iter().next().unwrap(), "j1");
 }
+
+#[test]
+fn vc_201_001_tampered_input_hash_or_mismatched_revision_rejected() {
+    let mut corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-5".into(),
+        fixtures: vec![make_fixture(FixtureSpec {
+            id: "f1",
+            class: FixtureClass::Coding,
+            input: "let x = 1;",
+            split: FixtureSplit::Train,
+            seed: 42,
+            evaluator_expected: None,
+        })],
+        promotion_spec: None,
+    };
+    assert!(corpus.replay_seeds("wrong-revision").is_err());
+
+    corpus.fixtures[0].input_hash = "corrupted-hash".into();
+    assert!(corpus.verify_integrity().is_err());
+}

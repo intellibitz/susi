@@ -47,3 +47,14 @@ fn vc_201_071_all_allow_across_multiple_layers_permits_every_entry_point() {
         assert_eq!(evaluate(ep, &layers), LayerVerdict::Allow);
     }
 }
+
+#[test]
+fn vc_201_071_single_deny_layer_denies_all_entry_points() {
+    let layers = [LayerDecision {
+        layer: "policy".into(),
+        verdict: LayerVerdict::Deny,
+    }];
+    for ep in [EntryPoint::Tool, EntryPoint::Peer, EntryPoint::Model] {
+        assert_eq!(evaluate(ep, &layers), LayerVerdict::Deny);
+    }
+}

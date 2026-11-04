@@ -101,3 +101,8 @@ fn native_role_select_wiring() {
     // Verifier must be independent of implementer.
     assert_ne!(a.implementer, a.verifier);
 }
+
+#[test]
+fn vc_201_027_empty_agent_slice_returns_error() {
+    assert!(select_roles(&[], &BTreeSet::new(), 1.0).is_err());
+}

@@ -175,3 +175,13 @@ jobs:
     assert_eq!(lint_steps.len(), 2);
     assert!(lint_steps[1].contains("cargo install --force"));
 }
+
+#[test]
+fn workflows_helper_loads_sorted_github_workflow_files() {
+    let list = workflows();
+    assert!(!list.is_empty());
+    let names: Vec<&str> = list.iter().map(|(n, _)| n.as_str()).collect();
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(names, sorted);
+}

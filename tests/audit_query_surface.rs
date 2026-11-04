@@ -60,6 +60,7 @@ fn append_action(log: &Path, actor: &str, mission: &str, kind: &str, cost_micros
 
 #[test]
 fn audit_query_surface() {
+    let _guard = UNIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let root = root();
     let home = root.join("home");
     let workspace = root.join("workspace");
@@ -200,4 +201,14 @@ fn unit_audit_query_until_zero_excludes_current_epoch_entries() {
 
     drop(env);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn unit_audit_query_default_has_unbounded_filters() {
+    let q = susi_sandbox::audit_chain::AuditQuery::default();
+    assert!(q.actor.is_none());
+    assert!(q.mission.is_none());
+    assert!(q.kind.is_none());
+    assert!(q.since.is_none());
+    assert!(q.until.is_none());
 }

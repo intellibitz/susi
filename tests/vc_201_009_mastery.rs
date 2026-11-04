@@ -188,3 +188,16 @@ fn vc_201_009_detect_in_corpus_passes_disjoint_train_and_held_out_fixtures() {
     assert!(!report.contaminated);
     assert_eq!(exclude_if_contaminated(&report, "ok"), Ok("ok"));
 }
+
+#[test]
+fn vc_201_009_detect_sorts_and_deduplicates_overlapping_fixture_ids() {
+    let held = set(&["z-held", "a-held", "m-held"]);
+    let train = set(&["z-held", "a-held"]);
+    let mem = set(&["m-held", "a-held"]);
+    let report = detect(&held, &train, &mem);
+    assert!(report.contaminated);
+    assert_eq!(
+        report.reason.as_deref(),
+        Some("held-out overlap: a-held,m-held,z-held")
+    );
+}

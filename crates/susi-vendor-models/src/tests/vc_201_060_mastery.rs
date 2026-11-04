@@ -100,3 +100,10 @@ fn vc_201_060_mastery_supported_cloud_restore_is_clean() {
         .expect("AWS-compatible spec restores after portability check");
     assert_eq!(restored, candidate);
 }
+
+#[test]
+fn vc_201_060_mastery_export_rejects_unsupported_spec_version() {
+    let mut invalid = spec();
+    invalid.version = "0.0-invalid".into();
+    assert!(deployment_spec::export_spec(&invalid).is_err());
+}

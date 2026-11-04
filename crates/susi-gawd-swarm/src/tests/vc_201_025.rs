@@ -166,3 +166,14 @@ fn vc_201_025_complete_unknown_mission_returns_none_and_preserves_counts() {
     assert_eq!(q.running_count(), 1);
     assert_eq!(q.waiting_count(), 1);
 }
+
+#[test]
+fn vc_201_025_new_queue_starts_with_zero_running_and_waiting_counts() {
+    let q = FairQueue::new(QueueLimits {
+        max_running: 4,
+        max_queued: 8,
+        age_boost_secs: 15,
+    });
+    assert_eq!(q.running_count(), 0);
+    assert_eq!(q.waiting_count(), 0);
+}

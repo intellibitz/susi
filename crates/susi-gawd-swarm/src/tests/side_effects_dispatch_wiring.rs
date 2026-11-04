@@ -114,3 +114,20 @@ fn side_effects_dispatch_wiring_prepare_dispatch_intent_deduplicates_acknowledge
         other => panic!("expected AlreadyExecuted, got {other:?}"),
     }
 }
+
+#[test]
+fn side_effects_dispatch_wiring_unknown_tool_defaults_fail_closed_to_non_retryable() {
+    assert_eq!(
+        classify_tool_action("custom_external_webhook"),
+        ActionClass::NonRetryable
+    );
+    let mut dag = MissionDag::new("unknown tool default");
+    let first = dag.record_side_effect(0, "custom_external_webhook", None);
+    assert_eq!(first.class, ActionClass::NonRetryable);
+    assert!(!first.uncertain_external);
+    assert!(!dag.may_retry_node(0));
+
+    let second = dag.record_side_effect(0, "custom_external_webhook", Some(&first));
+    assert!(second.uncertain_external);
+    assert!(!dag.may_retry_node(0));
+}

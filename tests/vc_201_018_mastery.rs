@@ -174,3 +174,18 @@ fn vc_201_018_promote_via_rejects_direct_target_install_even_when_verified() {
     assert!(matches!(res, Err(DeliveryError::ForbiddenPromotion(_))));
     assert!(rel.promoted.is_empty());
 }
+
+#[test]
+fn vc_201_018_promote_via_release_sync_script_records_promotion_for_verified_build() {
+    let mut rel = FakeRelease::default();
+    promote_via(
+        &mut rel,
+        PromotionPath::ReleaseSyncScript,
+        &verified(),
+        "v2.0.0",
+        "sha256:beef",
+        "sync-manifest",
+    )
+    .unwrap();
+    assert_eq!(rel.promoted.len(), 1);
+}

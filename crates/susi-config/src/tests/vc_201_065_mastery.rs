@@ -153,3 +153,15 @@ fn vc_201_065_mastery_migration_report_render_describes_migrated_and_noop_states
     assert!(second_rendered.contains(&STATE_SCHEMA_VERSION.to_string()));
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn vc_201_065_mastery_fresh_empty_dir_migrates_without_rollback() {
+    let dir = scratch("fresh_empty");
+    let report = migrate_state_dir(&dir).unwrap();
+    assert!(report.migrated);
+    assert!(!report.rolled_back);
+    assert_eq!(report.from_version, 0);
+    assert_eq!(report.to_version, STATE_SCHEMA_VERSION);
+    assert!(dir.join("state.schema.json").is_file());
+    let _ = fs::remove_dir_all(&dir);
+}

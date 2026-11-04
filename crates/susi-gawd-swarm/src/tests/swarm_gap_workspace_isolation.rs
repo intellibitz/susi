@@ -223,3 +223,16 @@ fn swarm_gap_workspace_isolation_unrelated_scopes_merge_without_index_loss() {
     isolation.cleanup(&second);
     let _ = std::fs::remove_dir_all(workspace);
 }
+
+#[test]
+fn swarm_gap_workspace_isolation_scoped_tool_rejects_unknown_tool_and_parent_escape() {
+    let workspace = temp_dir("tool-guard");
+    assert!(scoped_tool("other_tool", &serde_json::json!({}), &workspace).is_err());
+    assert!(scoped_tool(
+        "exec_command",
+        &serde_json::json!({"command": "cat ../secret.txt"}),
+        &workspace
+    )
+    .is_err());
+    let _ = std::fs::remove_dir_all(workspace);
+}

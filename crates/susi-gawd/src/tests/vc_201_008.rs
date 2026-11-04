@@ -33,3 +33,16 @@ fn vc_201_008_allowlist_counterexample_names_rejected_action_and_empty_allowlist
     assert!(!rejected.holds);
     assert_eq!(rejected.counterexample.as_deref(), Some("drop_table"));
 }
+
+#[test]
+fn vc_201_008_metamorphic_whitespace_records_invariant_name_on_both_outcomes() {
+    let ok = metamorphic_whitespace(|s| s.trim().to_uppercase(), "  ping\n", "ping");
+    assert_eq!(ok.name, "whitespace_normalize");
+    assert!(ok.holds);
+    assert!(ok.counterexample.is_none());
+
+    let bad = metamorphic_whitespace(|s| s.to_string(), "ping  now", "ping now");
+    assert_eq!(bad.name, "whitespace_normalize");
+    assert!(!bad.holds);
+    assert!(bad.counterexample.is_some());
+}

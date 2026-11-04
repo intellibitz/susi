@@ -1,8 +1,10 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.21.49-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.21.50-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **The RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS or a chatbot wrapper; Mandate 45). Verify the crown with `susi crown`.
+
+susi core is the free open-source socket. It speaks the standard host protocols and admits plugs. It does not ship a third-party product implementation; the third party writes that plug.
 
 susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
 

@@ -65,3 +65,15 @@ fn cli_output_contract_guard_exits_with_no_epipe_when_stdout_is_fully_drained() 
     assert_eq!(out.status.code(), Some(NO_EPIPE));
     assert!(!out.stdout.is_empty());
 }
+
+#[test]
+fn stdio_guard_probe_drained_stdout_is_valid_utf8_with_newlines() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_stdio_guard_probe"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("run the stdio guard probe to completion");
+    let text = String::from_utf8(out.stdout).expect("probe stdout must be UTF-8");
+    assert!(text.contains('\n'));
+    assert!(out.stderr.is_empty());
+}

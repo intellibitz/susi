@@ -115,3 +115,19 @@ fn vc_201_013_concurrent_fences_keep_independent_contents() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn vc_201_013_apply_in_isolation_rejects_parent_traversal_and_preserves_existing_file() {
+    let root = tmp_root("preserve-existing");
+    let mut fence = PatchFence::isolate(&root, "exp-safe").unwrap();
+    fence.ensure_isolated().unwrap();
+    fence.apply_in_isolation("good.patch", b"v1").unwrap();
+    assert!(fence
+        .apply_in_isolation("../outside.patch", b"bad")
+        .is_err());
+    assert_eq!(
+        std::fs::read(fence.workspace.join("good.patch")).unwrap(),
+        b"v1"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

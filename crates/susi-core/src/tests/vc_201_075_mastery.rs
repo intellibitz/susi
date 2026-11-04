@@ -108,3 +108,9 @@ fn vc_201_075_mastery_nominal_attenuation_holds() {
     assert!(thin_wasm.allows("clock"));
     assert!(!thin_wasm.allows("fs.read"));
 }
+
+#[test]
+fn vc_201_075_mastery_allows_all_returns_true_for_empty_requirement_set() {
+    let wasm = GrantSet::host_baseline().attenuate_for_wasm();
+    assert!(wasm.allows_all(&BTreeSet::new()));
+}

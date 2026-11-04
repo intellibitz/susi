@@ -133,3 +133,27 @@ fn audit_action_kinds_and_outcomes_expose_distinct_non_empty_labels() {
     let labels: BTreeSet<&str> = outcomes.iter().map(|o| o.as_str()).collect();
     assert_eq!(labels.len(), outcomes.len());
 }
+
+#[test]
+fn audit_action_new_rejects_empty_actor_or_correlation_id() {
+    assert!(AuditAction::new(
+        AuditActionKind::ModelCall,
+        "",
+        AuditTarget::identifier("model:test"),
+        AuditOutcome::Succeeded,
+        1,
+        1,
+        "corr-1",
+    )
+    .is_err());
+    assert!(AuditAction::new(
+        AuditActionKind::ModelCall,
+        "actor-1",
+        AuditTarget::identifier("model:test"),
+        AuditOutcome::Succeeded,
+        1,
+        1,
+        "",
+    )
+    .is_err());
+}

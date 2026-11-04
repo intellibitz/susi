@@ -95,3 +95,25 @@ fn vc_201_100_qualifies_without_predeclared_2x_metric_keeping_claim_false() {
     assert!(r.qualified);
     assert!(!r.claim_2x);
 }
+
+#[test]
+fn vc_201_100_zero_baseline_or_sub_2x_metric_rejects_2x_claim_with_limitation() {
+    let zero_baseline = ReleaseDrill {
+        env: "local".into(),
+        configured: true,
+        mission_ok: true,
+        recovered: true,
+        self_patch_evaluated: true,
+        promoted_via_tag: true,
+        scorecard_delta: 0.1,
+        predeclared_2x_metric: Some(25.0),
+        baseline_2x_metric: Some(0.0),
+    };
+    let r = qualify_release(&zero_baseline);
+    assert!(r.qualified);
+    assert!(!r.claim_2x);
+    assert!(r
+        .limitations
+        .iter()
+        .any(|l| l.contains("2x claim unsupported")));
+}

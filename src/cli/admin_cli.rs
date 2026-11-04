@@ -8,6 +8,16 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use susi::SUSI_VERSION;
 
+pub(crate) const fn into_engine_version_bump(
+    bump: susi_cli_defs::VersionBump,
+) -> susi_gawd::admin::VersionBump {
+    match bump {
+        susi_cli_defs::VersionBump::Patch => susi_gawd::admin::VersionBump::Patch,
+        susi_cli_defs::VersionBump::Minor => susi_gawd::admin::VersionBump::Minor,
+        susi_cli_defs::VersionBump::Major => susi_gawd::admin::VersionBump::Major,
+    }
+}
+
 pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
     let (cwd, global_dir) = (host.cwd, host.global_dir);
     match subcommand {
@@ -60,7 +70,10 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             if hand_off_release(cwd) {
                 return;
             }
-            match susi_gawd::admin::SusiAdmin::execute_release(cwd, cut) {
+            match susi_gawd::admin::SusiAdmin::execute_release(
+                cwd,
+                cut.map(into_engine_version_bump),
+            ) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
                     eprintln!("Release failed: {}", e);
@@ -292,7 +305,7 @@ fn hand_off_release(cwd: &Path) -> bool {
 /// `git ls-remote` (`SusiAdmin::release_preflight`). Any other command: `None`.
 pub(crate) fn release_preflight(subcommand: &AdminCommands, cwd: &Path) -> Option<String> {
     if let AdminCommands::Release { cut: Some(level) } = subcommand {
-        susi_gawd::admin::SusiAdmin::release_preflight(cwd, *level)
+        susi_gawd::admin::SusiAdmin::release_preflight(cwd, into_engine_version_bump(*level))
     } else {
         None
     }

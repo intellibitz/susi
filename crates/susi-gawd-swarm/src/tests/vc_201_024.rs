@@ -129,3 +129,25 @@ fn vc_201_024_queues_when_required_tool_grant_is_missing_or_nan_resource() {
     };
     assert_eq!(admit(&invalid_cpu, &free), Admit::Queue);
 }
+
+#[test]
+fn vc_201_024_node_without_model_requirement_runs_when_model_unready() {
+    let free = Resources {
+        cpu: 2.0,
+        gpu_mem_gb: 0.0,
+        mem_gb: 4.0,
+        subprocesses: 1,
+        model_ready: false,
+        tool_grants: vec!["read".into()],
+    };
+    let tool_only = DagNode {
+        id: "tool-only".into(),
+        cpu: 1.0,
+        gpu_mem_gb: 0.0,
+        mem_gb: 1.0,
+        subprocesses: 1,
+        needs_model: false,
+        needs_tools: vec!["read".into()],
+    };
+    assert_eq!(admit(&tool_only, &free), Admit::Run);
+}

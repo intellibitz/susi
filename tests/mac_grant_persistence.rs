@@ -247,3 +247,15 @@ fn concurrent_installed_writers_keep_case_distinct_endpoint_scopes() {
     assert!(grants.iter().any(|g| g["resource"] == endpoints[1]));
     std::fs::remove_dir_all(account.root).unwrap();
 }
+
+#[test]
+fn unit_isolate_home_sets_isolated_environment_variables() {
+    let scratch = std::env::temp_dir().join(format!("susi-grants-unit-{}", std::process::id()));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
+    isolate_home(&mut cmd, &scratch);
+    let has_scratch_env = cmd
+        .get_envs()
+        .filter_map(|(_, v)| v.map(PathBuf::from))
+        .any(|p| p.starts_with(&scratch));
+    assert!(has_scratch_env);
+}

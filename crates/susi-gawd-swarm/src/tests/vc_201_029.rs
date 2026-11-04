@@ -148,3 +148,10 @@ fn vc_201_029_unrelated_preserved_filters_multi_file_overlapping_patches() {
         vec!["keep-clean".to_string(), "keep-second".to_string()]
     );
 }
+
+#[test]
+fn vc_201_029_default_workspace_txn_starts_at_revision_zero() {
+    let ws = WorkspaceTxn::default();
+    assert_eq!(ws.rev(), 0);
+    assert_eq!(ws.applied_count(), 0);
+}

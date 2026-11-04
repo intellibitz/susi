@@ -70,3 +70,14 @@ fn swarm_chaos_rejects_same_term_foreign_leader_commit() {
     assert!(net.nodes["b"].log.is_empty());
     assert_eq!(net.nodes["a"].log.len(), 1);
 }
+
+#[test]
+fn swarm_chaos_non_leader_cannot_propose_commit() {
+    let mut net = ChaosNetwork::default();
+    net.add("a");
+    net.add("b");
+    for n in net.nodes.values_mut() {
+        n.elect(&[("a".into(), 1.0)]);
+    }
+    assert!(net.nodes["b"].propose_commit(1, "unauthorized").is_none());
+}

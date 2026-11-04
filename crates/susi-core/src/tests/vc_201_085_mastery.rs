@@ -107,3 +107,13 @@ fn vc_201_085_mastery_trusted_signer_and_string_match_hold() {
         ImportVerdict::BadProvenance
     );
 }
+
+#[test]
+fn vc_201_085_mastery_empty_trusted_set_rejects_even_validly_signed_artifact() {
+    let art = signed_artifact("pack", "alice", &["r1"]);
+    let empty_trusted = BTreeSet::new();
+    assert_eq!(
+        import_skill(&art, &empty_trusted, true),
+        ImportVerdict::BadProvenance
+    );
+}

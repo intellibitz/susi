@@ -358,3 +358,13 @@ fn member_add_pubkey_requires_subject_attestation() {
     .expect("seal_member");
     commit_log::append(&unbound).unwrap();
 }
+
+#[test]
+fn unit_attest_helper_produces_64_hex_pubkey_and_128_hex_signature() {
+    let sk = SigningKey::from_bytes(&[0x55u8; 32]);
+    let (pk, sig) = attest("node-unit", &sk);
+    assert_eq!(pk.len(), 64);
+    assert_eq!(sig.len(), 128);
+    let payload = cluster_key::bind_payload("node-unit", &pk);
+    assert!(cluster_key::member_verify(&pk, &payload, &sig));
+}

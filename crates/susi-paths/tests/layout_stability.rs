@@ -122,3 +122,14 @@ fn legacy_home_with_existing_dot_susi_resolves_to_dot_susi() {
     drop(env);
     let _ = std::fs::remove_dir_all(legacy);
 }
+
+#[test]
+fn susi_dirs_cache_dir_under_susi_home_matches_instance_root() {
+    let _guard = LAYOUT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut env = EnvGuard::isolated();
+    let instance = scratch("cache-instance");
+    env.set("SUSI_HOME", &instance);
+    assert_eq!(SusiDirs::cache_dir(), instance);
+    drop(env);
+    let _ = std::fs::remove_dir_all(instance);
+}

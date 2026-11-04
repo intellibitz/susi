@@ -179,3 +179,13 @@ fn assign_native_roles_errors_without_independent_verifier_and_tracks_cost_bound
         .expect("two native agents assign");
     assert!(!assigned.multi_agent_cheaper);
 }
+
+#[test]
+fn digest_fields_is_deterministic_and_distinguishes_field_order() {
+    let d1 = digest_fields(&["cargo_test", "pass"]);
+    let d2 = digest_fields(&["cargo_test", "pass"]);
+    let d3 = digest_fields(&["pass", "cargo_test"]);
+    assert_eq!(d1, d2);
+    assert_ne!(d1, d3);
+    assert!(!d1.is_empty());
+}

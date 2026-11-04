@@ -106,3 +106,22 @@ fn vc_201_050_tampered_checksum_string_fails_closed_even_when_all_artifacts_exis
     assert!(!report.checksum_ok);
     assert!(!report.is_complete());
 }
+
+#[test]
+fn vc_201_050_pack_bundle_sorts_all_lists_and_distinguishes_different_artifact_sets() {
+    let b1 = pack_bundle(
+        vec!["z-bin".into(), "a-bin".into()],
+        vec!["z-model".into(), "a-model".into()],
+        vec!["z-ext".into(), "a-ext".into()],
+    );
+    assert_eq!(b1.binaries, vec!["a-bin", "z-bin"]);
+    assert_eq!(b1.models, vec!["a-model", "z-model"]);
+    assert_eq!(b1.extension_metadata, vec!["a-ext", "z-ext"]);
+
+    let b2 = pack_bundle(
+        vec!["a-bin".into()],
+        vec!["a-model".into(), "z-model".into()],
+        vec!["a-ext".into(), "z-ext".into()],
+    );
+    assert_ne!(b1.checksum, b2.checksum);
+}

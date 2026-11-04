@@ -1,0 +1,26 @@
+{
+  "id": "T-PATHTESTS5TA1104-1",
+  "title": "test(paths,ratchet,daemon,server): advance 8 test suites to 5-test floor",
+  "goal": "Advance 8 test suites across susi-paths, susi-unsafe-ratchet, susi-daemon, and susi-server from 4 to 5 unit tests each (D-OS-8 5-test floor).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "--test",
+      "env_guard"
+    ]
+  },
+  "created_by": "PATHTESTS5TA1104",
+  "created_unix": 1793813600,
+  "closed": {
+    "at_unix": 1793813819,
+    "commit": "a5a203d4fb43aba56e68373e47f7739d43fb1fab",
+    "by": "PATHTESTS5TA1104"
+  }
+}

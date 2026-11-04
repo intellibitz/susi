@@ -172,3 +172,36 @@ fn vc_201_046_mastery_queue_capacity_limit_refuses_overflow_submissions() {
     );
     assert!(overflow.is_err());
 }
+
+#[test]
+fn vc_201_046_mastery_should_flush_triggers_on_batch_full_or_wait_timeout() {
+    let backend = TestBackend::new(true);
+    let mut batcher = Batcher::new(test_limits(2, 8, 50), &backend).unwrap();
+    let now = 4_000u64;
+    assert!(!batcher.should_flush(now));
+
+    batcher
+        .submit(
+            Request {
+                id: 1,
+                prompt: "p1".into(),
+                deadline_ms: now + 500,
+            },
+            now,
+        )
+        .unwrap();
+    assert!(!batcher.should_flush(now + 10));
+    assert!(batcher.should_flush(now + 50));
+
+    batcher
+        .submit(
+            Request {
+                id: 2,
+                prompt: "p2".into(),
+                deadline_ms: now + 500,
+            },
+            now + 10,
+        )
+        .unwrap();
+    assert!(batcher.should_flush(now + 10));
+}

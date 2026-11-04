@@ -201,3 +201,10 @@ fn unit_sha_of_another_merge_and_script_command_invariants() {
     let cmd = script_command(&script);
     assert!(!cmd.get_program().is_empty());
 }
+
+#[test]
+fn unit_fake_gh_creates_executable_script_in_target_directory() {
+    let w = World::new("unit-fake-gh");
+    assert!(w.bins.join("gh").is_file());
+    assert_eq!(w.comments(), "");
+}

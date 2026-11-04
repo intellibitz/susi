@@ -165,3 +165,13 @@ fn vc_200_001_overlapping_deltas_serialize_through_majority() {
     assert!(endorsements_satisfied_at_tip(&rec_b, &dir));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn vc_200_001_endorsement_payload_is_deterministic_and_binds_signature() {
+    let p1 = endorsement_payload("sig-alpha");
+    let p2 = endorsement_payload("sig-alpha");
+    let p3 = endorsement_payload("sig-beta");
+    assert_eq!(p1, p2);
+    assert_ne!(p1, p3);
+    assert!(p1.contains("sig-alpha"));
+}

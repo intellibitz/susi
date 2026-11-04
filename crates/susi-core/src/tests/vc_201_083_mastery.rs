@@ -121,3 +121,14 @@ fn vc_201_083_mastery_in_process_guarantees_hold() {
     assert!(!s.semantic_index.contains("m3"));
     assert!(!s.replica.contains_key("m3"));
 }
+
+#[test]
+fn vc_201_083_mastery_delete_start_records_exact_deletion_timestamp() {
+    let mut s = MemoryStores::default();
+    s.insert("m-ts", "ephemeral");
+    s.delete_start("m-ts", 987_654);
+    assert_eq!(
+        s.tombstones.get("m-ts").map(|t| t.deleted_unix),
+        Some(987_654)
+    );
+}

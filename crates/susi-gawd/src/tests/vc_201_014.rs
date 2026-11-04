@@ -102,3 +102,34 @@ fn vc_201_014_new_budget_initializes_zero_usage_and_empty_cancelled_children() {
     assert!(b.cancelled_children.is_empty());
     assert!(b.allows_new_work());
 }
+
+#[test]
+fn vc_201_014_subprocess_limit_exhaustion_blocks_subsequent_debits() {
+    let mut b = ExperimentBudget::new(
+        "e5",
+        BudgetLimits {
+            tokens: 1_000,
+            wall_ms: 1_000,
+            subprocesses: 2,
+            cloud_spend_micros: 10_000,
+        },
+    );
+    b.debit(BudgetUsage {
+        tokens: 10,
+        wall_ms: 10,
+        subprocesses: 2,
+        cloud_spend_micros: 100,
+    })
+    .unwrap();
+    assert!(b.allows_new_work());
+    let err = b
+        .debit(BudgetUsage {
+            tokens: 1,
+            wall_ms: 1,
+            subprocesses: 1,
+            cloud_spend_micros: 0,
+        })
+        .unwrap_err();
+    assert!(err.contains("exhausted"));
+    assert!(!b.allows_new_work());
+}

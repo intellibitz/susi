@@ -80,3 +80,12 @@ fn task_lease_dispatch_wiring() {
         CompleteVerdict::Accepted
     );
 }
+
+#[test]
+fn vc_201_022_unknown_task_returns_unknown_task_verdict() {
+    let mut t = LeaseTable::new();
+    assert_eq!(
+        t.complete("never-dispatched", "worker-a", 1, 10),
+        CompleteVerdict::UnknownTask
+    );
+}

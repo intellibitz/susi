@@ -709,6 +709,59 @@ fn branch_gate_restores_target_archive_on_every_push() {
     );
 }
 
+/// A branch that changes the GMCP crate, its VC-203 evidence or
+/// tests/gmcp_requirements.rs without re-recording the evidence stales main
+/// (#1561 and #1618, 2026-11-04; the v0.21.48 and v0.21.49 tagged suites then
+/// failed and published nothing). The required branch gate therefore runs the
+/// full, unfiltered gmcp_requirements target whenever such a path changed, or
+/// when it cannot resolve the merge base, and a failure fails the job.
+#[test]
+fn the_branch_gate_checks_gmcp_evidence_when_a_branch_touches_gmcp() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    let steps = steps(&check.body);
+    let guard_at = steps
+        .iter()
+        .position(|s| s.contains("name: Root-package guard tests"))
+        .expect("check has a root-package guard test step");
+    let gmcp_at = steps
+        .iter()
+        .position(|s| s.contains("name: GMCP evidence currency"))
+        .expect("check has a GMCP evidence currency step");
+    assert!(
+        gmcp_at > guard_at,
+        "the GMCP step reuses the root package the guard tests compiled"
+    );
+    let step = &steps[gmcp_at];
+    assert!(
+        !step_has_condition(step),
+        "the GMCP step decides in its script, so it must run on every branch push:\n{step}"
+    );
+    for needle in [
+        "cargo test --locked -p susi --test gmcp_requirements\n",
+        "crates/susi-gmcp/",
+        "\\.agents/gmcp/",
+        "tests/gmcp_requirements\\.rs$",
+        "git merge-base",
+    ] {
+        assert!(
+            step.contains(needle),
+            "GMCP step must contain `{needle}`:\n{step}"
+        );
+    }
+    for needle in ["continue-on-error", "|| true", "-- ", "--no-run"] {
+        assert!(
+            !step.contains(needle),
+            "GMCP step: the full target must run and a failure must fail the check:\n{step}"
+        );
+    }
+    assert!(
+        root().join("tests/gmcp_requirements.rs").is_file(),
+        "tests/gmcp_requirements.rs no longer exists; update the branch gate"
+    );
+}
+
 /// The root package's repo-wide guard tests scan the whole tree, so a PR that
 /// changes one crate, a task file or an xtask name can break them without the
 /// root package being affected. On 2026-11-04 that turned main red several

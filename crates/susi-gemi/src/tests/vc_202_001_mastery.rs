@@ -294,3 +294,16 @@ fn vc_202_001_mastery_dead_keys_are_marked_never_deleted() {
         .iter()
         .any(|v| v.vendor == "together" && v.liveness == Liveness::Live));
 }
+
+#[test]
+fn vc_202_001_mastery_empty_target_slice_produces_empty_verdicts_and_zero_probes() {
+    let fake = FakeCall::new();
+    let report = scout_targets(&fake, &[]);
+    assert!(report.verdicts.is_empty());
+    assert!(fake.requests.lock().unwrap().is_empty());
+    let rendered = report.format();
+    assert!(
+        rendered.contains("0 credential(s) scouted: 0 live"),
+        "rendered={rendered}"
+    );
+}

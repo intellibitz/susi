@@ -112,3 +112,15 @@ fn joint_consensus_membership_wiring() {
     assert!(s1.can_commit() && s2.can_commit());
     assert!(overlapping_disjoint_blocked(&s1, &s2));
 }
+
+#[test]
+fn vc_201_032_non_member_endorsements_do_not_satisfy_quorum() {
+    let mut t = MembershipTransition::new(
+        Electorate::from_ids(["a", "b", "c"]),
+        Electorate::from_ids(["b", "c", "d"]),
+    );
+    t.endorse("outsider-1");
+    t.endorse("outsider-2");
+    t.endorse("outsider-3");
+    assert!(!t.can_commit());
+}

@@ -120,3 +120,19 @@ fn vc_201_048_thermal_router_unknown_telemetry_in_placement() {
     assert!(run);
     assert_eq!(q, 0);
 }
+
+#[test]
+fn vc_201_048_mastery_local_work_gate_queues_on_unfit_power_and_unknown_telemetry() {
+    let mut gate = LocalWorkGate::new(1);
+    let (run, q) = gate.admit(HostFitness::UnfitPower);
+    assert!(!run);
+    assert_eq!(q, 1);
+
+    let (run, q) = gate.admit(HostFitness::Unknown);
+    assert!(!run);
+    assert_eq!(q, 1);
+
+    let (run, q) = gate.admit(HostFitness::Fit);
+    assert!(run);
+    assert_eq!(q, 0);
+}

@@ -197,3 +197,24 @@ fn vc_201_047_mastery_challenger_above_hysteresis_margin_evicts_incumbent() {
     assert_eq!(damped[0].model_id, "model_hot");
     assert_eq!(damped[0].uses_in_window, 3);
 }
+
+#[test]
+fn vc_201_047_mastery_cold_starts_zero_when_all_accessed_models_remain_warm() {
+    let workload = vec![
+        ModelUseEvent {
+            model_id: "m1".into(),
+            used_unix: 100,
+        },
+        ModelUseEvent {
+            model_id: "m2".into(),
+            used_unix: 101,
+        },
+        ModelUseEvent {
+            model_id: "m1".into(),
+            used_unix: 102,
+        },
+    ];
+    let warm = vec!["m1".to_string(), "m2".to_string()];
+    assert_eq!(cold_starts(&workload, &warm), 0);
+    assert_eq!(cold_starts(&[], &[]), 0);
+}
