@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "SANDBOXTOOLS4T1104",
-  "created_unix": 1793780844
+  "created_unix": 1793780844,
+  "closed": {
+    "at_unix": 1793781238,
+    "commit": "fe38044bd9150bf81f15e20a792bc792531f7ce4",
+    "by": "SANDBOXTOOLS4T1104"
+  }
 }
