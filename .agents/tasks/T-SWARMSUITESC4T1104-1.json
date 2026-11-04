@@ -1,0 +1,21 @@
+{
+  "id": "T-SWARMSUITESC4T1104-1",
+  "title": "Expand susi-gawd-swarm vc_201_021, vc_201_023, vc_201_025, vc_202_009_mastery, and vc_202_014_mastery to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "vc_201_021"
+    ]
+  },
+  "created_by": "SWARMSUITESC4T1104",
+  "created_unix": 1793788725
+}

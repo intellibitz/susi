@@ -133,3 +133,36 @@ fn fair_queue_dispatch_wiring() {
     let promoted = q.complete("m2", 20).expect("promote");
     assert!(matches!(promoted.mission_id.as_str(), "m3" | "m4"));
 }
+
+#[test]
+fn vc_201_025_complete_unknown_mission_returns_none_and_preserves_counts() {
+    let mut q = FairQueue::new(QueueLimits {
+        max_running: 1,
+        max_queued: 2,
+        age_boost_secs: 10,
+    });
+    assert_eq!(
+        q.enqueue(QueuedMission {
+            mission_id: "active-1".into(),
+            workspace: "ws".into(),
+            enqueued_at: 1,
+            weight: 2,
+        }),
+        EnqueueResult::Running
+    );
+    assert_eq!(
+        q.enqueue(QueuedMission {
+            mission_id: "waiter-1".into(),
+            workspace: "ws".into(),
+            enqueued_at: 2,
+            weight: 1,
+        }),
+        EnqueueResult::Queued
+    );
+    assert_eq!(q.running_count(), 1);
+    assert_eq!(q.waiting_count(), 1);
+
+    assert!(q.complete("unknown-mission", 50).is_none());
+    assert_eq!(q.running_count(), 1);
+    assert_eq!(q.waiting_count(), 1);
+}
