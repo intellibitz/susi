@@ -26,5 +26,10 @@
     ]
   },
   "created_by": "GEMIENGINES4T1104",
-  "created_unix": 1793799420
+  "created_unix": 1793799420,
+  "closed": {
+    "at_unix": 1793802483,
+    "commit": "47b53cc3b257ed8e3782dcd7b5a90bf56bdd8600",
+    "by": "GEMIENGINES4T1104"
+  }
 }
