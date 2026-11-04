@@ -215,3 +215,118 @@ fn remove_leaf(doc: &mut Value, path: &str) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn drift_detects_missing_changed_and_extra_leaves_and_resolves_ancestor_ownership() {
+        let desired = json!({
+            "providers": {
+                "openai": { "model": "gpt-4o", "timeout_ms": 5000 }
+            },
+            "foreign": { "custom": "want" }
+        });
+        let observed = json!({
+            "providers": {
+                "openai": { "model": "gpt-3.5", "extra_flag": true }
+            },
+            "foreign": { "custom": "have" }
+        });
+        let owned: BTreeSet<String> = ["providers".to_string()].into_iter().collect();
+
+        let report = drift(&desired, &observed, &owned);
+        let find = |k: &str| report.iter().find(|i| i.key == k).unwrap();
+
+        let changed_owned = find("providers.openai.model");
+        assert_eq!(changed_owned.kind, DriftKind::Changed);
+        assert!(changed_owned.owned);
+
+        let missing_owned = find("providers.openai.timeout_ms");
+        assert_eq!(missing_owned.kind, DriftKind::Missing);
+        assert!(missing_owned.owned);
+
+        let extra_owned = find("providers.openai.extra_flag");
+        assert_eq!(extra_owned.kind, DriftKind::Extra);
+        assert!(extra_owned.owned);
+
+        let changed_foreign = find("foreign.custom");
+        assert_eq!(changed_foreign.kind, DriftKind::Changed);
+        assert!(!changed_foreign.owned);
+    }
+
+    #[test]
+    fn reconcile_repairs_selected_owned_leaves_and_records_unowned_nodrift_or_blocked_conflicts() {
+        let desired = json!({
+            "providers": {
+                "openai": { "model": "gpt-4o", "timeout_ms": 5000 }
+            },
+            "blocked": {
+                "owned_child": "target"
+            },
+            "foreign": { "keep": "desired_ignored" }
+        });
+        let observed = json!({
+            "providers": {
+                "openai": { "model": "gpt-3.5", "obsolete": true }
+            },
+            "blocked": "foreign_scalar_blocking_descent",
+            "foreign": { "keep": "observed_preserved" }
+        });
+        let owned: BTreeSet<String> = ["providers".to_string(), "blocked.owned_child".to_string()]
+            .into_iter()
+            .collect();
+
+        let selected = vec![
+            "providers.openai.model".to_string(),
+            "providers.openai.timeout_ms".to_string(),
+            "providers.openai.obsolete".to_string(),
+            "foreign.keep".to_string(),
+            "nonexistent.no_drift".to_string(),
+            "blocked.owned_child".to_string(),
+        ];
+
+        let res = reconcile(&desired, &observed, &owned, &selected);
+        assert_eq!(
+            res.applied,
+            vec![
+                "providers.openai.model",
+                "providers.openai.timeout_ms",
+                "providers.openai.obsolete"
+            ]
+        );
+        assert_eq!(res.conflicts.len(), 3);
+        assert!(res
+            .conflicts
+            .iter()
+            .any(|c| c.key == "foreign.keep" && !c.owned));
+        assert!(res
+            .conflicts
+            .iter()
+            .any(|c| c.key == "nonexistent.no_drift"));
+        assert!(res
+            .conflicts
+            .iter()
+            .any(|c| c.key == "blocked.owned_child" && c.owned));
+
+        // Repaired document has updated owned fields while preserving foreign state untouched.
+        assert_eq!(
+            res.repaired["providers"]["openai"]["model"],
+            json!("gpt-4o")
+        );
+        assert_eq!(
+            res.repaired["providers"]["openai"]["timeout_ms"],
+            json!(5000)
+        );
+        assert!(res.repaired["providers"]["openai"]
+            .get("obsolete")
+            .is_none());
+        assert_eq!(
+            res.repaired["blocked"],
+            json!("foreign_scalar_blocking_descent")
+        );
+        assert_eq!(res.repaired["foreign"]["keep"], json!("observed_preserved"));
+    }
+}
