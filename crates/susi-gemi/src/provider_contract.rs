@@ -505,4 +505,41 @@ mod tests {
         std::env::remove_var("SUSI_PROVIDER_PROBE");
         assert!(probe_credentialed_opt_in("openai", "gpt-x", "1").is_none());
     }
+
+    #[test]
+    fn fixture_checks_cover_all_probe_kinds_and_probe_fixture_detects_bad_shapes() {
+        let claims = fixture_checks("openai", "gpt-4o", "2026-01");
+        assert_eq!(claims.len(), ProbeKind::ALL.len());
+        for (claim, expected_kind) in claims.iter().zip(ProbeKind::ALL.iter()) {
+            assert_eq!(claim.kind, *expected_kind);
+            assert_eq!(claim.status, ProbeStatus::Supported);
+            assert_eq!(claim.provider, "openai");
+            assert_eq!(claim.model, "gpt-4o");
+            assert_eq!(claim.version, "2026-01");
+        }
+
+        let bad_auth = probe_fixture(
+            "openai",
+            "gpt-4o",
+            "2026-01",
+            ProbeKind::Authentication,
+            &FixtureResponse {
+                http_status: 502,
+                body: serde_json::json!({}),
+            },
+        );
+        assert_eq!(bad_auth.status, ProbeStatus::Failed);
+
+        let bad_stream = probe_fixture(
+            "openai",
+            "gpt-4o",
+            "2026-01",
+            ProbeKind::Streaming,
+            &FixtureResponse {
+                http_status: 200,
+                body: serde_json::json!({"unexpected": true}),
+            },
+        );
+        assert_eq!(bad_stream.status, ProbeStatus::Failed);
+    }
 }
