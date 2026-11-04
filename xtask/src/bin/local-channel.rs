@@ -31,27 +31,53 @@ fn exe_name() -> &'static str {
     }
 }
 
+fn resolve_local_root_for(
+    os: &str,
+    localappdata: Option<&Path>,
+    userprofile: Option<&Path>,
+    home: Option<&Path>,
+    xdg_data: Option<&Path>,
+) -> Result<PathBuf> {
+    match os {
+        "windows" => {
+            if let Some(local) = localappdata.filter(|p| !p.as_os_str().is_empty()) {
+                return Ok(local.join("SusiLocal"));
+            }
+            if let Some(profile) = userprofile.filter(|p| !p.as_os_str().is_empty()) {
+                return Ok(profile.join("AppData/Local/SusiLocal"));
+            }
+            Err("missing LOCALAPPDATA or USERPROFILE".into())
+        }
+        "macos" => {
+            let home = home
+                .filter(|p| !p.as_os_str().is_empty())
+                .ok_or("missing HOME")?;
+            Ok(home.join("Library/Application Support/SusiLocal"))
+        }
+        _ => {
+            if let Some(xdg) = xdg_data.filter(|p| !p.as_os_str().is_empty()) {
+                return Ok(xdg.join("SusiLocal"));
+            }
+            let home = home
+                .filter(|p| !p.as_os_str().is_empty())
+                .ok_or("missing HOME")?;
+            Ok(home.join(".local/share/SusiLocal"))
+        }
+    }
+}
+
 fn default_local_root() -> Result<PathBuf> {
-    if cfg!(windows) {
-        if let Some(local) = env::var_os("LOCALAPPDATA") {
-            return Ok(PathBuf::from(local).join("SusiLocal"));
-        }
-        if let Some(home) = env::var_os("USERPROFILE") {
-            return Ok(PathBuf::from(home).join("AppData/Local/SusiLocal"));
-        }
-        return Err("missing LOCALAPPDATA or USERPROFILE".into());
-    }
-    if cfg!(target_os = "macos") {
-        let home = env::var_os("HOME").ok_or("missing HOME")?;
-        return Ok(PathBuf::from(home).join("Library/Application Support/SusiLocal"));
-    }
-    if let Some(xdg) = env::var_os("XDG_DATA_HOME") {
-        if !xdg.is_empty() {
-            return Ok(PathBuf::from(xdg).join("SusiLocal"));
-        }
-    }
-    let home = env::var_os("HOME").ok_or("missing HOME")?;
-    Ok(PathBuf::from(home).join(".local/share/SusiLocal"))
+    let localappdata = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let userprofile = env::var_os("USERPROFILE").map(PathBuf::from);
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let xdg_data = env::var_os("XDG_DATA_HOME").map(PathBuf::from);
+    resolve_local_root_for(
+        env::consts::OS,
+        localappdata.as_deref(),
+        userprofile.as_deref(),
+        home.as_deref(),
+        xdg_data.as_deref(),
+    )
 }
 
 fn validate_channel(channel: &str) -> Result<()> {
@@ -418,6 +444,52 @@ enum Action {
     Build,
     Run(Vec<String>),
     VerifyCandidate(Option<PathBuf>),
+    VerifyStartup(Option<PathBuf>),
+}
+
+fn resolve_verify_startup_binary(
+    channel_root: &Path,
+    candidate: Option<PathBuf>,
+) -> Result<PathBuf> {
+    if let Some(bin) = candidate {
+        return Ok(bin);
+    }
+    if let Some(state) = read_state(&channel_state_path(channel_root))? {
+        if let Some(current) = state.get("current").and_then(Value::as_str) {
+            let path = PathBuf::from(current);
+            if path.is_file() {
+                return Ok(path);
+            }
+        }
+    }
+    Ok(repo_root()?.join("target/debug").join(exe_name()))
+}
+
+fn verify_startup_gate(binary: &Path) -> Result<()> {
+    if !binary.is_file() {
+        return Err(format!("Expected native executable missing: {}", binary.display()).into());
+    }
+    let repo = repo_root()?;
+    let status = Command::new("cargo")
+        .current_dir(&repo)
+        .args([
+            "run",
+            "--locked",
+            "--offline",
+            "-p",
+            "xtask",
+            "--bin",
+            "startup-gate",
+            "--",
+            "--susi",
+        ])
+        .arg(binary)
+        .arg("--skip-daemon-up")
+        .status()?;
+    if !status.success() {
+        return Err(format!("local-channel startup-gate failed ({status})").into());
+    }
+    Ok(())
 }
 
 fn parse_cli(args: &[String]) -> Result<(Action, String, PathBuf)> {
@@ -446,6 +518,8 @@ fn parse_cli(args: &[String]) -> Result<(Action, String, PathBuf)> {
                     "rollback" => Action::Rollback,
                     "build" => Action::Build,
                     "run" => Action::Run(args[idx + 1..].to_vec()),
+                    "verify-candidate" => Action::VerifyCandidate(None),
+                    "verify-startup" => Action::VerifyStartup(None),
                     other => return Err(format!("unknown action `{other}`").into()),
                 });
                 if matches!(action, Some(Action::Run(_))) {
@@ -465,15 +539,28 @@ fn parse_cli(args: &[String]) -> Result<(Action, String, PathBuf)> {
                 break;
             }
             "verify-candidate" if action.is_none() => {
-                let candidate = args.get(idx + 1).map(PathBuf::from);
+                let candidate = args
+                    .get(idx + 1)
+                    .filter(|s| !s.starts_with('-'))
+                    .map(PathBuf::from);
                 if candidate.is_some() {
                     idx += 1;
                 }
                 action = Some(Action::VerifyCandidate(candidate));
             }
+            "verify-startup" if action.is_none() => {
+                let candidate = args
+                    .get(idx + 1)
+                    .filter(|s| !s.starts_with('-'))
+                    .map(PathBuf::from);
+                if candidate.is_some() {
+                    idx += 1;
+                }
+                action = Some(Action::VerifyStartup(candidate));
+            }
             other => {
                 return Err(format!(
-                    "unexpected argument `{other}` (usage: local-channel [status|build|rollback|run|verify-candidate] [--channel dev] [--root <dir>])"
+                    "unexpected argument `{other}` (usage: local-channel [status|build|rollback|run|verify-candidate|verify-startup] [--channel dev] [--root <dir>])"
                 )
                 .into());
             }
@@ -519,6 +606,10 @@ fn run() -> Result<()> {
             };
             verify_candidate(&bin)?;
             Ok(())
+        }
+        Action::VerifyStartup(binary) => {
+            let bin = resolve_verify_startup_binary(&channel_root, binary)?;
+            verify_startup_gate(&bin)
         }
     }
 }
@@ -658,6 +749,119 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[test]
+    fn resolves_local_root_across_windows_macos_and_linux() -> Result<()> {
+        assert_eq!(
+            resolve_local_root_for(
+                "windows",
+                Some(Path::new("C:/Users/alice/AppData/Local")),
+                Some(Path::new("C:/Users/alice")),
+                None,
+                None,
+            )?,
+            PathBuf::from("C:/Users/alice/AppData/Local").join("SusiLocal")
+        );
+        assert_eq!(
+            resolve_local_root_for(
+                "windows",
+                None,
+                Some(Path::new("C:/Users/alice")),
+                None,
+                None,
+            )?,
+            PathBuf::from("C:/Users/alice").join("AppData/Local/SusiLocal")
+        );
+        assert!(resolve_local_root_for("windows", None, None, None, None).is_err());
+
+        assert_eq!(
+            resolve_local_root_for("macos", None, None, Some(Path::new("/Users/alice")), None,)?,
+            PathBuf::from("/Users/alice").join("Library/Application Support/SusiLocal")
+        );
+        assert!(resolve_local_root_for("macos", None, None, None, None).is_err());
+
+        assert_eq!(
+            resolve_local_root_for(
+                "linux",
+                None,
+                None,
+                Some(Path::new("/home/alice")),
+                Some(Path::new("/custom/xdg")),
+            )?,
+            PathBuf::from("/custom/xdg").join("SusiLocal")
+        );
+        assert_eq!(
+            resolve_local_root_for(
+                "linux",
+                None,
+                None,
+                Some(Path::new("/home/alice")),
+                Some(Path::new("")),
+            )?,
+            PathBuf::from("/home/alice").join(".local/share/SusiLocal")
+        );
+        assert!(resolve_local_root_for("linux", None, None, None, None).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn parses_all_cli_actions_and_legacy_powershell_flags() -> Result<()> {
+        let v =
+            |items: &[&str]| -> Vec<String> { items.iter().map(|s| (*s).to_string()).collect() };
+
+        let (act, chan, root) = parse_cli(&v(&["status", "--root", "/tmp/r"]))?;
+        assert_eq!(act, Action::Status);
+        assert_eq!(chan, "dev");
+        assert_eq!(root, PathBuf::from("/tmp/r"));
+
+        let (act, chan, root) = parse_cli(&v(&[
+            "-Channel", "DEV", "-Root", "/tmp/ps", "-Action", "Rollback",
+        ]))?;
+        assert_eq!(act, Action::Rollback);
+        assert_eq!(chan, "dev");
+        assert_eq!(root, PathBuf::from("/tmp/ps"));
+
+        let (act, _, _) = parse_cli(&v(&[
+            "--root",
+            "/tmp/r",
+            "run",
+            "--",
+            "--version",
+            "status",
+        ]))?;
+        assert_eq!(act, Action::Run(v(&["--version", "status"])));
+
+        let (act, _, _) = parse_cli(&v(&[
+            "verify-candidate",
+            "target/debug/susi",
+            "--root",
+            "/tmp/r",
+        ]))?;
+        assert_eq!(
+            act,
+            Action::VerifyCandidate(Some(PathBuf::from("target/debug/susi")))
+        );
+
+        let (act, _, _) = parse_cli(&v(&[
+            "verify-startup",
+            "target/debug/susi",
+            "--root",
+            "/tmp/r",
+        ]))?;
+        assert_eq!(
+            act,
+            Action::VerifyStartup(Some(PathBuf::from("target/debug/susi")))
+        );
+
+        let (act, _, _) = parse_cli(&v(&["verify-startup", "--root", "/tmp/r"]))?;
+        assert_eq!(act, Action::VerifyStartup(None));
+
+        let (act, _, _) = parse_cli(&v(&["--action", "verify-startup", "--root", "/tmp/r"]))?;
+        assert_eq!(act, Action::VerifyStartup(None));
+
+        assert!(parse_cli(&v(&["unknown-subcommand", "--root", "/tmp/r"])).is_err());
         Ok(())
     }
 }
