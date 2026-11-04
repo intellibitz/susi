@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "OSCHANNEL1104",
-  "created_unix": 1793751300
+  "created_unix": 1793751300,
+  "closed": {
+    "commit": "36ce628eab95acf8f66b98cfdd313e8dd514583b",
+    "by": "OSCHANNEL1104",
+    "at_unix": 1793752250
+  }
 }
