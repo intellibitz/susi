@@ -220,3 +220,31 @@ async fn native_proxy_ingress_is_priced_cached_and_capped() {
     let (status, _) = call(proxy, "GET", "/v1/models", None, None).await;
     assert_eq!(status, 401);
 }
+
+#[test]
+fn catalogue_parses_deepseek_flash_pricing_tiers() {
+    let cat = catalogue();
+    let price = cat
+        .models
+        .get("deepseek-flash")
+        .expect("deepseek-flash must exist in test catalogue");
+    assert_eq!(price.input_miss, MicroUsd::from_micros(150_000));
+    assert_eq!(price.input_hit, MicroUsd::from_micros(3_000));
+    assert_eq!(price.output, MicroUsd::from_micros(600_000));
+}
+
+#[test]
+fn account_with_budget_and_ingress_construct_deterministically() {
+    let unlimited = Account::new("sk-alice", "alice");
+    let capped = Account::new("sk-capped", "capped").with_budget(MicroUsd::from_micros(250));
+    let _ingress = Ingress::new(vec![unlimited, capped]);
+    assert_eq!(MicroUsd::from_micros(250).micros(), 250);
+}
+
+#[test]
+fn response_cache_and_micro_usd_zero_invariants_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let _cache = ResponseCache::new(Some(dir.path().to_path_buf()));
+    assert_eq!(MicroUsd::ZERO, MicroUsd::from_micros(0));
+    assert!(MicroUsd::from_micros(5) > MicroUsd::ZERO);
+}

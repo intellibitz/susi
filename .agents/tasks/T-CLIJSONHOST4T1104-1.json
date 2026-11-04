@@ -1,0 +1,21 @@
+{
+  "id": "T-CLIJSONHOST4T1104-1",
+  "title": "test(cli,daemon,harness): expand unit tests to 4 in cli_json, mission_host, capability_gap_e2e, and native_proxy_e2e",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--test",
+      "capability_gap_e2e"
+    ]
+  },
+  "created_by": "CLIJSONHOST4T1104",
+  "created_unix": 1793801144
+}
