@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "DAEMONMODSB4T1104",
-  "created_unix": 1793791561
+  "created_unix": 1793791561,
+  "closed": {
+    "at_unix": 1793792057,
+    "commit": "bbc5603a6d2c053423de765c94c2085890740b5b",
+    "by": "DAEMONMODSB4T1104"
+  }
 }
