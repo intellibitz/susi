@@ -43,3 +43,16 @@ fn vc_201_015_all_four_checks_passing_achieves_promotion_ready() {
     assert!(report.promotion_ready());
     assert!(report.blocking_reasons().is_empty());
 }
+
+#[test]
+fn vc_201_015_transcript_parsing_cannot_manufacture_execution_and_flags_conflicts() {
+    let report = evaluate_transcript("fmt: pass\nclippy: ok\ntest: passed\n");
+    assert!(!report.promotion_ready());
+    assert!(report.blocking_reasons().contains(&"execution"));
+    assert_eq!(report.fmt, CheckOutcome::Pass);
+    assert_eq!(report.clippy, CheckOutcome::Pass);
+    assert_eq!(report.test, CheckOutcome::Pass);
+
+    let conflict = evaluate_transcript("fmt: pass\nfmt: fail\nclippy: pass\ntest: pass\n");
+    assert_eq!(conflict.fmt, CheckOutcome::Fail);
+}

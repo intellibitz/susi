@@ -206,3 +206,9 @@ fn capability_bus_enforces_budget_ceiling_and_surface_filtering() {
         }
     );
 }
+
+#[test]
+fn capability_bus_default_starts_with_empty_discovery_list() {
+    let bus = CapabilityBus::new();
+    assert!(bus.discover().is_empty());
+}
