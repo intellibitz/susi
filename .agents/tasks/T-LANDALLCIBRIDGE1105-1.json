@@ -1,0 +1,27 @@
+{
+  "id": "T-LANDALLCIBRIDGE1105-1",
+  "title": "Land stranded CI-bridge commits: bind checkpoint verify and report to the same signed bytes and live PR identity, and document same-repository verification",
+  "goal": "CEO directive 2026-11-05: merge every Susi worktree. Port 8c76f17b4 (CIPERF: bind verify and report to the same signed bytes and live PR identity) and f13026b22 (CIPERF: document read-only same-repository verification and checkpoint reissuance) from susi-agent-ci-bridge-1103 on top of the checkpoint-compliance verifier landed by T-LANDALL1105-1. The old-schema T-CIBRIDGE1103-1 record stays evidence under .agents/evidence/stranded-1105/.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/evidence/stranded-1105/t-cibridge1103-1.json",
+    ".github/workflows/checkpoint-compliance.yml",
+    "xtask/ci/checkpoint-authority.md",
+    "xtask/ci/test-checkpoint-compliance.ps1",
+    "xtask/src/bin/checkpoint-compliance.rs",
+    ".agents/tasks/t-landallcibridge1105-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "LANDALLCIBRIDGE1105",
+  "created_unix": 1793821744
+}

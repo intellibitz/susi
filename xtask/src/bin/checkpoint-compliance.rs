@@ -284,9 +284,16 @@ fn verify_signature(bytes: &[u8], signature: &Path, keyring: &Path, primary: &st
         .lines()
         .filter_map(|s| s.strip_prefix("[GNUPG:] VALIDSIG "))
         .collect();
+    let signer = match valid.as_slice() {
+        [one] => one.split_whitespace().collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    // GnuPG VALIDSIG fields 7/8 are the digest algorithm and signature
+    // class; 9 identifies the primary key even if a signing subkey was used.
     if !output.status.success()
-        || valid.len() != 1
-        || valid[0].split_whitespace().last() != Some(primary)
+        || !matches!(signer.get(7), Some(&"8" | &"9" | &"10"))
+        || signer.get(8) != Some(&"00")
+        || signer.get(9) != Some(&primary)
         || status.lines().any(|line| {
             ["EXPKEYSIG", "EXPSIG", "REVKEYSIG", "BADSIG", "ERRSIG"]
                 .iter()
