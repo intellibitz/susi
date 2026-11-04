@@ -36,3 +36,46 @@ fn eco_mcp_features_lists_server_and_client_capabilities() {
         .iter()
         .any(|e| e["method"] == "tools/call"));
 }
+
+#[test]
+fn eco_mcp_features_declares_profile_metadata_and_verified_provenance() {
+    let p = load("mcp-features.json");
+    assert_eq!(p["version"], "eco-profile/v1");
+    assert_eq!(p["id"], "mcp-features");
+    assert_eq!(p["subject"], "mcp");
+    assert_eq!(p["provenance"]["confidence"], "verified");
+}
+
+#[test]
+fn eco_mcp_features_tracks_current_and_deprecated_protocol_versions() {
+    let p = load("mcp-features.json");
+    let versions = p["versions"].as_array().unwrap();
+    assert!(versions
+        .iter()
+        .any(|v| v["id"] == "2025-06-18" && v["status"] == "current"));
+    assert!(versions
+        .iter()
+        .any(|v| v["id"] == "2024-11-05" && v["status"] == "deprecated"));
+}
+
+#[test]
+fn eco_mcp_features_defines_request_response_shapes_and_non_retriable_errors() {
+    let p = load("mcp-features.json");
+    let req_names: Vec<_> = p["request_shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert!(req_names.contains(&"json-rpc"));
+    assert!(req_names.contains(&"server-features"));
+    assert!(req_names.contains(&"client-features"));
+
+    let errors = p["errors"].as_array().unwrap();
+    assert!(errors
+        .iter()
+        .any(|e| e["code"] == "-32700" && e["retriable"] == false));
+    assert!(errors
+        .iter()
+        .any(|e| e["code"] == "-32601" && e["retriable"] == false));
+}

@@ -763,3 +763,60 @@ fn verify_pinned_ledger_inner(
         trace_audit,
     ))
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn confined_document_rejects_traversal_absolute_and_backslash_paths() {
+        assert!(confined_document("").is_err());
+        assert!(confined_document("/abs/path.md").is_err());
+        assert!(confined_document("a\\b.md").is_err());
+        assert!(confined_document("a/../b.md").is_err());
+        assert!(confined_document("a/./b.md").is_err());
+        assert!(confined_document("a//b.md").is_err());
+        assert!(confined_document("2025-11-25/basic/index.mdx").is_ok());
+    }
+
+    #[test]
+    fn upstream_url_and_sha256_hex_format_canonical_outputs() {
+        let url = upstream_url("modelcontextprotocol", "abc1234", "docs/spec.mdx");
+        assert_eq!(
+            url,
+            "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/abc1234/docs/spec.mdx"
+        );
+        let digest = sha256_hex(b"gmcp");
+        assert_eq!(digest.len(), 64);
+        assert!(digest.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn report_json_renders_canonical_verification_fields() {
+        let report = LedgerReport {
+            rows: 10,
+            documents: 2,
+            revisions: BTreeMap::from([("2025-11-25".into(), 10)]),
+            dispositions: BTreeMap::from([("modern".into(), 10)]),
+            categories: BTreeMap::from([("behavior".into(), 10)]),
+            vectors: 3,
+        };
+        let rendered = report_json(&report);
+        assert_eq!(rendered["rows"], 10);
+        assert_eq!(rendered["documents"], 2);
+        assert_eq!(rendered["vectors"], 3);
+        assert_eq!(rendered["verified"], true);
+        assert_eq!(rendered["implementation_verified"], false);
+    }
+
+    #[test]
+    fn verify_pinned_ledger_fails_closed_on_missing_root_and_verifies_repo_root() {
+        let missing = std::env::temp_dir().join("susi-gmcp-missing-ledger-root");
+        assert!(verify_pinned_ledger(&missing).is_err());
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let report = verify_pinned_ledger(&repo_root).unwrap();
+        assert!(report.rows > 0);
+        assert!(report.documents > 0);
+    }
+}
