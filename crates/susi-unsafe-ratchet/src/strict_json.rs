@@ -69,6 +69,7 @@ pub(crate) fn parse<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
 }
 
 #[cfg(test)]
+// Test-only module: unwrap/expect/panic are how these tests assert.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;

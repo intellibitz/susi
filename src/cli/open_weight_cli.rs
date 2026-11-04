@@ -1,8 +1,7 @@
 //! Deterministic open-weight frontier model control plane (local host; no daemon for list/doctor).
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
+use anyhow::{Error, Result};
 use clap::Subcommand;
-use susi_gemi::models::open_weight::{OpenWeightManager, OpenWeightOverride};
 
 #[derive(Debug, Subcommand)]
 pub enum OpenWeightCommands {
@@ -37,66 +36,40 @@ pub enum OpenWeightCommands {
 }
 
 pub fn execute(action: Option<OpenWeightCommands>) -> Result<()> {
+    // `susi_daemon::provider_ops` builds every document; the MCP
+    // `provider_*` tools return the same ones.
+    use susi_daemon::provider_ops::{self as ops, Vendor};
     let action = action.unwrap_or(OpenWeightCommands::List);
-    let manager = OpenWeightManager::new()?;
     match action {
         OpenWeightCommands::List => {
-            let preferred = manager.preferred();
-            let rows: Vec<_> = OpenWeightManager::catalog()?
-                .into_iter()
-                .map(|m| {
-                    let effective = manager.effective(&m.id).unwrap_or(m.clone());
-                    let readiness = manager.doctor(Some(&m.id));
-                    let pulled = manager.model_pulled(&effective.ollama_tag).unwrap_or(false);
-                    serde_json::json!({
-                        "model": effective,
-                        "preferred": preferred.as_deref() == Some(m.id.as_str()),
-                        "prerequisites_present": readiness.is_ok(),
-                        "pulled": pulled,
-                        "detail": match readiness { Ok(s) => s, Err(e) => e.to_string() }
-                    })
-                })
-                .collect();
-            print_json(&serde_json::json!({
-                "status": manager.status(),
-                "models": rows,
-            }))?;
+            print_json(&ops::list(Vendor::OpenWeight).map_err(Error::msg)?)?
         }
         OpenWeightCommands::Doctor { model } => {
-            let detail = manager.doctor(model.as_deref())?;
-            print_json(&serde_json::json!({
-                "vendor": "open-weight",
-                "prerequisites_present": true,
-                "detail": detail,
-            }))?;
-        }
-        OpenWeightCommands::Setup { model } => print_json(&manager.setup(&model)?)?,
-        OpenWeightCommands::Pull { model } => {
-            println!("{}", manager.pull(&model)?);
-        }
-        OpenWeightCommands::Configure { model, file } => {
-            let over: OpenWeightOverride = serde_json::from_slice(&std::fs::read(file)?)?;
-            print_json(&manager.configure(&model, &over)?)?;
-        }
-        OpenWeightCommands::Reset { model } => print_json(&manager.reset(&model)?)?,
-        OpenWeightCommands::Prefer { model, clear } => {
-            if clear {
-                println!("{}", susi_gemi::open_weight_ext::prefer("", true)?);
-            } else {
-                let Some(model) = model.filter(|s| !s.trim().is_empty()) else {
-                    bail!("model id required (or pass --clear)");
-                };
-                println!("{}", susi_gemi::open_weight_ext::prefer(&model, false)?);
+            for doc in
+                ops::doctor(Vendor::OpenWeight, model.as_deref(), false).map_err(Error::msg)?
+            {
+                print_json(&doc)?;
             }
         }
+        OpenWeightCommands::Setup { model } => {
+            print_json(&ops::setup(Vendor::OpenWeight, Some(&model)).map_err(Error::msg)?)?
+        }
+        OpenWeightCommands::Pull { model } => {
+            println!("{}", ops::pull(&model).map_err(Error::msg)?)
+        }
+        OpenWeightCommands::Configure { model, file } => {
+            let over: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+            print_json(&ops::configure(Vendor::OpenWeight, &model, over).map_err(Error::msg)?)?;
+        }
+        OpenWeightCommands::Reset { model } => {
+            print_json(&ops::reset(Vendor::OpenWeight, &model).map_err(Error::msg)?)?
+        }
+        OpenWeightCommands::Prefer { model, clear } => println!(
+            "{}",
+            ops::prefer(Vendor::OpenWeight, model.as_deref(), clear).map_err(Error::msg)?
+        ),
         OpenWeightCommands::Probe { model, prompt } => {
-            let output = susi_gemi::open_weight_ext::probe(&model, &prompt)?;
-            let def = manager.effective(&model)?;
-            print_json(&serde_json::json!({
-                "model": def.id,
-                "ollama_tag": def.ollama_tag,
-                "output": output,
-            }))?;
+            print_json(&ops::probe("openweight", Some(&model), &prompt).map_err(Error::msg)?)?
         }
     }
     Ok(())

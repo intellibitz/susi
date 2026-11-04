@@ -112,185 +112,30 @@ fn status(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn restart(name: &str) -> Result<()> {
-    let Some(svc) = service_table::leaf_service(name) else {
-        bail!("unknown service `{name}` (expected one of the leaf services)");
-    };
-    let table = service_table::load();
-    let Some(rec) = table.iter().find(|r| r.name == svc.name) else {
-        bail!(
-            "{name} is not supervised by the daemon — nothing to restart \
-             (start the daemon with `susi start` to put it under supervision)"
-        );
-    };
-    if rec.external {
-        // The "never kill what we didn't spawn" rule applies to operator
-        // restarts too — an external process is not ours to signal.
-        bail!(
-            "{name} is bound by an external process (pid {}) that the daemon \
-             does not supervise — stop it yourself and the supervisor will \
-             spawn a managed service on the freed port",
-            rec.pid
-        );
-    }
-    if susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_none() {
-        bail!(
-            "the daemon is not running — killing {name} (pid {}) would leave it \
-             dead with nothing to respawn it; start the daemon with `susi start` first",
-            rec.pid
-        );
-    }
-    #[cfg(unix)]
-    {
-        let ok = std::process::Command::new("kill")
-            .args(["-TERM", &rec.pid.to_string()])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !ok {
-            bail!("failed to SIGTERM {name} (pid {})", rec.pid);
-        }
-        println!(
-            "sent SIGTERM to {name} (pid {}); the daemon will respawn it",
-            rec.pid
-        );
-    }
-    #[cfg(windows)]
-    {
-        // taskkill /T /F — the Windows analogue of SIGTERM on a supervised
-        // child; the daemon respawns it like a unix restart.
-        let ok = std::process::Command::new("taskkill")
-            .args(["/PID", &rec.pid.to_string(), "/T", "/F"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !ok {
-            bail!("failed to taskkill {name} (pid {})", rec.pid);
-        }
-        println!(
-            "killed {name} (pid {}); the daemon will respawn it",
-            rec.pid
-        );
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        bail!("restart is unsupported on this platform (pid {})", rec.pid);
-    }
+/// Operator control of a supervised service: one implementation with the
+/// MCP `services_*` tools (`susi_daemon::service_control`), which keeps the
+/// supervised-only and daemon-running guards and terminates with the
+/// platform's own process tool on every OS.
+fn control(action: &str, name: &str) -> Result<()> {
+    let report = susi_daemon::service_control::control(action, name).map_err(anyhow::Error::msg)?;
+    println!("{}", report["message"].as_str().unwrap_or_default());
     Ok(())
 }
 
-/// SIGTERM a supervised pid AND mark the row stopped so the monitor
-/// leaves it down. Same guards as restart: supervised-only (external
-/// rows are not ours to signal) and the daemon must be running — the
-/// stop flag is meaningless if nothing honors it.
+fn restart(name: &str) -> Result<()> {
+    control("restart", name)
+}
+
+/// Terminate a supervised pid AND mark the row stopped so the monitor
+/// leaves it down (`susi_daemon::service_control::stop`).
 fn stop(name: &str) -> Result<()> {
-    let Some(svc) = service_table::leaf_service(name) else {
-        bail!("unknown service `{name}` (expected one of the leaf services)");
-    };
-    if susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_none() {
-        bail!(
-            "the daemon is not running — {name} is already unsupervised; \
-             kill its pid directly if it is still alive"
-        );
-    }
-    // Set the flag BEFORE signaling — otherwise the monitor can win the
-    // race: see the dead pid, respawn a fresh child, then have its table
-    // overwritten by our flag with the new child orphaned. update_with
-    // serializes the load→mutate→save against the monitor's own pass.
-    let pid = service_table::update_with(|table| -> Result<u32, String> {
-        let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) else {
-            return Err(format!(
-                "{name} is not in the process table — nothing to stop"
-            ));
-        };
-        if rec.external {
-            return Err(format!(
-                "{name} is bound by an external process (pid {}) that the daemon \
-                 does not supervise — stop it yourself",
-                rec.pid
-            ));
-        }
-        rec.stopped = true;
-        Ok(rec.pid)
-    })
-    .map_err(|e| anyhow::anyhow!("{e}"))?
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
-    #[cfg(unix)]
-    {
-        if service_table::pid_alive(pid) {
-            let ok = std::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if !ok {
-                bail!("{name} marked stopped but SIGTERM pid {pid} failed");
-            }
-        }
-        println!(
-            "stopped {name} (pid {pid}); supervisor holds it down until `susi services start {name}`"
-        );
-    }
-    #[cfg(windows)]
-    {
-        let ok = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !ok {
-            bail!("{name} marked stopped but taskkill pid {pid} failed");
-        }
-        println!(
-            "stopped {name} (pid {pid}); supervisor holds it down until `susi services start {name}`"
-        );
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        bail!("stop is unsupported on this platform (pid {pid})");
-    }
-    Ok(())
+    control("stop", name)
 }
 
 /// Clear the operator stop flag — the monitor respawns the service on
 /// its next pass (fresh restart budget, cooldown cleared).
 fn start(name: &str) -> Result<()> {
-    let Some(svc) = service_table::leaf_service(name) else {
-        bail!("unknown service `{name}` (expected one of the leaf services)");
-    };
-    // Same serialization as stop — a plain load→save here can be
-    // clobbered by the monitor's pass, silently losing the start.
-    let cleared = service_table::update_with(|table| {
-        table.iter_mut().find(|r| r.name == svc.name).map(|rec| {
-            if !rec.stopped {
-                return false;
-            }
-            rec.stopped = false;
-            rec.disabled_until = None;
-            true
-        })
-    })
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
-    match cleared {
-        Some(true) => {
-            println!("cleared stop on {name}; the supervisor will respawn it within ~5s");
-            return Ok(());
-        }
-        Some(false) => {
-            println!("{name} is not stopped");
-            return Ok(());
-        }
-        None => {}
-    }
-    // No record at all — dropping the name into the table as stopped=false
-    // adds nothing; the monitor's missing-service path already retries
-    // unsupervised services on a 30s cadence. A record-less `start` is a
-    // no-op the operator should hear about honestly.
-    println!(
-        "{name} has no process-table row — the supervisor retries missing \
-         services on its own; nothing was changed"
-    );
-    Ok(())
+    control("start", name)
 }
 
 fn logs(name: &str, lines: usize) -> Result<()> {

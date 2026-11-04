@@ -160,4 +160,77 @@ mod zc_ports_file_tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-ports-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn for_home_saturates_every_port_at_u16_max() {
+        let pf = PortsFile::for_home(PathBuf::from("home"), u16::MAX, false);
+        assert_eq!(pf.ports.len(), 5);
+        assert!(pf.ports.values().all(|p| *p == u16::MAX), "{:?}", pf.ports);
+        assert!(!pf.tls_enabled);
+    }
+
+    #[test]
+    fn read_from_home_rejects_missing_or_malformed_documents() {
+        assert_eq!(
+            PortsFile::read_from_home(&std::env::temp_dir().join("susi-ports-no-such-dir-xyz")),
+            None
+        );
+        let home = scratch("reject");
+        for body in [
+            "{not json",
+            "{}",
+            r#"{"ports": [9090]}"#,
+            r#"{"ports": {"gmcp": 70000}}"#,
+            r#"{"ports": {"gmcp": "9090"}}"#,
+            r#"{"ports": {"gmcp": -1}}"#,
+        ] {
+            std::fs::write(home.join("ports.json"), body).unwrap();
+            assert_eq!(PortsFile::read_from_home(&home), None, "{body}");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn read_from_home_defaults_token_paths_and_tls_when_omitted() {
+        let home = scratch("defaults");
+        std::fs::write(home.join("ports.json"), r#"{"ports": {"gmcp": 9090}}"#).unwrap();
+        let pf = PortsFile::read_from_home(&home).unwrap();
+        assert_eq!(pf.path, home.join("ports.json"));
+        assert_eq!(pf.ports.get("gmcp"), Some(&9090));
+        assert_eq!(pf.token_path, home.join("token"));
+        assert_eq!(pf.api_token_path, home.join("api_token"));
+        assert!(!pf.tls_enabled);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_failed_publish_reports_the_error_and_leaves_no_staging_file() {
+        let home = scratch("publish-fail");
+        // A directory where ports.json belongs makes the final rename fail.
+        std::fs::create_dir_all(home.join("ports.json")).unwrap();
+        let pf = PortsFile::for_home(home.clone(), 0, false);
+        assert!(pf.write_to_home().is_err());
+        let leftovers: Vec<_> = std::fs::read_dir(&home)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("ports.json.tmp."))
+            .collect();
+        assert!(leftovers.is_empty(), "orphan staging files: {leftovers:?}");
+        assert!(home.join("ports.json").is_dir());
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

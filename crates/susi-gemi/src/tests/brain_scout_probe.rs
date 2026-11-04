@@ -141,14 +141,39 @@ fn brain_scout_probe_outcomes_feed_the_evidence_ranking() {
 fn brain_scout_probe_production_wiring() {
     // The probe must be reachable outside tests — a benchmark nobody can
     // run is scaffolding.
+    // `susi brain probe` calls the shared `susi_daemon::provider_ops::
+    // brain_probe` (the MCP `brain_probe` tool calls the same function),
+    // whose production body drives the real registry path.
     let cli_src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../src/cli/brain_cli.rs"
     ))
     .expect("brain_cli.rs readable");
     assert!(
-        cli_src.contains("probe_registered"),
+        cli_src.contains("use susi_daemon::provider_ops as ops;")
+            && cli_src.contains("BrainCommands::Probe {")
+            && cli_src.contains("ops::brain_probe(&provider, no_record)"),
+        "`susi brain probe` must call the shared probe operation"
+    );
+    let ops_src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../susi-daemon/src/provider_ops.rs"
+    ))
+    .expect("provider_ops.rs readable");
+    // Production code only: the module's tests sit after `#[cfg(test)]`.
+    let ops_src = ops_src.split("#[cfg(test)]").next().expect("source");
+    let body = ops_src
+        .split("pub fn brain_probe(provider: &str, no_record: bool) -> R<Value> {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("provider_ops::brain_probe is production code");
+    assert!(
+        body.contains("susi_gemi::scout_probe::probe_registered(provider)"),
         "`susi brain probe` must drive the real registry path"
+    );
+    assert!(
+        ops_src.contains("\"brain_probe\" => brain_probe("),
+        "the brain_probe providers action must reach the same function"
     );
     let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/scout_probe.rs"))
         .expect("scout_probe.rs readable");

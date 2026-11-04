@@ -3,11 +3,10 @@
 //! `susi ecosystem kb` reads the cloud-AI-ecosystem knowledge base
 //! (`susi_gemi_models::eco_*`): show, search, list, check.
 use crate::cli_json::print_json;
-use anyhow::{bail, Context as _, Result};
+use anyhow::{bail, Result};
 use clap::Subcommand;
-use std::path::{Path, PathBuf};
-use susi_gemi::models::eco_schema::{Entity, EntityKind, KnowledgeBase};
-use susi_gemi::models::{eco_consistency, eco_profile, eco_relations, eco_store, eco_taxonomy};
+use std::path::PathBuf;
+use susi_gemi::models::eco_query;
 
 #[derive(Debug, Subcommand)]
 pub enum EcosystemCommands {
@@ -79,91 +78,17 @@ pub enum KbCommands {
     },
 }
 
-fn load_kb(dir: Option<&Path>) -> Result<KnowledgeBase> {
-    match dir {
-        Some(d) => eco_store::load_dir(d).with_context(|| format!("load {}", d.display())),
-        None => eco_store::load_default().context("load layered ecosystem store"),
-    }
-}
-
-struct Filters<'a> {
-    query: Option<&'a str>,
-    kind: Option<&'a str>,
-    capability: Option<&'a str>,
-    vendor: Option<&'a str>,
-}
-
-fn matches(kb: &KnowledgeBase, e: &Entity, f: &Filters) -> bool {
-    if let Some(k) = f.kind {
-        if e.kind().label() != k {
-            return false;
-        }
-    }
-    if let Some(q) = f.query {
-        let q = q.to_lowercase();
-        if !(e.id().contains(q.as_str()) || e.name().to_lowercase().contains(q.as_str())) {
-            return false;
-        }
-    }
-    if let Some(v) = f.vendor {
-        let g = eco_relations::Graph::new(kb);
-        let ok = (e.kind() == EntityKind::Vendor && e.id() == v)
-            || g.providers(e.id()).iter().any(|p| p.id() == v);
-        if !ok {
-            return false;
-        }
-    }
-    if let Some(c) = f.capability {
-        let g = eco_relations::Graph::new(kb);
-        let canonical = eco_taxonomy::canonical(c).map(|c| c.id);
-        let ok = g.capabilities_of(e.id()).iter().any(|cap| {
-            Some(cap.id()) == canonical || cap.id() == c || cap.name().eq_ignore_ascii_case(c)
-        });
-        if !ok {
-            return false;
-        }
-    }
-    true
-}
-
-fn entity_json(e: &Entity) -> serde_json::Value {
-    serde_json::json!({
-        "id": e.id(),
-        "kind": e.kind().label(),
-        "name": e.name(),
-    })
-}
-
+/// The knowledge-base queries are `susi_gemi::models::eco_query`'s — the
+/// documents the MCP `ecosystem_kb` / `ecosystem_explain` tools return.
 fn kb_execute(action: KbCommands) -> Result<()> {
     match action {
         KbCommands::List { kind, dir } => {
-            let kb = load_kb(dir.as_deref())?;
-            let f = Filters {
-                query: None,
-                kind: kind.as_deref(),
-                capability: None,
-                vendor: None,
-            };
-            let rows: Vec<_> = kb
-                .entities
-                .iter()
-                .filter(|e| matches(&kb, e, &f))
-                .map(entity_json)
-                .collect();
-            print_json(&rows)?;
+            print_json(
+                &eco_query::list(kind.as_deref(), dir.as_deref()).map_err(anyhow::Error::msg)?,
+            )?;
         }
         KbCommands::Show { id, dir } => {
-            let kb = load_kb(dir.as_deref())?;
-            let Some(e) = kb.entity(&id) else {
-                bail!("no ecosystem entity {id:?} — try `susi ecosystem kb search`");
-            };
-            let outgoing: Vec<_> = kb.relations.iter().filter(|r| r.from == id).collect();
-            let incoming: Vec<_> = kb.relations.iter().filter(|r| r.to == id).collect();
-            print_json(&serde_json::json!({
-                "entity": e,
-                "outgoing": outgoing,
-                "incoming": incoming,
-            }))?;
+            print_json(&eco_query::show(&id, dir.as_deref()).map_err(anyhow::Error::msg)?)?;
         }
         KbCommands::Search {
             query,
@@ -172,88 +97,30 @@ fn kb_execute(action: KbCommands) -> Result<()> {
             vendor,
             dir,
         } => {
-            let kb = load_kb(dir.as_deref())?;
-            let f = Filters {
+            let filters = eco_query::Filters {
                 query: query.as_deref(),
                 kind: kind.as_deref(),
                 capability: capability.as_deref(),
                 vendor: vendor.as_deref(),
             };
-            let rows: Vec<_> = kb
-                .entities
-                .iter()
-                .filter(|e| matches(&kb, e, &f))
-                .map(entity_json)
-                .collect();
-            print_json(&serde_json::json!({ "count": rows.len(), "entities": rows }))?;
+            print_json(&eco_query::search(&filters, dir.as_deref()).map_err(anyhow::Error::msg)?)?;
         }
         KbCommands::Check { dir } => {
-            let kb = load_kb(dir.as_deref())?;
-            let issues = eco_consistency::check(&kb);
-            print_json(&serde_json::json!({
-                "entities": kb.entities.len(),
-                "relations": kb.relations.len(),
-                "issues": issues,
-            }))?;
-            if !issues.is_empty() {
-                bail!("ecosystem knowledge base has {} issue(s)", issues.len());
+            let report = eco_query::check(dir.as_deref()).map_err(anyhow::Error::msg)?;
+            print_json(&report)?;
+            let issues = report["issues"].as_array().map_or(0, Vec::len);
+            if issues > 0 {
+                bail!("ecosystem knowledge base has {issues} issue(s)");
             }
         }
     }
     Ok(())
 }
 
-/// `susi ecosystem explain <id>`: one entity explained end to end — what it
-/// is, every recorded version, who publishes/implements it, its
-/// capabilities, the profile susi uses for it and the provenance cited.
+/// `susi ecosystem explain <id>`: one entity explained end to end
+/// (`eco_query::explain`).
 fn explain(id: &str, dir: Option<PathBuf>) -> Result<()> {
-    let kb = load_kb(dir.as_deref())?;
-    let Some(e) = kb.entity(id) else {
-        bail!("no ecosystem entity {id:?} — try `susi ecosystem kb search`");
-    };
-    let g = eco_relations::Graph::new(&kb);
-    let versions: Vec<String> = kb
-        .relations
-        .iter()
-        .filter(|r| r.to == id && r.kind == susi_gemi::models::eco_schema::RelationKind::VersionOf)
-        .map(|r| r.from.clone())
-        .collect();
-    // implementers hit the entity directly (`implements`) or through one of
-    // its versions (`implements-version` a spec-version that is version-of it)
-    let mut implementers: Vec<String> = kb
-        .relations
-        .iter()
-        .filter(|r| r.to == id && r.kind == susi_gemi::models::eco_schema::RelationKind::Implements)
-        .map(|r| r.from.clone())
-        .collect();
-    for v in &versions {
-        implementers.extend(
-            kb.relations
-                .iter()
-                .filter(|r| {
-                    r.to == *v
-                        && r.kind == susi_gemi::models::eco_schema::RelationKind::ImplementsVersion
-                })
-                .map(|r| r.from.clone()),
-        );
-    }
-    implementers.sort();
-    implementers.dedup();
-    let providers: Vec<String> = g.providers(id).iter().map(|p| p.id().to_string()).collect();
-    let capabilities: Vec<String> = g
-        .capabilities_of(id)
-        .iter()
-        .map(|c| c.id().to_string())
-        .collect();
-    let profile = eco_profile::for_subject(id, dir.as_deref())?;
-    print_json(&serde_json::json!({
-        "entity": e,
-        "versions": versions,
-        "implemented_by": implementers,
-        "provided_by": providers,
-        "capabilities": capabilities,
-        "susi_profile": profile,
-    }))?;
+    print_json(&eco_query::explain(id, dir.as_deref()).map_err(anyhow::Error::msg)?)?;
     Ok(())
 }
 
@@ -263,11 +130,9 @@ pub fn execute(action: Option<EcosystemCommands>) -> Result<()> {
             print_json(&susi_daemon::discovery_pipeline::local_ecosystem_scan_report())?
         }
         EcosystemCommands::Status => {
-            let path = susi_paths::SusiDirs::config_dir().join("local_ecosystem.json");
-            match std::fs::read_to_string(&path) {
-                Ok(text) => println!("{text}"),
-                Err(_) => bail!("no startup scan yet; run `susi ecosystem scan`"),
-            }
+            let text = susi_daemon::discovery_pipeline::last_ecosystem_scan()
+                .map_err(anyhow::Error::msg)?;
+            println!("{text}");
         }
         EcosystemCommands::Start { id } => {
             match susi_gemi::models::local_ecosystem::start(

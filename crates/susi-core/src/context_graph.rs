@@ -856,6 +856,57 @@ impl ContextGraph {
         self.related(&ws_id, 3)
     }
 
+    /// A workspace's subgraph as one flat event list — every node, then
+    /// every edge — the row shape `susi context-graph show`, the MCP
+    /// `context_graph_show` / `context_graph_query` tools and the 9091
+    /// `/context-graph/show` route all serve.
+    pub fn workspace_events(&self, workspace: &Path) -> Vec<serde_json::Value> {
+        let subgraph = self.workspace_subgraph(workspace);
+        subgraph
+            .nodes
+            .into_iter()
+            .map(|n| {
+                serde_json::json!({
+                    "type": "node",
+                    "id": n.id.0,
+                    "kind": format!("{:?}", n.kind),
+                    "label": n.label,
+                    "created_at": n.created_at,
+                })
+            })
+            .chain(subgraph.edges.into_iter().map(|e| {
+                serde_json::json!({
+                    "type": "edge",
+                    "id": e.id,
+                    "source": e.source.0,
+                    "target": e.target.0,
+                    "kind": format!("{:?}", e.kind),
+                    "created_at": e.created_at,
+                })
+            }))
+            .collect()
+    }
+
+    /// `susi context-graph show --limit <limit>`: at most `limit` of the
+    /// workspace's events, or a note when none were recorded yet. The CLI
+    /// prints this document and MCP `context_graph_show` returns it.
+    pub fn workspace_show(&self, workspace: &Path, limit: usize) -> serde_json::Value {
+        let events = self.workspace_events(workspace);
+        if events.is_empty() {
+            serde_json::json!({
+                "workspace": workspace.display().to_string(),
+                "note": "no context-graph activity recorded for this workspace yet",
+                "events": events,
+            })
+        } else {
+            serde_json::json!({
+                "workspace": workspace.display().to_string(),
+                "event_count": events.len().min(limit),
+                "events": events.into_iter().take(limit).collect::<Vec<_>>(),
+            })
+        }
+    }
+
     /// Aggregate statistics for the loaded graph.
     pub fn stats(&self) -> ContextGraphStats {
         let mut nodes_by_kind: HashMap<String, usize> = HashMap::new();

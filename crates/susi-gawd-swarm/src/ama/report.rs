@@ -37,6 +37,16 @@ pub struct SusiMissionReport {
 pub type SusiSwarmReport = SusiMissionReport;
 
 impl SusiMissionReport {
+    /// The planning-loop result `susi plan` prints and MCP `plan_run`
+    /// returns: status, final answer and the agents that took part.
+    pub fn plan_summary(&self) -> serde_json::Value {
+        serde_json::json!({
+            "status": self.status,
+            "final_answer": self.final_answer,
+            "agents": self.agents,
+        })
+    }
+
     /// Only an explicitly successful mission may produce a success exit code.
     pub fn is_success(&self) -> bool {
         matches!(self.status.as_str(), "SUCCESS" | "COMPLETE")

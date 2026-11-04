@@ -36,6 +36,7 @@ pub mod eco_coverage;
 pub mod eco_matrix;
 pub mod eco_profile;
 pub mod eco_provenance;
+pub mod eco_query;
 pub mod eco_relations;
 pub mod eco_schema;
 pub mod eco_signed_kb;

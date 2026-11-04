@@ -91,4 +91,64 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn manager_without(id_present: &str) -> (std::path::PathBuf, AgentManager) {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-upgrade-unknown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let def: susi_vendor_agents::external::AgentDefinition =
+            serde_json::from_value(serde_json::json!({
+                "id": id_present, "name": "Present", "peer_name": "PresentAgent", "rank": 1,
+                "documentation": "https://example.invalid",
+                "adapter": {"kind": "command", "program": "present", "args": ["{prompt}"]},
+            }))
+            .unwrap();
+        let manager = AgentManager::with_config(
+            &dir,
+            susi_vendor_agents::external::CatalogKind::Execution,
+            dir.join("cfg"),
+        )
+        .unwrap()
+        .with_catalog(vec![def]);
+        (dir, manager)
+    }
+
+    #[test]
+    fn unknown_adapter_with_a_failing_contract_is_rejected_without_writing_config() {
+        let (dir, manager) = manager_without("present");
+        assert!(manager.adapter("ghost").is_err());
+        let invalid = Adapter::Command {
+            program: String::new(),
+            args: vec![],
+        };
+        let verdict = upgrade_adapter(&manager, "ghost", &invalid, 5).unwrap();
+        assert_eq!(verdict, SwitchVerdict::RejectedContractFailure);
+        assert!(
+            !dir.join("cfg").exists(),
+            "a rejected upgrade must not touch the config directory"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unknown_adapter_with_a_passing_contract_propagates_the_configure_error() {
+        let (dir, manager) = manager_without("present");
+        let valid = Adapter::Command {
+            program: "echo".into(),
+            args: vec!["hi".into()],
+        };
+        // Contracts pass and nothing is active, so the switch is attempted
+        // and the unknown id is refused at `configure`, not swallowed.
+        assert!(upgrade_adapter(&manager, "ghost", &valid, 2).is_err());
+        assert!(!dir.join("cfg").join("ghost.json").exists());
+        // The known adapter is still untouched.
+        assert!(!dir.join("cfg").join("present.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

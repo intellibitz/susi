@@ -3,7 +3,8 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
-use susi_gemi::models::coding_models::{CodingModelManager, CodingModelOverride};
+use susi_daemon::adapter_ops::{self, AdapterKind};
+use susi_gemi::models::coding_models::CodingModelManager;
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommands {
@@ -30,7 +31,7 @@ pub enum ModelCommands {
     },
 }
 
-pub fn execute(action: Option<ModelCommands>, _workspace: &Path) -> Result<()> {
+pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
     let action = action.unwrap_or(ModelCommands::List);
     let manager = CodingModelManager::new()?;
     match action {
@@ -51,48 +52,40 @@ pub fn execute(action: Option<ModelCommands>, _workspace: &Path) -> Result<()> {
                 .collect();
             print_json(&rows)?;
         }
+        // `susi_daemon::adapter_ops` builds these documents; the MCP
+        // `adapter_*` tools return the same ones.
         ModelCommands::Doctor { model } => {
-            let models = match model {
-                Some(id) => vec![CodingModelManager::definition(&id)?],
-                None => CodingModelManager::catalog()?,
-            };
-            let mut missing = false;
-            for m in models {
-                let result = manager.preflight(&m.id);
-                missing |= result.is_err();
-                print_json(&serde_json::json!({
-                    "model": m.id,
-                    "prerequisites_present": result.is_ok(),
-                    "detail": match result { Ok(s) => s, Err(e) => e.to_string() }
-                }))?;
+            let rows = adapter_ops::doctor(AdapterKind::Models, model.as_deref(), workspace)
+                .map_err(anyhow::Error::msg)?;
+            for row in &rows {
+                print_json(row)?;
             }
-            if missing {
-                bail!("one or more coding models need setup");
+            if !adapter_ops::all_ready(&rows) {
+                bail!("{}", adapter_ops::needs_setup_message(AdapterKind::Models));
             }
         }
-        ModelCommands::Setup { model } => {
-            let def = manager.effective(&model)?;
-            print_json(&serde_json::json!({
-                "model": def,
-                "preferred": manager.preferred(),
-                "instructions": "Set the vendor key with `susi keys set <engine>` (or export api_key_env). API model ids drift — override with `susi models configure`. Run doctor, then optional probe (paid). Prefer pins routing. No subscriptions are provisioned implicitly."
-            }))?;
-        }
+        ModelCommands::Setup { model } => print_json(
+            &adapter_ops::setup(AdapterKind::Models, &model, workspace)
+                .map_err(anyhow::Error::msg)?,
+        )?,
         ModelCommands::Configure { model, file } => {
-            let over: CodingModelOverride = serde_json::from_slice(&std::fs::read(file)?)?;
-            print_json(&manager.configure(&model, &over)?)?;
+            let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+            print_json(
+                &adapter_ops::configure(AdapterKind::Models, &model, doc, workspace)
+                    .map_err(anyhow::Error::msg)?,
+            )?;
         }
-        ModelCommands::Reset { model } => print_json(&manager.reset(&model)?)?,
+        ModelCommands::Reset { model } => print_json(
+            &adapter_ops::reset(AdapterKind::Models, &model, workspace)
+                .map_err(anyhow::Error::msg)?,
+        )?,
         ModelCommands::Prefer { model } => {
             println!("{}", manager.prefer(&model)?);
         }
-        ModelCommands::Probe { model, prompt } => {
-            let output = susi_gemi::coding_models_ext::probe(&model, &prompt)?;
-            print_json(&serde_json::json!({
-                "model": model,
-                "output": output
-            }))?;
-        }
+        ModelCommands::Probe { model, prompt } => print_json(
+            &susi_daemon::provider_ops::probe("coding", Some(&model), &prompt)
+                .map_err(anyhow::Error::msg)?,
+        )?,
     }
     Ok(())
 }

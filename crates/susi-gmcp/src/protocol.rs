@@ -820,6 +820,13 @@ async fn execute_registry(
 
 pub(crate) fn is_tool_result_error(text: &str) -> bool {
     let text = text.trim_start();
+    // A JSON document is a result, never a flattened error: a report row's
+    // `detail` (sorted first) can quote an `... Error:` line near the head.
+    if (text.starts_with('{') || text.starts_with('['))
+        && serde_json::from_str::<serde_json::Value>(text).is_ok()
+    {
+        return false;
+    }
     if [
         "Error:",
         "[Error]",
@@ -861,6 +868,10 @@ mod tests {
             assert!(is_tool_result_error(&format!("  {prefix} detail")));
         }
         assert!(!is_tool_result_error("ok content"));
+        assert!(!is_tool_result_error(
+            "{\n  \"models\": [{\"detail\": \"Internal Engine Error: set KEY\"}]\n}"
+        ));
+        assert!(is_tool_result_error("[Error] {not json"));
         assert!(!is_tool_result_error(
             "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
         ));

@@ -2,31 +2,7 @@
 use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
-use serde::Serialize;
 use std::path::Path;
-
-#[derive(Debug, Serialize)]
-struct AutoStatus {
-    packs: serde_json::Value,
-    leading_mcp_enabled: Vec<String>,
-    leading_mcp_ready_not_enabled: Vec<String>,
-    preferred_coding_model: Option<String>,
-    /// GGUF files present in the model directories (names only).
-    local_models_installed: Vec<String>,
-    /// `no local model installed` plus the download command when empty:
-    /// core never downloads a model by itself (CEO decision 2026-11-04).
-    local_model: String,
-    agents_ready: usize,
-    /// `None` (JSON null) when no framework readiness probe has run.
-    frameworks_ready: Option<usize>,
-    /// `probed`, or `not probed` until a framework readiness scan has
-    /// recorded `agent-engines/ready.json`: core never probes framework
-    /// adapters on its own (`susi auto prime` and `susi substrate status`
-    /// record one on request; `susi frameworks doctor` reports live).
-    frameworks_probe: &'static str,
-    last_auto_prime: Option<serde_json::Value>,
-    last_blackboard: Option<serde_json::Value>,
-}
 
 #[derive(Debug, Subcommand)]
 pub enum AutoCommands {
@@ -40,111 +16,13 @@ pub enum AutoCommands {
     Prime,
 }
 
-fn load_json_file(path: &Path) -> Option<serde_json::Value> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-}
-
-fn collect_status(workspace: &Path) -> Result<AutoStatus> {
-    let packs = serde_json::to_value(susi_sandbox::extensions::list_packs())?;
-
-    let mut enabled = Vec::new();
-    let mut ready_not = Vec::new();
-    if let Ok(mcp) = susi_tools::LeadingMcpManager::new(workspace) {
-        if let Ok(rows) = mcp.status() {
-            for row in rows {
-                let id = row
-                    .get("mcp")
-                    .and_then(|m| m.get("id"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let is_enabled = row
-                    .get("enabled")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let ready = row
-                    .get("prerequisites_present")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                if is_enabled {
-                    enabled.push(id);
-                } else if ready {
-                    ready_not.push(id);
-                }
-            }
-        }
-    }
-
-    let preferred = susi_gemi::models::coding_models::CodingModelManager::new()
-        .ok()
-        .and_then(|m| m.preferred());
-
-    let local_models_installed = super::setup_cli::opening_model_inventory(
-        &susi_paths::SusiDirs::config_dir(),
-        &susi_paths::SusiDirs::data_dir(),
-    );
-    let local_model = if local_models_installed.is_empty() {
-        format!(
-            "no local model installed in Susi's model folders (local runners such as \
-             Ollama are still used when they are running); {}",
-            susi_gemi::models::NoLocalModelInstalled::starter().install_hint()
-        )
-    } else {
-        format!(
-            "{} model file(s) found, verified when a goal runs",
-            local_models_installed.len()
-        )
-    };
-
-    let agents_ready = load_json_file(
-        &susi_paths::SusiDirs::config_dir()
-            .join("execution-agents")
-            .join("ready.json"),
-    )
-    .and_then(|v| v.as_array().map(|a| a.len()))
-    .unwrap_or(0);
-    let frameworks_ready = load_json_file(
-        &susi_paths::SusiDirs::config_dir()
-            .join("agent-engines")
-            .join("ready.json"),
-    )
-    .and_then(|v| v.as_array().map(|a| a.len()));
-    let frameworks_probe = if frameworks_ready.is_some() {
-        "probed"
-    } else {
-        "not probed"
-    };
-
-    let last_auto_prime =
-        load_json_file(&susi_paths::SusiDirs::config_dir().join("last_auto_prime.json"));
-    let last_blackboard = load_json_file(&workspace.join(".susi").join("last_blackboard.json"));
-
-    Ok(AutoStatus {
-        packs,
-        leading_mcp_enabled: enabled,
-        leading_mcp_ready_not_enabled: ready_not,
-        preferred_coding_model: preferred,
-        local_models_installed,
-        local_model,
-        agents_ready,
-        frameworks_ready,
-        frameworks_probe,
-        last_auto_prime,
-        last_blackboard: last_blackboard.map(|b| {
-            serde_json::json!({
-                "agent_count": b.get("agent_count").cloned().unwrap_or(serde_json::json!(0)),
-                "path": ".susi/last_blackboard.json",
-            })
-        }),
-    })
-}
-
 pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(AutoCommands::Status) {
         AutoCommands::Status => {
-            let status = collect_status(workspace)?;
+            // `susi_daemon::host_views` builds the snapshot; the MCP
+            // `auto_status` tool returns the same document.
+            let status =
+                susi_daemon::host_views::auto_status(workspace).map_err(anyhow::Error::msg)?;
             print_json(&status)?;
             if status.local_models_installed.is_empty() {
                 eprintln!("local model: {}", status.local_model);
@@ -156,10 +34,7 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
             }
         }
         AutoCommands::Prime => {
-            let substrate = susi_paths::SusiDirs::substrate_home();
-            let _ = std::fs::create_dir_all(&substrate);
-            let report = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
-            print_json(&report)?;
+            print_json(&susi_daemon::host_views::auto_prime())?;
         }
     }
     Ok(())

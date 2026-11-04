@@ -86,6 +86,15 @@ pub mod topics {
     pub const GEMI_PROVIDER_SUCCESS: &str = "gemi.provider.success";
     pub const GEMI_PULSE_REASON: &str = "gemi.pulse.reason";
     pub const GEMI_CODING_CATALOG: &str = "gemi.coding.catalog";
+    /// `susi top --json`'s unified operator state for a workspace.
+    pub const GEMI_OPERATOR_SNAPSHOT: &str = "gemi.operator.snapshot";
+    /// `susi ecosystem start <id>`: start an installed local AI engine.
+    pub const GEMI_ECOSYSTEM_START: &str = "gemi.ecosystem.start";
+    /// `susi ecosystem kb <list|show|search|check>`: the cloud-AI-ecosystem
+    /// knowledge base.
+    pub const GEMI_ECOSYSTEM_KB: &str = "gemi.ecosystem.kb";
+    /// `susi ecosystem explain <id>`: one knowledge-base entity end to end.
+    pub const GEMI_ECOSYSTEM_EXPLAIN: &str = "gemi.ecosystem.explain";
 
     pub const GAWD_SOLVE: &str = "gawd.mission.solve";
     pub const GAWD_SANITIZE: &str = "gawd.mission.sanitize";
@@ -99,6 +108,18 @@ pub mod topics {
     pub const GAWD_CAPABILITY_GAP: &str = "gawd.admin.capability_gap";
     pub const GAWD_LOCK_BROADCAST: &str = "gawd.admin.lock_broadcast";
     pub const GAWD_SCHEDULER_RECENT: &str = "gawd.scheduler.recent";
+    /// `susi plan`: the autonomous planning loop for one goal.
+    pub const GAWD_PLAN_AUTONOMOUS: &str = "gawd.mission.plan";
+    /// `susi pulse` / `susi admin pulse`: ingest a natural-language intent
+    /// into the workspace evidence ledger.
+    pub const GAWD_PULSE_INGEST: &str = "gawd.admin.pulse";
+    /// `susi audit` / `susi admin audit`: the deterministic compliance audit.
+    pub const GAWD_AUDIT_COMPLIANCE: &str = "gawd.admin.audit_compliance";
+    /// `susi admin audit-evidence export`: wrap redacted audit segments in
+    /// the independently verifiable export format.
+    pub const GAWD_AUDIT_EVIDENCE_EXPORT: &str = "gawd.admin.audit_evidence_export";
+    /// `susi substrate-report`: the compiled-constants substrate report.
+    pub const GAWD_SUBSTRATE_REPORT: &str = "gawd.admin.substrate_report";
     /// Verified cluster roster (node_id ↔ address) for commit-ledger
     /// anti-entropy: a receiver that detects a seq gap resolves the
     /// coordinator's address here, then pulls the missing records.
@@ -126,6 +147,44 @@ pub mod topics {
     pub const AGENTS_META_LIST: &str = "agents.meta.list";
     pub const AGENTS_META_REGISTER: &str = "agents.meta.register";
     pub const AGENTS_META_UPDATE_RANK: &str = "agents.meta.update_rank";
+
+    // Host composition root (`susi-daemon`): capabilities that need the
+    // daemon crate's view of every plane (zero-UI plan B4 groups 4, 5, 8, 9).
+    /// `susi privacy mode <mode>`: persist the mode and align routing.
+    pub const DAEMON_PRIVACY_MODE: &str = "daemon.privacy.mode";
+    /// `susi ambient start`: the background ambient indexer for a workspace.
+    pub const DAEMON_AMBIENT_START: &str = "daemon.ambient.start";
+    /// `susi context-graph sample-os`: one OS context sample into the graph.
+    pub const DAEMON_CONTEXT_SAMPLE_OS: &str = "daemon.context.sample_os";
+    /// `susi ecosystem scan|status`: the local AI ecosystem scan (fresh or
+    /// the last persisted one).
+    pub const DAEMON_ECOSYSTEM_SCAN: &str = "daemon.ecosystem.scan";
+    /// `susi substrate status`: Pluggable / Sandbox / Governance /
+    /// Host-contract / Reflexes status.
+    pub const DAEMON_SUBSTRATE_STATUS: &str = "daemon.substrate.status";
+    /// `susi crown verify|status`: the Tier S USP checks.
+    pub const DAEMON_CROWN_VERIFY: &str = "daemon.crown.verify";
+    /// `susi os provision <probe|list|apply>`: explicit cloud provisioning.
+    pub const DAEMON_OS_PROVISION: &str = "daemon.os.provision";
+    /// `susi services <start|stop|restart>`: operator control of a
+    /// supervised leaf service.
+    pub const DAEMON_SERVICES_CONTROL: &str = "daemon.services.control";
+    /// `susi openweight|frontier|openrouter`, `susi keys` (presence only),
+    /// `susi brain`, `susi benchmark` and `susi verify-download-agent`
+    /// (zero-UI plan B4 group 3): `{action, ..}`.
+    pub const DAEMON_PROVIDERS: &str = "daemon.providers";
+    /// `susi agents|frameworks|models|mcp doctor|setup|configure|reset`,
+    /// `retry` and `susi mcp-add` (zero-UI plan B4 group 7): `{action, ..}`.
+    pub const DAEMON_ADAPTERS: &str = "daemon.adapters";
+    /// `susi harness plan|author|run|status|budget|models` (zero-UI plan B4
+    /// group 1): `{action, ..}`.
+    pub const DAEMON_HARNESS: &str = "daemon.harness";
+    /// Host maintenance and views with no other plane: `susi status`,
+    /// `review`, `os status|runtime|ecosystem|manage`, `peers
+    /// add|remove|unban|rekey`, `auto`, `deep-scan`, `extensions create`,
+    /// `admin sync|verify|reload|provider-contract|intent-ladder` and the
+    /// daemon lifecycle (`stop`, `restart`): `{action, ..}`.
+    pub const DAEMON_HOST: &str = "daemon.host";
 }
 
 /// Handler for one or more topic prefixes (exact topic match first).
@@ -717,6 +776,41 @@ pub mod gemi {
         req(topics::GEMI_MODELS_UNLOAD, json!({ "model": model }))
     }
 
+    /// The unified operator state (`susi top --json`) for the repository
+    /// containing `workspace`.
+    pub fn operator_snapshot(workspace: &Path) -> Result<Value, String> {
+        req(
+            topics::GEMI_OPERATOR_SNAPSHOT,
+            json!({ "workspace": workspace.display().to_string() }),
+        )
+    }
+
+    /// `susi ecosystem start <id>`: the engine's start message.
+    pub fn ecosystem_start(id: &str) -> Result<String, String> {
+        let v = req(topics::GEMI_ECOSYSTEM_START, json!({ "id": id }))?;
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(e.to_string());
+        }
+        Ok(v.get("message")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string())
+    }
+
+    /// `susi ecosystem kb <action>`: `query` carries `action` (`list`,
+    /// `show`, `search` or `check`) and that action's filters.
+    pub fn ecosystem_kb(query: Value) -> Result<Value, String> {
+        req(topics::GEMI_ECOSYSTEM_KB, query)
+    }
+
+    /// `susi ecosystem explain <id> [--dir]`.
+    pub fn ecosystem_explain(id: &str, dir: Option<&Path>) -> Result<Value, String> {
+        req(
+            topics::GEMI_ECOSYSTEM_EXPLAIN,
+            json!({ "id": id, "dir": dir.map(|d| d.display().to_string()) }),
+        )
+    }
+
     pub fn register_configured_cloud_endpoints() -> Value {
         req_ok(topics::GEMI_CLOUD_REGISTER, json!({}))
     }
@@ -997,6 +1091,191 @@ pub mod gawd {
 
     pub fn scheduler_recent_decisions(limit: usize) -> Value {
         req_ok(topics::GAWD_SCHEDULER_RECENT, json!({ "limit": limit }))
+    }
+
+    /// Run the autonomous planning loop (`susi plan`) for `goal` in
+    /// `workspace`, at most `max_steps` steps. Returns the plan summary
+    /// (status, final answer, agents) or the mission's error.
+    pub fn plan_autonomous(
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        max_steps: u32,
+    ) -> Result<Value, String> {
+        let v = req(
+            topics::GAWD_PLAN_AUTONOMOUS,
+            json!({
+                "goal": goal,
+                "workspace": workspace.display().to_string(),
+                "version": version,
+                "max_steps": max_steps,
+            }),
+        )?;
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(e.to_string());
+        }
+        Ok(v)
+    }
+
+    /// Ingest a natural-language intent into `workspace`'s evidence ledger
+    /// (`susi pulse`). Returns the ingestion message.
+    pub fn ingest_intent(intent: &str, workspace: &Path) -> Result<String, String> {
+        let v = req(
+            topics::GAWD_PULSE_INGEST,
+            json!({
+                "intent": intent,
+                "workspace": workspace.display().to_string(),
+            }),
+        )?;
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(e.to_string());
+        }
+        Ok(v.get("text")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string())
+    }
+
+    fn call(topic: &str, payload: Value) -> Result<Value, String> {
+        let v = req(topic, payload)?;
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(e.to_string());
+        }
+        Ok(v)
+    }
+
+    /// `susi audit` / `susi admin audit`: the compliance audit report for
+    /// `workspace`.
+    pub fn audit_compliance(workspace: &Path) -> Result<String, String> {
+        let v = call(
+            topics::GAWD_AUDIT_COMPLIANCE,
+            json!({ "workspace": workspace.display().to_string() }),
+        )?;
+        Ok(v.get("text")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string())
+    }
+
+    /// `susi admin audit-evidence export --input --output`: the segment
+    /// count and destination.
+    pub fn audit_evidence_export(input: &Path, output: &Path) -> Result<Value, String> {
+        call(
+            topics::GAWD_AUDIT_EVIDENCE_EXPORT,
+            json!({
+                "input": input.display().to_string(),
+                "output": output.display().to_string(),
+            }),
+        )
+    }
+
+    /// `susi substrate-report`: the compiled-constants substrate report.
+    pub fn substrate_report(workspace: &Path) -> Result<String, String> {
+        let v = call(
+            topics::GAWD_SUBSTRATE_REPORT,
+            json!({ "workspace": workspace.display().to_string() }),
+        )?;
+        Ok(v.get("text")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string())
+    }
+}
+
+// ── Host composition-root facade (`susi-daemon`) ──────────────────────────
+
+/// Capabilities whose implementation lives in the `susi-daemon` crate (the
+/// composition root that sees every plane). `susi-daemon` registers the
+/// `daemon.` prefix in `composition::wire_plane_handlers`; the CLI calls the
+/// same daemon library functions directly.
+pub mod daemon {
+    use super::*;
+
+    /// A reply carrying `{"error": ..}` is a refusal, not a result.
+    fn call(topic: &str, payload: Value) -> Result<Value, String> {
+        let v = req(topic, payload)?;
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(e.to_string());
+        }
+        Ok(v)
+    }
+
+    /// `susi privacy mode <mode>`.
+    pub fn privacy_mode(mode: &str) -> Result<Value, String> {
+        call(topics::DAEMON_PRIVACY_MODE, json!({ "mode": mode }))
+    }
+
+    /// `susi ambient start` for `workspace`.
+    pub fn ambient_start(workspace: &Path) -> Result<Value, String> {
+        call(
+            topics::DAEMON_AMBIENT_START,
+            json!({ "workspace": workspace.display().to_string() }),
+        )
+    }
+
+    /// `susi context-graph sample-os [--user]` for `workspace`.
+    pub fn context_sample_os(workspace: &Path, user: Option<&str>) -> Result<Value, String> {
+        call(
+            topics::DAEMON_CONTEXT_SAMPLE_OS,
+            json!({ "workspace": workspace.display().to_string(), "user": user }),
+        )
+    }
+
+    /// `susi ecosystem scan` (`cached == false`) or `susi ecosystem status`
+    /// (`cached == true`: the last persisted scan).
+    pub fn ecosystem_scan(cached: bool) -> Result<Value, String> {
+        call(topics::DAEMON_ECOSYSTEM_SCAN, json!({ "cached": cached }))
+    }
+
+    /// `susi substrate status` for `workspace`.
+    pub fn substrate_status(workspace: &Path) -> Result<Value, String> {
+        call(
+            topics::DAEMON_SUBSTRATE_STATUS,
+            json!({ "workspace": workspace.display().to_string() }),
+        )
+    }
+
+    /// `susi crown verify|status` for `workspace`.
+    pub fn crown_verify(workspace: &Path) -> Result<Value, String> {
+        call(
+            topics::DAEMON_CROWN_VERIFY,
+            json!({ "workspace": workspace.display().to_string() }),
+        )
+    }
+
+    /// `susi os provision <action>`: `payload` carries `action` (`probe`,
+    /// `list` or `apply`), `kind` and, for `apply`, an absolute `manifest`.
+    pub fn os_provision(payload: Value) -> Result<Value, String> {
+        call(topics::DAEMON_OS_PROVISION, payload)
+    }
+
+    /// `daemon.providers` (zero-UI plan B4 group 3): `payload` carries
+    /// `action` and that action's arguments.
+    pub fn providers(payload: Value) -> Result<Value, String> {
+        call(topics::DAEMON_PROVIDERS, payload)
+    }
+
+    /// `daemon.adapters` (zero-UI plan B4 group 7).
+    pub fn adapters(payload: Value) -> Result<Value, String> {
+        call(topics::DAEMON_ADAPTERS, payload)
+    }
+
+    /// `daemon.harness` (zero-UI plan B4 group 1).
+    pub fn harness(payload: Value) -> Result<Value, String> {
+        call(topics::DAEMON_HARNESS, payload)
+    }
+
+    /// `daemon.host`: host views, maintenance and daemon lifecycle.
+    pub fn host(payload: Value) -> Result<Value, String> {
+        call(topics::DAEMON_HOST, payload)
+    }
+
+    /// `susi services <action> <name>` (`start`, `stop` or `restart`).
+    pub fn services_control(action: &str, name: &str) -> Result<Value, String> {
+        call(
+            topics::DAEMON_SERVICES_CONTROL,
+            json!({ "action": action, "name": name }),
+        )
     }
 }
 

@@ -158,14 +158,7 @@ pub enum TaskCommands {
 }
 
 pub(crate) fn repo_root(cwd: &Path) -> PathBuf {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(cwd)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
-        .unwrap_or_else(|| cwd.to_path_buf())
+    susi_daemon::host_views::repo_root(cwd)
 }
 
 /// `scripts/susi-worktree.sh` names every auto worktree branch

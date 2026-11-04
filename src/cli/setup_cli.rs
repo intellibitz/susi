@@ -109,59 +109,15 @@ fn print_plan(plan: &SetupPlan) {
     println!("Optional tools and agents connect when needed. Type your goal to begin.");
 }
 
-/// A bounded filename inventory, not model admission or recursive discovery.
-/// Installed channels reuse existing model directories through these paths.
-/// `susi status` and `susi auto status` report it too: reading names starts
-/// no probe and no download.
+/// A bounded filename inventory, not model admission or recursive discovery
+/// (`susi_daemon::host_views::opening_model_inventory`, which `susi status`
+/// and `susi auto status` report too): reading names starts no probe and no
+/// download.
 pub(crate) fn opening_model_inventory(
     config_home: &std::path::Path,
     data_home: &std::path::Path,
 ) -> Vec<String> {
-    let mut roots = vec![data_home.join("models")];
-    if let Some(dir) = std::env::var_os("SUSI_MODEL_DIR") {
-        roots.push(std::path::PathBuf::from(dir));
-    }
-    if let Some(config) = std::fs::read_to_string(config_home.join("config.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-    {
-        roots.extend(
-            config
-                .get("local_scan_paths")
-                .and_then(serde_json::Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-                .take(16)
-                .map(std::path::PathBuf::from),
-        );
-    }
-    let mut models = std::collections::BTreeSet::new();
-    for root in roots {
-        for entry in std::fs::read_dir(root)
-            .into_iter()
-            .flatten()
-            .take(128)
-            .flatten()
-        {
-            if entry
-                .path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"))
-            {
-                if let Some(name) = entry.file_name().to_str() {
-                    models.insert(name.to_owned());
-                }
-            }
-            if models.len() >= 128 {
-                break;
-            }
-        }
-        if models.len() >= 128 {
-            break;
-        }
-    }
-    models.into_iter().collect()
+    susi_daemon::host_views::opening_model_inventory(config_home, data_home)
 }
 
 #[cfg(test)]

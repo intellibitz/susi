@@ -4,7 +4,8 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
-use susi_agents::external::{catalog, Adapter, AgentManager, CatalogKind, RunStatus};
+use susi_agents::external::{catalog, AgentManager, CatalogKind};
+use susi_daemon::adapter_ops::{self, AdapterKind};
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommands {
@@ -61,49 +62,34 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
     let manager = AgentManager::new(workspace)?;
     match action {
         AgentCommands::List => print_json(&catalog(CatalogKind::Execution)?)?,
-        AgentCommands::Setup { agent } => {
-            let definition = susi_agents::external::definition(CatalogKind::Execution, &agent)?;
-            print_json(&serde_json::json!({
-                "agent": definition.id,
-                "documentation": definition.documentation,
-                "adapter": manager.adapter(&agent)?,
-                "instructions": "Install/authenticate the vendor CLI or set the cloud credential environment variable. Qwen requires qwen-agent and SUSI_QWEN_CONFIG. Run doctor, then run. No packages, subscriptions or credentials are provisioned implicitly."
-            }))?;
-        }
+        // `susi_daemon::adapter_ops` builds the doctor/setup/configure/reset
+        // documents and checks retries; the MCP `adapter_*` and
+        // `*_retry` tools call the same functions.
+        AgentCommands::Setup { agent } => print_json(
+            &adapter_ops::setup(AdapterKind::Agents, &agent, workspace)
+                .map_err(anyhow::Error::msg)?,
+        )?,
         AgentCommands::Doctor { agent } => {
-            let agents = match agent {
-                Some(id) => vec![susi_agents::external::definition(
-                    CatalogKind::Execution,
-                    &id,
-                )?],
-                None => catalog(CatalogKind::Execution)?,
-            };
-            let mut missing = false;
-            for agent in agents {
-                let result = manager.adapter(&agent.id).and_then(|a| a.preflight());
-                missing |= result.is_err();
-                print_json(
-                    &serde_json::json!({"agent":agent.id, "prerequisites_present":result.is_ok(),
-                    "detail":match result { Ok(s) => s, Err(e) => e.to_string() }}),
-                )?;
+            let rows = adapter_ops::doctor(AdapterKind::Agents, agent.as_deref(), workspace)
+                .map_err(anyhow::Error::msg)?;
+            for row in &rows {
+                print_json(row)?;
             }
-            if missing {
-                bail!("one or more agents need setup");
+            if !adapter_ops::all_ready(&rows) {
+                bail!("{}", adapter_ops::needs_setup_message(AdapterKind::Agents));
             }
         }
         AgentCommands::Configure { agent, file } => {
-            let adapter: Adapter = serde_json::from_slice(&std::fs::read(file)?)?;
-            let verdict =
-                susi_agents::adapter_upgrade::upgrade_adapter(&manager, &agent, &adapter, 2)?;
-            if verdict != susi_core::adapter_upgrade::SwitchVerdict::Switched {
-                bail!("adapter upgrade rejected: {verdict:?}");
-            }
-            print_json(&adapter)?;
+            let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+            print_json(
+                &adapter_ops::configure(AdapterKind::Agents, &agent, doc, workspace)
+                    .map_err(anyhow::Error::msg)?,
+            )?;
         }
-        AgentCommands::Reset { agent } => {
-            manager.reset(&agent)?;
-            print_json(&manager.adapter(&agent)?)?;
-        }
+        AgentCommands::Reset { agent } => print_json(
+            &adapter_ops::reset(AdapterKind::Agents, &agent, workspace)
+                .map_err(anyhow::Error::msg)?,
+        )?,
         AgentCommands::Run {
             agent,
             wait,
@@ -122,10 +108,7 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
             )?;
         }
         AgentCommands::Retry { task_id, wait } => {
-            let old = manager.status(&task_id)?;
-            if old.status.active() || old.status == RunStatus::Unknown {
-                bail!("resolve the existing task before retrying to avoid duplicate execution");
-            }
+            let old = adapter_ops::retry_source(&manager, &task_id).map_err(anyhow::Error::msg)?;
             let run = manager.prepare(&old.agent, &old.prompt)?;
             launch(
                 &manager,

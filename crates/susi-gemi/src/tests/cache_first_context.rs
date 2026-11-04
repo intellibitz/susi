@@ -196,13 +196,37 @@ fn cache_first_context_production_wiring() {
         handler_src.contains("record_assembly"),
         "the assemble arm must journal the measured cache profile"
     );
+    // `susi brain cache` calls the shared `susi_daemon::provider_ops::
+    // brain_cache` (the MCP `brain_cache` tool calls the same function),
+    // whose production body reports the measured cache profile.
     let cli_src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../src/cli/brain_cli.rs"
     ))
     .expect("brain_cli.rs readable");
     assert!(
-        cli_src.contains("cache_report"),
+        cli_src.contains("use susi_daemon::provider_ops as ops;")
+            && cli_src.contains("BrainCommands::Cache => print_json(&ops::brain_cache())"),
+        "`susi brain cache` must call the shared cache report operation"
+    );
+    let ops_src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../susi-daemon/src/provider_ops.rs"
+    ))
+    .expect("provider_ops.rs readable");
+    // Production code only: the module's tests sit after `#[cfg(test)]`.
+    let ops_src = ops_src.split("#[cfg(test)]").next().expect("source");
+    let body = ops_src
+        .split("pub fn brain_cache() -> Value {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("provider_ops::brain_cache is production code");
+    assert!(
+        body.contains("susi_gemi::context_assembly::cache_report()"),
         "the measured hit rate and saving must be reported on a surface"
+    );
+    assert!(
+        ops_src.contains("\"brain_cache\" => Ok(brain_cache())"),
+        "the brain_cache providers action must reach the same function"
     );
 }

@@ -32,6 +32,40 @@ pub struct AuditExport {
     pub segments: Vec<AuditSegment>,
 }
 
+/// Read an evidence file: an existing export, or a bare JSON array of
+/// redacted segments (wrapped in the stable format, its length taken as the
+/// expected length).
+pub fn read_export(path: &std::path::Path) -> Result<AuditExport, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    if let Ok(export) = serde_json::from_slice(&bytes) {
+        return Ok(export);
+    }
+    let segments: Vec<AuditSegment> = serde_json::from_slice(&bytes).map_err(|error| {
+        format!(
+            "{} is not a valid audit evidence export: {error}",
+            path.display()
+        )
+    })?;
+    Ok(AuditExport {
+        format: "susi-audit-evidence/v1".to_string(),
+        expected_len: segments.len(),
+        segments,
+    })
+}
+
+/// `susi admin audit-evidence export` / MCP `audit_evidence_export`: wrap
+/// `input` in the stable, independently verifiable format and write it to
+/// `output`. Returns the number of segments written.
+pub fn export_to_file(input: &std::path::Path, output: &std::path::Path) -> Result<usize, String> {
+    let export = read_export(input)?;
+    let encoded = serde_json::to_vec_pretty(&export)
+        .map_err(|error| format!("could not serialize audit evidence: {error}"))?;
+    std::fs::write(output, encoded)
+        .map_err(|error| format!("could not write {}: {error}", output.display()))?;
+    Ok(export.segments.len())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyFailure {
     Truncation,
@@ -156,5 +190,48 @@ impl AuditExport {
             return Err(VerifyFailure::Tampering);
         }
         AuditEvidence::verify_against_length(&self.segments, keys, self.expected_len)
+    }
+}
+
+#[cfg(test)]
+mod export_file_tests {
+    use super::*;
+
+    #[test]
+    fn export_to_file_wraps_bare_segments_and_round_trips_exports() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-audit-evidence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut evidence = AuditEvidence::new();
+        evidence.register_key("k1", "test-only-secret");
+        evidence.append("first", "k1").unwrap();
+        evidence.append("second", "k1").unwrap();
+        let bare = dir.join("segments.json");
+        std::fs::write(&bare, serde_json::to_vec(&evidence.export()).unwrap()).unwrap();
+        let out = dir.join("export.json");
+        assert_eq!(export_to_file(&bare, &out).unwrap(), 2);
+        let export = read_export(&out).unwrap();
+        assert_eq!(export.format, "susi-audit-evidence/v1");
+        assert_eq!(export.expected_len, 2);
+        let keys = BTreeMap::from([("k1".to_string(), "test-only-secret".to_string())]);
+        assert!(export.verify(&keys).is_ok());
+        // An existing export re-exports unchanged.
+        let again = dir.join("again.json");
+        assert_eq!(export_to_file(&out, &again).unwrap(), 2);
+        assert_eq!(read_export(&again).unwrap(), export);
+        std::fs::write(dir.join("bad.json"), b"not json").unwrap();
+        assert!(read_export(&dir.join("bad.json"))
+            .unwrap_err()
+            .contains("not a valid audit evidence export"));
+        assert!(read_export(&dir.join("missing.json"))
+            .unwrap_err()
+            .contains("could not read"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

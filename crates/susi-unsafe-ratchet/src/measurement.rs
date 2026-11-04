@@ -987,6 +987,7 @@ pub(crate) mod fixture {
 }
 
 #[cfg(test)]
+// Test-only module: unwrap/expect/panic are how these tests assert.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::fixture::{self, dep_identity, REGISTRY, TARGET};

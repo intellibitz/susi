@@ -386,11 +386,43 @@ fn intent_ladder_startup_wiring_is_on_the_production_path() {
         "/../../src/cli/admin_cli.rs"
     ))
     .unwrap();
+    // The CLI arm maps its flags onto `host_views::IntentLadder` and calls
+    // the shared `susi_daemon::host_views::intent_ladder` (the MCP
+    // `intent_ladder` tool calls the same function).
     for needle in [
         "AdminCommands::IntentLadder",
-        "intent_ladder::full_run",
-        "intent_ladder::read_scorecard",
+        "IntentLadder::Run",
+        "IntentLadder::Scorecard",
+        "susi_daemon::host_views::intent_ladder(&action, cwd)",
     ] {
         assert!(cli.contains(needle), "admin_cli.rs is missing `{needle}`");
     }
+    let views = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../susi-daemon/src/host_views.rs"
+    ))
+    .unwrap();
+    // Production code only: the module's tests sit after `#[cfg(test)]`.
+    let views = views.split("#[cfg(test)]").next().unwrap();
+    let body = views
+        .split("pub fn intent_ladder(action: &IntentLadder, cwd: &Path) -> R<Value> {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("host_views::intent_ladder is production code");
+    for needle in [
+        "use susi_gawd::intent_ladder as ladder;",
+        "ladder::full_run(",
+        "ladder::startup_slice(",
+        "ladder::read_scorecard(",
+    ] {
+        assert!(
+            body.contains(needle),
+            "host_views::intent_ladder is missing `{needle}`"
+        );
+    }
+    assert!(
+        views.contains("\"run\" => IntentLadder::Run")
+            && views.contains("intent_ladder(&action, &workspace)"),
+        "the intent_ladder host action must reach the same function"
+    );
 }

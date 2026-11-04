@@ -26,3 +26,21 @@ pub fn persist_privacy_mode(mode: PrivacyMode) -> std::io::Result<()> {
     }
     policy.set_mode(mode)
 }
+
+/// `susi privacy mode <mode>` / MCP `privacy_mode`: persist the mode for
+/// subsequent boots and, under `local_only`, pin inference routing to local
+/// (through the router, so it lands where the router reads it). Returns the
+/// mode now in force and what it implies.
+pub fn set_privacy_mode(mode: &str) -> std::io::Result<serde_json::Value> {
+    let m = PrivacyMode::parse(mode);
+    persist_privacy_mode(m)?;
+    if matches!(m, PrivacyMode::LocalOnly) {
+        susi_gemi::engines::routing::InferenceRouter::set_local_only();
+    }
+    let policy = MacPolicy::global();
+    Ok(serde_json::json!({
+        "mode": m.as_str(),
+        "mandatory_sandbox": policy.mandatory_sandbox(),
+        "blocks_cloud_inference": policy.blocks_cloud_inference(),
+    }))
+}

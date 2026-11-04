@@ -310,11 +310,78 @@ fn needs_token(target: &Target, id: &str) -> Option<Check> {
 
 const MCP_ACCEPT: (&str, &str) = ("Accept", "application/json, text/event-stream");
 
+/// Upper bound on `tools/list` pages one listing follows.
+const MAX_LIST_PAGES: usize = 50;
+
+/// Every tool across a paginated `tools/list`. `fetch(page, cursor)` returns
+/// the JSON-RPC payload for one page (`cursor` is `None` for the first);
+/// pages are followed until `nextCursor` is absent, at most
+/// [`MAX_LIST_PAGES`] of them. A JSON-RPC error (such as a stale cursor), a
+/// page without a `tools` array, a non-string cursor, or a server that keeps
+/// paging is a clear error naming the page.
+fn list_all_tools(
+    mut fetch: impl FnMut(usize, Option<&str>) -> Result<Value, String>,
+) -> Result<Vec<Value>, String> {
+    let mut tools = Vec::new();
+    let mut cursor: Option<String> = None;
+    for page in 0..MAX_LIST_PAGES {
+        let payload = fetch(page, cursor.as_deref())?;
+        if let Some(error) = payload.get("error") {
+            return Err(format!(
+                "tools/list page {}: JSON-RPC error {} {}",
+                page + 1,
+                error["code"],
+                error["message"].as_str().unwrap_or("")
+            ));
+        }
+        let Some(items) = payload["result"]["tools"].as_array() else {
+            return Err(format!("tools/list page {}: no tools array", page + 1));
+        };
+        tools.extend(items.iter().cloned());
+        cursor = match &payload["result"]["nextCursor"] {
+            Value::Null => return Ok(tools),
+            Value::String(next) => Some(next.clone()),
+            other @ (Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_)) => {
+                return Err(format!(
+                    "tools/list page {}: non-string nextCursor {other}",
+                    page + 1
+                ))
+            }
+        };
+    }
+    Err(format!(
+        "tools/list still paging after {MAX_LIST_PAGES} pages"
+    ))
+}
+
+/// `tools/list` params for one page: empty for the first, the cursor after.
+fn list_params(cursor: Option<&str>) -> Value {
+    cursor.map_or_else(|| json!({}), |cursor| json!({"cursor": cursor}))
+}
+
+/// JSON-RPC id for `tools/list` page `page`, starting at `first`.
+fn page_id(first: i64, page: usize) -> i64 {
+    first.saturating_add(i64::try_from(page).unwrap_or(i64::MAX))
+}
+
 /// One stateless request at the current MCP revision.
 fn mcp_current(target: &Target, base: u16, id: i64, method: &str) -> Result<(u16, Value), String> {
-    let request = json!({"jsonrpc":"2.0","id":id,"method":method,"params":{"_meta":{
+    mcp_current_with(target, base, id, method, json!({}))
+}
+
+/// One stateless request at the current MCP revision with extra `params`
+/// (such as a `tools/list` cursor) beside the revision `_meta`.
+fn mcp_current_with(
+    target: &Target,
+    base: u16,
+    id: i64,
+    method: &str,
+    mut params: Value,
+) -> Result<(u16, Value), String> {
+    params["_meta"] = json!({
         "io.modelcontextprotocol/protocolVersion": MCP_CURRENT,
-        "io.modelcontextprotocol/clientCapabilities": {}}}});
+        "io.modelcontextprotocol/clientCapabilities": {}});
+    let request = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
     let headers = [
         MCP_ACCEPT,
         ("MCP-Protocol-Version", MCP_CURRENT),
@@ -351,15 +418,25 @@ fn mcp_tools_at(target: &Target, base: u16) -> Check {
     if let Some(skip) = needs_token(target, &id) {
         return skip;
     }
-    timed(id, || match mcp_current(target, base, 2, "tools/list") {
-        Ok((status, payload)) => {
-            let tools = payload["result"]["tools"].as_array().map(Vec::len);
-            verdict(
-                status == 200 && tools.is_some(),
-                format!("status {status}, {} tools", tools.unwrap_or(0)),
-            )
+    timed(id, || {
+        let listed = list_all_tools(|page, cursor| {
+            let (status, payload) = mcp_current_with(
+                target,
+                base,
+                page_id(2, page),
+                "tools/list",
+                list_params(cursor),
+            )?;
+            if status == 200 {
+                Ok(payload)
+            } else {
+                Err(format!("tools/list page {}: status {status}", page + 1))
+            }
+        });
+        match listed {
+            Ok(tools) => verdict(true, format!("status 200, {} tools", tools.len())),
+            Err(e) => (Outcome::Fail, e),
         }
-        Err(e) => (Outcome::Fail, e),
     })
 }
 
@@ -416,21 +493,24 @@ fn mcp_session_at(target: &Target, base: u16) -> Check {
         let noted = target
             .call(base, Call::post("/mcp", true, &headers, &note))
             .map(|r| r.status);
-        let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}});
-        match target.call(base, Call::post("/mcp", true, &headers, &list)) {
-            Ok(r) => {
-                let tools = rpc_payload(&r).unwrap_or(Value::Null)["result"]["tools"]
-                    .as_array()
-                    .map(Vec::len);
-                verdict(
-                    r.status == 200 && tools.is_some(),
-                    format!(
-                        "negotiated {negotiated:?}; initialized -> {noted:?}; tools/list -> {} ({} tools)",
-                        r.status,
-                        tools.unwrap_or(0)
-                    ),
-                )
+        let listed = list_all_tools(|page, cursor| {
+            let list = json!({"jsonrpc":"2.0","id":page_id(2, page),"method":"tools/list",
+                "params":list_params(cursor)});
+            let r = target.call(base, Call::post("/mcp", true, &headers, &list))?;
+            if r.status == 200 {
+                Ok(rpc_payload(&r).unwrap_or(Value::Null))
+            } else {
+                Err(format!("tools/list page {}: status {}", page + 1, r.status))
             }
+        });
+        match listed {
+            Ok(tools) => verdict(
+                true,
+                format!(
+                    "negotiated {negotiated:?}; initialized -> {noted:?}; tools/list -> 200 ({} tools)",
+                    tools.len()
+                ),
+            ),
             Err(e) => (
                 Outcome::Fail,
                 format!("initialized -> {noted:?}; tools/list: {e}"),
@@ -908,13 +988,14 @@ fn stdio_response(
 }
 
 /// One MCP stdio session: `initialize`, `notifications/initialized`,
-/// `tools/list`. Returns `(negotiated revision, server name, tool count)`.
+/// `tools/list` (every page). Returns `(negotiated revision, server name,
+/// tool count)`.
 fn stdio_session(
     stdin: &mut impl Write,
     lines: &std::sync::mpsc::Receiver<String>,
     first: Duration,
     timeout: Duration,
-) -> Result<(String, String, Option<usize>), String> {
+) -> Result<(String, String, usize), String> {
     let mut send = |value: Value| {
         writeln!(stdin, "{value}")
             .and_then(|()| stdin.flush())
@@ -935,13 +1016,12 @@ fn stdio_session(
         .unwrap_or("")
         .to_string();
     send(json!({"jsonrpc":"2.0","method":"notifications/initialized"}))?;
-    send(json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}))?;
-    let list = stdio_response(lines, 2, timeout)?;
-    Ok((
-        negotiated,
-        server,
-        list["result"]["tools"].as_array().map(Vec::len),
-    ))
+    let tools = list_all_tools(|page, cursor| {
+        let id = page_id(2, page);
+        send(json!({"jsonrpc":"2.0","id":id,"method":"tools/list","params":list_params(cursor)}))?;
+        stdio_response(lines, id, timeout)
+    })?;
+    Ok((negotiated, server, tools.len()))
 }
 
 /// Opt-in MCP stdio check: `<susi_bin> mcp serve` speaks newline-delimited
@@ -997,11 +1077,8 @@ fn mcp_stdio(target: &Target, optional: &Optional) -> Check {
         let _ = child.wait();
         match outcome {
             Ok((negotiated, server, tools)) => verdict(
-                !negotiated.is_empty() && !server.is_empty() && tools.is_some(),
-                format!(
-                    "server {server:?} negotiated {negotiated:?}, {} tools",
-                    tools.unwrap_or(0)
-                ),
+                !negotiated.is_empty() && !server.is_empty(),
+                format!("server {server:?} negotiated {negotiated:?}, {tools} tools"),
             ),
             Err(e) => (Outcome::Fail, e),
         }
@@ -1121,6 +1198,60 @@ pub fn conformant(checks: &[Check]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_all_tools_follows_next_cursor_until_absent() {
+        let pages = [
+            json!({"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"a"}],"nextCursor":"r:1"}}),
+            json!({"jsonrpc":"2.0","id":3,"result":{"tools":[{"name":"b"}],"nextCursor":"r:2"}}),
+            json!({"jsonrpc":"2.0","id":4,"result":{"tools":[{"name":"c"}]}}),
+        ];
+        let mut seen = Vec::new();
+        let tools = list_all_tools(|page, cursor| {
+            seen.push((page_id(2, page), list_params(cursor)));
+            Ok(pages[page].clone())
+        })
+        .unwrap();
+        let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names, ["a", "b", "c"]);
+        assert_eq!(
+            seen,
+            [
+                (2, json!({})),
+                (3, json!({"cursor":"r:1"})),
+                (4, json!({"cursor":"r:2"}))
+            ]
+        );
+    }
+
+    #[test]
+    fn list_all_tools_fails_clearly_on_cursor_error_shape_and_runaway() {
+        let stale = list_all_tools(|page, _| {
+            Ok(if page == 0 {
+                json!({"result":{"tools":[],"nextCursor":"r:1"}})
+            } else {
+                json!({"error":{"code":-32602,"message":"Catalog changed"}})
+            })
+        })
+        .unwrap_err();
+        assert!(
+            stale.contains("page 2") && stale.contains("Catalog changed"),
+            "{stale}"
+        );
+        let shapeless = list_all_tools(|_, _| Ok(json!({"result":{}}))).unwrap_err();
+        assert!(shapeless.contains("no tools array"), "{shapeless}");
+        let numeric =
+            list_all_tools(|_, _| Ok(json!({"result":{"tools":[],"nextCursor":7}}))).unwrap_err();
+        assert!(numeric.contains("non-string nextCursor"), "{numeric}");
+        let mut calls = 0;
+        let runaway = list_all_tools(|page, _| {
+            calls += 1;
+            Ok(json!({"result":{"tools":[],"nextCursor":format!("r:{page}")}}))
+        })
+        .unwrap_err();
+        assert!(runaway.contains("still paging"), "{runaway}");
+        assert_eq!(calls, MAX_LIST_PAGES);
+    }
 
     #[test]
     fn sse_and_plain_rpc_payloads_parse() {

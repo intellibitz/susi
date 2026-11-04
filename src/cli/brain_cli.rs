@@ -2,9 +2,10 @@
 //! Rankings come from recorded outcomes (`brain_evidence.json`), not a fixed
 //! vendor order.
 use crate::cli_json::print_json;
-use anyhow::{Context, Result};
+use anyhow::{Error, Result};
 use clap::Subcommand;
 use std::path::PathBuf;
+use susi_daemon::provider_ops as ops;
 use susi_gemi::engines::brain::{self, TaskClass};
 use susi_gemi::engines::cost::Budget;
 
@@ -107,90 +108,19 @@ impl Default for BrainCommands {
     }
 }
 
-fn cloud_budget_file_path() -> PathBuf {
-    susi_paths::SusiDirs::config_dir().join("cloud_budget.json")
-}
-
-fn unix_now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn upsert_cloud_budget_env(budget_level: &str) -> Result<()> {
-    let path = susi_paths::SusiDirs::config_dir().join("cloud.env");
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut lines: Vec<String> = Vec::new();
-    let mut replaced = false;
-    for raw in existing.lines() {
-        let trimmed = raw.trim();
-        let check = trimmed.strip_prefix("export ").unwrap_or(trimmed);
-        if let Some((k, _)) = check.split_once('=') {
-            if k.trim().eq_ignore_ascii_case("SUSI_BUDGET") {
-                lines.push(format!("SUSI_BUDGET={}", budget_level));
-                replaced = true;
-                continue;
-            }
-        }
-        lines.push(raw.to_string());
-    }
-    if !replaced {
-        lines.push(format!("SUSI_BUDGET={}", budget_level));
-    }
-    let body = format!("{}\n", lines.join("\n"));
-    susi_config::atomic_write_bytes(&path, body.as_bytes())?;
-    Ok(())
-}
-
 pub fn execute(action: Option<BrainCommands>) -> Result<()> {
     match action.unwrap_or_default() {
         BrainCommands::Status { top, class, json } => {
-            let store = brain::load();
-            let providers = store.providers();
-            let pref = susi_gemi::engines::routing::InferenceRouter::load_preference();
-            let cooled_providers = susi_gemi::engines::routing::InferenceRouter::cooled_providers();
-
             if json {
-                let mut classes: serde_json::Map<String, serde_json::Value> =
-                    serde_json::Map::new();
-                for c in TaskClass::ALL {
-                    if let Some(target) = &class {
-                        if !c.label().eq_ignore_ascii_case(target) {
-                            continue;
-                        }
-                    }
-                    let mut ranked = store.rank(&providers, c);
-                    ranked.truncate(top);
-                    classes.insert(
-                        c.label().to_string(),
-                        serde_json::to_value(ranked).unwrap_or_default(),
-                    );
-                }
-                print_json(&serde_json::json!({
-                    "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
-                    "budget": Budget::from_env().label(),
-                    "failure_streaks": store
-                        .failure_streaks()
-                        .into_iter()
-                        .map(|(key, h)| serde_json::json!({
-                            "key": key,
-                            "kind": h.kind,
-                            "consecutive": h.consecutive,
-                            "last_unix": h.last_unix,
-                        }))
-                        .collect::<Vec<_>>(),
-                    "providers_with_evidence": providers,
-                    "ranking_by_task_class": classes,
-                    "preferred_cloud": pref.preferred_cloud,
-                    "policy_override": pref.policy_override,
-                    "auto_switched_from": pref.auto_switched_from,
-                    "cooled_providers": cooled_providers,
-                }))?;
+                // `susi_daemon::provider_ops` builds every machine-readable
+                // brain document; the MCP `brain_*` tools return the same.
+                print_json(&ops::brain_status(top, class.as_deref()))?;
             } else {
+                let store = brain::load();
+                let providers = store.providers();
+                let pref = susi_gemi::engines::routing::InferenceRouter::load_preference();
+                let cooled_providers =
+                    susi_gemi::engines::routing::InferenceRouter::cooled_providers();
                 let budget = Budget::from_env();
                 println!("=== SUSI BRAIN STATUS ===");
                 println!(
@@ -254,59 +184,9 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 }
             }
         }
-        BrainCommands::Matrix => {
-            print_json(&serde_json::to_value(susi_gemi::capability_matrix::build())?)?;
-        }
-        BrainCommands::Pareto { class } => {
-            let store = brain::load();
-            let mut providers = store.providers();
-            if providers.is_empty() {
-                providers = susi_core::registry::CapabilityRegistry::global().list_providers();
-            }
-            let mut frontiers = serde_json::Map::new();
-            for c in TaskClass::ALL {
-                if let Some(target) = &class {
-                    if !c.label().eq_ignore_ascii_case(target) {
-                        continue;
-                    }
-                }
-                let candidates = store.pareto_frontier(&providers, c);
-                let optimal: Vec<String> = candidates
-                    .iter()
-                    .filter(|x| x.is_pareto_optimal)
-                    .map(|x| x.provider.clone())
-                    .collect();
-                let ucb1_leader = candidates
-                    .iter()
-                    .max_by(|a, b| {
-                        a.ucb1_index
-                            .partial_cmp(&b.ucb1_index)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .map(|x| x.provider.clone());
-                let scores: Vec<f64> = candidates.iter().map(|x| x.score).collect();
-                frontiers.insert(
-                    c.label().to_string(),
-                    serde_json::json!({
-                        "pareto_frontier": optimal,
-                        "ucb1_leader": ucb1_leader,
-                        "shannon_entropy_bits": susi_gemi::brain_explain::routing_entropy_bits(&scores),
-                        "candidates": candidates,
-                    }),
-                );
-            }
-            print_json(&serde_json::json!({
-                "budget": Budget::from_env().label(),
-                "classes": frontiers,
-            }))?;
-        }
-        BrainCommands::Cache => {
-            print_json(&serde_json::json!({
-                "report": susi_gemi::context_assembly::cache_report(),
-                "estimated": true,
-                "journal": susi_gemi::context_assembly::default_journal_path(),
-            }))?;
-        }
+        BrainCommands::Matrix => print_json(&ops::brain_matrix().map_err(Error::msg)?)?,
+        BrainCommands::Pareto { class } => print_json(&ops::brain_pareto(class.as_deref()))?,
+        BrainCommands::Cache => print_json(&ops::brain_cache())?,
         BrainCommands::Budget {
             free_only,
             allow_paid,
@@ -317,132 +197,49 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
             max_parallel,
             new_window,
         } => {
-            if let Some(lvl) = &level {
-                if let Some(parsed) = Budget::parse(lvl) {
-                    upsert_cloud_budget_env(parsed.label())?;
-                    println!("Set budget dial to '{}'", parsed.label());
-                } else {
-                    anyhow::bail!("Invalid budget level '{}'. Choose: low, balanced, max", lvl);
-                }
-            }
-            if free_only {
-                upsert_cloud_budget_env("low")?;
-                let path = cloud_budget_file_path();
-                let body = serde_json::json!({
-                    "policy": "free_only",
-                    "updated_at": unix_now_secs(),
-                });
-                susi_config::atomic_write_bytes(&path, &serde_json::to_vec_pretty(&body)?)?;
-                println!(
-                    "Budget configured: policy=free_only, budget_dial=low (saved to {})",
-                    path.display()
-                );
-            } else if allow_paid {
-                let spend_cap = max_spend_microusd.unwrap_or(10_000_000);
-                let path = cloud_budget_file_path();
-                let body = serde_json::json!({
-                    "policy": "paid_authorized",
-                    "max_spend_microusd": spend_cap,
-                    "max_tokens": max_tokens,
-                    "max_requests": max_requests,
-                    "max_parallel": max_parallel,
-                    "new_window": new_window,
-                    "updated_at": unix_now_secs(),
-                });
-                susi_config::atomic_write_bytes(&path, &serde_json::to_vec_pretty(&body)?)?;
-                println!("Budget configured: policy=paid_authorized, max_spend_microusd={spend_cap} (saved to {})", path.display());
-            } else if level.is_none() {
-                let curr_level = Budget::from_env().label();
-                let path = cloud_budget_file_path();
-                let policy_str = if path.exists() {
-                    std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".into())
-                } else {
-                    "{\"policy\": \"default\"}".into()
-                };
-                println!("Budget dial: {}", curr_level);
-                println!("Ledger policy: {}", policy_str.trim());
+            let doc = ops::brain_budget(&ops::BudgetUpdate {
+                level,
+                free_only,
+                allow_paid,
+                max_spend_microusd,
+                max_tokens,
+                max_requests,
+                max_parallel,
+                new_window,
+            })
+            .map_err(Error::msg)?;
+            for line in doc["lines"].as_array().into_iter().flatten() {
+                println!("{}", line.as_str().unwrap_or_default());
             }
         }
-        BrainCommands::Classify { prompt } => {
-            let text = prompt.join(" ");
-            print_json(&serde_json::json!({ "task_class": TaskClass::classify(&text).label() }))?;
-        }
+        BrainCommands::Classify { prompt } => print_json(&ops::brain_classify(&prompt.join(" ")))?,
         BrainCommands::Explain { prompt } => {
-            let text = prompt.join(" ");
-            if text.trim().is_empty() {
-                anyhow::bail!("prompt cannot be empty");
-            }
-            let explanation = brain::explain(&text);
-            print_json(&explanation)?;
+            print_json(&ops::brain_explain(&prompt.join(" ")).map_err(Error::msg)?)?
         }
         BrainCommands::Export { out } => {
-            let bundle = brain::export();
-            if let Some(path) = out {
-                let json_bytes = serde_json::to_vec_pretty(&bundle)?;
-                susi_config::atomic_write_bytes(&path, &json_bytes)?;
-                println!(
-                    "Exported {} evidence entries to {}",
-                    bundle.entries.len(),
-                    path.display()
-                );
-            } else {
-                print_json(&bundle)?;
+            let doc = ops::brain_export(out.as_deref()).map_err(Error::msg)?;
+            match doc
+                .get("message")
+                .and_then(|m| m.as_str())
+                .filter(|_| out.is_some())
+            {
+                Some(message) => println!("{message}"),
+                None => print_json(&doc)?,
             }
         }
         BrainCommands::Import { file } => {
-            let content = std::fs::read_to_string(&file)
-                .with_context(|| format!("Failed to read {}", file.display()))?;
-            let bundle: susi_gemi::brain_export::BrainBundle = serde_json::from_str(&content)
-                .with_context(|| format!("Failed to parse bundle from {}", file.display()))?;
-            let count = brain::import(bundle).map_err(|e| anyhow::anyhow!("Import failed: {e}"))?;
-            println!(
-                "Successfully imported and merged {} evidence entries from {}",
-                count,
-                file.display()
-            );
+            let doc = ops::brain_import(&file).map_err(Error::msg)?;
+            println!("{}", doc["message"].as_str().unwrap_or_default());
         }
         BrainCommands::Reset => {
-            brain::reset()?;
-            println!("brain evidence cleared");
+            let doc = ops::brain_reset().map_err(Error::msg)?;
+            println!("{}", doc["message"].as_str().unwrap_or_default());
         }
-        BrainCommands::Bench { out } => {
-            use std::time::Duration;
-            use susi_gemi::benchmark::BENCHMARK_PROMPTS;
-            use susi_gemi::engine_benchmark::{
-                run_engine_benchmark, write_bench_evidence, FakeProvider,
-            };
-            let fake = FakeProvider {
-                engine: "fake-engine".into(),
-                model: "fake-model".into(),
-                reply: "benchmark reply tokens one two three".into(),
-                latency: Duration::from_millis(5),
-                fail: false,
-            };
-            let samples = run_engine_benchmark(&fake, BENCHMARK_PROMPTS);
-            let path =
-                out.unwrap_or_else(|| susi_paths::SusiDirs::config_dir().join("brain_bench.jsonl"));
-            write_bench_evidence(&path, &samples).map_err(anyhow::Error::msg)?;
-            print_json(&serde_json::json!({
-                "evidence_path": path,
-                "samples": samples,
-            }))?;
-        }
+        BrainCommands::Bench { out } => print_json(&ops::brain_bench(out).map_err(Error::msg)?)?,
         BrainCommands::Probe {
             provider,
             no_record,
-        } => {
-            let report =
-                susi_gemi::scout_probe::probe_registered(&provider).map_err(anyhow::Error::msg)?;
-            let recorded = if no_record {
-                0
-            } else {
-                susi_gemi::scout_probe::record_outcomes(&report)
-            };
-            print_json(&serde_json::json!({
-                "report": report,
-                "outcomes_recorded": recorded,
-            }))?;
-        }
+        } => print_json(&ops::brain_probe(&provider, no_record).map_err(Error::msg)?)?,
     }
     Ok(())
 }

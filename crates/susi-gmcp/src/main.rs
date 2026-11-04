@@ -109,6 +109,13 @@ async fn handle_tool(req: SyscallRequest) -> SyscallResponse {
 /// (same rule as `GemiEngine::looks_like_error_text`).
 fn looks_like_tool_failure(text: &str) -> bool {
     let t = text.trim_start();
+    // A JSON document is a result, never a flattened error: a report row's
+    // `detail` (sorted first) can quote an `... Error:` line near the head.
+    if (t.starts_with('{') || t.starts_with('['))
+        && serde_json::from_str::<serde_json::Value>(t).is_ok()
+    {
+        return false;
+    }
     if t.starts_with("[CAPABILITY_GAP]")
         || t.starts_with("[RECOVERY]")
         || t.starts_with("[FAIL]")
