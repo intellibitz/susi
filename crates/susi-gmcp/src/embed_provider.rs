@@ -103,4 +103,20 @@ mod inline_tests {
         assert!(registry.get_provider("susi-fastembed").is_some());
         assert_eq!(INSTALL_SOURCE, "embeddings");
     }
+
+    #[test]
+    fn registered_local_embed_provider_rejects_generate_through_capability_registry() {
+        register_local_embed_provider();
+        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        let provider = registry
+            .get_provider("susi-fastembed")
+            .expect("registered susi-fastembed provider");
+        assert_eq!(provider.name(), "susi-fastembed");
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(provider.generate("chat prompt")).unwrap_err();
+        assert!(err.to_string().contains("embedding-only provider"));
+    }
 }

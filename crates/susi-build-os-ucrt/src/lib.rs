@@ -50,9 +50,10 @@ pub const X64: WindowsTarget = WindowsTarget {
     stack_dll: "kernelbase.dll",
 };
 
-/// Native ARM64 boundary, admitted only so a native ARM64 host (GitHub
-/// `windows-11-arm`, CEO decision 2026-11-03) can produce its own evidence.
-/// It is not qualified until that evidence passes.
+/// Native ARM64 boundary, admitted only so a native ARM64 host can produce
+/// its own evidence. Core CI does not run this target (CEO decision
+/// 2026-11-03). It is not qualified until the commercial certified-core
+/// pipeline records a passing native run.
 pub const ARM64: WindowsTarget = WindowsTarget {
     triple: "aarch64-pc-windows-msvc",
     label: "ARM64",
@@ -61,8 +62,8 @@ pub const ARM64: WindowsTarget = WindowsTarget {
     // Native ARM64-hosted tools first, then x64-hosted ARM64 tools (emulated
     // on an ARM64 host). lib.exe selects the output architecture from
     // /MACHINE, so either writes ARM64 import metadata; an x64-host lib.exe was
-    // observed producing ARM64 import libraries. Which directories the runner
-    // image installs is recorded by the windows-arm64-probe workflow.
+    // observed producing ARM64 import libraries. Which directories a native
+    // ARM64 image installs is recorded by the commercial certified-core leg.
     librarians: &["bin/Hostarm64/arm64/lib.exe", "bin/Hostx64/arm64/lib.exe"],
     // HYPOTHESIS, not verified: ARM64 kernelbase.dll exports __chkstk as on x64.
     // Locally verified for Rust 1.99.0: the aarch64-pc-windows-msvc
@@ -70,11 +71,11 @@ pub const ARM64: WindowsTarget = WindowsTarget {
     // archive references it, so Rust itself does not supply it and an OS (or
     // CRT) definition is required. Windows SDK import libraries list no
     // __chkstk for x64 or ARM64, so they cannot decide this either way. The
-    // windows-arm64-probe workflow dumps the OS kernelbase.dll and ntdll.dll
-    // exports, the Windows ARM64 CI job asserts the export before running the
-    // fixtures, and the 64 KiB stack-probe lifecycle case fails at load
-    // (STATUS_ENTRYPOINT_NOT_FOUND) if this choice is wrong. If kernelbase
-    // lacks it and ntdll exports it, change this to "ntdll.dll".
+    // The commercial certified-core Windows ARM64 leg confirms the export
+    // before the fixtures count as evidence, and the 64 KiB stack-probe
+    // lifecycle case fails at load (STATUS_ENTRYPOINT_NOT_FOUND) if this
+    // choice is wrong. If kernelbase lacks it and ntdll exports it, change
+    // this to "ntdll.dll".
     stack_dll: "kernelbase.dll",
 };
 

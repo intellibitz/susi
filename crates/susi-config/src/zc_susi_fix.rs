@@ -314,4 +314,12 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn apply_safe_fixes_on_empty_findings_returns_empty_applied_and_skipped_lists() {
+        let root = std::env::temp_dir().join(format!("susi-zc-fix-empty-{}", std::process::id()));
+        let rep = apply_safe_fixes(&root, &[]);
+        assert!(rep.applied.is_empty());
+        assert!(rep.skipped.is_empty());
+    }
 }

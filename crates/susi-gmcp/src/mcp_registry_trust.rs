@@ -65,4 +65,17 @@ mod mcp_registry_trust_tests {
         let decoded: McpTrust = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, t);
     }
+
+    #[test]
+    fn trust_score_orders_tiers_strictly_from_untrusted_to_signed_known_good() {
+        let untrusted = trust_score("s1", false, false);
+        let signed_only = trust_score("s2", false, true);
+        let known_only = trust_score("s3", true, false);
+        let both = trust_score("s4", true, true);
+        assert!(untrusted.score < signed_only.score);
+        assert!(signed_only.score < known_only.score);
+        assert!(known_only.score < both.score);
+        assert!(untrusted.sandboxed && signed_only.sandboxed && known_only.sandboxed);
+        assert!(!both.sandboxed);
+    }
 }

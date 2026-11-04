@@ -109,4 +109,15 @@ mod tests {
         let default_cfg = crate::susi_config::SusiConfig::default();
         assert!(!default_cfg.sandbox_image().is_empty());
     }
+
+    #[test]
+    fn hardened_container_config_disables_privileged_binds_and_cap_add_via_root() {
+        let cfg =
+            crate::docker::hardened_container_config("susi-sandbox:root".to_string(), "whoami");
+        let host = cfg.host_config.expect("host config");
+        assert_eq!(host.privileged, None);
+        assert_eq!(host.binds, None);
+        assert_eq!(host.cap_add, None);
+        assert_eq!(host.auto_remove, Some(true));
+    }
 }

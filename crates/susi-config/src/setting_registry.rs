@@ -415,4 +415,20 @@ mod tests {
                 .expect("deserialize SettingEntry");
         assert_eq!(decoded, sample);
     }
+
+    #[test]
+    fn setting_derivation_copy_clone_and_debug_hold_across_all_variants() {
+        let all = [
+            SettingDerivation::Constant,
+            SettingDerivation::Hardware,
+            SettingDerivation::Detection,
+            SettingDerivation::Measurement,
+            SettingDerivation::Consent,
+        ];
+        for v in all {
+            let copied = v;
+            assert_eq!(copied, v);
+            assert!(!format!("{v:?}").is_empty());
+        }
+    }
 }

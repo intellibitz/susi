@@ -819,4 +819,15 @@ mod inline_tests {
         assert!(report.rows > 0);
         assert!(report.documents > 0);
     }
+
+    #[test]
+    fn verify_report_json_includes_trace_references_summary_on_repo_root() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let json = verify_report_json(&repo_root).unwrap();
+        assert_eq!(json["verified"], true);
+        assert_eq!(
+            json["trace_references"]["tests_and_implementation"],
+            "not verified"
+        );
+    }
 }
