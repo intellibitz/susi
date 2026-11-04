@@ -90,10 +90,54 @@ mod tests {
 
     #[test]
     fn effective_port_saturates_at_u16_max() {
+        // Two reads of the env offset must not straddle another test's write.
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             u16::MAX.saturating_add(env_port_offset()),
             effective(u16::MAX)
         );
         assert!(effective(GMCP) >= GMCP);
+    }
+
+    #[test]
+    fn env_offset_parses_trimmed_u16_and_ignores_everything_else() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = std::env::var_os("SUSI_PORT_OFFSET");
+        let cases: [(Option<&str>, u16); 8] = [
+            (Some("100"), 100),
+            (Some(" 250 "), 250),
+            (Some("65535"), 65535),
+            (Some("abc"), 0),
+            (Some("-5"), 0),
+            (Some("65536"), 0),
+            (Some(""), 0),
+            (None, 0),
+        ];
+        let mut observed = Vec::new();
+        for (value, _) in cases {
+            match value {
+                Some(v) => std::env::set_var("SUSI_PORT_OFFSET", v),
+                None => std::env::remove_var("SUSI_PORT_OFFSET"),
+            }
+            observed.push((env_port_offset(), effective(GMCP), effective(u16::MAX)));
+        }
+        match previous {
+            Some(v) => std::env::set_var("SUSI_PORT_OFFSET", v),
+            None => std::env::remove_var("SUSI_PORT_OFFSET"),
+        }
+        for ((value, expected), (offset, gmcp, max)) in cases.iter().zip(observed) {
+            assert_eq!(offset, *expected, "{value:?}");
+            assert_eq!(gmcp, GMCP.saturating_add(*expected), "{value:?}");
+            assert_eq!(max, u16::MAX, "{value:?} must saturate");
+        }
+    }
+
+    #[test]
+    fn gossip_is_swarm_internal_and_never_part_of_the_public_contract() {
+        assert_eq!(GOSSIP, 9095);
+        assert!(SWARM_UDP.iter().any(|(p, _)| *p == GOSSIP));
+        assert!(ALL.iter().all(|(p, _)| *p != GOSSIP));
+        let public: Vec<u16> = ALL.iter().map(|(p, _)| *p).collect();
+        assert_eq!(public, vec![9090, 9091, 9092, 9093, 9094]);
     }
 }
