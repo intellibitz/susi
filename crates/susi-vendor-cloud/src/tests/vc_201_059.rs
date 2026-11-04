@@ -116,3 +116,25 @@ fn vc_201_059_retained_and_exact_expiry_boundary_contracts() {
     );
     assert!(report.foreign.is_empty());
 }
+
+#[test]
+fn vc_201_059_unowned_expired_resources_are_classified_as_foreign_and_never_deleted() {
+    let live = vec![Resource {
+        owner: None,
+        ..res("r-unowned", "m-dead", "d-dead", 10)
+    }];
+    let empty = BTreeSet::new();
+    let mut deleted = Vec::new();
+    let auth = Authoritative {
+        live_missions: &empty,
+        live_deployments: &empty,
+        now_unix: 100,
+        dry_run: false,
+    };
+    let report = reconcile(&live, &auth, &mut |id| {
+        deleted.push(id.to_string());
+    });
+    assert!(deleted.is_empty());
+    assert!(report.delete.is_empty());
+    assert_eq!(report.foreign, vec!["r-unowned"]);
+}

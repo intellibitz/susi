@@ -97,3 +97,10 @@ fn vc_201_056_recovers_below_minimum() {
         }
     );
 }
+
+#[test]
+fn vc_201_056_holds_when_already_at_max_replicas_under_load() {
+    let p = policy();
+    let d = decide(&metrics(p.max_replicas, 100, 1200), &p, 50, 0);
+    assert!(matches!(d, ScaleDecision::Hold { .. }));
+}

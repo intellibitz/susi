@@ -1,0 +1,22 @@
+{
+  "id": "T-VENDORTESTS5TA1104-1",
+  "title": "Advance 16 susi-vendor-models and susi-vendor-cloud src/tests suites to 5 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "--lib",
+      "--",
+      "vc_201_041_mastery_tests::"
+    ]
+  },
+  "created_by": "VENDORTESTS5TA1104",
+  "created_unix": 1793813715
+}
