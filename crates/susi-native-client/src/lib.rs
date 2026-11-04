@@ -238,4 +238,99 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&temp_home);
     }
+
+    #[test]
+    fn wasm_host_reports_unreachable_closed_port_and_401_or_502_http_statuses() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let temp_home = std::env::temp_dir().join(format!(
+            "susi_native_client_err_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_home);
+        std::fs::create_dir_all(&temp_home).expect("create temp SUSI_HOME");
+        std::fs::write(temp_home.join("api_token"), "native-secret-token\n")
+            .expect("seed api_token");
+        std::fs::write(
+            temp_home.join("daemon.lock"),
+            format!("{}\n", std::process::id()),
+        )
+        .expect("seed daemon.lock");
+
+        let prev_susi_home = std::env::var_os("SUSI_HOME");
+        let prev_native_port = std::env::var_os("SUSI_NATIVE_PORT");
+        std::env::set_var("SUSI_HOME", &temp_home);
+
+        // 1. Bind and immediately drop a listener to obtain a closed loopback port.
+        let closed_port = {
+            let l = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+            l.local_addr().expect("ephemeral addr").port()
+        };
+        std::env::set_var("SUSI_NATIVE_PORT", closed_port.to_string());
+
+        let unreachable_err = WasmHost::execute_reflex(Path::new("missing.wasm"), "arg")
+            .expect_err("closed port must fail");
+        let unreachable_msg = unreachable_err.to_string();
+        assert!(
+            unreachable_msg.contains("susi-native service unreachable"),
+            "unexpected unreachable error: {unreachable_msg}"
+        );
+        assert!(
+            unreachable_msg.contains(&closed_port.to_string()),
+            "expected port {closed_port} in error: {unreachable_msg}"
+        );
+
+        // 2. Spin up a listener returning HTTP 401 with empty body, then HTTP 502 with plain-text body.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let port = listener.local_addr().expect("listener addr").port();
+        std::env::set_var("SUSI_NATIVE_PORT", port.to_string());
+
+        let server = std::thread::spawn(move || {
+            let (mut s1, _) = listener.accept().expect("accept 401 request");
+            let _ = read_http_request(&mut s1);
+            write!(s1, "HTTP/1.0 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+                .expect("write 401 response");
+            s1.flush().expect("flush 401");
+            drop(s1);
+
+            let (mut s2, _) = listener.accept().expect("accept 502 request");
+            let _ = read_http_request(&mut s2);
+            let body2 = "bad gateway upstream worker crashed";
+            write!(
+                s2,
+                "HTTP/1.0 502 Bad Gateway\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                body2.len(),
+                body2
+            )
+            .expect("write 502 response");
+            s2.flush().expect("flush 502");
+            drop(s2);
+        });
+
+        let err_401 = WasmHost::execute_reflex(Path::new("reflex.wasm"), "arg")
+            .expect_err("401 should return Err");
+        let msg_401 = err_401.to_string();
+        assert!(
+            msg_401.contains("bearer token rejected"),
+            "expected bearer token hint on 401, got: {msg_401}"
+        );
+
+        let err_502 = WasmHost::execute_reflex(Path::new("reflex.wasm"), "arg")
+            .expect_err("502 should return Err");
+        let msg_502 = err_502.to_string();
+        assert!(
+            msg_502.contains("bad gateway upstream worker crashed"),
+            "expected plain-text body on 502, got: {msg_502}"
+        );
+
+        server.join().expect("join server thread");
+        match prev_susi_home {
+            Some(v) => std::env::set_var("SUSI_HOME", v),
+            None => std::env::remove_var("SUSI_HOME"),
+        }
+        match prev_native_port {
+            Some(v) => std::env::set_var("SUSI_NATIVE_PORT", v),
+            None => std::env::remove_var("SUSI_NATIVE_PORT"),
+        }
+        let _ = std::fs::remove_dir_all(&temp_home);
+    }
 }
