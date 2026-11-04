@@ -94,3 +94,17 @@ fn independent_verify_dispatch_wiring() {
     };
     assert!(verification_satisfied(&ok, subject));
 }
+
+#[test]
+fn vc_201_028_failed_review_conclusion_is_never_satisfied() {
+    let failed = ReviewConclusion {
+        reviewer: "independent-verifier".into(),
+        pass: false,
+        receipts: vec![ToolReceipt {
+            tool: "cargo-test".into(),
+            digest: digest_fields(&["receipt", "d-fail"]),
+        }],
+        implementer: "alice".into(),
+    };
+    assert!(!verification_satisfied(&failed, "alice"));
+}

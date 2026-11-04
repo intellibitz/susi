@@ -1,0 +1,22 @@
+{
+  "id": "T-SWARMTESTS5TB1104-1",
+  "title": "test(susi-gawd-swarm): advance 14 Wave B src/tests suites to 5-test floor",
+  "goal": "Advance 14 crates/susi-gawd-swarm/src/tests/*.rs Wave B suites from 4 to 5 unit tests each (D-OS-8 5-test floor).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--",
+      "swarm_chaos_tests::"
+    ]
+  },
+  "created_by": "SWARMTESTS5TB1104",
+  "created_unix": 1793814200
+}
