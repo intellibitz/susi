@@ -62,3 +62,71 @@ impl ExperimentMemory {
         addresses_prior || has_fresh_evidence
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn novel_proposal_may_resubmit_without_addressed_ids_or_fresh_receipts() {
+        let mem = ExperimentMemory::default();
+        let candidate = ExperimentMemoryEntry {
+            proposal_id: "prop-1".to_string(),
+            cause: "latency regression".to_string(),
+            counterexample: Some("case-a".to_string()),
+            lineage: Vec::new(),
+        };
+        assert!(mem.may_resubmit(&candidate, &[], &[]));
+    }
+
+    #[test]
+    fn repeat_proposal_by_id_requires_prior_id_in_addressed_or_non_blank_receipt() {
+        let mut mem = ExperimentMemory::default();
+        let entry = ExperimentMemoryEntry {
+            proposal_id: "prop-1".to_string(),
+            cause: "latency regression".to_string(),
+            counterexample: Some("case-a".to_string()),
+            lineage: vec!["root".to_string()],
+        };
+        mem.record(entry.clone());
+
+        assert!(!mem.may_resubmit(&entry, &[], &[]));
+        assert!(mem.may_resubmit(&entry, &["prop-1".to_string()], &[]));
+        assert!(mem.may_resubmit(&entry, &[], &["receipt-123".to_string()]));
+    }
+
+    #[test]
+    fn renamed_proposal_with_identical_cause_and_counterexample_is_detected_as_prior() {
+        let mut mem = ExperimentMemory::default();
+        mem.record(ExperimentMemoryEntry {
+            proposal_id: "prop-original".to_string(),
+            cause: "oom under burst".to_string(),
+            counterexample: Some("trace-7".to_string()),
+            lineage: Vec::new(),
+        });
+
+        let renamed = ExperimentMemoryEntry {
+            proposal_id: "prop-renamed".to_string(),
+            cause: "oom under burst".to_string(),
+            counterexample: Some("trace-7".to_string()),
+            lineage: Vec::new(),
+        };
+        assert!(!mem.may_resubmit(&renamed, &["prop-renamed".to_string()], &[]));
+        assert!(mem.may_resubmit(&renamed, &["prop-original".to_string()], &[]));
+    }
+
+    #[test]
+    fn blank_fresh_receipts_do_not_satisfy_resubmission_gate() {
+        let mut mem = ExperimentMemory::default();
+        let entry = ExperimentMemoryEntry {
+            proposal_id: "prop-2".to_string(),
+            cause: "deadlock".to_string(),
+            counterexample: None,
+            lineage: Vec::new(),
+        };
+        mem.record(entry.clone());
+        assert!(!mem.may_resubmit(&entry, &[], &[String::new(), "   \t\n ".to_string()]));
+    }
+}

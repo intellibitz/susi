@@ -215,3 +215,83 @@ impl ActionHistory {
         records.iter().map(|r| r.cost_micros).sum()
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn new_action_history_starts_empty_and_clamps_anchor_interval_to_one() {
+        let hist = ActionHistory::new("k1", "secret-1", 0);
+        assert!(hist.is_empty());
+        assert_eq!(hist.len(), 0);
+        assert_eq!(hist.anchor_interval, 1);
+        assert_eq!(hist.signing_key_id, "k1");
+        assert!(hist.records().is_empty());
+        assert!(hist.anchors().is_empty());
+    }
+
+    #[test]
+    fn record_action_chains_segments_and_emits_periodic_chain_anchors() {
+        let mut hist = ActionHistory::new("k1", "secret-1", 2);
+        let first = hist
+            .record_action("agent-a", "m-1", "tool_call", 100, 50, "read file")
+            .expect("first record")
+            .clone();
+        assert_eq!(first.id, "act-0-100");
+        assert_eq!(hist.anchors().len(), 0);
+
+        let second = hist
+            .record_action("agent-a", "m-1", "git_commit", 110, 75, "commit fix")
+            .expect("second record")
+            .clone();
+        assert_eq!(second.id, "act-1-110");
+        assert_eq!(hist.len(), 2);
+        assert_eq!(hist.anchors().len(), 1);
+        assert_eq!(hist.anchors()[0].anchor_index, 1);
+        assert_eq!(hist.anchors()[0].head_anchor, second.segment.chain_anchor);
+    }
+
+    #[test]
+    fn verify_succeeds_for_intact_history_and_detects_tampered_anchor_or_missing_key() {
+        let mut hist = ActionHistory::new("k1", "secret-1", 1);
+        hist.record_action("agent-a", "m-1", "tool_call", 100, 10, "p1")
+            .expect("record 1");
+        hist.record_action("agent-b", "m-2", "tool_call", 200, 20, "p2")
+            .expect("record 2");
+
+        let mut keys = BTreeMap::new();
+        keys.insert("k1".to_string(), "secret-1".to_string());
+        assert_eq!(hist.verify(&keys), Ok(()));
+        assert_eq!(hist.export_file().expected_len, 2);
+        assert_eq!(hist.evidence().export().len(), 2);
+
+        let empty_keys = BTreeMap::new();
+        assert!(hist.verify(&empty_keys).is_err());
+
+        hist.anchors[0].head_anchor = "tampered".to_string();
+        assert_eq!(hist.verify(&keys), Err(VerifyFailure::Tampering));
+    }
+
+    #[test]
+    fn query_surfaces_and_total_cost_micros_filter_by_agent_mission_and_window() {
+        let mut hist = ActionHistory::new("k1", "secret-1", 5);
+        hist.record_action("agent-a", "m-1", "tool_call", 100, 150, "a1");
+        hist.record_action("agent-b", "m-1", "git_commit", 200, 250, "b1");
+        hist.record_action("agent-a", "m-2", "tool_call", 300, 350, "a2");
+
+        let by_agent = hist.query_by_agent("agent-a");
+        assert_eq!(by_agent.len(), 2);
+        assert_eq!(ActionHistory::total_cost_micros(&by_agent), 500);
+
+        let by_mission = hist.query_by_mission("m-1");
+        assert_eq!(by_mission.len(), 2);
+        assert_eq!(ActionHistory::total_cost_micros(&by_mission), 400);
+
+        let windowed = hist.query_by_kind_and_window("tool_call", 150, 350);
+        assert_eq!(windowed.len(), 1);
+        assert_eq!(windowed[0].payload, "a2");
+    }
+}
