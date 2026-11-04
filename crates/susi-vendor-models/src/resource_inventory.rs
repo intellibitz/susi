@@ -207,4 +207,23 @@ mod inline_tests {
             }
         );
     }
+
+    #[test]
+    fn resource_inventory_serde_json_roundtrip_preserves_observations_and_provenance() {
+        let inv = ResourceInventory::from_probes(ProbeInputs {
+            cpu_cores: Some(12),
+            ram_bytes: Some(64_000_000_000),
+            gpu_name: None,
+            vram_bytes: None,
+            disk_free_bytes: Some(250_000_000_000),
+            models: Some(vec!["phi4".to_string()]),
+            runtimes: None,
+            now_unix: Some(777),
+        });
+        let json = serde_json::to_string(&inv).expect("serialize ResourceInventory");
+        let back: ResourceInventory =
+            serde_json::from_str(&json).expect("deserialize ResourceInventory");
+        assert_eq!(back, inv);
+        assert!(back.has_unknown_readiness());
+    }
 }

@@ -721,4 +721,18 @@ mod inline_tests {
         assert!(gov.holds, "detail: {}", gov.detail);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn probe_evidence_produces_citable_receipt_and_mirrored_archive_in_scratch() {
+        let dir = std::env::temp_dir().join(format!("susi-crown-ev-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (evidence, archive) = probe_evidence(&dir);
+        assert_eq!(evidence.id, "evidence");
+        assert!(evidence.holds, "detail: {}", evidence.detail);
+        assert_eq!(archive.id, "receipt_archive");
+        assert!(archive.holds, "detail: {}", archive.detail);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

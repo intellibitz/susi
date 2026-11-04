@@ -160,4 +160,14 @@ mod tests {
         orchestrator.complete_task("worker-a");
         assert_eq!(orchestrator.pool_summary(), (1, 0));
     }
+
+    #[test]
+    fn test_orchestrator_reuses_completed_worker_for_subsequent_assignment() {
+        let orchestrator = Orchestrator::new("reuse-cell");
+        orchestrator.scale_up("worker-r");
+        assert_eq!(orchestrator.assign_task().as_deref(), Some("worker-r"));
+        assert!(orchestrator.assign_task().is_none());
+        orchestrator.complete_task("worker-r");
+        assert_eq!(orchestrator.assign_task().as_deref(), Some("worker-r"));
+    }
 }

@@ -383,4 +383,16 @@ mod tests {
         assert_eq!(status["catalog_count"].as_u64().unwrap(), 5);
         assert!(status["preferred"].is_null());
     }
+
+    #[test]
+    fn setup_returns_structured_instructions_and_model_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = FrontierManager::with_config(root.path().to_path_buf());
+        let info = manager.setup("claude-sonnet").unwrap();
+        assert_eq!(info["model"]["id"], "claude-sonnet");
+        assert!(info["instructions"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("susi frontier doctor claude-sonnet"));
+    }
 }

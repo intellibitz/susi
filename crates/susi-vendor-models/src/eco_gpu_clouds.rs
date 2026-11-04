@@ -53,4 +53,13 @@ mod tests {
         assert!(p.endpoints.iter().any(|e| e.path.contains("predictions")));
         assert!(p.endpoints.iter().any(|e| e.path.contains("runsync")));
     }
+
+    #[test]
+    fn eco_gpu_clouds_profile_matches_declared_constants_and_provenance() {
+        let p = profile().expect("profile loads");
+        assert_eq!(p.id, PROFILE_ID);
+        assert_eq!(p.subject, SUBJECT_ID);
+        assert!(!p.provenance.source.trim().is_empty());
+        assert!(!p.versions.is_empty());
+    }
 }

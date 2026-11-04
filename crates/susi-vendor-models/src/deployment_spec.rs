@@ -518,4 +518,18 @@ mod tests {
         let local_issues = check_portability(&candidate, DeploymentTarget::Local);
         assert!(local_issues.iter().any(|i| i.path == "/placement_policies"));
     }
+
+    #[test]
+    fn restore_for_target_kubernetes_succeeds_and_export_spec_refuses_invalid_id() {
+        let valid = spec();
+        let exported = export_spec(&valid).expect("export valid spec");
+        let restored = restore_for_target(&exported, DeploymentTarget::Kubernetes)
+            .expect("kubernetes supports openai-compatible, accelerators, and k8s secrets");
+        assert_eq!(restored.id, "demo-deployment");
+
+        let mut bad = spec();
+        bad.id = "INVALID ID!".into();
+        let err = export_spec(&bad).expect_err("invalid id must fail export");
+        assert!(err.to_string().contains("/id"));
+    }
 }

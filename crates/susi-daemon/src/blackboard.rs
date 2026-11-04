@@ -210,4 +210,26 @@ mod tests {
         assert_eq!(board.query_topic("sla.violation").len(), 1);
         assert!(format!("{board:?}").contains("SwarmBlackboard"));
     }
+
+    #[test]
+    fn penalize_unregister_and_evaporate_pheromones_update_board_state() {
+        let board = SwarmBlackboard::new();
+        board.penalize_cell("cell-x", 0.4);
+        board.unregister_cell("cell-x");
+        assert!(board.find_capable_cells(42).is_empty());
+
+        board.deposit_pheromone(SwarmPheromone {
+            id: "ph-expired".to_string(),
+            topic: "temp.topic".to_string(),
+            emitter_id: "cell-x".to_string(),
+            kind: crate::susi_abi::swarm::PheromoneKind::Observation,
+            intensity: 0.5,
+            payload: serde_json::json!({}),
+            ttl_ms: 100,
+            deposited_at: 0,
+        });
+        assert_eq!(board.query_topic("temp.topic").len(), 1);
+        board.evaporate_pheromones();
+        assert!(board.query_topic("temp.topic").is_empty());
+    }
 }

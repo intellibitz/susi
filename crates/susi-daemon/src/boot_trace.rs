@@ -98,4 +98,13 @@ mod tests {
             assert!(!super::first_slow("unit: backdated-slow-finished"));
         }
     }
+
+    #[test]
+    fn slow_phase_constant_is_five_seconds_and_origin_is_monotonic() {
+        assert_eq!(super::SLOW_PHASE, super::Duration::from_secs(5));
+        let t0 = super::origin();
+        let t1 = super::origin();
+        assert_eq!(t0, t1);
+        assert!(t0.elapsed() >= super::Duration::ZERO);
+    }
 }
