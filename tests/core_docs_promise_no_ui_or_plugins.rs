@@ -609,3 +609,9 @@ fn prose_and_has_word_strip_inline_code_and_markdown_links() {
     assert!(is_history(&plain("Note (superseded by v2)")));
     assert!(!is_history(&plain("Normal sentence about architecture")));
 }
+
+#[test]
+fn plain_strips_markdown_asterisks_and_backticks_and_lowercases() {
+    assert_eq!(plain("**Bold** and `code`"), "bold and code");
+    assert_eq!(plain("*Italic* _text_"), "italic _text_");
+}

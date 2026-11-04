@@ -205,3 +205,11 @@ fn unit_scratch_home_generates_distinct_paths_per_iteration() {
     let h2 = scratch_home(2);
     assert_ne!(h1, h2);
 }
+
+#[test]
+fn unit_bin_and_sha256_helpers_produce_valid_outputs() {
+    assert!(!bin().is_empty());
+    let empty_digest = sha256_hex(b"");
+    assert_eq!(empty_digest.len(), 64);
+    assert_ne!(empty_digest, sha256_hex(b"susi"));
+}

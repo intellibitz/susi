@@ -299,3 +299,11 @@ fn unit_fixture_store_writes_five_valid_eco_schema_v1_documents_with_provenance(
     }
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn unit_prov_constant_parses_as_verified_provenance_fragment() {
+    let wrapped = format!("{{{PROV}}}");
+    let doc: serde_json::Value = serde_json::from_str(&wrapped).expect("valid JSON fragment");
+    assert_eq!(doc["provenance"]["confidence"], "verified");
+    assert_eq!(doc["provenance"]["spec_version"], "1.0");
+}

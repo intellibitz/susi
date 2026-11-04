@@ -79,3 +79,11 @@ fn telemetry_prometheus_exposition_includes_type_and_help_headers() {
     assert!(prom.contains("susi_inference_cost_micros_total 0"));
     assert!(prom.contains("susi_inference_errors_total 0"));
 }
+
+#[test]
+fn telemetry_token_usage_constructors_set_expected_fields() {
+    let u = TokenUsage::new(120, 45);
+    assert_eq!(u.prompt_tokens, 120);
+    assert_eq!(u.completion_tokens, 45);
+    assert_eq!(u.cached_tokens, 0);
+}
