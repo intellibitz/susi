@@ -341,8 +341,11 @@ async fn handle_gemi_request(
                 "Unauthorized",
             ));
         }
-        if !susi_core::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute())
-        {
+        if !susi_core::net_guard::RateLimiter::global().check_unless_local_host(
+            authorization.as_deref(),
+            peer_ip,
+            cfg.rate_limit_per_minute(),
+        ) {
             return Ok(pre_dispatch_error(
                 &path,
                 StatusCode::TOO_MANY_REQUESTS,

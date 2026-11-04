@@ -414,9 +414,13 @@ async fn handle_request(
         Some(&effective),
     ) {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
-    } else if !crate::susi_core::net_guard::RateLimiter::global()
-        .check(peer, cfg.rate_limit_per_minute())
-    {
+    } else if !crate::susi_core::net_guard::RateLimiter::global().check_unless_local_host(
+        req.headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok()),
+        peer,
+        cfg.rate_limit_per_minute(),
+    ) {
         response(StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded")
     } else if matches!(req.uri().path(), "/mcp" | "/messages") {
         // The same envelope gate the stdio transport runs: malformed
