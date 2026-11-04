@@ -144,4 +144,20 @@ mod inline_tests {
             PlacementDecision::RejectUnknownRegion
         );
     }
+
+    #[test]
+    fn region_provenance_and_cloud_target_round_trip_serde_json() {
+        let target = CloudTarget {
+            provider: "vertex".to_string(),
+            model: "gemini-2.5-pro".to_string(),
+            region: Some(RegionMeta {
+                region: "us-central1".to_string(),
+                provenance: RegionProvenance::OperatorAttested,
+            }),
+        };
+        let encoded = serde_json::to_string(&target).unwrap();
+        assert!(encoded.contains("operator_attested"));
+        let decoded: CloudTarget = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, target);
+    }
 }
