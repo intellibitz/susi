@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "CORE5TE1104",
-  "created_unix": 1793802942
+  "created_unix": 1793802942,
+  "closed": {
+    "at_unix": 1793803689,
+    "commit": "378be15624eec8122aeb27a72e778e22ceeb58ed",
+    "by": "CORE5TE1104"
+  }
 }
