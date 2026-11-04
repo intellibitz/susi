@@ -30,6 +30,21 @@ fn role_of(role: &str) -> SwarmRole {
     }
 }
 
+/// Construct a [`SwarmCell`] from a parsed [`PluginManifest`] and bind address,
+/// registering every declared capability into the cell's Bloom filter.
+fn build_cell(manifest: &PluginManifest, bind_addr: &str) -> SwarmCell {
+    let role = role_of(&manifest.role);
+    let mut cell = SwarmCell::new(
+        format!("universal-{}", manifest.name),
+        role,
+        format!("tcp://{}", bind_addr),
+    );
+    for cap in &manifest.capabilities {
+        cell.register_capability(cap);
+    }
+    cell
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -49,17 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         manifest.name, bind_addr
     );
 
-    let role = role_of(&manifest.role);
-
-    let mut cell = SwarmCell::new(
-        format!("universal-{}", manifest.name),
-        role,
-        format!("tcp://{}", bind_addr),
-    );
-
-    for cap in &manifest.capabilities {
-        cell.register_capability(cap);
-    }
+    let cell = build_cell(&manifest, bind_addr);
 
     let manifest = Arc::new(manifest);
 
@@ -257,5 +262,44 @@ mod tests {
         assert!(res.data["stdout"].as_str().unwrap().contains("out"));
         assert!(res.data["stderr"].as_str().unwrap().contains("err"));
         assert_eq!(res.data["code"], serde_json::json!(3));
+    }
+
+    #[test]
+    fn build_cell_registers_deduplicated_capabilities_and_formats_tcp_endpoint() {
+        let m = PluginManifest {
+            name: "kubectl".to_string(),
+            role: "PlannerCell".to_string(),
+            capabilities: vec![
+                "k8s.pods".to_string(),
+                "k8s.deployments".to_string(),
+                "k8s.pods".to_string(),
+            ],
+            command: "kubectl".to_string(),
+            args: vec!["get".to_string()],
+        };
+        let mut cell = build_cell(&m, "127.0.0.1:19400");
+        assert_eq!(cell.manifest.cell_id, "universal-kubectl");
+        assert_eq!(cell.manifest.role, SwarmRole::PlannerCell);
+        assert_eq!(cell.manifest.endpoint, "tcp://127.0.0.1:19400");
+        assert_eq!(cell.manifest.capabilities.len(), 2);
+        assert!(cell.can_handle("k8s.pods"));
+        assert!(cell.can_handle("k8s.deployments"));
+        assert!(!cell.can_handle("k8s.secrets"));
+
+        cell.set_ready(77);
+        cell.record_success();
+        let hb_req = SyscallRequest {
+            id: "hb-1".to_string(),
+            caller_id: "daemon".to_string(),
+            op: susi_abi::syscall::SyscallOp::Heartbeat,
+            token: None,
+            workspace: None,
+            payload: serde_json::Value::Null,
+            timestamp: 77,
+        };
+        let hb_resp = cell.heartbeat_response(&hb_req);
+        assert_eq!(hb_resp.status, SyscallStatus::Success);
+        assert_eq!(hb_resp.data["cell_id"], "universal-kubectl");
+        assert_eq!(hb_resp.data["missions_completed"], 1);
     }
 }
