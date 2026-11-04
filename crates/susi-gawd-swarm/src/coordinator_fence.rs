@@ -174,4 +174,27 @@ mod inline_tests {
             Some("authoritative-state")
         );
     }
+
+    #[test]
+    fn leadership_epoch_and_mission_write_serde_json_roundtrip() {
+        let ep = LeadershipEpoch {
+            epoch: 9,
+            coordinator: "coord-nine".to_string(),
+        };
+        let ep_json = serde_json::to_string(&ep).expect("serialize LeadershipEpoch");
+        let ep_back: LeadershipEpoch =
+            serde_json::from_str(&ep_json).expect("deserialize LeadershipEpoch");
+        assert_eq!(ep_back, ep);
+
+        let mw = MissionWrite {
+            mission_id: "m-9".to_string(),
+            epoch: 9,
+            coordinator: "coord-nine".to_string(),
+            payload: "state-9".to_string(),
+        };
+        let mw_json = serde_json::to_string(&mw).expect("serialize MissionWrite");
+        let mw_back: MissionWrite =
+            serde_json::from_str(&mw_json).expect("deserialize MissionWrite");
+        assert_eq!(mw_back, mw);
+    }
 }
