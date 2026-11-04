@@ -93,3 +93,82 @@ pub fn exclude_if_contaminated<T>(report: &ContaminationReport, evidence: T) -> 
         Ok(evidence)
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use crate::rsi_corpus::{
+        CorpusFixture, FixtureClass, FixtureSplit, RsiCorpus, RSI_CORPUS_SCHEMA,
+    };
+    use sha2::{Digest, Sha256};
+
+    fn hash(s: &str) -> String {
+        hex::encode(Sha256::digest(s.as_bytes()))
+    }
+
+    #[test]
+    fn detect_returns_clean_report_when_held_out_is_disjoint() {
+        let held_out = BTreeSet::from(["hold-1".to_string(), "hold-2".to_string()]);
+        let train = BTreeSet::from(["train-1".to_string()]);
+        let mem = BTreeSet::from(["mem-1".to_string()]);
+        let report = detect(&held_out, &train, &mem);
+        assert!(!report.contaminated);
+        assert_eq!(report.reason, None);
+        assert_eq!(exclude_if_contaminated(&report, 42), Ok(42));
+    }
+
+    #[test]
+    fn detect_reports_sorted_deduplicated_overlap_across_train_and_memory() {
+        let held_out = BTreeSet::from(["h-b".to_string(), "h-a".to_string()]);
+        let train = BTreeSet::from(["h-b".to_string(), "train-1".to_string()]);
+        let mem = BTreeSet::from(["h-a".to_string(), "h-b".to_string()]);
+        let report = detect(&held_out, &train, &mem);
+        assert!(report.contaminated);
+        assert_eq!(report.reason.as_deref(), Some("held-out overlap: h-a,h-b"));
+        assert!(exclude_if_contaminated(&report, "score").is_err());
+    }
+
+    #[test]
+    fn exclude_if_contaminated_uses_default_message_when_reason_is_none() {
+        let report = ContaminationReport {
+            contaminated: true,
+            reason: None,
+        };
+        let err = exclude_if_contaminated(&report, 1).unwrap_err();
+        assert_eq!(err, "contaminated run excluded from improvement evidence");
+    }
+
+    #[test]
+    fn detect_in_corpus_catches_duplicated_held_out_content_under_different_fixture_id() {
+        let secret_input = "held-out prompt body";
+        let secret_hash = hash(secret_input);
+        let corpus = RsiCorpus {
+            schema_version: RSI_CORPUS_SCHEMA.to_string(),
+            revision: "rev-1".to_string(),
+            fixtures: vec![
+                CorpusFixture {
+                    id: "train-dup".to_string(),
+                    class: FixtureClass::Coding,
+                    input: secret_input.to_string(),
+                    input_hash: secret_hash.clone(),
+                    split: FixtureSplit::Train,
+                    seed: 1,
+                    evaluator_expected: None,
+                },
+                CorpusFixture {
+                    id: "hold-orig".to_string(),
+                    class: FixtureClass::Coding,
+                    input: secret_input.to_string(),
+                    input_hash: secret_hash,
+                    split: FixtureSplit::HeldOut,
+                    seed: 2,
+                    evaluator_expected: None,
+                },
+            ],
+            promotion_spec: None,
+        };
+        let train_access = BTreeSet::from(["train-dup".to_string()]);
+        let report = detect_in_corpus(&corpus, &train_access, &BTreeSet::new()).unwrap();
+        assert!(report.contaminated);
+    }
+}

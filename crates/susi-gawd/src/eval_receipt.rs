@@ -47,3 +47,51 @@ impl EvalReceipt {
             && self.source_revision == other.source_revision
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn digest_bytes_produces_deterministic_64_char_sha256_hex() {
+        let d1 = EvalReceipt::digest_bytes(b"candidate-binary-v1");
+        let d2 = EvalReceipt::digest_bytes(b"candidate-binary-v1");
+        let d3 = EvalReceipt::digest_bytes(b"candidate-binary-v2");
+        assert_eq!(d1.len(), 64);
+        assert_eq!(d1, d2);
+        assert_ne!(d1, d3);
+    }
+
+    #[test]
+    fn new_populates_fields_and_computes_artifact_digest() {
+        let artifact = b"wasm-payload";
+        let r = EvalReceipt::new("git-abc", artifact, "suite-1", "linux-x86_64", 0);
+        assert_eq!(r.source_revision, "git-abc");
+        assert_eq!(r.artifact_digest, EvalReceipt::digest_bytes(artifact));
+        assert_eq!(r.suite_revision, "suite-1");
+        assert_eq!(r.environment, "linux-x86_64");
+        assert_eq!(r.exit_status, 0);
+    }
+
+    #[test]
+    fn validates_against_accepts_matching_receipt_and_artifact() {
+        let artifact = b"verified-artifact";
+        let r1 = EvalReceipt::new("rev-1", artifact, "suite-2", "env-a", 0);
+        let r2 = EvalReceipt::new("rev-1", artifact, "suite-2", "env-b", 0);
+        assert!(r1.validates_against(artifact, Some(&r2)));
+    }
+
+    #[test]
+    fn validates_against_rejects_none_tampered_artifact_or_mismatched_revisions() {
+        let artifact = b"verified-artifact";
+        let base = EvalReceipt::new("rev-1", artifact, "suite-2", "env-a", 0);
+        assert!(!base.validates_against(artifact, None));
+        assert!(!base.validates_against(b"tampered", Some(&base)));
+
+        let diff_suite = EvalReceipt::new("rev-1", artifact, "suite-3", "env-a", 0);
+        assert!(!base.validates_against(artifact, Some(&diff_suite)));
+
+        let diff_source = EvalReceipt::new("rev-2", artifact, "suite-2", "env-a", 0);
+        assert!(!base.validates_against(artifact, Some(&diff_source)));
+    }
+}
