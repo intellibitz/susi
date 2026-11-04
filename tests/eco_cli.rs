@@ -276,3 +276,26 @@ fn kb_defaults_to_the_layered_store() {
     assert!(doc["outgoing"].as_array().unwrap().is_empty());
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn unit_fixture_store_writes_five_valid_eco_schema_v1_documents_with_provenance() {
+    let root = root("unit-store");
+    let store = fixture_store(&root);
+    for (stem, expected_kind) in [
+        ("acme", "vendor"),
+        ("acme-engine", "component"),
+        ("cap-tool-calling", "capability"),
+        ("proto", "protocol"),
+        ("proto-v1", "spec-version"),
+    ] {
+        let path = store.join(format!("{stem}.json"));
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["version"], "eco-schema/v1");
+        assert_eq!(parsed["entity"]["id"], stem);
+        assert_eq!(parsed["entity"]["kind"], expected_kind);
+        assert_eq!(parsed["entity"]["provenance"]["confidence"], "verified");
+        assert!(parsed["relations"].is_array());
+    }
+    std::fs::remove_dir_all(&root).ok();
+}

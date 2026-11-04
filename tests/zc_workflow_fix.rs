@@ -192,3 +192,25 @@ fn the_check_does_not_advertise_a_flag_it_lacks() {
         "check advertises --fix, which the CLI does not implement:\n{out}"
     );
 }
+
+#[test]
+fn unit_fix_lines_extracts_arrow_prefixed_guidance_and_trims_whitespace() {
+    let sample = "✗ hooks not installed\n  → git config core.hooksPath .githooks\ninfo line\n    → susi tasks claim T-1\n";
+    let extracted = fix_lines(sample);
+    assert_eq!(
+        extracted,
+        vec![
+            "git config core.hooksPath .githooks".to_string(),
+            "susi tasks claim T-1".to_string(),
+        ]
+    );
+    assert!(fix_lines("all checks passed\nno arrows here\n").is_empty());
+}
+
+#[test]
+fn unit_executable_helper_accepts_existing_repository_scripts() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script = repo.join("scripts/check-workflow-compliance.sh");
+    assert!(script.is_file());
+    assert!(executable(&script));
+}

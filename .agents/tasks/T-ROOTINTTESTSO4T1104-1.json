@@ -1,0 +1,29 @@
+{
+  "id": "T-ROOTINTTESTSO4T1104-1",
+  "title": "Expand zc_workflow_fix, eco_cli, first_goal_opening, vc_201_051, and zc_setup_workflow to 4 tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "zc_workflow_fix",
+      "--test",
+      "eco_cli",
+      "--test",
+      "first_goal_opening",
+      "--test",
+      "vc_201_051_checks_run_from_a_command",
+      "--test",
+      "zc_setup_workflow",
+      "--",
+      "unit_"
+    ]
+  },
+  "created_by": "ROOTINTTESTSO4T1104",
+  "created_unix": 1793796300
+}
