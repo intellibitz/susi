@@ -412,4 +412,22 @@ mod inline_tests {
 
         let _ = std::fs::remove_dir_all(tmp.parent().unwrap().parent().unwrap());
     }
+
+    #[test]
+    fn run_matrix_covers_every_fault_kind_variant_in_expected_order() {
+        let report = run_matrix();
+        let kinds: Vec<FaultKind> = report.scenarios.into_iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                FaultKind::Partition,
+                FaultKind::ClockSkew,
+                FaultKind::DuplicateDelivery,
+                FaultKind::StaleKey,
+                FaultKind::FailedRekey,
+                FaultKind::MixedVersion,
+                FaultKind::CrashRecovery,
+            ]
+        );
+    }
 }

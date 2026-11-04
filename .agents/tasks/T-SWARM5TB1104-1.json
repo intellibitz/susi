@@ -1,0 +1,22 @@
+{
+  "id": "T-SWARM5TB1104-1",
+  "title": "Advance 8 Wave B susi-gawd-swarm modules to 5 inline unit tests each (CEO Job #300)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--",
+      "fault_matrix::"
+    ]
+  },
+  "created_by": "SWARM5TB1104",
+  "created_unix": 1793809740
+}

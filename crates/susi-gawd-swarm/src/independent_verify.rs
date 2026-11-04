@@ -292,4 +292,29 @@ mod inline_tests {
         dup_digest.receipts[1].digest = d1;
         assert!(!verification_satisfied(&dup_digest, "impl-agent"));
     }
+
+    #[test]
+    fn verification_satisfied_rejects_failed_pass_empty_receipts_and_invalid_tool_or_digest() {
+        let d1 = digest_fields(&["ok-1"]);
+        let base = ReviewConclusion {
+            reviewer: "verifier-agent".into(),
+            pass: false,
+            receipts: vec![ToolReceipt {
+                tool: "cargo_test".into(),
+                digest: d1.clone(),
+            }],
+            implementer: "impl-agent".into(),
+        };
+        assert!(!verification_satisfied(&base, "impl-agent"));
+
+        let mut empty_receipts = base.clone();
+        empty_receipts.pass = true;
+        empty_receipts.receipts.clear();
+        assert!(!verification_satisfied(&empty_receipts, "impl-agent"));
+
+        let mut bad_tool = base;
+        bad_tool.pass = true;
+        bad_tool.receipts[0].tool = "cargo test".into();
+        assert!(!verification_satisfied(&bad_tool, "impl-agent"));
+    }
 }
