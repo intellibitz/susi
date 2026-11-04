@@ -1,0 +1,27 @@
+{
+  "id": "T-GAWDINLINED4T1104-1",
+  "title": "Expand 5 susi-gawd modules Wave D to 4 inline unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "GAWDINLINED4T1104",
+  "created_unix": 1793798414,
+  "closed": {
+    "at_unix": 1793799025,
+    "commit": "ed24b1455908df76285339cb2176c396cc4358e5",
+    "by": "GAWDINLINED4T1104"
+  }
+}

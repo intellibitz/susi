@@ -131,3 +131,66 @@ fn compile_to_wasi(code: &str) -> Result<StagedReflex, ()> {
         }
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn probe_reflex_with_executor_rejects_malformed_fixture_with_blank_expect_action() {
+        let fixture = IntentFixture {
+            input: "ping".into(),
+            expect_action: "   ".into(),
+        };
+        let verdict =
+            probe_reflex_with_executor("fn main() {}", &fixture, |_, _| Ok("pong".into()));
+        assert_eq!(verdict, ReflexVerdict::RejectMalformed);
+    }
+
+    #[test]
+    fn probe_compiled_with_executor_handles_execution_error_and_signature_echo() {
+        let dummy = Path::new("reflex.wasm");
+        let fixture = IntentFixture {
+            input: "transform:alpha".into(),
+            expect_action: "alpha_done".into(),
+        };
+        let exec_err =
+            probe_compiled_with_executor(dummy, &fixture, |_, _| Err("sandbox trap".into()));
+        assert_eq!(exec_err, ReflexVerdict::RejectExecution);
+
+        let echo =
+            probe_compiled_with_executor(dummy, &fixture, |_, input| Ok(format!("  {input}  ")));
+        assert_eq!(echo, ReflexVerdict::RejectSignatureEcho);
+    }
+
+    #[test]
+    fn probe_compiled_with_executor_distinguishes_accept_from_wrong_output() {
+        let dummy = Path::new("reflex.wasm");
+        let fixture = IntentFixture {
+            input: "compute".into(),
+            expect_action: "RESULT=42".into(),
+        };
+        let wrong = probe_compiled_with_executor(dummy, &fixture, |_, _| Ok("RESULT=0".into()));
+        assert_eq!(wrong, ReflexVerdict::RejectWrongOutput);
+
+        let accepted = probe_compiled_with_executor(dummy, &fixture, |_, _| {
+            Ok("ok: RESULT=42 verified".into())
+        });
+        assert_eq!(accepted, ReflexVerdict::Accept);
+    }
+
+    #[test]
+    fn probe_reflex_with_executor_rejects_invalid_rust_source_before_executor_runs() {
+        let fixture = IntentFixture {
+            input: "hello".into(),
+            expect_action: "world".into(),
+        };
+        let mut called = false;
+        let verdict = probe_reflex_with_executor("not valid rust source {{{", &fixture, |_, _| {
+            called = true;
+            Ok("world".into())
+        });
+        assert_eq!(verdict, ReflexVerdict::RejectCompilation);
+        assert!(!called);
+    }
+}

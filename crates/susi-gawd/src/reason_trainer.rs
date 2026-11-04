@@ -30,3 +30,63 @@ impl ReasoningTrainer {
         ))
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn fresh_temp_workspace(tag: &str) -> std::path::PathBuf {
+        static NONCE: AtomicU64 = AtomicU64::new(0);
+        let n = NONCE.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-reason-trainer-{tag}-{}-{n}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn audit_reasoning_substrate_distills_genome_when_experience_buffer_missing() {
+        let ws = fresh_temp_workspace("missing");
+        let summary = ReasoningTrainer::audit_reasoning_substrate(&ws).unwrap();
+        assert!(summary.contains("samples ("));
+        assert!(!summary.contains("(0 distilled from the compiled genome this run)"));
+        assert!(crate::genome_distiller::experience_path(&ws).exists());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn audit_reasoning_substrate_is_idempotent_on_populated_experience_buffer() {
+        let ws = fresh_temp_workspace("idempotent");
+        let _ = ReasoningTrainer::audit_reasoning_substrate(&ws).unwrap();
+        let second = ReasoningTrainer::audit_reasoning_substrate(&ws).unwrap();
+        assert!(second.contains("(0 distilled from the compiled genome this run)"));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn audit_reasoning_substrate_distills_when_experience_file_is_whitespace_only() {
+        let ws = fresh_temp_workspace("blank");
+        let exp = crate::genome_distiller::experience_path(&ws);
+        std::fs::create_dir_all(exp.parent().unwrap()).unwrap();
+        std::fs::write(&exp, "\n   \n").unwrap();
+
+        let summary = ReasoningTrainer::audit_reasoning_substrate(&ws).unwrap();
+        assert!(!summary.contains("(0 distilled from the compiled genome this run)"));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn audit_reasoning_substrate_preserves_custom_non_empty_experience_lines() {
+        let ws = fresh_temp_workspace("custom");
+        let exp = crate::genome_distiller::experience_path(&ws);
+        std::fs::create_dir_all(exp.parent().unwrap()).unwrap();
+        std::fs::write(&exp, "{\"sample\":1}\n{\"sample\":2}\n").unwrap();
+
+        let summary = ReasoningTrainer::audit_reasoning_substrate(&ws).unwrap();
+        assert!(summary.contains("2 samples (0 distilled from the compiled genome this run)"));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+}
