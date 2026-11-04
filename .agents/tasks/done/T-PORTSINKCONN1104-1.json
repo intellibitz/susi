@@ -20,5 +20,10 @@
     ]
   },
   "created_by": "PORTSINKCONN1104",
-  "created_unix": 1793768574
+  "created_unix": 1793768574,
+  "closed": {
+    "at_unix": 1793768813,
+    "commit": "365c185853f767df7f90726404bac6d5e0f63e6d",
+    "by": "PORTSINKCONN1104"
+  }
 }
