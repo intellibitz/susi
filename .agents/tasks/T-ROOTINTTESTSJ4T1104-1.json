@@ -1,0 +1,23 @@
+{
+  "id": "T-ROOTINTTESTSJ4T1104-1",
+  "title": "test(root): expand vc_201_098, vc_202_019, and installed_channel modules to 4 tests each",
+  "goal": "Expand vc_201_098, vc_202_019, and installed_channel modules to 4 unit tests each",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "vc_201_098_mastery",
+      "--test",
+      "vc_202_019_mastery",
+      "--test",
+      "vc_201_076_mastery"
+    ]
+  },
+  "created_by": "ROOTINTTESTSJ4T1104",
+  "created_unix": 1793794920
+}
