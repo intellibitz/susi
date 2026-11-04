@@ -59,3 +59,46 @@ impl Provider for CandleProvider {
         self
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn provider_name_returns_candle_local_label() {
+        let p = CandleProvider;
+        assert_eq!(p.name(), "Candle (Local)");
+    }
+
+    #[test]
+    fn as_any_downcasts_back_to_candle_provider() {
+        let p = CandleProvider;
+        assert!(p.as_any().downcast_ref::<CandleProvider>().is_some());
+    }
+
+    #[test]
+    fn embed_returns_unimplemented_inference_error() {
+        let p = CandleProvider;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        let err = rt
+            .block_on(p.embed("hello world"))
+            .expect_err("embed is unimplemented");
+        assert!(err.to_string().contains("not implemented"));
+    }
+
+    #[test]
+    fn is_healthy_completes_cleanly_in_tokio_runtime() {
+        let p = CandleProvider;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        let res = rt.block_on(p.is_healthy());
+        assert!(res.is_ok());
+    }
+}
