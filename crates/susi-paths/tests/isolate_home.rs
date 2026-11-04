@@ -205,3 +205,22 @@ fn the_callers_own_choices_are_kept() {
         .and_then(|(_, value)| value);
     assert_eq!(xdg_config, Some(home.join("xdg").as_os_str()));
 }
+
+#[test]
+fn susi_xdg_force_with_legacy_root_resolves_platform_dirs_under_isolated_home() {
+    let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (root, home, decoy) = scratch("xdg-force");
+    std::fs::create_dir_all(home.join(".susi")).unwrap();
+    let env = inherit_a_real_profile(&decoy);
+
+    let mut cmd = probe();
+    cmd.env("SUSI_XDG", "1");
+    let child = resolved(isolate_home(&mut cmd, &home));
+
+    drop(env);
+    let _ = std::fs::remove_dir_all(&root);
+    assert_all_under(&child.dirs, &home, &decoy);
+    assert_eq!(child.dirs["config_dir"], platform_config_dir(&home));
+    assert_ne!(child.dirs["config_dir"], home.join(".susi"));
+    assert_eq!(child.port_offset, "0");
+}

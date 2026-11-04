@@ -319,4 +319,73 @@ mod tests {
             vec!["gemini-flash".to_string(), "qwen-coder".to_string()]
         );
     }
+
+    #[test]
+    fn parses_custom_ledger_controls_rsi_log_prefix_and_rejects_invalid_budget_or_missing_values() {
+        let custom = parse(args(&[
+            "--plan",
+            "plan.json",
+            "--state",
+            "custom-state.json",
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--adapter-state",
+            "adapter-state",
+            "--ledger",
+            "custom/ledger.jsonl",
+            "--controls",
+            "custom/control.jsonl",
+            "--rsi-log",
+            "custom/rsi.jsonl",
+            "--prefix",
+            "custom-prefix",
+            "--parallel",
+            "4",
+        ]))
+        .unwrap();
+        assert_eq!(custom.state, PathBuf::from("custom-state.json"));
+        assert_eq!(custom.ledger, PathBuf::from("custom/ledger.jsonl"));
+        assert_eq!(custom.controls, PathBuf::from("custom/control.jsonl"));
+        assert_eq!(custom.rsi_log, Some(PathBuf::from("custom/rsi.jsonl")));
+        assert_eq!(custom.prefix, "custom-prefix");
+        assert_eq!(custom.parallel, 4);
+
+        assert_eq!(
+            parse(args(&["--budget-usd", "nope"])).err().unwrap(),
+            "--budget-usd nope is not a dollar amount"
+        );
+        assert_eq!(
+            parse(args(&["--plan", "plan.json"])).err().unwrap(),
+            "--repo and --susi are required"
+        );
+        assert_eq!(
+            parse(args(&["--plan", "plan.json", "--repo", "r", "--susi", "s"]))
+                .err()
+                .unwrap(),
+            "--gateway and --model are required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--plan",
+                "plan.json",
+                "--repo",
+                "r",
+                "--susi",
+                "s",
+                "--gateway",
+                "g",
+                "--model",
+                "m",
+            ]))
+            .err()
+            .unwrap(),
+            "--adapter-state is required"
+        );
+    }
 }

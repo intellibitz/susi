@@ -279,4 +279,22 @@ mod tests {
             Some(&OsStr::new("250").to_os_string())
         );
     }
+
+    #[test]
+    fn env_guard_reverses_multiple_mutations_on_same_variable_in_lifo_order() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let before_home = std::env::var_os("HOME");
+        let before_profile = std::env::var_os("USERPROFILE");
+        let tmp_a = std::env::temp_dir().join(format!("susi_env_lifo_a_{}", std::process::id()));
+        let tmp_b = std::env::temp_dir().join(format!("susi_env_lifo_b_{}", std::process::id()));
+        {
+            let mut env = EnvGuard::isolated();
+            env.set("HOME", &tmp_a);
+            env.remove("HOME");
+            env.set("HOME", &tmp_b);
+            assert_eq!(crate::xdg::home_dir().as_deref(), Some(tmp_b.as_path()));
+        }
+        assert_eq!(std::env::var_os("HOME"), before_home);
+        assert_eq!(std::env::var_os("USERPROFILE"), before_profile);
+    }
 }
