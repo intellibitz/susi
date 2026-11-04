@@ -1,0 +1,28 @@
+{
+  "id": "T-REUSERECEIPT1102-1",
+  "title": "Bind executed Windows sysroot consumer to the archive reuse receipt",
+  "deps": [
+    "T-STDLIBREUSE1102-1"
+  ],
+  "scopes": [
+    "xtask/src/trusted_sysroot.rs",
+    "xtask/src/stdlib_cache.rs",
+    ".agents/tasks/T-REUSERECEIPT1102-1.json",
+    ".agents/evidence/reuse-receipt-1102.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "trusted_sysroot::"
+    ]
+  },
+  "created_by": "REUSERECEIPT1102",
+  "goal": "Issue a content-bound record only after the exact consumer executes. Reject mismatched tool inputs, artifacts, execution settings and test outcomes during reuse."
+}
