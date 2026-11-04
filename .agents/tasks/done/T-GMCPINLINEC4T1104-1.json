@@ -1,0 +1,25 @@
+{
+  "id": "T-GMCPINLINEC4T1104-1",
+  "title": "test(gmcp): expand inline unit tests to 4 in jsonrpc_gate, mcp_call_budgets, mcp_profile, mcp_registry_trust, stdio",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--lib"
+    ]
+  },
+  "created_by": "GMCPINLINEC4T1104",
+  "created_unix": 1793799743,
+  "closed": {
+    "at_unix": 1793800014,
+    "commit": "7eef9dcc35551f50ec785f1b34789f27dbdefb9f",
+    "by": "GMCPINLINEC4T1104"
+  }
+}
