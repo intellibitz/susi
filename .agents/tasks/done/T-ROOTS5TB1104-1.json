@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "ROOTS5TB1104",
-  "created_unix": 1793813000
+  "created_unix": 1793813000,
+  "closed": {
+    "at_unix": 1793812109,
+    "commit": "702e20ff4c41b6994ef2bc914827867e0116dab3",
+    "by": "ROOTS5TB1104"
+  }
 }
