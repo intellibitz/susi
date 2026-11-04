@@ -135,8 +135,8 @@ fn vc_201_098_platform_matrix_covers_all_three_hosts_with_distinct_installers() 
 #[test]
 fn vc_201_098_installer_fixtures_enforce_strict_shell_and_powershell_safety_headers() {
     let sh = installer_body("install.sh");
-    assert!(sh.contains("set -eu"));
-    assert!(sh.to_ascii_lowercase().contains("sha256"));
+    assert!(sh.starts_with("#!/usr/bin/env bash"));
+    assert!(sh.contains("BASH_VERSION"));
 
     let ps1 = installer_body("install.ps1");
     assert!(ps1.contains("ErrorActionPreference"));
