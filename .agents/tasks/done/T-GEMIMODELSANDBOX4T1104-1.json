@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "GEMIMODELSANDBOX4T1104",
-  "created_unix": 1793789534
+  "created_unix": 1793789534,
+  "closed": {
+    "at_unix": 1793789977,
+    "commit": "a2e92e543a542931704211c89c5cb6f57c79caa0",
+    "by": "GEMIMODELSANDBOX4T1104"
+  }
 }
