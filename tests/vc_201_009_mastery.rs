@@ -120,3 +120,71 @@ fn vc_201_009_mastery() {
         "corrupted corpus must fail integrity check rather than report clean"
     );
 }
+
+#[test]
+fn vc_201_009_empty_sets_are_uncontaminated_and_pass_gate() {
+    let report = detect(&set(&[]), &set(&["t1"]), &set(&["m1"]));
+    assert!(!report.contaminated);
+    assert!(report.reason.is_none());
+    assert_eq!(exclude_if_contaminated(&report, 42u32), Ok(42u32));
+}
+
+#[test]
+fn vc_201_009_detect_in_corpus_flags_memory_hash_collision_with_held_out() {
+    let corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-mem".into(),
+        fixtures: vec![
+            make_fixture(FixtureSpec {
+                id: "held-alpha",
+                class: FixtureClass::Coding,
+                input: "unique held-out prompt payload",
+                split: FixtureSplit::HeldOut,
+                seed: 7,
+                evaluator_expected: None,
+            }),
+            make_fixture(FixtureSpec {
+                id: "mem-mirror",
+                class: FixtureClass::Coding,
+                input: "unique held-out prompt payload",
+                split: FixtureSplit::Train,
+                seed: 8,
+                evaluator_expected: None,
+            }),
+        ],
+        promotion_spec: None,
+    };
+    let report = detect_in_corpus(&corpus, &set(&[]), &set(&["mem-mirror"])).unwrap();
+    assert!(report.contaminated);
+    assert!(exclude_if_contaminated(&report, "candidate").is_err());
+}
+
+#[test]
+fn vc_201_009_detect_in_corpus_passes_disjoint_train_and_held_out_fixtures() {
+    let corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-clean".into(),
+        fixtures: vec![
+            make_fixture(FixtureSpec {
+                id: "held-1",
+                class: FixtureClass::Coding,
+                input: "held-out content alpha",
+                split: FixtureSplit::HeldOut,
+                seed: 1,
+                evaluator_expected: None,
+            }),
+            make_fixture(FixtureSpec {
+                id: "train-1",
+                class: FixtureClass::Coding,
+                input: "distinct training content beta",
+                split: FixtureSplit::Train,
+                seed: 2,
+                evaluator_expected: None,
+            }),
+        ],
+        promotion_spec: None,
+    };
+    let report = detect_in_corpus(&corpus, &set(&["train-1"]), &set(&[])).unwrap();
+    assert!(!report.contaminated);
+    assert_eq!(exclude_if_contaminated(&report, "ok"), Ok("ok"));
+}
