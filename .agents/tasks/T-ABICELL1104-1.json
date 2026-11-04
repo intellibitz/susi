@@ -1,0 +1,26 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ABICELL1104-1",
+  "title": "feat(abi): add cell_bind_addr_with and harden syscall, router, and cell_server tests (D-OS-8)",
+  "status": "in_progress",
+  "created_at": "2026-11-04T02:35:50Z",
+  "owner": "gemini",
+  "touch": [
+    "crates/susi-abi/src/cell.rs",
+    "crates/susi-abi/src/syscall.rs",
+    "crates/susi-abi/src/router.rs",
+    "crates/susi-abi/src/cell_server.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-abi",
+      "--all-features",
+      "--lib"
+    ]
+  }
+}
