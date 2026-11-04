@@ -94,3 +94,77 @@ pub fn unrelated_preserved(applied: &[Patch], conflicted_paths: &BTreeSet<String
         .map(|p| p.body.clone())
         .collect()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn patch(agent: &str, base_rev: u64, paths: &[&str], body: &str) -> Patch {
+        Patch {
+            agent: agent.to_string(),
+            base_rev,
+            paths: paths.iter().map(|s| (*s).to_string()).collect(),
+            body: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn apply_increments_rev_and_tracks_applied_count_for_disjoint_patches() {
+        let mut txn = WorkspaceTxn::new();
+        assert_eq!(txn.rev(), 0);
+        assert_eq!(
+            txn.apply(patch("a1", 0, &["src/a.rs"], "diff-a"), &[]),
+            ApplyOutcome::Applied { new_rev: 1 }
+        );
+        assert_eq!(
+            txn.apply(patch("a2", 1, &["src/b.rs"], "diff-b"), &[]),
+            ApplyOutcome::Applied { new_rev: 2 }
+        );
+        assert_eq!(txn.applied_count(), 2);
+    }
+
+    #[test]
+    fn apply_rejects_stale_base_revision() {
+        let mut txn = WorkspaceTxn::new();
+        let _ = txn.apply(patch("a1", 0, &["src/a.rs"], "diff-a"), &[]);
+        assert_eq!(
+            txn.apply(patch("a2", 0, &["src/c.rs"], "diff-c"), &[]),
+            ApplyOutcome::StaleBase { current_rev: 1 }
+        );
+    }
+
+    #[test]
+    fn apply_detects_conflicts_against_staging_and_prior_owners() {
+        let mut txn = WorkspaceTxn::new();
+        let staged = vec![patch("a2", 0, &["src/shared.rs"], "staged")];
+        assert_eq!(
+            txn.apply(patch("a1", 0, &["src/shared.rs"], "live"), &staged),
+            ApplyOutcome::Conflict {
+                overlapping: BTreeSet::from(["src/shared.rs".to_string()])
+            }
+        );
+
+        let _ = txn.apply(patch("a1", 0, &["src/owned.rs"], "first"), &[]);
+        assert_eq!(
+            txn.apply(patch("a2", 1, &["src/owned.rs"], "second"), &[]),
+            ApplyOutcome::Conflict {
+                overlapping: BTreeSet::from(["src/owned.rs".to_string()])
+            }
+        );
+    }
+
+    #[test]
+    fn unrelated_preserved_retains_only_disjoint_patch_bodies() {
+        let applied = vec![
+            patch("a1", 0, &["src/clean.rs"], "clean-body"),
+            patch("a2", 1, &["src/conflict.rs"], "conflict-body"),
+        ];
+        let conflicted = BTreeSet::from(["src/conflict.rs".to_string()]);
+        assert_eq!(
+            unrelated_preserved(&applied, &conflicted),
+            vec!["clean-body".to_string()]
+        );
+    }
+}

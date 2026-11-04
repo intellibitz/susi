@@ -1,0 +1,27 @@
+{
+  "id": "T-SWARMINLINEE4T1104-1",
+  "title": "test(swarm): expand inline unit tests to 4 in snapshot_bootstrap, swarm_chaos, task_lease, wan_peers, workspace_txn",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "SWARMINLINEE4T1104",
+  "created_unix": 1793799307,
+  "closed": {
+    "at_unix": 1793799582,
+    "commit": "c9f7dbb3445b273e37317b2e0f546b58361a272b",
+    "by": "SWARMINLINEE4T1104"
+  }
+}
