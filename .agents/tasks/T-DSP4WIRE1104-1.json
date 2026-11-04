@@ -1,0 +1,19 @@
+{
+  "id": "T-DSP4WIRE1104-1",
+  "title": "D-SP-4 Stage 1: susi-wire-client std-only HTTP/SSE/MCP client, thin_client_invariant ratchet, os_runtime first consumer",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-wire-client"
+    ]
+  },
+  "created_by": "DSP4WIRE1104",
+  "created_unix": 1793782474
+}
