@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "GEMIINLINEA4T1104",
-  "created_unix": 1793797605
+  "created_unix": 1793797605,
+  "closed": {
+    "at_unix": 1793797925,
+    "commit": "a0ab369f771c61b1e6d261b1d0a55f000dc5681f",
+    "by": "GEMIINLINEA4T1104"
+  }
 }
