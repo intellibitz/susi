@@ -139,26 +139,36 @@ pub mod cell_ports {
     pub const GAWD: u16 = 19092;
 }
 
-/// Listen address for a cell: `SUSI_CELL_ADDR` when it parses, else
-/// `127.0.0.1:<default_port + SUSI_PORT_OFFSET>` (the same instance offset
-/// that shifts every other susi port).
+/// Resolves a Swarm Cell's listen address from explicit environment inputs:
+/// `cell_addr_env` when it trims to a valid [`std::net::SocketAddr`], else
+/// `127.0.0.1:<default_port.saturating_add(port_offset_env)>`.
 #[must_use]
-pub fn cell_bind_addr(default_port: u16) -> std::net::SocketAddr {
+pub fn cell_bind_addr_with(
+    default_port: u16,
+    cell_addr_env: Option<&str>,
+    port_offset_env: Option<&str>,
+) -> std::net::SocketAddr {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    if let Some(addr) = std::env::var(CELL_ADDR_ENV)
-        .ok()
-        .and_then(|v| v.trim().parse::<SocketAddr>().ok())
-    {
+    if let Some(addr) = cell_addr_env.and_then(|v| v.trim().parse::<SocketAddr>().ok()) {
         return addr;
     }
-    let offset = std::env::var("SUSI_PORT_OFFSET")
-        .ok()
+    let offset = port_offset_env
         .and_then(|v| v.trim().parse::<u16>().ok())
         .unwrap_or(0);
     SocketAddr::new(
         IpAddr::V4(Ipv4Addr::LOCALHOST),
         default_port.saturating_add(offset),
     )
+}
+
+/// Listen address for a cell: `SUSI_CELL_ADDR` when it parses, else
+/// `127.0.0.1:<default_port + SUSI_PORT_OFFSET>` (the same instance offset
+/// that shifts every other susi port).
+#[must_use]
+pub fn cell_bind_addr(default_port: u16) -> std::net::SocketAddr {
+    let addr_env = std::env::var(CELL_ADDR_ENV).ok();
+    let offset_env = std::env::var("SUSI_PORT_OFFSET").ok();
+    cell_bind_addr_with(default_port, addr_env.as_deref(), offset_env.as_deref())
 }
 
 /// Computes a standard 64-bit FNV-1a hash of a capability string for bloom filter indexing.
@@ -246,5 +256,49 @@ mod tests {
         assert_eq!(status["missions_completed"], 1);
         assert_eq!(status["missions_failed"], 1);
         assert!(status["trust_score"].as_f64().is_some_and(|t| t < 1.0));
+    }
+
+    #[test]
+    fn cell_bind_addr_with_and_heartbeat_response_are_deterministic() {
+        assert_eq!(
+            cell_bind_addr_with(cell_ports::GMCP, Some(" 127.0.0.1:29999 "), Some("250"))
+                .to_string(),
+            "127.0.0.1:29999"
+        );
+        assert_eq!(
+            cell_bind_addr_with(cell_ports::GMCP, None, Some("250")).to_string(),
+            "127.0.0.1:19340"
+        );
+        assert_eq!(
+            cell_bind_addr_with(cell_ports::GMCP, Some("not-a-socket-addr"), Some("250"))
+                .to_string(),
+            "127.0.0.1:19340"
+        );
+        assert_eq!(
+            cell_bind_addr_with(cell_ports::GMCP, None, Some("65535")).port(),
+            u16::MAX
+        );
+
+        let mut cell = SwarmCell::new(
+            "cell-hb-resp".to_string(),
+            SwarmRole::ToolDriver,
+            "tcp://127.0.0.1:19092".to_string(),
+        );
+        cell.set_ready(42);
+        cell.record_success();
+        let req = SyscallRequest {
+            id: "req-hb-77".to_string(),
+            caller_id: "daemon".to_string(),
+            op: super::super::syscall::SyscallOp::Heartbeat,
+            token: None,
+            workspace: None,
+            payload: serde_json::Value::Null,
+            timestamp: 42,
+        };
+        let resp = cell.heartbeat_response(&req);
+        assert_eq!(resp.id, "req-hb-77");
+        assert_eq!(resp.status, SyscallStatus::Success);
+        assert_eq!(resp.data["cell_id"], "cell-hb-resp");
+        assert_eq!(resp.data["missions_completed"], 1);
     }
 }
