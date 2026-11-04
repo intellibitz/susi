@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "HWPARITY1104",
-  "created_unix": 1793753800
+  "created_unix": 1793753800,
+  "closed": {
+    "commit": "e71c1b955d0ae5b6c7152557252e09f907f96745",
+    "by": "HWPARITY1104",
+    "at_unix": 1793754100
+  }
 }
