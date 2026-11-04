@@ -1,0 +1,27 @@
+{
+  "id": "T-GMCP5TA1104-1",
+  "title": "test(gmcp): expand inline unit tests from 4 to 5 per module across susi-gmcp wave A",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "--",
+      "mcp_call_budgets::mcp_call_budgets_tests"
+    ]
+  },
+  "created_by": "GMCP5TA1104",
+  "created_unix": 1793810067,
+  "closed": {
+    "at_unix": 1793810845,
+    "commit": "93ec91e513ff42d2d4b94f7e0538d9ef80571942",
+    "by": "GMCP5TA1104"
+  }
+}

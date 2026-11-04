@@ -687,4 +687,20 @@ mod tests {
             GateVerdict::Reject { code: -32602, .. }
         ));
     }
+
+    #[test]
+    fn classify_line_rejects_unsupported_modern_protocol_version_and_drops_custom_notifications() {
+        let mut era = EraState::default();
+        let bad_ver = br#"{"jsonrpc":"2.0","id":5,"method":"ping","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"1999-01-01","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+        assert!(matches!(
+            classify_line(bad_ver, &mut era),
+            GateVerdict::Reject { code: -32022, .. }
+        ));
+
+        let custom_notif = br#"{"jsonrpc":"2.0","method":"notifications/custom_vendor_event"}"#;
+        assert!(matches!(
+            classify_line(custom_notif, &mut era),
+            GateVerdict::Drop
+        ));
+    }
 }

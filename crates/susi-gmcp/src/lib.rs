@@ -112,4 +112,10 @@ mod inline_tests {
         let err = susi_error::EaiError::process("gmcp root test");
         assert!(err.to_string().contains("gmcp root test"));
     }
+
+    #[test]
+    fn gmcp_crate_reexports_embed_install_source_and_protocol_versions() {
+        assert_eq!(embed_provider::INSTALL_SOURCE, "embeddings");
+        assert!(!protocol::MODERN_REQUEST_VERSIONS.is_empty());
+    }
 }
