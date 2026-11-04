@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "GAWDSUITESD4T1104",
-  "created_unix": 1793790963
+  "created_unix": 1793790963,
+  "closed": {
+    "at_unix": 1793791481,
+    "commit": "58ee4cdeb42ef2d6438ad8de0f29d63daa5f7340",
+    "by": "GAWDSUITESD4T1104"
+  }
 }
