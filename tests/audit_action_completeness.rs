@@ -71,3 +71,65 @@ fn audit_action_completeness() {
     assert!(choke.dispatch(&bypass).is_err());
     assert_eq!(sink.records().len(), AuditActionKind::all().len());
 }
+
+#[test]
+fn dispatch_mutation_aborts_before_running_closure_when_action_is_unredacted() {
+    let sink = RecordingAuditSink::default();
+    let choke = AuditChokePoint::new(sink.clone());
+    let mutated = Arc::new(Mutex::new(false));
+
+    let mut invalid = AuditAction::new(
+        AuditActionKind::ConfigurationChange,
+        "mutation-guard",
+        AuditTarget::identifier("config:key"),
+        AuditOutcome::Succeeded,
+        1,
+        0,
+        "completeness/unredacted",
+    )
+    .unwrap();
+    invalid.redacted = false;
+
+    let flag = Arc::clone(&mutated);
+    let res = choke.dispatch_mutation(&invalid, || {
+        *flag.lock().unwrap() = true;
+        Ok(())
+    });
+    assert!(res.is_err());
+    assert!(!*mutated.lock().unwrap());
+    assert!(sink.records().is_empty());
+}
+
+#[test]
+fn audit_action_from_legacy_hashes_detail_without_retaining_plaintext() {
+    let secret_detail = "token=ghp_super_secret_value_12345";
+    let action =
+        AuditAction::from_legacy("shell_exec", secret_detail, AuditOutcome::Succeeded).unwrap();
+    assert_eq!(action.action_kind, AuditActionKind::ToolExecution);
+    assert_eq!(action.actor, "runtime");
+    assert!(action.redacted);
+    let payload = action.target.payload.as_ref().unwrap();
+    assert_eq!(payload.bytes, secret_detail.len() as u64);
+    assert_eq!(payload.hint, "action_detail");
+    let json = serde_json::to_string(&action).unwrap();
+    assert!(!json.contains("ghp_super_secret_value_12345"));
+}
+
+#[test]
+fn audit_action_kinds_and_outcomes_expose_distinct_non_empty_labels() {
+    for kind in AuditActionKind::all() {
+        let label = kind.as_str();
+        assert!(!label.is_empty());
+        assert_eq!(label, label.to_ascii_lowercase());
+    }
+    let outcomes = [
+        AuditOutcome::Succeeded,
+        AuditOutcome::Denied,
+        AuditOutcome::Failed,
+        AuditOutcome::Cancelled,
+        AuditOutcome::Partial,
+        AuditOutcome::Uncertain,
+    ];
+    let labels: BTreeSet<&str> = outcomes.iter().map(|o| o.as_str()).collect();
+    assert_eq!(labels.len(), outcomes.len());
+}

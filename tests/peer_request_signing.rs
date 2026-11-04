@@ -228,3 +228,50 @@ fn unbound_member_keeps_bearer_and_unknown_signers_fall_through() {
         None
     ));
 }
+
+#[test]
+fn bound_member_with_missing_nonce_or_signature_is_rejected() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new("rsig");
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0xDDu8; 32])).unwrap();
+
+    let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
+    let self_id = cluster_key::wire_node_id();
+    write_roster(&dir, &self_id, "10.0.0.3:9090", &self_pk);
+    let peer: IpAddr = "10.0.0.3".parse().unwrap();
+    let ts = now();
+    let sig = sign(&self_id, ts, "n-valid", "POST", "/mcp");
+
+    let missing_nonce = SignedRequest {
+        node: Some(&self_id),
+        nonce: None,
+        ts_secs: Some(ts),
+        sig: Some(&sig),
+    };
+    assert!(!NetGuard::is_authorized(
+        None,
+        peer,
+        &missing_nonce,
+        "POST",
+        "/mcp",
+        None
+    ));
+
+    let missing_sig = SignedRequest {
+        node: Some(&self_id),
+        nonce: Some("n-valid"),
+        ts_secs: Some(ts),
+        sig: None,
+    };
+    assert!(!NetGuard::is_authorized(
+        None,
+        peer,
+        &missing_sig,
+        "POST",
+        "/mcp",
+        None
+    ));
+}
