@@ -11,6 +11,8 @@
 #![deny(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+extern crate std;
+
 #[cfg(all(
     windows,
     not(all(
@@ -28,6 +30,86 @@ compile_error!(
     not(test)
 ))]
 mod platform;
+
+#[cfg(all(
+    windows,
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    target_env = "msvc"
+))]
+// SAFETY: declarations match the target's Windows system ABI.
+#[allow(unsafe_code)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetHandleInformation(object: *mut core::ffi::c_void, flags: *mut u32) -> i32;
+    fn SetHandleInformation(object: *mut core::ffi::c_void, mask: u32, flags: u32) -> i32;
+}
+
+/// Spawn a detached background command without letting `CreateProcessW`'s
+/// `bInheritHandles = TRUE` (enabled by `Stdio::null()`) copy the parent
+/// CLI's own stdin/stdout/stderr pipe handles into the long-lived daemon.
+/// Without clearing `HANDLE_FLAG_INHERIT` on the parent's std handles
+/// around `spawn()`, any caller reading `susi`'s stdout/stderr pipe
+/// (`Command::output()`, release smoke missions, `| Out-Null`) blocks
+/// forever waiting for EOF after the CLI exits whenever `susi` started or
+/// restarted the daemon.
+// SAFETY: the function-local proof documents each qualified ABI operation.
+#[allow(unsafe_code)]
+pub fn spawn_without_inheriting_stdio(
+    cmd: &mut std::process::Command,
+) -> std::io::Result<std::process::Child> {
+    #[cfg(all(
+        windows,
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        target_env = "msvc"
+    ))]
+    {
+        use std::os::windows::io::AsRawHandle;
+
+        const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
+        let raw_handles: [*mut core::ffi::c_void; 3] = [
+            std::io::stdin().as_raw_handle(),
+            std::io::stdout().as_raw_handle(),
+            std::io::stderr().as_raw_handle(),
+        ];
+        let mut restore: std::vec::Vec<(*mut core::ffi::c_void, u32)> =
+            std::vec::Vec::with_capacity(3);
+        for handle in raw_handles {
+            if handle.is_null() {
+                continue;
+            }
+            let mut flags: u32 = 0;
+            // SAFETY: `GetHandleInformation` and `SetHandleInformation`
+            // inspect and toggle the `HANDLE_FLAG_INHERIT` bit on the
+            // current process's standard handles; invalid or pseudo-handles
+            // simply return FALSE and are skipped.
+            unsafe {
+                if GetHandleInformation(handle, &mut flags) != 0
+                    && (flags & HANDLE_FLAG_INHERIT) != 0
+                {
+                    let _ = SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+                    restore.push((handle, flags & HANDLE_FLAG_INHERIT));
+                }
+            }
+        }
+        let result = cmd.spawn();
+        for (handle, orig_inherit) in restore {
+            // SAFETY: restores the original `HANDLE_FLAG_INHERIT` bit on
+            // the same valid standard handle captured above.
+            unsafe {
+                let _ = SetHandleInformation(handle, HANDLE_FLAG_INHERIT, orig_inherit);
+            }
+        }
+        result
+    }
+    #[cfg(not(all(
+        windows,
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        target_env = "msvc"
+    )))]
+    {
+        cmd.spawn()
+    }
+}
 
 /// A malformed executable initializer range is rejected before reading slots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,5 +229,19 @@ mod tests {
         assert_ne!(err, RangeError::Overflow);
         assert_ne!(err, RangeError::OutsideImage);
         assert_ne!(err, RangeError::TooLarge);
+    }
+
+    #[test]
+    fn spawn_without_inheriting_stdio_spawns_and_waits_cleanly() -> std::io::Result<()> {
+        let exe = std::env::current_exe()?;
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("--help")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let mut child = spawn_without_inheriting_stdio(&mut cmd)?;
+        let status = child.wait()?;
+        assert!(status.success());
+        Ok(())
     }
 }

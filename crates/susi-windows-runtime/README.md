@@ -65,7 +65,7 @@ object for diagnostics) and use:
 - OS-UCRT import metadata plus `ucrt.lib` import metadata
 - import metadata for OS `kernelbase.dll`'s qualified `__chkstk` export
   (x64; on ARM64 the same export is a hypothesis recorded in
-  `xtask/bootstrap/os_ucrt.rs` that the native ARM64 checks must confirm)
+  `crates/susi-build-os-ucrt/src/lib.rs` that the native ARM64 checks must confirm)
 
 An import archive is not evidence that implementation was excluded: inspect the
 actual final link map and PE imports. Microsoft `exe_main`, `__scrt_*`, `msvcrt`

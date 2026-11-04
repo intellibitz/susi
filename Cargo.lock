@@ -4007,6 +4007,7 @@ name = "susi"
 version = "0.21.48"
 dependencies = [
  "susi-agents",
+ "susi-build-os-ucrt",
  "susi-config",
  "susi-core",
  "susi-daemon",
@@ -4074,6 +4075,10 @@ dependencies = [
  "susi-vendor-agents",
  "susi-vendor-serde-json",
 ]
+
+[[package]]
+name = "susi-build-os-ucrt"
+version = "0.1.0"
 
 [[package]]
 name = "susi-build-policy"
@@ -6447,6 +6452,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "susi-build-os-ucrt",
  "susi-build-policy",
  "susi-vendor-serde-json",
  "susi-vendor-sha1",
