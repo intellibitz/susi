@@ -278,4 +278,11 @@ mod tests {
             .expect("read vectored output");
         assert_eq!(received, b"vec-payload");
     }
+
+    #[test]
+    fn negotiate_timeout_constant_is_ten_seconds() {
+        assert_eq!(NEGOTIATE_TIMEOUT, Duration::from_secs(10));
+        assert_eq!(NEGOTIATE_TIMEOUT.as_millis(), 10_000);
+        assert!(!NEGOTIATE_TIMEOUT.is_zero());
+    }
 }

@@ -239,6 +239,16 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].cell_id, "cell-keep");
     }
+
+    #[test]
+    fn route_capability_returns_empty_for_unmatched_capability_and_default_router_is_empty() {
+        let mut router = PheromoneRouter::default();
+        assert!(router.list_cell_manifests().is_empty());
+        assert!(router.query_topic("missing.topic").is_empty());
+        assert!(router.route_capability("cap.missing", 100).is_empty());
+        router.evaporate_expired(999_999);
+        assert!(router.list_cell_manifests().is_empty());
+    }
 }
 
 #[cfg(test)]

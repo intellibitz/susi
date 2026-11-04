@@ -272,4 +272,12 @@ mod tests {
             .push(entity("model:finetune", "llm", &["model:base"]));
         assert!(validate_desired_state(&intra).is_ok());
     }
+
+    #[test]
+    fn empty_v1_desired_state_has_canonical_schema_version_and_validates_cleanly() {
+        let empty = DesiredState::empty_v1();
+        assert_eq!(empty.schema_version, DESIRED_STATE_SCHEMA);
+        assert!(empty.all_ids().is_empty());
+        assert!(validate_desired_state(&empty).is_ok());
+    }
 }

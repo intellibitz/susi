@@ -739,4 +739,44 @@ mod tests {
             Path::new("mine.json")
         );
     }
+
+    #[test]
+    fn mission_failure_and_mission_alternates_and_tail_behave_deterministically() {
+        let mut report = SupervisorReport {
+            mission: "m-op".into(),
+            done: vec!["t1".into()],
+            failed: Vec::new(),
+            skipped: Vec::new(),
+            unstarted: Vec::new(),
+            budget_exhausted: false,
+            paused: false,
+            aborted: false,
+        };
+        assert_eq!(mission_failure(&report), None);
+        report.failed.push(("t2".into(), "reason".into()));
+        assert_eq!(
+            mission_failure(&report).as_deref(),
+            Some("mission m-op failed 1 task(s)")
+        );
+
+        let fleet = Fleet {
+            orchestrator: Some("gemini-pro".into()),
+            workers: vec!["deepseek-flash".into()],
+            fixers: vec!["claude-sonnet".into()],
+            ladder: vec!["deepseek-flash".into(), "claude-sonnet".into()],
+            standby: vec!["claude-sonnet".into(), "gpt-sol".into()],
+            left_off: Vec::new(),
+        };
+        assert_eq!(
+            mission_alternates(&fleet),
+            vec![
+                "deepseek-flash".to_string(),
+                "claude-sonnet".to_string(),
+                "gpt-sol".to_string()
+            ]
+        );
+        assert_eq!(tail("short", 10), "short");
+        assert_eq!(tail("abcdef", 3), "def");
+        assert!(now_unix_ms() > 0);
+    }
 }

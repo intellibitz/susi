@@ -467,4 +467,22 @@ mod tests {
         assert_eq!(&direct_b[..4], &[0x4C, 0x00, 0x00, 0x00]);
         assert_ne!(direct_a, direct_b);
     }
+
+    #[test]
+    fn add_path_and_expand_handle_empty_quoted_case_insensitive_and_unterminated_tokens() {
+        assert_eq!(add_path("", r"C:\Susi\entry"), r"C:\Susi\entry");
+        assert_eq!(
+            add_path(r#""c:\susi\entry\";C:\Other"#, r"C:\Susi\entry"),
+            r#""c:\susi\entry\";C:\Other"#
+        );
+        assert_eq!(
+            add_path(r#"C:\First;"C:\susi\entry\""#, r"C:\Susi\entry"),
+            r"C:\Susi\entry;C:\First"
+        );
+        assert_eq!(
+            expand("prefix-%UNSET_SUSI_VAR_XYZ%-suffix"),
+            "prefix-%UNSET_SUSI_VAR_XYZ%-suffix"
+        );
+        assert_eq!(expand("unterminated-%TOKEN"), "unterminated-%TOKEN");
+    }
 }

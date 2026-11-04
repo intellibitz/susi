@@ -297,4 +297,18 @@ mod tests {
         assert_eq!(std::env::var_os("HOME"), before_home);
         assert_eq!(std::env::var_os("USERPROFILE"), before_profile);
     }
+
+    #[test]
+    fn env_guard_set_and_remove_restore_custom_non_home_variables_on_drop() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        const KEY: &str = "SUSI_CUSTOM_TEST_ENV_VAR";
+        let prior = std::env::var_os(KEY);
+        {
+            let mut env = EnvGuard::isolated();
+            env.set(KEY, "alpha").remove(KEY).set(KEY, "beta");
+            assert_eq!(std::env::var(KEY).as_deref(), Ok("beta"));
+            assert!(!format!("{env:?}").is_empty());
+        }
+        assert_eq!(std::env::var_os(KEY), prior);
+    }
 }

@@ -106,4 +106,16 @@ mod tests {
             StatusCode::METHOD_NOT_ALLOWED
         );
     }
+
+    #[tokio::test]
+    async fn head_requests_on_paths_and_ports_return_ok_with_empty_body() {
+        for uri in ["/paths", "/ports"] {
+            let resp = call("HEAD", uri).await;
+            assert_eq!(resp.status(), StatusCode::OK, "HEAD {uri}");
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert!(bytes.is_empty(), "HEAD {uri} body must be empty");
+        }
+    }
 }

@@ -834,4 +834,42 @@ mod selection_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn size_preference_score_and_resolve_complexity_floor_rank_tiers_monotonically() {
+        use crate::intent::TaskComplexity;
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(
+                TaskComplexity::Trivial,
+                Some(TaskComplexity::Complex)
+            ),
+            TaskComplexity::Complex
+        );
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(
+                TaskComplexity::VeryComplex,
+                Some(TaskComplexity::Simple)
+            ),
+            TaskComplexity::VeryComplex
+        );
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(TaskComplexity::Moderate, None),
+            TaskComplexity::Moderate
+        );
+
+        // Equal min/max range falls back to positive magnitude score
+        assert!(
+            (ModelManager::size_preference_score(2.0, 2.0, 2.0, None) - 10.0).abs() < f32::EPSILON
+        );
+
+        // Simple complexity prefers smaller model (0.5 GB over 8.0 GB)
+        let small_simple =
+            ModelManager::size_preference_score(0.5, 0.5, 8.0, Some(TaskComplexity::Trivial));
+        let large_simple =
+            ModelManager::size_preference_score(8.0, 0.5, 8.0, Some(TaskComplexity::Trivial));
+        assert!(small_simple > large_simple);
+
+        assert!(ModelManager::is_synthetic_model_id("susi-native-synthesis"));
+        assert!(!ModelManager::is_synthetic_model_id("qwen2.5-0.5b.gguf"));
+    }
 }

@@ -406,4 +406,20 @@ UNSTAMPED_API_KEY=secret_unstamped_val_789
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn key_ages_default_is_empty_and_unstamped_env_key_has_none_age_and_no_rotation_flag() {
+        let ages = KeyAges::default();
+        assert!(ages.set_unix.is_empty());
+        let statuses = key_statuses(
+            "OPENAI_API_KEY=sk-1\n",
+            &ages,
+            1_000_000,
+            DEFAULT_MAX_AGE_DAYS,
+        );
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].key, "OPENAI_API_KEY");
+        assert_eq!(statuses[0].age_days, None);
+        assert!(!statuses[0].needs_rotation);
+    }
 }

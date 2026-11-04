@@ -195,4 +195,21 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn patch_and_head_on_sandbox_routes_fail_closed_without_host_token() {
+        for (method, uri) in [
+            ("PATCH", "/sandbox/docker_exec"),
+            ("HEAD", "/daemon/status"),
+            ("DELETE", "/sandbox/ensure_global"),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap();
+            let status = router().oneshot(request).await.unwrap().status();
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+        }
+    }
 }

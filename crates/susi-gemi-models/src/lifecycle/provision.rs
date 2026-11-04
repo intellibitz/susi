@@ -477,4 +477,27 @@ mod license_tests {
         assert!(!dir.join("unaudited.tokenizer.json").exists());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn verify_model_ladder_and_expert_audit_report_steps_without_starting_downloads() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-ladder-verify-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let report = ModelManager::verify_model_ladder(&dir).unwrap();
+        assert!(report.total_steps > 0);
+        assert_eq!(report.steps.len(), report.total_steps);
+        assert!(report.network_status.contains("Connected: true"));
+
+        let audit = ModelManager::run_downloads_expert_audit(&dir);
+        assert!(audit.contains("=== SUSI MODEL DOWNLOADING EXPERT AUDIT ==="));
+        assert!(audit.contains("[HARDWARE STATS]:"));
+        assert!(audit.contains("[NETWORK STATS]:"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

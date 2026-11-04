@@ -272,4 +272,14 @@ mod token_tests {
             serde_json::from_str(&resp_full_json).expect("deserialize full response");
         assert_eq!(resp_full_back, resp_full);
     }
+
+    #[test]
+    fn cell_token_env_constant_is_susi_cell_token_and_syscall_op_copy_eq_holds() {
+        assert_eq!(super::CELL_TOKEN_ENV, "SUSI_CELL_TOKEN");
+        let op = SyscallOp::ToolCall;
+        let copied = op;
+        assert_eq!(op, copied);
+        assert_ne!(SyscallOp::ToolCall, SyscallOp::Heartbeat);
+        assert_ne!(super::SyscallStatus::Success, super::SyscallStatus::Error);
+    }
 }
