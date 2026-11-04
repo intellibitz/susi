@@ -233,4 +233,69 @@ mod tests {
         assert!(parse(args(&["--attempt", "nope"])).is_err());
         assert!(parse(args(&["--nope"])).is_err());
     }
+
+    #[test]
+    fn describes_run_outcomes_and_validates_multiple_scopes_alternates_and_prompt() {
+        assert_eq!(
+            describe(&RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: Some(0.02),
+            }),
+            "succeeded"
+        );
+        assert_eq!(
+            describe(&RunOutcome::Failed {
+                message: "boom".into(),
+            }),
+            "failed"
+        );
+        assert_eq!(describe(&RunOutcome::TimedOut), "timed_out");
+
+        let no_prompt = [
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--name",
+            "smoke",
+            "--title",
+            "docs",
+            "--accept",
+            "cargo test -p susi-harness",
+            "--scope",
+            "crates/susi-harness/src/lib.rs",
+            "--scope",
+            "docs/harness.md",
+            "--alternate",
+            "gemini-flash",
+            "--alternate",
+            "qwen-coder",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--state",
+            "state",
+        ];
+        assert_eq!(
+            parse(args(&no_prompt)).err().unwrap(),
+            "a prompt is required"
+        );
+
+        let mut with_prompt = no_prompt.to_vec();
+        with_prompt.extend_from_slice(&["update", "harness"]);
+        let options = parse(args(&with_prompt)).unwrap();
+        assert_eq!(
+            options.spec.scopes,
+            vec![
+                "crates/susi-harness/src/lib.rs".to_string(),
+                "docs/harness.md".to_string()
+            ]
+        );
+        assert_eq!(
+            options.spec.alternates,
+            vec!["gemini-flash".to_string(), "qwen-coder".to_string()]
+        );
+        assert_eq!(options.spec.prompt, "update harness");
+    }
 }

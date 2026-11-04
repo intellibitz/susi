@@ -1,0 +1,28 @@
+{
+  "id": "T-HARNESSBINARGS1104-1",
+  "title": "Expand inline CLI argument and helper unit tests for susi-harness binaries",
+  "goal": "D-OS-8: expand inline CLI argument and helper unit tests for susi-harness binaries",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--bins"
+    ]
+  },
+  "status": "in_progress",
+  "agent": "gemini",
+  "files": [
+    "crates/susi-harness/src/bin/harness-supervise.rs",
+    "crates/susi-harness/src/bin/harness-susi.rs",
+    "crates/susi-harness/src/bin/harness-author.rs",
+    "crates/susi-harness/src/bin/harness-run.rs"
+  ],
+  "created_by": "ZCKEYROT1104",
+  "created_unix": 1793775150
+}

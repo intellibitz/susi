@@ -176,4 +176,104 @@ mod tests {
         assert!(parse(args(&["--attempt", "nope"])).is_err());
         assert!(parse(args(&["--nope"])).is_err());
     }
+
+    #[test]
+    fn defaults_attempt_and_timeout_overrides_timeout_and_validates_missing_fields() {
+        let config = parse(args(&[
+            "--gateway",
+            "http://127.0.0.1:9185",
+            "--model",
+            "deepseek-flash",
+            "--workspace",
+            "scratch",
+            "--state",
+            "state",
+            "--mission",
+            "pilot-2",
+            "--task",
+            "exec-1",
+            "--timeout",
+            "120",
+            "verify",
+            "defaults",
+        ]))
+        .unwrap();
+        assert_eq!(config.attempt, 1);
+        assert_eq!(config.timeout, Duration::from_secs(120));
+        assert_eq!(config.prompt, "verify defaults");
+
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9185",
+                "--model",
+                "deepseek-flash",
+                "--state",
+                "state",
+                "--mission",
+                "pilot-2",
+                "--task",
+                "exec-1",
+                "prompt",
+            ]))
+            .err()
+            .unwrap(),
+            "--workspace is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9185",
+                "--model",
+                "deepseek-flash",
+                "--workspace",
+                "scratch",
+                "--mission",
+                "pilot-2",
+                "--task",
+                "exec-1",
+                "prompt",
+            ]))
+            .err()
+            .unwrap(),
+            "--state is required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9185",
+                "--model",
+                "deepseek-flash",
+                "--workspace",
+                "scratch",
+                "--state",
+                "state",
+                "--task",
+                "exec-1",
+                "prompt",
+            ]))
+            .err()
+            .unwrap(),
+            "--mission and --task are required"
+        );
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9185",
+                "--model",
+                "deepseek-flash",
+                "--workspace",
+                "scratch",
+                "--state",
+                "state",
+                "--mission",
+                "pilot-2",
+                "--task",
+                "exec-1",
+            ]))
+            .err()
+            .unwrap(),
+            "a prompt is required"
+        );
+    }
 }
