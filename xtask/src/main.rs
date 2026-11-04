@@ -10,10 +10,7 @@
     )
 )]
 
-// Extension-watch logic lands ahead of its CLI wiring; keep the pure API
-// compiled (and unit-tested) without emitting dead-code noise.
 mod compiler_env;
-#[allow(dead_code)]
 mod extension_watch;
 mod local_build;
 mod sysroot_sources;
@@ -133,6 +130,64 @@ pub fn warn_if_gpu_available_but_unused(os: &str, features_include_metal: bool) 
     }
 }
 
+fn collect_known_extension_ids(val: &Value, top_level: bool, out: &mut Vec<String>) {
+    match val {
+        Value::Array(items) => {
+            for item in items {
+                if top_level {
+                    if let Some(s) = item.as_str() {
+                        out.push(s.to_string());
+                        continue;
+                    }
+                }
+                collect_known_extension_ids(item, false, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(ext_id) = map.get("extension_id").and_then(Value::as_str) {
+                if !ext_id.is_empty() {
+                    out.push(ext_id.to_string());
+                }
+            }
+            if let Some(Value::Array(known)) = map.get("known_extensions") {
+                for item in known {
+                    if let Some(s) = item.as_str() {
+                        out.push(s.to_string());
+                    }
+                }
+            }
+            for child in map.values() {
+                collect_known_extension_ids(child, false, out);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+/// Parses `published_path` and diffs official extensions against `roadmap_path` (when present),
+/// returning deterministic [`extension_watch::RoadmapItem`] entries for new official extensions.
+pub fn run_extension_watch_on_files(
+    published_path: &Path,
+    roadmap_path: Option<&Path>,
+) -> Result<Vec<extension_watch::RoadmapItem>, String> {
+    let raw_published = fs::read_to_string(published_path)
+        .map_err(|e| format!("failed to read {}: {e}", published_path.display()))?;
+    let published = extension_watch::parse_published(&raw_published)?;
+    let _spec_bytes: usize = published.iter().map(|ext| ext.spec_url.len()).sum();
+
+    let mut known_ids = Vec::new();
+    if let Some(rpath) = roadmap_path {
+        if rpath.is_file() {
+            let raw_roadmap = fs::read_to_string(rpath)
+                .map_err(|e| format!("failed to read {}: {e}", rpath.display()))?;
+            let doc: Value = serde_json::from_str(&raw_roadmap)
+                .map_err(|e| format!("invalid JSON {}: {e}", rpath.display()))?;
+            collect_known_extension_ids(&doc, true, &mut known_ids);
+        }
+    }
+    Ok(extension_watch::diff_new_official(&published, &known_ids))
+}
+
 /// Appends detected GPU feature args unless the caller already chose a
 /// feature set (`--features`/`-F`, `--all-features`, `--no-default-features`):
 /// an explicit choice (e.g. `--features metal`) must not silently gain a
@@ -235,6 +290,45 @@ fn main() {
         }
     }
 
+    if args.first().map(String::as_str) == Some("extension-watch") {
+        let Some(published_arg) = args.get(1) else {
+            eprintln!("xtask: usage: extension-watch <published.json> [roadmap.json]");
+            exit(1);
+        };
+        let roadmap_path = args
+            .get(2)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(".agents/roadmap.json"));
+        match run_extension_watch_on_files(Path::new(published_arg), Some(&roadmap_path)) {
+            Ok(items) => {
+                let json_items: Vec<Value> = items
+                    .into_iter()
+                    .map(|item| {
+                        serde_json::json!({
+                            "key": item.key,
+                            "title": item.title,
+                            "extension_id": item.extension_id,
+                        })
+                    })
+                    .collect();
+                match serde_json::to_string_pretty(&json_items) {
+                    Ok(text) => {
+                        println!("{text}");
+                        return;
+                    }
+                    Err(error) => {
+                        eprintln!("xtask: {error}");
+                        exit(1);
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!("xtask: {error}");
+                exit(1);
+            }
+        }
+    }
+
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
     let mut cmd = Command::new("cargo");
@@ -296,7 +390,7 @@ fn main() {
 mod tests {
     use super::{
         detected_features_for_os, ensure_dev_setup_in, requests_retired_backend,
-        sync_workspace_version_and_badge, with_detected_features,
+        run_extension_watch_on_files, sync_workspace_version_and_badge, with_detected_features,
     };
     use serde_json::Value;
     use std::process::Command;
@@ -472,6 +566,47 @@ mod tests {
             err.contains("expected schema \"susi/identity/v1\""),
             "unexpected error: {err}"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_extension_watch_on_files_filters_known_and_experimental_items() {
+        let dir = std::env::temp_dir().join(format!("xtask-ext-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let published_path = dir.join("published.json");
+        let roadmap_path = dir.join("roadmap.json");
+        std::fs::write(
+            &published_path,
+            r#"{
+                "extensions": [
+                    {"id": "zeta/new-official", "status": "official", "spec_url": "https://example.com/zeta.json"},
+                    {"id": "acme/already-known", "status": "official", "spec_url": "https://example.com/known.json"},
+                    {"id": "alpha/new-official", "status": "Official", "spec_url": "https://example.com/alpha.json"},
+                    {"id": "beta/experimental", "status": "experimental", "spec_url": "https://example.com/beta.json"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &roadmap_path,
+            r#"{
+                "schema": "susi/roadmap/v1",
+                "items": [
+                    {"key": "ext-watch-acme-already-known", "extension_id": "acme/already-known"}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let items = run_extension_watch_on_files(&published_path, Some(&roadmap_path)).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].key, "ext-watch-alpha-new-official");
+        assert_eq!(items[0].extension_id, "alpha/new-official");
+        assert_eq!(items[1].key, "ext-watch-zeta-new-official");
+        assert_eq!(items[1].extension_id, "zeta/new-official");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
