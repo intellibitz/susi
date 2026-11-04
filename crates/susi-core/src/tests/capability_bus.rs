@@ -140,3 +140,17 @@ fn capability_bus_rejects_unknown_capability_and_invalid_or_duplicate_descriptor
         Err(CapabilityError::InvalidDescriptor(_))
     ));
 }
+
+#[test]
+fn capability_bus_empty_catalog_discovers_no_capabilities_on_any_surface() {
+    let bus = CapabilityBus::new();
+    assert!(bus.discover().is_empty());
+    for surface in [
+        CapabilitySurface::A2a,
+        CapabilitySurface::Mcp,
+        CapabilitySurface::Http,
+        CapabilitySurface::Adapter,
+    ] {
+        assert!(bus.discover_surface(surface).is_empty());
+    }
+}
