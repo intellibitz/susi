@@ -260,4 +260,20 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn resolve_model_placeholder_returns_non_empty_model_identifier() {
+        assert!(!resolve_model_placeholder().trim().is_empty());
+    }
+
+    #[test]
+    fn failure_summary_collapses_identical_first_and_last_lines_without_pipe_separator() {
+        let dir = temp_dir("collapse");
+        let log = dir.join("stderr.log");
+        std::fs::write(&log, "fatal: bad revision\n\nfatal: bad revision\n").unwrap();
+        let summary = failure_summary(&log);
+        assert_eq!(summary, Some("fatal: bad revision".into()));
+        assert!(!summary.unwrap().contains(" | "));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
