@@ -1,0 +1,25 @@
+{
+  "id": "T-ZCCFGVAL1104-1",
+  "title": "test(susi-config): inline unit test suites for config & validate (D-OS-8)",
+  "goal": "Add inline unit test suites to crates/susi-config/src/config.rs and crates/susi-config/src/validate.rs (D-OS-8)",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "ZCKEYROT1104",
+  "created_unix": 1793764560,
+  "closed": {
+    "at_unix": 1793766866,
+    "commit": "7b205eaedf8f704484862bf6d5b68df5bb2d3e77",
+    "by": "ZCKEYROT1104"
+  }
+}
