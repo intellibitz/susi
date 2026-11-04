@@ -263,4 +263,51 @@ mod tests {
         assert_eq!(set.ledger.duplicate_secs, 55);
         assert_eq!(set.billed_secs(), 105);
     }
+
+    #[test]
+    fn checkpoint_and_cost_ledger_clone_and_resume_preserves_remaining_checkpoints_order() {
+        let default_ledger = CostLedger::default();
+        assert_eq!(default_ledger.productive_secs, 0);
+        assert_eq!(default_ledger.duplicate_secs, 0);
+
+        let ledger = CostLedger {
+            productive_secs: 42,
+            duplicate_secs: 18,
+        };
+        let cloned_ledger = ledger.clone();
+        assert_eq!(cloned_ledger.productive_secs, 42);
+        assert_eq!(cloned_ledger.duplicate_secs, 18);
+
+        let cp1 = Checkpoint {
+            id: "cp-1".into(),
+            progress: 0.2,
+            fencing_token: 10,
+        };
+        let cloned_cp1 = cp1.clone();
+        assert_eq!(cloned_cp1.id, "cp-1");
+        assert!((cloned_cp1.progress - 0.2).abs() < f64::EPSILON);
+        assert_eq!(cloned_cp1.fencing_token, 10);
+
+        let mut set = PreemptibleSet::new(10);
+        set.checkpoints = vec![
+            cp1,
+            Checkpoint {
+                id: "cp-2".into(),
+                progress: 0.5,
+                fencing_token: 10,
+            },
+            Checkpoint {
+                id: "cp-3".into(),
+                progress: 0.8,
+                fencing_token: 10,
+            },
+        ];
+
+        let resumed = set.resume(10, 1);
+        assert_eq!(resumed.len(), 1);
+        assert_eq!(resumed[0].id, "cp-1");
+        assert_eq!(set.checkpoints.len(), 2);
+        assert_eq!(set.checkpoints[0].id, "cp-2");
+        assert_eq!(set.checkpoints[1].id, "cp-3");
+    }
 }

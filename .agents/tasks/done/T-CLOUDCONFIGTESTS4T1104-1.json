@@ -1,0 +1,25 @@
+{
+  "id": "T-CLOUDCONFIGTESTS4T1104-1",
+  "title": "test(vendor-cloud,config): expand unit tests to 4 in preemptible, vc_201_059, keyring_storage, and selfheal",
+  "goal": "Add a 4th unit test to susi-vendor-cloud preemptible.rs, tests/vc_201_059.rs, and susi-config tests/keyring_storage.rs, tests/selfheal.rs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-cloud",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "CLOUDCONFIGTESTS4T1104",
+  "created_unix": 1793781630,
+  "closed": {
+    "at_unix": 1793781958,
+    "commit": "18e3340b5f41fba22b0ffeac550bbbee16c9cd79",
+    "by": "CLOUDCONFIGTESTS4T1104"
+  }
+}
