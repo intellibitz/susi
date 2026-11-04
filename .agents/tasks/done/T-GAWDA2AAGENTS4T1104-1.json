@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "GAWDA2AAGENTS4T1104",
-  "created_unix": 1793786818
+  "created_unix": 1793786818,
+  "closed": {
+    "at_unix": 1793787987,
+    "commit": "ffa46e0690eaa08fced769f854683d9bb0262c50",
+    "by": "GAWDA2AAGENTS4T1104"
+  }
 }
