@@ -303,4 +303,35 @@ mod tests {
             serde_json::from_str(&encoded).expect("deserialize CloudKeyEntry");
         assert_eq!(decoded, entry);
     }
+
+    #[test]
+    fn encrypted_file_fallback_default_and_decode_invalid_utf8_and_overwrite_existing_provider_key()
+    {
+        let mut default_enc = EncryptedFileFallback::default();
+        assert_eq!(default_enc.key, 0);
+        default_enc
+            .set("susi-cloud-keys/mistral", "mk-default-secret")
+            .unwrap();
+        assert_eq!(
+            default_enc.get("susi-cloud-keys/mistral").unwrap(),
+            Some("mk-default-secret".to_string())
+        );
+
+        let enc_ff = EncryptedFileFallback::with_key(0xFF);
+        assert_eq!(enc_ff.key, 0xFF);
+        let invalid_utf8_hex = format!("{:02x}", 0xFFu8 ^ enc_ff.key);
+        assert!(enc_ff.decode(&invalid_utf8_hex).is_err());
+
+        let mut store = KeyringStorage::new(EncryptedFileFallback::with_key(0xFF));
+        store.put("openai", "first-secret").unwrap();
+        store.put("openai", "second-secret").unwrap();
+        assert_eq!(
+            store.get("openai").unwrap(),
+            Some("second-secret".to_string())
+        );
+
+        let count = store.migrate_cloud_env("mistral=mk-123\n").unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(store.get("mistral").unwrap(), Some("mk-123".to_string()));
+    }
 }

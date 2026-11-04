@@ -269,4 +269,49 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn doctor_scan_returns_empty_on_healthy_root_and_fix_types_serde_roundtrip() {
+        let root = std::env::temp_dir().join(format!("susi-zc-fix-healthy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["config", "evidence", "brain", "tasks", "hooks"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("hooks").join("pre-commit"), "#!/bin/sh\n").unwrap();
+
+        assert!(doctor_scan(&root).is_empty());
+        let fix_rep = susi_fix(&root);
+        assert!(fix_rep.applied.is_empty());
+        assert!(fix_rep.skipped.is_empty());
+
+        for kind in [
+            FixKind::MissingDir,
+            FixKind::StaleLock,
+            FixKind::PortConflict,
+            FixKind::HooksMissing,
+            FixKind::KeyRegistrationPrompt,
+        ] {
+            let finding = DoctorFinding {
+                kind,
+                path: "/tmp/susi".into(),
+                detail: "test detail".into(),
+                safe: true,
+            };
+            let json = serde_json::to_string(&finding).expect("serialize DoctorFinding");
+            let decoded: DoctorFinding =
+                serde_json::from_str(&json).expect("deserialize DoctorFinding");
+            assert_eq!(decoded, finding);
+        }
+
+        let sample_report = FixReport {
+            applied: vec!["created dir /tmp/susi/config".into()],
+            skipped: vec!["needs operator: port 9090 busy".into()],
+        };
+        let rep_json = serde_json::to_string(&sample_report).expect("serialize FixReport");
+        let rep_decoded: FixReport =
+            serde_json::from_str(&rep_json).expect("deserialize FixReport");
+        assert_eq!(rep_decoded, sample_report);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
