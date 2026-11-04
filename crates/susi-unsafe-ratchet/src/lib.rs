@@ -331,4 +331,50 @@ mod tests {
             GeigerVerdict::Clean
         );
     }
+
+    #[test]
+    fn unsafe_baseline_roundtrips_non_default_fields_and_multiple_new_crates_order() {
+        let baseline_doc = UnsafeBaseline {
+            features: "cuda".into(),
+            exposure: vec![UnsafeExposure {
+                crate_name: "alpha".into(),
+                unsafe_fns: 2,
+                first_party_exception: false,
+            }],
+            sbom: vec![SbomEntry {
+                crate_name: "alpha".into(),
+                version: "1.0.0".into(),
+                provenance: "vendored".into(),
+            }],
+            recorded_unix: 1_700_000_000,
+        };
+        let encoded = serde_json::to_string(&baseline_doc).unwrap_or_default();
+        assert!(!encoded.is_empty());
+        let decoded = serde_json::from_str::<UnsafeBaseline>(&encoded).ok();
+        assert_eq!(decoded, Some(baseline_doc.clone()));
+
+        let current_exp = [
+            UnsafeExposure {
+                crate_name: "alpha".into(),
+                unsafe_fns: 5,
+                first_party_exception: false,
+            },
+            UnsafeExposure {
+                crate_name: "beta".into(),
+                unsafe_fns: 1,
+                first_party_exception: false,
+            },
+        ];
+        assert_eq!(
+            ratchet_unsafe(
+                &baseline_doc.exposure,
+                &current_exp,
+                &baseline_doc.sbom,
+                &baseline_doc.sbom
+            ),
+            GeigerVerdict::NeedsReview {
+                new_crates: vec!["alpha".into(), "beta".into()],
+            }
+        );
+    }
 }

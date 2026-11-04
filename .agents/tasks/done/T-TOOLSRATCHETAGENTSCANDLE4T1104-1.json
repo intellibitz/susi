@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-TOOLSRATCHETAGENTSCANDLE4T1104-1",
+  "title": "test(tools,unsafe-ratchet,vendor-agents,vendor-candle): expand inline unit tests to 4 in lib, git_identity, and device",
+  "touch": [
+    "crates/susi-tools/src/lib.rs",
+    "crates/susi-unsafe-ratchet/src/lib.rs",
+    "crates/susi-vendor-agents/src/external/git_identity.rs",
+    "crates/susi-vendor-candle/src/device.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-tools -p susi-unsafe-ratchet -p susi-vendor-agents -p susi-vendor-candle --lib",
+      "cargo clippy --offline --locked -p susi-tools -p susi-unsafe-ratchet -p susi-vendor-agents -p susi-vendor-candle --tests -- -D warnings"
+    ]
+  }
+}
