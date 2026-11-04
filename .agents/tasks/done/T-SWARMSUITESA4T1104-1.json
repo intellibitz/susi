@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "SWARMSUITESA4T1104",
-  "created_unix": 1793787989
+  "created_unix": 1793787989,
+  "closed": {
+    "at_unix": 1793788197,
+    "commit": "5e9a661f0f12e2d16ac0f121b735327021f4de67",
+    "by": "SWARMSUITESA4T1104"
+  }
 }
