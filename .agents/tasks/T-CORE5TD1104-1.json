@@ -14,7 +14,7 @@
       "susi-core",
       "--lib",
       "--",
-      "retrieval_eval::tests"
+      "retrieval_eval::inline_tests"
     ]
   },
   "created_by": "CORE5TD1104",
