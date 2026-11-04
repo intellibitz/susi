@@ -398,11 +398,21 @@ mod tests {
             "unexpected error: {err}"
         );
 
-        let foreign_dir = scratch.path().join("foreign");
-        fs::create_dir_all(&foreign_dir).unwrap();
-        let foreign_exe = foreign_dir.join("susi.exe");
-        fs::copy(std::env::current_exe().unwrap(), &foreign_exe).unwrap();
-        let foreign_lnk = shell_link::retired_shell_encoding(&foreign_exe, &foreign_dir).unwrap();
+        let mut foreign_lnk = vec![0u8; 76];
+        foreign_lnk[..4].copy_from_slice(&76u32.to_le_bytes());
+        foreign_lnk[4..20].copy_from_slice(&[1, 20, 2, 0, 0, 0, 0, 0, 192, 0, 0, 0, 0, 0, 0, 70]);
+        foreign_lnk[20..24].copy_from_slice(&2u32.to_le_bytes());
+        let base = b"C:\\Other\\susi.exe\0";
+        let mut info = vec![0u8; 28];
+        info[4..8].copy_from_slice(&28u32.to_le_bytes());
+        info[8..12].copy_from_slice(&1u32.to_le_bytes());
+        info[16..20].copy_from_slice(&28u32.to_le_bytes());
+        info[24..28].copy_from_slice(&(28 + base.len() as u32).to_le_bytes());
+        info.extend_from_slice(base);
+        info.push(0);
+        let info_len = info.len() as u32;
+        info[..4].copy_from_slice(&info_len.to_le_bytes());
+        foreign_lnk.extend_from_slice(&info);
 
         let programs = scratch.path().join("Programs");
         fs::create_dir(&programs).unwrap();
