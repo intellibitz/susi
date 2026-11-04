@@ -51,3 +51,77 @@ pub fn restore_from_backup(
         restored,
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_backup() -> BackupBundle {
+        BackupBundle {
+            config: "cfg-v1".to_string(),
+            workflow_state: "running".to_string(),
+            keys: BTreeMap::from([("openai".to_string(), "sk-test".to_string())]),
+            ledger_tail: "rec-99".to_string(),
+            audit_anchor: "sha256:anchor".to_string(),
+        }
+    }
+
+    #[test]
+    fn restore_strips_keys_when_key_restore_is_disallowed() {
+        let backup = sample_backup();
+        let targets = DrTargets {
+            rto_ms: 1_000,
+            rpo_records: 5,
+            allow_key_restore: false,
+        };
+        let report = restore_from_backup(&backup, &targets, 400, 0);
+        assert!(report.restored.keys.is_empty());
+        assert_eq!(report.restored.config, "cfg-v1");
+        assert!(report.audit_continuous);
+    }
+
+    #[test]
+    fn restore_preserves_keys_when_explicitly_allowed_by_policy() {
+        let backup = sample_backup();
+        let targets = DrTargets {
+            rto_ms: 1_000,
+            rpo_records: 5,
+            allow_key_restore: true,
+        };
+        let report = restore_from_backup(&backup, &targets, 500, 2);
+        assert_eq!(
+            report.restored.keys.get("openai").map(String::as_str),
+            Some("sk-test")
+        );
+        assert!(report.within_rto);
+        assert!(report.within_rpo);
+    }
+
+    #[test]
+    fn restore_flags_rto_and_rpo_breaches_when_limits_exceeded() {
+        let backup = sample_backup();
+        let targets = DrTargets {
+            rto_ms: 200,
+            rpo_records: 1,
+            allow_key_restore: false,
+        };
+        let report = restore_from_backup(&backup, &targets, 250, 2);
+        assert!(!report.within_rto);
+        assert!(!report.within_rpo);
+        assert_eq!(report.recovery_ms, 250);
+        assert_eq!(report.data_loss_records, 2);
+    }
+
+    #[test]
+    fn empty_ledger_tail_marks_audit_continuity_false() {
+        let mut backup = sample_backup();
+        backup.ledger_tail.clear();
+        let targets = DrTargets {
+            rto_ms: 1_000,
+            rpo_records: 5,
+            allow_key_restore: true,
+        };
+        let report = restore_from_backup(&backup, &targets, 100, 0);
+        assert!(!report.audit_continuous);
+    }
+}
