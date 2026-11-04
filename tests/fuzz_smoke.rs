@@ -55,3 +55,39 @@ fn fuzz_smoke_swarm_event_decode_does_not_panic() {
         let _ = SwarmEvent::decode(input);
     }
 }
+
+#[test]
+fn fuzz_smoke_evidence_record_roundtrips_json_and_handles_deep_strings() {
+    let deep = "nested/".repeat(128);
+    let record = EvidenceRecord::new(
+        "fuzz-agent".into(),
+        2.0,
+        42,
+        Claim {
+            subject: deep.clone(),
+            predicate: "verified".into(),
+            value: "true\n\t\"quoted\"".into(),
+        },
+        EvidenceSource::System {
+            metric: "latency_ms".into(),
+            value: "12".into(),
+        },
+        0.95,
+    );
+    let encoded = serde_json::to_string(&record).unwrap();
+    let decoded: EvidenceRecord = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded.agent_id, "fuzz-agent");
+    assert_eq!(decoded.claim.subject, deep);
+    assert_eq!(decoded.signature, record.signature);
+}
+
+#[test]
+fn fuzz_smoke_swarm_event_roundtrips_valid_events_and_rejects_malformed_control_chars() {
+    for malformed in ["{\"schema_version\":", "\x01\x02\x03\x7f"] {
+        assert!(SwarmEvent::decode(malformed).is_err());
+    }
+    assert!(SwarmEvent::decode("[1,2,3]").unwrap().is_none());
+    let valid = r#"{"schema_version":1,"AgentStarted":{"agent_name":"worker-alpha"}}"#;
+    let decoded = SwarmEvent::decode(valid).unwrap();
+    assert!(decoded.is_some());
+}

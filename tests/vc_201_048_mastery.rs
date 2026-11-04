@@ -117,3 +117,34 @@ fn vc_201_048_mastery() {
     assert!(run_now, "Host recovered; local work admitted");
     assert_eq!(queued, 0, "Backlog drained");
 }
+
+#[test]
+fn thermal_router_unknown_observation_forces_conservative_cloud_preference() {
+    let mut router = ThermalRouter::new(80.0, 65.0, 2);
+    assert_eq!(router.observe_unknown(), HostFitness::Unknown);
+    assert!(!router.local_ok_for_latency_sensitive());
+    assert!(router.prefer_cloud());
+}
+
+#[test]
+fn thermal_router_power_saturation_transitions_to_unfit_power() {
+    let mut router = ThermalRouter::new(85.0, 70.0, 1);
+    let sample = ThermalSample {
+        temp_c: 50.0,
+        power_w: 249.0,
+        power_cap_w: 250.0,
+        util_pct: 90.0,
+    };
+    assert_eq!(router.observe(sample), HostFitness::UnfitPower);
+    assert!(!router.local_ok_for_latency_sensitive());
+    assert!(router.prefer_cloud());
+}
+
+#[test]
+fn local_work_gate_queues_under_pressure_and_drains_on_fit() {
+    let mut gate = LocalWorkGate::new(2);
+    assert_eq!(gate.admit(HostFitness::UnfitThermal), (false, 1));
+    assert_eq!(gate.admit(HostFitness::UnfitPower), (false, 2));
+    assert_eq!(gate.admit(HostFitness::UnfitThermal), (false, 2));
+    assert_eq!(gate.admit(HostFitness::Fit), (true, 0));
+}
