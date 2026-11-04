@@ -169,3 +169,14 @@ fn vc_201_051_checks_run_from_a_command_probe_has_a_production_caller() {
         );
     }
 }
+
+#[test]
+fn unit_report_slices_json_payload_after_boot_time_tracing_prefix() {
+    let raw = "2026-11-04T00:00:00Z INFO boot trace line\n{\n  \"fixture\": [\n    {\"kind\": \"authentication\", \"status\": \"verified\"}\n  ],\n  \"credentialed\": {\"opted_in\": false, \"claims\": []}\n}\n";
+    let parsed = report(raw);
+    assert_eq!(parsed["fixture"][0]["kind"], "authentication");
+    assert_eq!(parsed["credentialed"]["opted_in"], false);
+    assert!(scratch("unit")
+        .to_string_lossy()
+        .contains("susi-vc201051-unit-"));
+}
