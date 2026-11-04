@@ -505,4 +505,12 @@ mod tests {
             .is_clean());
         let _ = fs::remove_dir_all(&empty_dir);
     }
+
+    #[test]
+    fn validate_settings_on_bundled_heal_defaults_is_clean_with_no_blocking_issues() {
+        let report = validate_settings(SusiConfig::heal_defaults());
+        assert!(report.is_clean());
+        assert!(!report.has_blocking());
+        assert!(report.issues.is_empty());
+    }
 }

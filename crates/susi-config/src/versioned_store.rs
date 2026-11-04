@@ -503,4 +503,26 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn default_versioned_json_store_materializes_fallback_when_file_is_absent() {
+        let dir = unique_temp_dir("default-store-materialize");
+        let absent = dir.join("absent.json");
+        let store: VersionedJsonStore<BTreeMap<String, u32>> = VersionedJsonStore::default();
+        let loaded = store
+            .load_arc_with_healing(
+                &absent,
+                || {
+                    let mut m = BTreeMap::new();
+                    m.insert("k".into(), 5);
+                    Ok(m)
+                },
+                |_| false,
+                false,
+            )
+            .expect("load fallback");
+        assert_eq!(loaded.get("k"), Some(&5));
+        assert!(absent.is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
