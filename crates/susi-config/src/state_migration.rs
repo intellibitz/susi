@@ -284,4 +284,42 @@ mod tests {
         assert!(!manifest_path(&bad_dir).exists());
         let _ = fs::remove_dir_all(&bad_dir);
     }
+
+    #[test]
+    fn migrate_state_dir_heals_existing_v0_config_and_second_run_is_idempotent_noop() {
+        let dir = temp_dir("existing-v0");
+        let mut custom = SusiConfig::default();
+        custom.settings.insert(
+            "default_model".to_string(),
+            serde_json::Value::String("gemini-2.5-pro".to_string()),
+        );
+        custom.save(&dir).expect("save pre-existing v0 config.json");
+        assert_eq!(read_version(&dir), 0);
+
+        let first = migrate_state_dir(&dir).expect("v0->v1 migration on existing config");
+        assert!(first.migrated);
+        assert!(!first.rolled_back);
+        assert_eq!(first.from_version, 0);
+        assert_eq!(first.to_version, STATE_SCHEMA_VERSION);
+        assert!(
+            first
+                .messages
+                .iter()
+                .any(|m| m == "v0→v1: re-saved healed config.json"),
+            "unexpected messages: {:?}",
+            first.messages
+        );
+
+        let reloaded = SusiConfig::load(&dir).expect("reload migrated config.json");
+        assert_eq!(reloaded.default_model(), "gemini-2.5-pro");
+
+        let second = migrate_state_dir(&dir).expect("second migration is idempotent noop");
+        assert!(!second.migrated);
+        assert!(!second.rolled_back);
+        assert_eq!(second.from_version, STATE_SCHEMA_VERSION);
+        assert_eq!(second.to_version, STATE_SCHEMA_VERSION);
+        assert!(second.messages.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

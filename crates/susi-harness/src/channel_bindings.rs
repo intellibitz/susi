@@ -379,4 +379,61 @@ mod tests {
         drop(key);
         CURRENT_USER.remove_tree(name).unwrap();
     }
+
+    #[test]
+    fn notification_complete_requires_pending_marker_and_register_refuses_foreign_shortcut() {
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path().join("production");
+        fs::create_dir_all(root.join("entry")).unwrap();
+        fs::copy(
+            std::env::current_exe().unwrap(),
+            root.join("entry/susi.exe"),
+        )
+        .unwrap();
+        fs::create_dir(root.join("workspace")).unwrap();
+
+        let err = notification_complete(&root).unwrap_err().to_string();
+        assert!(
+            err.contains("finish environment notification"),
+            "unexpected error: {err}"
+        );
+
+        let foreign_dir = scratch.path().join("foreign");
+        fs::create_dir_all(&foreign_dir).unwrap();
+        let foreign_exe = foreign_dir.join("susi.exe");
+        fs::copy(std::env::current_exe().unwrap(), &foreign_exe).unwrap();
+        let foreign_lnk = shell_link::retired_shell_encoding(&foreign_exe, &foreign_dir).unwrap();
+
+        let programs = scratch.path().join("Programs");
+        fs::create_dir(&programs).unwrap();
+        let shortcut_path = programs.join("Susi (local production).lnk");
+
+        let name = format!(
+            "Software\\Susi-Channel-Foreign-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let key = CURRENT_USER.create(&name).unwrap();
+        key.set_expand_string("Path", "C:\\other").unwrap();
+
+        fs::write(&shortcut_path, b"arbitrary-non-susi-shortcut").unwrap();
+        let malformed_err = register_at(&root, &programs, &key).unwrap_err().to_string();
+        assert!(
+            malformed_err.contains("unsupported or malformed Susi Shell Link"),
+            "unexpected error: {malformed_err}"
+        );
+
+        fs::write(&shortcut_path, &foreign_lnk).unwrap();
+        let err = register_at(&root, &programs, &key).unwrap_err().to_string();
+        assert!(
+            err.contains("refusing to replace an unrelated Start Menu shortcut"),
+            "unexpected error: {err}"
+        );
+
+        drop(key);
+        CURRENT_USER.remove_tree(name).unwrap();
+    }
 }
