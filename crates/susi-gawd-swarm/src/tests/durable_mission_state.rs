@@ -272,3 +272,32 @@ fn durable_mission_state_production_wiring() {
         "susi status must render the resume surface"
     );
 }
+
+#[test]
+fn durable_mission_state_fully_completed_mission_has_complete_verdict_and_is_not_resumable() {
+    let workspace = scratch_dir("complete-verdict");
+    let dir = PersistedMission::missions_dir(&workspace);
+    let mut done = PersistedMission::new("m-all-done".to_string());
+    done.upsert_node(crate::mission_persist::PersistedNode {
+        id: "n0".to_string(),
+        input: "root".to_string(),
+        dependencies: vec![],
+        output: Some("done-0".to_string()),
+        state: NodeTerminal::Completed,
+    });
+    done.upsert_node(crate::mission_persist::PersistedNode {
+        id: "n1".to_string(),
+        input: "child".to_string(),
+        dependencies: vec!["n0".to_string()],
+        output: Some("done-1".to_string()),
+        state: NodeTerminal::Completed,
+    });
+    done.save(&dir).expect("save completed");
+
+    let loaded = PersistedMission::load(&dir.join("m-all-done.json")).expect("load completed");
+    assert_eq!(loaded.resume_verdict(), ResumeVerdict::Complete);
+    assert!(loaded.runnable().is_empty());
+    assert!(resumable_missions(&workspace).is_empty());
+
+    let _ = std::fs::remove_dir_all(&workspace);
+}

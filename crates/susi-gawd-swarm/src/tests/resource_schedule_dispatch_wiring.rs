@@ -165,3 +165,20 @@ fn resource_schedule_dispatch_wiring_default_resource_node_and_non_finite_reject
     invalid.cpu = f64::NAN;
     assert_eq!(admit(&invalid, &free), Admit::Queue);
 }
+
+#[test]
+fn resource_schedule_dispatch_wiring_empty_ready_slice_leaves_resources_unchanged() {
+    let free = Resources {
+        cpu: 4.0,
+        gpu_mem_gb: 2.0,
+        mem_gb: 8.0,
+        subprocesses: 3,
+        model_ready: true,
+        tool_grants: vec!["exec_command".into()],
+    };
+    let reqs = BTreeMap::new();
+    let (admitted, remaining) = MissionDag::schedule_ready(&[], &free, &reqs);
+    assert!(admitted.is_empty());
+    assert!((remaining.cpu - 4.0).abs() < f64::EPSILON);
+    assert_eq!(remaining.subprocesses, 3);
+}

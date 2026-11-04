@@ -64,3 +64,11 @@ fn fair_queue_promotes_by_weight_and_aging_boost() {
         .expect("promote remaining waiter");
     assert_eq!(second.mission_id, "m3");
 }
+
+#[test]
+fn fair_queue_starts_empty_with_zero_running_and_waiting_counts() {
+    let mut dag = MissionDag::new("fresh fair queue");
+    assert_eq!(dag.fair_queue.running_count(), 0);
+    assert_eq!(dag.fair_queue.waiting_count(), 0);
+    assert!(dag.fair_complete("nonexistent", 0).is_none());
+}

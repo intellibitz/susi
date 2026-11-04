@@ -122,3 +122,15 @@ fn mission_resume_cli_wiring_partial_non_resumable_cancelled_summary() {
     let status = MissionDag::resume_cli_status(&view);
     assert!(status.contains("no resumable nodes"), "status={status}");
 }
+
+#[test]
+fn mission_resume_cli_wiring_single_completed_root_has_empty_resume_targets() {
+    let mut dag = MissionDag::new("single root done");
+    dag.nodes[0].completed = true;
+    let view = dag.resume_cli_view("mission-single-done");
+    assert!(view.reports_full_success());
+    assert_eq!(view.summary(), MissionSummary::FullyComplete);
+    assert!(view.resume_targets().is_empty());
+    assert_eq!(view.nodes["n0"].view, NodeView::Completed);
+    assert!(!view.nodes["n0"].resumable);
+}

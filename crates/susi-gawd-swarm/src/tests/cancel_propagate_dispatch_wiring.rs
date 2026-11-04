@@ -66,3 +66,13 @@ fn cancel_propagate_is_idempotent_across_repeated_calls() {
     assert_eq!(dag.cancel.terminated.len(), 1);
     assert_eq!(dag.cancel.irreversible_running.len(), 1);
 }
+
+#[test]
+fn cancel_propagate_on_dag_with_no_registered_workers_returns_empty_reports() {
+    let mut dag = MissionDag::new("no registered workers");
+    assert!(!dag.is_cancelled(0));
+    let reports = dag.cancel_propagate();
+    assert!(reports.is_empty());
+    assert!(dag.cancel.terminated.is_empty());
+    assert!(dag.cancel.irreversible_running.is_empty());
+}
