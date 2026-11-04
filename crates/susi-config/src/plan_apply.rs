@@ -141,3 +141,92 @@ impl ConfigStore {
         Ok(done)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_produces_ops_only_for_diffs_with_distinct_transition_hashes_and_redacts_secrets() {
+        let mut store = ConfigStore::default();
+        store.values.insert("port".into(), "9090".into());
+        store.values.insert("log_level".into(), "info".into());
+
+        let mut desired = BTreeMap::new();
+        desired.insert("port".into(), "9090".into()); // unchanged
+        desired.insert("log_level".into(), "debug".into()); // changed
+        desired.insert("openai_api_key".into(), "sk-secret-123".into()); // absent -> secret
+        desired.insert("endpoint".into(), "uri=env://X resolved=topsecret".into());
+
+        let plan1 = store.plan(&desired);
+        assert_eq!(plan1.ops.len(), 3);
+        assert_eq!(
+            plan1.preconditions.get("log_level"),
+            Some(&Some("info".into()))
+        );
+        assert_eq!(plan1.preconditions.get("openai_api_key"), Some(&None));
+
+        let rendered = plan1.render();
+        assert!(!rendered.contains("sk-secret-123"));
+        assert!(!rendered.contains("topsecret"));
+        assert!(rendered.contains("openai_api_key: <absent> -> [REDACTED]"));
+        assert!(rendered.contains("resolved=[REDACTED]"));
+
+        // Different target value on the same key yields a distinct op.id hash.
+        let mut desired2 = BTreeMap::new();
+        desired2.insert("log_level".into(), "trace".into());
+        let plan2 = store.plan(&desired2);
+        let id1 = &plan1.ops.iter().find(|o| o.key == "log_level").unwrap().id;
+        let id2 = &plan2.ops[0].id;
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn apply_mutates_store_replays_idempotently_and_rejects_stale_plans() {
+        let mut store = ConfigStore::default();
+        store.values.insert("mode".into(), "dev".into());
+
+        let mut desired = BTreeMap::new();
+        desired.insert("mode".into(), "prod".into());
+        desired.insert("region".into(), "us-east".into());
+
+        let plan = store.plan(&desired);
+        let first = store.apply(&plan).expect("initial apply succeeds");
+        assert!(first.iter().all(|s| s.starts_with("applied op-")));
+        assert_eq!(store.values.get("mode"), Some(&"prod".into()));
+        assert_eq!(store.values.get("region"), Some(&"us-east".into()));
+
+        // Replay of the exact same plan is a no-op ("skip op-...").
+        let replay = store.apply(&plan).expect("replay succeeds");
+        assert!(replay.iter().all(|s| s.starts_with("skip op-")));
+
+        // Stale plan when an existing key changed after planning.
+        let mut desired_next = BTreeMap::new();
+        desired_next.insert("mode".into(), "staging".into());
+        let stale_plan = store.plan(&desired_next);
+        store.values.insert("mode".into(), "concurrent-edit".into());
+        let err = store.apply(&stale_plan).unwrap_err();
+        assert!(err.contains("stale plan: mode changed"));
+
+        // Stale plan when a key absent at plan time is inserted before apply.
+        let mut desired_new = BTreeMap::new();
+        desired_new.insert("new_key".into(), "v1".into());
+        let absent_plan = store.plan(&desired_new);
+        store.values.insert("new_key".into(), "interloper".into());
+        let err = store.apply(&absent_plan).unwrap_err();
+        assert!(err.contains("stale plan: new_key changed"));
+
+        // Missing precondition entry is also rejected as stale.
+        let broken_plan = ConfigPlan {
+            ops: vec![PlanOp {
+                id: "op-missing-precond".into(),
+                key: "orphan".into(),
+                from: None,
+                to: "val".into(),
+            }],
+            preconditions: BTreeMap::new(),
+        };
+        let err = store.apply(&broken_plan).unwrap_err();
+        assert!(err.contains("stale plan: orphan has no precondition"));
+    }
+}
