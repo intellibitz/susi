@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CONFIGSUITESB4T1104-1",
+  "title": "Expand unit tests to 4 in susi-config vc_201_067_mastery, zc_setting_registry, state_backup, and vc_201_065 (CEO Job #142, D-OS-8)",
+  "touch": [
+    "crates/susi-config/src/tests/vc_201_067_mastery.rs",
+    "crates/susi-config/src/tests/zc_setting_registry.rs",
+    "crates/susi-config/src/tests/state_backup.rs",
+    "crates/susi-config/src/tests/vc_201_065.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-config --lib",
+      "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings"
+    ]
+  }
+}
