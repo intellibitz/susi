@@ -70,3 +70,12 @@ fn zc_setting_registry_keys_are_unique_and_lookup_matches_every_entry() {
         assert_eq!(found.derivation, entry.derivation);
     }
 }
+
+#[test]
+fn zc_setting_registry_contains_core_model_and_privacy_keys() {
+    for core_key in ["default_model", "trust_level", "privacy"] {
+        let entry = crate::setting_registry::lookup(core_key)
+            .unwrap_or_else(|| panic!("expected core key {core_key} in SETTING_REGISTRY"));
+        assert_eq!(entry.key, core_key);
+    }
+}

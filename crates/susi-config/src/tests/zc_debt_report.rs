@@ -89,3 +89,15 @@ fn zc_debt_report_renders_all_five_debt_kinds_with_lowercase_badges() {
         );
     }
 }
+
+#[test]
+fn zc_debt_report_scan_with_no_extras_is_sorted_and_non_empty() {
+    let base = scan_debt(&[]);
+    assert!(!base.is_empty());
+    assert!(base.windows(2).all(|w| w[0].id <= w[1].id));
+    for item in &base {
+        assert!(!item.id.is_empty());
+        assert!(!item.description.is_empty());
+        assert!(!item.removes_via.is_empty());
+    }
+}

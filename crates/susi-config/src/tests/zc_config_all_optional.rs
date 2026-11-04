@@ -52,3 +52,16 @@ fn zc_config_all_optional_every_registry_default_value_is_non_empty() {
         );
     }
 }
+
+#[test]
+fn zc_config_all_optional_heal_defaults_are_registered_in_setting_registry() {
+    let defaults = SusiConfig::heal_defaults();
+    assert!(!defaults.is_empty());
+    assert!(defaults.len() <= SETTING_REGISTRY.len());
+    for key in defaults.keys() {
+        assert!(
+            SETTING_REGISTRY.iter().any(|entry| entry.key == key),
+            "heal_defaults key {key} must be registered in SETTING_REGISTRY"
+        );
+    }
+}

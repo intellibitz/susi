@@ -56,3 +56,19 @@ fn state_backup_empty_sections_non_dry_run_roundtrips_cleanly() {
     let out = restore(&bundle, 9).unwrap();
     assert!(out.is_empty());
 }
+
+#[test]
+fn state_backup_manifest_lists_all_encrypted_section_keys_in_order() {
+    let mut sections = BTreeMap::new();
+    sections.insert("alpha".into(), b"1".to_vec());
+    sections.insert("beta".into(), b"2".to_vec());
+    sections.insert("gamma".into(), b"3".to_vec());
+    let blob = backup(&sections, 0x42, false).unwrap();
+    assert_eq!(
+        blob.manifest.sections,
+        vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]
+    );
+    let restored = restore(&blob, 0x42).unwrap();
+    assert_eq!(restored.len(), 3);
+    assert_eq!(restored["beta"], b"2");
+}
