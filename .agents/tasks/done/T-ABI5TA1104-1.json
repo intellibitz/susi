@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "ABI5TA1104",
-  "created_unix": 1793810100
+  "created_unix": 1793810100,
+  "closed": {
+    "at_unix": 1793808857,
+    "commit": "17143bd5d137dbc2376073b1d68563f89e5841b8",
+    "by": "ABI5TA1104"
+  }
 }
