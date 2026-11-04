@@ -145,3 +145,67 @@ pub fn evaluate(entry: EntryPoint, layers: &[LayerDecision]) -> LayerVerdict {
 
     LayerVerdict::Allow
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn evaluate_denies_empty_layers_or_missing_mac_layer() {
+        assert_eq!(evaluate(EntryPoint::Tool, &[]), LayerVerdict::Deny);
+        let without_mac = [LayerDecision::from_daemon_capability(true)];
+        assert_eq!(evaluate(EntryPoint::Tool, &without_mac), LayerVerdict::Deny);
+    }
+
+    #[test]
+    fn evaluate_denies_unrecognized_layer_names() {
+        let layers = [
+            LayerDecision {
+                layer: "mac".into(),
+                verdict: LayerVerdict::Allow,
+            },
+            LayerDecision {
+                layer: "custom_untrusted".into(),
+                verdict: LayerVerdict::Allow,
+            },
+        ];
+        assert_eq!(evaluate(EntryPoint::Peer, &layers), LayerVerdict::Deny);
+    }
+
+    #[test]
+    fn evaluate_enforces_entry_point_specific_deny_only_on_matching_target() {
+        let layers = [
+            LayerDecision {
+                layer: "mac".into(),
+                verdict: LayerVerdict::Allow,
+            },
+            LayerDecision::for_entry_point(EntryPoint::Peer, LayerVerdict::Deny),
+        ];
+        assert_eq!(evaluate(EntryPoint::Peer, &layers), LayerVerdict::Deny);
+        assert_eq!(evaluate(EntryPoint::Tool, &layers), LayerVerdict::Allow);
+        assert_eq!(evaluate(EntryPoint::Model, &layers), LayerVerdict::Allow);
+    }
+
+    #[test]
+    fn layer_decision_from_mac_and_token_reflect_policy_verification() {
+        let policy = MacPolicy::new(
+            [0x11u8; 32],
+            crate::mac_policy::PrivacyMode::Balanced,
+            false,
+        );
+        let token = policy
+            .grant("agent-1", "invoke", "tool:search", Some(60))
+            .unwrap();
+        let mac_ok = LayerDecision::from_mac(&policy, "agent-1", "invoke", "tool:search");
+        let mac_denied = LayerDecision::from_mac(&policy, "agent-1", "invoke", "tool:delete");
+        assert_eq!(mac_ok.verdict, LayerVerdict::Allow);
+        assert_eq!(mac_denied.verdict, LayerVerdict::Deny);
+
+        let tok_ok = LayerDecision::from_token(&policy, &token);
+        assert_eq!(tok_ok.verdict, LayerVerdict::Allow);
+        assert_eq!(
+            evaluate(EntryPoint::Tool, &[mac_ok, tok_ok]),
+            LayerVerdict::Allow
+        );
+    }
+}

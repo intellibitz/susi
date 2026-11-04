@@ -422,6 +422,7 @@ fn only_user_request_entry_points_allow_an_on_demand_engine_start() {
         "src/cli/run_cli.rs",                            // `susi run`
         "crates/susi-server/src/lib.rs",                 // `/v1` completions
         "crates/susi-gawd-swarm/src/ama/master.rs",      // `susi <goal>` missions
+        "crates/susi-gawd/src/plane_handler.rs",         // forwarded goal (`mission_run`)
         "crates/susi-core/src/provider.rs",              // definition + tests
         "crates/susi-gemi/src/engines/http_provider.rs", // unit test only
     ];
@@ -443,6 +444,38 @@ fn only_user_request_entry_points_allow_an_on_demand_engine_start() {
         }
     }
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+
+    // In the GAWD plane only the forwarded goal (`gawd.mission.run`, the
+    // `mission_run` tool) runs as the user's request; `gawd.mission.solve`,
+    // which unattended callers (A2A, `susi_solve`) also reach, does not.
+    let handler = code_only(&read("crates/susi-gawd/src/plane_handler.rs"));
+    let arm = |topic: &str| {
+        handler
+            .split(&format!("topics::{topic} =>"))
+            .nth(1)
+            .and_then(|rest| rest.split("topics::").next())
+            .unwrap_or_default()
+            .to_string()
+    };
+    // Exactly one call outside the unit tests (the definition is generic,
+    // `as_user_request<T>(`): no other GAWD topic (plans, rollbacks) runs
+    // as the user's request.
+    let production = handler.split("#[cfg(test)]").next().unwrap_or_default();
+    assert_eq!(
+        production.matches("as_user_request(").count(),
+        1,
+        "only gawd.mission.run may run as the user's request"
+    );
+    let (run, solve) = (arm("GAWD_MISSION_RUN"), arm("GAWD_SOLVE"));
+    assert!(
+        run.contains("as_user_request("),
+        "mission_run must run as the user's request"
+    );
+    assert!(!solve.is_empty(), "the GAWD_SOLVE arm was not found");
+    assert!(
+        !solve.contains("as_user_request") && !solve.contains("OnDemandEngineStart"),
+        "gawd.mission.solve must not allow an on-demand engine start"
+    );
 
     // The mission guard covers the user's `susi <goal>` entry only: the
     // daemon's pulse worker enters through `solve_stream`, which must not

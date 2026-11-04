@@ -18,6 +18,26 @@ fn workspace_path(payload: &Value) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Run `mission` as the user's own request: like `susi <goal>` in process
+/// (`SusiMasterAgent::solve_stream_report`), it may start a stopped local
+/// engine on demand. The permission is thread-scoped and the mission runs
+/// on this thread, so it covers the whole solve and ends with it.
+fn as_user_request<T>(mission: impl FnOnce() -> T) -> T {
+    let _user_request = crate::susi_core::provider::OnDemandEngineStart::allow();
+    mission()
+}
+
+/// The `mission_run` answer: the final text as the CLI prints it (wrapped
+/// and redacted), the mission status and the CLI exit code derived from
+/// the report (`SusiMissionReport::exit_code`).
+fn mission_outcome(report: &crate::ama::SusiMissionReport) -> Value {
+    json!({
+        "text": report.final_answer_for_sink(),
+        "status": report.status,
+        "exit_code": if report.is_success() { 0 } else { 1 },
+    })
+}
+
 fn eai_to_string<T>(r: EaiResult<T>) -> Result<T, String> {
     r.map_err(|e| e.to_string())
 }
@@ -84,6 +104,31 @@ impl PlaneHandler for GawdPlaneHandler {
                 };
 
                 Ok(json!({ "text": text }))
+            }
+            topics::GAWD_MISSION_RUN => {
+                let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
+                if intent.trim().is_empty() {
+                    return Ok(json!({ "error": "intent is required" }));
+                }
+                if payload.get("tenant_id").is_some() {
+                    return Ok(json!({ "error": MULTI_TENANT_COMMERCIAL }));
+                }
+                let ws = workspace_path(&payload);
+                let version = payload
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(env!("CARGO_PKG_VERSION"));
+                let model = payload.get("model").and_then(|v| v.as_str());
+                let report = as_user_request(|| {
+                    crate::ama::SusiMasterAgent::new().solve_stream_report_with_model(
+                        intent,
+                        &ws,
+                        version,
+                        model,
+                        &|_| {},
+                    )
+                });
+                Ok(mission_outcome(&report))
             }
             topics::GAWD_PLAN_AUTONOMOUS => {
                 let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
@@ -374,12 +419,67 @@ mod tests {
                 json!({ "intent": "x", "tenant_id": "acme" }),
             ),
             (
+                topics::GAWD_MISSION_RUN,
+                json!({ "intent": "x", "tenant_id": "acme" }),
+            ),
+            (
                 topics::GAWD_AUDIT_ACTION,
                 json!({ "tool": "t", "tenant_id": "acme" }),
             ),
         ] {
             let out = handle_topic(topic, payload).expect("handled");
             assert_eq!(out["error"], MULTI_TENANT_COMMERCIAL, "{topic}");
+        }
+    }
+
+    /// The forwarded goal gets the same on-demand engine start the
+    /// in-process goal gets, for exactly as long as the mission runs.
+    #[test]
+    fn mission_run_allows_on_demand_engine_start_only_while_the_mission_runs() {
+        use crate::susi_core::provider::OnDemandEngineStart;
+        assert!(!OnDemandEngineStart::allowed());
+        assert!(as_user_request(OnDemandEngineStart::allowed));
+        assert!(!OnDemandEngineStart::allowed());
+    }
+
+    #[test]
+    fn mission_outcome_exit_code_follows_the_status_not_the_prose() {
+        let report = |status: &str, answer: &str| crate::ama::SusiMissionReport {
+            goal: "g".into(),
+            status: status.into(),
+            agents: Vec::new(),
+            interactions: Vec::new(),
+            final_answer: answer.into(),
+            plan: None,
+        };
+        for status in ["SUCCESS", "COMPLETE"] {
+            let out = mission_outcome(&report(status, "Error: looks like a failure"));
+            assert_eq!(out["exit_code"], 0, "{status}");
+            assert_eq!(out["status"], status);
+            let text = out["text"].as_str().unwrap_or_default();
+            assert!(text.contains("Error: looks like a failure"), "{text}");
+        }
+        for status in ["FAILED", "BLOCKED", "PARTIAL"] {
+            assert_eq!(
+                mission_outcome(&report(status, "done"))["exit_code"],
+                1,
+                "{status}"
+            );
+        }
+        // The text is the redacted form the CLI prints, never the raw answer.
+        let secret = report(
+            "SUCCESS",
+            "key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        );
+        let printed = secret.final_answer_for_sink();
+        assert_eq!(mission_outcome(&secret)["text"], printed);
+    }
+
+    #[test]
+    fn mission_run_requires_an_intent() {
+        for payload in [json!({}), json!({ "intent": "  " })] {
+            let out = handle_topic(topics::GAWD_MISSION_RUN, payload).expect("handled");
+            assert_eq!(out["error"], "intent is required");
         }
     }
 

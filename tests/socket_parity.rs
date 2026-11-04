@@ -292,7 +292,7 @@ const MAPPED: &[(&str, &[Surface])] = &[
     // and admitted by the MAC policy (filesystem.read, or filesystem.write
     // for tools that change it); without it the tool acts on the server
     // workspace as before.
-    ("<goal>", &[Mcp("intent_ingest"), Mcp("susi_solve")]),
+    ("<goal>", &[Mcp("intent_ingest"), Mcp("mission_run")]),
     ("automate", &[Mcp("susi_solve")]),
     ("agents run", &[Mcp("agents_run")]),
     ("agents tasks", &[Mcp("agents_tasks")]),

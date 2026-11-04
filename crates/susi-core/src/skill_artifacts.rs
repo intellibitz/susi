@@ -177,3 +177,82 @@ pub fn import_skill_with_key(
     }
     ImportVerdict::Executable
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_artifact() -> SkillArtifact {
+        SkillArtifact {
+            name: "audit-helper".to_string(),
+            version: "1.2.0".to_string(),
+            reflexes: vec!["check_headers".to_string()],
+            prompts: vec!["Verify security headers".to_string()],
+            fixtures: vec![r#"{"case":"ok"}"#.to_string()],
+            capabilities: BTreeSet::from(["fs.read".to_string()]),
+            signature: String::new(),
+            signer: "team-security".to_string(),
+        }
+    }
+
+    #[test]
+    fn payload_digest_binds_all_fields_and_changes_on_tampering() {
+        let a1 = sample_artifact();
+        let mut a2 = sample_artifact();
+        assert_eq!(a1.payload_digest(), a2.payload_digest());
+        a2.prompts.push("injected prompt".to_string());
+        assert_ne!(a1.payload_digest(), a2.payload_digest());
+    }
+
+    #[test]
+    fn hmac_signing_verifies_with_matching_key_and_rejects_wrong_key_or_long_key_mismatch() {
+        let mut artifact = sample_artifact();
+        let key = b"super-secret-signing-key";
+        artifact.sign_with_key(key);
+        assert_eq!(artifact.signature, skill_sign_content(&artifact, key));
+        assert!(artifact.verify_signature_with_key(Some(key)));
+        assert!(!artifact.verify_signature_with_key(Some(b"wrong-key")));
+        assert!(!artifact.verify_signature_with_key(None));
+
+        let long_key = [0x42u8; 96];
+        artifact.sign_with_key(&long_key);
+        assert!(artifact.verify_signature_with_key(Some(&long_key)));
+    }
+
+    #[test]
+    fn run_fixtures_validates_json_and_failure_markers() {
+        let mut artifact = sample_artifact();
+        assert!(artifact.run_fixtures());
+
+        artifact.fixtures = vec!["{bad json".to_string()];
+        assert!(!artifact.run_fixtures());
+
+        artifact.fixtures = vec!["fail: broken fixture".to_string()];
+        assert!(!artifact.run_fixtures());
+
+        artifact.fixtures.clear();
+        assert!(artifact.run_fixtures());
+    }
+
+    #[test]
+    fn import_skill_enforces_trusted_signer_valid_signature_and_passing_fixtures() {
+        let mut artifact = sample_artifact();
+        artifact.signature = skill_sign(&artifact.signer, &artifact.name, &artifact.version);
+        let trusted = BTreeSet::from(["team-security".to_string()]);
+
+        assert_eq!(
+            import_skill(&artifact, &trusted, true),
+            ImportVerdict::Executable
+        );
+        assert_eq!(
+            import_skill(&artifact, &trusted, false),
+            ImportVerdict::TestsFailed
+        );
+
+        let untrusted = BTreeSet::from(["other-signer".to_string()]);
+        assert_eq!(
+            import_skill(&artifact, &untrusted, true),
+            ImportVerdict::BadProvenance
+        );
+    }
+}
