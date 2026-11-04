@@ -1,0 +1,23 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ERRSINKIPC1104-1",
+  "title": "test(susi-error): add loopback record_event IPC fallback and 64MiB sink rotation unit tests (D-OS-8)",
+  "status": "in_progress",
+  "created_at": "2026-11-04T03:28:45Z",
+  "owner": "gemini",
+  "touch": [
+    "crates/susi-error/src/lib.rs",
+    "crates/susi-error/src/sink.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-error",
+      "--lib"
+    ]
+  }
+}
