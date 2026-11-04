@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "CLOUDCONFIGTESTS4T1104",
-  "created_unix": 1793781630
+  "created_unix": 1793781630,
+  "closed": {
+    "at_unix": 1793781958,
+    "commit": "18e3340b5f41fba22b0ffeac550bbbee16c9cd79",
+    "by": "CLOUDCONFIGTESTS4T1104"
+  }
 }
