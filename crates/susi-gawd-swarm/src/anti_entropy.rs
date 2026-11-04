@@ -197,3 +197,118 @@ pub fn bounded_sweep<R: Clone>(
         }
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn catch_up_book_resume_offset_returns_saved_offset_until_tip_completed() {
+        let mut book = CatchUpBook::default();
+        assert_eq!(book.resume_offset("peer-a"), 0);
+
+        book.mark_batch("peer-a", 128, 64, false);
+        assert_eq!(book.resume_offset("peer-a"), 128);
+        assert_eq!(book.peers["peer-a"].applied, 64);
+
+        book.mark_batch("peer-a", 200, 36, true);
+        assert_eq!(book.resume_offset("peer-a"), 0);
+        assert_eq!(book.peers["peer-a"].applied, 100);
+    }
+
+    #[test]
+    fn save_and_load_book_from_roundtrip_cursors_and_default_on_missing_path() {
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_anti_entropy_book_{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+        assert!(load_book_from(&tmp).peers.is_empty());
+
+        let mut book = CatchUpBook::default();
+        book.mark_batch("peer-1", 42, 19, false);
+        save_book_to(&tmp, &book);
+
+        let loaded = load_book_from(&tmp);
+        assert_eq!(loaded.resume_offset("peer-1"), 42);
+        assert_eq!(loaded.peers["peer-1"].applied, 19);
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn bounded_sweep_converges_on_short_page_and_records_applied_and_scanned() {
+        let mut book = CatchUpBook::default();
+        let remote = [1u32, 2, 3, 4];
+        let bounds = CatchUpBounds {
+            batch_size: 8,
+            max_apply_per_sweep: 16,
+            max_scan_per_sweep: 32,
+        };
+        let mut applied_items = Vec::new();
+        let mut noted = Vec::new();
+        let outcome = bounded_sweep(
+            &mut book,
+            "peer-short",
+            bounds,
+            &mut |off, lim| remote.iter().skip(off).take(lim).copied().collect(),
+            &mut |r| *r % 2 == 0,
+            &mut |batch| applied_items.extend_from_slice(batch),
+            &mut |r| noted.push(*r),
+        );
+        assert_eq!(
+            outcome,
+            SweepOutcome {
+                scanned: 4,
+                applied: 2,
+                converged: true,
+                needs_more: false,
+            }
+        );
+        assert_eq!(applied_items, vec![2, 4]);
+        assert_eq!(noted, vec![1, 2, 3, 4]);
+        assert_eq!(book.resume_offset("peer-short"), 0);
+    }
+
+    #[test]
+    fn bounded_sweep_halts_at_max_apply_per_sweep_and_resumes_from_saved_cursor() {
+        let mut book = CatchUpBook::default();
+        let remote: Vec<u32> = (1..=6).collect();
+        let bounds = CatchUpBounds {
+            batch_size: 2,
+            max_apply_per_sweep: 2,
+            max_scan_per_sweep: 100,
+        };
+        let mut applied = Vec::new();
+        let first = bounded_sweep(
+            &mut book,
+            "peer-paged",
+            bounds,
+            &mut |off, lim| remote.iter().skip(off).take(lim).copied().collect(),
+            &mut |_| true,
+            &mut |batch| applied.extend_from_slice(batch),
+            &mut |_| {},
+        );
+        assert!(!first.converged);
+        assert!(first.needs_more);
+        assert_eq!(book.resume_offset("peer-paged"), 2);
+
+        let second = bounded_sweep(
+            &mut book,
+            "peer-paged",
+            CatchUpBounds {
+                batch_size: 8,
+                max_apply_per_sweep: 10,
+                max_scan_per_sweep: 100,
+            },
+            &mut |off, lim| remote.iter().skip(off).take(lim).copied().collect(),
+            &mut |_| true,
+            &mut |batch| applied.extend_from_slice(batch),
+            &mut |_| {},
+        );
+        assert!(second.converged);
+        assert!(!second.needs_more);
+        assert_eq!(applied, remote);
+    }
+}
