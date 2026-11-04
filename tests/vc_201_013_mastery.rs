@@ -71,3 +71,47 @@ fn vc_201_013_mastery() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn vc_201_013_rejects_empty_and_backslash_patch_ids() {
+    let root = tmp_root("invalid-ids");
+    assert!(PatchFence::isolate(&root, "").is_err());
+    assert!(PatchFence::isolate(&root, "a\\b").is_err());
+    assert!(PatchFence::isolate(&root, "..").is_err());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn vc_201_013_nested_relative_path_inside_fence_writes_cleanly() {
+    let root = tmp_root("nested-ok");
+    let mut fence = PatchFence::isolate(&root, "patch-nested").unwrap();
+    fence.ensure_isolated().unwrap();
+    let target = fence.workspace.join("sub").join("file.txt");
+    assert!(fence.is_inside_fence(&target));
+    fence.apply_in_isolation("nested.patch", b"hello").unwrap();
+    assert_eq!(
+        std::fs::read(fence.workspace.join("nested.patch")).unwrap(),
+        b"hello"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn vc_201_013_concurrent_fences_keep_independent_contents() {
+    let root = tmp_root("concurrent");
+    let mut f1 = PatchFence::isolate(&root, "exp-a").unwrap();
+    let mut f2 = PatchFence::isolate(&root, "exp-b").unwrap();
+    f1.ensure_isolated().unwrap();
+    f2.ensure_isolated().unwrap();
+    f1.apply_in_isolation("candidate.patch", b"alpha").unwrap();
+    f2.apply_in_isolation("candidate.patch", b"beta").unwrap();
+    assert_eq!(
+        std::fs::read(f1.workspace.join("candidate.patch")).unwrap(),
+        b"alpha"
+    );
+    assert_eq!(
+        std::fs::read(f2.workspace.join("candidate.patch")).unwrap(),
+        b"beta"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
