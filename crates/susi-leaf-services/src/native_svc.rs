@@ -123,4 +123,20 @@ mod tests {
             "missing wasm /wasm/execute -> {missing_status}"
         );
     }
+
+    #[tokio::test]
+    async fn head_and_patch_on_wasm_execute_are_rejected() {
+        for method in ["HEAD", "PATCH"] {
+            let request = Request::builder()
+                .method(method)
+                .uri("/wasm/execute")
+                .body(Body::empty())
+                .unwrap();
+            let status = router().oneshot(request).await.unwrap().status();
+            assert!(
+                status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::UNAUTHORIZED,
+                "{method} /wasm/execute -> {status}"
+            );
+        }
+    }
 }

@@ -301,4 +301,22 @@ mod tests {
         assert_eq!(resp.data["cell_id"], "cell-hb-resp");
         assert_eq!(resp.data["missions_completed"], 1);
     }
+
+    #[test]
+    fn register_capability_is_idempotent_and_trust_score_floors_at_point_one() {
+        let mut cell = SwarmCell::new(
+            "cell-cap-floor".to_string(),
+            SwarmRole::ToolDriver,
+            "tcp://127.0.0.1:0".to_string(),
+        );
+        cell.register_capability("cap-alpha");
+        cell.register_capability("cap-alpha");
+        assert_eq!(cell.manifest.capabilities, vec!["cap-alpha".to_string()]);
+
+        for _ in 0..50 {
+            cell.record_failure();
+        }
+        assert!((cell.manifest.trust_score - 0.1).abs() < 1e-6);
+        assert_eq!(cell.missions_failed, 50);
+    }
 }
