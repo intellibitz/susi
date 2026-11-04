@@ -85,4 +85,16 @@ mod changelog_from_tasks_tests {
         let md = changelog_from_tasks(&closed, 100);
         assert!(md.contains("- T-A: first item\n- T-B: second item\n"));
     }
+
+    #[test]
+    fn closed_task_serde_json_roundtrip_preserves_fields() {
+        let task = ClosedTask {
+            id: "T-GAWD-1".into(),
+            title: "Ship release notes".into(),
+            closed_unix: 1_700_000_000,
+        };
+        let encoded = serde_json::to_string(&task).expect("serialize ClosedTask");
+        let decoded: ClosedTask = serde_json::from_str(&encoded).expect("deserialize ClosedTask");
+        assert_eq!(decoded, task);
+    }
 }

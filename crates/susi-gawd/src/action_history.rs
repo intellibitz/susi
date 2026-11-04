@@ -294,4 +294,27 @@ mod inline_tests {
         assert_eq!(windowed.len(), 1);
         assert_eq!(windowed[0].payload, "a2");
     }
+
+    #[test]
+    fn action_record_and_chain_anchor_serde_json_roundtrip_and_detect_truncation() {
+        let mut hist = ActionHistory::new("k1", "secret-1", 1);
+        let rec = hist
+            .record_action("agent-a", "m-1", "tool_call", 100, 10, "p1")
+            .expect("record 1")
+            .clone();
+        let rec_json = serde_json::to_string(&rec).expect("serialize ActionRecord");
+        let rec_back: ActionRecord =
+            serde_json::from_str(&rec_json).expect("deserialize ActionRecord");
+        assert_eq!(rec_back, rec);
+
+        let anchor = hist.anchors()[0].clone();
+        let anchor_json = serde_json::to_string(&anchor).expect("serialize ChainAnchor");
+        let anchor_back: ChainAnchor =
+            serde_json::from_str(&anchor_json).expect("deserialize ChainAnchor");
+        assert_eq!(anchor_back, anchor);
+
+        hist.anchors[0].anchor_index = 99;
+        let keys = BTreeMap::from([("k1".to_string(), "secret-1".to_string())]);
+        assert_eq!(hist.verify(&keys), Err(VerifyFailure::Truncation));
+    }
 }

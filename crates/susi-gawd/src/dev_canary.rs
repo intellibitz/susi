@@ -105,4 +105,25 @@ mod inline_tests {
         assert_eq!(ports, [9190, 9191, 9192, 9193, 9194]);
         assert_eq!(ports[0], DEV_INSTANCE_BASE_PORT);
     }
+
+    #[test]
+    fn canary_trial_and_result_serde_roundtrip_and_exact_limit_boundary_continues() {
+        let boundary = CanaryTrial {
+            candidate_metric: 0.90,
+            baseline_metric: 0.95,
+            regression_limit: 0.05,
+        };
+        let res = evaluate_canary(&boundary);
+        assert_eq!(res, CanaryResult::Continue);
+
+        let trial_json = serde_json::to_string(&boundary).expect("serialize CanaryTrial");
+        let trial_back: CanaryTrial =
+            serde_json::from_str(&trial_json).expect("deserialize CanaryTrial");
+        assert_eq!(trial_back, boundary);
+
+        let res_json = serde_json::to_string(&res).expect("serialize CanaryResult");
+        let res_back: CanaryResult =
+            serde_json::from_str(&res_json).expect("deserialize CanaryResult");
+        assert_eq!(res_back, res);
+    }
 }
