@@ -1,0 +1,23 @@
+{
+    "id":  "T-XTWATCH1104-1",
+    "title":  "Wire extension-watch CLI subcommand in xtask/src/main.rs and remove dead_code suppression",
+    "goal":  "",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--bin",
+                               "xtask"
+                           ]
+               },
+    "created_by":  "XTWATCH1104",
+    "created_unix":  1793756373
+}
