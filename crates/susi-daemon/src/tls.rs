@@ -342,3 +342,61 @@ pub fn revoke_prev_cert_at(tls_dir: &Path) -> bool {
 
     r1 || r2
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn is_loopback_recognizes_ipv4_ipv6_and_localhost_variants() {
+        assert!(is_loopback("127.0.0.1"));
+        assert!(is_loopback("::1"));
+        assert!(is_loopback("localhost"));
+        assert!(is_loopback("localhost."));
+        assert!(!is_loopback("0.0.0.0"));
+        assert!(!is_loopback("192.168.1.10"));
+    }
+
+    #[test]
+    fn generate_self_signed_and_cert_fingerprint_produce_64_hex_digest() {
+        let sans = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+        let (cert_pem, key_pem) = generate_self_signed(&sans).unwrap();
+        assert!(cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(key_pem.contains("BEGIN PRIVATE KEY"));
+        let fp = cert_fingerprint(&cert_pem).unwrap();
+        assert_eq!(fp.len(), 64);
+    }
+
+    #[test]
+    fn cert_fingerprint_rejects_empty_or_invalid_pem() {
+        assert!(cert_fingerprint("").is_err());
+        assert!(cert_fingerprint("not a pem block").is_err());
+    }
+
+    #[test]
+    fn stage_activate_and_revoke_cert_lifecycle_in_temp_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-tls-inline-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let sans = vec!["localhost".to_string()];
+        let (c1, k1) = generate_self_signed(&sans).unwrap();
+        let fp1 = cert_fingerprint(&c1).unwrap();
+        stage_cert_pair_at(&dir, &c1, &k1, 1_000).unwrap();
+        assert!(!activate_staged_cert_at(&dir, "wrong_fp", 1_010));
+        assert!(activate_staged_cert_at(&dir, &fp1, 1_010));
+
+        let (c2, k2) = generate_self_signed(&sans).unwrap();
+        let fp2 = cert_fingerprint(&c2).unwrap();
+        stage_cert_pair_at(&dir, &c2, &k2, 2_000).unwrap();
+        assert!(activate_staged_cert_at(&dir, &fp2, 2_010));
+        assert!(prev_cert_at(&dir, 2_020).is_some());
+        assert!(revoke_prev_cert_at(&dir));
+        assert!(prev_cert_at(&dir, 2_020).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
