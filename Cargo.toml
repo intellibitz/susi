@@ -4,6 +4,7 @@ members = [
     "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
+    "crates/susi-build-os-ucrt",
     "crates/susi-build-policy",
     "crates/susi-windows-runtime",
     "crates/susi-error",
@@ -145,7 +146,9 @@ too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
+susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
 susi-build-policy = { path = "crates/susi-build-policy" }
+susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
@@ -242,11 +245,10 @@ rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
-
-[target.'cfg(windows)'.dependencies]
-susi-windows-runtime = { path = "crates/susi-windows-runtime" }
+susi-windows-runtime = { workspace = true }
 
 [build-dependencies]
+susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
 # The candle crates come from crates.io again: candle-core 0.11.0 there wanted
