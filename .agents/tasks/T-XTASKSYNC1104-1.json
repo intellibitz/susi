@@ -1,0 +1,23 @@
+{
+    "id":  "T-XTASKSYNC1104-1",
+    "title":  "Port version/badge sync and GPU warning helpers into xtask with sync-version subcommand (D-SP-1)",
+    "goal":  "",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--bin",
+                               "xtask"
+                           ]
+               },
+    "created_by":  "XTASKSYNC1104",
+    "created_unix":  1793754913
+}
