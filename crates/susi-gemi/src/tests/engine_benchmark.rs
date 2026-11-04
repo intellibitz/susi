@@ -62,3 +62,19 @@ fn engine_benchmark_writes_evidence_file() {
     assert_eq!(estimate_tokens("a b c"), 3);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn engine_benchmark_handles_empty_prompt_slice_and_whitespace_token_floor() {
+    assert_eq!(estimate_tokens(""), 1);
+    assert_eq!(estimate_tokens("   \t\n  "), 1);
+
+    let fake = FakeProvider {
+        engine: "idle-engine".into(),
+        model: "idle-model".into(),
+        reply: "unused".into(),
+        latency: Duration::from_millis(5),
+        fail: false,
+    };
+    let samples = run_engine_benchmark(&fake, &[]);
+    assert!(samples.is_empty());
+}

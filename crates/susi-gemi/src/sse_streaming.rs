@@ -37,4 +37,45 @@ mod sse_streaming_tests {
         assert_eq!(t, "hi");
         assert!(cancelled);
     }
+
+    #[test]
+    fn fold_sse_stops_at_done_and_ignores_trailing_frames() {
+        let (text, cancelled) = fold_sse(&[
+            SseEvent::Data("alpha-".into()),
+            SseEvent::Data("beta".into()),
+            SseEvent::Done,
+            SseEvent::Data("-trailing".into()),
+            SseEvent::Cancelled,
+        ]);
+        assert_eq!(text, "alpha-beta");
+        assert!(!cancelled);
+    }
+
+    #[test]
+    fn fold_sse_handles_empty_and_unterminated_data_streams() {
+        let (empty_text, empty_cancelled) = fold_sse(&[]);
+        assert!(empty_text.is_empty());
+        assert!(!empty_cancelled);
+
+        let (joined, cancelled) = fold_sse(&[
+            SseEvent::Data("one ".into()),
+            SseEvent::Data("two ".into()),
+            SseEvent::Data("three".into()),
+        ]);
+        assert_eq!(joined, "one two three");
+        assert!(!cancelled);
+    }
+
+    #[test]
+    fn sse_event_variants_round_trip_through_serde_json() {
+        for event in [
+            SseEvent::Data("chunk".into()),
+            SseEvent::Done,
+            SseEvent::Cancelled,
+        ] {
+            let encoded = serde_json::to_string(&event).expect("serialize SseEvent");
+            let decoded: SseEvent = serde_json::from_str(&encoded).expect("deserialize SseEvent");
+            assert_eq!(decoded, event);
+        }
+    }
 }
