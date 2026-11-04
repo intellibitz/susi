@@ -133,7 +133,7 @@ impl Drop for Lock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 struct Claim {
     name: String,
     worktree: PathBuf,
@@ -1153,10 +1153,18 @@ fn release(root: &Path, claimant: &str) -> Result<()> {
 
 /// Collect each index and working-tree delta separately: their combined HEAD
 /// diff can be empty even when the index still contains a staged change.
-fn changed_paths(root: &Path) -> Result<Vec<String>> {
+fn changed_paths(root: &Path, base: &str) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     for args in [
-        vec!["diff", "--cached", "--no-renames", "--name-only", "-z"],
+        vec![
+            "diff",
+            "--cached",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            base,
+            "--",
+        ],
         vec!["diff", "--no-renames", "--name-only", "-z"],
         vec!["ls-files", "--others", "--exclude-standard", "-z"],
     ] {
@@ -1194,7 +1202,11 @@ fn owns_path(held: &str, changed: &str) -> bool {
 }
 
 fn claimed_changes(claim: &Claim) -> Result<Vec<String>> {
-    let paths = changed_paths(&claim.worktree)?;
+    claimed_changes_against(claim, "HEAD")
+}
+
+fn claimed_changes_against(claim: &Claim, base: &str) -> Result<Vec<String>> {
+    let paths = changed_paths(&claim.worktree, base)?;
     for path in &paths {
         let normalized = scope(path)?;
         if !claim.scopes.iter().any(|held| owns_path(held, &normalized)) {
@@ -1211,6 +1223,16 @@ fn claimed_changes(claim: &Claim) -> Result<Vec<String>> {
 /// Scope-guarded local commit, not a test/release gate. It never changes the
 /// repository's shared hook configuration or invokes its network-bound hooks.
 fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> Result<()> {
+    scoped_commit(root, claimant, message, signer, None)
+}
+
+fn scoped_commit(
+    root: &Path,
+    claimant: &str,
+    message: &str,
+    signer: Option<&str>,
+    merge_parent: Option<&str>,
+) -> Result<()> {
     native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
     if message.trim().is_empty() || message.contains('\0') {
@@ -1234,18 +1256,27 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
     {
         return Err("claim repository or branch does not match".into());
     }
+    if signer.is_some() && merge_parent.is_some() {
+        return Err("finish-merge does not support signing".into());
+    }
     let signing = match signer {
         Some(key) => Some((key, git(&claim.worktree, &["rev-parse", "HEAD"])?)),
         None => None,
     };
-    // Do not convert an in-progress merge/cherry-pick/rebase into a task commit.
+    // A normal task commit must never consume another Git operation.
+    let mut forbidden = Vec::new();
     for marker in [
         "MERGE_HEAD",
+        "MERGE_AUTOSTASH",
         "CHERRY_PICK_HEAD",
         "REVERT_HEAD",
+        "sequencer",
         "rebase-merge",
         "rebase-apply",
     ] {
+        if marker == "MERGE_HEAD" && merge_parent.is_some() {
+            continue;
+        }
         let path = git(
             &claim.worktree,
             &["rev-parse", "--path-format=absolute", "--git-path", marker],
@@ -1253,9 +1284,10 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
         if Path::new(&path).exists() {
             return Err("finish the existing Git operation before committing".into());
         }
+        forbidden.push(PathBuf::from(path));
     }
     let paths = claimed_changes(&claim)?;
-    if paths.is_empty() {
+    if paths.is_empty() && merge_parent.is_none() {
         return Err("nothing to commit".into());
     }
     let hooks = state.join("empty-hooks");
@@ -1264,6 +1296,9 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
         || fs::read_dir(&hooks)?.next().is_some()
     {
         return Err("local empty-hooks directory must be an empty real directory".into());
+    }
+    if let Some(expected) = merge_parent {
+        return finish_scoped_merge(&claim, expected, message, &hooks, &forbidden);
     }
     // NUL-delimited literal pathspecs preserve spaces and metacharacters and
     // avoid the Windows command-line length limit for large tasks.
@@ -1393,6 +1428,132 @@ fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> R
     Ok(())
 }
 
+/// Finish only a resolved, explicitly pinned merge in the reserved worktree.
+/// ORIG_HEAD lets a retry finish cleanup if publication already succeeded.
+fn finish_scoped_merge(
+    claim: &Claim,
+    expected: &str,
+    message: &str,
+    hooks: &Path,
+    forbidden: &[PathBuf],
+) -> Result<()> {
+    let root = &claim.worktree;
+    let claim_path = state(root)?
+        .join("claims")
+        .join(format!("{}.claim", claim.name));
+    if !matches!(expected.len(), 40 | 64) || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("finish-merge requires a full commit object ID".into());
+    }
+    let object = git(
+        root,
+        &["rev-parse", "--verify", &format!("{expected}^{{commit}}")],
+    )?;
+    if object != expected {
+        return Err("expected parent must name the commit itself".into());
+    }
+    let original = git(root, &["rev-parse", "--verify", "ORIG_HEAD^{commit}"])?;
+    if original == expected {
+        return Err("merge parents must be distinct".into());
+    }
+    git(
+        root,
+        &["merge-base", "--is-ancestor", &claim.base, &original],
+    )?;
+    let merge_head = git(
+        root,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "MERGE_HEAD",
+        ],
+    )?;
+    let tree = git(root, &["write-tree"])?;
+    let branch = format!("local-agent/{}", claim.name);
+    let validate = || -> Result<()> {
+        if read_claim(&claim_path)? != *claim
+            || forbidden.iter().any(|p| p.exists())
+            || fs::read_to_string(&merge_head)?.lines().collect::<Vec<_>>() != [expected]
+            || git(root, &["branch", "--show-current"])? != branch
+            || git(root, &["rev-parse", "--verify", "ORIG_HEAD^{commit}"])? != original
+            || git(root, &["write-tree"])? != tree
+        {
+            return Err("merge parent, branch or staged tree changed".into());
+        }
+        for args in [
+            &["ls-files", "--unmerged", "-z"][..],
+            &["diff", "--name-only", "-z", "--"][..],
+            &["ls-files", "--others", "--exclude-standard", "-z"][..],
+        ] {
+            if !git(root, args)?.is_empty() {
+                return Err(
+                    "finish-merge requires a resolved index and fully staged changes".into(),
+                );
+            }
+        }
+        claimed_changes_against(claim, &original)?;
+        Ok(())
+    };
+    validate()?;
+    let message = format!("{}\n\nTask: LOCAL-{}", message.trim(), claim.name);
+    let expected_shape = format!("{tree}\n{original} {expected}\n{message}");
+    let head = git(root, &["rev-parse", "HEAD"])?;
+    let commit = if head == original {
+        git_input(
+            root,
+            &[
+                "--no-replace-objects",
+                "commit-tree",
+                &tree,
+                "-p",
+                &original,
+                "-p",
+                expected,
+                "-F",
+                "-",
+            ],
+            message.as_bytes(),
+        )?
+    } else {
+        head.clone()
+    };
+    if git(
+        root,
+        &[
+            "--no-replace-objects",
+            "show",
+            "-s",
+            "--format=%T%n%P%n%B",
+            &commit,
+        ],
+    )? != expected_shape
+    {
+        return Err("refusing a merge with different parents, tree or task message".into());
+    }
+    let hooks = format!("core.hooksPath={}", text(hooks)?);
+    validate()?;
+    if head == original {
+        git(
+            root,
+            &[
+                "-c",
+                &hooks,
+                "update-ref",
+                &format!("refs/heads/{branch}"),
+                &commit,
+                &original,
+            ],
+        )?;
+    }
+    validate()?;
+    if git(root, &["rev-parse", "HEAD"])? != commit {
+        return Err("claimed branch moved before merge cleanup".into());
+    }
+    git(root, &["-c", &hooks, "merge", "--quit"])?;
+    println!("Finished scoped merge {commit}, parents {original} {expected}, tree {tree}.");
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
@@ -1430,6 +1591,8 @@ fn run(args: &[String]) -> Result<()> {
         }
         Some("release") if args.len() == 2 => release(&root, &args[1])?,
         Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2], None)?,
+        Some("finish-merge") if args.len() == 4 => scoped_commit(&root, &args[1], &args[3], None, Some(&args[2]))?,
+        Some("finish-merge") if args.iter().any(|arg| arg == "--sign") => return Err("finish-merge does not support signing".into()),
         Some("commit") if args.len() == 5 && args[3] == "--sign" => commit(&root, &args[1], &args[2], Some(&args[4]))?,
         Some("integrate") if args.len() >= 2 => { let names: Vec<_> = args[1..].iter().map(String::as_str).collect(); integrate_with(&root, &names, verify_candidate)?; },
         Some("list") if args.len() == 1 => {
@@ -1437,7 +1600,7 @@ fn run(args: &[String]) -> Result<()> {
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | integrate <name> [<name> ...] | release <name>".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name>".into()),
     }
     Ok(())
 }
@@ -1502,6 +1665,102 @@ mod tests {
             }
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn pinned_merge_requires_a_resolved_scoped_index_and_preserves_both_parents() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        git(&repo, &["config", "user.name", "Test"]).unwrap();
+        git(&repo, &["config", "user.email", "test@example.invalid"]).unwrap();
+        let worker = start(&repo, "merge", &["docs".into()]).unwrap();
+        fs::create_dir(worker.join("docs")).unwrap();
+        fs::write(worker.join("docs/record"), "worker").unwrap();
+        commit(&worker, "merge", "worker change", None).unwrap();
+        let own = git(&worker, &["rev-parse", "HEAD"]).unwrap();
+        fs::create_dir(repo.join("docs")).unwrap();
+        fs::write(repo.join("docs/record"), "incoming").unwrap();
+        git(&repo, &["add", "docs/record"]).unwrap();
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "incoming change"],
+        )
+        .unwrap();
+        let incoming = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let refs = || {
+            git(
+                &repo,
+                &["for-each-ref", "--format=%(refname) %(objectname)"],
+            )
+            .unwrap()
+        };
+        let before = refs();
+        assert!(git(&worker, &["merge", "--no-ff", "--no-commit", &incoming]).is_err());
+        let finish = |parent: &str| scoped_commit(&worker, "merge", "join", None, Some(parent));
+        assert!(finish(&incoming).is_err()); // Unresolved add/add conflict.
+        fs::write(worker.join("docs/record"), "worker and incoming").unwrap();
+        git(&worker, &["add", "docs/record"]).unwrap();
+        assert!(commit(&worker, "merge", "normal commit", None).is_err());
+        assert!(finish(&own).is_err());
+        assert!(scoped_commit(
+            &worker,
+            "merge",
+            "join",
+            Some(&"a".repeat(40)),
+            Some(&incoming)
+        )
+        .is_err());
+
+        fs::write(worker.join("outside"), "untracked").unwrap();
+        assert!(finish(&incoming).is_err());
+        git(&worker, &["add", "outside"]).unwrap();
+        assert!(finish(&incoming).is_err());
+        git(&worker, &["reset", "--", "outside"]).unwrap();
+        fs::remove_file(worker.join("outside")).unwrap();
+        fs::write(worker.join("docs/record"), "unstaged").unwrap();
+        assert!(finish(&incoming).is_err());
+        git(&worker, &["restore", "--worktree", "--", "docs/record"]).unwrap();
+        let git_path = |name: &str| {
+            PathBuf::from(
+                git(
+                    &worker,
+                    &["rev-parse", "--path-format=absolute", "--git-path", name],
+                )
+                .unwrap(),
+            )
+        };
+        let merge_head = git_path("MERGE_HEAD");
+        fs::write(&merge_head, format!("{incoming}\n{own}\n")).unwrap();
+        assert!(finish(&incoming).is_err());
+        fs::write(&merge_head, format!("{incoming}\n")).unwrap();
+        let sequencer = git_path("sequencer");
+        fs::create_dir(&sequencer).unwrap();
+        assert!(finish(&incoming).is_err());
+        fs::remove_dir(sequencer).unwrap();
+        assert_eq!(before, refs());
+
+        let tree = git(&worker, &["write-tree"]).unwrap();
+        finish(&incoming).unwrap();
+        let merged = git(&worker, &["rev-parse", "HEAD"]).unwrap();
+        assert_eq!(
+            git(&worker, &["show", "-s", "--format=%T %P", "HEAD"]).unwrap(),
+            format!("{tree} {own} {incoming}")
+        );
+        assert_eq!(
+            refs(),
+            before.replace(
+                &format!("refs/heads/local-agent/merge {own}"),
+                &format!("refs/heads/local-agent/merge {merged}")
+            )
+        );
+        assert!(git(&worker, &["status", "--porcelain"]).unwrap().is_empty());
+        assert!(!merge_head.exists());
+
+        // Simulate interruption after the compare-and-swap, before Git-state cleanup.
+        fs::write(&merge_head, format!("{incoming}\n")).unwrap();
+        finish(&incoming).unwrap();
+        assert_eq!(git(&worker, &["rev-parse", "HEAD"]).unwrap(), merged);
+        assert!(!merge_head.exists());
     }
 
     #[test]

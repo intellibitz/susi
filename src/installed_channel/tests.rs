@@ -17,6 +17,17 @@ fn fixture_root() -> PathBuf {
     dir
 }
 
+#[test]
+fn installation_probe_distinguishes_public_storage_from_a_private_package_cache() {
+    let root = fixture_root();
+    let private = root.join("Packages/Example/LocalCache/Local");
+    fs::create_dir_all(&private).unwrap();
+    assert!(!public_host_view(&private).unwrap());
+    assert_eq!(fs::read_dir(&private).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn package(base: &Path, tag: &str) -> Package {
     let dir = base.join(tag);
     fs::create_dir(&dir).unwrap();
@@ -73,7 +84,7 @@ fn launch(root: &Path) -> String {
     let release = installed(root, &chosen.current).unwrap();
     let _pinned = release.pinned_executable().unwrap();
     String::from_utf8(
-        Command::new(release.executable())
+        Command::new(release.executable().canonicalize().unwrap())
             .arg("--version")
             .output()
             .unwrap()
@@ -82,6 +93,72 @@ fn launch(root: &Path) -> String {
     .unwrap()
     .trim()
     .into()
+}
+
+// Each host process uses the same private test channel as its parent.
+// Registration of real PATH entries and shortcuts belongs to the clean guest.
+#[test]
+#[ignore = "worker launched explicitly by the interactive Windows handoff test"]
+fn scheduled_transaction_worker() {
+    let result = (|| -> Result<String> {
+        let exe = env::current_exe()?;
+        let scratch = exe.parent().ok_or("missing fixture directory")?;
+        if !scratch
+            .file_name()
+            .and_then(|p| p.to_str())
+            .is_some_and(|p| p.starts_with("susi-ordinary-fixture-"))
+        {
+            return Err("host worker is outside its fixture".into());
+        }
+        let local = PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("missing LocalAppData")?);
+        if !public_host_view(&local)? {
+            return Err("scheduled worker still has a virtualized Windows view".into());
+        }
+        let open = |tag: &str| -> Result<Package> {
+            let path = scratch.join(tag);
+            Package::open(&path, &digest_bytes(&fs::read(path.join("manifest.txt"))?))
+        };
+        let root = scratch.join("SusiLocal/production");
+        let a = open("A")?;
+        let selected = match fs::read_to_string(scratch.join("fixture-operation"))?.as_str() {
+            "A" => apply(&root, Some((&a, None)), &ok, None)?,
+            "B" => apply(&root, Some((&open("B")?, Some(&a))), &ok, None)?,
+            "rollback" => apply(&root, None, &ok, Some(&a.release))?,
+            _ => return Err("unexpected fixture operation".into()),
+        };
+        Ok(selected.current)
+    })();
+    super::super::host_task::reply(&result).unwrap();
+    result.unwrap();
+}
+
+#[test]
+#[ignore = "requires a packaged Windows parent and an interactive Task Scheduler"]
+fn packaged_host_handoff_installs_two_fixtures_and_restores_the_first() {
+    let local = PathBuf::from(env::var_os("LOCALAPPDATA").unwrap());
+    assert!(
+        !public_host_view(&local).unwrap(),
+        "the parent must have a private app view"
+    );
+    let scratch = fixture_root();
+    let a = package(&scratch, "A");
+    let b = package(&scratch, "B");
+    let worker = scratch.join("host-fixture.exe");
+    fs::copy(env::current_exe().unwrap(), &worker).unwrap();
+    let module = module_path!().split_once("::").unwrap().1;
+    let args = format!("--ignored --exact {module}::scheduled_transaction_worker");
+    let root = scratch.join("SusiLocal/production");
+    for (operation, expected, version) in [
+        ("A", &a.release, "susi A"),
+        ("B", &b.release, "susi B"),
+        ("rollback", &a.release, "susi A"),
+    ] {
+        fs::write(scratch.join("fixture-operation"), operation).unwrap();
+        let selected = super::super::host_task::schedule(&worker, &args).unwrap();
+        assert_eq!(&selected, expected);
+        assert_eq!(launch(&root), version);
+    }
+    fs::remove_dir_all(scratch).unwrap();
 }
 
 #[test]
@@ -147,12 +224,18 @@ fn qualified_ordinary_channel_preserves_live_images_recovers_and_rejects_tamperi
     let sa = apply(&root, Some((&a, None)), &ok, None).unwrap();
     assert_eq!(sa.current, a.release);
     assert_eq!(launch(&root), "susi A");
-    let mut held = Command::new(installed(&root, &a.release).unwrap().executable())
-        .arg("hold")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut held = Command::new(
+        installed(&root, &a.release)
+            .unwrap()
+            .executable()
+            .canonicalize()
+            .unwrap(),
+    )
+    .arg("hold")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .spawn()
+    .unwrap();
     assert!(apply(&root, Some((&b, Some(&a))), &refused, None).is_err());
     assert_eq!(selected(&root), sa);
     assert!(root.join(PENDING).exists());

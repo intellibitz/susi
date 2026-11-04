@@ -1,0 +1,155 @@
+{
+  "schema": "susi/future-stdlib-reuse-proof/v1",
+  "task": "T-STDLIBREUSE1102-1",
+  "reservation": "stdlib-reuse-1102",
+  "disposition": "Future-only scoped candidate. No integration, qualification of a production release, or promotion. Reservation retained.",
+  "source": {
+    "private_clone": "F:/src/github.com/intellibitz/susi-stdlib-native-proof-1102",
+    "private_common_dir": "F:/src/github.com/intellibitz/susi-stdlib-native-proof-1102/.git",
+    "private_runtime": "F:/src/github.com/intellibitz/susi-stdlib-proof-state-1102",
+    "binding_base": "d3f90b6a8f4bd601b4806b34febaa632c5355f62",
+    "private_cold_source": "46245ba2206855a0511f875df0818ee83567d327",
+    "private_cold_tree": "64d50a5989daa726dbda075a473d89d80058633a",
+    "private_pinned_candidate": "a0cf42ee3744b602022811176f5840a8dc3af442",
+    "private_pinned_tree": "cfe34c1f61d3e2cdf948ff59b5ebe8d05b5892ae",
+    "remote_candidate_ref": "refs/susi/candidates/stdlib-reuse-1102/a0cf42ee3744b602022811176f5840a8dc3af442",
+    "workspace_version": "0.21.41",
+    "scope_branch_source": "d7ac1aa5e7becbdae4e36906259794190c9129a9",
+    "policy_sha256": {
+      "xtask/src/rust-src-1.99.0-authenticated.json": "69e2c2f4f1fba1beb84de48483fb5c41e7d1d1d10d8c85ade87c92dd53bbf857",
+      "xtask/src/trusted_sysroot.rs": "1a86024490c70ae623e15a623913c01d9076a267e7f34d0f0bdc69a7d48d1ee4",
+      "xtask/src/reviewed-stdlib.json": "68ce30391dd75716d70261bdd3a144757fd666fbf13014c225043c3e93b4843d",
+      "xtask/src/sysroot_sources.rs": "c09206407083ac0691f364ff3def15e41d417f7fd477565210b7e9e4aaeeaaeb",
+      "toolchain/windows-stdlib/builder.rs": "5bddfb882ef443e235f8b12d732db5b19aff03daa60e72450980e8fc19229860",
+      "crates/susi-vendor-winapi/src/sealed_directory.rs": "b32d9c26081d5595f9a0e703a768a953ddcfc07e951f4555bc06e7360325197c",
+      "xtask/src/stdlib_cache.rs": "904a73df432e94d4bfbb60d495d2b93a5ee41ff1a3fe517e9022e5d779164ac2",
+      "xtask/src/compiler_env.rs": "5381095c33854b1ef1c614f8bfab846429fa2ecda820ebf3e2c357e105850058"
+    }
+  },
+  "reviewed": {
+    "identity": "8c7a47a7866411a1d65e183524c03f2ab2208a201618d31f6545f6004e12d198",
+    "record_sha256": "ae7665c5d684e4a0736c967b834110317fbfcfa6c07a28b547ffc94ca310712a",
+    "archive_inventory_sha256": "1f5018f1a6e2ae742edfdf819376f9c6afb8c0006bab446dbe5ff317e0f48bbd",
+    "archive_count": 20,
+    "archive_bytes": 113167186.0,
+    "independently_rehashed_archives": 20,
+    "source_manifest_files": 3608,
+    "host_cargo_config_sha256": "169676796d3fa38c4046cca7bb0c03134e5f66c26b1b5bae9423ba0a90b1e6b3",
+    "installed_tool_sha256": {
+      "rustc.exe": "fc40f1c8b65095a22a48c111aadc279c26a049b7e4161e8b99ffe3eb23873e86",
+      "cargo.exe": "c9b44417dc8228b81923a1068a3c09e32d2793f2cced2a816789cf433c1f0d46",
+      "rustc_driver-9cc664dca72b379e.dll": "6e0929ce2af23442bd04d9a03e9311e8f6806dafd54af8f6a85c3cee535bfa73",
+      "rustdoc.exe": "b2efc6d05723fb258f743fdd3d8e5c0883635c54595ff75fb8623ac344cbe52e"
+    }
+  },
+  "installed": {
+    "local_release_sha256": "7fab1c8b2dffb81db5a82e59cea561b3815318dc20d25575636e5dcbbc2eb661",
+    "susi_dev_sha256": "894cea12cf7f8c427247d51f33d90bd198cc046847807224a1a26598de8bf6b6",
+    "installation": "cargo install --debug --locked --offline to private root",
+    "cold_prepare_ms": 215277,
+    "cold_exit": 0,
+    "reviewed_repeat_prepare_ms": 17241,
+    "repeat_exit": 0,
+    "builder_directories_before_and_after_repeat": [
+      4,
+      4
+    ],
+    "cold_and_repeat_selected_same_object": true,
+    "cold_and_repeat_tripwire_absent": true,
+    "tripwire_positive_control_observed": true,
+    "stable_consumer_tests_passed": 1,
+    "first_launcher_workflow_list_ms": 34457,
+    "repeat_launcher_workflow_list_ms": 19011,
+    "launcher_exit_codes": [
+      0,
+      0
+    ],
+    "first_launcher_nested_build_s": 14.89,
+    "repeat_launcher_nested_build_s": 1.79
+  },
+  "controlled_change": {
+    "change": "Empty approval set to an independently rehashed exact qualified build pin",
+    "elapsed_ms": {
+      "source": 11,
+      "two_focused_tests_passed": 10720,
+      "committed": 11034,
+      "installed": 16684,
+      "verified_private_native_operation": 33962
+    },
+    "scope": "Private change-to-live, including tests, commit, installation and verification. Excludes initial cold qualification, shared merge, and production release."
+  },
+  "security": {
+    "tamper": [
+      {
+        "message": "local-release: stdlib record differs from reviewed SHA-256 pin",
+        "case": "record",
+        "exit": 1,
+        "elapsed_ms": 12984
+      },
+      {
+        "message": "local-release: cached stdlib archives differ from admission",
+        "case": "archive",
+        "exit": 1,
+        "elapsed_ms": 18501
+      },
+      {
+        "message": "local-release: installed verifier policy differs from checkout",
+        "case": "policy",
+        "exit": 1,
+        "elapsed_ms": 15053
+      }
+    ],
+    "wrapper_control": "Configured private Cargo wrapper executed in positive control and did not run during the installed cold or repeat.",
+    "principal": "Non-elevated Windows owner; take-ownership, backup and restore privileges not present in whoami /priv.",
+    "protected_object_sddl": "O:S-1-5-21-3288113614-2965198666-3157130157-1002G:S-1-5-21-3288113614-2965198666-3157130157-513D:P(D;;WDWO;;;OW)(A;;0x1200a9;;;WD)(A;;SD;;;OW)",
+    "guarded_compiler_pid": 56136,
+    "write_open_win32_code": 32,
+    "write_denied_for": [
+      "rustc",
+      "driver",
+      "cargo",
+      "rustdoc",
+      "builder",
+      "selected Cargo configuration",
+      "authenticated original Rust source",
+      "archive"
+    ],
+    "insert_win32_code": 5,
+    "owner_acl_reset": "PrivilegeNotHeldException",
+    "ancestor_rename": "IOException",
+    "compiler_alive_after_attacks": true,
+    "verified_consumer_tests_passed": 2,
+    "control_compiler_pid": 56732,
+    "transient_control": "A real compiler ran with the same archives in a deliberately unsealed private namespace. An extra archive was inserted and removed, restoring the exact inventory. Compiler exit 0. Latched notification rejected admission; that executable was discarded.",
+    "bootstrap": "Trust the installed native Windows OS and pinned 1.99.0-x86_64-pc-windows-msvc toolchain. Absolute rustc runs version/sysroot discovery before reuse authentication. MSVC input probing also precedes pin acceptance. No claim of pre-execution authentication for bootstrap tools.",
+    "through_use": "Input handles are acquired before computing the admissible identity. Compiler, driver, source and selected configuration handles survive all compiler children. Archive read handles, protected directory handles, deny-delete ancestry and a non-resetting change notification cover the selected object through final recheck.",
+    "excluded": "Process injection, kernel/administrator powers, compromised bootstrap, and security rights already acquired before sealing are outside the preventative claim. The notification rejects changed outputs, including observed restoration. It is not a process sandbox.",
+    "unsafe_audit": {
+      "used_unsafe_expressions_before": 38,
+      "used_unsafe_expressions_candidate": 66,
+      "unsafe_functions": 0,
+      "unsafe_methods": 0,
+      "unsafe_traits": 0,
+      "unsafe_impls": 0,
+      "ratchet_threshold_change": false
+    }
+  },
+  "broader_product_operation": {
+    "state": "Running separately in private debug state",
+    "promoted": false
+  },
+  "log_root": "F:/src/github.com/intellibitz/susi-stdlib-proof-state-1102/logs",
+  "log_sha256": {
+    "launcher-1": "2dcdb295dfb76e8e6e9b628c86453fe9ac793d0454f6c2c528b9dbebc73bca0d",
+    "binding": "93c0018f1ff578bc916786645c1668a099a0a3b334fb68e854cb4f8223b1c312",
+    "candidate-warm": "e22e4656256ff4c33671543c20c69d72413eee3f82fd270a47b5f85558c4e5b8",
+    "control": "c3f04e9a7f5c7bfbb3fe600bef5b0bfcec8030c794ddc532ecf33d68800fac33",
+    "pin-tests": "cb2bc2830f94a5755d4e2c0a7fd1c7e9b2e3da9320e921e2387dd54f5839fffe",
+    "launcher-2": "32dd38f000c127e4d21ff239c9317158249f7606e3a76c3b3c27f0f18ebbf51e",
+    "tamper-policy": "d67eaa7e8d5f89aae9f675f11d62d87acd8508bdadd760f952fdc0541e148b2c",
+    "tamper-archive": "440d33c1245c75f10b5489e00e06f410e4a0183c9f725d7e9356d6c605c71519",
+    "live-guard": "c14081494d8a065f504fd67cb760e899897abacd251b2b813246942c59f5ab9f",
+    "tamper-record": "d7a9c6c797665130a6c6fd5029398114779d1f9fc9e18f215810ed74cf406f30",
+    "candidate-cold": "8e53b85e1c9ff63e54da382492adb0d3083ad5ffb425f835956d8ff7fbc4c761"
+  }
+}
