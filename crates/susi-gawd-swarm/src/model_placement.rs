@@ -56,4 +56,78 @@ mod model_placement_tests {
         let p = place_models(&[("big".into(), 16_000)], &nodes);
         assert_eq!(p[0].node, "b");
     }
+
+    #[test]
+    fn model_placement_deducts_vram_sequentially_across_multiple_models() {
+        let nodes = [
+            NodeCapacity {
+                id: "node-1".into(),
+                free_vram_mb: 16_000,
+            },
+            NodeCapacity {
+                id: "node-2".into(),
+                free_vram_mb: 20_000,
+            },
+        ];
+        let models = [
+            ("m1".to_string(), 12_000),
+            ("m2".to_string(), 12_000),
+            ("m3".to_string(), 6_000),
+        ];
+        let placed = place_models(&models, &nodes);
+        assert_eq!(
+            placed,
+            vec![
+                Placement {
+                    model: "m1".into(),
+                    node: "node-2".into()
+                },
+                Placement {
+                    model: "m2".into(),
+                    node: "node-1".into()
+                },
+                Placement {
+                    model: "m3".into(),
+                    node: "node-2".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn model_placement_skips_oversized_models_and_handles_empty_inputs() {
+        let nodes = [NodeCapacity {
+            id: "small".into(),
+            free_vram_mb: 8_000,
+        }];
+        let models = [("huge".to_string(), 80_000), ("tiny".to_string(), 4_000)];
+        let placed = place_models(&models, &nodes);
+        assert_eq!(
+            placed,
+            vec![Placement {
+                model: "tiny".into(),
+                node: "small".into()
+            }]
+        );
+        assert!(place_models(&[], &nodes).is_empty());
+        assert!(place_models(&models, &[]).is_empty());
+    }
+
+    #[test]
+    fn node_capacity_and_placement_serde_roundtrip_and_exact_fit() {
+        let cap = NodeCapacity {
+            id: "exact".into(),
+            free_vram_mb: 8_192,
+        };
+        let cap_json = serde_json::to_string(&cap).unwrap();
+        let cap_back: NodeCapacity = serde_json::from_str(&cap_json).unwrap();
+        assert_eq!(cap_back, cap.clone());
+        assert!(format!("{cap:?}").contains("exact"));
+
+        let placed = place_models(&[("fit".into(), 8_192), ("extra".into(), 1)], &[cap]);
+        assert_eq!(placed.len(), 1);
+        let p_json = serde_json::to_string(&placed[0]).unwrap();
+        let p_back: Placement = serde_json::from_str(&p_json).unwrap();
+        assert_eq!(p_back, placed[0]);
+    }
 }

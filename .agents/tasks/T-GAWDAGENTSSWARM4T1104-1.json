@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GAWDAGENTSSWARM4T1104-1",
+  "title": "Expand inline unit tests to 4 in susi-gawd-agents dag_hooks/test_plane and susi-gawd-swarm model_placement/node_enrollment/zc_agent_pick",
+  "touch": [
+    "crates/susi-gawd-agents/src/dag_hooks.rs",
+    "crates/susi-gawd-agents/src/test_plane.rs",
+    "crates/susi-gawd-swarm/src/model_placement.rs",
+    "crates/susi-gawd-swarm/src/node_enrollment.rs",
+    "crates/susi-gawd-swarm/src/zc_agent_pick.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-agents",
+      "--lib",
+      "dag_hooks"
+    ]
+  }
+}
