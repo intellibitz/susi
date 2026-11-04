@@ -1,0 +1,18 @@
+{
+  "id": "T-CORESUITESC4T1104-1",
+  "title": "Expand susi-core vc_201_085, vc_201_089, and vc_201_090 test suites to 4 unit tests",
+  "goal": "Expand susi-core vc_201_085, vc_201_089, and vc_201_090 test suites to 4 unit tests each",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "created_by": "CORESUITESC4T1104",
+  "created_unix": 1793784378
+}
