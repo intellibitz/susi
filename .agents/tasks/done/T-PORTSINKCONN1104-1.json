@@ -1,0 +1,29 @@
+{
+  "id": "T-PORTSINKCONN1104-1",
+  "title": "test: metrics sink, substrate ports, ports.json and hyper connection builder inline suites",
+  "goal": "D-OS-8: expand low-test leaf modules in susi-error, susi-paths, susi-http-transport",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-error",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-http-transport",
+      "--lib"
+    ]
+  },
+  "created_by": "PORTSINKCONN1104",
+  "created_unix": 1793768574,
+  "closed": {
+    "at_unix": 1793768813,
+    "commit": "365c185853f767df7f90726404bac6d5e0f63e6d",
+    "by": "PORTSINKCONN1104"
+  }
+}
