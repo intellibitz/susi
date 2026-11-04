@@ -302,4 +302,14 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn schedule_with_zero_cap_defers_all_agents_and_truncates_long_goal() {
+        let long_goal = "g".repeat(250);
+        let agents = vec![agent("A1", 0.9), agent("A2", 0.4)];
+        let (admitted, decision) = MissionScheduler::schedule(&long_goal, agents, 0);
+        assert!(admitted.is_empty());
+        assert_eq!(decision.goal.len(), 200);
+        assert!(decision.entries.iter().all(|e| !e.admitted));
+    }
 }

@@ -162,4 +162,30 @@ mod inline_tests {
         assert_eq!(content.lines().count(), first * 2);
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn distill_genome_to_experience_entries_have_non_empty_intent_and_outcome() {
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_genome_distiller_fields_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        GenomeDistiller::distill_genome_to_experience(&tmp).expect("distill genome");
+        let content = fs::read_to_string(experience_path(&tmp)).expect("read jsonl");
+        for line in content.lines() {
+            let val: serde_json::Value = serde_json::from_str(line).expect("json line");
+            let intent = val
+                .get("intent")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let outcome = val
+                .get("successful_outcome")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            assert!(!intent.is_empty());
+            assert!(!outcome.is_empty());
+            assert!(val.get("timestamp").and_then(|v| v.as_u64()).is_some());
+        }
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

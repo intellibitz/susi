@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENTS5TA1104-1",
+  "title": "5-test inline floor across 16 leaf modules in susi-gawd-agents, susi-agents, susi-server, and susi-tools",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-server",
+      "--lib"
+    ]
+  },
+  "created_by": "AGENTS5TA1104",
+  "created_unix": 1793807600,
+  "closed": {
+    "at_unix": 1793807946,
+    "commit": "2f935ea72239d92ffea8163d4673c6bd67940365",
+    "by": "AGENTS5TA1104"
+  }
+}

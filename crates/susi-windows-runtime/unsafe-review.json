@@ -4,12 +4,12 @@
   "measured_package": "susi-windows-runtime@0.1.0",
   "measured_used": {
     "functions": {
-      "safe": 6,
+      "safe": 7,
       "unsafe_": 2
     },
     "exprs": {
-      "safe": 100,
-      "unsafe_": 48
+      "safe": 117,
+      "unsafe_": 61
     },
     "item_impls": {
       "safe": 0,
@@ -27,10 +27,10 @@
   "canonical_source_sha256": {
     "build.rs": "802DF3AE907B0CC2F71456E8DA9F51D45598F8353E9A38B4B1915E33158DAD4A",
     "src/platform.rs": "F1B6F0B561675554BA9007446230EC5D14E0CE01C7F55F8C6F8BF2FFE3A8F8DC",
-    "src/lib.rs": "3C202AC664225AC12239DE0B3CB93E6D95DD0F9F19D4F2B0312B2EFF59D4F4F9"
+    "src/lib.rs": "650CAF2801FA709DE05E907D1F151DCB91BBDD962299D28877673449871154A8"
   },
   "baseline_modified": false,
   "scope": "Hash-identical isolated crate scan, not final production graph",
-  "geiger_report_sha256": "512EA00E862FD3B8B608ACC6FA24A745FBD1C6920FD25B0FFEB24B50083D29FC",
-  "re_review": "Re-review 2026-11-03 (Windows ARM64 source support, CEO decision 2026-11-03): src/lib.rs widened the compile-time gate from x86_64 to the explicit allow-list {x86_64, aarch64} with MSVC and compiles platform.rs for both; build.rs keeps host equal to target and additionally requires the rustc host line to equal the target (OSN-22); src/platform.rs reads the COFF Machine field (NT headers + 4) inside the existing image() unsafe block, beside the already-read signature, magic and image size of the same loader-validated headers, and fails closed through the existing boundary_failure() when it is not 0x8664 on x86_64 (0xAA64 on aarch64); its SAFETY comments now name the target's system ABI and the PE32+ TLS directory instead of x64 only. No unsafe block, unsafe function, unsafe impl, foreign declaration, exported symbol, link section or ABI layout was added or changed. For x86_64 the unsafe semantics are unchanged: a loader-mapped x64 image always carries Machine 0x8664, so the extra in-bounds read cannot change an accepted image's path, and every refusal is the pre-existing fail-closed exit. Re-measured on native x64 Windows with cargo-geiger 0.14.0 by the original isolated-package method (byte-identical src/lib.rs, src/platform.rs and build.rs; scratch manifest with a local lint declaration); the same method reproduced the previous 2/45/1 counts for the previous sources. Used unsafe exposure is 2 functions, 48 expressions (was 45: the one added Machine read) and 1 implementation, with zero unused unsafe. The scratch Geiger report was not retained in the repository, as before; only its digest is recorded. The aarch64 build of this file is reviewed here but not executed or qualified: this x64 host cannot run ARM64 code, and ARM64 evidence must come from a native ARM64 host."
+  "geiger_report_sha256": "9EF1F2F75215C924CAC79757A4B5F4E449B3944A02036FBBFE647696B3D12436",
+  "re_review": "Re-review 2026-11-04 (D-SP-4 Stage 3: add spawn_without_inheriting_stdio to susi-windows-runtime): src/lib.rs adds spawn_without_inheriting_stdio (matching crates/susi-daemon/src/server.rs in semantics) using direct kernel32.dll extern \"system\" declarations for GetHandleInformation and SetHandleInformation so susi-windows-runtime retains zero external crate dependencies. Binary targets linked with OS-UCRT (installed_channel and the thin client) call this helper; susi-daemon keeps its library-local copy so msvcrt-linked test harnesses do not pull in platform.rs's atexit symbol. On x86_64/aarch64 Windows MSVC it temporarily clears HANDLE_FLAG_INHERIT on non-null stdin/stdout/stderr handles around Command::spawn() and restores the saved bit immediately afterward; non-Windows targets call cmd.spawn() directly. build.rs and src/platform.rs are byte-identical. Re-measured on native x64 Windows with cargo-geiger 0.14.0 by the isolated-package method: used unsafe exposure is 2 unsafe functions (unchanged), 61 unsafe expressions (was 48: the two narrow GetHandleInformation/SetHandleInformation unsafe blocks in spawn_without_inheriting_stdio), and 1 unsafe implementation (unchanged), with 7 safe functions and zero unused unsafe."
 }

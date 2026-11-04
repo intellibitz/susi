@@ -82,4 +82,22 @@ mod inline_tests {
         let res = prefer("nonexistent-frontier-model-xyz-999", false);
         assert!(res.is_err());
     }
+
+    #[test]
+    fn provider_builds_http_provider_for_catalog_frontier_model() {
+        let manager = FrontierManager::new().unwrap();
+        let catalog = FrontierManager::catalog().unwrap();
+        assert!(!catalog.is_empty());
+        let first = &catalog[0];
+        match provider(&manager, &first.id) {
+            Ok(built) => assert_eq!(built.name(), format!("frontier-{}", first.id)),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("API_KEY") || msg.contains("susi keys set"),
+                    "unexpected error: {msg}"
+                );
+            }
+        }
+    }
 }

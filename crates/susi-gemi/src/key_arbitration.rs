@@ -559,4 +559,15 @@ mod inline_tests {
             "key quota window exhausted"
         );
     }
+
+    #[test]
+    fn default_arbiter_limits_and_unconfigured_quota_headroom_match_contract() {
+        let limits = ArbiterLimits::default();
+        assert!(limits.per_key_concurrent > 0);
+        assert!(limits.global_concurrent >= limits.per_key_concurrent);
+        assert!(limits.quota.is_empty());
+        let arbiter = KeyArbiter::new(limits.clone());
+        assert_eq!(arbiter.limits(), limits);
+        assert_eq!(arbiter.quota_headroom("unconfigured-key"), None);
+    }
 }

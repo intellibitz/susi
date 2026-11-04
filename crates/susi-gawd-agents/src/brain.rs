@@ -192,4 +192,22 @@ mod tests {
         assert!(tri.contains("64 CPUs | NVIDIA H100 80GB | 256GB RAM"));
         assert!(tri.contains("GMCP Port: 19090 | GEMI Port: 19091"));
     }
+
+    #[test]
+    fn inspect_tri_state_starts_with_header_and_lists_all_three_numbered_tiers() {
+        let ctx = AlphaBrainContext {
+            self_version: AlphaSelf::VERSION,
+            system_cpus: 8,
+            system_gpu: "CPU-Only".to_string(),
+            system_ram_gb: 32,
+            workspace_path: PathBuf::from("."),
+            default_engine: "candle".to_string(),
+            default_model: "qwen2.5".to_string(),
+            gmcp_port: 9090,
+            gemi_port: 9091,
+        };
+        let report = ctx.inspect_tri_state();
+        assert!(report.starts_with("SUSI Core Substrate Status:\n"));
+        assert_eq!(report.lines().count(), 4);
+    }
 }

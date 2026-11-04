@@ -94,4 +94,12 @@ mod inline_tests {
         let diff_source = EvalReceipt::new("rev-2", artifact, "suite-2", "env-a", 0);
         assert!(!base.validates_against(artifact, Some(&diff_source)));
     }
+
+    #[test]
+    fn eval_receipt_serde_json_roundtrip_preserves_all_fields() {
+        let receipt = EvalReceipt::new("rev-10", b"payload-10", "suite-9", "windows-x86_64", 1);
+        let encoded = serde_json::to_string(&receipt).unwrap();
+        let decoded: EvalReceipt = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, receipt);
+    }
 }
