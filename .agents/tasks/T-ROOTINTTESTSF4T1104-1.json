@@ -1,0 +1,27 @@
+{
+  "id": "T-ROOTINTTESTSF4T1104-1",
+  "title": "test(root): expand root pure-library integration tests wave F to 4 unit tests each",
+  "goal": "Expand 5 root pure-library integration test suites (zc_bare_susi, zc_fresh_home, zc_service_units, zc_susi_fix, vc_201_100_mastery) to 4 unit tests each",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "zc_bare_susi",
+      "--test",
+      "zc_fresh_home",
+      "--test",
+      "zc_service_units",
+      "--test",
+      "zc_susi_fix",
+      "--test",
+      "vc_201_100_mastery"
+    ]
+  },
+  "created_by": "ROOTINTTESTSF4T1104",
+  "created_unix": 1793793979
+}
