@@ -126,4 +126,13 @@ mod inline_tests {
         let r2 = GmcpClient::execute_external_tool_result("srv", "tool", "goal");
         assert_eq!(r1.is_ok(), r2.is_ok());
     }
+
+    #[test]
+    fn gmcp_client_list_external_tools_formats_wildcard_proxies_when_present() {
+        let external = GmcpClient::list_external_tools();
+        for tool in &external {
+            assert!(tool.name.ends_with(":*"));
+            assert!(!tool.description.is_empty());
+        }
+    }
 }

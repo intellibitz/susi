@@ -193,4 +193,11 @@ mod tests {
         assert_eq!(n, 0);
         assert!(output.is_empty());
     }
+
+    #[test]
+    fn oversized_helper_constructs_invalid_data_error_with_limit_message() {
+        let err = BoundedLines::<&[u8]>::oversized();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("byte limit"));
+    }
 }
