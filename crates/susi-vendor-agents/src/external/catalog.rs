@@ -384,4 +384,60 @@ mod tests {
         ));
         assert!(!entries.iter().any(|entry| entry.id == "broken"));
     }
+
+    #[test]
+    fn catalog_with_host_dir_loads_framework_acp_and_a2a_entries_and_skips_invalid_files() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "susi-catalog-framework-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(
+            temp_dir.join("langgraph.json"),
+            r#"{"kind":"acp","program":"langgraph-acp","args":["--stdio"]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.join("autogen.json"),
+            r#"{"kind":"a2a","url":"https://example.com/a2a","token_env":"AUTOGEN_TOKEN"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.join("bad.json"),
+            r#"{"kind":"unknown_adapter_kind"}"#,
+        )
+        .unwrap();
+        std::fs::write(temp_dir.join("README.txt"), b"ignore non-json files").unwrap();
+
+        let entries = catalog_with_host_dir(CatalogKind::Framework, &temp_dir).unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let autogen = entries
+            .iter()
+            .find(|e| e.id == "autogen")
+            .expect("autogen entry loaded");
+        assert!(autogen.adapter.validate().is_ok());
+        assert!(autogen.adapter.is_cloud());
+
+        let langgraph = entries
+            .iter()
+            .find(|e| e.id == "langgraph")
+            .expect("langgraph entry loaded");
+        assert!(langgraph.adapter.validate().is_ok());
+        assert!(!langgraph.adapter.is_cloud());
+
+        assert!(!entries.iter().any(|e| e.id == "bad"));
+        assert!(!entries.iter().any(|e| e.id == "README"));
+        assert!(entries
+            .iter()
+            .any(|e| e.id.eq_ignore_ascii_case("LANGGRAPH")));
+        assert!(!entries
+            .iter()
+            .any(|e| e.id.eq_ignore_ascii_case("nonexistent")));
+    }
 }

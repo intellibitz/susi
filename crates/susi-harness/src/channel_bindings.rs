@@ -446,4 +446,25 @@ mod tests {
         drop(key);
         CURRENT_USER.remove_tree(name).unwrap();
     }
+
+    #[test]
+    fn shell_link_encode_and_retired_shell_encoding_produce_valid_lnk_headers_and_differ_by_target()
+    {
+        let exe_a = Path::new(r"C:\Susi\susi.exe");
+        let work_a = Path::new(r"C:\Susi");
+        let direct_a = shell_link::encode(exe_a, work_a).unwrap();
+        let retired_a = shell_link::retired_shell_encoding(exe_a, work_a).unwrap();
+
+        assert!(direct_a.len() > 76);
+        assert!(retired_a.len() > 76);
+        assert_eq!(&direct_a[..4], &[0x4C, 0x00, 0x00, 0x00]);
+        assert_eq!(&retired_a[..4], &[0x4C, 0x00, 0x00, 0x00]);
+        assert_ne!(direct_a, retired_a);
+
+        let exe_b = Path::new(r"C:\SusiAlt\susi.exe");
+        let work_b = Path::new(r"C:\SusiAlt");
+        let direct_b = shell_link::encode(exe_b, work_b).unwrap();
+        assert_eq!(&direct_b[..4], &[0x4C, 0x00, 0x00, 0x00]);
+        assert_ne!(direct_a, direct_b);
+    }
 }

@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-HARNESSCATALOGNATIVE1104-1",
+  "title": "Expand inline unit tests for susi-harness roi and channel_bindings, susi-vendor-agents catalog, and susi-native-client",
+  "touch": [
+    "crates/susi-harness/src/roi.rs",
+    "crates/susi-harness/src/channel_bindings.rs",
+    "crates/susi-vendor-agents/src/external/catalog.rs",
+    "crates/susi-native-client/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-harness -p susi-vendor-agents -p susi-native-client --lib",
+      "cargo clippy --offline --locked -p susi-harness -p susi-vendor-agents -p susi-native-client --all-targets -- -D warnings"
+    ]
+  }
+}
