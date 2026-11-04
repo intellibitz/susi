@@ -140,4 +140,24 @@ mod tests {
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
         }
     }
+
+    #[tokio::test]
+    async fn unsupported_methods_and_unknown_sandbox_paths_fail_closed_without_host_token() {
+        for (method, uri) in [
+            ("GET", "/sandbox/ensure_global"),
+            ("DELETE", "/daemon/status"),
+            ("PUT", "/daemon/verify_integrity"),
+            ("GET", "/daemon/hash_cached"),
+            ("GET", "/sandbox/unknown"),
+            ("POST", "/daemon/unknown"),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap();
+            let status = router().oneshot(request).await.unwrap().status();
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+        }
+    }
 }

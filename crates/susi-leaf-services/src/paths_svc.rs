@@ -64,4 +64,26 @@ mod tests {
         }
         assert_eq!(call("GET", "/other").await.status(), StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn paths_and_ports_match_susi_paths_contract_keys_and_values() {
+        let paths_resp = json_body(call("GET", "/paths").await).await;
+        let expected_paths = susi_paths::local_paths_json();
+        let paths_obj = paths_resp.as_object().unwrap();
+        let expected_paths_obj = expected_paths.as_object().unwrap();
+        assert_eq!(paths_obj.len(), expected_paths_obj.len());
+        for key in expected_paths_obj.keys() {
+            let val = paths_obj
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            assert!(!val.is_empty(), "/paths key {key} must be non-empty string");
+        }
+
+        let ports_resp = json_body(call("GET", "/ports").await).await;
+        let expected_ports = susi_paths::ports_json();
+        let ports_obj = ports_resp.as_object().unwrap();
+        let expected_ports_obj = expected_ports.as_object().unwrap();
+        assert_eq!(ports_obj, expected_ports_obj);
+    }
 }

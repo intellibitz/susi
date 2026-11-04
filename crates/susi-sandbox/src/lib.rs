@@ -67,4 +67,30 @@ mod tests {
             Some(&["no-new-privileges:true".to_string()][..])
         );
     }
+
+    #[test]
+    fn hardened_container_config_preserves_image_tags_and_multitoken_commands() {
+        for (image, cmd_str) in [
+            (
+                "ghcr.io/intellibitz/susi-sandbox:v2.4.0-alpine",
+                "printf '%s\\n' hello world && uname -s",
+            ),
+            ("susi-local:latest", ""),
+        ] {
+            let cfg = crate::docker::hardened_container_config(image.to_string(), cmd_str);
+            assert_eq!(cfg.image.as_deref(), Some(image));
+            assert_eq!(
+                cfg.cmd,
+                Some(vec![
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    cmd_str.to_string()
+                ])
+            );
+            assert_eq!(cfg.network_disabled, Some(true));
+            let host = cfg.host_config.expect("host config present");
+            assert_eq!(host.readonly_rootfs, Some(true));
+            assert_eq!(host.cap_drop, Some(vec!["ALL".to_string()]));
+        }
+    }
 }

@@ -231,4 +231,58 @@ mod tests {
             vec!["del-expired-1".to_string(), "del-expired-2".to_string()]
         );
     }
+
+    #[test]
+    fn reconcile_enforces_exact_expiry_boundary_and_mixed_mission_deployment_liveness() {
+        let live_missions = BTreeSet::from(["m-live".to_string()]);
+        let live_deployments = BTreeSet::from(["d-live".to_string()]);
+        let resources = vec![
+            Resource {
+                id: "exact-expiry".into(),
+                owner: Some("susi".into()),
+                mission: "m-dead".into(),
+                deployment: "d-dead".into(),
+                retain: false,
+                expires_unix: 2_000,
+            },
+            Resource {
+                id: "one-sec-future".into(),
+                owner: Some("susi".into()),
+                mission: "m-dead".into(),
+                deployment: "d-dead".into(),
+                retain: false,
+                expires_unix: 2_001,
+            },
+            Resource {
+                id: "dead-mission-live-deploy".into(),
+                owner: Some("susi".into()),
+                mission: "m-dead".into(),
+                deployment: "d-live".into(),
+                retain: false,
+                expires_unix: 100,
+            },
+        ];
+        let mut deleted = Vec::new();
+        let report = reconcile(
+            &resources,
+            &Authoritative {
+                live_missions: &live_missions,
+                live_deployments: &live_deployments,
+                now_unix: 2_000,
+                dry_run: false,
+            },
+            &mut |id| deleted.push(id.to_string()),
+        );
+
+        assert_eq!(report.delete, vec!["exact-expiry".to_string()]);
+        assert_eq!(deleted, vec!["exact-expiry".to_string()]);
+        assert_eq!(
+            report.keep,
+            vec![
+                "one-sec-future".to_string(),
+                "dead-mission-live-deploy".to_string(),
+            ]
+        );
+        assert!(report.foreign.is_empty());
+    }
 }
