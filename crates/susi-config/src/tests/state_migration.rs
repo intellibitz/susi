@@ -72,3 +72,22 @@ fn zc_state_migration_rollback_on_corrupt_config() {
     assert!(raw.contains("{broken"));
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn zc_state_migration_empty_dir_without_config_initializes_schema_manifest() {
+    let dir = scratch("empty_init");
+    assert!(!SusiConfig::get_config_path(&dir).exists());
+
+    let report = migrate_state_dir(&dir).unwrap();
+    assert!(report.migrated);
+    assert!(!report.rolled_back);
+    assert_eq!(report.from_version, 0);
+    assert_eq!(report.to_version, STATE_SCHEMA_VERSION);
+    assert!(dir.join("state.schema.json").is_file());
+    assert!(SusiConfig::get_config_path(&dir).is_file());
+
+    let second = migrate_state_dir(&dir).unwrap();
+    assert!(!second.migrated);
+    assert!(!second.rolled_back);
+    let _ = fs::remove_dir_all(&dir);
+}
