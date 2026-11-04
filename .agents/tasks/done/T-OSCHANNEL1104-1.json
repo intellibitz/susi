@@ -1,0 +1,24 @@
+{
+  "id": "T-OSCHANNEL1104-1",
+  "title": "D-OS-5 Windows metrics sink ACL hardening and D-OS-6 cross-OS install-release channel activation",
+  "goal": "Enforce owner-only ACLs on Windows metrics sink creation in susi-error and enable cross-OS local release package verification, staging, transaction management, and dispatcher activation across Windows, Linux, and macOS.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-error"
+    ]
+  },
+  "created_by": "OSCHANNEL1104",
+  "created_unix": 1793751300,
+  "closed": {
+    "commit": "36ce628eab95acf8f66b98cfdd313e8dd514583b",
+    "by": "OSCHANNEL1104",
+    "at_unix": 1793752250
+  }
+}
