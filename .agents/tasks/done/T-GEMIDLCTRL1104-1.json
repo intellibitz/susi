@@ -1,0 +1,23 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GEMIDLCTRL1104-1",
+  "title": "feat(gemi-models): download controller helpers and contract tests",
+  "status": "done",
+  "completed_at": "2026-11-04T03:13:00Z",
+  "created_at": "2026-11-04T03:07:00Z",
+  "owner": "GEMIDLCTRL1104",
+  "touch": [
+    "crates/susi-gemi-models/src/lifecycle/download_controller.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib"
+    ]
+  }
+}
