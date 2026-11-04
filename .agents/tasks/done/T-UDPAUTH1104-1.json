@@ -23,5 +23,10 @@
     ]
   },
   "created_by": "UDPAUTH1104",
-  "created_unix": 1793769450
+  "created_unix": 1793769450,
+  "closed": {
+    "commit": "c2e484d82",
+    "by": "UDPAUTH1104",
+    "at_unix": 1793770280
+  }
 }
