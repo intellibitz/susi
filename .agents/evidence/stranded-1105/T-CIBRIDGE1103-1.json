@@ -1,0 +1,8 @@
+{
+  "id": "T-CIBRIDGE1103-1",
+  "created_by": "CIBRIDGE1103",
+  "title": "Verify the exact first native checkpoint in an independent authority context",
+  "deps": ["T-RELEASE43PROOF-1"],
+  "scopes": ["xtask/src/bin/checkpoint-compliance.rs", "xtask/ci/test-checkpoint-compliance.ps1", ".github/workflows/checkpoint-compliance.yml", ".agents/tasks/T-CIBRIDGE1103-1.json"],
+  "accept": {"cmd":["pwsh","-File","xtask/ci/test-checkpoint-compliance.ps1"]}
+}
