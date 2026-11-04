@@ -200,3 +200,176 @@ impl<F: Fn(&[String]) -> Vec<String>> BatchBackend for EngineBatchBackend<F> {
         (self.run_batch)(prompts)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    struct NonBatchBackend;
+    impl BatchBackend for NonBatchBackend {
+        fn supports_batch(&self) -> bool {
+            false
+        }
+        fn run(&self, _prompts: &[String]) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn batcher_new_rejects_non_batch_backend_and_zero_limits() {
+        let limits = BatchLimits {
+            max_batch: 2,
+            max_queue: 4,
+            max_wait_ms: 10,
+        };
+        assert!(Batcher::new(limits, &NonBatchBackend).is_err());
+
+        let eng = EngineBatchBackend::new(|p: &[String]| p.to_vec());
+        let zero = BatchLimits {
+            max_batch: 0,
+            max_queue: 4,
+            max_wait_ms: 10,
+        };
+        assert!(Batcher::new(zero, &eng).is_err());
+    }
+
+    #[test]
+    fn submit_enforces_queue_cap_and_records_already_expired_requests() {
+        let eng = EngineBatchBackend::new(|p: &[String]| p.to_vec());
+        let mut batcher = Batcher::new(
+            BatchLimits {
+                max_batch: 2,
+                max_queue: 1,
+                max_wait_ms: 50,
+            },
+            &eng,
+        )
+        .unwrap();
+
+        batcher
+            .submit(
+                Request {
+                    id: 1,
+                    prompt: "expired".into(),
+                    deadline_ms: 100,
+                },
+                100,
+            )
+            .unwrap();
+        assert_eq!(batcher.outcome(1), Some(&BatchOutcome::DeadlineExceeded));
+        assert_eq!(batcher.pending_count(), 0);
+
+        batcher
+            .submit(
+                Request {
+                    id: 2,
+                    prompt: "ok".into(),
+                    deadline_ms: 200,
+                },
+                100,
+            )
+            .unwrap();
+        assert!(batcher
+            .submit(
+                Request {
+                    id: 3,
+                    prompt: "overflow".into(),
+                    deadline_ms: 200,
+                },
+                100,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn should_flush_triggers_on_full_batch_or_elapsed_wait() {
+        let eng = EngineBatchBackend::new(|p: &[String]| p.to_vec());
+        let mut batcher = Batcher::new(
+            BatchLimits {
+                max_batch: 2,
+                max_queue: 4,
+                max_wait_ms: 25,
+            },
+            &eng,
+        )
+        .unwrap();
+        assert!(!batcher.should_flush(100));
+
+        batcher
+            .submit(
+                Request {
+                    id: 10,
+                    prompt: "p1".into(),
+                    deadline_ms: 500,
+                },
+                100,
+            )
+            .unwrap();
+        assert!(!batcher.should_flush(110));
+        assert!(batcher.should_flush(125));
+
+        batcher
+            .submit(
+                Request {
+                    id: 11,
+                    prompt: "p2".into(),
+                    deadline_ms: 500,
+                },
+                110,
+            )
+            .unwrap();
+        assert!(batcher.should_flush(110));
+    }
+
+    #[test]
+    fn cancel_and_flush_coalesce_live_requests_into_single_backend_invocation() {
+        let eng = EngineBatchBackend::new(|prompts: &[String]| {
+            prompts.iter().map(|p| format!("out:{p}")).collect()
+        });
+        let mut batcher = Batcher::new(
+            BatchLimits {
+                max_batch: 4,
+                max_queue: 4,
+                max_wait_ms: 50,
+            },
+            &eng,
+        )
+        .unwrap();
+
+        batcher
+            .submit(
+                Request {
+                    id: 1,
+                    prompt: "a".into(),
+                    deadline_ms: 300,
+                },
+                100,
+            )
+            .unwrap();
+        batcher
+            .submit(
+                Request {
+                    id: 2,
+                    prompt: "b".into(),
+                    deadline_ms: 300,
+                },
+                100,
+            )
+            .unwrap();
+        batcher.cancel(1).unwrap();
+        assert!(batcher.cancel(999).is_err());
+
+        let outcomes = batcher.flush(150);
+        assert_eq!(eng.invocations(), 1);
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(batcher.outcome(1), Some(&BatchOutcome::Cancelled));
+        assert_eq!(
+            batcher.outcome(2),
+            Some(&BatchOutcome::Done {
+                output: "out:b".into()
+            })
+        );
+    }
+}

@@ -576,3 +576,147 @@ fn sample_evidence(repo_root: &Path) -> Option<EvidenceStateRow> {
         audit_chain_intact,
     })
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn render_frame_formats_providers_gpu_and_queue_for_populated_and_idle_snapshots() {
+        let populated = TopSnapshot {
+            providers: vec![
+                ProviderRow {
+                    name: "gemini".to_string(),
+                    healthy: true,
+                    latency_ms: 42,
+                },
+                ProviderRow {
+                    name: "local".to_string(),
+                    healthy: false,
+                    latency_ms: 0,
+                },
+            ],
+            gpu: Some(GpuRow {
+                util_pct: 65.4,
+                temp_c: 58.2,
+                vram_used_mb: 4096,
+                vram_total_mb: 16384,
+            }),
+            queue: vec![QueueRow {
+                task_id: "T-100".to_string(),
+                holder: "agent-a".to_string(),
+                title: "Verify telemetry".to_string(),
+            }],
+        };
+        let frame = render_frame(&populated);
+        assert!(frame.contains("gemini ok 42ms"));
+        assert!(frame.contains("local down 0ms"));
+        assert!(frame.contains("util=65% temp=58C vram=4096/16384MB"));
+        assert!(frame.contains("T-100 [agent-a] Verify telemetry"));
+
+        let idle = TopSnapshot {
+            providers: Vec::new(),
+            gpu: None,
+            queue: Vec::new(),
+        };
+        let idle_frame = render_frame(&idle);
+        assert!(idle_frame.contains("── gpu ──\n  (none)\n"));
+        assert!(idle_frame.contains("── queue ──\n  (idle)\n"));
+    }
+
+    #[test]
+    fn render_operator_state_renders_all_six_control_surface_sections() {
+        let state = UnifiedOperatorState {
+            snapshot: TopSnapshot {
+                providers: vec![ProviderRow {
+                    name: "openai".to_string(),
+                    healthy: true,
+                    latency_ms: 19,
+                }],
+                gpu: None,
+                queue: Vec::new(),
+            },
+            resources: Some(SystemResourceRow {
+                cpu_util_pct: 23.5,
+                mem_used_mb: 8192,
+                mem_total_mb: 32768,
+            }),
+            blocked_work: vec![BlockedWorkRow {
+                task_id: "T-200".to_string(),
+                title: "Blocked task".to_string(),
+                reason: "unmet dependency: T-199".to_string(),
+            }],
+            config: Some(ConfigStateRow {
+                profile: "default".to_string(),
+                port: 9190,
+                workspace_root: "/workspace".to_string(),
+            }),
+            federation: Some(FederationStateRow {
+                peer_count: 2,
+                quorum_healthy: false,
+                active_agents: vec!["codex-worker".to_string()],
+            }),
+            evidence: Some(EvidenceStateRow {
+                verified_receipts: 12,
+                audit_chain_intact: false,
+            }),
+        };
+        let rendered = render_operator_state(&state);
+        assert!(rendered.contains("── workload ──"));
+        assert!(rendered.contains("T-200 — Blocked task (unmet dependency: T-199)"));
+        assert!(rendered.contains("cpu: 23.5% | ram: 8192/32768 MB"));
+        assert!(rendered.contains("profile: default | port: 9190 | root: /workspace"));
+        assert!(rendered.contains("peers: 2 | quorum: degraded | agents: codex-worker"));
+        assert!(rendered.contains("verified receipts: 12 | audit chain: compromised"));
+    }
+
+    #[test]
+    fn find_repo_root_walks_ancestors_to_agents_or_git_directory() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_operator_report_root_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let nested = tmp.join("crates").join("susi-gemi").join("src");
+        fs::create_dir_all(tmp.join(".agents")).expect("create .agents");
+        fs::create_dir_all(&nested).expect("create nested");
+
+        assert_eq!(find_repo_root(&nested), tmp);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn sample_blocked_work_and_sample_evidence_inspect_tasks_and_done_receipts() {
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_operator_report_sample_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        let tasks_dir = tmp.join(".agents").join("tasks");
+        let done_dir = tasks_dir.join("done");
+        fs::create_dir_all(&done_dir).expect("create done dir");
+        fs::write(tmp.join(".agents").join("roadmap.json"), "{}").expect("write roadmap");
+        fs::write(
+            tasks_dir.join("T-1.json"),
+            r#"{"id":"T-1","title":"Prerequisite","deps":[]}"#,
+        )
+        .expect("write T-1");
+        fs::write(
+            tasks_dir.join("T-2.json"),
+            r#"{"id":"T-2","title":"Dependent","deps":["T-1"]}"#,
+        )
+        .expect("write T-2");
+        fs::write(done_dir.join("T-0.json"), r#"{"id":"T-0"}"#).expect("write done T-0");
+
+        let blocked = sample_blocked_work(&tmp);
+        assert_eq!(blocked.len(), 1);
+        assert_eq!(blocked[0].task_id, "T-2");
+        assert_eq!(blocked[0].reason, "unmet dependency: T-1");
+
+        let evidence = sample_evidence(&tmp).expect("sample evidence");
+        assert_eq!(evidence.verified_receipts, 1);
+        assert!(evidence.audit_chain_intact);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+}

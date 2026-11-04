@@ -38,3 +38,64 @@ pub fn argv<'a>(args: &[&'a str]) -> Vec<&'a str> {
         .chain(args.iter().copied())
         .collect()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn program_compiles_and_caches_existing_executable_path() {
+        let p1 = program();
+        let p2 = program();
+        assert_eq!(p1, p2);
+        assert!(std::path::Path::new(p1).is_file());
+    }
+
+    #[test]
+    fn argv_prepends_program_before_caller_arguments() {
+        let full = argv(&["exists", "foo.txt"]);
+        assert_eq!(full.len(), 3);
+        assert_eq!(full[0], program());
+        assert_eq!(full[1], "exists");
+        assert_eq!(full[2], "foo.txt");
+    }
+
+    #[test]
+    fn compiled_verifier_exists_command_distinguishes_present_and_missing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "hello").unwrap();
+        let ok = std::process::Command::new(program())
+            .args(["exists", file.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(ok.success());
+
+        let missing = dir.path().join("missing.txt");
+        let fail = std::process::Command::new(program())
+            .args(["exists", missing.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(!fail.success());
+    }
+
+    #[test]
+    fn compiled_verifier_contains_command_checks_all_needles() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("doc.txt");
+        std::fs::write(&file, "alpha beta gamma").unwrap();
+        let ok = std::process::Command::new(program())
+            .args(["contains", file.to_str().unwrap(), "alpha", "gamma"])
+            .status()
+            .unwrap();
+        assert!(ok.success());
+
+        let fail = std::process::Command::new(program())
+            .args(["contains", file.to_str().unwrap(), "alpha", "delta"])
+            .status()
+            .unwrap();
+        assert!(!fail.success());
+    }
+}

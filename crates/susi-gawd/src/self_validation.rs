@@ -49,3 +49,45 @@ pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String>
 
     Ok(report)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn execute_autonomous_self_validation_includes_header_and_hardware_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = execute_autonomous_self_validation(dir.path()).unwrap();
+        assert!(report.starts_with("# SUSI Substrate Self-Validation Report"));
+        assert!(report.contains("- **Hardware Profile**:"));
+    }
+
+    #[test]
+    fn execute_autonomous_self_validation_includes_neural_device_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = execute_autonomous_self_validation(dir.path()).unwrap();
+        assert!(report.contains("- **Neural Device**:"));
+    }
+
+    #[test]
+    fn execute_autonomous_self_validation_verifies_non_empty_compiled_genome() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = execute_autonomous_self_validation(dir.path()).unwrap();
+        let expected = format!(
+            "- **Compiled Genome**: {} rules, each with a title and an imperative",
+            crate::self_core::AlphaSelf::RULES.len()
+        );
+        assert!(report.contains(&expected));
+    }
+
+    #[test]
+    fn alpha_self_compiled_rules_all_carry_non_blank_titles_and_imperatives() {
+        let rules = crate::self_core::AlphaSelf::RULES;
+        assert!(!rules.is_empty());
+        assert!(rules
+            .iter()
+            .all(|r| !r.title.trim().is_empty() && !r.imperative.trim().is_empty()));
+    }
+}
