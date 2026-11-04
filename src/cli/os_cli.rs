@@ -567,12 +567,12 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                     return Ok(());
                 }
                 OsModelAction::Load { name } => {
-                    // Large models can take minutes to read and place.
-                    let result = super::os_runtime::daemon_request(
-                        "POST",
-                        "/runtime/models/load",
-                        Some(&serde_json::json!({ "model": name })),
-                        1800,
+                    // Large models can take minutes to read and place; the
+                    // daemon's MCP sessions are kept open at least this long.
+                    let result = super::os_runtime::daemon_tool(
+                        "runtime_models_load",
+                        &serde_json::json!({ "model": name }),
+                        susi_gmcp::server::MAX_TOOL_CALL_SECS,
                     )
                     .map_err(anyhow::Error::msg)?;
                     println!(
@@ -582,10 +582,9 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                     return Ok(());
                 }
                 OsModelAction::Unload { name } => {
-                    let result = super::os_runtime::daemon_request(
-                        "POST",
-                        "/runtime/models/unload",
-                        Some(&serde_json::json!({ "model": name })),
+                    let result = super::os_runtime::daemon_tool(
+                        "runtime_models_unload",
+                        &serde_json::json!({ "model": name }),
                         30,
                     )
                     .map_err(anyhow::Error::msg)?;
@@ -732,7 +731,7 @@ fn download_progress_line(record: &Path, since: std::time::SystemTime) -> Option
 
 // `susi_daemon::host_views::model_uninstall` removes the model; the MCP
 // `model_uninstall` tool calls the same function (reading the daemon's
-// inference cache in process instead of over GEMI).
+// inference cache in process instead of over the daemon's MCP socket).
 fn uninstall_managed_model(name: &str) -> Result<()> {
     let daemon_running =
         susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_some();

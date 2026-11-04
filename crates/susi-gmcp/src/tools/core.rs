@@ -259,13 +259,26 @@ impl CoreTools {
         input_schema = args::typed::<args::InferencePlacement>()
     )]
     pub fn inference_placement(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let requires = arg.get("requires").and_then(|value| value.as_str());
-        let max_cost = arg.get("max_cost").and_then(|value| value.as_f64());
-        let allow_cloud = arg
-            .get("allow_cloud")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true);
-        let placement = ModelManager::placement_with_cloud(requires, max_cost, allow_cloud);
+        // The registry path does not enforce the typed schema, so the
+        // constraints are validated here with the same rules a completion's
+        // `susi` block gets: a malformed field is refused, never defaulted.
+        let constraints = match arg {
+            serde_json::Value::Null => None,
+            serde_json::Value::Object(object) => Some(object),
+            serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_)
+            | serde_json::Value::Array(_) => {
+                return Err(EaiError::config("arguments must be a JSON object"))
+            }
+        };
+        let constraints = crate::susi_core::plane_bus::gemi::placement_constraints(constraints, "")
+            .map_err(EaiError::config)?;
+        let placement = ModelManager::placement_with_cloud(
+            constraints.requires.as_deref(),
+            constraints.max_cost,
+            constraints.allow_cloud,
+        );
         serde_json::to_string_pretty(&placement)
             .map_err(|error| EaiError::internal(format!("encode placement: {error}")))
     }
@@ -3058,6 +3071,87 @@ mod shared_runtime_tests {
         // same underlying runtime rather than rebuilding one.
         let rt2 = CoreTools::shared_runtime().expect("cached runtime should still be Ok");
         assert!(std::ptr::eq(rt1, rt2));
+    }
+}
+
+#[cfg(test)]
+mod inference_routing_tool_tests {
+    use super::CoreTools;
+    use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+    use serde_json::json;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    /// The routing plan echoes the constraints it was asked to plan for.
+    struct EchoPlan;
+    impl PlaneHandler for EchoPlan {
+        fn handle(
+            &self,
+            _topic: &str,
+            payload: serde_json::Value,
+        ) -> Result<serde_json::Value, String> {
+            Ok(json!({ "asked": payload }))
+        }
+    }
+
+    /// Placement constraints are validated, never defaulted: the rules the
+    /// former HTTP placement query enforced hold on this tool.
+    #[test]
+    fn inference_placement_accepts_constraints_and_refuses_malformed_ones() {
+        PlaneBus::global().register(topics::GEMI_ROUTING_PLAN, Arc::new(EchoPlan));
+        let ws = Path::new(".");
+        let planned: serde_json::Value = serde_json::from_str(
+            &CoreTools::inference_placement(
+                &json!({"requires": "vision", "max_cost": 0.01, "allow_cloud": false}),
+                ws,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            planned["asked"],
+            json!({"requires": "vision", "max_cost": 0.01, "allow_cloud": false})
+        );
+        let defaults: serde_json::Value =
+            serde_json::from_str(&CoreTools::inference_placement(&json!({}), ws).unwrap()).unwrap();
+        assert_eq!(
+            defaults["asked"],
+            json!({"requires": null, "max_cost": null, "allow_cloud": true})
+        );
+        for bad in [
+            json!({"requires": "telepathy"}),
+            json!({"requires": "vision input"}),
+            json!({"requires": 7}),
+            json!({"max_cost": -1.0}),
+            json!({"max_cost": "NaN"}),
+            json!({"allow_cloud": "no"}),
+            json!("requires=vision"),
+        ] {
+            assert!(
+                CoreTools::inference_placement(&bad, ws).is_err(),
+                "{bad} must be refused"
+            );
+        }
+    }
+
+    /// The provider id rules the former HTTP provider reset enforced. Each
+    /// input is refused before the GEMI plane is asked.
+    #[test]
+    fn inference_reset_provider_refuses_missing_or_malformed_ids() {
+        let ws = Path::new(".");
+        for bad in [
+            json!({}),
+            json!({"provider": ""}),
+            json!({"provider": "bad id"}),
+            json!({"provider": 7}),
+            json!("not-an-object"),
+        ] {
+            let error = CoreTools::inference_reset_provider(&bad, ws).unwrap_err();
+            assert!(
+                error.to_string().contains("provider is required"),
+                "{bad}: {error}"
+            );
+        }
     }
 }
 

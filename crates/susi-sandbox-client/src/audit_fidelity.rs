@@ -23,7 +23,7 @@ pub const MAX_METADATA_CHARS: usize = 240;
 /// Legacy `&str` details are capped harder: callers migrated to typed
 /// details prove intent, callers that stayed get a hard boundary plus a
 /// visible truncation marker instead of silent stuffing.
-const LEGACY_MAX_CHARS: usize = 480;
+pub(crate) const LEGACY_MAX_CHARS: usize = 480;
 
 /// What an audit or trace record may carry. Every variant renders metadata
 /// only — there is no `Raw(String)` variant precisely so that payload text

@@ -286,6 +286,81 @@ pub mod gemi {
         !value.is_empty() && value.len() <= 256 && value.bytes().all(|byte| byte.is_ascii_graphic())
     }
 
+    /// A placement `requires` capability: one of the capabilities the
+    /// router can satisfy, as a bounded token. Shared by every surface that
+    /// accepts placement constraints (chat completions, the MCP
+    /// `inference_placement` tool) so they refuse the same inputs.
+    pub fn validated_requirement(value: &str) -> Result<String, &'static str> {
+        if value.is_empty()
+            || value.len() > 64
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err("requires must be 1-64 letters, numbers, '-' or '_'");
+        }
+        if !matches!(
+            value.to_ascii_lowercase().as_str(),
+            "text" | "chat" | "reasoning" | "code" | "vision" | "tools"
+        ) {
+            return Err("requires must be one of: text, chat, reasoning, code, vision, tools");
+        }
+        Ok(value.to_string())
+    }
+
+    /// A placement `max_cost`: a finite, non-negative number. `None` (absent
+    /// or not a number) is an error, since the caller supplied the field.
+    pub fn validated_max_cost(value: Option<f64>) -> Result<f64, &'static str> {
+        value
+            .filter(|cost| cost.is_finite() && *cost >= 0.0)
+            .ok_or("max_cost must be a non-negative finite number")
+    }
+
+    /// Request-scoped placement constraints, validated.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct PlacementConstraints {
+        pub requires: Option<String>,
+        pub max_cost: Option<f64>,
+        /// Defaults to `true` when the caller leaves it out.
+        pub allow_cloud: bool,
+    }
+
+    /// Read `requires`, `max_cost` and `allow_cloud` from a JSON object.
+    /// An absent or `null` field takes its default; a present but malformed
+    /// field is an error, never a default: a non-boolean `allow_cloud` must
+    /// not quietly become `true`. `prefix` names the object in messages
+    /// (`"susi."` for a completion's `susi` block, `""` for tool arguments).
+    pub fn placement_constraints(
+        object: Option<&serde_json::Map<String, Value>>,
+        prefix: &str,
+    ) -> Result<PlacementConstraints, String> {
+        let field = |key: &str| object.and_then(|o| o.get(key)).filter(|v| !v.is_null());
+        let requires = field("requires")
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or_else(|| format!("{prefix}requires must be a string"))
+                    .and_then(|text| {
+                        validated_requirement(text).map_err(|e| format!("{prefix}{e}"))
+                    })
+            })
+            .transpose()?;
+        let max_cost = field("max_cost")
+            .map(|value| validated_max_cost(value.as_f64()).map_err(|e| format!("{prefix}{e}")))
+            .transpose()?;
+        let allow_cloud = match field("allow_cloud") {
+            None => true,
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| format!("{prefix}allow_cloud must be a boolean"))?,
+        };
+        Ok(PlacementConstraints {
+            requires,
+            max_cost,
+            allow_cloud,
+        })
+    }
+
     pub struct HardwareProfiler;
 
     impl HardwareProfiler {
@@ -1655,6 +1730,40 @@ mod tests {
         assert!(!gemi::valid_provider_id(""));
         assert!(!gemi::valid_provider_id("bad id"));
         assert!(!gemi::valid_provider_id(&"x".repeat(257)));
+    }
+
+    #[test]
+    fn placement_constraints_default_absent_fields_and_refuse_malformed_ones() {
+        let parse = |value: Value| {
+            gemi::placement_constraints(value.as_object(), "")
+                .map(|c| (c.requires, c.max_cost, c.allow_cloud))
+        };
+        assert_eq!(parse(json!({})), Ok((None, None, true)));
+        assert_eq!(
+            parse(json!({"requires": null, "max_cost": null, "allow_cloud": null})),
+            Ok((None, None, true))
+        );
+        assert_eq!(
+            parse(json!({"requires": "vision", "max_cost": 0.01, "allow_cloud": false})),
+            Ok((Some("vision".to_string()), Some(0.01), false))
+        );
+        for bad in [
+            json!({"requires": "telepathy"}),
+            json!({"requires": "vision input"}),
+            json!({"requires": 7}),
+            json!({"max_cost": -1}),
+            json!({"max_cost": "cheap"}),
+            json!({"allow_cloud": "no"}),
+        ] {
+            assert!(parse(bad.clone()).is_err(), "{bad} must be refused");
+        }
+        assert_eq!(
+            gemi::placement_constraints(json!({"allow_cloud": 1}).as_object(), "susi.")
+                .unwrap_err(),
+            "susi.allow_cloud must be a boolean"
+        );
+        assert!(gemi::validated_max_cost(Some(f64::NAN)).is_err());
+        assert!(gemi::validated_max_cost(Some(f64::INFINITY)).is_err());
     }
 }
 

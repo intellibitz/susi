@@ -1,11 +1,11 @@
 //! Socket reach for CLI control-plane commands (zero-UI plan B4 groups 2,
-//! 6, 11 and 12): the operator view, missions, extension packs, and the
-//! 9091 runtime-model / placement / context-graph routes.
+//! 6, 11 and 12): the operator view, missions, extension packs, the runtime
+//! model cache, placement decisions and the context graph.
 //!
 //! Every handler calls the same library function its CLI command calls
 //! (`susi top --json`, `susi plan`, `susi pulse`, `susi blackboard show`,
-//! `susi extensions *`, `susi context-graph stats|show`) or its 9091 route
-//! calls, and returns the same JSON document. Capabilities owned by another
+//! `susi extensions *`, `susi context-graph stats|show`, `susi os manage
+//! model load|unload`) calls, and returns the same JSON document. Capabilities owned by another
 //! feature plane (GEMI's operator sampling, GAWD's planning loop and intent
 //! ledger) are reached over the plane bus, as every other cross-plane tool
 //! here is.
@@ -206,11 +206,11 @@ impl CoreTools {
             .map_err(EaiError::config)
     }
 
-    // ── 12. 9091 replacements ──────────────────────────────────────────
+    // ── 12. Runtime model cache and placement (replaced 9091 routes) ────
 
     #[tool(
         name = "runtime_models_list",
-        description = "Models loaded in the inference cache: the same document as 9091 GET /runtime/models",
+        description = "Models loaded in the inference cache: the daemon-loaded document `susi os runtime` reports",
         input_schema = args::no_args()
     )]
     pub fn runtime_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
@@ -219,7 +219,7 @@ impl CoreTools {
 
     #[tool(
         name = "runtime_models_load",
-        description = "Load a model into the inference cache, as 9091 POST /runtime/models/load. Args: {model}",
+        description = "Load a model into the inference cache, as `susi os manage model load`. Args: {model}",
         input_schema = args::typed::<args::RuntimeModel>()
     )]
     pub fn runtime_models_load(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
@@ -230,7 +230,7 @@ impl CoreTools {
 
     #[tool(
         name = "runtime_models_unload",
-        description = "Evict a model from the inference cache, as 9091 POST /runtime/models/unload. Args: {model}",
+        description = "Evict a model from the inference cache, as `susi os manage model unload`. Args: {model}",
         input_schema = args::typed::<args::RuntimeModel>()
     )]
     pub fn runtime_models_unload(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
@@ -241,7 +241,7 @@ impl CoreTools {
 
     #[tool(
         name = "placement_decision",
-        description = "The audited inference-placement decision with this id, plus its audit entry hash, as 9091 GET /runtime/placement/decisions/{id}. Args: {decision_id}",
+        description = "The audited inference-placement decision with this id, plus its audit entry hash (the id a completion returns in X-Susi-Placement-Id). Args: {decision_id}",
         input_schema = args::typed::<args::PlacementDecision>()
     )]
     pub fn placement_decision(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {

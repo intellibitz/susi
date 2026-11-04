@@ -5,6 +5,11 @@
 //! Messages request → chat request, chat response → Messages response
 //! (content blocks, `tool_use`, `stop_reason`, `usage`), plus the SSE
 //! event sequence for `stream: true`.
+//!
+//! Model ids: the chat route accepts the aliases `claude-3-5-sonnet` and
+//! `claude-3-7-sonnet` (plus local models and registered providers). The
+//! dated and `-latest` forms of those two aliases resolve to the alias; any
+//! other Anthropic model id is refused as unknown, never silently rerouted.
 
 use serde_json::{Value, json};
 
@@ -53,11 +58,23 @@ pub fn to_chat_request(req: &Value) -> Result<Value, String> {
     }
 
     let mut out = json!({
-        "model": model,
+        "model": model_alias(model),
         "messages": out_msgs,
         "max_tokens": req["max_tokens"],
         "stream": req.get("stream").and_then(Value::as_bool).unwrap_or(false),
     });
+    // `stop_sequences` becomes `stop`, which the chat route honours and
+    // validates (a malformed one is a 400). `temperature` and `top_p` pass
+    // through under the same names; the chat route accepts and currently
+    // ignores them, exactly as it does for OpenAI callers.
+    if let Some(stop) = req.get("stop_sequences").filter(|v| !v.is_null()) {
+        out["stop"] = stop.clone();
+    }
+    for key in ["temperature", "top_p"] {
+        if let Some(value) = req.get(key).filter(|v| !v.is_null()) {
+            out[key] = value.clone();
+        }
+    }
     if let Some(tools) = req.get("tools").and_then(Value::as_array) {
         let fns: Vec<Value> = tools
             .iter()
@@ -75,6 +92,27 @@ pub fn to_chat_request(req: &Value) -> Result<Value, String> {
         out["tools"] = json!(fns);
     }
     Ok(out)
+}
+
+/// The chat-route alias for a dated (`claude-3-5-sonnet-20241022`) or
+/// `-latest` Anthropic model id; any other id is returned unchanged.
+fn model_alias(model: &str) -> &str {
+    for alias in ["claude-3-5-sonnet", "claude-3-7-sonnet"] {
+        let Some(suffix) = model
+            .get(..alias.len())
+            .filter(|head| head.eq_ignore_ascii_case(alias))
+            .and_then(|_| model.get(alias.len()..))
+            .and_then(|rest| rest.strip_prefix('-'))
+        else {
+            continue;
+        };
+        if suffix.eq_ignore_ascii_case("latest")
+            || (suffix.len() == 8 && suffix.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return alias;
+        }
+    }
+    model
 }
 
 fn flatten_blocks(blocks: &[Value]) -> String {
@@ -244,6 +282,46 @@ mod tests {
         assert_eq!(msgs[0]["content"], "You are terse.");
         assert_eq!(msgs[1]["content"], "hi");
         assert_eq!(out["max_tokens"], 100);
+    }
+
+    #[test]
+    fn anthropic_gateway_request_carries_stop_and_sampling_controls() {
+        let req = json!({
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 10,
+            "messages": [{"role": "user", "content": "hi"}],
+            "stop_sequences": ["END"],
+            "temperature": 0.2,
+            "top_p": 0.9,
+        });
+        let out = to_chat_request(&req).unwrap();
+        assert_eq!(out["model"], "claude-3-5-sonnet");
+        assert_eq!(out["stop"], json!(["END"]));
+        assert_eq!(out["temperature"], 0.2);
+        assert_eq!(out["top_p"], 0.9);
+        let bare = to_chat_request(&json!({
+            "model": "m", "max_tokens": 1, "messages": [],
+        }))
+        .unwrap();
+        assert!(bare.get("stop").is_none() && bare.get("temperature").is_none());
+    }
+
+    #[test]
+    fn anthropic_gateway_dated_ids_resolve_to_the_alias_and_others_pass_through() {
+        assert_eq!(
+            model_alias("claude-3-5-sonnet-20241022"),
+            "claude-3-5-sonnet"
+        );
+        assert_eq!(model_alias("claude-3-7-sonnet-latest"), "claude-3-7-sonnet");
+        assert_eq!(model_alias("claude-3-5-sonnet"), "claude-3-5-sonnet");
+        for unchanged in [
+            "claude-sonnet-4-20250514",
+            "claude-3-5-sonnet-2024",
+            "claude-3-5-sonnet-preview",
+            "local-model",
+        ] {
+            assert_eq!(model_alias(unchanged), unchanged);
+        }
     }
 
     #[test]

@@ -14,7 +14,7 @@ individually.
 | Port | Protocol | Use it for |
 |---|---|---|
 | 9090 | MCP Streamable HTTP, `POST /mcp` | Tools, resources, prompts |
-| 9091 | OpenAI-compatible HTTP | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models` |
+| 9091 | OpenAI-compatible HTTP | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`; Anthropic Messages `/v1/messages`; Prometheus `/metrics` |
 | 9092 | UDP discovery, cluster members only | Answers cluster-key signed pings between Susi members; unsigned pings get no reply. Products discover the host through `/.well-known/agent-card.json` on 9094 (see [host-contract-conformance.md](host-contract-conformance.md)). |
 | 9093 | MCP alias of 9090 | Clients that need a second MCP endpoint |
 | 9094 | A2A HTTP | `/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json` |

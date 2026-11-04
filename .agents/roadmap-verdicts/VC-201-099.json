@@ -7,7 +7,7 @@
     "components": [
       "tui_top module renders providers (name, health, latency) with GPU utilization, temperature, and VRAM",
       "susi fix applies safe doctor findings to initialize workspace structure",
-      "Various API endpoints exposed: /runtime/models, /v1/completions, /context-graph/*"
+      "Socket surfaces exposed: MCP runtime_models_list (loaded models), 9091 /v1/completions, /context-graph/*"
     ],
     "tests": [
       "tests/tui_top.rs: tui_top_renders_providers_gpu_and_queue, tui_top_idle_queue_and_no_gpu",
