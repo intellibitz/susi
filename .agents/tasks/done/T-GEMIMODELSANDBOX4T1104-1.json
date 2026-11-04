@@ -1,0 +1,24 @@
+{
+  "id": "T-GEMIMODELSANDBOX4T1104-1",
+  "title": "Expand susi-gemi-models provision, susi-sandbox-client local, and susi-gemi brain_{explain,export,per_workspace} to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "brain_"
+    ]
+  },
+  "created_by": "GEMIMODELSANDBOX4T1104",
+  "created_unix": 1793789534,
+  "closed": {
+    "at_unix": 1793789977,
+    "commit": "a2e92e543a542931704211c89c5cb6f57c79caa0",
+    "by": "GEMIMODELSANDBOX4T1104"
+  }
+}
