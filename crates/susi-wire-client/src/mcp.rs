@@ -83,9 +83,12 @@ pub struct Session {
 impl Session {
     /// Connect to `addr` (`host:port`), send `initialize` and
     /// `notifications/initialized`, and keep the session id and the
-    /// negotiated protocol revision. `timeout` bounds each request.
+    /// negotiated protocol revision. `timeout` bounds each request. An
+    /// address that resolves to anything but loopback is refused before a
+    /// byte is sent: the bearer travels in plaintext.
     pub fn open(addr: &str, bearer: Option<&str>, timeout: Duration) -> Result<Self, WireError> {
         let (host, port) = split_addr(addr)?;
+        ensure_loopback(&host, port)?;
         let mut session = Self {
             host,
             port,
@@ -184,7 +187,8 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
-        let response = http::request(
+        let budget = self.timeout.min(DEFAULT_TIMEOUT);
+        let mut response = http::request_streaming_by(
             &self.host,
             self.port,
             Request {
@@ -193,13 +197,18 @@ impl Session {
                 headers: &refs,
                 body: None,
             },
-            self.timeout.min(DEFAULT_TIMEOUT),
+            budget,
+            Some(Instant::now() + budget),
         )
         .map_err(WireError::Io)?;
+        // Only the status matters: the body is never read whole, at most a
+        // short excerpt for the error.
         if (200..300).contains(&response.status) || response.status == 405 {
             Ok(())
         } else {
-            Err(WireError::Http(response.status, excerpt(&response.body)))
+            let mut head = Vec::new();
+            let _ = (&mut response.body).take(512).read_to_end(&mut head);
+            Err(WireError::Http(response.status, excerpt(&head)))
         }
     }
 
@@ -295,6 +304,21 @@ fn split_addr(addr: &str) -> Result<(String, u16), WireError> {
         return Err(bad());
     }
     Ok((host.to_string(), port))
+}
+
+/// Refuse a host that resolves to no address or to any non-loopback one.
+fn ensure_loopback(host: &str, port: u16) -> Result<(), WireError> {
+    use std::net::ToSocketAddrs;
+    let addrs: Vec<_> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| WireError::Io(format!("resolve {host}:{port}: {e}")))?
+        .collect();
+    if addrs.is_empty() || !addrs.iter().all(|a| a.ip().is_loopback()) {
+        return Err(WireError::Protocol(format!(
+            "{host}:{port} is not a loopback address; this client only talks to the local daemon"
+        )));
+    }
+    Ok(())
 }
 
 /// The server's chosen revision from an `initialize` result, refused when
@@ -531,6 +555,44 @@ mod tests {
         assert!(split_addr("127.0.0.1").is_err());
         assert!(split_addr(":9093").is_err());
         assert!(split_addr("host:port").is_err());
+    }
+
+    #[test]
+    fn only_loopback_addresses_are_accepted() {
+        assert!(ensure_loopback("127.0.0.1", 9093).is_ok());
+        assert!(ensure_loopback("::1", 9093).is_ok());
+        for remote in ["192.0.2.1", "10.0.0.1", "0.0.0.0"] {
+            let err = ensure_loopback(remote, 9093).unwrap_err();
+            assert!(err.to_string().contains("not a loopback"), "{err}");
+        }
+        // Refused before any connection: nothing listens on TEST-NET-1.
+        let err = Session::open("192.0.2.1:9093", Some("tok"), Duration::from_secs(5)).unwrap_err();
+        assert!(matches!(err, WireError::Protocol(_)), "{err}");
+    }
+
+    /// The release reads only the status: a huge error body costs a short
+    /// excerpt, not the whole body.
+    #[test]
+    fn release_reads_only_a_short_excerpt_of_the_reply() {
+        let huge: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 500 Oops\r\nContent-Length: 4000000\r\n\r\n{}",
+                "x".repeat(4_000_000)
+            )
+            .into_boxed_str(),
+        );
+        let (addr, _, server) = scripted(vec![
+            "HTTP/1.1 200 OK\r\nMcp-Session-Id: s-3\r\nContent-Type: application/json\r\n\r\n\
+             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\"}}",
+            "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+            huge,
+        ]);
+        let session = Session::open(&addr, None, Duration::from_secs(5)).unwrap();
+        match session.close() {
+            Err(WireError::Http(500, body)) => assert!(body.len() <= 204, "{}", body.len()),
+            other => panic!("expected HTTP 500, got {other:?}"),
+        }
+        drop(server);
     }
 
     #[test]
