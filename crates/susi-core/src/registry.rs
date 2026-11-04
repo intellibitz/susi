@@ -328,4 +328,44 @@ mod tests {
         assert!(registry.instantiate::<String>("number").is_none());
         assert!(registry.instantiate::<u32>("missing").is_none());
     }
+
+    #[test]
+    fn capability_registry_unregister_and_typed_bus_surface_mapping_contract() {
+        use crate::capability_bus::CapabilitySurface;
+
+        let registry = CapabilityRegistry::new();
+        registry.register_agent_capability(AgentCapability {
+            name: "PlannerAgent".into(),
+            description: "planner".into(),
+            is_core: false,
+        });
+        struct EchoTool;
+        impl Tool for EchoTool {
+            fn name(&self) -> &str {
+                "echo_tool"
+            }
+            fn description(&self) -> &str {
+                "echo"
+            }
+            fn execute(
+                &self,
+                _args: &serde_json::Value,
+                _workspace: &std::path::Path,
+            ) -> crate::susi_error::EaiResult<String> {
+                Ok("echo".into())
+            }
+        }
+        registry.register_tool(EchoTool);
+
+        let discovered = registry.typed_bus().discover();
+        assert!(discovered
+            .iter()
+            .any(|d| d.id == "PlannerAgent" && d.surface == CapabilitySurface::A2a));
+        assert!(discovered
+            .iter()
+            .any(|d| d.id == "echo_tool" && d.surface == CapabilitySurface::Mcp));
+
+        assert!(registry.unregister_tool("echo_tool"));
+        assert!(!registry.unregister_tool("echo_tool"));
+    }
 }

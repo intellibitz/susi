@@ -1,0 +1,26 @@
+{
+  "id": "T-COREMODSA4T1104-1",
+  "title": "Expand inline unit tests to 4 in susi-core model_health, peer_admin, peer_roster, and registry",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "model_health"
+    ]
+  },
+  "created_by": "COREMODSA4T1104",
+  "created_unix": 1793783002,
+  "closed": {
+    "at_unix": 1793783204,
+    "commit": "c52dab44da36a04465b74cf169ccdaf90ac170b4",
+    "by": "COREMODSA4T1104"
+  }
+}

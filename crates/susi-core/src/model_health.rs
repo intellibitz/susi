@@ -203,4 +203,31 @@ mod tests {
         assert!(dead.to_string().contains("Dead"));
         assert!(dead.to_string().contains("NotFound"));
     }
+
+    #[test]
+    fn model_health_default_and_serde_roundtrip_preserve_state_and_failure_class() {
+        assert_eq!(ModelHealth::default(), ModelHealth::Unknown);
+        assert!(ModelHealth::Unknown.failure_class().is_none());
+        assert!(ModelHealth::Healthy.failure_class().is_none());
+        assert!(ModelHealth::Degraded {
+            reason: "warn".into()
+        }
+        .failure_class()
+        .is_none());
+
+        let unhealthy = ModelHealth::Unhealthy {
+            class: FailureClass::InsufficientQuota,
+            reason: "quota".into(),
+        };
+        let unhealthy_json = serde_json::to_string(&unhealthy).unwrap();
+        let unhealthy_back: ModelHealth = serde_json::from_str(&unhealthy_json).unwrap();
+        assert_eq!(unhealthy_back, unhealthy);
+
+        let dead = ModelHealth::Dead {
+            class: FailureClass::InvalidCredential,
+        };
+        let dead_json = serde_json::to_string(&dead).unwrap();
+        let dead_back: ModelHealth = serde_json::from_str(&dead_json).unwrap();
+        assert_eq!(dead_back, dead);
+    }
 }
