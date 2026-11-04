@@ -36,3 +36,22 @@ fn keyring_storage_encrypted_file_fallback_hides_plaintext() {
     let raw = format!("{fb:?}");
     assert!(!raw.contains("super-secret"));
 }
+
+#[test]
+fn keyring_storage_delete_and_missing_account_lookup_return_expected_results() {
+    let mut store = KeyringStorage::new(FakeKeyring::default());
+    assert_eq!(store.get("nonexistent").unwrap(), None);
+
+    store.put("openai", "sk-1").unwrap();
+    assert_eq!(store.get("openai").unwrap().as_deref(), Some("sk-1"));
+
+    let account_key = format!("{}/openai", KeyringStorage::<FakeKeyring>::service_name());
+    store.backend_mut().delete(&account_key).unwrap();
+    assert_eq!(store.get("openai").unwrap(), None);
+
+    let mut fb = EncryptedFileFallback::with_key(0x33);
+    fb.set("acct", "secret-val").unwrap();
+    assert_eq!(fb.get("acct").unwrap().as_deref(), Some("secret-val"));
+    fb.delete("acct").unwrap();
+    assert_eq!(fb.get("acct").unwrap(), None);
+}

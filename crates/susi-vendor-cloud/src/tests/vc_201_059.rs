@@ -86,3 +86,33 @@ fn vc_201_059_live_deployment_also_keeps_resource() {
     assert_eq!(report.keep, vec!["r1"]);
     assert!(report.delete.is_empty());
 }
+
+#[test]
+fn vc_201_059_retained_and_exact_expiry_boundary_contracts() {
+    let live = vec![
+        res("r-exact-expiry", "m-dead", "d-dead", 100),
+        res("r-future-expiry", "m-dead", "d-dead", 101),
+        Resource {
+            retain: true,
+            ..res("r-retained-at-boundary", "m-dead", "d-dead", 100)
+        },
+    ];
+    let empty = BTreeSet::new();
+    let mut deleted = Vec::new();
+    let auth = Authoritative {
+        live_missions: &empty,
+        live_deployments: &empty,
+        now_unix: 100,
+        dry_run: false,
+    };
+    let report = reconcile(&live, &auth, &mut |id| {
+        deleted.push(id.to_string());
+    });
+    assert_eq!(report.delete, vec!["r-exact-expiry"]);
+    assert_eq!(deleted, vec!["r-exact-expiry"]);
+    assert_eq!(
+        report.keep,
+        vec!["r-future-expiry", "r-retained-at-boundary"]
+    );
+    assert!(report.foreign.is_empty());
+}

@@ -67,3 +67,17 @@ fn zc_config_selfheal_strips_unknown_and_deprecated_with_backup() {
     assert!(cfg.settings.contains_key("trust_level"));
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn zc_config_selfheal_clean_existing_file_is_not_repaired_or_backed_up() {
+    let dir = scratch("clean_existing");
+    let expected = SusiConfig {
+        settings: SusiConfig::heal_defaults().clone(),
+    };
+    expected.save(&dir).unwrap();
+    let (loaded, report) = load_or_selfheal(&dir).unwrap();
+    assert!(!report.repaired);
+    assert!(report.backup_path.is_none());
+    assert_eq!(loaded.settings, expected.settings);
+    let _ = fs::remove_dir_all(&dir);
+}
