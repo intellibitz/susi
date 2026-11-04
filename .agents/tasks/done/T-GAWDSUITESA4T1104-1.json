@@ -1,0 +1,24 @@
+{
+  "id": "T-GAWDSUITESA4T1104-1",
+  "title": "Expand 5 susi-gawd tests suites A (intent_ladder_canaries, vc_201_010, vc_201_012, vc_201_013, vc_201_019) to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "intent_ladder_canaries"
+    ]
+  },
+  "created_by": "GAWDSUITESA4T1104",
+  "created_unix": 1793790437,
+  "closed": {
+    "at_unix": 1793790831,
+    "commit": "93dfd5902569157ebda0a6fc5bb7ccb2590ea425",
+    "by": "GAWDSUITESA4T1104"
+  }
+}
