@@ -86,4 +86,24 @@ mod tests {
         let expected_ports_obj = expected_ports.as_object().unwrap();
         assert_eq!(ports_obj, expected_ports_obj);
     }
+
+    #[tokio::test]
+    async fn paths_and_ports_ignore_query_strings_and_reject_patch_mutations() {
+        let paths_resp = call("GET", "/paths?format=compact").await;
+        assert_eq!(paths_resp.status(), StatusCode::OK);
+        assert_eq!(json_body(paths_resp).await, susi_paths::local_paths_json());
+
+        let ports_resp = call("GET", "/ports?unused=1").await;
+        assert_eq!(ports_resp.status(), StatusCode::OK);
+        assert_eq!(json_body(ports_resp).await, susi_paths::ports_json());
+
+        assert_eq!(
+            call("PATCH", "/paths").await.status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        assert_eq!(
+            call("PATCH", "/ports").await.status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
 }

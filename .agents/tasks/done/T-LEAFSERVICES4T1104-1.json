@@ -1,0 +1,26 @@
+{
+    "id":  "T-LEAFSERVICES4T1104-1",
+    "title":  "D-OS-8: Expand inline unit tests to 4 in error_svc, native_svc, paths_svc, and sandbox_svc",
+    "status":  "done",
+    "created_at":  "2026-11-04T08:10:00Z",
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-leaf-services",
+                               "--lib",
+                               "--all-features"
+                           ]
+               },
+    "scope":  [
+                  "crates/susi-leaf-services/src/error_svc.rs",
+                  "crates/susi-leaf-services/src/native_svc.rs",
+                  "crates/susi-leaf-services/src/paths_svc.rs",
+                  "crates/susi-leaf-services/src/sandbox_svc.rs",
+                  ".agents/tasks/T-LEAFSERVICES4T1104-1.json",
+                  ".agents/tasks/done/T-LEAFSERVICES4T1104-1.json"
+              ]
+}
