@@ -410,3 +410,113 @@ fn which(bin: &str) -> bool {
 fn executable_name(name: &str) -> String {
     format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("susi-setup-wf-{label}-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn detect_and_apply_seed_dirs_bundled_config_tools_policy_and_handle_cloud_consent_idempotently(
+    ) {
+        let home = unique_temp_dir("detect-apply");
+        std::fs::write(home.join("cloud.env"), "OPENAI_API_KEY=sk-test-12345678\n")
+            .expect("write cloud.env");
+        let agents_dir = home.join("execution-agents");
+        std::fs::create_dir_all(&agents_dir).expect("create execution-agents dir");
+        std::fs::write(agents_dir.join("ready.json"), r#"["codex"]"#).expect("write ready.json");
+
+        let mut plan = SetupPlan::detect(&home);
+        assert!(plan.keys_present.iter().any(|k| k == "OPENAI_API_KEY"));
+        assert_eq!(plan.agents, vec!["codex".to_string()]);
+
+        let first_summary = plan.apply(&home).expect("first apply");
+        assert!(home.join("config").is_dir());
+        assert!(home.join("data").is_dir());
+        assert!(home.join("logs").is_dir());
+        assert!(home.join("config.json").is_file());
+        assert!(home.join("config").join("tools.json").is_file());
+        assert!(home.join("config").join("policy.json").is_file());
+        assert!(!home.join("config").join("cloud_opt_in").exists());
+        assert!(first_summary
+            .iter()
+            .any(|s| s.contains("defer cloud_opt_in")));
+
+        plan.grant_consent(ConsentKind::CloudApiKey);
+        plan.grant_consent(ConsentKind::CloudApiKey);
+        assert_eq!(plan.consents_granted, vec![ConsentKind::CloudApiKey]);
+
+        let second_summary = plan.apply(&home).expect("second apply with consent");
+        assert!(home.join("config").join("cloud_opt_in").is_file());
+        assert!(second_summary.iter().any(|s| s == "applied cloud_opt_in"));
+
+        let third_summary = plan.apply(&home).expect("third apply idempotent");
+        assert!(third_summary
+            .iter()
+            .all(|s| s.starts_with("skip ") && s.ends_with("already applied")));
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn completion_check_blocks_when_runtime_or_cloud_key_prerequisite_is_missing_and_validate_catches_bad_plan(
+    ) {
+        let home = unique_temp_dir("completion-blocked");
+        let mut plan = SetupPlan::detect(&home);
+        plan.available_engines.clear();
+        plan.keys_present.clear();
+        plan.grant_consent(ConsentKind::CloudApiKey);
+
+        let completion = plan
+            .completion_check(&home)
+            .expect("completion_check should succeed");
+        assert!(!completion.ready());
+        assert_eq!(completion.mission.status, MissionStatus::Blocked);
+        assert_eq!(
+            completion.missing_prerequisites,
+            vec![
+                "an available local runtime".to_string(),
+                "a cloud API key for cloud opt-in".to_string(),
+            ]
+        );
+        let cloud_step = plan
+            .steps
+            .iter()
+            .find(|s| s.id == "cloud_opt_in")
+            .expect("cloud_opt_in step");
+        assert!(cloud_step.blocked);
+        assert!(!cloud_step.applied);
+
+        let mut empty_tools_plan = plan.clone();
+        empty_tools_plan.tools.clear();
+        let tools_err = empty_tools_plan
+            .apply(&home)
+            .expect_err("empty tools must fail validation");
+        assert!(tools_err.contains("setup plan must include tools and policy defaults"));
+
+        let mut dup_step_plan = plan.clone();
+        dup_step_plan.steps.push(SetupStep {
+            id: "dirs".into(),
+            description: "dup".into(),
+            requires_consent: None,
+            applied: false,
+            blocked: false,
+        });
+        let dup_err = dup_step_plan
+            .apply(&home)
+            .expect_err("duplicate step id must fail validation");
+        assert!(dup_err.contains("duplicate or empty step ids"));
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

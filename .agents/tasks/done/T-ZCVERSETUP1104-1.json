@@ -1,0 +1,22 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ZCVERSETUP1104-1",
+  "agent": "ZCVERSETUP1104",
+  "scope": [
+    "crates/susi-config/src/versioned_store.rs",
+    "crates/susi-config/src/setup_workflow.rs"
+  ],
+  "summary": "test(susi-config): inline unit test suites for versioned_store & setup_workflow (VC-201-069, D-OS-8)",
+  "started_at": "2026-11-04T09:17:00Z",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  }
+}
