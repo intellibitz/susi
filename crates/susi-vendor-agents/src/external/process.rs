@@ -169,3 +169,95 @@ fn supervise(manager: &AgentManager, run: &mut RunRecord, cmd: &mut Command) -> 
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::external::CatalogKind;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-ext-proc-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn failure_summary_handles_missing_empty_single_multiline_redacts_and_bounds_length() {
+        let dir = temp_dir("summary");
+        let log = dir.join("stderr.log");
+        assert_eq!(failure_summary(&log), None);
+
+        std::fs::write(&log, "   \n\t\n  ").unwrap();
+        assert_eq!(failure_summary(&log), None);
+
+        std::fs::write(&log, "\n  single failure line  \n").unwrap();
+        assert_eq!(
+            failure_summary(&log).as_deref(),
+            Some("single failure line")
+        );
+
+        std::fs::write(
+            &log,
+            "first error line\nmiddle noise\nAuthorization: Bearer sk-secret1234567890abcdef\n",
+        )
+        .unwrap();
+        let multi = failure_summary(&log).unwrap();
+        assert!(multi.starts_with("first error line | "), "{multi}");
+        assert!(!multi.contains("sk-secret1234567890abcdef"), "{multi}");
+
+        let long_line = format!("START-{}-END", "x".repeat(400));
+        std::fs::write(&log, &long_line).unwrap();
+        let bounded = failure_summary(&log).unwrap();
+        assert_eq!(bounded.chars().count(), 300);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn execute_rejects_non_command_adapters() {
+        let dir = temp_dir("exec");
+        let manager =
+            AgentManager::with_config(&dir, CatalogKind::Execution, dir.join("cfg")).unwrap();
+
+        for adapter in [
+            Adapter::A2a {
+                url: "http://127.0.0.1:18080/a2a".into(),
+                token_env: None,
+            },
+            Adapter::Acp {
+                program: "acp-agent".into(),
+                args: vec![],
+            },
+        ] {
+            let mut run = RunRecord {
+                id: "run-non-proc-1".into(),
+                agent: "test-agent".into(),
+                workspace: dir.clone(),
+                prompt: "verify process guard".into(),
+                adapter,
+                status: RunStatus::Running,
+                created_at: 1,
+                updated_at: 1,
+                pid: None,
+                remote_id: None,
+                remote_url: None,
+                exit_code: None,
+                error: None,
+            };
+            let err = execute(&manager, &mut run).unwrap_err().to_string();
+            assert!(
+                err.contains("not a process adapter"),
+                "unexpected error: {err}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
