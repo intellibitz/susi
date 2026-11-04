@@ -100,4 +100,41 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn initialize_with_config_dir_loads_custom_engine_and_model_and_formats_all_sections() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-brain-custom-cfg-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.json"),
+            r#"{"default_engine":"custom-tensor-engine","default_model":"qwen-custom-7b"}"#,
+        )
+        .unwrap();
+
+        let ws = dir.join("project-ws");
+        let ctx = AlphaBrainContext::initialize_with_config_dir(&ws, &dir);
+        assert_eq!(ctx.default_engine, "custom-tensor-engine");
+        assert_eq!(ctx.default_model, "qwen-custom-7b");
+        assert_eq!(ctx.gmcp_port, susi_paths::ports::GMCP);
+        assert_eq!(ctx.gemi_port, susi_paths::ports::GEMI);
+
+        let tri = ctx.inspect_tri_state();
+        assert!(tri.contains("1. [CORE - Compiled System]"));
+        assert!(tri.contains("2. [HARDWARE - System Environment]"));
+        assert!(tri.contains("3. [DYNAMIC - Runtime Configuration]"));
+        assert!(tri.contains("Engine: custom-tensor-engine"));
+        assert!(tri.contains("Model: qwen-custom-7b"));
+        assert!(tri.contains(&format!("GMCP Port: {}", ctx.gmcp_port)));
+        assert!(tri.contains(&format!("GEMI Port: {}", ctx.gemi_port)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

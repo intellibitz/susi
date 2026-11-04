@@ -58,3 +58,162 @@ pub(crate) fn wire() {
         );
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_handler() -> TestAgentsHandler {
+        TestAgentsHandler {
+            profiles: Mutex::new(vec![
+                AgentProfile {
+                    name: "ContextAgent".into(),
+                    description: "Workspace context analyzer.".into(),
+                    categories: vec!["context".into()],
+                    semantic_anchors: vec!["ls".into(), "pwd".into()],
+                    base_rank: 1.0,
+                    is_core: true,
+                },
+                AgentProfile {
+                    name: "RouterAgent".into(),
+                    description: "Swarm routing coordinator.".into(),
+                    categories: vec!["routing".into()],
+                    semantic_anchors: vec!["route".into()],
+                    base_rank: 0.8,
+                    is_core: true,
+                },
+            ]),
+        }
+    }
+
+    #[test]
+    fn test_agents_handler_lists_registers_idempotently_clamps_ranks_and_rejects_unknown_topic() {
+        let handler = sample_handler();
+
+        // 1. AGENTS_META_LIST returns the seeded AgentProfile array.
+        let initial = handler
+            .handle(topics::AGENTS_META_LIST, json!({}))
+            .expect("list initial profiles");
+        let arr = initial.as_array().expect("profiles array");
+        assert_eq!(arr.len(), 2);
+        assert!(arr.iter().any(|p| p["name"] == "ContextAgent"));
+        assert!(arr.iter().any(|p| p["name"] == "RouterAgent"));
+
+        // 2. AGENTS_META_REGISTER accepts both {"profile": ...} and direct AgentProfile JSON,
+        // and duplicate registration of the same agent name is idempotent.
+        let wrapped_profile = json!({
+            "profile": {
+                "name": "WrappedAgent",
+                "description": "Registered via profile wrapper.",
+                "categories": ["test"],
+                "semantic_anchors": ["wrap"],
+                "base_rank": 0.6,
+                "is_core": false
+            }
+        });
+        let reg1 = handler
+            .handle(topics::AGENTS_META_REGISTER, wrapped_profile.clone())
+            .expect("register wrapped profile");
+        assert_eq!(reg1, json!({ "ok": true }));
+
+        let direct_profile = json!({
+            "name": "DirectAgent",
+            "description": "Registered directly.",
+            "categories": ["test"],
+            "semantic_anchors": ["direct"],
+            "base_rank": 0.5,
+            "is_core": false
+        });
+        let reg2 = handler
+            .handle(topics::AGENTS_META_REGISTER, direct_profile.clone())
+            .expect("register direct profile");
+        assert_eq!(reg2, json!({ "ok": true }));
+
+        // Re-registering WrappedAgent must not create a duplicate entry.
+        let _ = handler
+            .handle(topics::AGENTS_META_REGISTER, wrapped_profile)
+            .expect("duplicate register is idempotent");
+        let after_reg: Vec<AgentProfile> = serde_json::from_value(
+            handler
+                .handle(topics::AGENTS_META_LIST, json!({}))
+                .expect("list after register"),
+        )
+        .expect("deserialize AgentProfile vec");
+        assert_eq!(after_reg.len(), 4);
+        assert_eq!(
+            after_reg
+                .iter()
+                .filter(|p| p.name == "WrappedAgent")
+                .count(),
+            1
+        );
+
+        // 3. AGENTS_META_UPDATE_RANK clamps base_rank to [0.1, 1.0] and requires "name".
+        let up_res = handler
+            .handle(
+                topics::AGENTS_META_UPDATE_RANK,
+                json!({ "name": "DirectAgent", "delta": 1.8 }),
+            )
+            .expect("update rank upward");
+        assert_eq!(up_res, json!({ "ok": true }));
+        let after_up: Vec<AgentProfile> = serde_json::from_value(
+            handler
+                .handle(topics::AGENTS_META_LIST, json!({}))
+                .expect("list after upward clamp"),
+        )
+        .expect("deserialize profiles");
+        let direct_up = after_up
+            .iter()
+            .find(|p| p.name == "DirectAgent")
+            .expect("find DirectAgent");
+        assert!((direct_up.base_rank - 1.0).abs() < f32::EPSILON);
+
+        let down_res = handler
+            .handle(
+                topics::AGENTS_META_UPDATE_RANK,
+                json!({ "name": "DirectAgent", "delta": -2.5 }),
+            )
+            .expect("update rank downward");
+        assert_eq!(down_res, json!({ "ok": true }));
+        let after_down: Vec<AgentProfile> = serde_json::from_value(
+            handler
+                .handle(topics::AGENTS_META_LIST, json!({}))
+                .expect("list after downward clamp"),
+        )
+        .expect("deserialize profiles");
+        let direct_down = after_down
+            .iter()
+            .find(|p| p.name == "DirectAgent")
+            .expect("find DirectAgent");
+        assert!((direct_down.base_rank - 0.1).abs() < f32::EPSILON);
+
+        let missing_name_err = handler
+            .handle(topics::AGENTS_META_UPDATE_RANK, json!({ "delta": 0.2 }))
+            .expect_err("missing name must return Err");
+        assert!(
+            missing_name_err.contains("name required"),
+            "unexpected error: {missing_name_err}"
+        );
+
+        // 4. Unknown topic returns an error naming the unhandled topic.
+        let unknown_err = handler
+            .handle("agents.meta.nonexistent", json!({}))
+            .expect_err("unknown topic must fail");
+        assert!(
+            unknown_err.contains("test agents handler: unhandled topic"),
+            "unexpected error: {unknown_err}"
+        );
+    }
+
+    #[test]
+    fn wire_registers_agents_prefix_on_global_plane_bus_idempotently() {
+        wire();
+        wire();
+        let list = PlaneBus::global()
+            .request(topics::AGENTS_META_LIST, json!({}))
+            .expect("request AGENTS_META_LIST on global PlaneBus");
+        let profiles: Vec<AgentProfile> =
+            serde_json::from_value(list).expect("decode AgentProfile list");
+        assert!(profiles.iter().any(|p| p.name == "SelfHealingAgent"));
+    }
+}
