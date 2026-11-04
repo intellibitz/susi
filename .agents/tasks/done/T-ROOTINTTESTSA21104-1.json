@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ROOTINTTESTSA21104",
-  "created_unix": 1793793179
+  "created_unix": 1793793179,
+  "closed": {
+    "at_unix": 1793793319,
+    "commit": "87b59392547357043639b85cc44e9ff3f17ec703",
+    "by": "ROOTINTTESTSA21104"
+  }
 }
