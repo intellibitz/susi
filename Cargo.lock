@@ -4008,6 +4008,7 @@ version = "0.21.49"
 dependencies = [
  "susi-agents",
  "susi-build-os-ucrt",
+ "susi-cli-defs",
  "susi-config",
  "susi-core",
  "susi-daemon",
@@ -4083,6 +4084,13 @@ version = "0.1.0"
 [[package]]
 name = "susi-build-policy"
 version = "0.1.0"
+
+[[package]]
+name = "susi-cli-defs"
+version = "0.1.0"
+dependencies = [
+ "susi-vendor-clap",
+]
 
 [[package]]
 name = "susi-config"
