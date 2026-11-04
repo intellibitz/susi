@@ -134,4 +134,49 @@ mod on_demand_engine_start_tests {
         assert_eq!(p.name(), "dummy");
         assert!(p.as_any().downcast_ref::<DummyProvider>().is_some());
     }
+
+    #[test]
+    fn dummy_provider_async_methods_resolve_expected_health_generation_and_embeddings() {
+        struct ReadyProvider;
+        impl Provider for ReadyProvider {
+            fn name(&self) -> &str {
+                "ready"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+                Box::pin(async { Ok(true) })
+            }
+            fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+                let out = format!("echo:{prompt}");
+                Box::pin(async move { Ok(out) })
+            }
+            fn embed(&self, _text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![0.5, -0.5]) })
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        let prov = ReadyProvider;
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+
+        let mut h = prov.is_healthy();
+        assert!(matches!(
+            h.as_mut().poll(&mut cx),
+            std::task::Poll::Ready(Ok(true))
+        ));
+
+        let mut g = prov.generate("ping");
+        assert!(matches!(
+            g.as_mut().poll(&mut cx),
+            std::task::Poll::Ready(Ok(ref s)) if s == "echo:ping"
+        ));
+
+        let mut e = prov.embed("ping");
+        assert!(matches!(
+            e.as_mut().poll(&mut cx),
+            std::task::Poll::Ready(Ok(ref v)) if v == &[0.5, -0.5]
+        ));
+    }
 }

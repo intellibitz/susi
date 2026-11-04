@@ -264,4 +264,28 @@ mod tests {
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("different terms"));
     }
+
+    #[test]
+    fn local_cluster_status_reports_self_node_and_zero_bound_on_empty_roster() {
+        let _lock = commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!(
+            "susi-peer-roster-status-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("SUSI_HOME", &home);
+
+        let status = local_cluster_status();
+        assert_eq!(status["self"], true);
+        assert_eq!(status["roster"], 0);
+        assert_eq!(status["bound"], 0);
+        assert!(!status["node"].as_str().unwrap().is_empty());
+
+        drop(env);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

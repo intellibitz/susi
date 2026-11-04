@@ -368,4 +368,40 @@ mod tests {
         assert!(registry.unregister_tool("echo_tool"));
         assert!(!registry.unregister_tool("echo_tool"));
     }
+
+    #[test]
+    fn provider_register_list_get_and_unregister_lifecycle_works() {
+        use crate::susi_core::provider::BoxFuture;
+        struct StubProvider;
+        impl Provider for StubProvider {
+            fn name(&self) -> &str {
+                "stub-llm"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, crate::susi_error::EaiResult<bool>> {
+                Box::pin(async { Ok(true) })
+            }
+            fn generate(
+                &self,
+                _prompt: &str,
+            ) -> BoxFuture<'_, crate::susi_error::EaiResult<String>> {
+                Box::pin(async { Ok("stub".into()) })
+            }
+            fn embed(&self, _text: &str) -> BoxFuture<'_, crate::susi_error::EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![1.0]) })
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        let registry = CapabilityRegistry::default();
+        registry.register_provider(StubProvider);
+        assert!(registry.list_providers().contains(&"stub-llm".to_string()));
+        assert_eq!(
+            registry.get_provider("stub-llm").unwrap().name(),
+            "stub-llm"
+        );
+        assert!(registry.unregister_provider("stub-llm"));
+        assert!(!registry.unregister_provider("stub-llm"));
+    }
 }
