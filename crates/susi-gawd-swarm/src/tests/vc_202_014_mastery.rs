@@ -119,3 +119,15 @@ fn vc_202_014_mastery_egress_gate_allows_subdomains_and_isolates_mission_refusal
     assert_eq!(refusals[1].mission, "mission-y");
     assert_eq!(refusals[1].host, "untrusted-y.example.org");
 }
+
+#[test]
+fn vc_202_014_mastery_deny_all_policy_records_policy_empty_refusal() {
+    let mut gate = EgressGate::new(EgressPolicy::deny_all());
+    assert_eq!(
+        gate.authorize("mission-deny", "api.openai.com"),
+        Err(DenyReason::PolicyEmpty)
+    );
+    assert_eq!(gate.refusals().len(), 1);
+    assert_eq!(gate.refusals()[0].mission, "mission-deny");
+    assert_eq!(gate.refusals()[0].reason, DenyReason::PolicyEmpty);
+}

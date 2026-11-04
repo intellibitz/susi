@@ -142,3 +142,17 @@ fn vc_201_038_egress_policy_bounds_pinned_endpoints_and_relays() {
         WanVerdict::Admitted
     );
 }
+
+#[test]
+fn vc_201_038_mismatched_node_id_is_refused_before_consuming_nonce() {
+    let mut replay = ReplaySet::default();
+    let egress = EgressPolicy::default();
+    let bad_node = WanHandshake {
+        node_id: "peer-other".into(),
+        ..good_hs()
+    };
+    assert!(matches!(
+        admit_wan_peer(&pin(), &bad_node, &egress, &mut replay),
+        WanVerdict::Refused(_)
+    ));
+}

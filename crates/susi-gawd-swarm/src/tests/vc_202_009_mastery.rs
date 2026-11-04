@@ -133,3 +133,17 @@ fn vc_202_009_mastery_refuses_when_vram_or_subprocesses_exceed_capacity() {
         Backpressure::LocalExhausted | Backpressure::Queued { .. }
     ));
 }
+
+#[test]
+fn vc_202_009_mastery_multiple_small_jobs_coexist_until_aggregate_quota_reached() {
+    let ctrl = AdmissionController::new(test_limits(2000, 4096, 4096));
+    let t1 = ctrl
+        .admit(&job_req("m1", "j1", 1000, 2048, 1024))
+        .expect("first half-capacity job admits");
+    let t2 = ctrl
+        .admit(&job_req("m2", "j2", 1000, 2048, 1024))
+        .expect("second half-capacity job admits");
+    assert!(ctrl.admit(&job_req("m3", "j3", 100, 100, 100)).is_err());
+    t1.release();
+    t2.release();
+}
