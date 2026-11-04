@@ -1,0 +1,27 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ERRREDACTA2A1104-1",
+  "title": "test(error,gawd-a2a): add secret redaction and A2A task-store reaper contract tests",
+  "status": "done",
+  "completed_at": "2026-11-04T03:32:00Z",
+  "created_at": "2026-11-04T03:25:00Z",
+  "owner": "ERRREDACTA2A1104",
+  "touch": [
+    "crates/susi-error/src/redact.rs",
+    "crates/susi-gawd-a2a/src/capabilities.rs",
+    "crates/susi-gawd-a2a/src/task_store.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-error",
+      "-p",
+      "susi-gawd-a2a",
+      "--lib"
+    ]
+  }
+}
