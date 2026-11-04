@@ -129,3 +129,30 @@ fn vc_201_050_mastery_diagnose_missing_artifacts_without_cloud_fallback() {
         "No cloud fallback allowed under network-disabled drill"
     );
 }
+
+#[test]
+fn vc_201_050_mastery_empty_bundle_and_missing_extension_metadata_reported() {
+    let empty = pack_bundle(vec![], vec![], vec![]);
+    assert!(!empty.checksum.is_empty());
+    let empty_report = import_bundle(&empty, &available_set(&[]));
+    assert!(empty_report.checksum_ok);
+    assert!(empty_report.is_complete());
+
+    let bundle = pack_bundle(
+        vec!["susi".into()],
+        vec!["qwen2.5-coder:7b".into()],
+        vec!["extensions.json".into(), "registry.sig".into()],
+    );
+    let report = import_bundle(
+        &bundle,
+        &available_set(&["susi", "qwen2.5-coder:7b", "extensions.json"]),
+    );
+    assert!(report.checksum_ok);
+    assert!(!report.is_complete());
+    assert!(report.missing_binaries.is_empty());
+    assert!(report.missing_models.is_empty());
+    assert_eq!(
+        report.missing_extension_metadata,
+        vec!["registry.sig".to_string()]
+    );
+}
