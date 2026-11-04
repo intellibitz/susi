@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-HARNESSEXECPATHS4T1104-1",
+  "title": "test(harness,paths): expand unit and integration tests to 4 in executor, stdio, test_env, and isolate_home",
+  "touch": [
+    "crates/susi-harness/src/executor.rs",
+    "crates/susi-paths/src/stdio.rs",
+    "crates/susi-paths/src/test_env.rs",
+    "crates/susi-paths/tests/isolate_home.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-harness -p susi-paths",
+      "cargo clippy --offline --locked -p susi-harness -p susi-paths --tests -- -D warnings"
+    ]
+  }
+}

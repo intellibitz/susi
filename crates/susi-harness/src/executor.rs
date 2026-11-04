@@ -178,4 +178,35 @@ mod tests {
         let outcome = run_native(&cfg).expect("a refused connection is not an EaiError");
         assert!(matches!(outcome, RunOutcome::Failed { .. }));
     }
+
+    #[test]
+    fn executor_config_and_run_outcome_variants_preserve_clone_debug_and_partial_eq_contracts() {
+        let cfg = config();
+        let cloned = cfg.clone();
+        assert_eq!(cloned.gateway_url, cfg.gateway_url);
+        assert_eq!(cloned.model, cfg.model);
+        assert_eq!(cloned.workspace, cfg.workspace);
+        assert_eq!(cloned.state_dir, cfg.state_dir);
+        assert_eq!(cloned.mission, cfg.mission);
+        assert_eq!(cloned.task, cfg.task);
+        assert_eq!(cloned.attempt, cfg.attempt);
+        assert_eq!(cloned.timeout, cfg.timeout);
+        assert_eq!(cloned.prompt, cfg.prompt);
+        assert!(!format!("{cloned:?}").is_empty());
+
+        let succeeded = RunOutcome::Succeeded {
+            final_text: "ok".into(),
+            reported_cost_usd: Some(0.05),
+        };
+        let failed = RunOutcome::Failed {
+            message: "err".into(),
+        };
+        let timed_out = RunOutcome::TimedOut;
+        assert_eq!(succeeded.clone(), succeeded);
+        assert_eq!(failed.clone(), failed);
+        assert_eq!(timed_out.clone(), timed_out);
+        assert_ne!(succeeded, failed);
+        assert_ne!(failed, timed_out);
+        assert_ne!(succeeded, timed_out);
+    }
 }

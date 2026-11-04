@@ -154,4 +154,21 @@ mod tests {
             vec![format!("{MARK}: static"), format!("{MARK}: owned 1")]
         );
     }
+
+    #[test]
+    fn is_broken_pipe_message_rejects_unrelated_os_errors_and_handles_surrounding_context() {
+        for message in [
+            "failed printing to stdout: Interrupted system call (os error 4)",
+            "failed printing to stderr: Bad file descriptor (os error 9)",
+            "failed printing to stdout: Resource temporarily unavailable (os error 11)",
+        ] {
+            assert!(!is_broken_pipe_message(message), "{message}");
+        }
+        for message in [
+            "thread 'main' panicked at 'failed printing to stdout: Broken pipe (os error 32)'",
+            "panicked: failed printing to stderr: The pipe is being closed (os error 232)",
+        ] {
+            assert!(is_broken_pipe_message(message), "{message}");
+        }
+    }
 }
