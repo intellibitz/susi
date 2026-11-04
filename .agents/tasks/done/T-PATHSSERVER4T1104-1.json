@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "PATHSSERVER4T1104",
-  "created_unix": 1793800930
+  "created_unix": 1793800930,
+  "closed": {
+    "at_unix": 1793800975,
+    "commit": "83cb732a02490590bd53efe561b60d05bda91381",
+    "by": "PATHSSERVER4T1104"
+  }
 }
