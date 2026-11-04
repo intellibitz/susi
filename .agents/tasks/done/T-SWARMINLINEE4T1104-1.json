@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "SWARMINLINEE4T1104",
-  "created_unix": 1793799307
+  "created_unix": 1793799307,
+  "closed": {
+    "at_unix": 1793799582,
+    "commit": "c9f7dbb3445b273e37317b2e0f546b58361a272b",
+    "by": "SWARMINLINEE4T1104"
+  }
 }
