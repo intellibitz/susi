@@ -47,4 +47,11 @@ mod tests {
         assert_eq!(first.is_cuda(), second.is_cuda());
         assert_eq!(first.is_metal(), second.is_metal());
     }
+
+    #[test]
+    fn cached_device_shares_same_device_identity_and_matches_probe_location() {
+        let cached = cached_device();
+        assert!(cached.same_device(&cached_device()));
+        assert_eq!(cached.location(), probe().location());
+    }
 }

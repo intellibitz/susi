@@ -162,4 +162,17 @@ mod tests {
         assert_eq!(cfg.exposed_ports, None);
         assert_eq!(cfg.user, None);
     }
+
+    #[test]
+    fn hardened_container_config_enforces_exact_resource_bounds_and_omits_host_exposure() {
+        let cfg = hardened_container_config("susi-sandbox:bounds".to_string(), "true");
+        let host = cfg.host_config.expect("host config");
+        assert_eq!(host.memory, Some(256 * 1024 * 1024));
+        assert_eq!(host.nano_cpus, Some(500_000_000));
+        assert_eq!(host.pids_limit, Some(128));
+        assert_eq!(host.port_bindings, None);
+        assert_eq!(host.extra_hosts, None);
+        assert_eq!(host.devices, None);
+        assert_eq!(host.dns, None);
+    }
 }
