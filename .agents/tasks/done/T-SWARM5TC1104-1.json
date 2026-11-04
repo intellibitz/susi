@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "SWARM5TC1104",
-  "created_unix": 1793807762
+  "created_unix": 1793807762,
+  "closed": {
+    "at_unix": 1793808050,
+    "commit": "12d90b5ca062342d2ee3ac36e5835946e2d459c5",
+    "by": "SWARM5TC1104"
+  }
 }
