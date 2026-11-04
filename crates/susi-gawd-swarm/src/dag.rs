@@ -1811,6 +1811,24 @@ mod tests {
             .is_empty());
         assert!(rx.is_empty());
     }
+
+    #[test]
+    fn push_node_and_to_persisted_preserve_dependency_topology() {
+        let mut dag = MissionDag::new("root-goal");
+        let n1 = dag.push_node("ChildA", "goal-a", vec![0]);
+        let n2 = dag.push_node("ChildB", "goal-b", vec![0, n1]);
+        assert_eq!(n1, 1);
+        assert_eq!(n2, 2);
+        dag.nodes[0].completed = true;
+
+        let persisted = dag.to_persisted("mission-top");
+        let restored = MissionDag::from_persisted(&persisted);
+        assert_eq!(restored.nodes.len(), 3);
+        assert!(restored.nodes[0].completed);
+        assert!(!restored.nodes[1].completed);
+        assert_eq!(restored.nodes[1].dependencies, vec![0]);
+        assert_eq!(restored.nodes[2].dependencies, vec![0, 1]);
+    }
 }
 
 #[cfg(test)]
