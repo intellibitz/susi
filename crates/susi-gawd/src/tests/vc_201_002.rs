@@ -39,3 +39,13 @@ fn vc_201_002_rejects_mismatched_hardware_dataset_or_empty_command() {
     diff_dataset.dataset = "custom-suite".into();
     assert!(!base.is_comparable_to(&diff_dataset));
 }
+
+#[test]
+fn vc_201_002_with_metrics_populates_latency_tokens_and_preserves_self_comparability() {
+    let rec = BaselineRecord::release_reference("sha-99", "cpus=8,ram=32g", "susi bench")
+        .with_metrics(0.875, 240, 2048, 3);
+    assert!((rec.success_rate - 0.875).abs() < f64::EPSILON);
+    assert_eq!(rec.latency_ms, 240);
+    assert_eq!(rec.tokens, 2048);
+    assert!(rec.is_comparable_to(&rec));
+}

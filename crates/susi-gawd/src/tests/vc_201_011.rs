@@ -47,3 +47,18 @@ fn vc_201_011_duplicate_propose_and_unknown_experiment_transition_return_errors(
         .transition("unknown-exp", ExperimentState::Isolated)
         .is_err());
 }
+
+#[test]
+fn vc_201_011_resume_requires_evaluation_tracks_lifecycle_progression() {
+    let mut log = ExperimentLog::default();
+    assert!(!log.resume_requires_evaluation("missing"));
+
+    log.propose("e5").unwrap();
+    assert!(!log.resume_requires_evaluation("e5"));
+
+    log.transition("e5", ExperimentState::Isolated).unwrap();
+    assert!(log.resume_requires_evaluation("e5"));
+
+    log.transition("e5", ExperimentState::Evaluated).unwrap();
+    assert!(!log.resume_requires_evaluation("e5"));
+}

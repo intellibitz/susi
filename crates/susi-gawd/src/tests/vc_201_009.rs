@@ -40,3 +40,16 @@ fn vc_201_009_empty_heldout_set_is_never_contaminated() {
     assert!(!r.contaminated);
     assert!(r.reason.is_none());
 }
+
+#[test]
+fn vc_201_009_multiple_overlapping_ids_are_all_reported_in_reason() {
+    let held = BTreeSet::from(["h-alpha".into(), "h-beta".into(), "h-clean".into()]);
+    let train = BTreeSet::from(["h-alpha".into()]);
+    let mem = BTreeSet::from(["h-beta".into()]);
+    let r = detect(&held, &train, &mem);
+    assert!(r.contaminated);
+    let reason = r.reason.expect("reason present");
+    assert!(reason.contains("h-alpha"));
+    assert!(reason.contains("h-beta"));
+    assert!(!reason.contains("h-clean"));
+}

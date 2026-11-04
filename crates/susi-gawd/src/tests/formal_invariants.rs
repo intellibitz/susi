@@ -97,3 +97,11 @@ fn formal_invariants_exhaustive_three_agent_schedules() {
     }
     assert_eq!(dual, 0);
 }
+
+#[test]
+fn formal_invariants_unclaimed_task_has_no_holder_or_lease_and_passes_safety() {
+    let m = ClaimModel::new();
+    assert_eq!(m.live_holder("T-UNCLAIMED-1", 0), None);
+    assert_eq!(m.lease_until("T-UNCLAIMED-1"), None);
+    assert!(claim_safety(&m, 0).is_ok());
+}
