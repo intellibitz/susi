@@ -1,0 +1,25 @@
+{
+  "id": "T-CORESUITESA4T1104-1",
+  "title": "Expand unit tests to 4 in susi-core untrusted_content, capability_bus, otel_export, vc_201_071, and vc_201_074",
+  "goal": "Expand unit tests to 4 in susi-core untrusted_content, capability_bus, otel_export, vc_201_071, and vc_201_074",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "created_by": "CORESUITESA4T1104",
+  "created_unix": 1793783258,
+  "closed": {
+    "at_unix": 1793783943,
+    "commit": "822cfe35caf762432d8f307c3b1573867f6483e2",
+    "by": "CORESUITESA4T1104"
+  }
+}

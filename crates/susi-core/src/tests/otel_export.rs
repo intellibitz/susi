@@ -80,3 +80,32 @@ fn otel_export_empty_batch_is_noop() {
     assert_eq!(outcome, ExportOutcome::Empty);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn otel_export_new_trace_id_and_span_builders_populate_parent_and_status_lifecycle() {
+    use crate::otel_export::OtelStatusCode;
+
+    let trace = new_trace_id();
+    assert!(!trace.is_empty());
+    let mut mission = mission_span(&trace, "m-9", "goal");
+    assert_eq!(mission.trace_id, trace);
+    assert!(mission.parent_span_id.is_none());
+    assert_eq!(mission.status_code, OtelStatusCode::Unset);
+    mission.record_error("transient failure");
+    assert_eq!(mission.status_code, OtelStatusCode::Error);
+    assert_eq!(mission.status_message.as_deref(), Some("transient failure"));
+    mission.record_ok();
+    assert_eq!(mission.status_code, OtelStatusCode::Ok);
+    assert!(mission.status_message.is_none());
+
+    let routing = routing_span(&trace, &mission.span_id, "susi-offline", "local");
+    assert_eq!(
+        routing.parent_span_id.as_deref(),
+        Some(mission.span_id.as_str())
+    );
+    let provider = provider_span(&trace, &routing.span_id, "local", "qwen");
+    assert_eq!(
+        provider.parent_span_id.as_deref(),
+        Some(routing.span_id.as_str())
+    );
+}
