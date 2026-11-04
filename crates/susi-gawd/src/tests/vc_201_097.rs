@@ -93,3 +93,17 @@ fn vc_201_097_unchanged_or_reduced_exposure_with_sbom_upgrade_passes_cleanly() {
         GeigerVerdict::Clean
     );
 }
+
+#[test]
+fn vc_201_097_removed_baseline_exposure_passes_cleanly() {
+    let baseline = vec![UnsafeExposure {
+        crate_name: "retired-unsafe-dep".into(),
+        unsafe_fns: 5,
+        first_party_exception: false,
+    }];
+    let current = vec![];
+    assert_eq!(
+        ratchet_unsafe(&baseline, &current, &[], &[]),
+        GeigerVerdict::Clean
+    );
+}

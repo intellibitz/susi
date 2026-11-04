@@ -67,3 +67,12 @@ fn vc_201_100_mastery_empty_inputs_fail_qualification_with_limitations() {
     assert!(!report.claim_2x);
     assert!(!report.limitations.is_empty());
 }
+
+#[test]
+fn vc_201_100_mastery_privacy_violation_in_any_stage_disqualifies_multi_stage_release() {
+    let mut cloud = input("cloud", 0.5);
+    cloud.privacy_preserved = false;
+    let report = qualify_multi_stage(&[input("local", 0.25), cloud]);
+    assert!(!report.qualified);
+    assert!(report.limitations.iter().any(|l| l.contains("privacy")));
+}

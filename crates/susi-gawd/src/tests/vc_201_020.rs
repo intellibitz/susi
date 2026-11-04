@@ -100,3 +100,9 @@ fn vc_201_020_rejected_stops_and_positive_delta_after_min_gens_continues() {
     ];
     assert_eq!(next_action(&improving_hist, 2), MultiGenResult::Continue);
 }
+
+#[test]
+fn vc_201_020_empty_history_continues_when_min_generations_positive() {
+    assert_eq!(next_action(&[], 1), MultiGenResult::Continue);
+    assert_eq!(next_action(&[], 3), MultiGenResult::Continue);
+}

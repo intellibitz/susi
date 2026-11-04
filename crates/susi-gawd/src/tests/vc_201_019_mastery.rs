@@ -142,3 +142,18 @@ fn vc_201_019_mastery_ledger_semantics_hold() {
         ProposalCheck::Fresh
     );
 }
+
+#[test]
+fn vc_201_019_mastery_whitespace_only_receipts_remain_stale_in_both_stores() {
+    let mut m = ExperimentMemory::default();
+    let e = entry("p-ws", "lint failure", Some("clippy-1"));
+    m.record(e.clone());
+    assert!(!m.may_resubmit(&e, &[], &[" \t\n ".into()]));
+
+    let mut l = ledger();
+    l.record("patch", "m-ws", rejected("C-ws")).unwrap();
+    assert_eq!(
+        l.check_proposal("patch", "m-ws", &[], &[" \t\n ".into()]),
+        ProposalCheck::Stale
+    );
+}

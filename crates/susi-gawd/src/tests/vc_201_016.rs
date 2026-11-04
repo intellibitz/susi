@@ -54,3 +54,24 @@ fn vc_201_016_unpinned_caller_executes_unrevoked_and_rejects_unknown() {
     assert!(s.may_execute("unpinned", "v1"));
     assert!(!s.may_execute("unpinned", "v999"));
 }
+
+#[test]
+fn vc_201_016_pinned_caller_cannot_execute_different_revoked_revision_until_re_pinned() {
+    let mut s = ReflexStore::default();
+    for id in ["v1", "v2"] {
+        s.publish(ReflexRevision {
+            id: id.into(),
+            source_hash: id.into(),
+            wasm_digest: id.into(),
+            grants: vec!["tool:read".into()],
+            revoked: false,
+        });
+        s.revoke(id).unwrap();
+    }
+    s.pin("caller-p", "v1").unwrap();
+    assert!(s.may_execute("caller-p", "v1"));
+    assert!(!s.may_execute("caller-p", "v2"));
+    s.pin("caller-p", "v2").unwrap();
+    assert!(!s.may_execute("caller-p", "v1"));
+    assert!(s.may_execute("caller-p", "v2"));
+}

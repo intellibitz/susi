@@ -80,3 +80,12 @@ fn vc_201_019_preserves_lineage_and_rejects_blank_fresh_receipts() {
     );
     assert!(!m.may_resubmit(&recorded, &[], &["   ".into()]));
 }
+
+#[test]
+fn vc_201_019_unrelated_addressed_id_does_not_unlock_blocked_proposal() {
+    let mut m = ExperimentMemory::default();
+    let p = entry("p-locked", "timeout on cold start", Some("cold-1"));
+    m.record(p.clone());
+    assert!(!m.may_resubmit(&p, &["other-proposal".into()], &[]));
+    assert!(m.may_resubmit(&p, &["other-proposal".into(), "p-locked".into()], &[]));
+}
