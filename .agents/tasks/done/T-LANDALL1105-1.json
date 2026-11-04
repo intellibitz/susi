@@ -1,0 +1,24 @@
+{
+  "id": "T-LANDALL1105-1",
+  "title": "Land stranded worktree work, batch A: audit-lock and CI-bridge evidence, checkpoint-compliance verifier, vendored signal-hook-registry and hashbrown 0.15 sources",
+  "goal": "CEO directive 2026-11-05: merge every Susi worktree. Batch A lands commits that apply cleanly to main but never reached it: 108474124 (T-AUDITLOCK-1 audit-chain stress evidence), 572c5ef55 and cc36d2b88 (CI-bridge evidence and the dispatch-only checkpoint-compliance verifier, inert on intellibitz/susi), 9843cb407 (vendored signal-hook-registry source) and 6b862ab7d (vendored hashbrown 0.15 with ahash). Their old-schema task records are kept as evidence under .agents/evidence/stranded-1105/ so they do not re-enter the task queue.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "LANDALL1105",
+  "created_unix": 1793821051,
+  "closed": {
+    "at_unix": 1793822127,
+    "commit": "705173e4e8e11e9e09c7e2b39b13014e71e1b9a3",
+    "by": "LANDALL1105"
+  }
+}
