@@ -278,6 +278,10 @@ fn unified_surface_status_source_never_touches_the_swarm() {
         "Status arm must dispatch to the unified surface"
     );
     let surface = std::fs::read_to_string(root.join("src/cli/status_cli.rs")).unwrap();
+    assert!(
+        surface.contains("fn run_json(") && surface.contains("fn run("),
+        "src/cli/status_cli.rs must define the status entry points `run_json` and `run`"
+    );
     for forbidden in [
         "solve_clean",
         "solve_stream",
