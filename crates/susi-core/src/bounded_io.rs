@@ -18,3 +18,39 @@ pub fn json_capped<T: serde::de::DeserializeOwned>(body: impl Read, cap: u64) ->
     }
     serde_json::from_slice(&buf).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn json_capped_deserializes_payload_within_limit() {
+        let body = br#"{"status":"ok","count":3}"#;
+        let val: serde_json::Value = json_capped(Cursor::new(body), 1024).unwrap();
+        assert_eq!(val["status"], "ok");
+        assert_eq!(val["count"], 3);
+    }
+
+    #[test]
+    fn json_capped_accepts_payload_at_exact_cap_boundary() {
+        let body = br#""hello""#;
+        let val: String = json_capped(Cursor::new(body), body.len() as u64).unwrap();
+        assert_eq!(val, "hello");
+    }
+
+    #[test]
+    fn json_capped_rejects_payload_exceeding_cap_by_one_byte() {
+        let body = br#"{"key":"value"}"#;
+        let err = json_capped::<serde_json::Value>(Cursor::new(body), (body.len() - 1) as u64)
+            .unwrap_err();
+        assert!(err.contains("exceeds"), "{err}");
+    }
+
+    #[test]
+    fn json_capped_rejects_malformed_json_within_cap() {
+        let body = b"{not valid json";
+        assert!(json_capped::<serde_json::Value>(Cursor::new(body), 1024).is_err());
+        assert_eq!(JSON_BODY_CAP, 16 * 1024 * 1024);
+    }
+}
