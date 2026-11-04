@@ -277,3 +277,114 @@ fn now_ms() -> u64 {
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn budget_ceilings_is_uncapped_only_when_all_fields_absent() {
+        let mut c = BudgetCeilings::default();
+        assert!(c.is_uncapped());
+        c.task_usd = Some(0.50);
+        assert!(!c.is_uncapped());
+        c.task_usd = None;
+        c.vendor_daily_usd.insert("openai".to_string(), 10.0);
+        assert!(!c.is_uncapped());
+    }
+
+    #[test]
+    fn budget_window_labels_and_refusal_describe_format_expected_fields() {
+        assert_eq!(BudgetWindow::Task.label(), "task");
+        assert_eq!(BudgetWindow::Hourly.label(), "hourly");
+        assert_eq!(BudgetWindow::Daily.label(), "daily");
+        assert_eq!(BudgetWindow::Mission.label(), "mission");
+        assert_eq!(BudgetWindow::VendorDaily.label(), "vendor-daily");
+
+        let refusal = BudgetRefusal {
+            window: BudgetWindow::Hourly,
+            cap_usd: 5.0,
+            spent_usd: 4.5,
+            projected_usd: 5.25,
+        };
+        let msg = refusal.describe();
+        assert!(msg.contains("over hourly ceiling $5.00"));
+        assert!(msg.contains("spent $4.5000"));
+        assert!(msg.contains("would reach $5.2500"));
+    }
+
+    #[test]
+    fn check_in_enforces_task_hourly_daily_mission_and_vendor_caps() {
+        let mut ledger = UsageLedger::default();
+        ledger.record(UsageOutcome {
+            provider: "openai-gpt-4o".to_string(),
+            task_class: "code".to_string(),
+            usage: crate::usage_accounting::TokenUsage::default(),
+            success: true,
+            latency_ms: 100,
+            unix_ms: 10_000_000,
+            agent: "test".to_string(),
+            mission: "m-1".to_string(),
+            usd: 2.0,
+        });
+
+        let intent = SpendIntent {
+            provider: "openai-gpt-4o",
+            expected_usd: 1.5,
+            mission: "m-1",
+        };
+
+        let task_cap = BudgetCeilings {
+            task_usd: Some(1.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            check_in(&ledger, &task_cap, &intent, 10_001_000)
+                .unwrap_err()
+                .window,
+            BudgetWindow::Task
+        );
+
+        let mission_cap = BudgetCeilings {
+            mission_usd: Some(3.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            check_in(&ledger, &mission_cap, &intent, 10_001_000)
+                .unwrap_err()
+                .window,
+            BudgetWindow::Mission
+        );
+
+        let vendor_cap = BudgetCeilings {
+            vendor_daily_usd: BTreeMap::from([("OPENAI".to_string(), 3.0)]),
+            ..Default::default()
+        };
+        assert_eq!(
+            check_in(&ledger, &vendor_cap, &intent, 10_001_000)
+                .unwrap_err()
+                .window,
+            BudgetWindow::VendorDaily
+        );
+    }
+
+    #[test]
+    fn check_in_allows_spend_within_configured_bounds() {
+        let ledger = UsageLedger::default();
+        let ceilings = BudgetCeilings {
+            hourly_usd: Some(10.0),
+            daily_usd: Some(50.0),
+            mission_usd: Some(20.0),
+            task_usd: Some(5.0),
+            vendor_daily_usd: BTreeMap::from([("deepseek".to_string(), 15.0)]),
+        };
+        let intent = SpendIntent {
+            provider: "deepseek-chat",
+            expected_usd: 0.25,
+            mission: "m-ok",
+        };
+        assert!(check_in(&ledger, &ceilings, &intent, 1_000_000).is_ok());
+    }
+}

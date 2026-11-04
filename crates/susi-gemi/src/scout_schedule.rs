@@ -323,3 +323,134 @@ pub fn run_scheduled(now: u64, journal: &Path) -> (ScoutRun, Vec<ScoutDrift>) {
 pub fn default_journal_path() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join("brain_scout_runs.jsonl")
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn default_journal_path_ends_with_brain_scout_runs_jsonl() {
+        let path = default_journal_path();
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("brain_scout_runs.jsonl")
+        );
+    }
+
+    #[test]
+    fn load_last_returns_none_for_missing_or_empty_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nonexistent.jsonl");
+        assert!(load_last(&missing).is_none());
+
+        let empty = dir.path().join("empty.jsonl");
+        std::fs::write(&empty, "\n   \n").unwrap();
+        assert!(load_last(&empty).is_none());
+    }
+
+    #[test]
+    fn append_and_load_last_roundtrip_most_recent_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("scout.jsonl");
+        let run1 = ScoutRun {
+            unix: 100,
+            leaders: BTreeMap::from([("code".to_string(), Some("deepseek".to_string()))]),
+            providers: vec![ScoutProviderResult {
+                provider: "deepseek".to_string(),
+                verified: 2,
+                probes: 2,
+                transport_failures: 0,
+            }],
+            catalogue: BTreeMap::new(),
+        };
+        let run2 = ScoutRun {
+            unix: 200,
+            leaders: BTreeMap::from([("code".to_string(), Some("claude".to_string()))]),
+            providers: vec![],
+            catalogue: BTreeMap::new(),
+        };
+        append(&journal, &run1).unwrap();
+        append(&journal, &run2).unwrap();
+        assert_eq!(load_last(&journal), Some(run2));
+    }
+
+    #[test]
+    fn drift_between_detects_leader_change_provider_death_and_catalogue_drift() {
+        let prev = ScoutRun {
+            unix: 100,
+            leaders: BTreeMap::from([("code".to_string(), Some("deepseek".to_string()))]),
+            providers: vec![ScoutProviderResult {
+                provider: "deepseek".to_string(),
+                verified: 1,
+                probes: 2,
+                transport_failures: 1,
+            }],
+            catalogue: BTreeMap::from([
+                (
+                    "deepseek".to_string(),
+                    CatalogueEntry {
+                        input_usd_per_1m: Some(0.14),
+                        output_usd_per_1m: Some(0.28),
+                        cache_hit_usd_per_1m: Some(0.014),
+                    },
+                ),
+                (
+                    "legacy-model".to_string(),
+                    CatalogueEntry {
+                        input_usd_per_1m: Some(1.0),
+                        output_usd_per_1m: Some(2.0),
+                        cache_hit_usd_per_1m: None,
+                    },
+                ),
+            ]),
+        };
+        let cur = ScoutRun {
+            unix: 200,
+            leaders: BTreeMap::from([("code".to_string(), Some("claude".to_string()))]),
+            providers: vec![ScoutProviderResult {
+                provider: "deepseek".to_string(),
+                verified: 0,
+                probes: 2,
+                transport_failures: 2,
+            }],
+            catalogue: BTreeMap::from([
+                (
+                    "deepseek".to_string(),
+                    CatalogueEntry {
+                        input_usd_per_1m: Some(0.20),
+                        output_usd_per_1m: Some(0.28),
+                        cache_hit_usd_per_1m: Some(0.014),
+                    },
+                ),
+                (
+                    "new-model".to_string(),
+                    CatalogueEntry {
+                        input_usd_per_1m: Some(0.5),
+                        output_usd_per_1m: Some(1.5),
+                        cache_hit_usd_per_1m: None,
+                    },
+                ),
+            ]),
+        };
+        let drift = drift_between(&prev, &cur);
+        assert!(drift.contains(&ScoutDrift::LeaderChanged {
+            class: "code".to_string(),
+            was: Some("deepseek".to_string()),
+            now: Some("claude".to_string()),
+        }));
+        assert!(drift.contains(&ScoutDrift::ProviderDied {
+            provider: "deepseek".to_string()
+        }));
+        assert!(drift.contains(&ScoutDrift::ModelAppeared {
+            provider: "new-model".to_string()
+        }));
+        assert!(drift.contains(&ScoutDrift::ModelRetired {
+            provider: "legacy-model".to_string()
+        }));
+        assert!(drift
+            .iter()
+            .any(|d| matches!(d, ScoutDrift::ModelPriceChanged { provider, .. } if provider == "deepseek")));
+    }
+}
