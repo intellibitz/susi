@@ -61,3 +61,76 @@ pub fn output_within(cmd: &mut Command, timeout: Duration) -> std::io::Result<Ou
         stderr: join(stderr),
     })
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn echo_cmd(msg: &str) -> Command {
+        #[cfg(windows)]
+        {
+            let mut c = Command::new("cmd");
+            c.args(["/C", &format!("echo {msg}")]);
+            c
+        }
+        #[cfg(not(windows))]
+        {
+            let mut c = Command::new("sh");
+            c.args(["-c", &format!("printf '%s\\n' '{msg}'")]);
+            c
+        }
+    }
+
+    #[test]
+    fn output_within_captures_stdout_for_fast_command() {
+        let mut cmd = echo_cmd("bounded-ok");
+        let out = output_within(&mut cmd, Duration::from_secs(5)).unwrap();
+        assert!(out.status.success());
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.contains("bounded-ok"), "{text}");
+    }
+
+    #[test]
+    fn output_within_returns_error_for_nonexistent_program() {
+        let mut cmd = Command::new("susi-nonexistent-binary-xyz-99999");
+        let err = output_within(&mut cmd, Duration::from_millis(500)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn output_within_captures_nonzero_exit_status() {
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "exit 7"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut c = Command::new("sh");
+            c.args(["-c", "exit 7"]);
+            c
+        };
+        let out = output_within(&mut cmd, Duration::from_secs(5)).unwrap();
+        assert_eq!(out.status.code(), Some(7));
+    }
+
+    #[test]
+    fn output_within_drains_stderr_cleanly() {
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "echo err-msg 1>&2"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut c = Command::new("sh");
+            c.args(["-c", "printf 'err-msg\\n' >&2"]);
+            c
+        };
+        let out = output_within(&mut cmd, Duration::from_secs(5)).unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("err-msg"), "{stderr}");
+    }
+}
