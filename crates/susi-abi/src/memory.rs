@@ -239,4 +239,52 @@ mod tests {
         assert_eq!(strict_hits.len(), 1);
         assert_eq!(strict_hits[0].fragment.id, "exact");
     }
+
+    #[test]
+    fn search_unknown_namespace_and_filters_antiparallel_negative_similarity() {
+        let store = InMemoryEpisodicStore::new();
+        store
+            .store(MemoryFragment {
+                id: "anti".to_string(),
+                namespace: "ns-cosine".to_string(),
+                embedding: vec![-1.0, 0.0, 0.0],
+                payload: "antiparallel".to_string(),
+                timestamp_sec: 10,
+            })
+            .expect("store antiparallel");
+        store
+            .store(MemoryFragment {
+                id: "aligned".to_string(),
+                namespace: "ns-cosine".to_string(),
+                embedding: vec![1.0, 0.0, 0.0],
+                payload: "aligned".to_string(),
+                timestamp_sec: 11,
+            })
+            .expect("store aligned");
+
+        let unknown_hits = store
+            .search(MemorySearchRequest {
+                namespace: "unknown-ns".to_string(),
+                query_embedding: vec![1.0, 0.0, 0.0],
+                limit: 5,
+                min_score: -1.0,
+            })
+            .expect("search unknown namespace");
+        assert!(unknown_hits.is_empty());
+
+        let anti_sim =
+            InMemoryEpisodicStore::cosine_similarity(&[-1.0, 0.0, 0.0], &[1.0, 0.0, 0.0]);
+        assert!((anti_sim - (-1.0)).abs() < 1e-5);
+
+        let non_negative_hits = store
+            .search(MemorySearchRequest {
+                namespace: "ns-cosine".to_string(),
+                query_embedding: vec![1.0, 0.0, 0.0],
+                limit: 5,
+                min_score: 0.0,
+            })
+            .expect("search non-negative similarity");
+        assert_eq!(non_negative_hits.len(), 1);
+        assert_eq!(non_negative_hits[0].fragment.id, "aligned");
+    }
 }
