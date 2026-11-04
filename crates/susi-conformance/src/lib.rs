@@ -17,7 +17,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Contract ports before `port_offset` is applied.
+/// Contract ports before `port_offset` is applied, plus the explicit
+/// out-of-contract internal port and IPC inventory (`B1`).
 pub mod ports {
     /// GMCP / MCP HTTP (`/mcp`).
     pub const MCP: u16 = 9090;
@@ -30,7 +31,49 @@ pub mod ports {
     pub const MCP_ALIAS: u16 = 9093;
     /// A2A HTTP (JSON-RPC, agent card).
     pub const A2A: u16 = 9094;
+
+    /// The five stable host-contract base ports.
+    pub const CONTRACT_PORTS: [u16; 5] = [MCP, GEMI, UDP_DISCOVERY, MCP_ALIAS, A2A];
+
+    /// Explicit out-of-contract internal TCP/UDP ports (`B1`). External
+    /// products must never couple to these internal substrate ports.
+    pub const OUT_OF_CONTRACT_PORTS: &[(u16, &str)] = &[
+        (9095, "gossip"),
+        (9180, "gateway"),
+        (9181, "harness-api"),
+        (18080, "leaf-paths"),
+        (18081, "leaf-error"),
+        (18082, "leaf-config"),
+        (18083, "leaf-sandbox"),
+        (18084, "leaf-transport"),
+        (19090, "cell-gemi"),
+        (19091, "cell-gmcp"),
+        (19092, "cell-gawd"),
+        (19093, "cell-universal"),
+    ];
+
+    /// Explicit out-of-contract local IPC surfaces (`B1`).
+    pub const OUT_OF_CONTRACT_IPC: &[&str] = &["plane_bus"];
+
+    /// True when `base_port` is one of the five public host-contract ports.
+    #[must_use]
+    pub fn is_contract_port(base_port: u16) -> bool {
+        CONTRACT_PORTS.contains(&base_port)
+    }
+
+    /// Internal role name when `base_port` is on the out-of-contract list.
+    #[must_use]
+    pub fn out_of_contract_role(base_port: u16) -> Option<&'static str> {
+        OUT_OF_CONTRACT_PORTS
+            .iter()
+            .find_map(|&(port, role)| (port == base_port).then_some(role))
+    }
 }
+
+pub use ports::{
+    is_contract_port, out_of_contract_role, CONTRACT_PORTS, OUT_OF_CONTRACT_IPC,
+    OUT_OF_CONTRACT_PORTS,
+};
 
 /// Current MCP revision: stateless requests named by the `Mcp-Method` header.
 pub const MCP_CURRENT: &str = "2026-07-28";
@@ -300,22 +343,20 @@ fn mcp_discover(target: &Target, base: u16) -> Check {
     })
 }
 
-fn mcp_tools(target: &Target) -> Check {
-    let id = format!("mcp.tools-list@{}", target.port(ports::MCP));
+fn mcp_tools_at(target: &Target, base: u16) -> Check {
+    let id = format!("mcp.tools-list@{}", target.port(base));
     if let Some(skip) = needs_token(target, &id) {
         return skip;
     }
-    timed(id, || {
-        match mcp_current(target, ports::MCP, 2, "tools/list") {
-            Ok((status, payload)) => {
-                let tools = payload["result"]["tools"].as_array().map(Vec::len);
-                verdict(
-                    status == 200 && tools.is_some(),
-                    format!("status {status}, {} tools", tools.unwrap_or(0)),
-                )
-            }
-            Err(e) => (Outcome::Fail, e),
+    timed(id, || match mcp_current(target, base, 2, "tools/list") {
+        Ok((status, payload)) => {
+            let tools = payload["result"]["tools"].as_array().map(Vec::len);
+            verdict(
+                status == 200 && tools.is_some(),
+                format!("status {status}, {} tools", tools.unwrap_or(0)),
+            )
         }
+        Err(e) => (Outcome::Fail, e),
     })
 }
 
@@ -965,7 +1006,8 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     ));
     checks.push(mcp_discover(target, ports::MCP));
     checks.push(mcp_discover(target, ports::MCP_ALIAS));
-    checks.push(mcp_tools(target));
+    checks.push(mcp_tools_at(target, ports::MCP));
+    checks.push(mcp_tools_at(target, ports::MCP_ALIAS));
     checks.push(mcp_unknown(target));
     checks.push(mcp_session(target));
     checks.push(a2a_card(target));
@@ -1317,5 +1359,45 @@ mod tests {
             .iter()
             .filter(|c| !c.id.starts_with("udp."))
             .all(|c| c.outcome != Outcome::Pass));
+    }
+
+    #[test]
+    fn contract_and_out_of_contract_port_inventories_are_disjoint_and_complete() {
+        assert_eq!(CONTRACT_PORTS, [9090, 9091, 9092, 9093, 9094]);
+        for port in CONTRACT_PORTS {
+            assert!(is_contract_port(port));
+            assert_eq!(out_of_contract_role(port), None);
+        }
+        let expected_internal = [
+            9095, 9180, 9181, 18080, 18081, 18082, 18083, 18084, 19090, 19091, 19092, 19093,
+        ];
+        assert_eq!(OUT_OF_CONTRACT_PORTS.len(), expected_internal.len());
+        for port in expected_internal {
+            assert!(
+                !is_contract_port(port),
+                "internal port {port} must be out of contract"
+            );
+            assert!(
+                out_of_contract_role(port).is_some_and(|role| !role.is_empty()),
+                "missing out_of_contract_role for {port}"
+            );
+        }
+        assert!(OUT_OF_CONTRACT_IPC.contains(&"plane_bus"));
+    }
+
+    #[test]
+    fn mcp_alias_9093_runs_tools_list_conformance_check() {
+        let checks = run_with(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: 50_000,
+                token: None,
+                timeout: Duration::from_millis(100),
+            },
+            &Optional::default(),
+        );
+        let ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"mcp.tools-list@59090"), "{ids:?}");
+        assert!(ids.contains(&"mcp.tools-list@59093"), "{ids:?}");
     }
 }
