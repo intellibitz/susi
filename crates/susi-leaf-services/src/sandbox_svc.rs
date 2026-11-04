@@ -71,3 +71,73 @@ pub(crate) fn router() -> Router {
         .route("/daemon/hash_cached", post(hash_cached))
         .layer(axum::middleware::from_fn(crate::auth::host_token))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    #[test]
+    fn request_types_require_every_field() {
+        let ensure: EnsureGlobalReq = serde_json::from_value(json!({"global_dir": "/g"})).unwrap();
+        assert_eq!(ensure.global_dir, PathBuf::from("/g"));
+        assert!(serde_json::from_value::<EnsureGlobalReq>(json!({})).is_err());
+
+        let exec: DockerExecReq = serde_json::from_value(json!({"cmd": "echo hi"})).unwrap();
+        assert_eq!(exec.cmd, "echo hi");
+        assert!(serde_json::from_value::<DockerExecReq>(json!({})).is_err());
+        assert!(serde_json::from_value::<DockerExecReq>(json!({"cmd": 1})).is_err());
+
+        let status: DaemonStatusQuery =
+            serde_json::from_value(json!({"workspace": "/w", "global_dir": "/g"})).unwrap();
+        assert_eq!(status.workspace, PathBuf::from("/w"));
+        assert_eq!(status.global_dir, PathBuf::from("/g"));
+        assert!(serde_json::from_value::<DaemonStatusQuery>(json!({"workspace": "/w"})).is_err());
+        assert!(serde_json::from_value::<DaemonStatusQuery>(json!({"global_dir": "/g"})).is_err());
+
+        let paths: BinaryPathsReq =
+            serde_json::from_value(json!({"bin_path": "/b", "global_dir": "/g"})).unwrap();
+        assert_eq!(paths.bin_path, PathBuf::from("/b"));
+        assert_eq!(paths.global_dir, PathBuf::from("/g"));
+        assert!(serde_json::from_value::<BinaryPathsReq>(json!({"bin_path": "/b"})).is_err());
+        assert!(serde_json::from_value::<BinaryPathsReq>(json!({"global_dir": "/g"})).is_err());
+    }
+
+    // The host policy fails closed and a header-less request can never pass it,
+    // so each route (including the command-executing one) answers 401 before
+    // any extractor or handler runs, whatever the process env holds.
+    #[tokio::test]
+    async fn every_sandbox_route_requires_the_host_token() {
+        for (method, uri, body) in [
+            ("POST", "/sandbox/ensure_global", r#"{"global_dir":"/g"}"#),
+            ("POST", "/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#),
+            ("GET", "/daemon/status?workspace=/w&global_dir=/g", ""),
+            ("GET", "/daemon/status", ""),
+            (
+                "POST",
+                "/daemon/verify_integrity",
+                r#"{"bin_path":"/b","global_dir":"/g"}"#,
+            ),
+            (
+                "POST",
+                "/daemon/hash_cached",
+                r#"{"bin_path":"/b","global_dir":"/g"}"#,
+            ),
+            ("POST", "/daemon/hash_cached", "not json"),
+            ("GET", "/sandbox/docker_exec", ""),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let status = router().oneshot(request).await.unwrap().status();
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+        }
+    }
+}
