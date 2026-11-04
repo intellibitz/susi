@@ -97,3 +97,5 @@ Those edits are the feature gate. They were not reverted, and the other claims w
 - A full `--features plugins` release rebuild was not repeated. `cargo tree -p susi --features plugins` is the proof those crates link again. It would replace the measured `susi.exe`.
 
 Signed: GROK
+
+- 2026-11-05: merged origin/main (232e04942), claimed per-file scopes, re-recorded GMCP evidence and mastery; gmcp_requirements 87/87 passed. Pushing for the auto PR + merge bot.
