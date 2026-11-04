@@ -40,6 +40,10 @@ const SUPPORTED_VERSIONS: [&str; 3] = [PROTOCOL_VERSION, "2025-06-18", "2025-03-
 /// 20s recv window cannot exhaust memory.
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Per-request receive window for the handshake and for calls that do not
+/// ask for a longer one.
+const DEFAULT_TIMEOUT_SECS: u64 = 20;
+
 /// Sealed-stream response encoding (`x-susi-enc: v1s`), offered by the
 /// client in `x-susi-enc-accept`. Instead of buffering a whole response to
 /// seal it once (`v1`), the server seals each body chunk as it is produced,
@@ -112,6 +116,8 @@ fn open_records(
 struct Session {
     id: String,
     version: String,
+    /// Receive window for the request the session was opened to make.
+    request_timeout_secs: u64,
 }
 
 /// The response plus the peer's bound pubkey when the request went out
@@ -122,6 +128,7 @@ fn post(
     bearer: Option<&str>,
     session: Option<&Session>,
     body: &Value,
+    timeout_secs: u64,
 ) -> Result<(susi_http_transport::HttpCall, Option<String>), String> {
     // The one transport for remote MCP/GMCP calls, including the daemon's
     // zero-config scouting, which never passes authorize_tool: arguments
@@ -186,8 +193,9 @@ fn post(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let call = susi_http_transport::http_call_with_body("POST", url, &refs, Some(&wire), 20, 0)
-        .map_err(|e| format!("POST {url}: {e}"))?;
+    let call =
+        susi_http_transport::http_call_with_body("POST", url, &refs, Some(&wire), timeout_secs, 0)
+            .map_err(|e| format!("POST {url}: {e}"))?;
     Ok((call, sealed_to))
 }
 
@@ -208,7 +216,21 @@ fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let _ = susi_http_transport::http_call_with_body("DELETE", url, &refs, None, 20, 0);
+    let _ = susi_http_transport::http_call_with_body(
+        "DELETE",
+        url,
+        &refs,
+        None,
+        handshake_timeout_secs(session.request_timeout_secs),
+        0,
+    );
+}
+
+/// Receive window for the handshake and the closing `DELETE`: the default,
+/// or the caller's budget when that is shorter, so a short budget bounds
+/// the whole exchange and not only the request itself.
+fn handshake_timeout_secs(request_timeout_secs: u64) -> u64 {
+    request_timeout_secs.min(DEFAULT_TIMEOUT_SECS)
 }
 
 /// `X-Susi-*` request-signature headers over
@@ -340,7 +362,20 @@ pub fn call_tool(
     arguments: &Value,
     bearer: Option<&str>,
 ) -> Result<Value, String> {
-    session_call(
+    call_tool_with_timeout(addr, tool, arguments, bearer, DEFAULT_TIMEOUT_SECS)
+}
+
+/// [`call_tool`] with a longer receive window for the `tools/call` request
+/// itself, for tools that legitimately run for minutes (loading a large
+/// model into the inference cache). The handshake keeps the default window.
+pub fn call_tool_with_timeout(
+    addr: &str,
+    tool: &str,
+    arguments: &Value,
+    bearer: Option<&str>,
+    timeout_secs: u64,
+) -> Result<Value, String> {
+    session_call_with_timeout(
         addr,
         "tools/call",
         &json!({
@@ -348,6 +383,7 @@ pub fn call_tool(
             "arguments": arguments
         }),
         bearer,
+        timeout_secs,
     )
 }
 
@@ -359,6 +395,18 @@ pub fn session_call(
     method: &str,
     params: &Value,
     bearer: Option<&str>,
+) -> Result<Value, String> {
+    session_call_with_timeout(addr, method, params, bearer, DEFAULT_TIMEOUT_SECS)
+}
+
+/// [`session_call`] with `timeout_secs` as the receive window for the
+/// request itself.
+pub fn session_call_with_timeout(
+    addr: &str,
+    method: &str,
+    params: &Value,
+    bearer: Option<&str>,
+    timeout_secs: u64,
 ) -> Result<Value, String> {
     let url = format!("http://{addr}/mcp");
 
@@ -378,6 +426,7 @@ pub fn session_call(
                 "clientInfo": {"name": "susi", "version": env!("CARGO_PKG_VERSION")}
             }
         }),
+        handshake_timeout_secs(timeout_secs),
     )?;
     if !(200..300).contains(&init.status) {
         return Err(format!(
@@ -401,6 +450,7 @@ pub fn session_call(
     let session = Session {
         version: String::new(),
         id,
+        request_timeout_secs: timeout_secs,
     };
     let version = match init_result.and_then(|result| negotiated_version(&result)) {
         Ok(version) => version,
@@ -418,6 +468,7 @@ pub fn session_call(
         bearer,
         Some(&session),
         &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        handshake_timeout_secs(timeout_secs),
     )
     .and_then(|(response, _)| {
         if !(200..300).contains(&response.status) {
@@ -465,6 +516,7 @@ fn session_request(
             "method": method,
             "params": params
         }),
+        session.request_timeout_secs,
     )?;
     if !(200..300).contains(&resp.status) {
         return Err(format!("peer request returned HTTP {}", resp.status));
@@ -475,6 +527,33 @@ fn session_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A peer that accepts connections and never answers costs a short
+    /// caller budget, not the 20s handshake default.
+    #[test]
+    fn a_short_budget_bounds_the_handshake_too() {
+        assert_eq!(handshake_timeout_secs(3), 3);
+        assert_eq!(handshake_timeout_secs(1800), DEFAULT_TIMEOUT_SECS);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        // Detached: if the client failed before connecting, accept() would
+        // block forever, so the test never joins it.
+        std::thread::spawn(move || {
+            // Hold the accepted socket open without replying until the
+            // client gives up and closes it.
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut sink = Vec::new();
+                let _ = std::io::Read::read_to_end(&mut stream, &mut sink);
+            }
+        });
+        let started = std::time::Instant::now();
+        assert!(call_tool_with_timeout(&addr, "runtime_models_list", &json!({}), None, 1).is_err());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+            "{:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn sse_result_picks_matching_id_and_skips_control_frames() {

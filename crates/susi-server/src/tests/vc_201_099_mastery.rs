@@ -18,7 +18,8 @@
 /// Current implementation delivers:
 /// - tui_top: renders providers (health, latency) and GPU (util, temp, VRAM)
 /// - susi fix: applies safe auto-fixes from doctor
-/// - Various API endpoints: /runtime/models, /v1/completions, etc.
+/// - Socket surfaces: MCP `runtime_models_list` (loaded models), 9091
+///   /v1/completions, etc.
 ///
 /// Missing from the unified control surface:
 /// 1. No single CLI/API endpoint that exposes all six state dimensions together

@@ -280,4 +280,55 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn commands_rejects_missing_each_required_adapter_manifest_and_preserves_manifest_order() {
+        let required_adapters = [
+            "idna-adapter",
+            "unicode-ident",
+            "htmlescape",
+            "regex-syntax",
+            "regex-syntax/os-unicode",
+        ];
+        let root = std::env::temp_dir().join(format!(
+            "susi-vendor-missing-each-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("crates/susi-core")).unwrap();
+        std::fs::write(root.join("crates/susi-core/Cargo.toml"), "[package]").unwrap();
+
+        for name in required_adapters {
+            std::fs::create_dir_all(root.join("vendor").join(name)).unwrap();
+            std::fs::write(
+                root.join("vendor").join(name).join("Cargo.toml"),
+                "[package]",
+            )
+            .unwrap();
+        }
+
+        for name in required_adapters {
+            let manifest_path = root.join("vendor").join(name).join("Cargo.toml");
+            std::fs::remove_file(&manifest_path).unwrap();
+            let err = commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::NotFound);
+            assert!(err.to_string().contains(name));
+            std::fs::write(&manifest_path, "[package]").unwrap();
+        }
+
+        let cmds = commands(&root, "x86_64-pc-windows-msvc", &root.join("target")).unwrap();
+        assert_eq!(cmds.len(), required_adapters.len() * 2);
+        for (pair, name) in cmds.as_chunks::<2>().0.iter().zip(required_adapters) {
+            let expected_manifest = format!("vendor/{name}/Cargo.toml");
+            assert_eq!(pair[0][0], "generate-lockfile");
+            assert_eq!(pair[0][3], expected_manifest);
+            assert_eq!(pair[1][0], "test");
+            assert_eq!(pair[1][4], expected_manifest);
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

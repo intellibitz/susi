@@ -22,7 +22,10 @@ pub mod anthropic_gateway;
 pub mod prometheus_metrics;
 pub mod zc_bind_auto;
 
-// GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
+// GEMI HTTP REST Substrate: the OpenAI-compatible inference socket (plus the
+// Anthropic Messages translation and a Prometheus scrape). Control-plane
+// operations (runtime models, placement, provider recovery) are MCP tools on
+// the standards socket, not ad-hoc routes here.
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
 //
 // Async Defaults (Mandate 28): connection accept/read/write is tokio-native
@@ -48,7 +51,6 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use susi_core::context_graph::ContextGraph;
 use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
-use susi_sandbox_client::placement_audit::{PlacementLookupError, lookup_placement_decision};
 
 // Dual-protocol transport: the accept loop sniffs each connection's first
 // byte. A TLS ClientHello (0x16) is served over TLS when an acceptor is
@@ -87,24 +89,32 @@ fn header_str<'a>(req: &'a Request<Incoming>, name: &str) -> Option<&'a str> {
 }
 
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
+    body_response(
+        status,
+        "application/json",
+        serde_json::to_string(payload).unwrap_or_default(),
+    )
+}
+
+/// A complete response of `content_type`, carrying the configured CORS origin.
+fn body_response(
+    status: StatusCode,
+    content_type: &'static str,
+    body: String,
+) -> Response<BoxBody> {
     let allow_origin = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
         .unwrap_or_default()
         .get("allow_origin")
         .unwrap_or_else(|| "*".to_string());
     let origin_header =
         HeaderValue::from_str(&allow_origin).unwrap_or_else(|_| HeaderValue::from_static("*"));
+    let fallback = body.clone();
     Response::builder()
         .status(status)
-        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(CONTENT_TYPE, HeaderValue::from_static(content_type))
         .header("Access-Control-Allow-Origin", origin_header)
-        .body(full_body(
-            serde_json::to_string(payload).unwrap_or_default(),
-        ))
-        .unwrap_or_else(|_| {
-            Response::new(full_body(
-                serde_json::to_string(payload).unwrap_or_default(),
-            ))
-        })
+        .body(full_body(body))
+        .unwrap_or_else(|_| Response::new(full_body(fallback)))
 }
 
 pub struct GemiServer;
@@ -116,14 +126,12 @@ impl GemiServer {
         tls: Option<TlsAcceptor>,
         require_tls_remote: bool,
     ) {
-        let scheme = if tls.is_some() { "https" } else { "http" };
         for listener in &listeners {
             let addr = listener
                 .local_addr()
                 .map(|a| a.to_string())
                 .unwrap_or_default();
             eprintln!("[GEMI REST] Substrate active on {}", addr);
-            eprintln!("[GEMI Web] UI Interface: {}://{}/app", scheme, addr);
         }
 
         // `ContextGraph::global()` is per-process — bind the same workspace
@@ -224,75 +232,6 @@ impl GemiServer {
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct PlacementQuery {
-    requires: Option<String>,
-    max_cost: Option<f64>,
-    allow_cloud: bool,
-}
-
-fn placement_query(query: Option<&str>) -> Result<PlacementQuery, &'static str> {
-    let mut requires = None;
-    let mut max_cost = None;
-    let mut allow_cloud = None;
-    for pair in query.into_iter().flat_map(|value| value.split('&')) {
-        if pair.is_empty() {
-            continue;
-        }
-        let Some((key, value)) = pair.split_once('=') else {
-            return Err("placement query parameters must use key=value");
-        };
-        match key {
-            "requires" if requires.is_none() => {
-                requires = Some(validated_requirement(value)?);
-            }
-            "max_cost" if max_cost.is_none() => {
-                max_cost = Some(validated_max_cost(value.parse::<f64>().ok())?);
-            }
-            "allow_cloud" if allow_cloud.is_none() => {
-                allow_cloud = Some(match value {
-                    "true" => true,
-                    "false" => false,
-                    _ => return Err("allow_cloud must be true or false"),
-                });
-            }
-            "requires" | "max_cost" | "allow_cloud" => {
-                return Err("duplicate placement query parameter");
-            }
-            _ => return Err("unknown placement query parameter"),
-        }
-    }
-    Ok(PlacementQuery {
-        requires,
-        max_cost,
-        allow_cloud: allow_cloud.unwrap_or(true),
-    })
-}
-
-fn validated_requirement(value: &str) -> Result<String, &'static str> {
-    if value.is_empty()
-        || value.len() > 64
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
-        return Err("requires must be 1-64 letters, numbers, '-' or '_'");
-    }
-    if !matches!(
-        value.to_ascii_lowercase().as_str(),
-        "text" | "chat" | "reasoning" | "code" | "vision" | "tools"
-    ) {
-        return Err("requires must be one of: text, chat, reasoning, code, vision, tools");
-    }
-    Ok(value.to_string())
-}
-
-fn validated_max_cost(value: Option<f64>) -> Result<f64, &'static str> {
-    value
-        .filter(|cost| cost.is_finite() && *cost >= 0.0)
-        .ok_or("max_cost must be a non-negative finite number")
-}
-
 fn explicit_model_conflict(
     model: &str,
     is_cloud: bool,
@@ -312,16 +251,30 @@ fn explicit_model_conflict(
     None
 }
 
-fn provider_reset_input(body: &[u8]) -> Result<String, &'static str> {
-    let value: serde_json::Value =
-        serde_json::from_slice(body).map_err(|_| "body must be valid JSON")?;
-    let provider = value
-        .get("provider")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|value| susi_core::plane_bus::gemi::valid_provider_id(value))
-        .ok_or("body must be {\"provider\": \"<provider id>\"}")?;
-    Ok(provider.to_string())
+/// The credential a request presents: its `Authorization` header, or, on
+/// the Anthropic Messages route, the `x-api-key` header Anthropic SDKs send,
+/// as the same host bearer.
+fn presented_credential(headers: &hyper::HeaderMap, path: &str) -> Option<String> {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    header(hyper::header::AUTHORIZATION.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            (path == "/v1/messages")
+                .then(|| header("x-api-key"))
+                .flatten()
+                .map(|key| format!("Bearer {key}"))
+        })
+}
+
+/// A rejection made before routing (body, auth, rate limit), in the error
+/// envelope the route's clients parse: Anthropic's on `/v1/messages`,
+/// OpenAI's everywhere else.
+fn pre_dispatch_error(path: &str, status: StatusCode, message: &str) -> Response<BoxBody> {
+    if path == "/v1/messages" {
+        anthropic_error(status, message)
+    } else {
+        api_error(status, message)
+    }
 }
 
 async fn handle_gemi_request(
@@ -332,14 +285,9 @@ async fn handle_gemi_request(
 ) -> Result<Response<BoxBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let query = req.uri().query().map(str::to_string);
     // Extract the auth material before consuming the body — the signed
     // request fields borrow the request headers.
-    let authorization = req
-        .headers()
-        .get(hyper::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
+    let authorization = presented_credential(req.headers(), &path);
     let sign_node = header_str(&req, "x-susi-node").map(str::to_string);
     let sign_ts = header_str(&req, "x-susi-req-ts").and_then(|s| s.parse().ok());
     let sign_nonce = header_str(&req, "x-susi-req-nonce").map(str::to_string);
@@ -360,7 +308,11 @@ async fn handle_gemi_request(
             } else {
                 StatusCode::BAD_REQUEST
             };
-            return Ok(api_error(status, "Unable to read request body"));
+            return Ok(pre_dispatch_error(
+                &path,
+                status,
+                "Unable to read request body",
+            ));
         }
     };
 
@@ -383,19 +335,40 @@ async fn handle_gemi_request(
             &path,
             Some(&body_bytes),
         ) {
-            return Ok(api_error(StatusCode::UNAUTHORIZED, "Unauthorized"));
+            return Ok(pre_dispatch_error(
+                &path,
+                StatusCode::UNAUTHORIZED,
+                "Unauthorized",
+            ));
         }
         if !susi_core::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute())
         {
-            return Ok(api_error(
+            return Ok(pre_dispatch_error(
+                &path,
                 StatusCode::TOO_MANY_REQUESTS,
                 "Rate limit exceeded",
             ));
         }
     }
 
+    if method == Method::POST && path == "/v1/messages" {
+        return Ok(anthropic_messages(&body_bytes, workspace, admission).await);
+    }
+    dispatch_gemi_route(method, path, body_bytes, workspace, admission).await
+}
+
+/// Route one authenticated request. Split from [`handle_gemi_request`] so the
+/// Anthropic Messages translation can run a chat completion through the very
+/// same handler the OpenAI-compatible route uses.
+async fn dispatch_gemi_route(
+    method: Method,
+    path: String,
+    body_bytes: Bytes,
+    workspace: Arc<PathBuf>,
+    admission: Arc<tokio::sync::Semaphore>,
+) -> Result<Response<BoxBody>, Infallible> {
     match (&method, path.as_str()) {
-        (&Method::GET, "/" | "/v1" | "/v1/" | "/health" | "/app" | "/favicon.ico") => {
+        (&Method::GET, "/" | "/v1" | "/v1/" | "/health") => {
             let api_status = json!({
                 "object": "api_status",
                 "name": "SUSI OpenAI-Compatible REST Substrate",
@@ -407,18 +380,15 @@ async fn handle_gemi_request(
                     "/v1/models/{id}",
                     "/v1/completions",
                     "/v1/embeddings",
+                    "/v1/messages",
+                    "/metrics",
+                    "/.well-known/susi",
                     "/context-graph/stats",
                     "/context-graph/show",
                     "/context-graph/query",
                     "/context-graph/ingest",
                     "/context-graph/compact",
                     "/telemetry",
-                    "/runtime/placement",
-                    "/runtime/placement/decisions/{decision_id}",
-                    "/runtime/providers/reset",
-                    "/runtime/models",
-                    "/runtime/models/load",
-                    "/runtime/models/unload",
                     "/broker/grant",
                     "/broker/request",
                     "/broker/negotiate",
@@ -428,102 +398,6 @@ async fn handle_gemi_request(
                 ]
             });
             Ok(json_response(StatusCode::OK, &api_status))
-        }
-        (&Method::POST, "/runtime/models/load" | "/runtime/models/unload") => {
-            let Some(model) = serde_json::from_slice::<serde_json::Value>(&body_bytes)
-                .ok()
-                .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(str::to_string))
-            else {
-                return Ok(api_error(
-                    StatusCode::BAD_REQUEST,
-                    "body must be {\"model\": \"<model id>\"}",
-                ));
-            };
-            let load = path == "/runtime/models/load";
-            let result = tokio::task::spawn_blocking(move || {
-                if load {
-                    susi_core::plane_bus::gemi::preload_model(&model)
-                } else {
-                    susi_core::plane_bus::gemi::unload_model(&model)
-                }
-            })
-            .await
-            .unwrap_or_else(|_| Err("model lifecycle task failed".to_string()));
-            match result {
-                Ok(payload) => Ok(json_response(StatusCode::OK, &payload)),
-                Err(message) => Ok(api_error(StatusCode::BAD_REQUEST, &message)),
-            }
-        }
-        (&Method::GET, "/runtime/models") => {
-            let payload = tokio::task::spawn_blocking(susi_core::plane_bus::gemi::loaded_models)
-                .await
-                .unwrap_or_else(|_| json!({ "error": "loaded-model snapshot failed" }));
-            Ok(json_response(StatusCode::OK, &payload))
-        }
-        (&Method::GET, "/runtime/placement") => {
-            let constraints = match placement_query(query.as_deref()) {
-                Ok(constraints) => constraints,
-                Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
-            };
-            let payload = tokio::task::spawn_blocking(move || {
-                gemi::ModelManager::placement_with_cloud(
-                    constraints.requires.as_deref(),
-                    constraints.max_cost,
-                    constraints.allow_cloud,
-                )
-            })
-            .await
-            .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
-            Ok(json_response(StatusCode::OK, &payload))
-        }
-        (&Method::GET, p) if p.starts_with(PLACEMENT_DECISIONS_PREFIX) => {
-            let id = p.trim_start_matches(PLACEMENT_DECISIONS_PREFIX).to_string();
-            let ws = Arc::clone(&workspace);
-            // The lookup refuses a malformed id before reading the audit log.
-            let found = tokio::task::spawn_blocking(move || lookup_placement_decision(&ws, &id))
-                .await
-                .unwrap_or(Err(PlacementLookupError::NotFound));
-            Ok(match found {
-                Ok(record) => json_response(StatusCode::OK, &record),
-                Err(error @ PlacementLookupError::InvalidId) => {
-                    api_error(StatusCode::BAD_REQUEST, &error.message())
-                }
-                Err(error @ PlacementLookupError::NotFound) => {
-                    api_error(StatusCode::NOT_FOUND, &error.message())
-                }
-            })
-        }
-        (&Method::POST, "/runtime/providers/reset") => {
-            let provider = match provider_reset_input(&body_bytes) {
-                Ok(provider) => provider,
-                Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
-            };
-            let reset_provider = provider.clone();
-            let cleared = match tokio::task::spawn_blocking(move || {
-                gemi::ModelManager::clear_provider_cooldown(&reset_provider)
-            })
-            .await
-            {
-                Ok(Ok(cleared)) => cleared,
-                Ok(Err(message)) => return Ok(api_error(StatusCode::BAD_GATEWAY, &message)),
-                Err(_) => {
-                    return Ok(api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "provider recovery task failed",
-                    ));
-                }
-            };
-            if cleared {
-                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
-                    &workspace,
-                    "INFERENCE_PROVIDER_READMITTED",
-                    &provider,
-                );
-            }
-            Ok(json_response(
-                StatusCode::OK,
-                &json!({ "provider": provider, "cleared": cleared }),
-            ))
         }
         (&Method::GET, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();
@@ -559,7 +433,7 @@ async fn handle_gemi_request(
                 )),
             }
         }
-        (&Method::GET, "/well-known/susi") => {
+        (&Method::GET, "/.well-known/susi") => {
             let payload = tokio::task::spawn_blocking(move || {
                 let hardware = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
                 let (engine, model) = gemi::ModelManager::get_active_engine_and_model(None);
@@ -861,10 +735,13 @@ async fn handle_gemi_request(
                     "prompt",
                 ),
             );
+            // A compact record that fits the audit detail cap, so the
+            // decision id returned below resolves through the MCP
+            // `placement_decision` tool.
             crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "INFERENCE_PLACEMENT",
-                &placement.to_string(),
+                &crate::susi_sandbox::placement_audit::placement_audit_details(&placement),
             );
             crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
@@ -987,7 +864,7 @@ async fn handle_gemi_request(
                 .header(
                     "Access-Control-Allow-Headers",
                     HeaderValue::from_static(
-                        "Authorization, Content-Type, X-Susi-Node, X-Susi-Req-Ts, X-Susi-Req-Nonce, X-Susi-Req-Sig",
+                        "Authorization, Content-Type, X-Api-Key, Anthropic-Version, X-Susi-Node, X-Susi-Req-Ts, X-Susi-Req-Nonce, X-Susi-Req-Sig",
                     ),
                 )
                 .body(full_body(Vec::new()))
@@ -1117,6 +994,23 @@ async fn handle_gemi_request(
             .await
             .unwrap_or_else(|_| json!({"error": "telemetry failed"}));
             Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::GET, "/metrics") => {
+            let available_slots = admission.available_permits();
+            let samples = tokio::task::spawn_blocking(move || {
+                metric_samples(
+                    available_slots,
+                    &gemi::loaded_models(),
+                    &gemi::sample_telemetry(),
+                )
+            })
+            .await
+            .unwrap_or_else(|_| metric_samples(available_slots, &json!({}), &json!({})));
+            Ok(body_response(
+                StatusCode::OK,
+                PROMETHEUS_CONTENT_TYPE,
+                prometheus_metrics::render_prometheus(&samples),
+            ))
         }
         (&Method::POST, "/broker/grant") => {
             let ws = (*workspace).clone();
@@ -1367,8 +1261,6 @@ fn placement_value(decision_id: &str, target: &str) -> serde_json::Value {
         "target": target,
     })
 }
-
-const PLACEMENT_DECISIONS_PREFIX: &str = "/runtime/placement/decisions/";
 
 fn add_placement_body(payload: &mut serde_json::Value, decision_id: &str, target: &str) {
     payload["susi_placement"] = placement_value(decision_id, target);
@@ -1815,6 +1707,196 @@ fn completion_stream(
     rx
 }
 
+/// Prometheus text exposition format 0.0.4.
+const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
+
+/// The gauges `GET /metrics` exposes, read from live state: this surface's
+/// free completion slots, the GEMI plane's inference cache, and the host
+/// telemetry snapshot. A reading the host cannot provide is omitted, never
+/// reported as zero.
+fn metric_samples(
+    available_slots: usize,
+    loaded_models: &serde_json::Value,
+    telemetry: &serde_json::Value,
+) -> Vec<prometheus_metrics::MetricSample> {
+    fn gauge(name: &str, value: f64, help: &str) -> prometheus_metrics::MetricSample {
+        prometheus_metrics::MetricSample {
+            name: name.to_string(),
+            value,
+            help: help.to_string(),
+        }
+    }
+    const MIB: f64 = 1024.0 * 1024.0;
+    let mut samples = vec![
+        gauge("susi_up", 1.0, "The GEMI HTTP surface is serving requests."),
+        gauge(
+            "susi_gemi_completion_slots_available",
+            available_slots as f64,
+            "Completion admission slots free right now.",
+        ),
+    ];
+    if let Some(models) = loaded_models.get("models").and_then(|m| m.as_array()) {
+        samples.push(gauge(
+            "susi_inference_models_loaded",
+            models.len() as f64,
+            "Models resident in the GEMI inference cache.",
+        ));
+    }
+    let reading = |key: &str| telemetry.get(key).and_then(serde_json::Value::as_f64);
+    if let Some(value) = reading("cpu_util_pct") {
+        samples.push(gauge(
+            "susi_host_cpu_utilization_percent",
+            value,
+            "Host-wide CPU utilization since the previous sample.",
+        ));
+    }
+    if let Some(value) = reading("load_avg_1m") {
+        samples.push(gauge(
+            "susi_host_load_average_1m",
+            value,
+            "Host one-minute load average.",
+        ));
+    }
+    if let Some(value) = reading("mem_total_mb") {
+        samples.push(gauge(
+            "susi_host_memory_total_bytes",
+            value * MIB,
+            "Installed physical memory.",
+        ));
+    }
+    if let Some(value) = reading("mem_available_mb") {
+        samples.push(gauge(
+            "susi_host_memory_available_bytes",
+            value * MIB,
+            "Memory available to new work.",
+        ));
+    }
+    samples
+}
+
+/// `POST /v1/messages`: an Anthropic Messages request, translated to a chat
+/// completion, served by the same handler as `POST /v1/chat/completions`
+/// (placement, admission, audit), and translated back. `stream: true` gets
+/// the Anthropic SSE event sequence for the assembled answer.
+async fn anthropic_messages(
+    body: &[u8],
+    workspace: Arc<PathBuf>,
+    admission: Arc<tokio::sync::Semaphore>,
+) -> Response<BoxBody> {
+    let request: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(error) => {
+            return anthropic_error(StatusCode::BAD_REQUEST, &format!("invalid JSON: {error}"));
+        }
+    };
+    let mut chat = match anthropic_gateway::to_chat_request(&request) {
+        Ok(chat) => chat,
+        Err(message) => return anthropic_error(StatusCode::BAD_REQUEST, &message),
+    };
+    let requested_model = chat["model"].as_str().unwrap_or_default().to_string();
+    let stream = chat["stream"].as_bool().unwrap_or(false);
+    // The SSE sequence is derived from the assembled answer, so the inner
+    // completion always runs unstreamed.
+    chat["stream"] = json!(false);
+    let chat_body = Bytes::from(serde_json::to_vec(&chat).unwrap_or_default());
+    let inner = match dispatch_gemi_route(
+        Method::POST,
+        "/v1/chat/completions".to_string(),
+        chat_body,
+        workspace,
+        admission,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(never) => match never {},
+    };
+    let (parts, inner_body) = inner.into_parts();
+    let bytes = match inner_body.collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(never) => match never {},
+    };
+    let completion: serde_json::Value =
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let mut response = anthropic_response(parts.status, &completion, &requested_model, stream);
+    for name in [
+        "X-Susi-Placement",
+        "X-Susi-Placement-Id",
+        "Access-Control-Expose-Headers",
+        "Retry-After",
+    ] {
+        if let Some(value) = parts.headers.get(name) {
+            response.headers_mut().insert(name, value.clone());
+        }
+    }
+    response
+}
+
+/// The Anthropic response for a finished chat completion: the Messages
+/// document, its SSE event sequence when `stream`, or the Anthropic error
+/// envelope carrying the completion's status and message.
+fn anthropic_response(
+    status: StatusCode,
+    completion: &serde_json::Value,
+    requested_model: &str,
+    stream: bool,
+) -> Response<BoxBody> {
+    if !status.is_success() {
+        return anthropic_error(
+            status,
+            completion
+                .pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("inference request failed"),
+        );
+    }
+    let model = completion
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or(requested_model);
+    if stream {
+        let events: String = anthropic_gateway::stream_events(completion, model)
+            .into_iter()
+            .map(|(event, data)| format!("event: {event}\ndata: {data}\n\n"))
+            .collect();
+        body_response(StatusCode::OK, "text/event-stream", events)
+    } else {
+        json_response(
+            StatusCode::OK,
+            &anthropic_gateway::from_chat_response(completion, model),
+        )
+    }
+}
+
+/// Anthropic error envelope (`{"type":"error","error":{type,message}}`) with
+/// the error type Anthropic SDKs map from each status.
+fn anthropic_error(status: StatusCode, message: &str) -> Response<BoxBody> {
+    let kind = match status {
+        StatusCode::BAD_REQUEST => "invalid_request_error",
+        StatusCode::UNAUTHORIZED => "authentication_error",
+        StatusCode::FORBIDDEN => "permission_error",
+        StatusCode::NOT_FOUND => "not_found_error",
+        StatusCode::PAYLOAD_TOO_LARGE => "request_too_large",
+        StatusCode::TOO_MANY_REQUESTS => "rate_limit_error",
+        _ => "api_error",
+    };
+    let mut response = json_response(
+        status,
+        &json!({"type": "error", "error": {"type": kind, "message": message}}),
+    );
+    // The same RFC 9110 challenge and RFC 6585 retry hint `api_error` sends.
+    let headers = response.headers_mut();
+    if status == StatusCode::UNAUTHORIZED {
+        headers.insert(
+            hyper::header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"susi-gemi\""),
+        );
+    } else if status == StatusCode::TOO_MANY_REQUESTS {
+        headers.insert(hyper::header::RETRY_AFTER, HeaderValue::from_static("60"));
+    }
+    response
+}
+
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2052,28 +2134,15 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         .and_then(|o| o.get("include_usage"))
         .and_then(|u| u.as_bool())
         .unwrap_or(false);
-    let susi = object.get("susi").and_then(|value| value.as_object());
-    let requires = susi
-        .and_then(|value| value.get("requires"))
-        .map(|value| {
-            value
-                .as_str()
-                .ok_or("susi.requires must be a string")
-                .and_then(validated_requirement)
-        })
-        .transpose()
-        .map_err(str::to_string)?;
-    let max_cost = susi
-        .and_then(|value| value.get("max_cost"))
-        .map(|value| validated_max_cost(value.as_f64()))
-        .transpose()
-        .map_err(str::to_string)?;
-    let allow_cloud = match susi.and_then(|value| value.get("allow_cloud")) {
-        None => true,
-        Some(value) => value
-            .as_bool()
-            .ok_or("susi.allow_cloud must be a boolean")?,
-    };
+    // The same validation the MCP `inference_placement` tool applies.
+    let gemi::PlacementConstraints {
+        requires,
+        max_cost,
+        allow_cloud,
+    } = gemi::placement_constraints(
+        object.get("susi").and_then(|value| value.as_object()),
+        "susi.",
+    )?;
     Ok(CompletionInput {
         prompt,
         turns,
@@ -2173,31 +2242,105 @@ mod tests {
     }
 
     #[test]
-    fn placement_query_accepts_constraints_and_rejects_ambiguous_input() {
-        assert_eq!(
-            placement_query(None).unwrap(),
-            PlacementQuery {
-                requires: None,
-                max_cost: None,
-                allow_cloud: true,
-            }
+    fn metrics_expose_live_readings_and_omit_unavailable_ones() {
+        let samples = metric_samples(
+            3,
+            &json!({"models": [{"path": "a.gguf"}, {"path": "b.gguf"}]}),
+            &json!({"cpu_util_pct": 12.5, "mem_total_mb": 2, "load_avg_1m": null}),
         );
+        let value = |name: &str| samples.iter().find(|s| s.name == name).map(|s| s.value);
+        assert_eq!(value("susi_up"), Some(1.0));
+        assert_eq!(value("susi_gemi_completion_slots_available"), Some(3.0));
+        assert_eq!(value("susi_inference_models_loaded"), Some(2.0));
+        assert_eq!(value("susi_host_cpu_utilization_percent"), Some(12.5));
         assert_eq!(
-            placement_query(Some("requires=vision&max_cost=0.01&allow_cloud=false")).unwrap(),
-            PlacementQuery {
-                requires: Some("vision".to_string()),
-                max_cost: Some(0.01),
-                allow_cloud: false,
-            }
+            value("susi_host_memory_total_bytes"),
+            Some(2.0 * 1024.0 * 1024.0)
         );
-        assert!(placement_query(Some("requires=vision&requires=text")).is_err());
-        assert!(placement_query(Some("requires=vision%20input")).is_err());
-        assert!(placement_query(Some("requires=telepathy")).is_err());
-        assert!(placement_query(Some("max_cost=NaN")).is_err());
-        assert!(placement_query(Some("max_cost=-1")).is_err());
-        assert!(placement_query(Some("surprise=true")).is_err());
-        assert!(placement_query(Some("allow_cloud=no")).is_err());
-        assert!(placement_query(Some("allow_cloud=true&allow_cloud=false")).is_err());
+        assert_eq!(value("susi_host_load_average_1m"), None);
+        assert_eq!(value("susi_host_memory_available_bytes"), None);
+        let bare = metric_samples(0, &json!({"error": "no plane"}), &json!({}));
+        assert_eq!(
+            bare.len(),
+            2,
+            "unavailable readings are omitted, not zeroed"
+        );
+        let body = prometheus_metrics::render_prometheus(&bare);
+        assert!(body.contains("# TYPE susi_up gauge\nsusi_up 1\n"));
+    }
+
+    #[tokio::test]
+    async fn anthropic_responses_translate_success_stream_and_error() {
+        let completion = json!({
+            "id": "chatcmpl-1",
+            "model": "served-model",
+            "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1}
+        });
+        let read = |response: Response<BoxBody>| async move {
+            let status = response.status();
+            let content_type = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let bytes = match response.into_body().collect().await {
+                Ok(collected) => collected.to_bytes(),
+                Err(never) => match never {},
+            };
+            (
+                status,
+                content_type,
+                String::from_utf8(bytes.to_vec()).unwrap(),
+            )
+        };
+
+        let (status, content_type, body) = read(anthropic_response(
+            StatusCode::OK,
+            &completion,
+            "claude-3-5-sonnet",
+            false,
+        ))
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(content_type, "application/json");
+        let message: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(message["type"], "message");
+        assert_eq!(message["model"], "served-model");
+        assert_eq!(message["content"][0]["text"], "hi");
+        assert_eq!(message["stop_reason"], "end_turn");
+        assert_eq!(message["usage"]["input_tokens"], 3);
+
+        let (_, content_type, body) = read(anthropic_response(
+            StatusCode::OK,
+            &completion,
+            "claude-3-5-sonnet",
+            true,
+        ))
+        .await;
+        assert_eq!(content_type, "text/event-stream");
+        assert!(body.starts_with("event: message_start\ndata: "));
+        assert!(body.contains("\"text\":\"hi\""));
+        assert!(body.ends_with("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"));
+
+        let failed =
+            json!({"error": {"message": "unknown model 'x'", "type": "invalid_request_error"}});
+        let (status, _, body) = read(anthropic_response(
+            StatusCode::BAD_REQUEST,
+            &failed,
+            "x",
+            false,
+        ))
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(error["type"], "error");
+        assert_eq!(error["error"]["type"], "invalid_request_error");
+        assert_eq!(error["error"]["message"], "unknown model 'x'");
+        let (status, _, body) = read(anthropic_error(StatusCode::TOO_MANY_REQUESTS, "busy")).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(body.contains("rate_limit_error"));
     }
 
     #[test]
@@ -2262,18 +2405,6 @@ mod tests {
     }
 
     #[test]
-    fn provider_reset_body_is_strict_and_bounded() {
-        assert_eq!(
-            provider_reset_input(br#"{"provider":"openai-gpt-4o-mini"}"#).unwrap(),
-            "openai-gpt-4o-mini"
-        );
-        assert!(provider_reset_input(br#"{"provider":""}"#).is_err());
-        assert!(provider_reset_input(br#"{"provider":"bad id"}"#).is_err());
-        assert!(provider_reset_input(br#"{"provider":7}"#).is_err());
-        assert!(provider_reset_input(b"not-json").is_err());
-    }
-
-    #[test]
     fn completion_parses_susi_placement_constraints() {
         let input = parse_completion(
             br#"{"messages":[{"role":"user","content":"describe image"}],"susi":{"requires":"vision","max_cost":0.01,"allow_cloud":false}}"#,
@@ -2319,6 +2450,149 @@ mod tests {
         let out = negotiate_transport(stream, remote, None, require_tls_remote, "[test]").await;
         let _client = client.await.unwrap();
         out
+    }
+
+    #[test]
+    fn anthropic_api_key_is_the_bearer_only_on_the_messages_route() {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("k1"));
+        assert_eq!(
+            presented_credential(&headers, "/v1/messages").as_deref(),
+            Some("Bearer k1")
+        );
+        assert_eq!(presented_credential(&headers, "/v1/chat/completions"), None);
+        headers.insert(
+            hyper::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer k2"),
+        );
+        assert_eq!(
+            presented_credential(&headers, "/v1/messages").as_deref(),
+            Some("Bearer k2"),
+            "an explicit Authorization header wins"
+        );
+    }
+
+    /// Serve one raw HTTP/1.1 request through `handle_gemi_request`, as a
+    /// remote (non-loopback) peer, and return the raw reply.
+    async fn serve_remote(request: &'static [u8]) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let workspace = Arc::new(std::env::temp_dir());
+            let admission = Arc::new(tokio::sync::Semaphore::new(1));
+            let peer: std::net::IpAddr = [203, 0, 113, 7].into();
+            let svc = service_fn(move |req| {
+                handle_gemi_request(req, Arc::clone(&workspace), peer, Arc::clone(&admission))
+            });
+            let _ = http_conn::connection_builder()
+                .serve_connection(TokioIo::new(stream), svc)
+                .await;
+        });
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(request).await.unwrap();
+        let mut reply = String::new();
+        client.read_to_string(&mut reply).await.unwrap();
+        server.await.unwrap();
+        reply
+    }
+
+    fn reply_json(reply: &str) -> serde_json::Value {
+        let (_, body) = reply.split_once("\r\n\r\n").unwrap();
+        serde_json::from_str(body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn messages_route_rejects_unauthenticated_callers_in_the_anthropic_envelope() {
+        let reply = serve_remote(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\nConnection: close\r\nx-api-key: wrong\r\nContent-Length: 2\r\n\r\n{}",
+        )
+        .await;
+        assert!(reply.starts_with("HTTP/1.1 401"), "{reply}");
+        let body = reply_json(&reply);
+        assert_eq!(body["type"], "error");
+        assert_eq!(body["error"]["type"], "authentication_error");
+
+        let reply = serve_remote(
+            b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}",
+        )
+        .await;
+        assert!(reply.starts_with("HTTP/1.1 401"), "{reply}");
+        let body = reply_json(&reply);
+        assert_eq!(
+            body["error"]["code"], "invalid_api_key",
+            "OpenAI routes keep the OpenAI envelope"
+        );
+    }
+
+    async fn dispatch_get(path: &str) -> (StatusCode, String, String) {
+        let response = match dispatch_gemi_route(
+            Method::GET,
+            path.to_string(),
+            Bytes::new(),
+            Arc::new(std::env::temp_dir()),
+            Arc::new(tokio::sync::Semaphore::new(2)),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(never) => match never {},
+        };
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        let bytes = match response.into_body().collect().await {
+            Ok(collected) => collected.to_bytes(),
+            Err(never) => match never {},
+        };
+        (
+            status,
+            content_type,
+            String::from_utf8(bytes.to_vec()).unwrap(),
+        )
+    }
+
+    /// B5: 9091 serves the OpenAI-compatible surface, the Anthropic
+    /// translation, the Prometheus scrape and RFC 8615 discovery; the ad-hoc
+    /// control-plane routes are gone (they are MCP tools now).
+    #[tokio::test]
+    async fn routes_serve_metrics_and_discovery_and_not_the_removed_control_plane() {
+        let (status, content_type, body) = dispatch_get("/metrics").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(content_type, PROMETHEUS_CONTENT_TYPE);
+        assert!(body.contains("# TYPE susi_up gauge"), "{body}");
+        let (status, _, body) = dispatch_get("/.well-known/susi").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, _, body) = dispatch_get("/").await;
+        assert_eq!(status, StatusCode::OK);
+        let index: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let endpoints = index["endpoints"].to_string();
+        for served in ["/v1/messages", "/metrics", "/.well-known/susi"] {
+            assert!(
+                endpoints.contains(served),
+                "{served} missing from {endpoints}"
+            );
+        }
+        assert!(!endpoints.contains("/runtime/"), "{endpoints}");
+        for removed in [
+            "/well-known/susi",
+            "/runtime/models",
+            "/runtime/placement",
+            "/runtime/placement/decisions/placement-1-2-3",
+            "/app",
+            "/favicon.ico",
+        ] {
+            assert_eq!(
+                dispatch_get(removed).await.0,
+                StatusCode::NOT_FOUND,
+                "{removed}"
+            );
+        }
     }
 
     #[tokio::test]

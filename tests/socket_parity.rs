@@ -93,13 +93,7 @@ const MAPPED: &[(&str, &[Surface])] = &[
     ("services logs", &[Mcp("os_logs")]),
     ("commits list", &[Mcp("commit_log")]),
     ("os route", &[Mcp("inference_placement")]),
-    (
-        "os route-reset",
-        &[
-            Mcp("inference_reset_provider"),
-            Route("POST", "/runtime/providers/reset"),
-        ],
-    ),
+    ("os route-reset", &[Mcp("inference_reset_provider")]),
     ("models list", &[Mcp("coding_models_list")]),
     ("models prefer", &[Mcp("coding_models_prefer")]),
     ("run", &[Route("POST", "/v1/chat/completions")]),

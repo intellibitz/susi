@@ -1,0 +1,19 @@
+{
+  "id": "T-ZEROUI1103-6",
+  "title": "B5: port 9091 purely OpenAI-compatible (runtime REST routes move to MCP; /.well-known/susi; /v1/messages and /metrics wired)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-server"
+    ]
+  },
+  "created_by": "ZEROUI1103",
+  "created_unix": 1793778499
+}

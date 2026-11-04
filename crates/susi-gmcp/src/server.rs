@@ -228,9 +228,25 @@ pub fn http_service(service: GmcpService) -> HttpService {
     };
     StreamableHttpService::new(
         move || Ok(service.session()),
-        Arc::new(LocalSessionManager::default()),
+        Arc::new(session_manager()),
         transport,
     )
+}
+
+/// The longest receive window a CLI `tools/call` asks for: `susi os manage
+/// model load` (a large model can take minutes to read and place).
+pub const MAX_TOOL_CALL_SECS: u64 = 1800;
+
+/// rmcp closes a session after `keep_alive` with no session event (its
+/// default is 300s), and a running tool call produces none. The window must
+/// outlast the longest tool call, or a long model load fails on the client
+/// while the daemon keeps loading.
+const SESSION_IDLE_SECS: u64 = MAX_TOOL_CALL_SECS + 60;
+
+fn session_manager() -> LocalSessionManager {
+    let mut sessions = LocalSessionManager::default();
+    sessions.session_config.keep_alive = Some(std::time::Duration::from_secs(SESSION_IDLE_SECS));
+    sessions
 }
 
 /// Seal every data chunk of `body` as it is produced — never buffering the
@@ -535,6 +551,16 @@ mod tests {
         );
         drop(tx);
         assert!(sealed.frame().await.is_none());
+    }
+
+    #[test]
+    fn sessions_outlive_the_longest_tool_call() {
+        let keep_alive = session_manager().session_config.keep_alive;
+        assert!(
+            keep_alive
+                .is_some_and(|idle| idle > std::time::Duration::from_secs(MAX_TOOL_CALL_SECS)),
+            "{keep_alive:?}"
+        );
     }
 
     #[test]

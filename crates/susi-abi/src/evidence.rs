@@ -176,4 +176,30 @@ mod tests {
             serde_json::from_str(&session_json).expect("deserialize zero session");
         assert_eq!(decoded_session, zero_session);
     }
+
+    #[test]
+    fn receipt_status_copy_equality_and_timeout_or_failure_receipt_roundtrip() {
+        let s = ReceiptStatus::Timeout;
+        let copied = s;
+        assert_eq!(s, copied);
+        assert_ne!(ReceiptStatus::Timeout, ReceiptStatus::Failure);
+        assert_ne!(ReceiptStatus::Success, ReceiptStatus::Failure);
+        assert_ne!(ReceiptStatus::Denied, ReceiptStatus::Timeout);
+
+        for status in [ReceiptStatus::Timeout, ReceiptStatus::Failure] {
+            let receipt = ToolReceipt {
+                receipt_id: "rcpt-max".to_string(),
+                tool_name: "shell.exec".to_string(),
+                args_hash: "sha256:input".to_string(),
+                output_hash: "sha256:output".to_string(),
+                status,
+                duration_us: u64::MAX,
+                observed_at: u64::MAX,
+                summary: Some("max boundary receipt".to_string()),
+            };
+            let encoded = serde_json::to_string(&receipt).expect("serialize receipt");
+            let decoded: ToolReceipt = serde_json::from_str(&encoded).expect("deserialize receipt");
+            assert_eq!(decoded, receipt);
+        }
+    }
 }

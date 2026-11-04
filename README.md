@@ -21,7 +21,7 @@ susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud i
   operator-owned; SUSI neither invents nor silently purchases access.
 - **One decision plane** — a completion is placed locally, in cloud, or on an
   explicitly requested model by the same policy used by `susi os route` and
-  `GET /runtime/placement`. The returned decision id resolves to its signed
+  the MCP `inference_placement` tool. The returned decision id resolves to its signed
   `INFERENCE_PLACEMENT` audit record, so routing is inspectable after the
   request instead of being an opaque provider choice.
 
@@ -85,7 +85,7 @@ External clients can trust these ports — the daemon never silently drifts them
 | Port | Surface |
 |------|---------|
 | **9090** | GMCP / MCP HTTP (`/mcp`; `/messages` alias) |
-| **9091** | GEMI HTTP (inference / models) |
+| **9091** | GEMI HTTP: OpenAI-compatible inference (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`), Anthropic Messages (`/v1/messages`), Prometheus (`/metrics`), host identity (`/.well-known/susi`) |
 | **9092** | A2A UDP discovery |
 | **9093** | GMCP HTTP alias (streamable / SSE) |
 | **9094** | A2A HTTP (`/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json`) |
@@ -465,10 +465,11 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 #   http://127.0.0.1:9093/mcp
 # Bearer required (except /health):
 #   Authorization: Bearer "$(cat ~/.susi/api_token)"
-# Read-only placement contract for remote operators and cloud control planes:
-#   GET http://127.0.0.1:9091/runtime/placement
-#   GET http://127.0.0.1:9091/runtime/placement?requires=vision&max_cost=0.01
-#   GET http://127.0.0.1:9091/runtime/placement?allow_cloud=false
+# Read-only placement contract for remote operators and cloud control planes
+# (MCP tools/call on 9090/9093):
+#   inference_placement {}
+#   inference_placement {"requires": "vision", "max_cost": 0.01}
+#   inference_placement {"allow_cloud": false}
 # Completion requests may execute the same plan with
 #   "susi": {"requires": "vision", "max_cost": 0.01, "allow_cloud": false}
 # `allow_cloud:false` pins execution to a ready local model and fails with
@@ -478,7 +479,10 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 # `X-Susi-Placement-Id: placement-...` (both CORS-exposed), plus a
 # `susi_placement` object in JSON responses and the opening SSE frame.
 # Resolve that id to the signed decision record:
-#   GET http://127.0.0.1:9091/runtime/placement/decisions/placement-...
+#   placement_decision {"decision_id": "placement-..."}
+# Runtime model cache and provider recovery are MCP tools too:
+#   runtime_models_list, runtime_models_load, runtime_models_unload,
+#   inference_reset_provider
 ```
 
 Remote access / HTTPS — every socket sniffs each connection's first byte, so
