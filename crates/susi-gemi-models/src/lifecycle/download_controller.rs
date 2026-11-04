@@ -410,4 +410,19 @@ mod tests {
 
         let _ = fs::remove_file(&progress_path);
     }
+
+    #[test]
+    fn global_controller_returns_singleton_and_get_progress_returns_none_for_unknown_target() {
+        let a = ModelDownloadController::global();
+        let b = ModelDownloadController::global();
+        assert!(std::ptr::eq(a, b));
+
+        let local = ModelDownloadController::new();
+        assert!(!local.has_active_downloads());
+        assert!(local
+            .get_progress(
+                "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/absent-unit-test.gguf"
+            )
+            .is_none());
+    }
 }
