@@ -10,7 +10,7 @@ use std::{
 };
 #[path = "model_read_window.rs"]
 mod reads;
-pub use reads::ModelReadWindow;
+pub use reads::{ModelReadWindow, ResidentLease};
 #[cfg(all(test, windows))]
 thread_local! { static HASHED_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 
@@ -21,6 +21,11 @@ pub struct VerifiedArtifact {
 impl VerifiedArtifact {
     pub fn digest(&self) -> &str {
         &self.sha256
+    }
+    /// Reserve a bounded handle for a pending cold load. Pending leases cannot
+    /// authorize reuse. Failure falls back to the regular authentication path.
+    pub fn reserve_resident_lease(&self) -> Option<ResidentLease> {
+        ResidentLease::reserve(&self.file, &self.sha256)
     }
     pub fn metadata(&self) -> std::io::Result<std::fs::Metadata> {
         self.file.metadata()
@@ -417,10 +422,9 @@ impl ModelLicenseReceipt {
         #[cfg(windows)]
         let identity = reads::window::identity(&file);
         #[cfg(windows)]
-        if identity
-            .as_ref()
-            .is_some_and(|id| reads::window::matches(id, &sha256))
-        {
+        if identity.as_ref().is_some_and(|id| {
+            reads::window::matches(id, &sha256) || reads::window::resident_matches(id, &sha256)
+        }) {
             return Ok(VerifiedArtifact { file, sha256 });
         }
         if digest_stream(&mut file, &mut io::sink()).map_err(|e| e.to_string())? != sha256 {
@@ -717,6 +721,126 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn resident_lease_follows_live_bytes_and_authenticated_receipt_across_threads() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("resident.gguf");
+        fs::write(&path, b"original").unwrap();
+        let alternate = std::path::PathBuf::from(format!("{}:other", path.display()));
+        fs::write(&alternate, b"tampered").unwrap();
+        let rev = "e".repeat(40);
+        let receipt = ModelLicenseReceipt {
+            artifact_url: format!(
+                "https://huggingface.co/org/resident/resolve/{rev}/resident.gguf"
+            ),
+            sha256: hex::encode(Sha256::digest(b"original")),
+            publishers: vec![PublisherLicense {
+                repository: "org/resident".into(),
+                revision: rev,
+                license: "mit".into(),
+            }],
+        };
+        remember(&receipt);
+        receipt.record(&path).unwrap();
+        let lease = open_verified_local(&path)
+            .unwrap()
+            .reserve_resident_lease()
+            .unwrap();
+        let access = || {
+            std::thread::scope(|threads| {
+                threads
+                    .spawn(|| {
+                        let _window = ModelReadWindow::enter();
+                        HASHED_BYTES.with(|n| n.set(0));
+                        (verify_local_offline(&path), HASHED_BYTES.with(|n| n.get()))
+                    })
+                    .join()
+                    .unwrap()
+            })
+        };
+        assert_eq!(access(), (Ok(()), 8));
+        let lease = lease.publish();
+        assert_eq!(access(), (Ok(()), 0));
+        assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
+        // A named stream shares the file ID but is not the admitted default stream.
+        let probe_scope = ModelReadWindow::enter();
+        assert!(receipt.verify_bytes(&alternate).is_err());
+        drop(probe_scope);
+        let sidecar = path.with_extension("license.json");
+        let mut forged = receipt.clone();
+        forged.publishers[0].license = "proprietary".into();
+        fs::write(&sidecar, serde_json::to_vec(&forged).unwrap()).unwrap();
+        assert!(access().0.is_err());
+        fs::write(&sidecar, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        let changed = dir.path().join("replace.gguf");
+        fs::write(&changed, b"tampered").unwrap();
+        let stamp = fs::metadata(&path).unwrap().modified().unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&changed)
+            .unwrap()
+            .set_modified(stamp)
+            .unwrap();
+        fs::rename(&changed, &path).unwrap();
+        let (err, bytes) = access();
+        assert!(err.is_err());
+        assert_eq!(bytes, 8);
+        fs::write(&path, b"original").unwrap();
+        assert_eq!(access(), (Ok(()), 8));
+        drop(lease);
+        let mut leases = Vec::new();
+        for _ in 0..4 {
+            leases.push(
+                open_verified_local(&path)
+                    .unwrap()
+                    .reserve_resident_lease()
+                    .unwrap(),
+            );
+        }
+        assert!(open_verified_local(&path)
+            .unwrap()
+            .reserve_resident_lease()
+            .is_none());
+        assert_eq!(access(), (Ok(()), 8));
+        let leases: Vec<_> = leases.into_iter().map(ResidentLease::publish).collect();
+        assert_eq!(access(), (Ok(()), 0));
+        drop(leases);
+        assert_eq!(access(), (Ok(()), 8));
+        fs::write(&path, b"tampered").unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires an explicitly selected private copy of the Apache starter model"]
+    fn measure_real_resident_lease_across_goal_workers() {
+        let path =
+            std::path::PathBuf::from(std::env::var_os("SUSI_ADMISSION_PROOF_MODEL").unwrap());
+        let tokenizer = path.with_extension("tokenizer.json");
+        for use_lease in [false, true] {
+            let lease = use_lease.then(|| {
+                open_verified_local(&path)
+                    .unwrap()
+                    .reserve_resident_lease()
+                    .unwrap()
+                    .publish()
+            });
+            for worker in 0..3 {
+                std::thread::scope(|threads| {
+                    threads.spawn(|| {
+                    HASHED_BYTES.with(|n|n.set(0)); let _window=ModelReadWindow::enter(); let start=std::time::Instant::now();
+                    for check in 0..9 { verify_local_offline(&path).unwrap(); if check<8 {verify_local_offline(&tokenizer).unwrap();}}
+                    let bytes=HASHED_BYTES.with(|n|n.get());
+                    let expected=if use_lease{0}else{std::fs::metadata(&path).unwrap().len()}+std::fs::metadata(&tokenizer).unwrap().len();
+                    assert_eq!(bytes,expected);
+                    println!("lease={use_lease} worker={worker} authenticated=17 bytes={bytes} elapsed_ms={}",start.elapsed().as_millis());
+                }).join().unwrap()
+                });
+            }
+            drop(lease);
+        }
+    }
     #[test]
     fn unprotected_decoder_hashes_the_private_snapshot_and_consumed_tokenizer_bytes() {
         let dir = tempfile::tempdir().unwrap();

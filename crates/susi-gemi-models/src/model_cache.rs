@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
-use susi_vendor_models::model_license::VerifiedArtifact;
+use susi_vendor_models::model_license::{ResidentLease, VerifiedArtifact};
 
 #[derive(Debug, PartialEq, Eq)]
 struct SidecarVersion {
@@ -85,6 +85,7 @@ impl ModelVersion {
 struct Entry<T> {
     version: ModelVersion,
     admitted_digest: Option<String>,
+    _lease: Option<ResidentLease>,
     device: Device,
     kv_capacity: usize,
     loaded_at: SystemTime,
@@ -293,7 +294,9 @@ impl<T> ModelCache<T> {
         kv_capacity: usize,
         load: impl FnOnce(&Path) -> EaiResult<T>,
     ) -> EaiResult<Arc<RwLock<T>>> {
-        self.get_or_load_with_digest((path, None), device, kv_capacity, load)
+        self.get_or_load_with_digest((path, None), device, kv_capacity, |path| {
+            Ok((load(path)?, None))
+        })
     }
     pub fn get_or_load_admitted(
         &self,
@@ -304,7 +307,9 @@ impl<T> ModelCache<T> {
     ) -> EaiResult<Arc<RwLock<T>>> {
         let digest = artifact.digest().to_owned();
         self.get_or_load_with_digest((path, Some(&digest)), device, kv_capacity, move |path| {
-            load(path, artifact)
+            let candidate = artifact.reserve_resident_lease();
+            let value = load(path, artifact)?;
+            Ok((value, candidate))
         })
     }
     fn get_or_load_with_digest(
@@ -312,7 +317,7 @@ impl<T> ModelCache<T> {
         (path, digest): (&Path, Option<&str>),
         device: &Device,
         kv_capacity: usize,
-        load: impl FnOnce(&Path) -> EaiResult<T>,
+        load: impl FnOnce(&Path) -> EaiResult<(T, Option<ResidentLease>)>,
     ) -> EaiResult<Arc<RwLock<T>>> {
         let path = path.canonicalize()?;
         let slot = self.slots.lock().entry(path.clone()).or_default().clone();
@@ -331,7 +336,7 @@ impl<T> ModelCache<T> {
         // Release obsolete weights before allocating their replacement. Active
         // inference requests retain their own Arc and may finish using them.
         *entry = None;
-        let value = load(&path)?;
+        let (value, lease) = load(&path)?;
         if ModelVersion::read(&path)? != version {
             return Err(EaiError::inference(
                 "Model files changed during loading; retry the request",
@@ -340,6 +345,7 @@ impl<T> ModelCache<T> {
         let value = Arc::new(RwLock::new(value));
         *entry = Some(Entry {
             admitted_digest: digest.map(str::to_owned),
+            _lease: lease.map(ResidentLease::publish),
             version,
             device: device.clone(),
             kv_capacity,
@@ -381,17 +387,38 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires an explicitly selected private Apache starter model"]
+    fn live_model_entry_owns_the_read_lease_until_evicted() {
+        let path =
+            std::path::PathBuf::from(std::env::var_os("SUSI_ADMISSION_PROOF_MODEL").unwrap());
+        let cache = ModelCache::<u8>::default();
+        let verified = susi_vendor_models::model_license::open_verified_local(&path).unwrap();
+        let loaded = cache
+            .get_or_load_admitted((&path, verified), &Device::Cpu, 32, |_, _| Ok(1))
+            .unwrap();
+        let writer = || std::fs::OpenOptions::new().write(true).open(&path);
+        assert!(writer().is_err());
+        cache.evict(&path).unwrap();
+        assert!(writer().is_ok());
+        assert_eq!(*loaded.read(), 1);
+    }
     #[test]
     fn authenticated_byte_digest_is_part_of_resident_identity() {
         let file = Fixture::new();
         let cache = ModelCache::default();
         let original = cache
-            .get_or_load_with_digest((&file.0, Some("original")), &Device::Cpu, 32, |_| Ok(1))
+            .get_or_load_with_digest((&file.0, Some("original")), &Device::Cpu, 32, |_| {
+                Ok((1, None))
+            })
             .unwrap();
         assert!(cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("original")));
         assert!(!cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("replacement")));
         let updated = cache
-            .get_or_load_with_digest((&file.0, Some("replacement")), &Device::Cpu, 32, |_| Ok(2))
+            .get_or_load_with_digest((&file.0, Some("replacement")), &Device::Cpu, 32, |_| {
+                Ok((2, None))
+            })
             .unwrap();
         assert_eq!(*original.read(), 1);
         assert_eq!(*updated.read(), 2);

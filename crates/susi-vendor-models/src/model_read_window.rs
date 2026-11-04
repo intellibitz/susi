@@ -34,12 +34,47 @@ pub(super) fn open(path: &std::path::Path) -> std::io::Result<File> {
 
 #[cfg(windows)]
 pub(super) mod window {
-    use std::{cell::RefCell, fs::File};
+    use std::{
+        cell::RefCell,
+        fs::File,
+        sync::{Arc, Mutex, Weak},
+    };
     use susi_config::windows_model_identity::{model_file_identity, ModelFileIdentity};
     struct Pin {
         identity: ModelFileIdentity,
         digest: String,
         _file: File,
+    }
+    pub(super) struct ResidentPin {
+        pin: Pin,
+        published: std::sync::atomic::AtomicBool,
+    }
+    impl ResidentPin {
+        pub(super) fn publish(&self) {
+            self.published
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+    // Weak references cannot prolong a load. Pending and live entries share
+    // this bound; a failed or refused cold load releases its slot and handle.
+    static RESIDENT: Mutex<Vec<Weak<ResidentPin>>> = Mutex::new(Vec::new());
+    pub(super) fn reserve(file: &File, digest: &str) -> Option<Arc<ResidentPin>> {
+        let identity = model_file_identity(file)?;
+        let mut pins = RESIDENT.lock().unwrap_or_else(|e| e.into_inner());
+        pins.retain(|p| p.strong_count() != 0);
+        if pins.len() >= 4 {
+            return None;
+        }
+        let pin = Arc::new(ResidentPin {
+            pin: Pin {
+                identity,
+                digest: digest.to_owned(),
+                _file: file.try_clone().ok()?,
+            },
+            published: std::sync::atomic::AtomicBool::new(false),
+        });
+        pins.push(Arc::downgrade(&pin));
+        Some(pin)
     }
     #[derive(Default)]
     struct Window {
@@ -73,6 +108,21 @@ pub(super) mod window {
                 .any(|p| p.identity == *identity && p.digest == digest)
         })
     }
+    pub(in crate::model_license) fn resident_matches(
+        identity: &ModelFileIdentity,
+        digest: &str,
+    ) -> bool {
+        RESIDENT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|pin| {
+                pin.published.load(std::sync::atomic::Ordering::Acquire)
+                    && pin.pin.identity == *identity
+                    && pin.pin.digest == digest
+            })
+    }
     pub(in crate::model_license) fn retain(identity: ModelFileIdentity, digest: &str, file: &File) {
         STATE.with(|s| {
             let mut state = s.borrow_mut();
@@ -93,6 +143,34 @@ pub(super) mod window {
                 _file: held,
             });
         });
+    }
+}
+
+// Only a successfully loaded model entry owns this lease. On eviction or load
+// failure its handle closes. Weak registry entries cannot prolong that lifetime.
+pub struct ResidentLease {
+    #[cfg(windows)]
+    pin: std::sync::Arc<window::ResidentPin>,
+}
+impl ResidentLease {
+    pub(super) fn reserve(file: &File, digest: &str) -> Option<Self> {
+        #[cfg(windows)]
+        {
+            Some(Self {
+                pin: window::reserve(file, digest)?,
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (file, digest);
+            None
+        }
+    }
+    /// Publish only after installing successfully decoded and rechecked cache data.
+    pub fn publish(self) -> Self {
+        #[cfg(windows)]
+        self.pin.publish();
+        self
     }
 }
 
