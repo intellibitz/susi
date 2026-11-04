@@ -719,4 +719,25 @@ mod inline_tests {
 
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn render_operator_state_handles_minimal_none_sections_gracefully() {
+        let state = UnifiedOperatorState {
+            snapshot: TopSnapshot {
+                providers: Vec::new(),
+                gpu: None,
+                queue: Vec::new(),
+            },
+            resources: None,
+            blocked_work: Vec::new(),
+            config: None,
+            federation: None,
+            evidence: None,
+        };
+        let rendered = render_operator_state(&state);
+        assert!(rendered.contains("── workload ──"));
+        assert!(rendered.contains("  (default)\n"));
+        assert!(rendered.contains("  standalone\n"));
+        assert!(rendered.contains("  (untracked)\n"));
+    }
 }
