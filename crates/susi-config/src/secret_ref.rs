@@ -413,4 +413,42 @@ mod tests {
         assert!(scrubbed.contains("api_key_env=OPENAI_API_KEY"));
         assert!(scrubbed.contains("unresolved=1\n"));
     }
+
+    #[test]
+    fn secret_ref_serde_and_redact_single_quotes_escaped_quotes_colons_and_urls() {
+        let r = SecretRef::parse("secret://workspace/api_token").expect("parse secret ref");
+        let encoded = serde_json::to_string(&r).expect("serialize SecretRef");
+        let decoded: SecretRef = serde_json::from_str(&encoded).expect("deserialize SecretRef");
+        assert_eq!(decoded, r);
+        assert!(SecretRef::parse("http://workspace/api_token").is_none());
+        assert!(SecretRef::parse("secret://").is_none());
+
+        let mut vault = SecretVault::default();
+        vault.put("workspace", "api_token", "vault-body-xyz-987");
+
+        let input = "api_key='single-quoted-sec' password: colon-sec \
+                     token=\"escaped\\\"quote\\\"sec\" url=https://example.com:8443/path \
+                     leaked=vault-body-xyz-987";
+        let scrubbed = vault.redact_for_export(input);
+        assert!(
+            scrubbed.contains("api_key='[REDACTED]'"),
+            "single-quoted credential not redacted: {scrubbed}"
+        );
+        assert!(
+            scrubbed.contains("password: [REDACTED]"),
+            "colon-separated credential not redacted: {scrubbed}"
+        );
+        assert!(
+            scrubbed.contains("token=\"[REDACTED]\""),
+            "escaped-quote credential not redacted: {scrubbed}"
+        );
+        assert!(
+            scrubbed.contains("https://example.com:8443/path"),
+            "HTTPS URI should remain untouched: {scrubbed}"
+        );
+        assert!(!scrubbed.contains("single-quoted-sec"));
+        assert!(!scrubbed.contains("colon-sec"));
+        assert!(!scrubbed.contains("escaped"));
+        assert!(!scrubbed.contains("vault-body-xyz-987"));
+    }
 }
