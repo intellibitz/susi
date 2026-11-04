@@ -7,6 +7,7 @@ pub mod blackboard_cli;
 pub mod brain_cli;
 pub mod broker_cli;
 pub mod catalog_plane_cli;
+pub mod catalogs;
 pub mod commits_cli;
 pub mod context_graph_cli;
 pub mod control_plane_cli;

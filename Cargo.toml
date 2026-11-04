@@ -6,6 +6,7 @@ members = [
     "crates/susi-paths",
     "crates/susi-build-os-ucrt",
     "crates/susi-build-policy",
+    "crates/susi-cli-defs",
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
@@ -148,6 +149,7 @@ complexity = { level = "warn", priority = -1 }
 [workspace.dependencies]
 susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
 susi-build-policy = { path = "crates/susi-build-policy" }
+susi-cli-defs = { path = "crates/susi-cli-defs" }
 susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
@@ -225,6 +227,7 @@ susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
+susi-cli-defs = { workspace = true }
 susi-wire-client = { workspace = true }
 susi-vendor-cloud = { workspace = true }
 susi-leaf-services = { workspace = true }
