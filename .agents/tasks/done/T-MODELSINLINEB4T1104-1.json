@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "MODELSINLINEB4T1104",
-  "created_unix": 1793797081
+  "created_unix": 1793797081,
+  "closed": {
+    "at_unix": 1793797589,
+    "commit": "5165ee128ab5207ea73c9f09a8ebef4e628ffaf3",
+    "by": "MODELSINLINEB4T1104"
+  }
 }
