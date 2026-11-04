@@ -171,4 +171,22 @@ mod tests {
             assert_eq!(back, decision);
         }
     }
+
+    #[test]
+    fn evaluate_rekey_policy_handles_backward_clock_skew_and_live_system_clock() {
+        let policy = RekeyPolicy::default();
+
+        // 1. Clock skew backwards (now_unix_secs < last_activated_unix) saturates cleanly to 0 elapsed.
+        let skewed = evaluate_rekey_policy(&policy, 5_000_000, 0, Some(0));
+        assert!(!skewed.should_rekey);
+        assert_eq!(skewed.reason, RekeyReason::NotDue);
+        assert_eq!(skewed.now_unix, 0);
+        assert_eq!(skewed.last_activated_unix, 5_000_000);
+
+        // 2. Passing None for now_unix_secs reads a positive timestamp from the system clock.
+        let live = evaluate_rekey_policy(&policy, u64::MAX, 0, None);
+        assert!(live.now_unix > 0);
+        assert!(!live.should_rekey);
+        assert_eq!(live.reason, RekeyReason::NotDue);
+    }
 }
