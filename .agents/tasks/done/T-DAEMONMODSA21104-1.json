@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "DAEMONMODSA21104",
-  "created_unix": 1793792794
+  "created_unix": 1793792794,
+  "closed": {
+    "at_unix": 1793792931,
+    "commit": "051332cf6996b7ddd0cc7758eb9be2b1764dab89",
+    "by": "DAEMONMODSA21104"
+  }
 }
