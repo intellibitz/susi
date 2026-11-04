@@ -156,3 +156,18 @@ fn vc_201_050_mastery_empty_bundle_and_missing_extension_metadata_reported() {
         vec!["registry.sig".to_string()]
     );
 }
+
+#[test]
+fn vc_201_050_mastery_distinct_artifact_lists_produce_distinct_checksums() {
+    let b1 = pack_bundle(
+        vec!["susi".into()],
+        vec!["model-a".into()],
+        vec!["ext-a.json".into()],
+    );
+    let b2 = pack_bundle(
+        vec!["susi".into()],
+        vec!["model-b".into()],
+        vec!["ext-a.json".into()],
+    );
+    assert_ne!(b1.checksum, b2.checksum);
+}

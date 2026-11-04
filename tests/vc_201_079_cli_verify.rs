@@ -213,3 +213,12 @@ fn unit_truncate_tamper_and_remove_first_helpers_mutate_segments() {
     assert_eq!(t3["segments"].as_array().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn unit_audit_evidence_append_with_unregistered_key_returns_none() {
+    let mut evidence = AuditEvidence::new();
+    assert!(evidence.append("action=test", "missing-key").is_none());
+    evidence.register_key("k-valid", "secret-val");
+    assert!(evidence.append("action=test", "k-valid").is_some());
+    assert_eq!(evidence.export().len(), 1);
+}
