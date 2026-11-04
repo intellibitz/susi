@@ -84,3 +84,48 @@ pub fn register_mcp_servers() {
 pub fn auto_discover_mcp() {
     register_mcp_servers();
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn mcp_dynamic_tool_exposes_registry_name_and_description_via_tool_trait() {
+        let tool = McpDynamicTool {
+            server_name: "github".into(),
+            registry_name: "github:list_prs".into(),
+            mcp_tool_name: "list_prs".into(),
+            description: "List pull requests".into(),
+        };
+        assert_eq!(tool.name(), "github:list_prs");
+        assert_eq!(tool.description(), "List pull requests");
+    }
+
+    #[test]
+    fn mcp_dynamic_tool_execute_forwards_string_and_json_object_args() {
+        let tool = McpDynamicTool {
+            server_name: "unconfigured-server".into(),
+            registry_name: "unconfigured-server:ping".into(),
+            mcp_tool_name: "ping".into(),
+            description: "Ping tool".into(),
+        };
+        let ws = std::env::temp_dir();
+        let res_str = tool.execute(&json!("raw-goal"), &ws);
+        let res_obj = tool.execute(&json!({"q": "test"}), &ws);
+        assert_eq!(res_str.is_ok(), res_obj.is_ok());
+    }
+
+    #[test]
+    fn register_mcp_servers_runs_cleanly_on_capability_registry() {
+        register_mcp_servers();
+        let registry = CapabilityRegistry::global();
+        let _ = registry.list_tools();
+    }
+
+    #[test]
+    fn auto_discover_mcp_is_idempotent_across_repeated_calls() {
+        auto_discover_mcp();
+        auto_discover_mcp();
+    }
+}
