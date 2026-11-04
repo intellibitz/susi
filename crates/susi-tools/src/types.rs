@@ -82,4 +82,60 @@ mod tests {
         };
         assert!(err_tool.execute(&json!({}), Path::new(".")).is_err());
     }
+
+    #[test]
+    fn mcp_tool_round_trips_through_json() {
+        let tool = super::McpTool {
+            name: "read_file".into(),
+            description: "Read a file — UTF-8 \"quoted\"".into(),
+        };
+        let value = serde_json::to_value(&tool).unwrap();
+        assert_eq!(
+            value,
+            json!({"name": "read_file", "description": "Read a file — UTF-8 \"quoted\""})
+        );
+        let back: super::McpTool = serde_json::from_value(value).unwrap();
+        assert_eq!(back.name, tool.name);
+        assert_eq!(back.description, tool.description);
+        assert!(serde_json::from_value::<super::McpTool>(json!({"name": "x"})).is_err());
+    }
+
+    #[test]
+    fn every_meta_category_is_carried_unchanged_by_a_meta_tool() {
+        let all = [
+            MetaCategory::SystemPrimitive,
+            MetaCategory::WorkspaceIo,
+            MetaCategory::McpProxy,
+            MetaCategory::WasmReflex,
+            MetaCategory::IntelligenceBridge,
+            MetaCategory::CodingSpecialist,
+            MetaCategory::AssistantSpecialist,
+        ];
+        for (i, category) in all.into_iter().enumerate() {
+            let tool = MetaTool {
+                tool_name: format!("t{i}"),
+                tool_desc: String::new(),
+                category,
+                handler: Arc::new(|_a, _w| Ok(String::new())),
+            };
+            assert_eq!(tool.category, category);
+            assert_eq!(all.iter().filter(|c| **c == tool.category).count(), 1);
+        }
+    }
+
+    #[test]
+    fn execute_forwards_the_exact_workspace_and_argument() {
+        let workspace = Path::new("C:/susi/workspace with space/sub");
+        let tool = MetaTool {
+            tool_name: "ws_echo".into(),
+            tool_desc: String::new(),
+            category: MetaCategory::WorkspaceIo,
+            handler: Arc::new(|arg, ws| Ok(format!("{}|{}", ws.display(), arg))),
+        };
+        let out = tool.execute(&json!({"k": [1, 2]}), workspace).unwrap();
+        assert_eq!(
+            out,
+            format!("{}|{}", workspace.display(), json!({"k": [1, 2]}))
+        );
+    }
 }

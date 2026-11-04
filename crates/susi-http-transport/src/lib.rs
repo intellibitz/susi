@@ -20,3 +20,43 @@ pub mod dual_transport;
 pub mod http_conn;
 
 pub use client::{http_call, http_call_with_body, http_post_utf8, HttpCall};
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    /// A loopback URL nothing is listening on: bind an ephemeral port, then
+    /// release it before the call.
+    fn refused_url() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        format!("http://127.0.0.1:{port}/probe")
+    }
+
+    #[test]
+    fn root_re_exports_are_the_client_items() {
+        assert_eq!(
+            std::any::TypeId::of::<HttpCall>(),
+            std::any::TypeId::of::<client::HttpCall>()
+        );
+        // The root function names are exercised by the transport tests below.
+    }
+
+    #[test]
+    fn transport_failures_are_errors_not_statuses() {
+        let url = refused_url();
+        assert!(http_call("GET", &url, &[], 2, 0).is_err());
+        assert!(http_call_with_body("POST", &url, &[], Some(b"{}"), 2, 0).is_err());
+        assert!(http_post_utf8(&url, &[], b"{}", 2, 1024).is_err());
+        assert!(http_call("GET", "not a url", &[], 2, 0).is_err());
+    }
+
+    #[test]
+    fn unsupported_methods_are_refused_before_any_request() {
+        let err = http_call_with_body("TRACE", &refused_url(), &[], None, 2, 0)
+            .err()
+            .expect("TRACE must be refused");
+        assert_eq!(err, "unsupported HTTP method TRACE");
+    }
+}

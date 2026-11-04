@@ -37,3 +37,52 @@ pub use susi_core::agent_types::{
     MissionBlackboard, SwarmBlackboard,
 };
 pub use susi_vendor_agents::external;
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+    use std::any::TypeId;
+
+    #[test]
+    fn root_re_exports_are_the_defining_types() {
+        assert_eq!(
+            TypeId::of::<AgentMetaRegistry>(),
+            TypeId::of::<registry::AgentMetaRegistry>()
+        );
+        assert_eq!(
+            TypeId::of::<AgentProfile>(),
+            TypeId::of::<susi_core::agent_types::AgentProfile>()
+        );
+        assert_eq!(
+            TypeId::of::<GawdAgentInfo>(),
+            TypeId::of::<susi_core::agent_types::GawdAgentInfo>()
+        );
+        assert_eq!(
+            TypeId::of::<MissionBlackboard>(),
+            TypeId::of::<susi_core::agent_types::MissionBlackboard>()
+        );
+        assert_eq!(
+            TypeId::of::<SwarmBlackboard>(),
+            TypeId::of::<susi_core::agent_types::SwarmBlackboard>()
+        );
+    }
+
+    #[test]
+    fn the_shared_susi_home_lock_is_acquirable_and_releases() {
+        // One process-wide lock serializes every SUSI_HOME-repointing test;
+        // a poisoned lock from an earlier failing test must not wedge it.
+        {
+            let _held = SUSI_HOME_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            assert!(
+                SUSI_HOME_TEST_LOCK.try_lock().is_err(),
+                "lock must be exclusive"
+            );
+        }
+        let reacquired = SUSI_HOME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        drop(reacquired);
+    }
+}
