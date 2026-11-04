@@ -85,3 +85,25 @@ fn vc_201_096_budget_transition_saturating_addition_prevents_overflow_bypass() {
         PolicyDecision::NeedsConsent
     );
 }
+
+#[test]
+fn vc_201_096_policy_precedence_and_lease_fencing_boundary_matrix() {
+    assert_eq!(
+        policy_precedence(PolicyClass::AskFirst, true, true),
+        PolicyDecision::Free
+    );
+    assert_eq!(
+        policy_precedence(PolicyClass::PaidAuthorized, true, true),
+        PolicyDecision::Free
+    );
+    assert_eq!(
+        policy_precedence(PolicyClass::FreeOnly, true, false),
+        PolicyDecision::Denied
+    );
+    assert_eq!(
+        policy_precedence(PolicyClass::PaidAuthorized, true, false),
+        PolicyDecision::Paid
+    );
+    assert!(!lease_is_fenced(5, 4, 50, 100));
+    assert!(lease_is_fenced(4, 4, 0, 1));
+}

@@ -136,3 +136,10 @@ fn unit_mock_model_fetch_copies_4mib_weight_within_fetch_budget() {
     assert_eq!(std::fs::metadata(&dst).unwrap().len(), 4 * 1024 * 1024);
     std::fs::remove_dir_all(&home).ok();
 }
+
+#[test]
+fn unit_budget_constants_maintain_strict_hierarchy() {
+    assert!(FETCH_BUDGET.as_secs() >= 1);
+    assert!(FETCH_BUDGET < COMMAND_BUDGET);
+    assert!(COMMAND_BUDGET < JOURNEY_BUDGET);
+}
