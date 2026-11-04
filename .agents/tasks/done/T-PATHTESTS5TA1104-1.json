@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "PATHTESTS5TA1104",
-  "created_unix": 1793813600
+  "created_unix": 1793813600,
+  "closed": {
+    "at_unix": 1793813819,
+    "commit": "a5a203d4fb43aba56e68373e47f7739d43fb1fab",
+    "by": "PATHTESTS5TA1104"
+  }
 }
