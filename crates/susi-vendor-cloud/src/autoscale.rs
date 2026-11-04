@@ -129,3 +129,142 @@ pub fn decide(
         reason: "within targets",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_policy() -> AutoscalePolicy {
+        AutoscalePolicy {
+            min_replicas: 2,
+            max_replicas: 8,
+            target_queue_per_replica: 4,
+            latency_ceiling_ms: 200,
+            stabilization_ticks: 10,
+            spend_cap_cents_per_hour: 500,
+            cost_per_replica_hour_cents: 100,
+        }
+    }
+
+    #[test]
+    fn decide_scales_out_bounded_by_max_replicas_and_remaining_hourly_budget_or_holds_at_spend_cap()
+    {
+        let policy = sample_policy();
+        let overloaded = EndpointMetrics {
+            replicas: 2,
+            queue_depth: 25,
+            p95_latency_ms: 150,
+            in_flight: 2,
+            last_change_tick: 0,
+        };
+
+        assert_eq!(
+            decide(&overloaded, &policy, 5, 0),
+            ScaleDecision::ScaleOut {
+                add: 5,
+                reason: "queue/latency above target",
+            }
+        );
+        assert_eq!(
+            decide(&overloaded, &policy, 5, 300),
+            ScaleDecision::ScaleOut {
+                add: 2,
+                reason: "queue/latency above target",
+            }
+        );
+        assert_eq!(
+            decide(&overloaded, &policy, 5, 450),
+            ScaleDecision::Hold {
+                reason: "spend-cap: no replica-hour budget left",
+            }
+        );
+
+        let high_latency = EndpointMetrics {
+            replicas: 2,
+            queue_depth: 2,
+            p95_latency_ms: 250,
+            in_flight: 1,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&high_latency, &policy, 5, 0),
+            ScaleDecision::ScaleOut {
+                add: 1,
+                reason: "queue/latency above target",
+            }
+        );
+    }
+
+    #[test]
+    fn decide_handles_draining_stabilization_window_scale_in_minimum_floor_and_within_targets() {
+        let policy = sample_policy();
+
+        let idle_draining = EndpointMetrics {
+            replicas: 4,
+            queue_depth: 2,
+            p95_latency_ms: 80,
+            in_flight: 1,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&idle_draining, &policy, 20, 100),
+            ScaleDecision::Hold {
+                reason: "draining: in-flight requests on surplus replicas",
+            }
+        );
+
+        let idle_unstabilized = EndpointMetrics {
+            in_flight: 0,
+            last_change_tick: 15,
+            ..idle_draining
+        };
+        assert_eq!(
+            decide(&idle_unstabilized, &policy, 20, 100),
+            ScaleDecision::Hold {
+                reason: "stabilization window still open",
+            }
+        );
+
+        let idle_ready = EndpointMetrics {
+            in_flight: 0,
+            last_change_tick: 10,
+            ..idle_draining
+        };
+        assert_eq!(
+            decide(&idle_ready, &policy, 20, 100),
+            ScaleDecision::ScaleIn {
+                remove: 1,
+                reason: "sustained idle past stabilization window",
+            }
+        );
+
+        let below_min = EndpointMetrics {
+            replicas: 0,
+            queue_depth: 0,
+            p95_latency_ms: 50,
+            in_flight: 0,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&below_min, &policy, 20, 0),
+            ScaleDecision::ScaleOut {
+                add: 2,
+                reason: "below configured minimum",
+            }
+        );
+
+        let steady = EndpointMetrics {
+            replicas: 2,
+            queue_depth: 6,
+            p95_latency_ms: 150,
+            in_flight: 2,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&steady, &policy, 20, 100),
+            ScaleDecision::Hold {
+                reason: "within targets",
+            }
+        );
+    }
+}

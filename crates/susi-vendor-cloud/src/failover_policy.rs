@@ -124,3 +124,133 @@ pub fn route(c: &RouteConstraints, eps: &[Endpoint]) -> Result<Endpoint, NoRoute
     }
     Err(NoRoute { refusals })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_endpoint(id: &str) -> Endpoint {
+        Endpoint {
+            id: id.into(),
+            class: EndpointClass::Local,
+            capabilities: vec!["tool:search".into()],
+            est_latency_ms: 40,
+            cost_cents: 10,
+            state: EndpointState::Up,
+        }
+    }
+
+    #[test]
+    fn route_selects_first_up_endpoint_satisfying_privacy_capability_deadline_and_budget() {
+        let constraints = RouteConstraints {
+            needs_capability: "tool:search".into(),
+            privacy: Privacy::CloudOk,
+            deadline_ms: 100,
+            budget_cents: 50,
+        };
+        let candidates = vec![
+            Endpoint {
+                state: EndpointState::Oom,
+                ..base_endpoint("local-oom")
+            },
+            Endpoint {
+                class: EndpointClass::Cloud,
+                est_latency_ms: 80,
+                cost_cents: 35,
+                ..base_endpoint("cloud-primary")
+            },
+            base_endpoint("local-backup"),
+        ];
+
+        let chosen = route(&constraints, &candidates).expect("cloud-primary should route");
+        assert_eq!(chosen.id, "cloud-primary");
+    }
+
+    #[test]
+    fn route_collects_every_refusal_reason_and_formats_no_route_display() {
+        let constraints = RouteConstraints {
+            needs_capability: "tool:search".into(),
+            privacy: Privacy::LocalOnly,
+            deadline_ms: 100,
+            budget_cents: 50,
+        };
+        let candidates = vec![
+            Endpoint {
+                state: EndpointState::Oom,
+                ..base_endpoint("ep-oom")
+            },
+            Endpoint {
+                state: EndpointState::Outage,
+                ..base_endpoint("ep-outage")
+            },
+            Endpoint {
+                state: EndpointState::AuthFailed,
+                ..base_endpoint("ep-auth")
+            },
+            Endpoint {
+                state: EndpointState::QuotaExhausted,
+                ..base_endpoint("ep-quota")
+            },
+            Endpoint {
+                class: EndpointClass::Cloud,
+                ..base_endpoint("ep-cloud")
+            },
+            Endpoint {
+                capabilities: vec!["tool:other".into()],
+                ..base_endpoint("ep-nocap")
+            },
+            Endpoint {
+                est_latency_ms: 150,
+                ..base_endpoint("ep-slow")
+            },
+            Endpoint {
+                cost_cents: 75,
+                ..base_endpoint("ep-expensive")
+            },
+        ];
+
+        let err = route(&constraints, &candidates).expect_err("all candidates must be refused");
+        assert_eq!(
+            err.refusals,
+            vec![
+                Refusal {
+                    endpoint: "ep-oom".into(),
+                    reason: "local OOM",
+                },
+                Refusal {
+                    endpoint: "ep-outage".into(),
+                    reason: "provider outage",
+                },
+                Refusal {
+                    endpoint: "ep-auth".into(),
+                    reason: "authentication failed",
+                },
+                Refusal {
+                    endpoint: "ep-quota".into(),
+                    reason: "quota exhausted",
+                },
+                Refusal {
+                    endpoint: "ep-cloud".into(),
+                    reason: "privacy requires local",
+                },
+                Refusal {
+                    endpoint: "ep-nocap".into(),
+                    reason: "missing capability",
+                },
+                Refusal {
+                    endpoint: "ep-slow".into(),
+                    reason: "deadline",
+                },
+                Refusal {
+                    endpoint: "ep-expensive".into(),
+                    reason: "budget",
+                },
+            ]
+        );
+        let rendered = err.to_string();
+        assert!(rendered.starts_with("no policy-preserving route ("));
+        assert!(rendered.contains("ep-oom: local OOM; ep-outage: provider outage"));
+        assert!(rendered.contains("ep-cloud: privacy requires local"));
+        assert!(rendered.ends_with("ep-slow: deadline; ep-expensive: budget)"));
+    }
+}

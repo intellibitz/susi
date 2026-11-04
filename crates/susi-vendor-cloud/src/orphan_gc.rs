@@ -90,3 +90,145 @@ pub fn reconcile(
     }
     report
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_resources() -> Vec<Resource> {
+        vec![
+            Resource {
+                id: "foreign-1".into(),
+                owner: None,
+                mission: String::new(),
+                deployment: String::new(),
+                retain: false,
+                expires_unix: 100,
+            },
+            Resource {
+                id: "keep-retained".into(),
+                owner: Some("susi".into()),
+                mission: "m-dead".into(),
+                deployment: String::new(),
+                retain: true,
+                expires_unix: 100,
+            },
+            Resource {
+                id: "keep-live-mission".into(),
+                owner: Some("susi".into()),
+                mission: "m-live".into(),
+                deployment: String::new(),
+                retain: false,
+                expires_unix: 100,
+            },
+            Resource {
+                id: "keep-live-deployment".into(),
+                owner: Some("susi".into()),
+                mission: String::new(),
+                deployment: "d-live".into(),
+                retain: false,
+                expires_unix: 100,
+            },
+            Resource {
+                id: "keep-unexpired".into(),
+                owner: Some("susi".into()),
+                mission: "m-dead".into(),
+                deployment: String::new(),
+                retain: false,
+                expires_unix: 1_500,
+            },
+            Resource {
+                id: "del-expired-1".into(),
+                owner: Some("susi".into()),
+                mission: "m-dead".into(),
+                deployment: String::new(),
+                retain: false,
+                expires_unix: 1_000,
+            },
+            Resource {
+                id: "del-expired-2".into(),
+                owner: Some("susi".into()),
+                mission: String::new(),
+                deployment: String::new(),
+                retain: false,
+                expires_unix: 500,
+            },
+        ]
+    }
+
+    #[test]
+    fn reconcile_separates_foreign_kept_and_expired_orphaned_resources() {
+        let live_missions = BTreeSet::from(["m-live".to_string()]);
+        let live_deployments = BTreeSet::from(["d-live".to_string()]);
+        let resources = sample_resources();
+        let mut deleted = Vec::new();
+
+        let report = reconcile(
+            &resources,
+            &Authoritative {
+                live_missions: &live_missions,
+                live_deployments: &live_deployments,
+                now_unix: 1_000,
+                dry_run: false,
+            },
+            &mut |id| deleted.push(id.to_string()),
+        );
+
+        assert!(!report.dry_run);
+        assert_eq!(report.foreign, vec!["foreign-1".to_string()]);
+        assert_eq!(
+            report.keep,
+            vec![
+                "keep-retained".to_string(),
+                "keep-live-mission".to_string(),
+                "keep-live-deployment".to_string(),
+                "keep-unexpired".to_string(),
+            ]
+        );
+        assert_eq!(
+            report.delete,
+            vec!["del-expired-1".to_string(), "del-expired-2".to_string()]
+        );
+        assert_eq!(deleted, report.delete);
+    }
+
+    #[test]
+    fn reconcile_dry_run_previews_exact_delete_set_without_invoking_callback() {
+        let live_missions = BTreeSet::from(["m-live".to_string()]);
+        let live_deployments = BTreeSet::from(["d-live".to_string()]);
+        let resources = sample_resources();
+        let mut dry_deleted = Vec::new();
+        let mut live_deleted = Vec::new();
+
+        let dry_report = reconcile(
+            &resources,
+            &Authoritative {
+                live_missions: &live_missions,
+                live_deployments: &live_deployments,
+                now_unix: 1_000,
+                dry_run: true,
+            },
+            &mut |id| dry_deleted.push(id.to_string()),
+        );
+        let live_report = reconcile(
+            &resources,
+            &Authoritative {
+                live_missions: &live_missions,
+                live_deployments: &live_deployments,
+                now_unix: 1_000,
+                dry_run: false,
+            },
+            &mut |id| live_deleted.push(id.to_string()),
+        );
+
+        assert!(dry_report.dry_run);
+        assert!(dry_deleted.is_empty());
+        assert_eq!(dry_report.delete, live_report.delete);
+        assert_eq!(dry_report.keep, live_report.keep);
+        assert_eq!(dry_report.foreign, live_report.foreign);
+        assert_eq!(
+            live_deleted,
+            vec!["del-expired-1".to_string(), "del-expired-2".to_string()]
+        );
+    }
+}
