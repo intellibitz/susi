@@ -303,4 +303,18 @@ mod tests {
         assert!(log.contains("EVOLUTION_REFLEX_DEFER"), "{log}");
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn detect_bottlenecks_and_drift_audit_report_clean_state_on_empty_workspace() {
+        let ws = std::env::temp_dir().join(format!("susi_evo_empty_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(ws.join(".susi")).unwrap();
+        let bottlenecks = EvolutionManager::detect_bottlenecks(&ws);
+        assert!(bottlenecks.contains("No substrate bottlenecks detected"));
+        assert_eq!(EvolutionManager::detect_high_frequency_gap(&ws), None);
+        assert_eq!(EvolutionManager::evolve_recurring_intent(&ws), None);
+        let audit = EvolutionManager::perform_autonomous_drift_audit(&ws).unwrap();
+        assert!(audit.contains("No intent recurred often enough"));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

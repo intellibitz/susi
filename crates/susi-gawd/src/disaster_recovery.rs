@@ -124,4 +124,20 @@ mod inline_tests {
         let report = restore_from_backup(&backup, &targets, 100, 0);
         assert!(!report.audit_continuous);
     }
+
+    #[test]
+    fn restore_report_and_dr_targets_serde_json_roundtrip_and_exact_rto_rpo_boundaries() {
+        let backup = sample_backup();
+        let targets = DrTargets {
+            rto_ms: 250,
+            rpo_records: 2,
+            allow_key_restore: true,
+        };
+        let report = restore_from_backup(&backup, &targets, 250, 2);
+        assert!(report.within_rto);
+        assert!(report.within_rpo);
+        let encoded = serde_json::to_string(&report).unwrap();
+        let decoded: RestoreReport = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, report);
+    }
 }

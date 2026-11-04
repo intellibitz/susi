@@ -174,4 +174,21 @@ mod inline_tests {
         assert!(res.is_err());
         assert!(b.exhausted);
     }
+
+    #[test]
+    fn experiment_budget_serde_json_roundtrip_and_wall_or_cloud_exhaustion() {
+        let mut b = ExperimentBudget::new("exp-5", sample_limits());
+        assert!(b
+            .reserve(BudgetUsage {
+                tokens: 0,
+                wall_ms: 5_001,
+                subprocesses: 0,
+                cloud_spend_micros: 0,
+            })
+            .is_err());
+        assert!(b.exhausted);
+        let encoded = serde_json::to_string(&b).unwrap();
+        let decoded: ExperimentBudget = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, b);
+    }
 }

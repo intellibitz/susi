@@ -587,4 +587,12 @@ mod tests {
         assert!(!ev_altered.contamination.contaminated);
         assert_eq!(ev_altered.verdict, EvalVerdict::FailSelfAlteredExpectations);
     }
+
+    #[test]
+    fn candidate_file_name_sanitizes_separators_and_read_all_handles_empty_workspace() {
+        assert_eq!(candidate_file_name("cand/01:v2.3_a-b"), "cand_01_v2.3_a-b");
+        let ws = eval_ws("empty-read");
+        assert!(read_all(&ws).is_empty());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

@@ -171,4 +171,30 @@ mod inline_tests {
         let report = detect_in_corpus(&corpus, &train_access, &BTreeSet::new()).unwrap();
         assert!(report.contaminated);
     }
+
+    #[test]
+    fn detect_in_corpus_rejects_tampered_corpus_and_contamination_report_serde_roundtrips() {
+        let mut corpus = RsiCorpus {
+            schema_version: RSI_CORPUS_SCHEMA.to_string(),
+            revision: "rev-2".to_string(),
+            fixtures: vec![CorpusFixture {
+                id: "hold-1".to_string(),
+                class: FixtureClass::Coding,
+                input: "tampered body".to_string(),
+                input_hash: hash("original body"),
+                split: FixtureSplit::HeldOut,
+                seed: 1,
+                evaluator_expected: None,
+            }],
+            promotion_spec: None,
+        };
+        assert!(detect_in_corpus(&corpus, &BTreeSet::new(), &BTreeSet::new()).is_err());
+
+        corpus.fixtures[0].input_hash = hash("tampered body");
+        let clean = detect_in_corpus(&corpus, &BTreeSet::new(), &BTreeSet::new()).unwrap();
+        assert!(!clean.contaminated);
+        let json = serde_json::to_string(&clean).unwrap();
+        let back: ContaminationReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, clean);
+    }
 }

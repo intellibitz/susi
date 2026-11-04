@@ -354,4 +354,33 @@ mod inline_tests {
         );
         assert!(claim_safety(&model, 550).is_err());
     }
+
+    #[test]
+    fn claim_model_clamps_zero_lease_and_claim_safety_detects_lease_before_claim() {
+        let mut model = ClaimModel::new();
+        assert_eq!(model.live_holder("T-none", 100), None);
+        assert_eq!(model.lease_until("T-none"), None);
+        assert_eq!(
+            model.try_claim("T-zero", "agent-z", 200, 0),
+            ClaimOutcome::Won
+        );
+        assert_eq!(model.lease_until("T-zero"), Some(201));
+
+        model.claims.insert(
+            "T-inv".to_string(),
+            (
+                1,
+                ModelClaim {
+                    task: "T-inv".to_string(),
+                    agent: "agent-z".to_string(),
+                    claimed_unix: 500,
+                    lease_until_unix: 400,
+                },
+            ),
+        );
+        assert_eq!(
+            claim_safety(&model, 300),
+            Err("lease before claim for T-inv".to_string())
+        );
+    }
 }
