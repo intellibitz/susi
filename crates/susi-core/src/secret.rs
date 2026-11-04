@@ -149,4 +149,13 @@ mod tests {
         assert_eq!(format!("{empty}"), REDACTED);
         assert_eq!(format!("{empty:?}"), REDACTED);
     }
+
+    #[test]
+    fn secret_in_nested_json_map_serializes_redacted_while_preserving_expose() {
+        let mut map = std::collections::BTreeMap::new();
+        map.insert("token".to_string(), Secret::new("bearer-xyz-987"));
+        let encoded = serde_json::to_value(&map).expect("serialize map");
+        assert_eq!(encoded["token"], REDACTED);
+        assert_eq!(map["token"].expose(), "bearer-xyz-987");
+    }
 }
