@@ -70,3 +70,33 @@ fn vc_201_003_uncertainty_blocks_claim() {
     assert!(!s.dimension_improved(&d, &spec.quality));
     assert!(!s.summary_ok(&spec));
 }
+
+#[test]
+fn vc_201_003_insufficient_task_count_blocks_summary_even_when_dimensions_pass() {
+    let spec = spec();
+    let s = ImprovementScorecard {
+        quality: dim("quality", 0.95, 0.01),
+        reliability: dim("reliability", 0.99, 0.01),
+        latency: dim("latency", 60.0, 2.0),
+        resource: dim("resource", 0.90, 0.02),
+        operator_effort: dim("operator_effort", 1.5, 0.2),
+        task_count: 15,
+    };
+    assert!(!s.summary_ok(&spec));
+}
+
+#[test]
+fn vc_201_003_lower_is_better_dimension_fails_when_upper_bound_exceeds_threshold() {
+    let spec = spec();
+    let high_latency = dim("latency", 97.0, 5.0);
+    let s = ImprovementScorecard {
+        quality: dim("quality", 0.95, 0.01),
+        reliability: dim("reliability", 0.99, 0.01),
+        latency: high_latency.clone(),
+        resource: dim("resource", 0.90, 0.02),
+        operator_effort: dim("operator_effort", 1.5, 0.2),
+        task_count: 45,
+    };
+    assert!(!s.dimension_improved(&high_latency, &spec.latency));
+    assert!(!s.summary_ok(&spec));
+}
