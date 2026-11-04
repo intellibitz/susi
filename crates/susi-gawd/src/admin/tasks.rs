@@ -3730,6 +3730,36 @@ fn ensure_open_on_main_synced(ws: &Path, id: &str) -> EaiResult<()> {
 mod tests {
     use super::*;
 
+    /// These legacy records blocked post-merge acceptance before a command ran.
+    /// Preserve their original owner/time while requiring the full Task schema.
+    #[test]
+    fn repaired_legacy_done_tasks_deserialize_with_original_provenance() {
+        for (id, source, created_unix) in [
+            (
+                "T-XTCIRONLY1104-1",
+                include_str!("../../../../.agents/tasks/done/T-XTCIRONLY1104-1.json"),
+                1_793_759_130,
+            ),
+            (
+                "T-LEAFUCELL1104-1",
+                include_str!("../../../../.agents/tasks/done/T-LEAFUCELL1104-1.json"),
+                1_793_760_240,
+            ),
+            (
+                "T-SBXERRIPC1104-1",
+                include_str!("../../../../.agents/tasks/done/T-SBXERRIPC1104-1.json"),
+                1_793_761_770,
+            ),
+        ] {
+            let task: Task = serde_json::from_str(source).unwrap();
+            assert_eq!(task.id, id);
+            assert_eq!(task.created_by, "gemini");
+            assert_eq!(task.created_unix, created_unix);
+            assert!(accept_allowed(&task.accept.cmd));
+            assert_eq!(task.accept.cmd.first().map(String::as_str), Some("cargo"));
+        }
+    }
+
     #[test]
     fn lock_contention_is_a_race_to_retry_and_other_failures_are_not() {
         for text in [

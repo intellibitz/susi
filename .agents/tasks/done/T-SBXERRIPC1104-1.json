@@ -5,6 +5,8 @@
   "status": "done", "completed_at": "2026-11-04T03:14:00Z",
   "created_at": "2026-11-04T03:09:30Z",
   "owner": "gemini",
+  "created_by": "gemini",
+  "created_unix": 1793761770,
   "touch": [
     "crates/susi-abi/src/lib.rs",
     "crates/susi-abi/src/swarm.rs",
