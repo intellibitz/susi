@@ -1,7 +1,7 @@
 ﻿{
   "id": "T-PATHSXDG1104-1",
   "title": "D-OS-8 / OSN-26 cross-OS xdg layout resolvers and B8 ports.json-aware host_token_in in susi-paths",
-  "state": "open",
+  "state": "closed",
   "created_by": "PATHSXDG1104",
   "created_at_unix": 1793758100,
   "scope": {
@@ -19,5 +19,10 @@
       "-p",
       "susi-paths"
     ]
+  },
+  "closed": {
+    "commit": "0dab304174c928b85b1eb1d38a0c0d47b01eecfd",
+    "by": "PATHSXDG1104",
+    "at_unix": 1793758120
   }
 }
