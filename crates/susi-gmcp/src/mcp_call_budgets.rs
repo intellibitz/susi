@@ -66,4 +66,14 @@ mod mcp_call_budgets_tests {
         assert!(!within_budget(b, 501, 2048));
         assert!(!within_budget(b, 500, 2049));
     }
+
+    #[test]
+    fn mcp_call_budget_round_trips_through_serde_json() {
+        let budget = budget_for(true);
+        let encoded = serde_json::to_string(&budget).expect("serialize McpCallBudget");
+        let decoded: McpCallBudget =
+            serde_json::from_str(&encoded).expect("deserialize McpCallBudget");
+        assert_eq!(decoded, budget);
+        assert!(within_budget(decoded, 0, 0));
+    }
 }

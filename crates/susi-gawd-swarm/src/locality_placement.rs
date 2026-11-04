@@ -253,4 +253,18 @@ mod inline_tests {
         assert_eq!(chosen.node_id, "p-4x");
         assert!((chosen.score - 40.0).abs() < f64::EPSILON);
     }
+
+    #[test]
+    fn place_returns_none_and_empty_rejections_when_peer_list_is_empty() {
+        let task = PlacementTask {
+            dataset_id: "ds-empty".into(),
+            residency: Residency::Anywhere,
+            needs_caps: vec![],
+            cpu: 1.0,
+            gpu_mem_gb: 2.0,
+        };
+        let (best, rejections) = place(&task, &[]);
+        assert!(best.is_none());
+        assert!(rejections.is_empty());
+    }
 }

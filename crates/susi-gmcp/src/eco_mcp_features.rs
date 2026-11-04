@@ -79,3 +79,31 @@ fn eco_mcp_features_defines_request_response_shapes_and_non_retriable_errors() {
         .iter()
         .any(|e| e["code"] == "-32601" && e["retriable"] == false));
 }
+
+#[test]
+fn eco_mcp_features_includes_logging_and_completion_in_server_feature_fields_and_response_shapes() {
+    let p = load("mcp-features.json");
+    let server_shape = p["request_shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "server-features")
+        .unwrap();
+    let fields: Vec<_> = server_shape["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|f| f.as_str())
+        .collect();
+    assert!(fields.contains(&"logging/setLevel"));
+    assert!(fields.contains(&"completion/complete"));
+
+    let resp_names: Vec<_> = p["response_shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["name"].as_str())
+        .collect();
+    assert!(resp_names.contains(&"json-rpc-result"));
+    assert!(resp_names.contains(&"negotiation"));
+}
