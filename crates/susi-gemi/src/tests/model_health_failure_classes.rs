@@ -275,3 +275,21 @@ fn model_health_failure_classes_registry_starts_empty_and_initializes_healthy() 
         Some(HealthState::Healthy)
     );
 }
+
+#[test]
+fn model_health_failure_classes_unseen_failure_counts_are_zero_and_states_are_distinct() {
+    let health = ModelHealth::new("clean-model");
+    for class in [
+        FailureClass::AuthRejected,
+        FailureClass::RateLimited,
+        FailureClass::Timeout,
+        FailureClass::ServerError,
+        FailureClass::ContextOverflow,
+        FailureClass::ContentFiltered,
+        FailureClass::Malformed,
+    ] {
+        assert_eq!(health.failure_count(class), 0);
+    }
+    assert_ne!(HealthState::OutOfQuota, HealthState::Healthy);
+    assert_ne!(HealthState::OutOfQuota, HealthState::KeyDead);
+}
