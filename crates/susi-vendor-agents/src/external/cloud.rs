@@ -96,4 +96,41 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn rejected_non_cloud_dispatch_leaves_run_record_unmutated() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "susi-cloud-unmutated-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let manager =
+            AgentManager::with_config(&temp_dir, CatalogKind::Execution, temp_dir.join("config"))
+                .unwrap();
+
+        for adapter in [
+            Adapter::Command {
+                program: "echo".into(),
+                args: vec!["hi".into()],
+            },
+            Adapter::Acp {
+                program: "acp-bin".into(),
+                args: vec![],
+            },
+        ] {
+            let mut run = sample_run(&temp_dir, adapter);
+            assert!(execute(&manager, &mut run).is_err());
+            assert!(refresh(&manager, &mut run).is_err());
+            assert_eq!(run.status, RunStatus::Running);
+            assert_eq!(run.id, "run-local-1");
+            assert!(run.remote_id.is_none());
+            assert!(run.error.is_none());
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
