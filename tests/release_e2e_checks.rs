@@ -196,3 +196,18 @@ fn windows_release_checks_match_e2e_checks() {
         );
     }
 }
+
+#[test]
+fn unit_e2e_checks_table_has_unique_non_empty_names_and_args() {
+    assert!(!E2E_CHECKS.is_empty());
+    let mut names = std::collections::BTreeSet::new();
+    for check in E2E_CHECKS {
+        assert!(!check.name.is_empty());
+        assert!(!check.args.is_empty());
+        assert!(
+            names.insert(check.name),
+            "duplicate E2E_CHECKS name: {}",
+            check.name
+        );
+    }
+}

@@ -97,3 +97,25 @@ fn tui_top_renders_multiple_queued_tasks_in_order() {
     assert!(first_pos < second_pos);
     assert!(!frame.contains("(idle)"));
 }
+
+#[test]
+fn tui_top_renders_mixed_healthy_and_unhealthy_providers_accurately() {
+    let frame = render_frame(&TopSnapshot {
+        providers: vec![
+            ProviderRow {
+                name: "anthropic".into(),
+                healthy: true,
+                latency_ms: 85,
+            },
+            ProviderRow {
+                name: "groq".into(),
+                healthy: false,
+                latency_ms: 999,
+            },
+        ],
+        gpu: None,
+        queue: vec![],
+    });
+    assert!(frame.contains("anthropic ok 85ms"));
+    assert!(frame.contains("groq down"));
+}

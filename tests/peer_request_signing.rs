@@ -275,3 +275,14 @@ fn bound_member_with_missing_nonce_or_signature_is_rejected() {
         None
     ));
 }
+
+#[test]
+fn unit_signed_helper_and_now_timestamp_invariants() {
+    let ts = now();
+    assert!(ts > 0);
+    let req = signed("node-a", "nonce-a", ts, "sig-a");
+    assert_eq!(req.node, Some("node-a"));
+    assert_eq!(req.nonce, Some("nonce-a"));
+    assert_eq!(req.ts_secs, Some(ts));
+    assert_eq!(req.sig, Some("sig-a"));
+}
