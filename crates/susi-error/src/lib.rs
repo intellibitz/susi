@@ -45,7 +45,13 @@ use sink::METRICS_CAP_BYTES;
 /// produce again (178MB observed pre-cap). Surfaces like `susi os clean`
 /// may reclaim it without losing anything the scheme still writes.
 pub fn oversized_rotated_metrics() -> Option<(PathBuf, u64)> {
-    let rotated = error_metrics_path().with_file_name("error_metrics.jsonl.1");
+    oversized_rotated_metrics_in(&data_dir())
+}
+
+/// Path-parameterized form of [`oversized_rotated_metrics`] against `home`.
+#[must_use]
+pub fn oversized_rotated_metrics_in(home: &std::path::Path) -> Option<(PathBuf, u64)> {
+    let rotated = home.join("error_metrics.jsonl.1");
     let len = std::fs::metadata(&rotated).ok()?.len();
     (len > METRICS_CAP_BYTES).then_some((rotated, len))
 }
@@ -216,11 +222,9 @@ pub struct PostedErrorEvent {
     pub error: Option<String>,
 }
 
-/// Normalise, redact and append a posted event to the metrics sink.
-///
-/// # Errors
-/// Fails when the metrics file cannot be written.
-pub fn append_posted_event(event: PostedErrorEvent) -> std::io::Result<()> {
+/// Normalise and redact a [`PostedErrorEvent`] into a JSONL metrics record.
+#[must_use]
+pub fn normalize_posted_event(event: PostedErrorEvent) -> serde_json::Value {
     let ts = event.ts.unwrap_or_else(|| {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -236,13 +240,21 @@ pub fn append_posted_event(event: PostedErrorEvent) -> std::io::Result<()> {
     let code = event
         .code
         .unwrap_or_else(|| format!("susi.{}", kind.to_lowercase()));
-    let entry = serde_json::json!({
+    serde_json::json!({
         "ts": ts,
         "error": message,
         "kind": kind,
         "code": code,
         "retryable": event.retryable.unwrap_or(false),
-    });
+    })
+}
+
+/// Normalise, redact and append a posted event to the metrics sink.
+///
+/// # Errors
+/// Fails when the metrics file cannot be written.
+pub fn append_posted_event(event: PostedErrorEvent) -> std::io::Result<()> {
+    let entry = normalize_posted_event(event);
     sink::append_metrics_line(&error_metrics_path(), &entry)
 }
 
@@ -250,13 +262,18 @@ pub fn append_posted_event(event: PostedErrorEvent) -> std::io::Result<()> {
 /// reads more than the last 512 KiB of the (capped, rotated) file.
 #[must_use]
 pub fn recent_error_entries(limit: usize) -> Vec<serde_json::Value> {
+    recent_error_entries_from(&error_metrics_path(), limit)
+}
+
+/// Path-parameterized form of [`recent_error_entries`] against `path`.
+#[must_use]
+pub fn recent_error_entries_from(path: &std::path::Path, limit: usize) -> Vec<serde_json::Value> {
     use std::io::{Read, Seek, SeekFrom};
     let limit = limit.min(500);
-    let path = error_metrics_path();
-    let Ok(meta) = std::fs::metadata(&path) else {
+    let Ok(meta) = std::fs::metadata(path) else {
         return Vec::new();
     };
-    let Ok(mut f) = std::fs::File::open(&path) else {
+    let Ok(mut f) = std::fs::File::open(path) else {
         return Vec::new();
     };
     let skip = meta.len().saturating_sub(512 * 1024);
@@ -338,5 +355,124 @@ mod tests {
         write_newer_dated_log(&home);
         assert!(stale_flat_audit_log_in(&home).is_none());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn rewrap_strips_nested_same_kind_prefixes_and_preserves_foreign_prefixes() {
+        let cases = [
+            ("Governance", "Governance Violation: ", "susi.governance"),
+            ("Hardware", "Hardware Error: ", "susi.hardware"),
+            ("Protocol", "Protocol Error: ", "susi.protocol"),
+            ("Inference", "Inference Error: ", "susi.inference"),
+            ("Sandbox", "Sandbox Error: ", "susi.sandbox"),
+            ("Config", "Configuration Error: ", "susi.config"),
+            ("Io", "I/O Error: ", "susi.io"),
+            ("Network", "Network Error: ", "susi.network"),
+            ("Filesystem", "Filesystem Error: ", "susi.filesystem"),
+            ("Process", "Process Error: ", "susi.process"),
+            (
+                "Authentication",
+                "Authentication Error: ",
+                "susi.authentication",
+            ),
+            (
+                "Authorization",
+                "Authorization Error: ",
+                "susi.authorization",
+            ),
+            ("Internal", "Internal Engine Error: ", "susi.internal"),
+        ];
+        for (kind, prefix, expected_code) in cases {
+            let nested = format!("{prefix}{prefix}denied");
+            let err = rewrap(kind, nested);
+            assert_eq!(err.code(), expected_code);
+            assert_eq!(err.to_string(), format!("{prefix}denied"));
+        }
+
+        let cross = rewrap("Governance", "Network Error: timeout".into());
+        assert_eq!(cross.code(), "susi.governance");
+        assert_eq!(
+            cross.to_string(),
+            "Governance Violation: Network Error: timeout"
+        );
+
+        let fallback = rewrap("UnknownKind", "boom".into());
+        assert_eq!(fallback.code(), "susi.internal");
+        assert_eq!(fallback.to_string(), "Internal Engine Error: boom");
+    }
+
+    #[test]
+    fn recent_error_entries_from_returns_newest_first_and_drops_partial_first_line_past_512kib() {
+        let home = audit_home("recent_entries");
+        let path = home.join("error_metrics.jsonl");
+        assert!(recent_error_entries_from(&path, 10).is_empty());
+
+        let mut payload = String::with_capacity(600 * 1024);
+        let pad = "x".repeat(1024);
+        for seq in 0..600u64 {
+            payload.push_str(&format!(
+                "{{\"seq\":{seq},\"pad\":\"{pad}\",\"kind\":\"Network\"}}\n"
+            ));
+        }
+        assert!(payload.len() > 512 * 1024);
+        std::fs::write(&path, payload).unwrap();
+
+        let entries = recent_error_entries_from(&path, 5);
+        assert_eq!(entries.len(), 5);
+        assert_eq!(entries[0]["seq"], 599);
+        assert_eq!(entries[1]["seq"], 598);
+        assert_eq!(entries[4]["seq"], 595);
+
+        let all_capped = recent_error_entries_from(&path, 999);
+        assert!(all_capped.len() <= 500);
+        assert_eq!(all_capped[0]["seq"], 599);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn oversized_rotated_metrics_in_detects_pre_cap_residue_only() {
+        let home = audit_home("oversized_rotated");
+        assert!(oversized_rotated_metrics_in(&home).is_none());
+
+        let rotated = home.join("error_metrics.jsonl.1");
+        let f = std::fs::File::create(&rotated).unwrap();
+        f.set_len(METRICS_CAP_BYTES).unwrap();
+        assert!(
+            oversized_rotated_metrics_in(&home).is_none(),
+            "file at exact cap must not be flagged as oversized residue"
+        );
+
+        f.set_len(METRICS_CAP_BYTES + 1).unwrap();
+        let (detected_path, detected_len) =
+            oversized_rotated_metrics_in(&home).expect("file above cap must be flagged");
+        assert_eq!(detected_path, rotated);
+        assert_eq!(detected_len, METRICS_CAP_BYTES + 1);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn normalize_posted_event_redacts_secrets_and_derives_code() {
+        let fake_sk = format!("sk-{}", "a".repeat(32));
+        let event = PostedErrorEvent {
+            variant: Some("Authentication".into()),
+            message: Some(format!("Bearer {fake_sk} rejected")),
+            kind: None,
+            code: None,
+            retryable: Some(true),
+            ts: Some(1_700_000_000),
+            error: None,
+        };
+        let norm = normalize_posted_event(event);
+        assert_eq!(norm["ts"], 1_700_000_000);
+        assert_eq!(norm["kind"], "Authentication");
+        assert_eq!(norm["code"], "susi.authentication");
+        assert_eq!(norm["retryable"], true);
+        let msg = norm["error"].as_str().unwrap();
+        assert!(
+            !msg.contains(&fake_sk),
+            "secret token must be redacted in normalized metrics event: {msg}"
+        );
     }
 }
