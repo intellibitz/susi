@@ -66,3 +66,43 @@ fn vc_201_050_offline_bundle_pack_and_import_checksummed() {
     assert!(!report.checksum_ok);
     assert!(!report.is_complete());
 }
+
+#[test]
+fn vc_201_050_empty_bundle_packs_with_deterministic_checksum_and_imports_cleanly() {
+    let bundle = pack_bundle(vec![], vec![], vec![]);
+    assert!(!bundle.checksum.is_empty());
+    let report = import_bundle(&bundle, &avail(&[]));
+    assert!(report.checksum_ok);
+    assert!(report.is_complete());
+}
+
+#[test]
+fn vc_201_050_missing_extension_metadata_is_diagnosed_without_false_positives() {
+    let bundle = pack_bundle(
+        vec!["susi".into()],
+        vec!["m.gguf".into()],
+        vec!["ext-a.json".into(), "ext-b.json".into()],
+    );
+    let report = import_bundle(&bundle, &avail(&["susi", "m.gguf", "ext-a.json"]));
+    assert!(report.checksum_ok);
+    assert!(!report.is_complete());
+    assert!(report.missing_binaries.is_empty());
+    assert!(report.missing_models.is_empty());
+    assert_eq!(
+        report.missing_extension_metadata,
+        vec!["ext-b.json".to_string()]
+    );
+}
+
+#[test]
+fn vc_201_050_tampered_checksum_string_fails_closed_even_when_all_artifacts_exist() {
+    let mut bundle = pack_bundle(
+        vec!["susi".into()],
+        vec!["m.gguf".into()],
+        vec!["ext.json".into()],
+    );
+    bundle.checksum = "0000".into();
+    let report = import_bundle(&bundle, &avail(&["susi", "m.gguf", "ext.json"]));
+    assert!(!report.checksum_ok);
+    assert!(!report.is_complete());
+}

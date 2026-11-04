@@ -1,0 +1,26 @@
+{
+  "id": "T-VENDORSMALLCRATES4T1104-1",
+  "title": "test(vendor): expand inline unit tests to 4 in rcgen, wasmtime, mcp-server, and windows-runtime",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-rcgen",
+      "-p",
+      "susi-vendor-wasmtime",
+      "-p",
+      "susi-vendor-mcp-server",
+      "-p",
+      "susi-windows-runtime",
+      "--lib"
+    ]
+  },
+  "created_by": "VENDORSMALLCRATES4T1104",
+  "created_unix": 1793786576
+}

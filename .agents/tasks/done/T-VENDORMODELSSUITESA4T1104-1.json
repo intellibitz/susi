@@ -1,0 +1,23 @@
+{
+  "id": "T-VENDORMODELSSUITESA4T1104-1",
+  "title": "Expand susi-vendor-models zc_key_aliases and 4 test suites to 4 unit tests",
+  "goal": "Expand susi-vendor-models zc_key_aliases, vc_201_050, vc_201_055, vc_201_043, and vc_201_043_headroom to 4 unit tests each",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "--lib"
+    ]
+  },
+  "created_by": "VENDORMODELSSUITESA4T1104",
+  "created_unix": 1793785877,
+  "closed": {
+    "at_unix": 1793786267,
+    "commit": "b8baf9fe6a71810abda92d4bf82ba704e6795cd4",
+    "by": "VENDORMODELSSUITESA4T1104"
+  }
+}
