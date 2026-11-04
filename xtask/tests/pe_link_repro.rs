@@ -21,8 +21,11 @@ fn digest(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// COFF timestamp plus each debug entry's (type, timestamp).
+type DebugRecords = (u32, Vec<(u32, u32)>);
+
 // Read the on-disk PE32+ debug directory of our own MSVC fixture.
-fn debug_records(pe: &[u8]) -> Result<(u32, Vec<(u32, u32)>)> {
+fn debug_records(pe: &[u8]) -> Result<DebugRecords> {
     fn word(data: &[u8], offset: usize) -> Result<u16> {
         Ok(u16::from_le_bytes(
             data.get(offset..offset + 2)
