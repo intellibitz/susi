@@ -140,4 +140,19 @@ mod tests {
         let public: Vec<u16> = ALL.iter().map(|(p, _)| *p).collect();
         assert_eq!(public, vec![9090, 9091, 9092, 9093, 9094]);
     }
+
+    #[test]
+    fn canonical_constants_match_documented_port_numbers_and_ordering() {
+        assert_eq!(GMCP, 9090);
+        assert_eq!(GEMI, 9091);
+        assert_eq!(UDP_DISCOVERY, 9092);
+        assert_eq!(GMCP_HTTP, 9093);
+        assert_eq!(A2A_HTTP, 9094);
+        assert_eq!(GOSSIP, 9095);
+        assert_eq!(PATHS_SERVICE, 18080);
+        assert_eq!(ERROR_SERVICE, 18081);
+        assert_eq!(CONFIG_SERVICE, 18082);
+        assert_eq!(SANDBOX_SERVICE, 18083);
+        assert_eq!(NATIVE_SERVICE, 18084);
+    }
 }

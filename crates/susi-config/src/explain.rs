@@ -456,4 +456,19 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn config_origin_serde_roundtrip_and_equality_contract() {
+        for origin in [
+            ConfigOrigin::BundledDefault,
+            ConfigOrigin::Host,
+            ConfigOrigin::Environment {
+                var: "SUSI_PORT_OFFSET".into(),
+            },
+        ] {
+            let json = serde_json::to_string(&origin).unwrap();
+            let back: ConfigOrigin = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, origin);
+        }
+    }
 }

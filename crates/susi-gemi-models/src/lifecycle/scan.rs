@@ -592,4 +592,35 @@ mod tests {
 
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn recursive_scan_model_dir_skips_already_visited_canonical_directories_and_non_matching_files()
+    {
+        let root = std::env::temp_dir().join(format!(
+            "susi-scan-visited-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("candidate.gguf"), vec![0x47u8; 2_000]).unwrap();
+
+        let rules = ModelScanRules {
+            exclude_dirs: Vec::new(),
+            extensions: vec!["gguf".to_string()],
+            min_bytes: 500,
+        };
+        let mut discovered = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(root.canonicalize().unwrap());
+
+        ModelManager::recursive_scan_model_dir(&root, &mut discovered, &mut visited, 0, &rules);
+        assert!(
+            discovered.is_empty(),
+            "already-visited canonical directory must not be rescanned"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 }

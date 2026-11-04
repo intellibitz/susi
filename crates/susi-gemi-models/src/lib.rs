@@ -95,4 +95,14 @@ mod inline_tests {
             "starter"
         );
     }
+
+    #[test]
+    fn audited_starter_matches_first_default_starter_and_has_positive_size() {
+        let audited = zc_first_model::audited_starter();
+        let starters = zc_first_model::default_starters();
+        assert_eq!(audited, starters[0]);
+        assert!(audited.size_bytes > 0);
+        assert!(!audited.hf_repo.is_empty());
+        assert!(audited.hf_file.ends_with(".gguf"));
+    }
 }

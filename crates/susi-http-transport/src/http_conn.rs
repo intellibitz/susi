@@ -45,4 +45,10 @@ mod tests {
         let _first = connection_builder();
         let _second = connection_builder();
     }
+
+    #[test]
+    fn header_read_timeout_micros_matches_thirty_million() {
+        assert_eq!(HEADER_READ_TIMEOUT.as_micros(), 30_000_000);
+        assert_eq!(HEADER_READ_TIMEOUT.as_nanos(), 30_000_000_000);
+    }
 }

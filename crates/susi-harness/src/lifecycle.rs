@@ -273,4 +273,21 @@ mod tests {
         append_entry(&ledger, &entry("m-2", "t-1", 700)).unwrap();
         assert_eq!(task_cost(&ledger, "m-1", "t-1"), MicroUsd::from_micros(150));
     }
+
+    #[test]
+    fn now_unix_is_positive_and_read_skips_blank_lines_or_errors_on_corrupt_json() {
+        assert!(now_unix() > 0);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lifecycle.jsonl");
+        let evt = LifecycleEvent::new("T-2", "claimed", 123)
+            .with_outcome("ok")
+            .with_detail("detail");
+        let line = serde_json::to_string(&evt).unwrap();
+        std::fs::write(&path, format!("\n   \n{line}\n")).unwrap();
+        assert_eq!(read(&path).unwrap(), vec![evt]);
+
+        std::fs::write(&path, format!("{line}\n{{corrupt\n")).unwrap();
+        let err = read(&path).unwrap_err().to_string();
+        assert!(err.contains("line 2:"), "unexpected error: {err}");
+    }
 }

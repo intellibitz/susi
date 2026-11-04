@@ -123,4 +123,19 @@ mod inline_tests {
             Err("unknown revision".into())
         );
     }
+
+    #[test]
+    fn reflex_store_round_trips_serde_json_and_overwrites_republished_revision() {
+        let mut store = ReflexStore::default();
+        store.publish(sample_rev("rev-a"));
+        store.revoke("rev-a").unwrap();
+        assert!(!store.may_execute("any-caller", "rev-a"));
+
+        store.publish(sample_rev("rev-a"));
+        assert!(store.may_execute("any-caller", "rev-a"));
+
+        let encoded = serde_json::to_string(&store).unwrap();
+        let decoded: ReflexStore = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, store);
+    }
 }
