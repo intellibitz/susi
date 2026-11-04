@@ -73,3 +73,61 @@ fn mission_dag_persist_wiring() {
 
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn mission_id_for_goal_is_deterministic_and_distinct_per_goal() {
+    let id1 = PersistedMission::mission_id_for_goal("alpha goal");
+    let id2 = PersistedMission::mission_id_for_goal("alpha goal");
+    let id3 = PersistedMission::mission_id_for_goal("beta goal");
+    assert_eq!(id1, id2);
+    assert_ne!(id1, id3);
+    assert!(!id1.is_empty());
+}
+
+#[test]
+fn persist_node_complete_records_output_and_round_trips_from_disk() {
+    let workspace = scratch_dir().join("output-round-trip");
+    let persist_dir = PersistedMission::missions_dir(&workspace);
+    let dag = MissionDag::new("output round-trip");
+    let mission_id = PersistedMission::mission_id_for_goal("output round-trip");
+    let mut persist = dag.to_persisted(&mission_id);
+    persist.save(&persist_dir).expect("initial save");
+
+    MissionDag::persist_node_complete(&mut persist, &persist_dir, 0, "verified-artifact-hash")
+        .expect("complete root with output");
+    let path = persist_dir.join(format!("{mission_id}.json"));
+    let loaded = PersistedMission::load(&path).expect("reload persisted mission");
+    assert_eq!(loaded.nodes["n0"].state, NodeTerminal::Completed);
+    assert_eq!(
+        loaded.nodes["n0"].output.as_deref(),
+        Some("verified-artifact-hash")
+    );
+
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn multi_dependency_join_node_becomes_runnable_only_after_all_parents_complete() {
+    let workspace = scratch_dir().join("join-node");
+    let persist_dir = PersistedMission::missions_dir(&workspace);
+    let mut dag = MissionDag::new("diamond join");
+    let n1 = dag.push_node("branch-b", "parallel branch", vec![]);
+    let n2 = dag.push_node("join", "depends on n0 and n1", vec![0, n1]);
+    assert_eq!(n2, 2);
+
+    let mission_id = PersistedMission::mission_id_for_goal("diamond join");
+    let mut persist = dag.to_persisted(&mission_id);
+    persist.save(&persist_dir).expect("save diamond");
+
+    // Completing only n0 leaves n2 blocked on n1.
+    MissionDag::persist_node_complete(&mut persist, &persist_dir, 0, "n0-done").expect("n0");
+    let runnable_ids: Vec<&str> = persist.runnable().iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(runnable_ids, vec!["n1"]);
+
+    // Completing n1 unlocks n2.
+    MissionDag::persist_node_complete(&mut persist, &persist_dir, 1, "n1-done").expect("n1");
+    let runnable_ids2: Vec<&str> = persist.runnable().iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(runnable_ids2, vec!["n2"]);
+
+    let _ = std::fs::remove_dir_all(&workspace);
+}

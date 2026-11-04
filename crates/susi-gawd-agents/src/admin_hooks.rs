@@ -209,4 +209,82 @@ mod tests {
             r#"Patch Cycle Applied (high) on workspace-root: {"files":[]}"#
         );
     }
+
+    struct FailingAdminHooks;
+    impl AdminHooks for FailingAdminHooks {
+        fn enforce_version_consistency(&self, _workspace: &Path) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("enforce failed"))
+        }
+        fn audit_compliance(&self, _workspace: &Path) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("audit failed"))
+        }
+        fn verify_version_alignment(&self, _workspace: &Path) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("verify failed"))
+        }
+        fn execute_release(&self, _workspace: &Path) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("release failed"))
+        }
+        fn bloat_audit_workspace(&self, _workspace: &Path) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("bloat failed"))
+        }
+        fn perform_autonomous_drift_audit(&self, _workspace: &Path) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("drift failed"))
+        }
+        fn apply_patch_cycle(
+            &self,
+            _workspace: &Path,
+            _request_json: &str,
+            _trust_level: &str,
+        ) -> EaiResult<String> {
+            Err(crate::susi_error::EaiError::internal("patch failed"))
+        }
+    }
+
+    #[test]
+    fn failing_admin_hooks_propagates_errors_across_all_seven_trait_methods() {
+        let ws = Path::new("workspace-err");
+        let failing: &dyn AdminHooks = &FailingAdminHooks;
+        assert!(failing.enforce_version_consistency(ws).is_err());
+        assert!(failing.audit_compliance(ws).is_err());
+        assert!(failing.verify_version_alignment(ws).is_err());
+        assert!(failing.execute_release(ws).is_err());
+        assert!(failing.bloat_audit_workspace(ws).is_err());
+        assert!(failing.perform_autonomous_drift_audit(ws).is_err());
+        assert!(failing.apply_patch_cycle(ws, "{}", "local").is_err());
+    }
+
+    #[test]
+    fn no_op_admin_hooks_messages_are_invariant_across_workspace_paths_and_trust_levels() {
+        for (ws_str, trust) in [("/tmp/ws-a", "untrusted"), ("relative/ws-b", "elevated")] {
+            let ws = Path::new(ws_str);
+            assert_eq!(
+                NO_OP_HOOKS.enforce_version_consistency(ws).unwrap(),
+                "[ADMIN_UNWIRED] enforce_version_consistency: susi_gawd_agents::admin_hooks::init was never called."
+            );
+            assert_eq!(
+                NO_OP_HOOKS.audit_compliance(ws).unwrap(),
+                "[ADMIN_UNWIRED] audit_compliance: susi_gawd_agents::admin_hooks::init was never called."
+            );
+            assert_eq!(
+                NO_OP_HOOKS.verify_version_alignment(ws).unwrap(),
+                "[ADMIN_UNWIRED] verify_version_alignment: susi_gawd_agents::admin_hooks::init was never called."
+            );
+            assert_eq!(
+                NO_OP_HOOKS.execute_release(ws).unwrap(),
+                "[ADMIN_UNWIRED] execute_release: susi_gawd_agents::admin_hooks::init was never called."
+            );
+            assert_eq!(
+                NO_OP_HOOKS.bloat_audit_workspace(ws).unwrap(),
+                "[ADMIN_UNWIRED] bloat_audit_workspace: susi_gawd_agents::admin_hooks::init was never called."
+            );
+            assert_eq!(
+                NO_OP_HOOKS.perform_autonomous_drift_audit(ws).unwrap(),
+                "[ADMIN_UNWIRED] perform_autonomous_drift_audit: susi_gawd_agents::admin_hooks::init was never called."
+            );
+            assert_eq!(
+                NO_OP_HOOKS.apply_patch_cycle(ws, r#"{"op":1}"#, trust).unwrap(),
+                "[ADMIN_UNWIRED] apply_patch_cycle: susi_gawd_agents::admin_hooks::init was never called."
+            );
+        }
+    }
 }

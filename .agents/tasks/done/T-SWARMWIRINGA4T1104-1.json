@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-SWARMWIRINGA4T1104-1",
+  "title": "Expand susi-gawd-swarm cancel_propagate, fair_queue, independent_verify, joint_consensus, and mission_dag_persist wiring suites to 4 unit tests each",
+  "touch": [
+    "crates/susi-gawd-swarm/src/tests/cancel_propagate_dispatch_wiring.rs",
+    "crates/susi-gawd-swarm/src/tests/fair_queue_dispatch_wiring.rs",
+    "crates/susi-gawd-swarm/src/tests/independent_verify_dispatch_wiring.rs",
+    "crates/susi-gawd-swarm/src/tests/joint_consensus_membership_wiring.rs",
+    "crates/susi-gawd-swarm/src/tests/mission_dag_persist_wiring.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "cancel_propagate_dispatch_wiring"
+    ]
+  }
+}
