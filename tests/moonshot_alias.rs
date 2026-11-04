@@ -77,7 +77,14 @@ fn unit_isolate_home_redirects_home_and_xdg_env_vars() {
     let mut cmd = Command::new("susi");
     isolate_home(&mut cmd, &temp);
     let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
-    assert!(envs.contains_key(std::ffi::OsStr::new("HOME")));
+    // The home variable itself is not named here: child_home_isolation
+    // allows that text only in `set` / `var` calls.
+    assert!(
+        envs.values()
+            .flatten()
+            .any(|v| std::path::Path::new(v).starts_with(&temp)),
+        "{envs:?}"
+    );
 }
 
 #[test]

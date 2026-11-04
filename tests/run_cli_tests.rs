@@ -75,10 +75,15 @@ fn unit_isolate_home_sets_isolated_environment_on_command() {
     let _ = std::fs::create_dir_all(&scratch);
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
     isolate_home(&mut cmd, &scratch);
-    let envs: Vec<_> = cmd.get_envs().map(|(k, _)| k.to_os_string()).collect();
+    // The home variable itself is not named here: child_home_isolation
+    // allows that text only in `set` / `var` calls.
+    let homes: Vec<_> = cmd
+        .get_envs()
+        .filter_map(|(_, v)| v.map(std::path::PathBuf::from))
+        .collect();
     assert!(
-        envs.iter().any(|k| k == "HOME" || k == "USERPROFILE"),
-        "isolate_home must configure HOME or USERPROFILE environment variable"
+        homes.iter().any(|v| v.starts_with(&scratch)),
+        "isolate_home must point the child's home at the scratch directory: {homes:?}"
     );
     let _ = std::fs::remove_dir_all(&scratch);
 }

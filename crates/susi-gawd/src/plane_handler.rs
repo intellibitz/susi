@@ -119,14 +119,18 @@ impl PlaneHandler for GawdPlaneHandler {
                     .and_then(|v| v.as_str())
                     .unwrap_or(env!("CARGO_PKG_VERSION"));
                 let model = payload.get("model").and_then(|v| v.as_str());
-                let report = as_user_request(|| {
-                    crate::ama::SusiMasterAgent::new().solve_stream_report_with_model(
-                        intent,
-                        &ws,
-                        version,
-                        model,
-                        &|_| {},
-                    )
+                // A watched forwarded goal streams its progress lines back.
+                let sink = crate::susi_core::plane_bus::progress_sink_for(&payload);
+                let report = crate::susi_core::progress::with_sink(sink, || {
+                    as_user_request(|| {
+                        crate::ama::SusiMasterAgent::new().solve_stream_report_with_model(
+                            intent,
+                            &ws,
+                            version,
+                            model,
+                            &|_| {},
+                        )
+                    })
                 });
                 Ok(mission_outcome(&report))
             }
