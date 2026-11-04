@@ -633,4 +633,67 @@ mod cross_os_tests {
         assert_eq!(rolled.current, pkg_a.release);
         let _ = fs::remove_dir_all(&base);
     }
+
+    #[test]
+    fn selection_validation_and_receipt_integrity_reject_corrupt_state() {
+        let root = env::temp_dir().join(format!(
+            "susi-cross-os-receipt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let active_path = root.join(ACTIVE);
+
+        let valid = Selection {
+            current: "c".repeat(64),
+            previous: Some("d".repeat(64)),
+            dispatcher: "c".repeat(64),
+        };
+        assert!(valid.validate().is_ok());
+        put(&active_path, &valid).unwrap();
+        assert_eq!(get::<Selection>(&active_path).unwrap(), Some(valid.clone()));
+
+        let self_prev = Selection {
+            previous: Some("c".repeat(64)),
+            ..valid
+        };
+        assert!(self_prev.validate().is_err());
+
+        let tampered =
+            fs::read_to_string(&active_path)
+                .unwrap()
+                .replacen(&"c".repeat(64), &"e".repeat(64), 1);
+        fs::write(&active_path, tampered).unwrap();
+        assert!(get::<Selection>(&active_path).is_err());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn apply_rollback_without_installed_release_or_predecessor_fails_cleanly() {
+        let root = env::temp_dir().join(format!(
+            "susi-cross-os-no-rollback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        assert!(apply(&root, None, &|_| Ok(()), None).is_err());
+
+        let no_prev = Selection {
+            current: "f".repeat(64),
+            previous: None,
+            dispatcher: "f".repeat(64),
+        };
+        put(&root.join(ACTIVE), &no_prev).unwrap();
+        assert!(apply(&root, None, &|_| Ok(()), None).is_err());
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

@@ -207,3 +207,49 @@ fn qualified_ordinary_channel_preserves_live_images_recovers_and_rejects_tamperi
     );
     fs::remove_dir_all(scratch).unwrap();
 }
+
+#[test]
+fn selection_validate_and_require_enforce_digest_and_target_invariants() {
+    let valid = Selection {
+        current: "a".repeat(64),
+        previous: Some("b".repeat(64)),
+        dispatcher: "a".repeat(64),
+    };
+    assert!(valid.validate().is_ok());
+    assert!(valid.require(None).is_ok());
+    assert!(valid.require(Some(&"a".repeat(64))).is_ok());
+    assert!(valid.require(Some(&"c".repeat(64))).is_err());
+
+    let same_prev = Selection {
+        previous: Some("a".repeat(64)),
+        ..valid.clone()
+    };
+    assert!(same_prev.validate().is_err());
+
+    let bad_disp = Selection {
+        dispatcher: "invalid".into(),
+        ..valid
+    };
+    assert!(bad_disp.validate().is_err());
+}
+
+#[test]
+fn receipt_put_and_get_roundtrip_and_detect_tampered_payload() {
+    let scratch = fixture_root();
+    let path = scratch.join(ACTIVE);
+    assert!(get::<Selection>(&path).unwrap().is_none());
+
+    let sel = Selection {
+        current: "1".repeat(64),
+        previous: None,
+        dispatcher: "1".repeat(64),
+    };
+    put(&path, &sel).unwrap();
+    assert_eq!(get::<Selection>(&path).unwrap(), Some(sel));
+
+    let raw = fs::read_to_string(&path).unwrap();
+    fs::write(&path, raw.replacen(&"1".repeat(64), &"2".repeat(64), 1)).unwrap();
+    assert!(get::<Selection>(&path).is_err());
+
+    fs::remove_dir_all(scratch).unwrap();
+}
