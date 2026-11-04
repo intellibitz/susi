@@ -65,4 +65,32 @@ mod tests {
         assert_eq!(custom_mapped.streaming, Some(false));
         assert_eq!(custom_mapped.push_notifications, Some(true));
     }
+
+    #[test]
+    fn gawd_capabilities_boolean_matrix_clone_debug_and_unset_history_default() {
+        for (streaming, push_notifications) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let caps = GawdCapabilities {
+                streaming,
+                push_notifications,
+            };
+            let cloned = caps.clone();
+            assert_eq!(cloned.streaming, streaming);
+            assert_eq!(cloned.push_notifications, push_notifications);
+
+            let dbg = format!("{cloned:?}");
+            assert!(dbg.contains("GawdCapabilities"));
+
+            let a2a_caps = cloned.as_capabilities();
+            let default_a2a = ra2a::types::AgentCapabilities::default();
+            assert_eq!(a2a_caps.streaming, Some(streaming));
+            assert_eq!(a2a_caps.push_notifications, Some(push_notifications));
+            assert_eq!(a2a_caps.extensions.len(), default_a2a.extensions.len());
+            assert_eq!(
+                a2a_caps.extended_agent_card,
+                default_a2a.extended_agent_card
+            );
+        }
+    }
 }

@@ -125,4 +125,75 @@ mod tests {
         assert!(store.get("task-term-3").await.unwrap().is_some());
         assert!(store.get("task-term-4").await.unwrap().is_some());
     }
+
+    #[tokio::test]
+    async fn reap_terminal_noop_within_limit_and_zero_limit_evicts_all_terminal_states_only() {
+        let store = InMemoryTaskStore::new();
+
+        for (id, state, ts) in [
+            (
+                "active-submitted",
+                TaskState::Submitted,
+                "2026-11-04T00:00:01Z",
+            ),
+            ("active-working", TaskState::Working, "2026-11-04T00:00:02Z"),
+            (
+                "active-input-required",
+                TaskState::InputRequired,
+                "2026-11-04T00:00:03Z",
+            ),
+            (
+                "term-completed",
+                TaskState::Completed,
+                "2026-11-04T00:01:00Z",
+            ),
+            ("term-failed", TaskState::Failed, "2026-11-04T00:02:00Z"),
+            ("term-canceled", TaskState::Canceled, "2026-11-04T00:03:00Z"),
+            ("term-rejected", TaskState::Rejected, "2026-11-04T00:04:00Z"),
+        ] {
+            store
+                .save(&make_task(id, state, ts), None, Default::default())
+                .await
+                .unwrap();
+        }
+
+        // Within limit (4 <= 4 and 4 <= MAX_TERMINAL_TASKS): nothing evicted.
+        reap_terminal_with_limit(&store, 4).await;
+        reap_terminal(&store).await;
+        for id in [
+            "active-submitted",
+            "active-working",
+            "active-input-required",
+            "term-completed",
+            "term-failed",
+            "term-canceled",
+            "term-rejected",
+        ] {
+            assert!(store.get(id).await.unwrap().is_some(), "{id} should remain");
+        }
+
+        // Zero limit: all terminal states evicted, all non-terminal states preserved.
+        reap_terminal_with_limit(&store, 0).await;
+        for active_id in [
+            "active-submitted",
+            "active-working",
+            "active-input-required",
+        ] {
+            assert!(
+                store.get(active_id).await.unwrap().is_some(),
+                "{active_id} must be preserved"
+            );
+        }
+        for term_id in [
+            "term-completed",
+            "term-failed",
+            "term-canceled",
+            "term-rejected",
+        ] {
+            assert!(
+                store.get(term_id).await.unwrap().is_none(),
+                "{term_id} must be evicted"
+            );
+        }
+    }
 }

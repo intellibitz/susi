@@ -52,3 +52,32 @@ pub fn generate_simple_self_signed(
     let cert = parameters.self_signed(&signing_key)?;
     Ok(CertifiedKey { cert, signing_key })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_simple_self_signed_produces_valid_rsa_key_signature_and_certificate(
+    ) -> Result<(), Error> {
+        let CertifiedKey { cert, signing_key } =
+            generate_simple_self_signed(vec!["localhost".to_string(), "127.0.0.1".to_string()])?;
+
+        let key_pem = signing_key.serialize_pem();
+        let trimmed_key_pem = key_pem.trim();
+        assert!(trimmed_key_pem.starts_with("-----BEGIN"));
+        assert!(trimmed_key_pem.contains("-----END"));
+        assert!(trimmed_key_pem.ends_with("-----"));
+
+        assert!(!signing_key.der_bytes().is_empty());
+        assert_eq!(signing_key.algorithm(), &PKCS_RSA_SHA256);
+
+        let sig = signing_key.sign(b"susi-rcgen-contract-message")?;
+        assert!(!sig.is_empty());
+
+        let cert_pem = cert.pem();
+        assert!(cert_pem.starts_with("-----BEGIN CERTIFICATE-----"));
+        assert!(!cert.der().is_empty());
+        Ok(())
+    }
+}

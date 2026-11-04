@@ -185,4 +185,58 @@ mod tests {
             serde_json::from_str(&encoded_res).expect("deserialize search result");
         assert_eq!(decoded_res.fragment, frag_a);
     }
+
+    #[test]
+    fn cosine_similarity_edge_cases_and_search_limit_zero_and_strict_min_score() {
+        assert_eq!(
+            InMemoryEpisodicStore::cosine_similarity(&[1.0, 0.0], &[1.0, 0.0, 0.0]),
+            0.0
+        );
+        assert_eq!(InMemoryEpisodicStore::cosine_similarity(&[], &[]), 0.0);
+        assert_eq!(
+            InMemoryEpisodicStore::cosine_similarity(&[0.0, 0.0, 0.0], &[1.0, 0.0, 0.0]),
+            0.0
+        );
+
+        let store = InMemoryEpisodicStore::new();
+        store
+            .store(MemoryFragment {
+                id: "exact".to_string(),
+                namespace: "ns".to_string(),
+                embedding: vec![1.0, 0.0, 0.0],
+                payload: "exact".to_string(),
+                timestamp_sec: 1,
+            })
+            .expect("store exact");
+        store
+            .store(MemoryFragment {
+                id: "partial".to_string(),
+                namespace: "ns".to_string(),
+                embedding: vec![0.8, 0.6, 0.0],
+                payload: "partial".to_string(),
+                timestamp_sec: 2,
+            })
+            .expect("store partial");
+
+        let zero_limit = store
+            .search(MemorySearchRequest {
+                namespace: "ns".to_string(),
+                query_embedding: vec![1.0, 0.0, 0.0],
+                limit: 0,
+                min_score: 0.0,
+            })
+            .expect("search with limit 0");
+        assert!(zero_limit.is_empty());
+
+        let strict_hits = store
+            .search(MemorySearchRequest {
+                namespace: "ns".to_string(),
+                query_embedding: vec![1.0, 0.0, 0.0],
+                limit: 10,
+                min_score: 1.0,
+            })
+            .expect("search with min_score 1.0");
+        assert_eq!(strict_hits.len(), 1);
+        assert_eq!(strict_hits[0].fragment.id, "exact");
+    }
 }
