@@ -92,4 +92,29 @@ mod tests {
             status("GET", "/config/unknown", "").await
         );
     }
+
+    #[tokio::test]
+    async fn config_routes_reject_invalid_bearer_tokens_with_unauthorized() {
+        for auth_header in ["Bearer invalid-forged-token", "Basic dXNlcjpwYXNz"] {
+            for (method, uri, body) in [
+                ("GET", "/config", ""),
+                ("POST", "/config", "{}"),
+                ("POST", "/config/reload", ""),
+            ] {
+                let request = Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("content-type", "application/json")
+                    .header("authorization", auth_header)
+                    .body(Body::from(body.to_string()))
+                    .unwrap();
+                let resp_status = router().oneshot(request).await.unwrap().status();
+                assert_eq!(
+                    resp_status,
+                    StatusCode::UNAUTHORIZED,
+                    "{method} {uri} with {auth_header}"
+                );
+            }
+        }
+    }
 }

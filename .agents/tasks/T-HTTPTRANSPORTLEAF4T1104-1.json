@@ -1,0 +1,20 @@
+{
+  "id": "T-HTTPTRANSPORTLEAF4T1104-1",
+  "title": "test(http-transport,leaf-services): expand inline unit tests to 4 in dual_transport, lib, auth, and config_svc",
+  "goal": "Add a 4th inline unit test to susi-http-transport dual_transport.rs, lib.rs, and susi-leaf-services auth.rs, config_svc.rs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-http-transport",
+      "-p",
+      "susi-leaf-services",
+      "--lib"
+    ]
+  },
+  "created_by": "HTTPTRANSPORTLEAF4T1104",
+  "created_unix": 1793780001
+}

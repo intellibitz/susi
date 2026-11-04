@@ -238,4 +238,44 @@ mod tests {
         .await;
         assert!(result.is_none(), "idle connection must time out and drop");
     }
+
+    #[tokio::test]
+    async fn maybe_tls_plain_vectored_write_and_negotiate_transport_wrapper_succeeds_on_loopback() {
+        let (mut client, server) = connected_pair().await;
+        client.write_all(b"G").await.expect("write initial byte");
+
+        let mut transport = negotiate_transport(server, false, None, true, "[TEST]")
+            .await
+            .expect("negotiate_transport on loopback must succeed");
+        assert!(matches!(transport, MaybeTls::Plain(_)));
+        let _ = transport.is_write_vectored();
+
+        let mut probe = [0u8; 1];
+        transport.read_exact(&mut probe).await.expect("read probe");
+        assert_eq!(&probe, b"G");
+
+        let slices = [
+            std::io::IoSlice::new(b"vec-"),
+            std::io::IoSlice::new(b"payload"),
+        ];
+        let written = transport
+            .write_vectored(&slices)
+            .await
+            .expect("write_vectored");
+        if written < 11 {
+            transport
+                .write_all(&b"vec-payload"[written..])
+                .await
+                .expect("write remainder");
+        }
+        transport.flush().await.expect("flush");
+        transport.shutdown().await.expect("shutdown");
+
+        let mut received = Vec::new();
+        client
+            .read_to_end(&mut received)
+            .await
+            .expect("read vectored output");
+        assert_eq!(received, b"vec-payload");
+    }
 }

@@ -59,4 +59,20 @@ mod surface_tests {
             .expect("TRACE must be refused");
         assert_eq!(err, "unsupported HTTP method TRACE");
     }
+
+    #[test]
+    fn empty_or_lowercase_unsupported_methods_are_refused_before_any_socket_io() {
+        let url = refused_url();
+        let empty_err = http_call("", &url, &[], 1, 0)
+            .err()
+            .expect("empty method must be refused");
+        assert!(empty_err.contains("unsupported HTTP method"));
+
+        for method in ["get", "OPTIONS", "CONNECT"] {
+            let err = http_call_with_body(method, &url, &[], None, 1, 0)
+                .err()
+                .expect("method must be refused");
+            assert_eq!(err, format!("unsupported HTTP method {method}"));
+        }
+    }
 }
