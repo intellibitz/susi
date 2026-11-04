@@ -632,4 +632,26 @@ mod inline_tests {
         };
         assert_eq!(prepaid.marginal_cost_usd(), Some(f64::MAX));
     }
+
+    #[test]
+    fn metered_worker_marginal_cost_and_missing_base_effective_cost_behave_consistently() {
+        assert_eq!(scarcity_penalty(0.25), 3.0);
+        assert_eq!(effective_cost_usd(None, Some(0.5)), None);
+        let metered = WorkerDescriptor {
+            name: "api-openai".to_string(),
+            kind: WorkerKind::AgentSeat,
+            billing: BillingMode::Metered,
+            rate_per_min: Some(60),
+            max_concurrent: Some(4),
+            healthy: true,
+            samples: 10,
+            success_rate: Some(0.95),
+            expected_cost_usd: Some(0.42),
+            cost_per_outcome_usd: Some(0.44),
+            window_used: None,
+            window_cap: None,
+            saturated: false,
+        };
+        assert_eq!(metered.marginal_cost_usd(), Some(0.42));
+    }
 }

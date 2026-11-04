@@ -302,4 +302,11 @@ mod inline_tests {
             assert!(err.to_string().contains("not provisioned"));
         }
     }
+
+    #[test]
+    fn generative_reflex_engine_is_zero_sized_and_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<GenerativeReflexEngine>();
+        assert_eq!(std::mem::size_of::<GenerativeReflexEngine>(), 0);
+    }
 }
