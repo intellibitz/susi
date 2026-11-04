@@ -248,4 +248,11 @@ mod tests {
 
         let _ = std::fs::remove_file(&reg);
     }
+
+    #[test]
+    fn load_persisted_peers_from_missing_file_returns_empty_vec() {
+        let missing = temp_registry();
+        let _ = std::fs::remove_file(&missing);
+        assert!(load_persisted_peers_from(&missing).is_empty());
+    }
 }

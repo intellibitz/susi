@@ -90,4 +90,10 @@ mod inline_tests {
             .iter()
             .all(|r| !r.title.trim().is_empty() && !r.imperative.trim().is_empty()));
     }
+
+    #[test]
+    fn alpha_self_compiled_rules_all_carry_non_blank_citations() {
+        let rules = crate::self_core::AlphaSelf::RULES;
+        assert!(rules.iter().all(|r| !r.cite.trim().is_empty()));
+    }
 }

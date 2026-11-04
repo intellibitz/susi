@@ -101,4 +101,29 @@ mod inline_tests {
             r#""rejected""#
         );
     }
+
+    #[test]
+    fn publish_formats_failed_and_inconclusive_trial_outcomes() {
+        let rows = vec![
+            ExperimentComparison {
+                candidate_id: "cand-3".to_string(),
+                baseline_id: "base-1".to_string(),
+                metric_delta: 0.0,
+                receipt: "rcpt-c".to_string(),
+                outcome: TrialOutcome::Inconclusive,
+            },
+            ExperimentComparison {
+                candidate_id: "cand-4".to_string(),
+                baseline_id: "base-1".to_string(),
+                metric_delta: -0.25,
+                receipt: "rcpt-d".to_string(),
+                outcome: TrialOutcome::Failed,
+            },
+        ];
+        let text = publish(&rows);
+        assert!(
+            text.contains("- cand-3 vs base-1 delta=0.0000 outcome=Inconclusive receipt=rcpt-c")
+        );
+        assert!(text.contains("- cand-4 vs base-1 delta=-0.2500 outcome=Failed receipt=rcpt-d"));
+    }
 }

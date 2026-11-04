@@ -108,4 +108,12 @@ mod inline_tests {
         let err = susi_error::EaiError::governance("policy test");
         assert!(err.to_string().contains("policy test"));
     }
+
+    #[test]
+    fn alpha_self_and_axiom_substrate_reexports_are_accessible_from_crate_root() {
+        assert!(!AlphaSelf::VERSION.is_empty());
+        let (rules, comps) = AxiomSubstrate::ingest_constitution(std::path::Path::new("."));
+        assert!(!rules.is_empty());
+        assert!(!comps.is_empty());
+    }
 }

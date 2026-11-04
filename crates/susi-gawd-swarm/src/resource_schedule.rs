@@ -172,4 +172,21 @@ mod inline_tests {
         assert_eq!(rem.subprocesses, 0);
         assert_eq!(rem.tool_grants, free.tool_grants);
     }
+
+    #[test]
+    fn resources_and_dag_node_serde_defaults_populate_unmeasured_mem_and_single_subprocess() {
+        let res: Resources = serde_json::from_str(
+            r#"{"cpu":2.0,"gpu_mem_gb":0.0,"model_ready":false,"tool_grants":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(res.mem_gb, f64::MAX);
+        assert_eq!(res.subprocesses, 0);
+
+        let node: DagNode = serde_json::from_str(
+            r#"{"id":"n-def","cpu":1.0,"gpu_mem_gb":0.0,"needs_model":false,"needs_tools":[]}"#,
+        )
+        .unwrap();
+        assert!(node.mem_gb.abs() < f64::EPSILON);
+        assert_eq!(node.subprocesses, 1);
+    }
 }

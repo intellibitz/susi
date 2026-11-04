@@ -272,4 +272,35 @@ mod tests {
         assert_eq!(decoded.capabilities, vec!["cap-a", "cap-b"]);
         assert_eq!(decoded.memory_footprint_mb, 256);
     }
+
+    #[test]
+    fn probe_udp_discovery_port_rejects_non_pong_reply_and_whitespace_nonce() {
+        let (frame, nonce) =
+            signed_ping("bootloader", 0, "0").expect("cluster.key must produce signed ping");
+        assert!(!probe_udp_discovery_port(
+            9,
+            Some((&frame, "   ")),
+            Duration::from_millis(50),
+        ));
+
+        let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
+        server
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .expect("set read timeout");
+        let port = server.local_addr().expect("local_addr").port();
+
+        let handle = std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((_amt, src)) = server.recv_from(&mut buf) {
+                let _ = server.send_to(b"NOT_A_SIGNED_PONG", src);
+            }
+        });
+
+        assert!(!probe_udp_discovery_port(
+            port,
+            Some((&frame, &nonce)),
+            Duration::from_millis(200),
+        ));
+        let _ = handle.join();
+    }
 }

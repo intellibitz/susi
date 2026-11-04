@@ -133,4 +133,14 @@ mod tests {
             assert!(bullet.contains(": "));
         }
     }
+
+    #[test]
+    fn ingest_constitution_returns_non_empty_trimmed_summaries_ending_with_newline() {
+        let (agents_summary, projects_summary) =
+            AxiomSubstrate::ingest_constitution(Path::new("."));
+        assert!(agents_summary.ends_with('\n'));
+        assert!(projects_summary.ends_with('\n'));
+        assert!(!agents_summary.trim().is_empty());
+        assert!(!projects_summary.trim().is_empty());
+    }
 }
