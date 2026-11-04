@@ -1,0 +1,22 @@
+{
+  "id": "T-GAWDINLINEE4T1104-1",
+  "title": "test(gawd): expand inline unit tests to 4 in reflex_revisions, reflex_verify, release_qualify, rsi_comparisons, rsi_corpus",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "inline_tests"
+    ]
+  },
+  "created_by": "GAWDINLINEE4T1104",
+  "created_unix": 1793798375
+}
