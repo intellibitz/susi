@@ -65,7 +65,8 @@ from that list back as `model`.
 
 Extension packs add capabilities, catalogs and routing without changing
 Susi. Core ships and seeds no pack and never installs one on its own: the user
-or Susi Commercial Apps installs it, and core admits it. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
+or Susi Commercial Apps installs it, and core admits it. A third party writes
+its own adapter. Core does not include that adapter. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
 in `~/.susi/extensions/<id>/`, declare an `apiVersion` whose major must match
 the host's, and run only with the permissions they declare. Check a pack before you ship it with
 `susi extensions validate <pack-dir>`: it applies the host's admission rules
