@@ -1,0 +1,28 @@
+{
+  "id": "T-MERGEFINISH-1",
+  "title": "Finish an explicitly pinned merge inside a reserved native worker",
+  "goal": "Only an already resolved, staged, in-scope merge with its exact incoming commit and starting branch may publish. Preserve both parents and the staged tree. Wrong parents, dirty state, sequencers and unsupported signing must leave refs untouched. A retry may clean up the same already-published commit.",
+  "size": "s",
+  "deps": [
+    "T-RELEASE43PROOF-1"
+  ],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-MERGEFINISH-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "pinned_merge_requires_a_resolved_scoped_index_and_preserves_both_parents"
+    ]
+  },
+  "created_by": "MERGEFINISH",
+  "created_unix": 1793645390
+}

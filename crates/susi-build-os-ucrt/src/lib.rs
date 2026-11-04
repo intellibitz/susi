@@ -22,6 +22,10 @@ use std::{
 
 const SYMBOLS: &str = "_CxxThrowException\n__C_specific_handler\n__current_exception\n__current_exception_context\n__CxxFrameHandler3\n__std_type_info_destroy_list\nmemcmp\nmemmove\nmemset\nmemcpy\n";
 
+/// Request content-derived PE debug/timestamp data so independent links of the
+/// same inputs are byte-identical; wall time belongs in the build receipt.
+pub const REPRO_LINK_ARG: &str = "/Brepro";
+
 /// OS link parameters of one native Windows MSVC target on the allow-list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WindowsTarget {
@@ -300,6 +304,7 @@ pub fn configure_all_bins() -> io::Result<()> {
         windows,
     )?;
     for argument in [
+        REPRO_LINK_ARG,
         "/ENTRY:susi_pe_entry",
         "/INCLUDE:_tls_used",
         "/NODEFAULTLIB:msvcrt.lib",
@@ -364,6 +369,7 @@ pub fn configure_for(binaries: &[&str]) -> io::Result<()> {
     for binary in binaries {
         validate_binary_name(binary)?;
         for argument in [
+            REPRO_LINK_ARG,
             "/ENTRY:susi_pe_entry",
             "/INCLUDE:_tls_used",
             "/NODEFAULTLIB:msvcrt.lib",
