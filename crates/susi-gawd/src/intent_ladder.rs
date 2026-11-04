@@ -1346,4 +1346,49 @@ mod inline_tests {
         assert_eq!(parsed.revision, 2);
         assert_eq!(parsed.intents.len(), 1);
     }
+
+    #[test]
+    fn describe_check_and_intent_gap_adoption_ttl_behave_deterministically() {
+        let file_chk = Check::FileContains {
+            path: "out.txt".into(),
+            needle: "DONE".into(),
+        };
+        assert_eq!(
+            describe_check(&file_chk),
+            "a file `out.txt` containing `DONE`"
+        );
+        let stdout_chk = Check::StdoutMarker {
+            needle: "READY".into(),
+        };
+        assert_eq!(describe_check(&stdout_chk), "output containing `READY`");
+
+        let mut gap = IntentGap {
+            intent: "r1".into(),
+            grade: "trivial".into(),
+            ladder_revision: 1,
+            expected: "output containing `READY`".into(),
+            verdict: "fail".into(),
+            stopped: "completed".into(),
+            worker: "test".into(),
+            seconds: 1,
+            micros: 0,
+            detail: "missing".into(),
+            first_seen_unix: 100,
+            last_seen_unix: 100,
+            failures: 1,
+            adopted: None,
+            adopted_unix: 0,
+            adopted_in: None,
+        };
+        assert_eq!(
+            gap.adopt_command(),
+            "susi admin intent-ladder --adopt-gap r1"
+        );
+        assert!(gap.is_pending_at(200));
+
+        gap.adopted = Some("T-1".into());
+        gap.adopted_unix = 200;
+        assert!(!gap.is_pending_at(200 + GAP_ADOPTION_TTL_SECS - 1));
+        assert!(gap.is_pending_at(200 + GAP_ADOPTION_TTL_SECS));
+    }
 }

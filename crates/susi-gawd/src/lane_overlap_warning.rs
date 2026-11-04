@@ -123,4 +123,14 @@ mod lane_overlap_warning_tests {
         assert_eq!(indexed.len(), 2);
         assert_eq!(indexed["CODEX"].globs, vec!["**/Cargo.toml".to_string()]);
     }
+
+    #[test]
+    fn glob_matches_handles_single_star_exact_path_and_recursive_prefix() {
+        assert!(glob_matches("*", "README.md"));
+        assert!(glob_matches("src/**", "src"));
+        assert!(glob_matches("src/**", "src/nested/mod.rs"));
+        assert!(!glob_matches("src/**", "src_other/mod.rs"));
+        assert!(glob_matches("Cargo.lock", "Cargo.lock"));
+        assert!(!glob_matches("Cargo.lock", "Cargo.toml"));
+    }
 }
