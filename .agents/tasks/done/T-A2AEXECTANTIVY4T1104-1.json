@@ -20,5 +20,10 @@
     ]
   },
   "created_by": "A2AEXECTANTIVY4T1104",
-  "created_unix": 1793777891
+  "created_unix": 1793777891,
+  "closed": {
+    "at_unix": 1793778502,
+    "commit": "91d2b6f8268cba19717be2d72107390f3e91ea00",
+    "by": "A2AEXECTANTIVY4T1104"
+  }
 }
