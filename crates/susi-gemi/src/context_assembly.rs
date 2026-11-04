@@ -330,4 +330,22 @@ mod inline_tests {
             Some(&2)
         );
     }
+
+    #[test]
+    fn assemble_large_system_prefix_clears_under_threshold_defect_and_missing_journal_is_empty() {
+        let large_system = "S".repeat(4_200);
+        let turns = vec![
+            ("system".to_string(), large_system),
+            ("user".to_string(), "question".to_string()),
+        ];
+        let ctx = assemble(&turns);
+        assert!(ctx.defects.is_empty(), "defects={:?}", ctx.defects);
+        assert!(ctx.stable_prefix_tokens >= 1_024);
+
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nonexistent_context_cache.jsonl");
+        let report = cache_report_at(&missing);
+        assert_eq!(report.calls, 0);
+        assert!(report.defects.is_empty());
+    }
 }

@@ -74,4 +74,11 @@ mod brain_per_workspace_tests {
             serde_json::from_str(&encoded).expect("deserialize WorkspaceBrain");
         assert_eq!(decoded, b);
     }
+
+    #[test]
+    fn default_workspace_brain_is_empty_and_unknown_workspace_returns_empty_vec() {
+        let b = WorkspaceBrain::default();
+        assert!(b.by_workspace.is_empty());
+        assert!(b.for_workspace("/unknown").is_empty());
+    }
 }
