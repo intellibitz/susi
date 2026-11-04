@@ -229,4 +229,30 @@ mod tests {
         let err = store.apply(&broken_plan).unwrap_err();
         assert!(err.contains("stale plan: orphan has no precondition"));
     }
+
+    #[test]
+    fn plan_is_empty_when_desired_matches_store_and_render_masks_credential_from_and_to() {
+        let mut store = ConfigStore::default();
+        store.values.insert("port".into(), "9090".into());
+        store
+            .values
+            .insert("anthropic_api_key".into(), "old-secret".into());
+
+        let mut desired = store.values.clone();
+        let noop_plan = store.plan(&desired);
+        assert!(noop_plan.ops.is_empty());
+        assert!(noop_plan.preconditions.is_empty());
+        assert!(noop_plan.render().is_empty());
+
+        desired.insert("anthropic_api_key".into(), "new-secret".into());
+        let rot_plan = store.plan(&desired);
+        assert_eq!(rot_plan.ops.len(), 1);
+        let op = &rot_plan.ops[0];
+        assert_eq!(op.from, Some("old-secret".into()));
+        assert_eq!(op.to, "new-secret");
+        let rendered = op.render();
+        assert!(rendered.ends_with("anthropic_api_key: [REDACTED] -> [REDACTED]"));
+        assert!(!rendered.contains("old-secret"));
+        assert!(!rendered.contains("new-secret"));
+    }
 }

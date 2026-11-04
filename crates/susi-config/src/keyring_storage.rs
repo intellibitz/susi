@@ -274,4 +274,33 @@ mod tests {
         assert!(read_cloud_env(&dir.join("missing.env")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn migrate_cloud_env_skips_comments_blanks_and_malformed_lines_and_backend_delete_clears_entry()
+    {
+        let mut store = KeyringStorage::new(FakeKeyring::default());
+        let raw = "\n   \n# comment line\nMALFORMED_LINE_WITHOUT_EQUALS\n  GEMINI_API_KEY = gm-secret-1  \nGROQ=gq-secret-2\n";
+        let count = store.migrate_cloud_env(raw).expect("migrate_cloud_env");
+        assert_eq!(count, 2);
+        assert_eq!(
+            store.get("gemini").unwrap(),
+            Some("gm-secret-1".to_string())
+        );
+        assert_eq!(store.get("groq").unwrap(), Some("gq-secret-2".to_string()));
+
+        store
+            .backend_mut()
+            .delete("susi-cloud-keys/gemini")
+            .expect("delete gemini key");
+        assert_eq!(store.get("gemini").unwrap(), None);
+
+        let entry = CloudKeyEntry {
+            provider: "gemini".to_string(),
+            value: "gm-secret-1".to_string(),
+        };
+        let encoded = serde_json::to_string(&entry).expect("serialize CloudKeyEntry");
+        let decoded: CloudKeyEntry =
+            serde_json::from_str(&encoded).expect("deserialize CloudKeyEntry");
+        assert_eq!(decoded, entry);
+    }
 }

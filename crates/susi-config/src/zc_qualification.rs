@@ -252,4 +252,36 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn qualify_rejects_corrupt_baseline_json_and_unqualified_when_both_journey_and_ratchet_fail() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "susi_zc_qual_corrupt_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let scratch_home = root.join("scratch");
+        std::fs::create_dir_all(&scratch_home).unwrap();
+        let corrupt_baseline = root.join("corrupt-baseline.json");
+        std::fs::write(&corrupt_baseline, "{ invalid json ").unwrap();
+
+        assert!(qualify(&scratch_home, &corrupt_baseline).is_err());
+
+        let both_failed = Qualification {
+            journey_ok: false,
+            ratchet: RatchetVerdict::Regressed {
+                now: 5,
+                max: 2,
+                new_ids: vec!["env:extra".into()],
+            },
+            limits: Vec::new(),
+        };
+        assert!(!both_failed.qualified());
+        let notes = both_failed.release_notes_section();
+        assert!(notes.contains("- Fresh-HOME journey: FAIL\n"));
+        assert!(notes.contains("- Config debt: 5 (REGRESSED above 2; new: env:extra)\n"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
