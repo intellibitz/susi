@@ -5,7 +5,7 @@
 The gateway is what a budget needs: attribution and price at the moment of the
 call. It writes one ledger row per call — mission, task, attempt, model, tokens,
 cache hits, the price in force — before it answers. That row is what the budget
-guard reads, what the cockpit sums, and what the model ranking learns from. A
+guard reads, what the harness API sums, and what the model ranking learns from. A
 provider's own dashboard cannot say which task spent the money.
 
 It also routes: the built-in registry knows each provider's endpoint, key
@@ -96,7 +96,7 @@ gets a chance. A model that is cheap but never succeeds is ranked behind every
 model that does succeed. The ranking is recomputed from the ledger, so it
 improves as the harness runs.
 
-## Is the cockpit read-only?
+## Is the harness API read-only?
 
 It is read-mostly. The API serves one snapshot and never writes the ledger or
 the event feed. The one write path is `POST /api/command`, which appends an
@@ -110,5 +110,5 @@ worktree nobody can account for.
 Core ships no UI and no plugins. `susi harness api` serves JSON and SSE only
 (`/api/status`, `/api/events`, `/api/command`, `/health`), with no page at `/`;
 that API is the contract any desktop builds its own view on. The visual view
-lives in the commercial desktop.
+lives in the commercial desktop (Susi Commercial Apps).
 

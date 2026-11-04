@@ -2,7 +2,8 @@
 
 Core ships and seeds no pack. Installed packs live at
 `~/.susi/extensions/<id>/manifest.json` (written by the user or the
-commercial desktop, never by core).
+commercial desktop in Susi Commercial Apps, never by core). Core is only the
+admission side: it validates, loads and unloads a pack on request.
 
 ## Required fields
 
@@ -42,4 +43,4 @@ reads and changes no host state, and prints the SHA-256 of every artifact the
 host pins on `susi extensions load`. A non-zero exit means the host would
 reject the pack.
 
-See also `ARCHITECTURE.md` → Plugin triad.
+See also `ARCHITECTURE.md` → Admission protocols.

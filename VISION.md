@@ -8,6 +8,12 @@ and gives AI workloads the contracts an operating layer should provide:
 discovery, admission, placement, identity, capability control, lifecycle,
 coordination, evidence, audit, observability, and recovery.
 
+The free Apache-2.0 core is a pure CLI plus standards socket: it has no UI,
+bundles no plugin content, starts no third-party software on its own, and is
+released only for x86_64 Windows and Linux (the source stays portable). The
+desktop, every visual view and curated plugin packs live in Susi Commercial
+Apps, which reaches core through the same public protocols.
+
 This document states direction. Current product truth is defined by
 `.agents/identity.json`, verified claims by `.agents/evidence.json`, and
 enforceable crate/runtime boundaries by `ARCHITECTURE.md`. A vision item is
@@ -75,7 +81,8 @@ Local and cloud execution must not become two unrelated products. They share:
 4. Evidence receipts and absolute-truth completion gates.
 5. Correlated telemetry and signed placement/audit records.
 6. Bounded concurrency, timeouts, cancellation, and resource accounting.
-7. Extension packs for vendor-specific catalogs and configuration.
+7. Extension packs for vendor-specific catalogs and configuration, installed
+   by the user or Susi Commercial Apps (core ships and seeds none).
 
 Every executed inference plan should identify whether placement was local,
 cloud, or explicit, and carry a decision id that resolves to its signed audit
@@ -208,6 +215,8 @@ remain research goals and must not be phrased as current SUSI capabilities.
 SUSI does not aim to:
 
 - replace the host kernel, init system, package manager, or desktop;
+- ship a UI, desktop view, or bundled plugin catalog in core (those live in
+  Susi Commercial Apps);
 - guarantee that every task should use a swarm;
 - expose secrets or private model internals in the name of transparency;
 - claim universal protocol, model-format, cloud, or framework support;

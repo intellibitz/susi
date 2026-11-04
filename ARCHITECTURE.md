@@ -71,7 +71,7 @@ never consume an unterminated source tail.
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmtime, feature planes | no | no | loopback HTTP |
 | `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Docker (bollard) integration for the `:18083` leaf service (HTTP shell in `susi-leaf-services`); re-exports the client's helpers | `execute_in_docker`, re-exported `SandboxManager`, `manager` | `susi-error`, `susi-config`, `susi-sandbox-client`; bollard, tokio (time) | feature crates | Docker optional | config files | yes |
-| `susi-universal-cell` | Swarm cell binary that serves any ecosystem plugin described by a JSON manifest (role → `SwarmRole`, capabilities, command) on the shared cell loop; spawned by daemon auto-discovery for executable plugins | binary only | `susi-abi` (`cell-server`); serde, tokio | workspace crates | no | no | yes (spawns the plugin) |
+| `susi-universal-cell` | Swarm cell binary that serves any ecosystem plugin described by a JSON manifest (role → `SwarmRole`, capabilities, command) on the shared cell loop; spawned by daemon auto-discovery only for plugin manifests the user installed under `~/.susi/cells` (core bundles none) | binary only | `susi-abi` (`cell-server`); serde, tokio | workspace crates | no | no | yes (spawns the plugin) |
 | `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` / `http_post_utf8` | `dual_transport`, `http_conn`, `http_call`, `http_post_utf8`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
@@ -87,7 +87,7 @@ never consume an unterminated source tail.
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client`; `susi-vendor-web` (live evidence); `susi-http-transport` (peer HTTP) | peer feature planes; reqwest/ureq | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery; verified cluster-peer RTT is measured from signed ping/pong nonces (uptime remains unknown) | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes; HTTP clients | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes; reqwest/ureq | transport | tasks | yes |
-| `susi-harness` | Self-build orchestration: durable supervisor, scheduler, native worker loop, metered gateway, cost accounting, pricing catalogue, and cockpit (`docs/harness.md`, `docs/harness-os.md`) | `supervisor::{Supervisor, Plan}`, `scheduler::Scheduler`, `worker::NativeWorker`, `gateway::Gateway`, `budget::Budget`, `catalog::PriceCatalogue`, `ledger::CostLedger`, `cockpit::Cockpit` | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-http-transport` | `susi-daemon`, root `susi` | no | ledger, events, supervisor state | yes |
+| `susi-harness` | Self-build orchestration: durable supervisor, scheduler, native worker loop, metered gateway, cost accounting, pricing catalogue, and the JSON/SSE harness API (no UI; the module keeps its `cockpit` name) (`docs/harness.md`, `docs/harness-os.md`) | `supervisor::{Supervisor, Plan}`, `scheduler::Scheduler`, `worker::NativeWorker`, `gateway::Gateway`, `budget::Budget`, `catalog::PriceCatalogue`, `ledger::CostLedger`, `cockpit::Cockpit` | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-http-transport` | `susi-daemon`, root `susi` | no | ledger, events, supervisor state | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm,a2a}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client; ra2a/reqwest/axum | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`, `susi-vendor-mcp-server` (rmcp server SDK); optional `susi-vendor-{chrome,tantivy,fastembed}` (`tools-rich`) | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-vendor-mcp` | The MCP client SDK (rmcp) + its reqwest streamable-HTTP transport: pooled connections, connect-failure cooldown, lease-bounded blocking `list_tools_blocking` / `call_blocking_result` over `McpServerConfig` | `McpServerConfig`, blocking calls | rmcp, reqwest, tokio | workspace crates | MCP servers | connection pool | no |
@@ -99,7 +99,7 @@ never consume an unterminated source tail.
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; std `Command` | workspace crates | Chrome/Chromium | no | no |
 | `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK). No boot or tick probe; `probe_all` and list/apply only via `susi os provision` | `probe_all`, `list_nodes`, `apply_manifest`, `CloudKind::parse` | std `Command` | `susi-daemon`, root CLI | kubectl/docker/aws/gcloud/az | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
-| `susi-daemon` | Persistent host: per-peer HMAC gossip 9095 + sealed (fail-closed without a MAC key) `gossip_caps.json`, egress-gated STUN / TURN MESSAGE-INTEGRITY, live OS-plane ticks (cloud **version-probe** only), `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-vendor-cloud` + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
+| `susi-daemon` | Persistent host: per-peer HMAC gossip 9095 + sealed (fail-closed without a MAC key) `gossip_caps.json`, egress-gated STUN / TURN MESSAGE-INTEGRITY, live OS-plane ticks (no cloud CLI probe at boot or on the tick; `susi os provision probe` runs one on request), `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-vendor-cloud` + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
@@ -302,7 +302,7 @@ Exactly two process-entry assembly paths:
    status commands (`start`, `stop`, `restart`, `status`, `daemon-start`) skip
    it. Catalog priming is per command: `defs::command_catalogs` names the
    catalogs (coding models, execution agents, frameworks — never an MCP
-   auto-enable: core enables or launches no MCP server on its own) whose
+   server: core enables or launches no MCP server on its own) whose
    state the command's output or work reads, and only those are primed, fresh,
    in that process (`discovery_pipeline::prime_selected_catalogs`; each step is
    a `prime: …` boot-trace phase). Missions and unclassified commands prime
@@ -366,7 +366,7 @@ Sequence (both paths, subset as applicable):
 
 1. Register `plane_bus` handlers (`composition::wire_plane_bus`) for every
    feature plane.
-2. Load / seed configuration and extension packs.
+2. Load / seed configuration and load installed extension packs (core seeds no pack).
 3. Init hook traits (`EngineHooks`, and GAWD hooks on first swarm use).
 4. Apply secrets surface (`~/.susi/cloud.env`) — never log secret bodies.
 5. Construct / discover infrastructure (providers, MCP, peers).
@@ -382,12 +382,18 @@ plugin managers inside use cases.
 zero-config (Mandate 44). New call chains that already hold a registry
 reference should pass it explicitly.
 
-## Plugin triad (SUSI-shaped)
+## Admission protocols (SUSI-shaped)
+
+Core is a pure CLI plus standards socket: it ships no UI and bundles no
+plugin content. These are the protocols through which content the user (or
+Susi Commercial Apps) installs is admitted; core never installs or enables
+any of it on its own. The one boot-time launch is that the daemon spawns the
+cells the user placed under `~/.susi/cells` (and any added later).
 
 | Surface | Role | Manifest / discovery |
 |---------|------|----------------------|
-| **Extension pack** | Vendor opinions + capability declarations | `~/.susi/extensions/<id>/manifest.json` |
-| **MCP / peer admit** | External tools and agents | `mcp_config.json`, catalogs, `CapabilityRegistry` |
+| **Extension pack** | Vendor opinions + capability declarations, installed by the user or Susi Commercial Apps | `~/.susi/extensions/<id>/manifest.json` |
+| **MCP / peer admit** | External tools and agents, admitted explicitly (`susi mcp-add`, `susi mcp enable`) | `mcp_config.json`, installed pack catalogs, `CapabilityRegistry` |
 | **Wasm reflex** | Sandboxed synthesized skill | Wasmtime under data dir |
 
 Pack manifests support (additive, Mandate 35 flatten for unknowns):
@@ -464,7 +470,7 @@ Close to the modularization goal when:
 - [x] External systems reached through ports (`Provider`, `Tool`, hooks).
 - [x] Concrete wiring only at CLI/daemon composition roots.
 - [x] Features admit via registries / config / packs — not central `if type ==`.
-- [x] Packs use versioned manifest fields + SDK triad above.
+- [x] Packs use versioned manifest fields + the admission protocols above.
 - [x] Optional pack validation failure does not abort substrate seed.
 - [x] Modules testable; architecture tests in CI.
 - [x] No workspace dependency cycles.
@@ -1150,10 +1156,10 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 113 | Identity/README still described a public agent | Mandate 45 and README say callers never name `ureq::Agent` |
 | 114 | Daemon checkpoint only type-reachable | RETRACTED: constructor-only objects and empty checkpoint payloads do not wire the feature |
 | 115 | Daemon rolling logger only type-reachable | `RollingLogger` owns `logs/cells` from the daemon loop |
-| 116 | Daemon plugin dir only type-reachable | `PluginManager::new(workspace)` from the daemon loop |
+| 116 | Daemon plugin dir only type-reachable | RETRACTED: the daemon plugin manager was later removed as dead code; core hosts no plugin directory (plugins live in Susi Commercial Apps) |
 | 117 | Daemon fork dir only type-reachable | `ForkManager` opened from the daemon loop |
 | 118 | Daemon hibernation dir only type-reachable | `HibernationManager` opened from the daemon loop |
-| 119 | Daemon plugin reloader unused in production | `PluginReloader` held on `DaemonOsPlanes` |
+| 119 | Daemon plugin reloader unused in production | RETRACTED: `PluginReloader` was removed with the plugin manager |
 | 120 | Gossip manager never constructed | `GossipManager::new()` held (UDP bind still off — 9092 is A2A discovery) |
 | 121 | Cell snapshot manager never constructed | in-memory `SnapshotManager` on the daemon planes |
 | 122 | NAT manager never constructed | `NatManager::new()` held (STUN bind is on demand) |
@@ -1220,7 +1226,7 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 183 | Admin diagnostics never called with root | tick `get_diagnostics` under a root grant |
 | 184 | Budget never spent/queried live | host cap 1_000_000; tick `try_spend(0)`; report remaining |
 | 185 | CAS never stored a host object | tick `put` of a stable heartbeat blob |
-| 186 | Plugin manager never listed live | tick `list_plugins` |
+| 186 | Plugin manager never listed live | RETRACTED: the plugin manager and its tick `list_plugins` were removed |
 | 187 | Spawned cells could zombie | tick `reap_exited_cells` |
 | 188 | Signal router construct-only | SIGCONT at activate; tick `run_state` |
 | 189 | auto_tune/org_policy/packages/workloads start-only | re-invoked every OS tick |
@@ -1363,7 +1369,7 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 326 | `susi os provision` missing | `probe` / `list` / `apply` subcommands |
 | 327 | Root CLI could not call vendor-cloud | `susi-vendor-cloud` on the root package |
 | 328 | Kind strings were unparsed | `CloudKind::parse` (k8s/kubectl aliases) |
-| 329 | Tick vs CLI contract undocumented | tick = `probe_all` only; list/apply never unsolicited |
+| 329 | Tick vs CLI contract undocumented | tick = `probe_all` only; list/apply never unsolicited (superseded 2026-11-03: no boot or tick probe, `explicit_probe_only`) |
 | 330 | `os_planes.json` omitted the contract | `provision_tick_contract: probe_all_only` (superseded 2026-11-03: `explicit_probe_only`) |
 | 331 | Apply on docker/aws would need a silent API | still kubectl-only explicit error |
 | 332 | Probe JSON had no tick note | `tick_contract: probe_all_only` in probe JSON (superseded 2026-11-03: `explicit_probe_only`) |
@@ -1386,8 +1392,8 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 347 | negotiation sketch | gawd cluster peers + p2p_router |
 | 348 | offline_queue sketch | sealed gossip store + os_planes persist |
 | 349 | org_policy sketch | CapabilityPolicy grants |
-| 350 | packages sketch | PluginManager |
-| 351 | scaffold sketch | checkpoint + plugins |
+| 350 | packages sketch | RETRACTED: PluginManager was removed; packs are admitted through `susi extensions` |
+| 351 | scaffold sketch | Retracted: the plugin half, with PluginManager (the checkpoint half stays) |
 | 352 | vfs sketch | SusiDirs + sandbox |
 | 353 | workloads sketch | task_queue + SwarmTaskManager auto-tune |
 | 354 | Mapping invisible to operators | `live_planes` object on `os_planes.json` |

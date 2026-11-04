@@ -64,7 +64,8 @@ from that list back as `model`.
 ## Extensions
 
 Extension packs add capabilities, catalogs and routing without changing
-Susi. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
+Susi. Core ships and seeds no pack and never installs one on its own: the user
+or Susi Commercial Apps installs it, and core admits it. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
 in `~/.susi/extensions/<id>/`, declare an `apiVersion` whose major must match
 the host's, and run only with the permissions they declare. Check a pack before you ship it with
 `susi extensions validate <pack-dir>`: it applies the host's admission rules
@@ -96,5 +97,6 @@ SUSI_HOME=/tmp/susi-it SUSI_PORT_OFFSET=700 susi stop
 Susi keeps single-host developer capabilities. Organisation-scale features,
 such as multi-tenant isolation, SSO/RBAC, fleet management, central spend
 governance and packaged Kubernetes deployment, are built outside it on these
-same public surfaces (see "Open-core boundary" in `AGENTS.md`). A request
+same public surfaces, and so are every UI (the desktop and any visual view)
+and every curated plugin pack: those live in Susi Commercial Apps (see "Open-core boundary" in `AGENTS.md`). A request
 that names a tenant fails closed on the open substrate.

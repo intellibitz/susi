@@ -287,8 +287,9 @@ reader; a live run took 4.2 s. All 104 administration tests and 63 workflow
 acceptance tests passed before the full branch gate.
 
 Normal release cuts push the version bump and hand verification to GitHub.
-The tagged suite gates publication, and the Windows, Linux CPU and macOS
-engine artifacts run smoke missions and offline checks before upload.
+The tagged suite gated publication, and the Windows, Linux CPU and macOS
+engine artifacts ran smoke missions and offline checks before upload (historical:
+since 2026-11-03 core releases only x86_64 Windows and Linux).
 `SUSI_RELEASE_RERUN_TESTS=1`,
 `SUSI_RELEASE_CHECK_GPU=1`, cloud qualification, and non-cut invocations retain
 the local gate. A cut reports verification as pending until GitHub finishes.
@@ -305,8 +306,9 @@ This describes the implementation, not a measured sub-60-second full workflow.
 
 On v0.21.32, the local cut returned in 56.4 s and the first release assets
 appeared 10 min 1 s after the tagged workflow started. Linux ARM64 finished
-28 s before Windows but waited behind the optional-platform matrix. Each
-platform now publishes independently after the tagged suite and its own checks;
+28 s before Windows but waited behind the optional-platform matrix (historical:
+v0.21.32, before core dropped the ARM64/macOS legs on 2026-11-03). Each
+platform then published independently after the tagged suite and its own checks;
 queued publishers serialize release creation without cancelling one another.
 The release can temporarily lack platforms that are still building. The new
 ordering still needs a real release measurement.
@@ -687,7 +689,8 @@ showed.
 - **Windows file I/O.** The fixture-copying tests are 6× slower per test than
   on Linux whatever the thread count; the exclusion above recovers part of
   that, a Linux build host the rest.
-- **The release's slowest legs** are macOS and Windows runners; under 15
+- **The release's slowest legs** were macOS and Windows runners (historical:
+  since 2026-11-03 core releases only x86_64 Windows and Linux); under 15
   minutes needs warm dependency caches those tag runs cannot read (the
   repository is at its 10 GB Actions cache quota) or larger runners
   (`vars.CI_RUNNER`).
