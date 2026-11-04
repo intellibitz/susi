@@ -386,4 +386,38 @@ mod tests {
         assert!(removed_msg.contains(&short_id[..8]));
         assert!(get_by_id(root.path(), &short_id).unwrap().is_none());
     }
+
+    #[test]
+    fn cli_keys_list_empty_store_and_resave_preserves_existing_spend() {
+        let root = tempfile::tempdir().unwrap();
+        let empty_msg = cli_keys_list(root.path()).unwrap();
+        assert!(empty_msg.contains("No BYOK credentials registered"));
+
+        let id = save_with_options(
+            root.path(),
+            "OPENAI_API_KEY",
+            "sk-persist-spend-1234",
+            Some(20.0),
+            None,
+        )
+        .unwrap();
+        record_spend(root.path(), &id, 7.5).unwrap();
+
+        let id2 = save_with_options(
+            root.path(),
+            "OPENAI_API_KEY",
+            "sk-persist-spend-1234",
+            Some(50.0),
+            Some("updated-cap".into()),
+        )
+        .unwrap();
+        assert_eq!(id, id2);
+        let updated = get_by_id(root.path(), &id).unwrap().unwrap();
+        assert_eq!(updated.current_spend_usd, Some(7.5));
+        assert_eq!(updated.max_budget_usd, Some(50.0));
+
+        let vendor_msg = cli_keys_remove(root.path(), "OPENAI_API_KEY").unwrap();
+        assert!(vendor_msg.contains("Removed all BYOK credentials for OPENAI_API_KEY"));
+        assert!(list_all(root.path()).unwrap().is_empty());
+    }
 }

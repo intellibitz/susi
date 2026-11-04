@@ -84,4 +84,17 @@ mod zc_privacy_default_tests {
         let back: PrivacyState = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, s);
     }
+
+    #[test]
+    fn unconsented_open_preset_still_blocks_cloud_and_requires_prompt() {
+        let mut s = PrivacyState {
+            preset: PrivacyPreset::Open,
+            consented: false,
+        };
+        assert!(s.needs_prompt());
+        assert!(!s.allows_cloud());
+        s.consent_once(PrivacyPreset::Open);
+        assert!(!s.needs_prompt());
+        assert!(s.allows_cloud());
+    }
 }

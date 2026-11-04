@@ -1,0 +1,22 @@
+{
+  "id": "T-CORE5TE1104-1",
+  "title": "Advance 5 final susi-core modules and 3 susi-vendor-models modules to 5 inline unit tests each (CEO Job #275)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "-p",
+      "susi-vendor-models",
+      "--lib"
+    ]
+  },
+  "created_by": "CORE5TE1104",
+  "created_unix": 1793802942
+}
