@@ -80,4 +80,15 @@ mod zc_threshold_tuning_tests {
         let back: Thresholds = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, orig);
     }
+
+    #[test]
+    fn tune_handles_exact_ninety_percent_threshold_and_independent_fields() {
+        let asymmetric = Thresholds {
+            agent_min_score: 0.50,
+            reflex_min_score: 0.80,
+        };
+        let nudged = tune(asymmetric, 0.90);
+        assert!((nudged.agent_min_score - 0.52).abs() < 1e-9);
+        assert!((nudged.reflex_min_score - 0.82).abs() < 1e-9);
+    }
 }

@@ -91,4 +91,21 @@ mod zc_agent_pick_tests {
         assert_eq!(decoded, cand.clone());
         assert!(format!("{cand:?}").contains("agent-7"));
     }
+
+    #[test]
+    fn zc_agent_pick_tiebreaks_equal_ready_scores_deterministically() {
+        let cands = [
+            AgentCandidate {
+                id: "first-tie".into(),
+                ready: true,
+                score: 10,
+            },
+            AgentCandidate {
+                id: "second-tie".into(),
+                ready: true,
+                score: 10,
+            },
+        ];
+        assert_eq!(pick_agent(&cands).as_deref(), Some("second-tie"));
+    }
 }

@@ -303,4 +303,16 @@ mod tests {
         drop(index);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn stored_doc_clone_and_equality_preserve_all_three_fields() {
+        let doc = StoredDoc {
+            doc_id: "d1".into(),
+            source: "mem".into(),
+            content: "hello world".into(),
+        };
+        let cloned = doc.clone();
+        assert_eq!(cloned, doc);
+        assert!(format!("{cloned:?}").contains("hello world"));
+    }
 }

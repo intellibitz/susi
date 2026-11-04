@@ -122,4 +122,13 @@ mod tests {
         assert!(!empty.cert.der().is_empty());
         Ok(())
     }
+
+    #[test]
+    fn certificate_params_new_and_date_time_ymd_construct_valid_parameters() -> Result<(), Error> {
+        let mut params = CertificateParams::new(vec!["localhost".to_string()])?;
+        params.not_before = date_time_ymd(2025, 1, 1);
+        params.not_after = date_time_ymd(2035, 1, 1);
+        assert_ne!(params.not_before, params.not_after);
+        Ok(())
+    }
 }
