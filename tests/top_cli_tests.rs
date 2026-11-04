@@ -144,3 +144,9 @@ fn test_top_drill_down_explains_blocked_work() {
 
     let _ = fs::remove_dir_all(&temp);
 }
+
+#[test]
+fn unit_susi_top_binary_path_exists_for_cli_tests() {
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_susi"));
+    assert!(bin.is_file());
+}

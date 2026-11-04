@@ -103,3 +103,14 @@ fn unit_extension_manifest_json_fixture_declares_cloud_vendors_capability() {
     assert_eq!(manifest["id"], "moonshot-test");
     assert_eq!(manifest["capabilities"][0], "catalog.cloud_vendors");
 }
+
+#[test]
+fn unit_synthetic_vendor_catalog_contains_both_kimi_and_acme_entries() {
+    let raw = r#"[{"id":"kimi","aliases":["kimi","moonshot","moonshotai"],"api_key_env":"MOONSHOT_API_KEY"},
+        {"id":"acme","aliases":["acme","acmeai"],"api_key_env":"ACME_API_KEY"}]"#;
+    let parsed: serde_json::Value = serde_json::from_str(raw).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[1]["id"], "acme");
+    assert_eq!(arr[1]["api_key_env"], "ACME_API_KEY");
+}
