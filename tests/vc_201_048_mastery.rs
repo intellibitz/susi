@@ -148,3 +148,25 @@ fn local_work_gate_queues_under_pressure_and_drains_on_fit() {
     assert_eq!(gate.admit(HostFitness::UnfitThermal), (false, 2));
     assert_eq!(gate.admit(HostFitness::Fit), (true, 0));
 }
+
+#[test]
+fn thermal_router_requires_sustained_cool_samples_to_recover_from_unfit() {
+    let mut router = ThermalRouter::new(85.0, 70.0, 2);
+    let hot = ThermalSample {
+        temp_c: 90.0,
+        power_w: 150.0,
+        power_cap_w: 250.0,
+        util_pct: 80.0,
+    };
+    assert_eq!(router.observe(hot), HostFitness::Fit);
+    assert_eq!(router.observe(hot), HostFitness::UnfitThermal);
+
+    let cool = ThermalSample {
+        temp_c: 60.0,
+        power_w: 80.0,
+        power_cap_w: 250.0,
+        util_pct: 30.0,
+    };
+    assert_eq!(router.observe(cool), HostFitness::Recovering);
+    assert_eq!(router.observe(cool), HostFitness::Fit);
+}

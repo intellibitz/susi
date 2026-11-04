@@ -1,0 +1,19 @@
+{
+  "id": "T-ROOTTESTS5TD1104-1",
+  "title": "Advance 14 root tests Wave D integration suites to 5 tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "vc_201_013_mastery"
+    ]
+  },
+  "created_by": "ROOTTESTS5TD1104",
+  "created_unix": 1793816374
+}
