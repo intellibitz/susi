@@ -347,4 +347,40 @@ mod tests {
         fs::remove_file(root.join("target")).unwrap();
         assert_eq!(fs::read_to_string(shared.join("sentinel")).unwrap(), "keep");
     }
+
+    #[test]
+    fn workspace_locates_checkout_from_nested_directory_and_rejects_non_workspace() {
+        let scratch = Scratch::new();
+        assert!(workspace(&scratch.0).is_err());
+
+        let checkout = scratch.0.join("checkout");
+        let xtask_dir = checkout.join("xtask");
+        let nested = checkout.join("crates").join("sub");
+        fs::create_dir_all(&xtask_dir).unwrap();
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(checkout.join("Cargo.toml"), "[workspace]\n").unwrap();
+        fs::write(
+            xtask_dir.join("Cargo.toml"),
+            "[package]\nname = \"xtask\"\n",
+        )
+        .unwrap();
+
+        let from_root = workspace(&checkout).unwrap();
+        let from_nested = workspace(&nested).unwrap();
+        assert_eq!(from_nested, from_root);
+    }
+
+    #[test]
+    fn parse_host_accepts_valid_triples_and_rejects_missing_or_empty_host_lines() {
+        assert_eq!(
+            parse_host("rustc 1.85.0\nhost: x86_64-pc-windows-msvc\n", true).unwrap(),
+            "x86_64-pc-windows-msvc"
+        );
+        assert_eq!(
+            parse_host("rustc 1.85.0\nhost: x86_64-unknown-linux-gnu\n", false).unwrap(),
+            "x86_64-unknown-linux-gnu"
+        );
+        assert!(parse_host("rustc 1.85.0\nhost: \n", false).is_err());
+        assert!(parse_host("rustc 1.85.0\n", false).is_err());
+    }
 }
