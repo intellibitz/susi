@@ -67,3 +67,85 @@ mod tests {
         assert!(is_failure("mission FAILURE reported"));
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod contract_tests {
+    use super::*;
+
+    const PHRASES: [&str; 12] = [
+        "[FAIL]",
+        "[FAILED]",
+        "[CAPABILITY_GAP]",
+        "[GOVERNANCE_BLOCK]",
+        "[STALLED]",
+        "[DAG_EXECUTION_FAILED]",
+        "AGENT EXECUTION FAILED",
+        "TRUTH_VIOLATION",
+        "TRUTH_UNVERIFIED",
+        "REALITY VIOLATION",
+        "AXIOMATIC VIOLATION",
+        "UNGROUNDED CLAIMS DETECTED",
+    ];
+
+    #[test]
+    fn every_failure_marker_is_detected_anywhere_in_the_text_in_any_case() {
+        for marker in PHRASES {
+            for text in [
+                marker.to_string(),
+                format!("prefix {marker} suffix"),
+                format!("line one\n{}\nline three", marker.to_lowercase()),
+                format!("{}{}", marker.to_lowercase(), " trailing"),
+            ] {
+                assert!(is_failure(&text), "{marker}: {text:?}");
+                assert!(!is_usable(&text), "{marker}: {text:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_failure_token_is_word_bounded() {
+        for failing in [
+            "FAILURE",
+            "failure",
+            "Failure.",
+            "(failure)",
+            "a failure occurred",
+            "failure-mode analysis",
+            "result: failure\nnext line",
+        ] {
+            assert!(is_failure(failing), "{failing:?}");
+        }
+        for benign in [
+            "failures",
+            "test failures were reviewed",
+            "subfailure",
+            "nonfailure",
+            "failure_mode",
+            "unfailure",
+        ] {
+            assert!(!is_failure(benign), "{benign:?}");
+            assert!(is_usable(benign), "{benign:?}");
+        }
+    }
+
+    #[test]
+    fn plain_fail_words_and_empty_text_are_not_failures() {
+        // Only the listed markers and the bounded token count: this filter is
+        // not a general sentiment check.
+        for text in ["", "test failed", "it will fail later", "[FAILING]", "[OK]"] {
+            assert!(!is_failure(text), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn usable_output_is_non_blank_and_not_a_failure() {
+        for blank in ["", " ", "\n", " \t\r\n "] {
+            assert!(!is_usable(blank), "{blank:?}");
+        }
+        assert!(is_usable("Measured 8 available CPU cores."));
+        assert!(is_usable("  padded but real  "));
+        assert!(is_usable("✓ vérifié — 数据"));
+        assert!(!is_usable("   [STALLED]   "));
+    }
+}
