@@ -777,4 +777,61 @@ mod selection_tests {
             assert!(ModelManager::set_selected_model(bad).is_err(), "{bad:?}");
         }
     }
+
+    #[test]
+    fn verify_model_checksum_validates_provenance_sidecar_and_detects_tampering_or_malformed_json()
+    {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-verify-checksum-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let model_path = dir.join("candidate.gguf");
+        std::fs::write(&model_path, b"deterministic-gguf-payload").unwrap();
+
+        // 1. No .provenance.json sidecar -> Ok(())
+        assert!(ModelManager::verify_model_checksum(&model_path).is_ok());
+
+        // 2. Matching original_checksum -> Ok(())
+        let actual_digest = ModelManager::calculate_simple_checksum(&model_path).unwrap();
+        let prov_path = model_path.with_extension("provenance.json");
+        let valid_prov = super::ModelProvenance {
+            source_url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF".to_string(),
+            timestamp: 1_730_000_000,
+            original_checksum: Some(actual_digest),
+        };
+        std::fs::write(&prov_path, serde_json::to_string(&valid_prov).unwrap()).unwrap();
+        assert!(ModelManager::verify_model_checksum(&model_path).is_ok());
+
+        // 3. Mismatched original_checksum -> Err("Model TAMPERING detected!")
+        let tampered_prov = super::ModelProvenance {
+            source_url: valid_prov.source_url.clone(),
+            timestamp: valid_prov.timestamp,
+            original_checksum: Some("0".repeat(64)),
+        };
+        std::fs::write(&prov_path, serde_json::to_string(&tampered_prov).unwrap()).unwrap();
+        let tamper_err = ModelManager::verify_model_checksum(&model_path)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            tamper_err.contains("Model TAMPERING detected!"),
+            "unexpected error: {tamper_err}"
+        );
+
+        // 4. Malformed JSON in .provenance.json -> Err("Malformed model provenance")
+        std::fs::write(&prov_path, b"{not valid json").unwrap();
+        let malformed_err = ModelManager::verify_model_checksum(&model_path)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            malformed_err.contains("Malformed model provenance"),
+            "unexpected error: {malformed_err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

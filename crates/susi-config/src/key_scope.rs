@@ -279,4 +279,23 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn key_ref_parse_trims_surrounding_whitespace_and_accepts_leading_underscore_bare_names() {
+        let trimmed = KeyRef::parse("  key://cloud/  ANTHROPIC_KEY  ").unwrap();
+        assert_eq!(trimmed.scope, KeyScope::CloudEnv);
+        assert_eq!(trimmed.name, "ANTHROPIC_KEY");
+        assert_eq!(trimmed.uri(), "key://cloud/ANTHROPIC_KEY");
+
+        let underscore = KeyRef::parse("  _SUSI_INTERNAL_KEY_2  ").unwrap();
+        assert_eq!(underscore.scope, KeyScope::Env);
+        assert_eq!(underscore.name, "_SUSI_INTERNAL_KEY_2");
+
+        for invalid in ["", "   ", "BAD-HYPHEN", "bad/slash"] {
+            assert!(
+                KeyRef::parse(invalid).is_err(),
+                "expected invalid key ref `{invalid}` to be rejected"
+            );
+        }
+    }
 }

@@ -527,4 +527,69 @@ mod tests {
 
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn recursive_scan_model_dir_for_paths_discovers_qualifying_folders_and_ignores_bin_or_small_files(
+    ) {
+        let root = std::env::temp_dir().join(format!(
+            "susi-scan-paths-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let rules = ModelScanRules {
+            exclude_dirs: vec!["node_modules".to_string()],
+            extensions: vec!["gguf".to_string(), "safetensors".to_string()],
+            min_bytes: 500,
+        };
+
+        let gguf_dir = root.join("gguf_hub");
+        fs::create_dir_all(&gguf_dir).unwrap();
+        fs::write(gguf_dir.join("model.gguf"), vec![1u8; 600]).unwrap();
+
+        let safe_dir = root.join("nested").join("safetensors_hub");
+        fs::create_dir_all(&safe_dir).unwrap();
+        fs::write(safe_dir.join("weights.safetensors"), vec![2u8; 700]).unwrap();
+
+        let ignored_dir = root.join("only_bin_and_small");
+        fs::create_dir_all(&ignored_dir).unwrap();
+        fs::write(ignored_dir.join("cache.bin"), vec![3u8; 5_000]).unwrap();
+        fs::write(ignored_dir.join("tiny.gguf"), vec![4u8; 500]).unwrap();
+
+        let excluded_dir = root.join("node_modules");
+        fs::create_dir_all(&excluded_dir).unwrap();
+        fs::write(excluded_dir.join("skipped.gguf"), vec![5u8; 1_000]).unwrap();
+
+        let mut discovered_folders = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        ModelManager::recursive_scan_model_dir_for_paths(
+            &root,
+            &mut discovered_folders,
+            &mut visited,
+            &rules,
+        );
+
+        discovered_folders.sort();
+        let mut expected = vec![
+            gguf_dir.to_string_lossy().to_string(),
+            safe_dir.to_string_lossy().to_string(),
+        ];
+        expected.sort();
+        assert_eq!(discovered_folders, expected);
+
+        // Re-scanning with the same `visited` set must not duplicate entries.
+        ModelManager::recursive_scan_model_dir_for_paths(
+            &root,
+            &mut discovered_folders,
+            &mut visited,
+            &rules,
+        );
+        assert_eq!(discovered_folders.len(), 2);
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }
