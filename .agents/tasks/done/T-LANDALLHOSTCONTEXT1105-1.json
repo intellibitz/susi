@@ -4,19 +4,24 @@
   "goal": "Port the eight stranded hostcontext-1102 commits onto current main: reject production installation verified only inside a private Windows filesystem view, hand packaged callers off to a one-shot least-privilege Task Scheduler worker in the ordinary user session, preserve deep Windows paths during release health checks, trust the machine Windows directory, and keep the cross-OS source portable.",
   "size": "m",
   "deps": [],
-  "scopes": [
-    ".agents/evidence/stranded-1105/t-hostcontext1102-1.json",
-    ".agents/tasks/t-landallhostcontext1105-1.json",
-    "crates/susi-harness/src/channel_bindings.rs",
-    "src/cli/defs.rs",
-    "src/installed_channel.rs",
-    "src/installed_channel/host_task.rs",
-    "src/installed_channel/tests.rs",
-    "src/installed_channel/transaction.rs"
-  ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--bin", "susi", "installed_channel"]
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "installed_channel"
+    ]
   },
   "created_by": "LANDALLHOSTCONTEXT1105",
-  "created_unix": 1793821830
+  "created_unix": 1793821830,
+  "closed": {
+    "at_unix": 1793824275,
+    "commit": "cbe788154f962615d534f25ebb5f4b956be4b9d1",
+    "by": "LANDALLHOSTCONTEXT1105"
+  }
 }
