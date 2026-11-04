@@ -62,4 +62,42 @@ mod node_enrollment_tests {
         assert_eq!(ok.peer_id.as_deref(), Some("node-a"));
         assert_eq!(ok.key_epoch, Some(7));
     }
+
+    #[test]
+    fn enroll_reports_exact_failure_reasons_and_clears_credentials() {
+        let bad_token = enroll("wrong", "expected", None, 42);
+        assert!(!bad_token.accepted);
+        assert_eq!(bad_token.reason, "bad join token");
+        assert_eq!(bad_token.peer_id, None);
+        assert_eq!(bad_token.key_epoch, None);
+
+        let missing_mtls = enroll("expected", "expected", None, 42);
+        assert!(!missing_mtls.accepted);
+        assert_eq!(missing_mtls.reason, "mTLS identity required");
+        assert_eq!(missing_mtls.peer_id, None);
+        assert_eq!(missing_mtls.key_epoch, None);
+    }
+
+    #[test]
+    fn enroll_preserves_boundary_key_epochs_and_peer_id() {
+        for epoch in [0, 1, u64::MAX] {
+            let res = enroll("tok", "tok", Some("peer-xyz"), epoch);
+            assert!(res.accepted);
+            assert_eq!(res.reason, "enrolled");
+            assert_eq!(res.peer_id.as_deref(), Some("peer-xyz"));
+            assert_eq!(res.key_epoch, Some(epoch));
+        }
+    }
+
+    #[test]
+    fn enrollment_serde_json_roundtrip_for_accepted_and_rejected_states() {
+        let accepted = enroll("t", "t", Some("node-1"), 9);
+        let rejected = enroll("bad", "t", Some("node-1"), 9);
+        for item in [accepted, rejected] {
+            let encoded = serde_json::to_string(&item).unwrap();
+            let decoded: Enrollment = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded, item.clone());
+            assert!(!format!("{item:?}").is_empty());
+        }
+    }
 }

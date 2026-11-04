@@ -216,4 +216,58 @@ mod tests {
             serde_json::from_value(list).expect("decode AgentProfile list");
         assert!(profiles.iter().any(|p| p.name == "SelfHealingAgent"));
     }
+
+    #[test]
+    fn register_rejects_malformed_payloads_without_corrupting_existing_profiles() {
+        let handler = sample_handler();
+        assert!(handler
+            .handle(
+                topics::AGENTS_META_REGISTER,
+                json!({ "profile": "not-an-object" })
+            )
+            .is_err());
+        assert!(handler
+            .handle(topics::AGENTS_META_REGISTER, json!({ "invalid": 123 }))
+            .is_err());
+
+        let after: Vec<AgentProfile> = serde_json::from_value(
+            handler
+                .handle(topics::AGENTS_META_LIST, json!({}))
+                .expect("list profiles after malformed register attempts"),
+        )
+        .expect("decode AgentProfile list");
+        assert_eq!(after.len(), 2);
+    }
+
+    #[test]
+    fn update_rank_defaults_missing_delta_to_zero_and_ignores_unknown_agent() {
+        let handler = sample_handler();
+        let res1 = handler
+            .handle(
+                topics::AGENTS_META_UPDATE_RANK,
+                json!({ "name": "RouterAgent" }),
+            )
+            .expect("update rank with omitted delta");
+        assert_eq!(res1, json!({ "ok": true }));
+
+        let res2 = handler
+            .handle(
+                topics::AGENTS_META_UPDATE_RANK,
+                json!({ "name": "GhostAgent", "delta": 0.5 }),
+            )
+            .expect("update rank for unknown agent");
+        assert_eq!(res2, json!({ "ok": true }));
+
+        let after: Vec<AgentProfile> = serde_json::from_value(
+            handler
+                .handle(topics::AGENTS_META_LIST, json!({}))
+                .expect("list profiles after rank updates"),
+        )
+        .expect("decode AgentProfile list");
+        let router = after
+            .iter()
+            .find(|p| p.name == "RouterAgent")
+            .expect("find RouterAgent");
+        assert!((router.base_rank - 0.8).abs() < f32::EPSILON);
+    }
 }
