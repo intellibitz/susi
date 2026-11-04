@@ -428,4 +428,17 @@ mod tests {
         assert_eq!(table[&mission].outcome, Some(json!({"result": "ok"})));
         assert_eq!(table[&mission].notes, vec!["n".to_string()]);
     }
+
+    #[test]
+    fn models_mode_parses_all_supported_modes_and_rejects_unknown() {
+        assert_eq!(models_mode(None).unwrap(), ModelsMode::Registry);
+        assert_eq!(models_mode(Some("registry")).unwrap(), ModelsMode::Registry);
+        assert_eq!(models_mode(Some("verify")).unwrap(), ModelsMode::Verify);
+        assert_eq!(models_mode(Some("discover")).unwrap(), ModelsMode::Discover);
+        assert_eq!(
+            models_mode(Some("available")).unwrap(),
+            ModelsMode::Available
+        );
+        assert!(models_mode(Some("invalid-mode")).is_err());
+    }
 }

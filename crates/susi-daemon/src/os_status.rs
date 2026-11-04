@@ -684,4 +684,19 @@ mod tests {
         };
         assert!(!unseen_peer.fresh());
     }
+
+    #[test]
+    fn peer_view_marks_timestamp_beyond_staleness_window_as_stale() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(100);
+        let stale_peer = PeerView {
+            node_id: "peer-stale".into(),
+            address: "invalid-address".into(),
+            trust_score: 0.8,
+            last_seen_secs: now.saturating_sub(PEER_STALE_SECS + 5),
+        };
+        assert!(!stale_peer.fresh());
+    }
 }
