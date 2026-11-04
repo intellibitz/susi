@@ -28,5 +28,10 @@
     ]
   },
   "created_by": "CRATEROOTSA4T1104",
-  "created_unix": 1793802600
+  "created_unix": 1793802600,
+  "closed": {
+    "at_unix": 1793803906,
+    "commit": "ad3810e40a73dc192fd6c9ca392edeada637ef27",
+    "by": "CRATEROOTSA4T1104"
+  }
 }
