@@ -61,4 +61,12 @@ mod zc_bind_auto_tests {
         let decoded: BindChoice = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, choice);
     }
+
+    #[test]
+    fn bind_choice_equality_distinguishes_loopback_from_widened_choice() {
+        let local = bind_address(false, false);
+        let wide = bind_address(true, false);
+        assert_ne!(local, wide);
+        assert_eq!(wide, bind_address(false, true));
+    }
 }

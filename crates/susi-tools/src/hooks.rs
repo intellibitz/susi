@@ -231,4 +231,13 @@ mod tests {
         assert_eq!(gap, "");
         assert!(h.broadcast_lock_request("lock-1"));
     }
+
+    #[test]
+    fn solve_mission_and_resolve_capability_gap_preserve_requested_tool_name() {
+        let ws = Path::new("/tmp/ws");
+        let gap = NoOpHooks.resolve_capability_gap("tool_alpha", ws).unwrap();
+        assert!(gap.contains("tool_alpha"));
+        let solved = MinimalHooks.solve_mission("goal_beta", ws, "1.0.0");
+        assert!(solved.starts_with("[CAPABILITY_GAP]"));
+    }
 }
