@@ -4,16 +4,39 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(windows)]
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub(super) const BIN_NAME: &str = if cfg!(windows) { "susi.exe" } else { "susi" };
 pub(super) const SIDECARS: [(&str, &str); 3] = [
     ("sbom.json", "sbom-sha256"),
     ("THIRD-PARTY-NOTICES.txt", "notices-sha256"),
     ("native-source-audit.txt", "native-audit-sha256"),
 ];
 pub(super) const QUALIFICATION_POLICY: &[u8] = include!("qualification_policy.rs").as_bytes();
+
+pub(super) fn expected_host_target_triple() -> String {
+    if cfg!(target_os = "windows") {
+        format!("{}-pc-windows-msvc", std::env::consts::ARCH)
+    } else if cfg!(target_os = "macos") {
+        format!("{}-apple-darwin", std::env::consts::ARCH)
+    } else {
+        format!("{}-unknown-linux-gnu", std::env::consts::ARCH)
+    }
+}
+
+pub(super) fn is_reparse_or_symlink(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        meta.file_type().is_symlink() || (meta.file_attributes() & 0x400) != 0
+    }
+    #[cfg(not(windows))]
+    {
+        meta.file_type().is_symlink()
+    }
+}
 
 pub(super) fn id(value: &str) -> bool {
     value.len() == 64
@@ -46,16 +69,20 @@ pub(super) fn file_hash(file: &mut File) -> Result<String> {
 pub(super) fn regular(path: &Path) -> Result<File> {
     for parent in path.ancestors().skip(1) {
         let meta = fs::symlink_metadata(parent)?;
-        if !meta.is_dir() || meta.file_attributes() & 0x400 != 0 {
+        if !meta.is_dir() || is_reparse_or_symlink(&meta) {
             return Err(format!("redirected release path: {}", parent.display()).into());
         }
     }
     let meta = fs::symlink_metadata(path)?;
-    if !meta.is_file() || meta.file_attributes() & 0x400 != 0 {
+    if !meta.is_file() || is_reparse_or_symlink(&meta) {
         return Err(format!("not an ordinary release file: {}", path.display()).into());
     }
     // FILE_SHARE_READ pins these immutable bytes through hashing and process creation.
-    Ok(OpenOptions::new().read(true).share_mode(1).open(path)?)
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(1);
+    Ok(options.open(path)?)
 }
 
 pub(super) fn small(path: &Path) -> Result<Vec<u8>> {
@@ -82,6 +109,16 @@ pub(super) fn link_or_copy(source: &Path, destination: &Path) -> Result<()> {
         .open(destination)?;
     std::io::copy(&mut input, &mut output)?;
     output.sync_all()?;
+    drop(output);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::metadata(source) {
+            if (meta.permissions().mode() & 0o111) != 0 {
+                fs::set_permissions(destination, fs::Permissions::from_mode(0o755))?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -136,7 +173,7 @@ impl Package {
             }
         }
         let get = |name| fields.get(name).copied().ok_or("missing release field");
-        if get("host")? != format!("{}-pc-windows-msvc", std::env::consts::ARCH) {
+        if get("host")? != expected_host_target_triple() {
             return Err("release targets another platform".into());
         }
         for field in ["source", "tree", "integration-receipt"] {
@@ -177,7 +214,7 @@ impl Package {
     }
 
     pub(super) fn executable(&self) -> PathBuf {
-        self.root.join("susi.exe")
+        self.root.join(BIN_NAME)
     }
 
     pub(super) fn pinned_executable(&self) -> Result<File> {
@@ -208,7 +245,7 @@ impl Package {
         }
         let destination = root.join("releases").join(&self.release);
         directory(&destination)?;
-        let mut names = vec!["susi.exe", "manifest.txt"];
+        let mut names = vec![BIN_NAME, "manifest.txt"];
         names.extend(self.sidecars.iter().map(|(name, _)| *name));
         for name in names {
             let to = destination.join(name);
@@ -222,11 +259,16 @@ impl Package {
                 drop(regular(&temp)?);
                 fs::remove_file(&temp)?;
             }
-            if name == "susi.exe" {
-                let legacy = root.join("builds").join(&self.artifact).join("susi.exe");
+            if name == BIN_NAME {
+                let legacy = root.join("builds").join(&self.artifact).join(BIN_NAME);
                 if legacy.try_exists()? {
                     self.verify_entry(&legacy)?;
                     link_or_copy(&legacy, &temp)?;
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        fs::set_permissions(&temp, fs::Permissions::from_mode(0o755))?;
+                    }
                     fs::rename(temp, to)?;
                     continue;
                 }
@@ -239,6 +281,11 @@ impl Package {
             std::io::copy(&mut input, &mut out)?;
             out.sync_all()?;
             drop(out);
+            #[cfg(unix)]
+            if name == BIN_NAME {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&temp, fs::Permissions::from_mode(0o755))?;
+            }
             fs::rename(temp, to)?;
         }
         drop(source);
@@ -253,5 +300,26 @@ impl Package {
             return Err("installed dispatcher digest mismatch".into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expected_host_target_triple_matches_current_platform() {
+        let triple = expected_host_target_triple();
+        assert!(triple.starts_with(std::env::consts::ARCH));
+        if cfg!(target_os = "windows") {
+            assert!(triple.ends_with("-pc-windows-msvc"));
+            assert_eq!(BIN_NAME, "susi.exe");
+        } else if cfg!(target_os = "macos") {
+            assert!(triple.ends_with("-apple-darwin"));
+            assert_eq!(BIN_NAME, "susi");
+        } else {
+            assert!(triple.ends_with("-unknown-linux-gnu"));
+            assert_eq!(BIN_NAME, "susi");
+        }
     }
 }

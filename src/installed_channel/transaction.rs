@@ -1,9 +1,13 @@
 use super::package::{
-    atomic_file, digest_bytes, directory, id, link_or_copy, regular, small, Package, Result,
+    atomic_file, digest_bytes, directory, id, is_reparse_or_symlink, link_or_copy, regular, small,
+    Package, Result, BIN_NAME,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, OpenOptions};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -80,7 +84,7 @@ fn installed(root: &Path, id: &str) -> Result<Package> {
 
 pub(super) fn is_dispatcher(exe: &Path) -> bool {
     let mut parts = exe.components().rev();
-    ["susi.exe", "entry", "production", "SusiLocal"]
+    [BIN_NAME, "entry", "production", "SusiLocal"]
         .into_iter()
         .all(|expected| {
             parts
@@ -95,12 +99,39 @@ const ENTRY_RECEIPT: &str = "entry-receipt-v1.txt";
 /// Identity of the entry file as last proven byte-equal to `release`.
 fn entry_stamp(release: &str, exe: &Path) -> Result<String> {
     let meta = fs::metadata(exe)?;
-    Ok(format!(
-        "release={release}\nbytes={}\ncreated={}\nwritten={}\n",
-        meta.file_size(),
-        meta.creation_time(),
-        meta.last_write_time()
-    ))
+    #[cfg(windows)]
+    {
+        Ok(format!(
+            "release={release}\nbytes={}\ncreated={}\nwritten={}\n",
+            meta.file_size(),
+            meta.creation_time(),
+            meta.last_write_time()
+        ))
+    }
+    #[cfg(unix)]
+    {
+        Ok(format!(
+            "release={release}\nbytes={}\nino={}\nmode={}\nmtime={}:{}\n",
+            meta.len(),
+            meta.ino(),
+            meta.mode(),
+            meta.mtime(),
+            meta.mtime_nsec()
+        ))
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        Ok(format!(
+            "release={release}\nbytes={}\nmodified={modified}\n",
+            meta.len()
+        ))
+    }
 }
 
 /// When the running entry is the current release, it already is the selected
@@ -179,7 +210,7 @@ pub(super) fn dispatch(exe: &Path) -> Result<ExitStatus> {
 fn bootstrap(root: &Path, from_dispatcher: Option<&str>, after: &Selection) -> Result<()> {
     let bin = root.join("entry");
     directory(&bin)?;
-    let entry = bin.join("susi.exe");
+    let entry = bin.join(BIN_NAME);
     let target = installed(root, &after.dispatcher)?;
     let pinned = target.pinned_executable()?;
     if entry.try_exists()? {
@@ -189,7 +220,7 @@ fn bootstrap(root: &Path, from_dispatcher: Option<&str>, after: &Selection) -> R
         let old = from_dispatcher.ok_or("refusing to replace an unrecognized dispatcher")?;
         installed(root, old)?.verify_entry(&entry)?;
     }
-    let staged = bin.join("dispatcher-pending.exe");
+    let staged = bin.join(format!("dispatcher-pending{}", env::consts::EXE_SUFFIX));
     if staged.try_exists()? {
         drop(regular(&staged)?);
         fs::remove_file(&staged)?;
@@ -246,17 +277,25 @@ fn version_output(exe: &Path) -> Result<String> {
     fs::create_dir(&scratch)?;
     let mut command = Command::new(exe);
     command.env_clear().current_dir(&scratch).arg("--version");
-    let system = env::var_os("SystemRoot").ok_or("Windows system directory is missing")?;
-    let drive = Path::new(&system)
-        .ancestors()
-        .last()
-        .ok_or("Windows volume is missing")?
-        .to_string_lossy();
+    #[cfg(windows)]
+    {
+        let system = env::var_os("SystemRoot").ok_or("Windows system directory is missing")?;
+        let drive = Path::new(&system)
+            .ancestors()
+            .last()
+            .ok_or("Windows volume is missing")?
+            .to_string_lossy();
+        command
+            .env("SystemRoot", &system)
+            .env("WINDIR", &system)
+            .env("SystemDrive", drive.trim_end_matches(['\\', '/']))
+            .env("PATH", Path::new(&system).join("System32"));
+    }
+    #[cfg(not(windows))]
+    {
+        command.env("PATH", "/usr/bin:/bin");
+    }
     command
-        .env("SystemRoot", &system)
-        .env("WINDIR", &system)
-        .env("SystemDrive", drive.trim_end_matches(['\\', '/']))
-        .env("PATH", Path::new(&system).join("System32"))
         .env("HOME", &scratch)
         .env("USERPROFILE", &scratch)
         .env("SUSI_HOME", scratch.join(".susi"));
@@ -297,7 +336,7 @@ fn apply(
     directory(root)?;
     let lock_path = root.join("admitted-install.lock");
     if let Ok(meta) = fs::symlink_metadata(&lock_path) {
-        if !meta.is_file() || meta.file_attributes() & 0x400 != 0 {
+        if !meta.is_file() || is_reparse_or_symlink(&meta) {
             return Err("unsafe installation lock".into());
         }
     }
@@ -360,7 +399,7 @@ fn apply(
                 .as_str()
                 .filter(|s| id(s))
                 .ok_or("missing legacy production digest")?;
-            let expected = root.join("builds").join(sha).join("susi.exe");
+            let expected = root.join("builds").join(sha).join(BIN_NAME);
             if legacy["current"].as_str().map(Path::new) != Some(&expected) {
                 return Err("legacy launch path does not match its admitted slot".into());
             }
@@ -424,10 +463,6 @@ fn apply(
     Ok(after)
 }
 
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
-
 pub(super) fn manage(
     release: Option<&str>,
     previous: Option<&str>,
@@ -435,16 +470,34 @@ pub(super) fn manage(
     status: bool,
     expected: Option<&str>,
 ) -> Result<()> {
+    #[cfg(windows)]
     let root = PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA missing")?)
         .join("SusiLocal")
         .join("production");
+    #[cfg(not(windows))]
+    let root = match env::var_os("LOCALAPPDATA") {
+        Some(dir) => PathBuf::from(dir).join("SusiLocal").join("production"),
+        None => crate::get_home_dir()
+            .join(".local")
+            .join("share")
+            .join("SusiLocal")
+            .join("production"),
+    };
     if !root.is_absolute() {
         return Err("installed release root must be absolute".into());
     }
     let register = |root: &Path| -> Result<()> {
+        #[cfg(windows)]
         if susi_harness::channel_bindings::register(root)? {
             susi_config::windows_environment::notify_environment_changed()?;
             susi_harness::channel_bindings::notification_complete(root)?;
+        }
+        #[cfg(not(windows))]
+        {
+            let work = root.join("workspace");
+            if !work.try_exists()? {
+                fs::create_dir(&work)?;
+            }
         }
         Ok(())
     };
@@ -456,8 +509,9 @@ pub(super) fn manage(
         let current = installed(&root, &chosen.current)?;
         current.verify_sidecars()?;
         let _pinned = current.pinned_executable()?;
-        let entry = root.join("entry/susi.exe");
+        let entry = root.join("entry").join(BIN_NAME);
         installed(&root, &chosen.dispatcher)?.verify_entry(&entry)?;
+        #[cfg(windows)]
         susi_harness::channel_bindings::verify(&root)?;
         if version_output(&entry)? != version_output(&current.executable())? {
             return Err("ordinary entry point launches a different version".into());
@@ -487,4 +541,96 @@ pub(super) fn manage(
         selection.current
     );
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+#[path = "tests.rs"]
+mod tests;
+
+#[cfg(test)]
+mod cross_os_tests {
+    use super::super::package::{expected_host_target_triple, QUALIFICATION_POLICY, SIDECARS};
+    use super::*;
+
+    #[test]
+    fn dispatcher_path_and_entry_stamp_work_across_platforms() {
+        let root = env::temp_dir().join(format!(
+            "susi-cross-os-channel-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let entry_dir = root.join("SusiLocal").join("production").join("entry");
+        fs::create_dir_all(&entry_dir).unwrap();
+        let entry_exe = entry_dir.join(BIN_NAME);
+        fs::write(&entry_exe, b"dispatcher-bytes").unwrap();
+        assert!(is_dispatcher(&entry_exe));
+        assert!(!is_dispatcher(&root.join("other").join(BIN_NAME)));
+        let stamp = entry_stamp(&"a".repeat(64), &entry_exe).unwrap();
+        assert!(stamp.contains("bytes=16"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cross_os_package_stage_and_rollback_succeed() {
+        let base = env::temp_dir().join(format!(
+            "susi-cross-os-stage-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&base).unwrap();
+        let build_pkg = |tag: &str| -> Package {
+            let dir = base.join(tag);
+            fs::create_dir_all(&dir).unwrap();
+            let fixture = dir.join("fixture.rs");
+            fs::write(
+                &fixture,
+                format!("fn main() {{ println!(\"susi {tag}\"); }}"),
+            )
+            .unwrap();
+            let exe = dir.join(BIN_NAME);
+            assert!(Command::new("rustc")
+                .args(["--edition", "2021"])
+                .arg(&fixture)
+                .arg("-o")
+                .arg(&exe)
+                .status()
+                .unwrap()
+                .success());
+            let data = fs::read(&exe).unwrap();
+            let side = b"cross-os sidecar";
+            let hash = digest_bytes(side);
+            let gates = [QUALIFICATION_POLICY, side.as_slice()].concat();
+            let gate_hash = digest_bytes(&gates);
+            fs::write(dir.join("gates.txt"), gates).unwrap();
+            for (name, _) in SIDECARS {
+                fs::write(dir.join(name), side).unwrap();
+            }
+            let oid = "b".repeat(40);
+            let manifest = format!(
+                "susi-local-release-v1\nsource={oid}\ntree={oid}\nartifact-sha256={}\nartifact-bytes={}\nhost={}\nintegration-receipt={oid}\nlock-sha256={hash}\ncompiler-sha256={hash}\ngates-sha256={gate_hash}\nsbom-sha256={hash}\nnotices-sha256={hash}\nnative-audit-sha256={hash}\n",
+                digest_bytes(&data),
+                data.len(),
+                expected_host_target_triple()
+            );
+            fs::write(dir.join("manifest.txt"), &manifest).unwrap();
+            Package::open(&dir, &digest_bytes(manifest.as_bytes())).unwrap()
+        };
+        let pkg_a = build_pkg("1.0.0-a");
+        let pkg_b = build_pkg("1.0.0-b");
+        let root = base.join("SusiLocal").join("production");
+        let sel_a = apply(&root, Some((&pkg_a, None)), &|_| Ok(()), None).unwrap();
+        assert_eq!(sel_a.current, pkg_a.release);
+        let sel_b = apply(&root, Some((&pkg_b, None)), &|_| Ok(()), None).unwrap();
+        assert_eq!(sel_b.current, pkg_b.release);
+        assert_eq!(sel_b.previous.as_deref(), Some(pkg_a.release.as_str()));
+        let rolled = apply(&root, None, &|_| Ok(()), Some(&pkg_a.release)).unwrap();
+        assert_eq!(rolled.current, pkg_a.release);
+        let _ = fs::remove_dir_all(&base);
+    }
 }
