@@ -4,13 +4,6 @@
   "goal": "Requests from a loopback peer that present this host's own api token are not metered by the per-IP rate limiter on GMCP (9090/9093) and the OpenAI-compatible port (9091), so the thin CLI cannot hit 429 on its own daemon; peer-bearer, signed, remote, wrong-token and no-token callers stay metered.",
   "size": "s",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/T-DSP4WIRE1104-2.json",
-    "crates/susi-core/src/net_guard.rs",
-    "crates/susi-gmcp/src/server.rs",
-    "crates/susi-server/src/lib.rs",
-    ".agents/gmcp/evidence"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -23,5 +16,10 @@
     ]
   },
   "created_by": "DSP4WIRE1104",
-  "created_unix": 1793786815
+  "created_unix": 1793786815,
+  "closed": {
+    "at_unix": 1793794120,
+    "commit": "051b30cf519b32d83894915e659a962128101d90",
+    "by": "DSP4WIRE1104"
+  }
 }
