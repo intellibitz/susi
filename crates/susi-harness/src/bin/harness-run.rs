@@ -328,4 +328,42 @@ mod tests {
             "--model is required"
         );
     }
+
+    #[test]
+    fn rejects_whitespace_task_and_missing_values_for_remaining_flags() {
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "http://127.0.0.1:9185",
+                "--model",
+                "deepseek-flash",
+                "--workspace",
+                "scratch",
+                "--state",
+                "state",
+                "--mission",
+                "pilot-2",
+                "--task",
+                "   ",
+                "prompt",
+            ]))
+            .err()
+            .unwrap(),
+            "--mission and --task are required"
+        );
+        for flag in [
+            "--gateway",
+            "--model",
+            "--state",
+            "--mission",
+            "--task",
+            "--attempt",
+            "--timeout",
+        ] {
+            assert_eq!(
+                parse(args(&[flag])).err().unwrap(),
+                format!("{flag} needs a value")
+            );
+        }
+    }
 }

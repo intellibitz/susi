@@ -142,4 +142,12 @@ mod inline_tests {
         let decoded: money::MicroUsd = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, original);
     }
+
+    #[test]
+    fn micro_usd_display_formats_dollars_and_parse_usd_roundtrips() {
+        let parsed = money::MicroUsd::parse_usd("1.25").expect("valid dollar amount");
+        assert_eq!(parsed, money::MicroUsd::from_micros(1_250_000));
+        assert_eq!(parsed.to_string(), "$1.250000");
+        assert_eq!(money::MicroUsd::ZERO.to_string(), "$0.000000");
+    }
 }

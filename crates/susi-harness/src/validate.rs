@@ -257,4 +257,20 @@ mod tests {
         );
         assert!(validate_plan(&plan("cargo test -p susi-harness", "../escape"), &facts).is_err());
     }
+
+    #[test]
+    fn rejects_empty_acceptance_empty_scope_and_absolute_scope_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let facts = facts(dir.path());
+        assert!(validate_plan(&plan("   ", "docs"), &facts).is_err());
+        assert!(validate_plan(&plan("cargo test -p susi-harness", "   "), &facts).is_err());
+        let abs_scope = dir.path().join("docs").to_string_lossy().into_owned();
+        let err = validate_plan(&plan("cargo test -p susi-harness", &abs_scope), &facts)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("must be repo-relative"),
+            "unexpected error: {err}"
+        );
+    }
 }
