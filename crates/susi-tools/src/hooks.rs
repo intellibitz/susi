@@ -217,4 +217,18 @@ mod tests {
         // Stable: repeated calls return the same wired instance.
         assert!(std::ptr::addr_eq(hooks(), h));
     }
+
+    #[test]
+    fn minimal_hooks_required_methods_dispatch_through_trait_object() {
+        let h: &dyn EngineHooks = &MinimalHooks;
+        assert_eq!(h.engine_version(), "test");
+        let hw = h.hardware_snapshot();
+        assert_eq!(hw.available_ram_gb, 1);
+        assert!(hw.acceleration_active);
+        let gap = h
+            .resolve_capability_gap("x", Path::new("."))
+            .expect("resolve_capability_gap on MinimalHooks");
+        assert_eq!(gap, "");
+        assert!(h.broadcast_lock_request("lock-1"));
+    }
 }

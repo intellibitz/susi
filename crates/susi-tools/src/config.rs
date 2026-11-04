@@ -101,4 +101,32 @@ mod tests {
 
         assert_eq!(serde_json::to_value(&cfg).unwrap(), raw);
     }
+
+    #[test]
+    fn mcp_config_and_global_mcp_entry_clone_and_empty_servers_roundtrip() {
+        let empty_raw = json!({
+            "mcp_servers": {}
+        });
+        let empty_cfg: McpConfig = serde_json::from_value(empty_raw.clone()).unwrap();
+        assert!(empty_cfg.mcp_servers.is_empty());
+        assert!(empty_cfg.extra.is_empty());
+        let cloned_cfg = empty_cfg.clone();
+        assert_eq!(serde_json::to_value(&cloned_cfg).unwrap(), empty_raw);
+
+        let entry_raw = json!({
+            "name": "git",
+            "description": "Git repository tools",
+            "package": "@modelcontextprotocol/server-git",
+            "category": "vcs",
+            "trust_score": 0.75,
+            "latency_ms": 5,
+            "custom_tag": "verified"
+        });
+        let entry: GlobalMcpEntry = serde_json::from_value(entry_raw.clone()).unwrap();
+        let cloned_entry = entry.clone();
+        assert_eq!(cloned_entry.name, "git");
+        assert_eq!(cloned_entry.category, "vcs");
+        assert_eq!(cloned_entry.extra["custom_tag"], "verified");
+        assert_eq!(serde_json::to_value(&cloned_entry).unwrap(), entry_raw);
+    }
 }

@@ -175,4 +175,44 @@ mod tests {
         assert_eq!(host.devices, None);
         assert_eq!(host.dns, None);
     }
+
+    #[test]
+    fn hardened_container_config_serializes_to_json_with_expected_docker_wire_keys() {
+        let cfg = hardened_container_config("susi-sandbox:wire".to_string(), "echo 1");
+        let cloned = cfg.clone();
+        assert_eq!(cloned, cfg);
+
+        let dbg = format!("{cfg:?}");
+        assert!(dbg.contains("susi-sandbox:wire"));
+        assert!(dbg.contains("echo 1"));
+        assert!(dbg.contains("no-new-privileges:true"));
+
+        assert_eq!(cfg.image.as_deref(), Some("susi-sandbox:wire"));
+        assert_eq!(cfg.network_disabled, Some(true));
+        assert_eq!(
+            cfg.cmd,
+            Some(vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                "echo 1".to_string()
+            ])
+        );
+
+        let host = cfg.host_config.expect("host config");
+        assert_eq!(host.network_mode.as_deref(), Some("none"));
+        assert_eq!(host.readonly_rootfs, Some(true));
+        assert_eq!(host.cap_drop, Some(vec!["ALL".to_string()]));
+        assert_eq!(host.memory, Some(268_435_456));
+        assert_eq!(host.nano_cpus, Some(500_000_000));
+        assert_eq!(host.pids_limit, Some(128));
+        assert_eq!(host.auto_remove, Some(true));
+        assert_eq!(
+            host.security_opt,
+            Some(vec!["no-new-privileges:true".to_string()])
+        );
+        assert_eq!(host.ipc_mode, None);
+        assert_eq!(host.pid_mode, None);
+        assert_eq!(host.uts_mode, None);
+        assert_eq!(host.publish_all_ports, None);
+    }
 }
