@@ -521,4 +521,34 @@ mod tests {
         );
         assert_eq!(advisor.total_tool_errors(), 2);
     }
+
+    #[test]
+    fn extract_reasoning_trace_falls_back_across_fields_and_concludes_complete_turn() {
+        assert_eq!(
+            extract_reasoning_trace(&json!({"thinking": "  step 1  "})),
+            "step 1"
+        );
+        assert_eq!(
+            extract_reasoning_trace(&json!({"reasoning": "  step 2  "})),
+            "step 2"
+        );
+        assert!(extract_reasoning_trace(&json!({"content": "only text"})).is_empty());
+
+        let stop_choice = json!({
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "content": "Verified and done.",
+                "thinking": "Checked tests"
+            }
+        });
+        assert_eq!(
+            classify_non_tool_turn(&stop_choice, 0),
+            TurnDisposition::Conclude {
+                final_text: "Verified and done.".to_string(),
+                reasoning: "Checked tests".to_string(),
+            }
+        );
+        assert!(worker_system_prompt().contains("autonomous Astra/Opus-grade"));
+    }
 }

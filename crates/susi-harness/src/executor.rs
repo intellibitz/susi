@@ -209,4 +209,20 @@ mod tests {
         assert_ne!(failed, timed_out);
         assert_ne!(succeeded, timed_out);
     }
+
+    #[test]
+    fn run_delegates_to_worker_and_succeeded_without_reported_cost_compares_equal() {
+        let unpriced = RunOutcome::Succeeded {
+            final_text: "done".into(),
+            reported_cost_usd: None,
+        };
+        assert_eq!(unpriced.clone(), unpriced);
+
+        let mut cfg = config();
+        cfg.state_dir =
+            std::env::temp_dir().join(format!("susi-worker-direct-{}", std::process::id()));
+        cfg.gateway_url = "http://127.0.0.1:1".into();
+        let outcome = run(&cfg).expect("closed port returns RunOutcome::Failed");
+        assert!(matches!(outcome, RunOutcome::Failed { .. }));
+    }
 }

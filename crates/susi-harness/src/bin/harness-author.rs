@@ -281,4 +281,36 @@ mod tests {
             "--vector is required"
         );
     }
+
+    #[test]
+    fn rejects_whitespace_gateway_or_model_and_missing_flag_values_for_all_options() {
+        assert_eq!(
+            parse(args(&[
+                "--gateway",
+                "   ",
+                "--model",
+                "deepseek-flash",
+                "--roadmap",
+                ".agents/roadmap.json",
+                "--vector",
+                "VC-203-001",
+            ]))
+            .err()
+            .unwrap(),
+            "--gateway and --model are required"
+        );
+        for flag in [
+            "--model",
+            "--repo",
+            "--roadmap",
+            "--vector",
+            "--out",
+            "--workers",
+        ] {
+            assert_eq!(
+                parse(args(&[flag])).err().unwrap(),
+                format!("{flag} needs a value")
+            );
+        }
+    }
 }

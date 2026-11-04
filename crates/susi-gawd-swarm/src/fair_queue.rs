@@ -249,4 +249,21 @@ mod inline_tests {
         assert!(q.would_starve_without_aging("sustained", "starved", 15));
         assert!(!q.would_starve_without_aging("other", "starved", 15));
     }
+
+    #[test]
+    fn complete_returns_none_for_unknown_mission_and_queue_types_roundtrip_serde() {
+        let mut q = FairQueue::default();
+        assert!(q.complete("nonexistent", 100).is_none());
+
+        let mission = QueuedMission {
+            mission_id: "m-serde".to_string(),
+            workspace: "ws-1".to_string(),
+            enqueued_at: 42,
+            weight: 3,
+        };
+        let encoded = serde_json::to_string(&mission).expect("serialize QueuedMission");
+        let decoded: QueuedMission =
+            serde_json::from_str(&encoded).expect("deserialize QueuedMission");
+        assert_eq!(decoded, mission);
+    }
 }

@@ -460,4 +460,46 @@ mod tests {
             "specialist work must not run when planning is blocked"
         );
     }
+
+    #[test]
+    fn coordinator_reports_synthesize_block_when_brain_exhausts_after_specialist_work() {
+        let mut f = fx();
+        let a = cand("acme", "sk-a", "m-a");
+        f.elig
+            .record_inference(subj(&a), &InferenceResult::Success, T0);
+        let candidates = vec![a];
+        let mut mission = BrainMission::default();
+        let mut coord = Coord {
+            calls: Vec::new(),
+            fail_at_call: BTreeMap::new(),
+        };
+        let int = intent();
+        let mut cd = Coordinator {
+            stores: &mut f.stores(),
+            candidates: &candidates,
+            spec: spec(&int),
+        };
+        let rep = cd.coordinate(&mut mission, &mut coord, |_plan, stores| {
+            stores.eligibility.record_inference(
+                Subject {
+                    provider: "acme",
+                    api_key: "sk-a",
+                    account: None,
+                    region: None,
+                    model: "m-a",
+                },
+                &InferenceResult::Failed {
+                    status: Some(401),
+                    body_snippet: "revoked".into(),
+                    retry_after_secs: None,
+                },
+                T0 + 1,
+            );
+            vec!["job-0:ok".into()]
+        });
+        assert!(rep.plan.is_some());
+        assert_eq!(rep.work_receipts, vec!["job-0:ok".to_string()]);
+        assert!(rep.synthesis.is_none());
+        assert_eq!(rep.blocked.map(|b| b.0), Some(CoordPhase::Synthesize));
+    }
 }

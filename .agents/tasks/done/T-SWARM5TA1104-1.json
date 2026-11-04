@@ -1,0 +1,27 @@
+{
+  "id": "T-SWARM5TA1104-1",
+  "title": "Advance 8 Wave A susi-gawd-swarm modules to 5 inline unit tests each (CEO Job #299)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--",
+      "fair_queue::"
+    ]
+  },
+  "created_by": "SWARM5TA1104",
+  "created_unix": 1793808425,
+  "closed": {
+    "at_unix": 1793809669,
+    "commit": "fb856fed5875816bd557333fda3d73b1e1aa8d87",
+    "by": "SWARM5TA1104"
+  }
+}

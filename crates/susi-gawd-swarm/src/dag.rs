@@ -1845,4 +1845,21 @@ mod shell_block_tests {
         assert_eq!(shell_block_command("bash\n!sudo reboot"), None);
         assert_eq!(shell_block_command("bash\n   "), None);
     }
+
+    #[test]
+    fn fair_admit_and_complete_and_lease_lifecycle_update_dag_state() {
+        let mut dag = super::MissionDag::new("goal");
+        assert_eq!(
+            dag.fair_admit("m-1", "ws", 10, 1),
+            super::EnqueueResult::Running
+        );
+        assert!(dag.fair_complete("m-1", 20).is_none());
+
+        let lease = dag.lease_dispatch(0, "worker-1", 100, 60);
+        assert_eq!(
+            dag.lease_complete(0, "worker-1", lease.fence, 110),
+            super::CompleteVerdict::Accepted
+        );
+        assert!(dag.nodes[0].completed);
+    }
 }

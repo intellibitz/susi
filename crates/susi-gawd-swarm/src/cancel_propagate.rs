@@ -716,4 +716,19 @@ mod inline_tests {
             vec!["irreversible remote job still running: worker-remote".to_string()]
         );
     }
+
+    #[test]
+    fn with_deadline_after_zero_expires_and_empty_command_returns_error() {
+        let expired = CancellationHandle::with_deadline_after(Duration::ZERO);
+        assert!(expired.deadline_exceeded());
+        assert!(expired.should_stop());
+        let res = run_cancellable(&expired, || 1usize).expect("expired handle");
+        assert_eq!(res, CancellableResult::DeadlineExceeded);
+
+        let err = run_cancellable_command(&[], Path::new("."), &CancellationHandle::new())
+            .expect_err("empty command must fail");
+        assert!(err
+            .to_string()
+            .contains("cancellable command cannot be empty"));
+    }
 }

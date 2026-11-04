@@ -388,4 +388,62 @@ mod tests {
             "--adapter-state is required"
         );
     }
+
+    #[test]
+    fn loads_valid_catalogue_with_budget_and_rejects_missing_catalogue_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-supervise-cat-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cat_path = dir.join("prices.json");
+        std::fs::write(&cat_path, r#"{"models":{}}"#).unwrap();
+        let cat_str = cat_path.to_string_lossy().into_owned();
+
+        let opts = parse(args(&[
+            "--plan",
+            "plan.json",
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--adapter-state",
+            "state",
+            "--catalogue",
+            &cat_str,
+            "--budget-usd",
+            "2.50",
+        ]))
+        .unwrap();
+        assert!(opts.catalogue.is_some());
+        assert!(opts.budget.is_some());
+
+        let missing_cat = dir.join("missing.json").to_string_lossy().into_owned();
+        assert!(parse(args(&[
+            "--plan",
+            "plan.json",
+            "--repo",
+            "repo",
+            "--susi",
+            "susi.exe",
+            "--gateway",
+            "http://127.0.0.1:9188",
+            "--model",
+            "deepseek-flash",
+            "--adapter-state",
+            "state",
+            "--catalogue",
+            &missing_cat,
+        ]))
+        .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
