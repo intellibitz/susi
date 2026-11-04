@@ -506,4 +506,26 @@ mod tests {
         assert!(!manager.peer_has_capability("cell-tampered", "infer"));
         assert_eq!(manager.rejected_count(), 1);
     }
+
+    #[test]
+    fn with_store_persists_and_reloads_hmac_sealed_capabilities() {
+        let path =
+            std::env::temp_dir().join(format!("susi-gossip-store-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let manager = GossipManager::with_store(path.clone());
+        let msg = GossipMessage::AdvertiseCapabilities {
+            cell_id: "cell-persisted".to_string(),
+            capabilities: vec!["embed".to_string(), "rerank".to_string()],
+            timestamp: 99,
+        };
+        let body = serde_json::to_vec(&msg).unwrap();
+        let sealed = manager.seal(&body).unwrap();
+        manager.handle_gossip(&sealed).unwrap();
+        assert_eq!(manager.peer_count(), 1);
+
+        let reloaded = GossipManager::with_store(path.clone());
+        assert!(reloaded.peer_has_capability("cell-persisted", "embed"));
+        assert!(reloaded.peer_has_capability("cell-persisted", "rerank"));
+        let _ = std::fs::remove_file(&path);
+    }
 }

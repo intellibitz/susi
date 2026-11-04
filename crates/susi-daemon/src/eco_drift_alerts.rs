@@ -173,4 +173,23 @@ mod tests {
         assert!(task.goal.contains("missing-field:id"));
         assert!(task.goal.contains("missing-field:content"));
     }
+
+    #[test]
+    fn drift_alert_and_drift_task_serde_json_roundtrip() {
+        let alert = detect_drift(
+            "gemini-generate-content",
+            &["candidates".into()],
+            &serde_json::json!({"extra": 1}),
+            "2026-11-04",
+        )
+        .expect("drift alert");
+        let alert_json = serde_json::to_string(&alert).expect("serialize alert");
+        let alert_back: DriftAlert = serde_json::from_str(&alert_json).expect("deserialize alert");
+        assert_eq!(alert_back, alert);
+
+        let task = to_task(&alert);
+        let task_json = serde_json::to_string(&task).expect("serialize task");
+        let task_back: DriftTask = serde_json::from_str(&task_json).expect("deserialize task");
+        assert_eq!(task_back, task);
+    }
 }
