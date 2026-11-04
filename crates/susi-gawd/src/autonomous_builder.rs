@@ -298,4 +298,50 @@ mod inline_tests {
         assert_eq!(outcome.branch, "agent/t-42");
         assert_eq!(outcome.commit, "deadbeef");
     }
+
+    #[test]
+    fn run_cycle_aborts_before_claiming_when_pick_agent_returns_none() {
+        let root = std::env::temp_dir().join(format!(
+            "susi_autonomous_builder_noagent_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let origin = root.join("origin.git");
+        let repo = root.join("repo");
+        fs::create_dir_all(&origin).expect("create origin");
+        fs::create_dir_all(&repo).expect("create repo");
+
+        git(&origin, &["init", "--bare", "-q"]).expect("init bare");
+        git(&repo, &["init", "-q"]).expect("init repo");
+        git(&repo, &["config", "user.email", "test@example.com"]).expect("config email");
+        git(&repo, &["config", "user.name", "test"]).expect("config name");
+        git(&repo, &["checkout", "-q", "-B", "main"]).expect("checkout main");
+        git(
+            &repo,
+            &["remote", "add", "origin", &origin.to_string_lossy()],
+        )
+        .expect("add remote");
+        let tasks_dir = repo.join(".agents").join("tasks");
+        fs::create_dir_all(&tasks_dir).expect("create tasks dir");
+        fs::write(
+            tasks_dir.join("T-1.json"),
+            r#"{"id":"T-1","title":"T","goal":"G","size":"s","deps":[],"accept":{"cmd":["true"]},"created_by":"TEST","created_unix":1}"#,
+        )
+        .expect("write task");
+        git(&repo, &["add", "-A"]).expect("git add");
+        git(&repo, &["commit", "-q", "-m", "init"]).expect("commit init");
+        git(&repo, &["push", "-q", "-u", "origin", "main"]).expect("push main");
+
+        let err = run_cycle(
+            &repo,
+            "BUILDER",
+            |_| Some("T-1".to_string()),
+            |_| None,
+            |_| Ok(()),
+        )
+        .expect_err("pick_agent None must abort");
+        assert!(err.to_string().contains("no agent qualifies for T-1"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }
