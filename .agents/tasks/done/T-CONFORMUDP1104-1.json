@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CONFORMUDP1104",
-  "created_unix": 1793753000
+  "created_unix": 1793753000,
+  "closed": {
+    "commit": "f0df38377f1564332c4f6360c2359d00d0c2bb63",
+    "by": "CONFORMUDP1104",
+    "at_unix": 1793753120
+  }
 }
