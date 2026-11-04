@@ -54,3 +54,32 @@ pub mod sandbox {
 
 /// Current version of susi
 pub const SUSI_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn susi_version_is_non_empty_semver() {
+        assert!(!SUSI_VERSION.is_empty());
+        assert_eq!(SUSI_VERSION.split('.').count(), 3);
+    }
+
+    #[test]
+    fn error_reexport_constructs_and_formats_cleanly() {
+        let err = error::EaiError::governance("invalid key");
+        assert!(err.to_string().contains("invalid key"));
+    }
+
+    #[test]
+    fn sandbox_xdg_susi_dirs_resolves_paths() {
+        let home = sandbox::xdg::SusiDirs::substrate_home();
+        assert!(!home.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn hooks_module_reexports_engine_hooks() {
+        let _hooks = hooks::SusiEngineHooks;
+        assert_eq!(std::mem::size_of::<hooks::SusiEngineHooks>(), 0);
+    }
+}

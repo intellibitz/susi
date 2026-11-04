@@ -180,3 +180,57 @@ fn unbound_and_prebinding_electorates_stay_ungated() {
     assert!(commit_log::endorsements_satisfied_at(&rec, &dir));
     commit_log::append(&rec).unwrap();
 }
+
+#[test]
+fn endorsement_payload_prefixes_signature_deterministically() {
+    let p1 = commit_log::endorsement_payload("abc123def");
+    let p2 = commit_log::endorsement_payload("abc123def");
+    assert_eq!(p1, p2);
+    assert_eq!(p1, "susi-endorse-v1:abc123def");
+}
+
+#[test]
+fn corrupted_signature_bytes_and_wrong_key_endorsement_are_rejected() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new("end-corrupt");
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0xEAu8; 32])).unwrap();
+
+    let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
+    let self_id = cluster_key::wire_node_id();
+    let sk_b = SigningKey::from_bytes(&[0x51u8; 32]);
+    let pk_b = hex::encode(sk_b.verifying_key().to_bytes());
+    let sk_wrong = SigningKey::from_bytes(&[0x52u8; 32]);
+
+    write_roster(
+        &dir,
+        &[
+            (&self_id, "10.0.0.1:9090", &self_pk),
+            ("node-b", "10.0.0.2:9090", &pk_b),
+            ("node-c", "10.0.0.3:9090", &pk_b),
+        ],
+    );
+
+    let mut rec = CommitRecord::seal_member(
+        &self_id,
+        &self_id,
+        commit_log::KIND_MEMBER_REMOVE,
+        "node-z@10.0.0.9:9090",
+        vec![self_id.clone(), "node-b".to_string(), "node-c".to_string()],
+        "",
+    )
+    .expect("seal_member");
+
+    // Endorsement claiming to be node-b but signed with sk_wrong is rejected.
+    rec.endorsements = vec![endorse(&rec, "node-b", &sk_wrong)];
+    assert!(!commit_log::endorsements_satisfied_at(&rec, &dir));
+
+    // Non-hex / malformed signature string is rejected without panicking.
+    rec.endorsements = vec![MemberEndorsement {
+        node: "node-b".to_string(),
+        sig: "not-valid-hex".to_string(),
+    }];
+    assert!(!commit_log::endorsements_satisfied_at(&rec, &dir));
+}
