@@ -82,4 +82,18 @@ mod zc_daemon_lifecycle_tests {
             serde_json::from_str(&json).expect("deserialize DaemonLifecycle");
         assert_eq!(restored, d);
     }
+
+    #[test]
+    fn ensure_started_advances_across_multiple_sequential_binary_upgrades() {
+        let mut d = DaemonLifecycle {
+            running: false,
+            binary_mtime: 0,
+        };
+        for mtime in [100_u64, 200, 350] {
+            d = d.ensure_started(mtime);
+            assert!(d.running);
+            assert_eq!(d.binary_mtime, mtime);
+            assert!(!d.needs_restart(mtime));
+        }
+    }
 }
