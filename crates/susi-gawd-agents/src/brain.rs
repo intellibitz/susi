@@ -123,8 +123,14 @@ mod tests {
         let ctx = AlphaBrainContext::initialize_with_config_dir(&ws, &dir);
         assert_eq!(ctx.default_engine, "custom-tensor-engine");
         assert_eq!(ctx.default_model, "qwen-custom-7b");
-        assert_eq!(ctx.gmcp_port, susi_paths::ports::GMCP);
-        assert_eq!(ctx.gemi_port, susi_paths::ports::GEMI);
+        assert_eq!(
+            ctx.gmcp_port,
+            susi_paths::ports::effective(susi_paths::ports::GMCP)
+        );
+        assert_eq!(
+            ctx.gemi_port,
+            susi_paths::ports::effective(susi_paths::ports::GEMI)
+        );
 
         let tri = ctx.inspect_tri_state();
         assert!(tri.contains("1. [CORE - Compiled System]"));

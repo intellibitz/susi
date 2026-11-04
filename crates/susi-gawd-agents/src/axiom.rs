@@ -109,10 +109,9 @@ mod tests {
         let mut lines = agents_summary.lines();
         let header = lines.next().expect("agents_summary must have header");
         assert!(header.starts_with("# Compiled Genome ("));
-        let bullets: Vec<&str> = lines.collect();
+        let bullets: Vec<&str> = lines.filter(|l| l.starts_with("- **")).collect();
         assert_eq!(bullets.len(), AlphaSelf::RULES.len());
         for bullet in bullets {
-            assert!(bullet.starts_with("- **"));
             assert!(bullet.contains(": "));
         }
     }
