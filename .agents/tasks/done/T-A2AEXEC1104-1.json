@@ -1,0 +1,23 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-A2AEXEC1104-1",
+  "title": "test(gawd-a2a): add A2A protocol executor inline contract test suite",
+  "status": "done",
+  "completed_at": "2026-11-04T03:45:00Z",
+  "created_at": "2026-11-04T03:43:00Z",
+  "owner": "A2AEXEC1104",
+  "touch": [
+    "crates/susi-gawd-a2a/src/executor.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a",
+      "--lib"
+    ]
+  }
+}

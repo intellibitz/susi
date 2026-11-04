@@ -33,3 +33,45 @@ impl AxiomSubstrate {
         (agents_summary, projects_summary)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn ingest_constitution_renders_all_compiled_rules_and_components() {
+        let (agents_summary, projects_summary) =
+            AxiomSubstrate::ingest_constitution(Path::new("."));
+        assert!(agents_summary.starts_with(&format!(
+            "# Compiled Genome ({})\n",
+            AlphaSelf::genome_summary()
+        )));
+        for rule in AlphaSelf::RULES {
+            assert!(
+                agents_summary.contains(rule.cite),
+                "missing rule cite {}",
+                rule.cite
+            );
+            assert!(
+                agents_summary.contains(rule.title),
+                "missing rule title {}",
+                rule.title
+            );
+        }
+
+        assert!(projects_summary.starts_with("# Compiled Binary Component Topology\n"));
+        for comp in AlphaSelf::COMPONENTS {
+            assert!(
+                projects_summary.contains(comp.name),
+                "missing component {}",
+                comp.name
+            );
+            assert!(
+                projects_summary.contains(comp.description),
+                "missing component description for {}",
+                comp.name
+            );
+        }
+    }
+}

@@ -603,3 +603,463 @@ pub fn migrate(
     validate_baseline(&baseline)?;
     Ok(baseline)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use crate::measurement::fixture::{self, dep_identity, REGISTRY};
+    use std::path::PathBuf;
+
+    struct Env {
+        dir: PathBuf,
+        historical: PathBuf,
+        base: PathBuf,
+        candidate_path: PathBuf,
+        review: PathBuf,
+        candidate: Measurement,
+    }
+
+    impl Env {
+        fn dep_source(&self) -> PathBuf {
+            self.dir.join("reg").join("dep").join("src").join("lib.rs")
+        }
+    }
+
+    fn historical() -> UnsafeBaseline {
+        UnsafeBaseline {
+            features: "default".into(),
+            exposure: vec![UnsafeExposure {
+                crate_name: "dep".into(),
+                unsafe_fns: 1,
+                first_party_exception: false,
+            }],
+            sbom: vec![SbomEntry {
+                crate_name: "dep".into(),
+                version: "1.0.0".into(),
+                provenance: REGISTRY.into(),
+            }],
+            recorded_unix: 1,
+        }
+    }
+
+    /// Writes the historical inventory plus matched base/candidate scans. The
+    /// candidate's `dep` entry point carries `candidate_hash`.
+    fn setup(tag: &str, candidate_hash: char) -> Env {
+        let dir = fixture::scratch(tag);
+        std::fs::create_dir_all(dir.join("reg").join("dep").join("src")).unwrap();
+        let env = Env {
+            historical: dir.join("historical.json"),
+            base: dir.join("base.json"),
+            candidate_path: dir.join("candidate.json"),
+            review: dir.join("review.json"),
+            candidate: fixture::measurement(&dir, 'b', true, candidate_hash),
+            dir,
+        };
+        std::fs::write(env.dep_source(), "// reviewed boundary").unwrap();
+        measurement::write_json_atomic(&env.historical, &historical()).unwrap();
+        measurement::write_json_atomic(&env.base, &fixture::measurement(&env.dir, 'a', true, 'a'))
+            .unwrap();
+        measurement::write_json_atomic(&env.candidate_path, &env.candidate).unwrap();
+        env
+    }
+
+    fn dep_component(env: &Env) -> ComponentReview {
+        ComponentReview {
+            identity: dep_identity(),
+            decision: "accept-forbid-exposure".into(),
+            risk: "dependency exposes crate-level unsafe code".into(),
+            boundary: "confined to the dep crate entry point".into(),
+            justification: "reviewed source hash pinned in this baseline".into(),
+            reviewed_files: vec![ReviewedFile {
+                path: "src/lib.rs".into(),
+                sha256: measurement::file_sha256(&env.dep_source()).unwrap(),
+            }],
+            source_guards: vec![],
+        }
+    }
+
+    fn bound_review(env: &Env, components: Vec<ComponentReview>) -> Review {
+        Review {
+            schema: "susi/unsafe-component-review/v1".into(),
+            reviewer: "tester".into(),
+            historical_baseline_sha256: measurement::file_sha256(&env.historical).unwrap(),
+            base_measurement_sha256: measurement::file_sha256(&env.base).unwrap(),
+            candidate_measurement_sha256: measurement::file_sha256(&env.candidate_path).unwrap(),
+            scanner_sha256: env.candidate.scanner_sha256.clone(),
+            components,
+        }
+    }
+
+    fn migrate_with(env: &Env, review: &Review) -> Result<Baseline, String> {
+        measurement::write_json_atomic(&env.review, review).unwrap();
+        migrate(&env.historical, &env.base, &env.candidate_path, &env.review)
+    }
+
+    fn unbound_review() -> Review {
+        Review {
+            schema: "susi/unsafe-component-review/v1".into(),
+            reviewer: "tester".into(),
+            historical_baseline_sha256: "a".repeat(64),
+            base_measurement_sha256: "b".repeat(64),
+            candidate_measurement_sha256: "c".repeat(64),
+            scanner_sha256: "d".repeat(64),
+            components: vec![ComponentReview {
+                identity: dep_identity(),
+                decision: "accept-forbid-exposure".into(),
+                risk: "dependency exposes crate-level unsafe code".into(),
+                boundary: "confined to the dep crate entry point".into(),
+                justification: "reviewed source hash pinned in this baseline".into(),
+                reviewed_files: vec![ReviewedFile {
+                    path: "src/lib.rs".into(),
+                    sha256: "e".repeat(64),
+                }],
+                source_guards: vec![ReviewedFile {
+                    path: "guard.rs".into(),
+                    sha256: "f".repeat(64),
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn files_digest_ignores_order_but_binds_content() {
+        let root = fixture::scratch("digest");
+        let mut package = fixture::measurement(&root, 'a', true, 'a').packages[1].clone();
+        let mut second = package.files[0].clone();
+        second.path = "src/extra.rs".into();
+        second.sha256 = "c".repeat(64);
+        package.files.push(second);
+        let forward = files_digest(&package).unwrap();
+        package.files.reverse();
+        assert_eq!(files_digest(&package).unwrap(), forward);
+        package.files[0].sha256 = "d".repeat(64);
+        assert_ne!(files_digest(&package).unwrap(), forward);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn units_counts_only_packages_without_a_forbid_declaration() {
+        let root = fixture::scratch("units");
+        let unsafe_dep = fixture::measurement(&root, 'a', true, 'a');
+        let forbidding = fixture::measurement(&root, 'a', false, 'a');
+        assert_eq!(units(&unsafe_dep.packages[1]), 1);
+        assert_eq!(units(&forbidding.packages[1]), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn validate_identity_requires_name_version_and_source() {
+        assert!(validate_identity(&dep_identity()).is_ok());
+        for field in 0..3 {
+            let mut identity = dep_identity();
+            match field {
+                0 => identity.name.clear(),
+                1 => identity.version.clear(),
+                _ => identity.source.clear(),
+            }
+            assert!(validate_identity(&identity).is_err(), "field {field}");
+        }
+    }
+
+    #[test]
+    fn validate_review_accepts_a_complete_review_and_rejects_each_defect() {
+        fn rejects(needle: &str, mutate: impl FnOnce(&mut Review)) {
+            let mut review = unbound_review();
+            mutate(&mut review);
+            let err = validate_review(&review).unwrap_err();
+            assert!(err.contains(needle), "wanted {needle:?}, got {err}");
+        }
+        assert!(validate_review(&unbound_review()).is_ok());
+        rejects("missing component review identity/schema", |r| {
+            r.schema = "other".into();
+        });
+        rejects("missing component review identity/schema", |r| {
+            r.reviewer = "  ".into();
+        });
+        rejects("invalid review binding digest", |r| {
+            r.scanner_sha256 = "XYZ".into();
+        });
+        rejects("incomplete package identity", |r| {
+            r.components[0].identity.name.clear();
+        });
+        rejects("duplicate or unaccepted component review", |r| {
+            r.components[0].decision = "reject".into();
+        });
+        rejects("duplicate or unaccepted component review", |r| {
+            let copy = r.components[0].clone();
+            r.components.push(copy);
+        });
+        rejects("lacks a substantive rationale", |r| {
+            r.components[0].risk = "too short".into();
+        });
+        rejects("no source evidence", |r| {
+            r.components[0].reviewed_files.clear();
+        });
+        rejects("invalid or duplicate reviewed source file", |r| {
+            r.components[0].reviewed_files[0].path = "../escape.rs".into();
+        });
+        rejects("invalid or duplicate reviewed source file", |r| {
+            let copy = r.components[0].reviewed_files[0].clone();
+            r.components[0].reviewed_files.push(copy);
+        });
+        rejects("invalid or duplicate reviewed source file", |r| {
+            r.components[0].reviewed_files[0].sha256 = "short".into();
+        });
+        rejects("invalid or duplicate source guard", |r| {
+            r.components[0].source_guards[0].path = String::new();
+        });
+    }
+
+    #[test]
+    fn migration_reviews_requires_review_only_for_new_or_changed_exposure() {
+        let root = fixture::scratch("migration");
+        let base = fixture::measurement(&root, 'a', true, 'a');
+        let dep_only = BTreeSet::from([dep_identity()]);
+
+        // Identical entry points under an accepted historical exposure: carried forward.
+        let same = fixture::measurement(&root, 'b', true, 'a');
+        assert!(migration_reviews(&historical(), &base, &same)
+            .unwrap()
+            .is_empty());
+
+        // A changed entry point needs a component review.
+        let changed = fixture::measurement(&root, 'b', true, 'c');
+        assert_eq!(
+            migration_reviews(&historical(), &base, &changed).unwrap(),
+            dep_only
+        );
+
+        // A crate that forbids unsafe never needs review, even when it changed.
+        let forbidding = fixture::measurement(&root, 'b', false, 'c');
+        assert!(migration_reviews(&historical(), &base, &forbidding)
+            .unwrap()
+            .is_empty());
+
+        // Exposure absent from, or version-drifted against, the historical inventory.
+        let mut other_crate = historical();
+        other_crate.exposure[0].crate_name = "other".into();
+        assert_eq!(
+            migration_reviews(&other_crate, &base, &same).unwrap(),
+            dep_only
+        );
+        let mut first_party = historical();
+        first_party.exposure[0].first_party_exception = true;
+        assert_eq!(
+            migration_reviews(&first_party, &base, &same).unwrap(),
+            dep_only
+        );
+        let mut drifted = historical();
+        drifted.sbom[0].version = "0.9.0".into();
+        assert_eq!(migration_reviews(&drifted, &base, &same).unwrap(), dep_only);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn migration_reviews_refuses_unmatched_scans_and_empty_history() {
+        let root = fixture::scratch("migration-bad");
+        let base = fixture::measurement(&root, 'a', true, 'a');
+        let same = fixture::measurement(&root, 'b', true, 'a');
+        let needle = "migration requires historical inventory";
+
+        let mut empty_exposure = historical();
+        empty_exposure.exposure.clear();
+        let mut empty_sbom = historical();
+        empty_sbom.sbom.clear();
+        let mut no_time = historical();
+        no_time.recorded_unix = 0;
+        let mut wrong_features = historical();
+        wrong_features.features = "cuda".into();
+        for history in [empty_exposure, empty_sbom, no_time, wrong_features] {
+            let err = migration_reviews(&history, &base, &same).unwrap_err();
+            assert!(err.contains(needle), "{err}");
+        }
+
+        let same_commit = fixture::measurement(&root, 'a', true, 'a');
+        assert!(migration_reviews(&historical(), &base, &same_commit).is_err());
+
+        let mut other_scanner = same.clone();
+        other_scanner.scanner_sha256 = "9".repeat(64);
+        assert!(migration_reviews(&historical(), &base, &other_scanner).is_err());
+        let mut other_cargo = same.clone();
+        other_cargo.cargo_version = "cargo 2.0.0".into();
+        assert!(migration_reviews(&historical(), &base, &other_cargo).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clean_carry_forward_migrates_validates_and_issues_a_receipt() {
+        let env = setup("clean", 'a');
+        let baseline = migrate_with(&env, &bound_review(&env, vec![])).unwrap();
+        assert_eq!(baseline.schema, BASELINE_SCHEMA);
+        assert_eq!(baseline.allowances.len(), 2);
+        let basis = |name: &str| {
+            baseline
+                .allowances
+                .iter()
+                .find(|a| a.identity.name == name)
+                .unwrap()
+                .basis
+                .clone()
+        };
+        assert_eq!(basis("app"), "workspace-member");
+        assert_eq!(basis("dep"), "matched-historical-exposure");
+        assert!(check_inventory(&env.candidate, &baseline)
+            .unwrap()
+            .is_empty());
+
+        // The baseline survives a write/read round trip under strict parsing.
+        let path = env.dir.join("baseline.json");
+        measurement::write_json_atomic(&path, &baseline).unwrap();
+        let read = read_baseline(&path).unwrap();
+        assert_eq!(read.review_sha256, baseline.review_sha256);
+
+        let issued = receipt(&env.candidate, &env.candidate_path, &read, &path).unwrap();
+        assert_eq!(issued.verdict, "clean");
+        assert!(issued.complete);
+        assert_eq!(issued.measured_packages, 2);
+        assert_eq!(issued.measured_files, 2);
+        assert!(issued.unreviewed_exposures.is_empty());
+        assert_eq!(issued.review_sha256, read.review_sha256);
+        assert_eq!(
+            issued.measurement_sha256,
+            measurement::file_sha256(&env.candidate_path).unwrap()
+        );
+
+        // Changed dependency source is unreviewed exposure and blocks the receipt.
+        let mut changed = env.candidate.clone();
+        changed.packages[1].files[0].sha256 = "c".repeat(64);
+        assert_eq!(
+            check_inventory(&changed, &read).unwrap(),
+            vec![dep_identity()]
+        );
+        let err = receipt(&changed, &env.candidate_path, &read, &path).unwrap_err();
+        assert!(err.contains("requires review"), "{err}");
+        assert!(err.contains("dep@1.0.0"), "{err}");
+
+        // A measurement from another context is not comparable at all.
+        let mut moved = env.candidate.clone();
+        moved.target = "aarch64-pc-windows-msvc".into();
+        assert!(check_inventory(&moved, &read).is_err());
+
+        let _ = std::fs::remove_dir_all(&env.dir);
+    }
+
+    #[test]
+    fn changed_dependency_needs_a_bound_review_and_source_drift_revokes_it() {
+        let env = setup("review", 'b');
+
+        let err = migrate_with(&env, &bound_review(&env, vec![])).unwrap_err();
+        assert!(err.contains("component review set differs"), "{err}");
+
+        let baseline = migrate_with(&env, &bound_review(&env, vec![dep_component(&env)])).unwrap();
+        let dep = baseline
+            .allowances
+            .iter()
+            .find(|a| a.identity == dep_identity())
+            .unwrap();
+        assert_eq!(dep.basis, "component-review");
+        assert!(check_inventory(&env.candidate, &baseline)
+            .unwrap()
+            .is_empty());
+
+        // Editing the reviewed boundary after sign-off makes the exposure unreviewed again.
+        std::fs::write(env.dep_source(), "// drifted after review").unwrap();
+        assert_eq!(
+            check_inventory(&env.candidate, &baseline).unwrap(),
+            vec![dep_identity()]
+        );
+        let _ = std::fs::remove_dir_all(&env.dir);
+    }
+
+    #[test]
+    fn migrate_refuses_reviews_that_do_not_bind_the_exact_evidence() {
+        let env = setup("unbound", 'b');
+
+        let mut review = bound_review(&env, vec![dep_component(&env)]);
+        review.historical_baseline_sha256 = "d".repeat(64);
+        let err = migrate_with(&env, &review).unwrap_err();
+        assert!(
+            err.contains("does not bind the exact matched scans"),
+            "{err}"
+        );
+
+        let mut review = bound_review(&env, vec![dep_component(&env)]);
+        review.scanner_sha256 = "d".repeat(64);
+        assert!(migrate_with(&env, &review).is_err());
+
+        let mut component = dep_component(&env);
+        component.reviewed_files[0].sha256 = "d".repeat(64);
+        let err = migrate_with(&env, &bound_review(&env, vec![component])).unwrap_err();
+        assert!(err.contains("review source changed"), "{err}");
+
+        let mut component = dep_component(&env);
+        component.source_guards.push(ReviewedFile {
+            path: "absent-guard.rs".into(),
+            sha256: "d".repeat(64),
+        });
+        assert!(migrate_with(&env, &bound_review(&env, vec![component])).is_err());
+        let _ = std::fs::remove_dir_all(&env.dir);
+    }
+
+    #[test]
+    fn validate_baseline_rejects_tampered_proofs() {
+        let env = setup("tamper", 'b');
+        let good = migrate_with(&env, &bound_review(&env, vec![dep_component(&env)])).unwrap();
+        assert!(validate_baseline(&good).is_ok());
+
+        fn rejects(good: &Baseline, needle: &str, mutate: impl FnOnce(&mut Baseline)) {
+            let mut tampered = good.clone();
+            mutate(&mut tampered);
+            let err = validate_baseline(&tampered).unwrap_err();
+            assert!(err.contains(needle), "wanted {needle:?}, got {err}");
+        }
+        let schema = "invalid baseline schema/unit/context";
+        rejects(&good, schema, |b| {
+            b.schema = "susi/unsafe-baseline/v1".into()
+        });
+        rejects(&good, schema, |b| b.features = "cuda".into());
+        rejects(&good, schema, |b| b.allowances.clear());
+        rejects(&good, schema, |b| b.recorded_unix = 0);
+        rejects(&good, "missing component review identity/schema", |b| {
+            b.review.reviewer.clear();
+        });
+        rejects(&good, "baseline review binding mismatch", |b| {
+            b.review.components[0].risk = "a different but still long rationale".into();
+        });
+        rejects(&good, "baseline matched-scan proof mismatch", |b| {
+            b.base_source_commit = "0".repeat(40);
+        });
+        rejects(
+            &good,
+            "allowance differs from measured candidate proof",
+            |b| {
+                b.allowances[1].unsafe_units = 0;
+            },
+        );
+        rejects(&good, "unsupported baseline allowance basis", |b| {
+            b.allowances[1].basis = "trust-me".into();
+        });
+        rejects(&good, "legacy baseline projection differs", |b| {
+            b.exposure.clear();
+        });
+        let _ = std::fs::remove_dir_all(&env.dir);
+    }
+
+    #[test]
+    fn read_baseline_reports_missing_and_pre_v2_files() {
+        let dir = fixture::scratch("read-baseline");
+        let err = read_baseline(&dir.join("absent.json")).unwrap_err();
+        assert!(err.contains("missing baseline"), "{err}");
+
+        let legacy = dir.join("legacy.json");
+        std::fs::write(&legacy, r#"{"features": "default", "exposure": []}"#).unwrap();
+        let err = read_baseline(&legacy).unwrap_err();
+        assert!(
+            err.contains("needs complete reviewed v2 migration"),
+            "{err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

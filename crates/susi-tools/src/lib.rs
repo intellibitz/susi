@@ -87,3 +87,52 @@ fn private_config_fixture() -> Option<std::path::PathBuf> {
     parent.close().unwrap();
     None
 }
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn crate_root_re_exports_resolve_to_their_defining_modules() {
+        // Each root re-export must be the same type as its module path, so
+        // downstream crates (gmcp, gawd, daemon) can depend on the root.
+        fn same<T: 'static, U: 'static>() -> bool {
+            std::any::TypeId::of::<T>() == std::any::TypeId::of::<U>()
+        }
+        assert!(same::<GlobalMcpEntry, config::GlobalMcpEntry>());
+        assert!(same::<McpConfig, config::McpConfig>());
+        assert!(same::<McpServerConfig, susi_vendor_mcp::McpServerConfig>());
+        assert!(same::<HardwareSnapshot, hooks::HardwareSnapshot>());
+        assert!(same::<ToolRegistry, registry::ToolRegistry>());
+        assert!(same::<MetaCategory, types::MetaCategory>());
+        assert!(same::<GmcpClient, client::GmcpClient>());
+    }
+
+    #[test]
+    fn meta_category_variants_are_distinct_copy_values() {
+        let all = [
+            MetaCategory::SystemPrimitive,
+            MetaCategory::WorkspaceIo,
+            MetaCategory::McpProxy,
+            MetaCategory::WasmReflex,
+            MetaCategory::IntelligenceBridge,
+            MetaCategory::CodingSpecialist,
+            MetaCategory::AssistantSpecialist,
+        ];
+        for (i, a) in all.iter().enumerate() {
+            for (j, b) in all.iter().enumerate() {
+                assert_eq!(i == j, a == b, "{a:?} vs {b:?}");
+            }
+        }
+        let copied = all[0];
+        assert_eq!(copied, MetaCategory::SystemPrimitive);
+    }
+
+    #[test]
+    fn tool_registry_global_is_a_singleton_wired_through_hooks() {
+        // `global()` bootstraps through `hooks()`; in the unit-test binary
+        // that is the inert fallback, so this never touches gawd/gmcp.
+        assert_eq!(hooks::hooks().engine_version(), "unknown");
+        assert!(std::ptr::eq(ToolRegistry::global(), ToolRegistry::global()));
+    }
+}

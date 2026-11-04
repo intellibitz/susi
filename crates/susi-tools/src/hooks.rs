@@ -137,3 +137,84 @@ impl EngineHooks for NoOpHooks {
 pub fn hooks() -> &'static dyn EngineHooks {
     HOOKS.get_or_init(|| Box::new(NoOpHooks)).as_ref()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Implements only the required methods, so every swarm-facing method
+    /// runs its trait default.
+    struct MinimalHooks;
+    impl EngineHooks for MinimalHooks {
+        fn engine_version(&self) -> &'static str {
+            "test"
+        }
+        fn hardware_snapshot(&self) -> HardwareSnapshot {
+            HardwareSnapshot {
+                available_ram_gb: 1,
+                acceleration_active: true,
+            }
+        }
+        fn resolve_capability_gap(&self, _name: &str, _workspace: &Path) -> EaiResult<String> {
+            Ok(String::new())
+        }
+        fn broadcast_lock_request(&self, _resource_id: &str) -> bool {
+            true
+        }
+        fn bootstrap_tools(&self, _registry: &ToolRegistry) {}
+    }
+
+    fn assert_fails_closed<T: std::fmt::Debug>(result: EaiResult<T>) {
+        let err = result.expect_err("an unwired swarm seam must fail closed");
+        assert!(
+            err.to_string().contains("swarm substrate unwired"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn assert_every_default_fails_closed(h: &dyn EngineHooks) {
+        let ws = Path::new(".");
+        assert_fails_closed(h.audit_action("exec_command", "rm -rf /", ws));
+        assert_fails_closed(h.sanitize_input("hello"));
+        assert_fails_closed(h.bloat_audit(ws));
+        assert_fails_closed(h.identity_report(ws));
+        assert_fails_closed(h.audit_reasoning_substrate(ws));
+        assert_fails_closed(h.self_validate(ws));
+        assert_fails_closed(h.train_reflexes(ws));
+        let solved = h.solve_mission("do something", ws, "0.0.0");
+        assert!(solved.starts_with("[CAPABILITY_GAP]"), "{solved}");
+        assert!(solved.contains("unwired"), "{solved}");
+    }
+
+    #[test]
+    fn swarm_facing_trait_defaults_fail_closed_when_unwired() {
+        assert_every_default_fails_closed(&MinimalHooks);
+    }
+
+    #[test]
+    fn no_op_hooks_degrade_to_inert_results_and_still_fail_closed() {
+        let h = NoOpHooks;
+        assert_eq!(h.engine_version(), "unknown");
+        let hw = h.hardware_snapshot();
+        assert_eq!(hw.available_ram_gb, 0);
+        assert!(!hw.acceleration_active);
+        let gap = h
+            .resolve_capability_gap("missing_tool", Path::new("."))
+            .unwrap();
+        assert!(gap.starts_with("[CAPABILITY_GAP] 'missing_tool' unresolved"));
+        assert!(!h.broadcast_lock_request("resource-1"));
+        assert_every_default_fails_closed(&h);
+    }
+
+    #[test]
+    fn hooks_fallback_is_inert_when_init_was_never_called() {
+        // The unit-test binary never calls `init`, so `hooks()` must resolve
+        // to the inert fallback and keep the action-capable seam closed.
+        let h = hooks();
+        assert_eq!(h.engine_version(), "unknown");
+        assert!(!h.broadcast_lock_request("resource-1"));
+        assert_every_default_fails_closed(h);
+        // Stable: repeated calls return the same wired instance.
+        assert!(std::ptr::addr_eq(hooks(), h));
+    }
+}

@@ -85,6 +85,50 @@ impl AdminHooks for NoOpAdminHooks {
     }
 }
 
+static NO_OP_HOOKS: NoOpAdminHooks = NoOpAdminHooks;
+
 pub fn hooks() -> &'static dyn AdminHooks {
-    HOOKS.get_or_init(|| Box::new(NoOpAdminHooks)).as_ref()
+    match HOOKS.get() {
+        Some(hooks) => hooks.as_ref(),
+        None => &NO_OP_HOOKS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn no_op_admin_hooks_returns_typed_unwired_diagnostics_for_all_actions() {
+        let ws = Path::new(".");
+        assert!(NO_OP_HOOKS
+            .enforce_version_consistency(ws)
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] enforce_version_consistency"));
+        assert!(NO_OP_HOOKS
+            .audit_compliance(ws)
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] audit_compliance"));
+        assert!(NO_OP_HOOKS
+            .verify_version_alignment(ws)
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] verify_version_alignment"));
+        assert!(NO_OP_HOOKS
+            .execute_release(ws)
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] execute_release"));
+        assert!(NO_OP_HOOKS
+            .bloat_audit_workspace(ws)
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] bloat_audit_workspace"));
+        assert!(NO_OP_HOOKS
+            .perform_autonomous_drift_audit(ws)
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] perform_autonomous_drift_audit"));
+        assert!(NO_OP_HOOKS
+            .apply_patch_cycle(ws, "{}", "local")
+            .unwrap()
+            .contains("[ADMIN_UNWIRED] apply_patch_cycle"));
+    }
 }
