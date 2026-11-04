@@ -204,4 +204,42 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn resolve_api_key_env_rejects_embedded_plaintext_and_resolves_process_env_variable() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_cred_env_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 1. Embedded plaintext secret value is rejected by KeyRef::parse inside resolve_api_key_env.
+        assert!(
+            resolve_api_key_env("sk-live-123456", &dir).is_err(),
+            "embedded plaintext secret must be rejected"
+        );
+
+        // 2. Valid environment variable name resolves when set in process environment.
+        let _guard = crate::env_test_lock();
+        const VAR_NAME: &str = "SUSI_TEST_CRED_KEY_1104";
+        let prev = std::env::var_os(VAR_NAME);
+        std::env::set_var(VAR_NAME, "env-resolved-secret-1104");
+
+        let resolved = resolve_api_key_env(VAR_NAME, &dir);
+
+        match prev {
+            Some(v) => std::env::set_var(VAR_NAME, v),
+            None => std::env::remove_var(VAR_NAME),
+        }
+        drop(_guard);
+
+        let secret = resolved
+            .expect("resolve_api_key_env should succeed")
+            .expect("Some(ScopedSecret)");
+        assert_eq!(secret.value, "env-resolved-secret-1104");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
