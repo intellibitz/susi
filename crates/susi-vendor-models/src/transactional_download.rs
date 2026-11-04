@@ -224,3 +224,104 @@ impl Store {
         out
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn temp_store(tag: &str) -> Store {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-tx-dl-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Store::new(&dir)
+    }
+
+    #[test]
+    fn store_paths_and_is_ready_require_both_artifact_and_manifest() {
+        let store = temp_store("ready");
+        assert!(!store.is_ready("model.gguf"));
+        assert!(store
+            .staging_target("model.gguf")
+            .ends_with("staging/model.gguf"));
+
+        let models_dir = store.root.join("models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+        std::fs::write(models_dir.join("model.gguf"), b"weights").unwrap();
+        assert!(!store.is_ready("model.gguf"));
+
+        std::fs::write(models_dir.join("model.gguf.manifest.json"), b"{}").unwrap();
+        assert!(store.is_ready("model.gguf"));
+        let _ = std::fs::remove_dir_all(&store.root);
+    }
+
+    #[test]
+    fn recover_lists_sorted_part_files_and_ignores_other_extensions() {
+        let store = temp_store("recover");
+        let staging = store.root.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("zeta.gguf.part"), b"12345").unwrap();
+        std::fs::write(staging.join("alpha.gguf.part"), b"12").unwrap();
+        std::fs::write(staging.join("ignored.corrupt"), b"999").unwrap();
+
+        let entries = store.recover();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "alpha.gguf");
+        assert_eq!(entries[0].bytes, 2);
+        assert_eq!(entries[1].name, "zeta.gguf");
+        assert_eq!(entries[1].bytes, 5);
+        let _ = std::fs::remove_dir_all(&store.root);
+    }
+
+    #[test]
+    fn commit_staged_promotes_validated_artifact_and_writes_manifest() {
+        let store = temp_store("commit-ok");
+        let staged = store.staging_target("tiny.bin");
+        std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        std::fs::write(&staged, b"abcd").unwrap();
+
+        let plan = DownloadPlan {
+            url: "https://example.invalid/tiny.bin".to_string(),
+            dest: staged.clone(),
+            size: Some(4),
+            sha256: None,
+            max_retries: 1,
+        };
+        let report = store.commit_staged("tiny.bin", &plan, &|_| true).unwrap();
+        assert!(report.published);
+        assert!(store.is_ready("tiny.bin"));
+        let _ = std::fs::remove_dir_all(&store.root);
+    }
+
+    #[test]
+    fn commit_staged_quarantines_checksum_mismatch_without_publishing() {
+        let store = temp_store("commit-bad-sha");
+        let staged = store.staging_target("corrupt.bin");
+        std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        std::fs::write(&staged, b"wrong-bytes").unwrap();
+
+        let plan = DownloadPlan {
+            url: "https://example.invalid/corrupt.bin".to_string(),
+            dest: staged.clone(),
+            size: Some(11),
+            sha256: Some(
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            ),
+            max_retries: 1,
+        };
+        let report = store
+            .commit_staged("corrupt.bin", &plan, &|_| true)
+            .unwrap();
+        assert!(!report.published);
+        assert!(!report.verified);
+        assert!(!store.is_ready("corrupt.bin"));
+        assert!(staged.with_extension("corrupt").is_file());
+        let _ = std::fs::remove_dir_all(&store.root);
+    }
+}
