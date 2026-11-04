@@ -136,4 +136,20 @@ mod inline_tests {
         assert_eq!(snap.distinct_solutions, 0);
         assert_eq!(snap.avg_time_to_resolution_ms, 3000);
     }
+
+    #[test]
+    fn snapshot_saturates_duration_when_end_precedes_start() {
+        let tasks = vec![make_record(
+            "t-clock-skew",
+            TaskStatus::Completed,
+            200,
+            150,
+            Some("skew-ok"),
+        )];
+        let snap = snapshot_from_tasks(&tasks);
+        assert_eq!(snap.missions_completed, 1);
+        assert_eq!(snap.missions_succeeded, 1);
+        assert_eq!(snap.distinct_solutions, 1);
+        assert_eq!(snap.avg_time_to_resolution_ms, 0);
+    }
 }
