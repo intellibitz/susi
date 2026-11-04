@@ -461,4 +461,27 @@ mod tests {
             "Full Cache Mode should achieve >=70% cache hit rate: {hit_rate}"
         );
     }
+
+    #[test]
+    fn orchestrator_standard_cache_mode_and_empty_subtasks_report_zero_cached_tokens() {
+        let mut orch = TieredOrchestrator::new("standard-orch");
+        orch.set_cache_mode(CacheMode::Standard);
+        assert_eq!(orch.cache_mode(), CacheMode::Standard);
+
+        let report = orch.orchestrate_mission("minimal mission", &[], "empty context");
+        assert_eq!(report.subtasks_executed, 0);
+        assert_eq!(report.worker_dispatches, 0);
+        assert_eq!(report.pro_dispatches, 1); // synthesis step still runs
+        assert_eq!(report.total_cached_tokens, 0);
+
+        let anthropic_req =
+            TieredOrchestrator::build_cache_request("claude-sonnet-4-6", "sys", "task", None, 512);
+        assert!(anthropic_req.is_object());
+        let gemini_req =
+            TieredOrchestrator::build_cache_request("gemini-2.5-flash", "sys", "task", None, 512);
+        assert!(gemini_req.is_object());
+        let deepseek_req =
+            TieredOrchestrator::build_cache_request("deepseek-chat", "sys", "task", None, 512);
+        assert!(deepseek_req.is_object());
+    }
 }

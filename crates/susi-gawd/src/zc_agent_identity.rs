@@ -98,4 +98,20 @@ mod zc_agent_identity_tests {
             "DEEPSEEK"
         );
     }
+
+    #[test]
+    fn zc_agent_identity_trims_env_override_and_falls_back_on_blank_override() {
+        assert_eq!(
+            detect_agent(Some("  qwen  "), "/usr/bin/cursor-agent").agent,
+            "QWEN"
+        );
+        assert_eq!(
+            detect_agent(Some("   "), "anthropic-worker").agent,
+            "CLAUDE"
+        );
+        assert_eq!(
+            detect_agent(None, "cursor-wrapper invoking gemini").agent,
+            "CURSOR"
+        );
+    }
 }

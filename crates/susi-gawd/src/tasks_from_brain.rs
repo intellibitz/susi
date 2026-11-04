@@ -80,4 +80,36 @@ mod tasks_from_brain_tests {
         )
         .is_empty());
     }
+
+    #[test]
+    fn tasks_from_brain_returns_empty_for_empty_signals() {
+        assert!(tasks_from_brain(&[], 1).is_empty());
+    }
+
+    #[test]
+    fn tasks_from_brain_emits_both_tasks_when_single_signal_is_unfit_and_unserved() {
+        let drafts = tasks_from_brain(
+            &[BrainSignal {
+                provider: "anthropic".into(),
+                unfit_days: 5,
+                default_model: Some("claude-sonnet".into()),
+                default_served: false,
+            }],
+            5,
+        );
+        assert_eq!(drafts.len(), 2);
+        assert_eq!(drafts[0].title, "Remediate unfit provider anthropic");
+        assert_eq!(
+            drafts[0].accept_hint,
+            "cargo test -p susi-gemi provider_anthropic"
+        );
+        assert_eq!(
+            drafts[1].title,
+            "Serve or remap default model claude-sonnet"
+        );
+        assert_eq!(
+            drafts[1].accept_hint,
+            "cargo test -p susi-gemi-models default_claude-sonnet"
+        );
+    }
 }

@@ -93,4 +93,34 @@ mod lane_overlap_warning_tests {
         }];
         assert!(lane_overlap_warnings(&lanes, &["README.md"], &[]).is_empty());
     }
+
+    #[test]
+    fn parse_lane_json_roundtrips_and_rejects_malformed_json() {
+        let parsed = parse_lane_json(r#"{"agent":"GEMINI","globs":["crates/susi-gawd/*"]}"#)
+            .expect("valid lane json");
+        assert_eq!(parsed.agent, "GEMINI");
+        assert_eq!(parsed.globs, vec!["crates/susi-gawd/*".to_string()]);
+        assert!(parse_lane_json("{not valid json").is_err());
+    }
+
+    #[test]
+    fn index_lanes_maps_by_agent_and_glob_matches_wildcards() {
+        assert!(glob_matches("**", "any/nested/path.rs"));
+        assert!(glob_matches("**/Cargo.toml", "crates/susi-gawd/Cargo.toml"));
+        assert!(glob_matches("crates/*", "crates/lib.rs"));
+        assert!(!glob_matches("crates/*", "crates/sub/lib.rs"));
+
+        let indexed = index_lanes(vec![
+            Lane {
+                agent: "CODEX".into(),
+                globs: vec!["**/Cargo.toml".into()],
+            },
+            Lane {
+                agent: "CLAUDE".into(),
+                globs: vec!["crates/*".into()],
+            },
+        ]);
+        assert_eq!(indexed.len(), 2);
+        assert_eq!(indexed["CODEX"].globs, vec!["**/Cargo.toml".to_string()]);
+    }
 }

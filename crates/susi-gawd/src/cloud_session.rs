@@ -140,4 +140,14 @@ mod cloud_session_tests {
         assert_eq!(token("Claude-Code 2"), Some("CLAUDECODE2".into()));
         assert_eq!(token("--"), None);
     }
+
+    #[test]
+    fn cloud_session_token_handles_empty_punctuation_and_mixed_alphanumeric() {
+        assert_eq!(token(""), None);
+        assert_eq!(token("   ___---   "), None);
+        assert_eq!(
+            token("  gemini_2.5-pro/agent  "),
+            Some("GEMINI25PROAGENT".into())
+        );
+    }
 }
