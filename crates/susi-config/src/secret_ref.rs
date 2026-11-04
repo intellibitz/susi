@@ -451,4 +451,40 @@ mod tests {
         assert!(!scrubbed.contains("escaped"));
         assert!(!scrubbed.contains("vault-body-xyz-987"));
     }
+
+    #[test]
+    fn credential_field_dotted_and_hyphenated_names_and_unclosed_quote_redaction_contract() {
+        for cred_key in [
+            "Nested.Client-Secret",
+            "headers.Authorization",
+            "oauth.access-token",
+            "db.user_password",
+            "service.private_key",
+        ] {
+            assert!(
+                credential_field(cred_key),
+                "expected {cred_key} to be classified as a credential field"
+            );
+        }
+        for non_cred_key in [
+            "max_generation_tokens",
+            "tokenizer_filename",
+            "api_key_env",
+            "unresolved",
+        ] {
+            assert!(
+                !credential_field(non_cred_key),
+                "expected {non_cred_key} not to be classified as a credential field"
+            );
+        }
+
+        assert_eq!(
+            redact_for_export("api_key=\"unclosed-secret-eof"),
+            "api_key=\"[REDACTED]\""
+        );
+        assert_eq!(
+            redact_for_export("resolved=secret with spaces until semicolon; next=ok"),
+            "resolved=[REDACTED]; next=ok"
+        );
+    }
 }

@@ -388,4 +388,72 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn explain_key_marks_unparseable_env_override_ineffective_and_handles_model_idle_timeout_and_unknown_key(
+    ) {
+        let _guard = crate::env_test_lock();
+        let prev_offset = std::env::var_os("SUSI_PORT_OFFSET");
+        let prev_idle = std::env::var_os("SUSI_MODEL_IDLE_TIMEOUT_SECS");
+
+        let dir = std::env::temp_dir().join(format!(
+            "susi-explain-unparseable-env-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let global_dir = dir.as_path();
+
+        let mut settings = SusiConfig::heal_defaults().clone();
+        settings.insert("port_offset".into(), DynamicValue::from(12));
+        fs::write(
+            SusiConfig::get_config_path(global_dir),
+            serde_json::to_string_pretty(&SusiConfig { settings }).expect("serialize host config"),
+        )
+        .expect("write host config.json");
+
+        std::env::set_var("SUSI_PORT_OFFSET", "not-a-number");
+        let bad_env = explain_key("port_offset", global_dir);
+        assert_eq!(bad_env.origin, ConfigOrigin::Host);
+        assert_eq!(bad_env.value, DynamicValue::from(12));
+        let env_layer = bad_env
+            .layers
+            .iter()
+            .find(|l| {
+                l.origin
+                    == ConfigOrigin::Environment {
+                        var: "SUSI_PORT_OFFSET".into(),
+                    }
+            })
+            .expect("env layer present");
+        assert!(!env_layer.effective);
+        assert_eq!(
+            env_layer.value,
+            Some(DynamicValue::String("not-a-number".into()))
+        );
+
+        std::env::set_var("SUSI_MODEL_IDLE_TIMEOUT_SECS", "900");
+        let idle = explain_key("model_idle_timeout_secs", global_dir);
+        assert_eq!(
+            idle.origin,
+            ConfigOrigin::Environment {
+                var: "SUSI_MODEL_IDLE_TIMEOUT_SECS".into()
+            }
+        );
+        assert_eq!(idle.value, DynamicValue::from(900u64));
+
+        let unknown = explain_key("totally_unknown_key", global_dir);
+        assert_eq!(unknown.origin, ConfigOrigin::BundledDefault);
+        assert_eq!(unknown.value, DynamicValue::Null);
+
+        match prev_offset {
+            Some(v) => std::env::set_var("SUSI_PORT_OFFSET", v),
+            None => std::env::remove_var("SUSI_PORT_OFFSET"),
+        }
+        match prev_idle {
+            Some(v) => std::env::set_var("SUSI_MODEL_IDLE_TIMEOUT_SECS", v),
+            None => std::env::remove_var("SUSI_MODEL_IDLE_TIMEOUT_SECS"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
