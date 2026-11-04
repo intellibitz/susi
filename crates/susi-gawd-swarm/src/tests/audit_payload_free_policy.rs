@@ -312,3 +312,62 @@ fn audit_payload_free_policy() {
     // - Measure trace bytes-per-subsystem per day
     // - Reject payloads at the boundary before audit/trace recording
 }
+
+#[test]
+fn secret_debug_and_display_never_leak_arbitrary_payloads() {
+    for raw in ["", "sk-live-secret", "bearer tok_12345", "line1\nline2"] {
+        let s = Secret::new(raw.to_string());
+        assert_eq!(format!("{s}"), "[REDACTED]");
+        assert_eq!(format!("{s:?}"), "[REDACTED]");
+        assert_eq!(Secret::redacted(), "[REDACTED]");
+    }
+}
+
+#[test]
+fn trace_tier_record_enforces_exact_byte_budget_boundary() {
+    let mut trace = TraceTier::new(256);
+    trace.enable_subsystem("router", TraceLevel::Error);
+
+    let exact = TraceEntry {
+        level: TraceLevel::Error,
+        subsystem: "router".to_string(),
+        message: "fits exactly".to_string(),
+        timestamp_unix: 2000,
+        bytes: 256,
+    };
+    assert!(trace.record(exact));
+    assert_eq!(trace.bytes_remaining(), 0);
+    assert_eq!(trace.entries().len(), 1);
+
+    let overflow_by_one = TraceEntry {
+        level: TraceLevel::Error,
+        subsystem: "router".to_string(),
+        message: "one byte over".to_string(),
+        timestamp_unix: 2001,
+        bytes: 1,
+    };
+    assert!(!trace.record(overflow_by_one));
+    assert_eq!(trace.entries().len(), 1);
+}
+
+#[test]
+fn audit_tier_preserves_insertion_order_across_multiple_events() {
+    let mut audit = AuditTier::new();
+    for idx in 1..=3 {
+        audit.record(AuditEvent::ActionPerformed {
+            actor: format!("actor-{idx}"),
+            action: format!("action-{idx}"),
+            timestamp_unix: 3000 + idx,
+            signature: format!("sig-{idx}"),
+        });
+    }
+    assert_eq!(audit.events().len(), 3);
+    let actors: Vec<&str> = audit
+        .events()
+        .iter()
+        .map(|e| match e {
+            AuditEvent::ActionPerformed { actor, .. } => actor.as_str(),
+        })
+        .collect();
+    assert_eq!(actors, vec!["actor-1", "actor-2", "actor-3"]);
+}
