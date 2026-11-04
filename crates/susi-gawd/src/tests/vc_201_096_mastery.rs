@@ -51,3 +51,19 @@ fn vc_201_096_mastery_policy_precedence_requires_explicit_paid_authority() {
         PolicyDecision::Paid
     );
 }
+
+#[test]
+fn vc_201_096_mastery_free_headroom_takes_precedence_and_exhausted_headroom_falls_back_to_policy() {
+    assert_eq!(
+        policy_precedence(PolicyClass::AskFirst, true, true),
+        PolicyDecision::Free
+    );
+    assert_eq!(
+        policy_precedence(PolicyClass::PaidAuthorized, true, true),
+        PolicyDecision::Free
+    );
+    assert_eq!(
+        policy_precedence(PolicyClass::AskFirst, true, false),
+        PolicyDecision::NeedsConsent
+    );
+}

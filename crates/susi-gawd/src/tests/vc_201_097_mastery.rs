@@ -126,3 +126,20 @@ fn vc_201_097_mastery_baseline_roundtrips_json_and_verdict_is_clean_against_self
         GeigerVerdict::Clean
     );
 }
+
+#[test]
+fn vc_201_097_mastery_sbom_changes_returns_empty_when_sbom_is_identical() {
+    let sbom = vec![
+        SbomEntry {
+            crate_name: "alpha".into(),
+            version: "1.0.0".into(),
+            provenance: "crates.io".into(),
+        },
+        SbomEntry {
+            crate_name: "beta".into(),
+            version: "2.1.0".into(),
+            provenance: "crates.io".into(),
+        },
+    ];
+    assert!(sbom_changes(&sbom, &sbom).is_empty());
+}

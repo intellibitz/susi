@@ -94,3 +94,10 @@ fn unit_susi_binary_path_exists_and_is_file() {
     assert!(bin.exists(), "CARGO_BIN_EXE_susi must exist on disk");
     assert!(bin.is_file(), "CARGO_BIN_EXE_susi must be a regular file");
 }
+
+#[test]
+fn test_susi_run_help_describes_timeout_or_usage_synopsis() {
+    let (code, stdout, stderr) = run_susi(&["run", "-h"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(stdout.contains("Usage:") || stdout.contains("run"));
+}

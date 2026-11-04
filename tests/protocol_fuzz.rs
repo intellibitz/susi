@@ -77,3 +77,14 @@ fn protocol_fuzz_claim_blob_missing_optional_lease_and_malformed_rejection() {
     let missing_required = br#"{"task_id":"T-42"}"#;
     assert!(serde_json::from_slice::<ClaimBlob>(missing_required).is_err());
 }
+
+#[test]
+fn protocol_fuzz_deeply_nested_and_empty_json_values_are_handled_cleanly() {
+    for input in [
+        &b"{}"[..],
+        &b"{\"a\":{\"b\":{\"c\":1}}}"[..],
+        &b"\"plain-string\""[..],
+    ] {
+        claim_roundtrip_or_err(input);
+    }
+}

@@ -64,3 +64,14 @@ fn windows_sc_command_quotes_binary_path_and_sets_demand_start() {
         "sc.exe create susi binPath= \"C:\\Program Files\\susi\\susi.exe daemon\" start= demand\n"
     );
 }
+
+#[test]
+fn platform_renders_distinct_output_for_identical_binary_path() {
+    let bin = "/opt/susi/susi";
+    let sys = render_unit(Platform::Systemd, bin);
+    let mac = render_unit(Platform::Launchd, bin);
+    let win = render_unit(Platform::Windows, bin);
+    assert_ne!(sys, mac);
+    assert_ne!(sys, win);
+    assert_ne!(mac, win);
+}

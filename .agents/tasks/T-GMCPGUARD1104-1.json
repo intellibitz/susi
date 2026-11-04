@@ -1,0 +1,26 @@
+{
+  "id": "T-GMCPGUARD1104-1",
+  "title": "Branch gate checks GMCP evidence currency when a branch touches GMCP",
+  "goal": "Core PR checks never ran tests/gmcp_requirements.rs, so a branch that changed crates/susi-gmcp without re-recording VC-203 evidence merged green and staled main (#1561, #1618 on 2026-11-04); the tagged suites of v0.21.48 and v0.21.49 then failed gmcp mastery and neither release published. Add a step to the required 'Compile Check (branch pushes)' job that runs the full gmcp_requirements target when the branch's diff from its merge-base with origin/main touches crates/susi-gmcp/, .agents/gmcp/ or tests/gmcp_requirements.rs (and when the base cannot be resolved), and skips in seconds otherwise; pin it in xtask/tests/ci_workflow_perf.rs.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-gmcpguard1104-1.json",
+    ".github/workflows/test.yml",
+    "xtask/tests/ci_workflow_perf.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "GMCPGUARD1104",
+  "created_unix": 1793815907
+}

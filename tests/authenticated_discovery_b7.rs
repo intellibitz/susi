@@ -98,3 +98,13 @@ fn cluster_key_signed_ping_and_pong_helpers_remain_wired_in_config() {
     assert!(prod.contains("pub fn signed_pong"));
     assert!(prod.contains("pub fn verify_signed_pong"));
 }
+
+#[test]
+fn cluster_key_defines_signed_lan_discovery_frames_in_production() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let raw = std::fs::read_to_string(root.join("crates/susi-config/src/cluster_key.rs"))
+        .expect("read crates/susi-config/src/cluster_key.rs");
+    let prod = production_prefix(&raw);
+    assert!(prod.contains("SUSI_PING_SIG"));
+    assert!(prod.contains("SUSI_PONG_SIG"));
+}
