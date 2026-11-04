@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ROOTINTTESTSI4T1104",
-  "created_unix": 1793794323
+  "created_unix": 1793794323,
+  "closed": {
+    "at_unix": 1793794616,
+    "commit": "ffddfd3ee3ad792d57165ef6ed864e2755edb024",
+    "by": "ROOTINTTESTSI4T1104"
+  }
 }
