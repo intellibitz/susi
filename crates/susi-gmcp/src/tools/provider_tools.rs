@@ -428,4 +428,89 @@ mod tests {
         let refused = CoreTools::provider_list(&json!({"vendor": "refused"}), ws).unwrap_err();
         assert!(refused.to_string().contains("refused by plane"));
     }
+
+    #[test]
+    fn provider_setup_reset_pull_and_prefer_forward_expected_actions() {
+        PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
+        let ws = Path::new(".");
+        assert_eq!(
+            sent(CoreTools::provider_setup(
+                &json!({"vendor": "frontier", "model": "gpt"}),
+                ws
+            )),
+            json!({"action": "setup", "vendor": "frontier", "model": "gpt"})
+        );
+        assert_eq!(
+            sent(CoreTools::provider_reset(
+                &json!({"vendor": "frontier", "model": "gpt"}),
+                ws
+            )),
+            json!({"action": "reset", "vendor": "frontier", "model": "gpt"})
+        );
+        assert_eq!(
+            sent(CoreTools::provider_pull(&json!({"model": "qwen2.5"}), ws)),
+            json!({"action": "pull", "model": "qwen2.5"})
+        );
+        assert_eq!(
+            sent(CoreTools::provider_prefer(
+                &json!({"vendor": "openweight", "model": "qwen2.5", "clear": false}),
+                ws
+            )),
+            json!({"action": "prefer", "vendor": "openweight", "model": "qwen2.5", "clear": false})
+        );
+    }
+
+    #[test]
+    fn keys_prefer_check_and_models_forward_vendor_and_clear_flags() {
+        PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
+        let ws = Path::new(".");
+        assert_eq!(
+            sent(CoreTools::keys_prefer(
+                &json!({"vendor": "anthropic", "clear": true}),
+                ws
+            )),
+            json!({"action": "keys_prefer", "vendor": "anthropic", "clear": true})
+        );
+        assert_eq!(
+            sent(CoreTools::keys_check(&json!({"vendor": "openai"}), ws)),
+            json!({"action": "keys_check", "vendor": "openai"})
+        );
+        assert_eq!(
+            sent(CoreTools::keys_models(&json!({"vendor": "gemini"}), ws)),
+            json!({"action": "keys_models", "vendor": "gemini"})
+        );
+    }
+
+    #[test]
+    fn brain_classify_explain_matrix_cache_reset_and_probe_forward_expected_actions() {
+        PlaneBus::global().register(topics::DAEMON_PROVIDERS, Arc::new(Echo));
+        let ws = Path::new(".");
+        assert_eq!(
+            sent(CoreTools::brain_classify(&json!({"prompt": "fix bug"}), ws)),
+            json!({"action": "brain_classify", "prompt": "fix bug"})
+        );
+        assert_eq!(
+            sent(CoreTools::brain_explain(&json!({"prompt": "fix bug"}), ws)),
+            json!({"action": "brain_explain", "prompt": "fix bug"})
+        );
+        assert_eq!(
+            sent(CoreTools::brain_matrix(&json!({}), ws))["action"],
+            "brain_matrix"
+        );
+        assert_eq!(
+            sent(CoreTools::brain_cache(&json!({}), ws))["action"],
+            "brain_cache"
+        );
+        assert_eq!(
+            sent(CoreTools::brain_reset(&json!({}), ws))["action"],
+            "brain_reset"
+        );
+        assert_eq!(
+            sent(CoreTools::brain_probe(
+                &json!({"provider": "local", "no_record": true}),
+                ws
+            )),
+            json!({"action": "brain_probe", "provider": "local", "no_record": true})
+        );
+    }
 }
