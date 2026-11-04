@@ -45,4 +45,36 @@ mod brain_export_tests {
         })
         .is_err());
     }
+
+    #[test]
+    fn export_brain_empty_entries_sets_version_one() {
+        let bundle = export_brain(vec![]);
+        assert_eq!(bundle.version, 1);
+        assert!(bundle.entries.is_empty());
+        assert!(import_brain(bundle).unwrap().is_empty());
+    }
+
+    #[test]
+    fn brain_bundle_serde_json_roundtrip_preserves_entries() {
+        let bundle = export_brain(vec![
+            json!({"id": "EV-1", "score": 0.95}),
+            json!({"id": "EV-2", "score": 0.82}),
+        ]);
+        let serialized = serde_json::to_string(&bundle).expect("serialize bundle");
+        let restored: BrainBundle = serde_json::from_str(&serialized).expect("deserialize bundle");
+        assert_eq!(restored, bundle);
+    }
+
+    #[test]
+    fn import_brain_rejects_version_zero_with_descriptive_error() {
+        let err = import_brain(BrainBundle {
+            version: 0,
+            entries: vec![json!({"id": "EV-0"})],
+        })
+        .expect_err("version 0 must be rejected");
+        assert!(
+            err.contains("unsupported brain bundle version 0"),
+            "err={err}"
+        );
+    }
 }

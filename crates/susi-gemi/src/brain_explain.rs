@@ -97,4 +97,38 @@ mod brain_explain_tests {
         assert!((tie - 2.0).abs() < 1e-6);
         assert!(clear < 0.35);
     }
+
+    #[test]
+    fn routing_entropy_bits_returns_zero_for_empty_and_singleton_slices() {
+        assert_eq!(routing_entropy_bits(&[]), 0.0);
+        assert_eq!(routing_entropy_bits(&[0.8]), 0.0);
+    }
+
+    #[test]
+    fn explain_candidate_and_masterpiece_explanation_serde_json_roundtrip() {
+        let candidate = ExplainCandidate {
+            provider: "gemini-2.5-pro".into(),
+            score: 0.94,
+            wilson_lcb_95: 0.88,
+            ucb1_index: 1.12,
+            effective_cost_usd: Some(0.0025),
+            avg_latency_ms: Some(420),
+            is_pareto_optimal: true,
+            dominated_by: vec![],
+        };
+        let explanation = MasterpieceExplanation {
+            task_class: "code_refactor".into(),
+            budget: "high".into(),
+            chosen: "gemini-2.5-pro".into(),
+            pareto_frontier: vec!["gemini-2.5-pro".into()],
+            ucb1_leader: Some("gemini-2.5-pro".into()),
+            shannon_entropy_bits: 0.25,
+            candidates: vec![candidate],
+            reasons: vec!["pareto optimal leader".into()],
+        };
+        let encoded = serde_json::to_string(&explanation).expect("serialize explanation");
+        let decoded: MasterpieceExplanation =
+            serde_json::from_str(&encoded).expect("deserialize explanation");
+        assert_eq!(decoded, explanation);
+    }
 }
