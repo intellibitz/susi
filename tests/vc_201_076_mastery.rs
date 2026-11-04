@@ -189,3 +189,53 @@ fn vc_201_076_mastery() {
         );
     });
 }
+
+#[test]
+fn vc_201_076_validate_manifest_rejects_short_or_non_hex_sha256_digests() {
+    let mut short_digest = create_pack("pkg-short", &[("a.json", "a.json")]);
+    short_digest
+        .checksums
+        .insert("a.json".into(), "sha256:deadbeef".into());
+    assert!(validate_manifest(&short_digest).is_err());
+
+    let mut non_hex = create_pack("pkg-nonhex", &[("a.json", "a.json")]);
+    non_hex
+        .checksums
+        .insert("a.json".into(), format!("sha256:{}", "z".repeat(64)));
+    assert!(validate_manifest(&non_hex).is_err());
+}
+
+#[test]
+fn vc_201_076_checksum_mismatch_quarantines_pack_on_load() {
+    with_temp_home(|| {
+        let root = extensions_root().join("checksum_mismatch_ext");
+        std::fs::create_dir_all(&root).expect("create ext dir");
+        let mut manifest = create_pack("checksum_mismatch_ext", &[("weights.bin", "weights.bin")]);
+        manifest
+            .checksums
+            .insert("weights.bin".into(), compute_digest(b"expected-bytes"));
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("write manifest");
+        std::fs::write(root.join("weights.bin"), b"corrupted-bytes").expect("write weights.bin");
+
+        let err = load_pack("checksum_mismatch_ext")
+            .expect_err("mismatched checksum must fail load_pack");
+        assert!(
+            err.contains("mismatch") || err.contains("quarantined") || err.contains("checksum")
+        );
+        assert!(list_packs()
+            .into_iter()
+            .any(|p| p.id == "checksum_mismatch_ext" && p.quarantined));
+    });
+}
+
+#[test]
+fn vc_201_076_load_and_readmit_nonexistent_pack_return_errors() {
+    with_temp_home(|| {
+        assert!(load_pack("missing_extension_pack").is_err());
+        assert!(readmit_pack("missing_extension_pack").is_err());
+    });
+}

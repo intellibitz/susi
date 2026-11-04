@@ -143,3 +143,35 @@ fn native_unsafe_ratchet_does_not_install_or_cache_retired_geiger() {
         "the required admission gate cannot be removed"
     );
 }
+
+#[test]
+fn code_helper_strips_yaml_comments_and_preserves_directives() {
+    let raw = "# top comment\njobs:\n  # indented comment\n  build:\n    runs-on: ubuntu-latest";
+    let stripped = code(raw);
+    assert!(!stripped.contains("comment"));
+    assert!(stripped.contains("jobs:\n  build:\n    runs-on: ubuntu-latest"));
+}
+
+#[test]
+fn jobs_and_steps_helpers_extract_job_ids_and_step_blocks() {
+    let sample = "\
+name: CI
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run cargo install
+        run: cargo install --force cargo-deny
+  test:
+    runs-on: ubuntu-latest
+";
+    let parsed_jobs = jobs(sample);
+    assert_eq!(parsed_jobs.len(), 2);
+    assert_eq!(parsed_jobs[0].0, "lint");
+    assert_eq!(parsed_jobs[1].0, "test");
+
+    let lint_steps = steps(&parsed_jobs[0].1);
+    assert_eq!(lint_steps.len(), 2);
+    assert!(lint_steps[1].contains("cargo install --force"));
+}

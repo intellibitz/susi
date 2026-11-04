@@ -99,3 +99,37 @@ fn test_byok_credential_masking_security() -> Result<(), Box<dyn std::error::Err
     let _ = std::fs::remove_dir_all(&temp_dir);
     Ok(())
 }
+
+#[test]
+fn test_byok_unbounded_credential_never_exceeds_budget() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = unique_test_dir("unbounded")?;
+    let store_path = &temp_dir;
+
+    let cred_id = cloud_credentials::save(
+        store_path,
+        "GEMINI_API_KEY",
+        "AIzaSyTestUnboundedKey1234567890",
+    )?;
+    cloud_credentials::record_spend(store_path, &cred_id, 500.0)?;
+    let cred = cloud_credentials::get_by_id(store_path, &cred_id)?.ok_or("missing credential")?;
+    assert_eq!(cred.max_budget_usd, None);
+    assert_eq!(cred.current_spend_usd, Some(500.0));
+    assert!(!cred.is_budget_exceeded());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(())
+}
+
+#[test]
+fn test_byok_unknown_id_and_empty_provider_queries_return_none_or_empty(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = unique_test_dir("empty-queries")?;
+    let store_path = &temp_dir;
+
+    assert!(cloud_credentials::get_by_id(store_path, "nonexistent-cred-id")?.is_none());
+    assert!(cloud_credentials::list(store_path, "UNCONFIGURED_API_KEY")?.is_empty());
+    assert!(cloud_credentials::list_all(store_path)?.is_empty());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(())
+}

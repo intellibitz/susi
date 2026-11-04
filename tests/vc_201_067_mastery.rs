@@ -253,3 +253,124 @@ fn vc_201_067_mastery() {
 
     let _ = fs::remove_dir_all(&ws_dir);
 }
+
+#[test]
+fn vc_201_067_staging_cannot_extend_production_but_production_can_extend_staging() {
+    let mut profiles = BTreeMap::new();
+    let mut staging_vals = BTreeMap::new();
+    staging_vals.insert("replicas".into(), json!(2));
+    staging_vals.insert("tier".into(), json!("staging"));
+    profiles.insert(
+        "staging".into(),
+        Profile {
+            env: EnvKind::Staging,
+            extends: vec![],
+            values: staging_vals,
+        },
+    );
+
+    let mut prod_vals = BTreeMap::new();
+    prod_vals.insert("replicas".into(), json!(8));
+    profiles.insert(
+        "prod".into(),
+        Profile {
+            env: EnvKind::Production,
+            extends: vec!["staging".into()],
+            values: prod_vals,
+        },
+    );
+
+    let valid_set = ProfileSet {
+        profiles: profiles.clone(),
+    };
+    valid_set
+        .validate()
+        .expect("production extending staging is permitted");
+    let resolved_prod = valid_set.resolve("prod").expect("resolve prod");
+    assert_eq!(resolved_prod.values.get("replicas"), Some(&json!(8)));
+    assert_eq!(resolved_prod.values.get("tier"), Some(&json!("staging")));
+    assert_eq!(
+        resolved_prod.provenance.get("tier").map(|s| s.env),
+        Some(EnvKind::Staging)
+    );
+
+    // Reverse direction (staging -> prod) must be rejected.
+    profiles.insert(
+        "staging_bad".into(),
+        Profile {
+            env: EnvKind::Staging,
+            extends: vec!["prod".into()],
+            values: BTreeMap::new(),
+        },
+    );
+    let invalid_set = ProfileSet { profiles };
+    assert!(invalid_set.validate().is_err());
+}
+
+#[test]
+fn vc_201_067_resolve_unknown_profile_returns_error() {
+    let empty = ProfileSet::default();
+    let err = empty
+        .resolve("does_not_exist")
+        .expect_err("resolving missing profile must error");
+    assert!(err.to_string().contains("unknown profile"));
+}
+
+#[test]
+fn vc_201_067_diamond_shared_inheritance_preserves_earlier_parent_precedence() {
+    let mut profiles = BTreeMap::new();
+    let mut root_vals = BTreeMap::new();
+    root_vals.insert("root_only".into(), json!("from_root"));
+    root_vals.insert("conflict".into(), json!("root"));
+    profiles.insert(
+        "root".into(),
+        Profile {
+            env: EnvKind::Shared,
+            extends: vec![],
+            values: root_vals,
+        },
+    );
+
+    let mut left_vals = BTreeMap::new();
+    left_vals.insert("conflict".into(), json!("left"));
+    profiles.insert(
+        "left".into(),
+        Profile {
+            env: EnvKind::Shared,
+            extends: vec!["root".into()],
+            values: left_vals,
+        },
+    );
+
+    let mut right_vals = BTreeMap::new();
+    right_vals.insert("conflict".into(), json!("right"));
+    profiles.insert(
+        "right".into(),
+        Profile {
+            env: EnvKind::Shared,
+            extends: vec!["root".into()],
+            values: right_vals,
+        },
+    );
+
+    profiles.insert(
+        "leaf".into(),
+        Profile {
+            env: EnvKind::Development,
+            extends: vec!["left".into(), "right".into()],
+            values: BTreeMap::new(),
+        },
+    );
+
+    let set = ProfileSet { profiles };
+    let resolved = set.resolve("leaf").expect("resolve diamond leaf");
+    assert_eq!(resolved.values.get("root_only"), Some(&json!("from_root")));
+    assert_eq!(resolved.values.get("conflict"), Some(&json!("left")));
+    assert_eq!(
+        resolved
+            .provenance
+            .get("conflict")
+            .map(|s| s.profile.as_str()),
+        Some("left")
+    );
+}
