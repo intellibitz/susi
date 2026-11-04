@@ -7,13 +7,18 @@
 //! ([`current`], or a plane-bus stream), never implicitly.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Receives one progress line at a time.
 pub type Sink = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// Cooperative cancellation flag for an in-flight call (`mission_run`).
+pub type Cancel = Arc<AtomicBool>;
+
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
+    static CANCEL: RefCell<Option<Cancel>> = const { RefCell::new(None) };
 }
 
 /// Run `call` with `sink` receiving its progress lines on this thread. The
@@ -43,6 +48,34 @@ pub fn report(line: &str) {
     if let Some(sink) = current() {
         sink(line);
     }
+}
+
+/// Run `call` with `cancel` as this thread's cooperative cancellation flag.
+/// The previous flag (usually none) is restored afterwards, also on panic.
+pub fn with_cancel<T>(cancel: Option<Cancel>, call: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Cancel>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            CANCEL.with(|slot| *slot.borrow_mut() = previous);
+        }
+    }
+    let previous = CANCEL.with(|slot| std::mem::replace(&mut *slot.borrow_mut(), cancel));
+    let _restore = Restore(previous);
+    call()
+}
+
+/// The cancellation flag watching this thread's call, to hand to work that
+/// runs elsewhere.
+#[must_use]
+pub fn current_cancel() -> Option<Cancel> {
+    CANCEL.with(|slot| slot.borrow().clone())
+}
+
+/// Whether the caller has cancelled this thread's call.
+#[must_use]
+pub fn is_cancelled() -> bool {
+    current_cancel().is_some_and(|cancel| cancel.load(Ordering::Acquire))
 }
 
 #[cfg(test)]
@@ -106,5 +139,30 @@ mod tests {
         }));
         assert!(result.is_err());
         assert!(current().is_none());
+    }
+
+    #[test]
+    fn cancel_flag_is_observed_and_restored_across_scopes_and_panics() {
+        assert!(!is_cancelled());
+        let outer = Arc::new(AtomicBool::new(false));
+        let inner = Arc::new(AtomicBool::new(true));
+        with_cancel(Some(outer.clone()), || {
+            assert!(!is_cancelled());
+            with_cancel(Some(inner), || {
+                assert!(is_cancelled());
+            });
+            assert!(!is_cancelled());
+            outer.store(true, Ordering::Release);
+            assert!(is_cancelled());
+        });
+        assert!(!is_cancelled());
+        assert!(current_cancel().is_none());
+
+        let flag = Arc::new(AtomicBool::new(true));
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_cancel(Some(flag), || panic!("boom"))
+        }));
+        assert!(panicked.is_err());
+        assert!(current_cancel().is_none());
     }
 }
