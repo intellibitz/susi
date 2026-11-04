@@ -122,3 +122,88 @@ pub fn run_checks(
     }
     Ok(())
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn parse_intent_spec_rejects_empty_or_unverified_fixtures_and_accepts_valid() {
+        assert!(parse_intent_spec("not-json").is_none());
+        assert!(parse_intent_spec(r#"{"fixtures":[],"invariants":[]}"#).is_none());
+        assert!(parse_intent_spec(r#"{"fixtures":[{"input":"hi"}]}"#).is_none());
+
+        let valid =
+            parse_intent_spec(r#"{"fixtures":[{"input":"ping","expected":"pong"}]}"#).unwrap();
+        assert_eq!(valid.fixtures.len(), 1);
+        assert_eq!(valid.fixtures[0].expected.as_deref(), Some("pong"));
+    }
+
+    #[test]
+    fn run_checks_validates_exact_and_contains_fixtures() {
+        let spec = IntentSpec {
+            fixtures: vec![
+                IntentCheck {
+                    input: "a".to_string(),
+                    expected: Some("alpha".to_string()),
+                    expect_contains: None,
+                },
+                IntentCheck {
+                    input: "b".to_string(),
+                    expected: None,
+                    expect_contains: Some("beta".to_string()),
+                },
+            ],
+            invariants: vec![],
+        };
+        let ok_runner = |inp: &str| -> Result<String, String> {
+            match inp {
+                "a" => Ok("  alpha \n".to_string()),
+                "b" => Ok("result: beta-42".to_string()),
+                _ => Err("unexpected".to_string()),
+            }
+        };
+        assert!(run_checks(&spec, &ok_runner).is_ok());
+
+        let bad_runner = |_: &str| -> Result<String, String> { Ok("wrong".to_string()) };
+        assert!(run_checks(&spec, &bad_runner).is_err());
+    }
+
+    #[test]
+    fn run_checks_enforces_whitespace_normalize_invariant() {
+        let spec = IntentSpec {
+            fixtures: vec![],
+            invariants: vec![InvariantSpec::WhitespaceNormalize {
+                a: "x y".to_string(),
+                b: "x   y".to_string(),
+            }],
+        };
+        let consistent = |_: &str| -> Result<String, String> { Ok("norm".to_string()) };
+        assert!(run_checks(&spec, &consistent).is_ok());
+
+        let divergent = |inp: &str| -> Result<String, String> { Ok(inp.to_string()) };
+        assert!(run_checks(&spec, &divergent)
+            .unwrap_err()
+            .contains("whitespace_normalize fails"));
+    }
+
+    #[test]
+    fn run_checks_enforces_output_allowlist_invariant() {
+        let spec = IntentSpec {
+            fixtures: vec![IntentCheck {
+                input: "check".to_string(),
+                expected: None,
+                expect_contains: Some("OK".to_string()),
+            }],
+            invariants: vec![InvariantSpec::OutputAllowlist {
+                allowed: vec!["OK".to_string(), "PASS".to_string()],
+            }],
+        };
+        assert!(run_checks(&spec, &|_| Ok("OK\n".to_string())).is_ok());
+        assert!(run_checks(&spec, &|_| Ok("OK-EXTRA".to_string()))
+            .unwrap_err()
+            .contains("outside declared allowlist"));
+    }
+}
