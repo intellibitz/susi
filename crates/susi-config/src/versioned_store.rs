@@ -440,4 +440,67 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn modify_reuses_valid_cache_on_same_stamp_and_creates_missing_parent_directories() {
+        let dir = unique_temp_dir("modify-cache-hit-and-parents");
+        let path = dir.join("cached.json");
+        let store: VersionedJsonStore<BTreeMap<String, u32>> = VersionedJsonStore::new();
+
+        let seeded = store
+            .load_arc_with_healing(
+                &path,
+                || {
+                    let mut m = BTreeMap::new();
+                    m.insert("initial".into(), 7);
+                    Ok(m)
+                },
+                |_| false,
+                true,
+            )
+            .expect("seed cache");
+        assert_eq!(seeded.get("initial"), Some(&7));
+
+        let mutated = store
+            .modify(
+                &path,
+                || unreachable!("should use cached value"),
+                |_| false,
+                true,
+                |m| {
+                    m.insert("mutated".into(), 99);
+                },
+            )
+            .expect("modify from valid cache");
+        assert_eq!(mutated.get("initial"), Some(&7));
+        assert_eq!(mutated.get("mutated"), Some(&99));
+
+        let cached_after = store
+            .load_arc_with_healing(
+                &path,
+                || unreachable!("should hit updated cache"),
+                |_| false,
+                true,
+            )
+            .expect("load updated cache");
+        assert_eq!(*cached_after, mutated);
+
+        let nested_path = dir.join("nested").join("deep").join("cfg.json");
+        let nested_store: VersionedJsonStore<BTreeMap<String, u32>> = VersionedJsonStore::new();
+        let created = nested_store
+            .modify(
+                &nested_path,
+                || Ok(BTreeMap::new()),
+                |_| false,
+                true,
+                |m| {
+                    m.insert("deep_key".into(), 123);
+                },
+            )
+            .expect("modify creates missing parent directories");
+        assert_eq!(created.get("deep_key"), Some(&123));
+        assert!(nested_path.is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
