@@ -87,4 +87,16 @@ mod zc_keys_health_boot_tests {
         assert!(r[1].contains("anthropic") && r[1].contains("Expired"));
         assert!(r[2].contains("deepseek") && r[2].contains("Revoked"));
     }
+
+    #[test]
+    fn key_status_and_health_serde_snake_case_roundtrip() {
+        let status = KeyStatus {
+            vendor: "gemini".into(),
+            health: KeyHealth::Expired,
+        };
+        let json = serde_json::to_string(&status).expect("serialize KeyStatus");
+        assert!(json.contains("\"expired\""));
+        let decoded: KeyStatus = serde_json::from_str(&json).expect("deserialize KeyStatus");
+        assert_eq!(decoded, status);
+    }
 }

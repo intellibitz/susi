@@ -50,4 +50,14 @@ mod zc_rediscovery_adaptive_tests {
     fn zc_rediscovery_adaptive_changes_override_high_stable_window_count() {
         assert_eq!(rediscovery_secs(1, 50).secs, 30);
     }
+
+    #[test]
+    fn rediscovery_interval_serde_roundtrip_and_exact_ten_window_threshold() {
+        let interval = rediscovery_secs(0, 10);
+        assert_eq!(interval.secs, 3600);
+        let json = serde_json::to_string(&interval).expect("serialize RediscoveryInterval");
+        let decoded: RediscoveryInterval =
+            serde_json::from_str(&json).expect("deserialize RediscoveryInterval");
+        assert_eq!(decoded, interval);
+    }
 }
