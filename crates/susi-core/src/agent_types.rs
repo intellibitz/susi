@@ -230,4 +230,59 @@ mod tests {
         assert!(!text.contains("ghp_demoToken987"), "{text}");
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn high_density_context_store_enforces_capacity_limit_without_deadlock() {
+        let store = HighDensityContextStore::new(2);
+        assert!(store.is_empty());
+        store.insert("k1".into(), "v1".into());
+        store.insert("k2".into(), "v2".into());
+        store.insert("k3".into(), "v3".into());
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.get("k3").as_deref(), Some("v3"));
+
+        store.insert("k3".into(), "v3-updated".into());
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.get("k3").as_deref(), Some("v3-updated"));
+    }
+
+    #[test]
+    fn snapshot_restore_snapshot_and_to_json_roundtrip_entries() {
+        let store = HighDensityContextStore::new(8);
+        store.insert("a".into(), "1".into());
+        store.insert("b".into(), "2".into());
+        let snap = store.snapshot();
+
+        store.insert("c".into(), "3".into());
+        store.insert("a".into(), "9".into());
+        assert!(store.contains_key("c"));
+
+        store.restore_snapshot(&snap);
+        assert!(!store.contains_key("c"));
+        assert_eq!(store.get("a").as_deref(), Some("1"));
+        assert!(store.to_json().contains("\"b\":\"2\""));
+    }
+
+    #[test]
+    fn read_persisted_blackboard_errors_when_missing_and_redacts_on_read() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi_bb_read_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let err = read_persisted_blackboard(&dir).unwrap_err();
+        assert!(err.contains("last_blackboard.json"), "{err}");
+
+        let store = HighDensityContextStore::new(4);
+        store.insert("PlannerAgent".into(), "plan-ready".into());
+        store.persist_inspectable(&dir);
+        let read_back = read_persisted_blackboard(&dir).unwrap();
+        assert!(read_back.contains("mission_blackboard"));
+        assert!(read_back.contains("PlannerAgent"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

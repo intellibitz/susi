@@ -1,0 +1,26 @@
+{
+  "id": "T-COREMODSC4T1104-1",
+  "title": "Expand susi-core agent_types, audit_export, commit_log_report, and provider inline unit tests to 4",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "agent_types"
+    ]
+  },
+  "created_by": "COREMODSC4T1104",
+  "created_unix": 1793784184,
+  "closed": {
+    "at_unix": 1793784467,
+    "commit": "be3c88fd115e23b75334112b89a48421d7023417",
+    "by": "COREMODSC4T1104"
+  }
+}
