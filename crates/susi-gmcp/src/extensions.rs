@@ -333,4 +333,21 @@ mod inline_tests {
             .message()
             .contains("a/b"));
     }
+
+    #[test]
+    fn negotiate_fails_closed_when_required_extension_is_disabled_or_missing() {
+        let mut reg = ExtensionRegistry::shipped();
+        assert!(reg.set_enabled("io.modelcontextprotocol/tasks", false));
+        let err = reg
+            .negotiate(
+                &ExtensionMap::new(),
+                &["io.modelcontextprotocol/tasks".to_string()],
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            ExtensionError::RequiredUnsupported(vec!["io.modelcontextprotocol/tasks".to_string()])
+        );
+        assert_eq!(reg.status("io.susi/nonexistent"), None);
+    }
 }

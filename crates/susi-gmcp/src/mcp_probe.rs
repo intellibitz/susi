@@ -734,4 +734,22 @@ mod inline_tests {
             .detail
             .contains("repeated a pagination cursor"));
     }
+
+    #[test]
+    fn validate_initialize_and_tools_page_reject_unsupported_versions_and_duplicate_tools() {
+        let bad_ver = json!({
+            "protocolVersion": "1999-01-01",
+            "serverInfo": { "name": "srv", "version": "1.0" },
+            "capabilities": {}
+        });
+        assert!(validate_initialize(&bad_ver).is_err());
+
+        let dup_tools = json!({
+            "tools": [
+                { "name": "same_tool" },
+                { "name": "same_tool" }
+            ]
+        });
+        assert!(validate_tools_page(&dup_tools).is_err());
+    }
 }

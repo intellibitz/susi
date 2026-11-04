@@ -677,4 +677,31 @@ mod inline_tests {
             Some((-32600, ContentError::BadUri("result.roots[].uri")))
         );
     }
+
+    #[test]
+    fn canonical_content_block_validates_embedded_resource_and_resource_link_icons() {
+        let embedded = json!({
+            "type": "resource",
+            "resource": {
+                "uri": "file:///workspace/README.md",
+                "mimeType": "text/markdown",
+                "text": "# Title\n"
+            }
+        });
+        assert!(CanonicalContentBlock::from_wire(&embedded).is_ok());
+
+        let bad_icon_link = json!({
+            "type": "resource_link",
+            "uri": "https://example.com/doc",
+            "name": "doc",
+            "icons": [{
+                "src": "https://example.com/icon.png",
+                "theme": "neon"
+            }]
+        });
+        assert_eq!(
+            CanonicalContentBlock::from_wire(&bad_icon_link),
+            Err(ContentError::BadIcon)
+        );
+    }
 }

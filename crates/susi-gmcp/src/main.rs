@@ -194,4 +194,22 @@ mod tests {
         assert_eq!(cell.manifest.role, SwarmRole::ToolDriver);
         assert_eq!(cell.manifest.capabilities.len(), 2);
     }
+
+    #[tokio::test]
+    async fn handle_tool_accepts_tool_alias_and_preserves_request_id() {
+        let req = SyscallRequest {
+            id: "tool-alias-2".to_string(),
+            caller_id: "caller".to_string(),
+            op: SyscallOp::ToolCall,
+            token: None,
+            workspace: Some(".".to_string()),
+            payload: serde_json::json!({
+                "tool": "unregistered_tool_xyz",
+                "args": {}
+            }),
+            timestamp: 2,
+        };
+        let resp = handle_tool(req).await;
+        assert_eq!(resp.id, "tool-alias-2");
+    }
 }
