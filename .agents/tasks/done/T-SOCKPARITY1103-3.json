@@ -1,0 +1,24 @@
+{
+  "id": "T-SOCKPARITY1103-3",
+  "title": "Core never downloads an AI model unless asked (no boot, first-start, tick or fallback downloads), with the embeddings install routed through susi-gmcp",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_never_downloads_models_unasked"
+    ]
+  },
+  "created_by": "SOCKPARITY1103",
+  "created_unix": 1793743205,
+  "closed": {
+    "at_unix": 1793761404,
+    "commit": "84c3473bfcac791e7603c9d96f91468ab0131aba",
+    "by": "SOCKPARITY1103"
+  }
+}

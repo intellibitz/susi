@@ -139,3 +139,114 @@ pub fn round_trip_desired_state(state: &DesiredState) -> EaiResult<DesiredState>
     let json = serde_json::to_string(state).map_err(|e| EaiError::config(e.to_string()))?;
     parse_desired_state(&json)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entity(id: &str, kind: &str, requires: &[&str]) -> DesiredRef {
+        DesiredRef {
+            id: id.into(),
+            kind: kind.into(),
+            requires: requires.iter().map(|s| (*s).to_string()).collect(),
+            extra: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn empty_v1_and_populated_cross_collection_graph_validate_cleanly() {
+        let mut state = DesiredState::empty_v1();
+        assert_eq!(state.schema_version, DESIRED_STATE_SCHEMA);
+        assert!(state.all_ids().is_empty());
+        assert!(validate_desired_state(&state).is_ok());
+
+        state.runtimes.push(entity("rt:local", "onnx", &[]));
+        state.providers.push(entity("prov:gemini", "cloud", &[]));
+        state.models.push(entity(
+            "model:embed",
+            "embedding",
+            &["rt:local", "prov:gemini"],
+        ));
+        state
+            .tools
+            .push(entity("tool:search", "mcp", &["model:embed"]));
+        state
+            .peers
+            .push(entity("peer:worker", "agent", &["tool:search"]));
+
+        assert_eq!(state.all_ids().len(), 5);
+        assert!(validate_desired_state(&state).is_ok());
+    }
+
+    #[test]
+    fn validate_desired_state_rejects_bad_schema_empty_id_duplicates_and_unknown_deps() {
+        let mut bad_schema = DesiredState::empty_v1();
+        bad_schema.schema_version = "susi.desired_state/v999".into();
+        let err = validate_desired_state(&bad_schema).unwrap_err().to_string();
+        assert!(err.contains("unsupported desired-state schema"));
+
+        let mut empty_id = DesiredState::empty_v1();
+        empty_id.models.push(entity("", "llm", &[]));
+        let err = validate_desired_state(&empty_id).unwrap_err().to_string();
+        assert!(err.contains("desired-state entity id must be non-empty"));
+
+        let mut dup_id = DesiredState::empty_v1();
+        dup_id.models.push(entity("shared:id", "llm", &[]));
+        dup_id.tools.push(entity("shared:id", "mcp", &[]));
+        let err = validate_desired_state(&dup_id).unwrap_err().to_string();
+        assert!(err.contains("duplicate desired-state id `shared:id`"));
+
+        let mut unknown_dep = DesiredState::empty_v1();
+        unknown_dep
+            .peers
+            .push(entity("peer:a", "agent", &["missing:dep"]));
+        let err = validate_desired_state(&unknown_dep)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("entity `peer:a` requires unknown id `missing:dep`"));
+    }
+
+    #[test]
+    fn parse_and_round_trip_desired_state_preserve_top_level_and_entity_extra_fields() {
+        let raw = r#"{
+            "schema_version": "susi.desired_state/v1",
+            "models": [
+                {
+                    "id": "model:primary",
+                    "kind": "chat",
+                    "requires": ["prov:openai"],
+                    "custom_weight": 42
+                }
+            ],
+            "providers": [
+                {
+                    "id": "prov:openai",
+                    "kind": "cloud",
+                    "region_hint": "us-east"
+                }
+            ],
+            "policy": {
+                "max_tokens": 4096
+            },
+            "future_top_level_flag": true
+        }"#;
+
+        let parsed = parse_desired_state(raw).expect("valid desired state parses");
+        assert_eq!(
+            parsed.extra.get("future_top_level_flag"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(parsed.policy.get("max_tokens"), Some(&Value::from(4096)));
+        assert_eq!(
+            parsed.models[0].extra.get("custom_weight"),
+            Some(&Value::from(42))
+        );
+        assert_eq!(
+            parsed.providers[0].extra.get("region_hint"),
+            Some(&Value::String("us-east".into()))
+        );
+
+        let round_tripped = round_trip_desired_state(&parsed).expect("round-trip succeeds");
+        assert_eq!(round_tripped, parsed);
+    }
+}

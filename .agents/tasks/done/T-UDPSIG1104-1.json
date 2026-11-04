@@ -1,0 +1,30 @@
+{
+  "id": "T-UDPSIG1104-1",
+  "title": "B7 Signed-Only UDP 9092 Discovery Handshake, LAN Credential Hygiene, and Architectural Ratchet",
+  "goal": "Remove plaintext host_token broadcast from crates/susi-gawd-swarm/src/amas.rs so LAN discovery broadcasts only HMAC-signed SUSI_PING_SIG frames, update crates/susi-gawd/src/kernel_loader.rs to probe UDP 9092 with cluster_key::signed_ping and verify_signed_pong, and add tests/authenticated_discovery_b7.rs ratcheting the B7 invariant across server.rs, kernel_loader.rs, and amas.rs.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-UDPSIG1104-1.json",
+    "crates/susi-gawd/src/kernel_loader.rs",
+    "crates/susi-gawd-swarm/src/amas.rs",
+    "tests/authenticated_discovery_b7.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "authenticated_discovery_b7"
+    ]
+  },
+  "created_by": "UDPSIG1104",
+  "created_unix": 1793770800,
+  "closed": {
+    "commit": "295497e46",
+    "by": "UDPSIG1104",
+    "at_unix": 1793771700
+  }
+}

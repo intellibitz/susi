@@ -31,6 +31,18 @@ pub const ENV_REGISTRY: &[EnvVarClass] = &[
         class: EnvClass::Internal,
     },
     EnvVarClass {
+        name: "SUSI_PORT_OFFSET",
+        class: EnvClass::Internal,
+    },
+    EnvVarClass {
+        name: "SUSI_API_TOKEN",
+        class: EnvClass::Internal,
+    },
+    EnvVarClass {
+        name: "SUSI_TOKEN_FILE",
+        class: EnvClass::Internal,
+    },
+    EnvVarClass {
         name: "SUSI_ALLOW_PRIMARY",
         class: EnvClass::Test,
     },
@@ -39,11 +51,19 @@ pub const ENV_REGISTRY: &[EnvVarClass] = &[
         class: EnvClass::Test,
     },
     EnvVarClass {
+        name: "SUSI_PATH_CONSENT",
+        class: EnvClass::UserFacing,
+    },
+    EnvVarClass {
         name: "OPENAI_API_KEY",
         class: EnvClass::UserFacing,
     },
     EnvVarClass {
         name: "ANTHROPIC_API_KEY",
+        class: EnvClass::UserFacing,
+    },
+    EnvVarClass {
+        name: "GEMINI_API_KEY",
         class: EnvClass::UserFacing,
     },
 ];
@@ -54,6 +74,24 @@ pub fn classify(name: &str) -> Option<EnvClass> {
         .iter()
         .find(|e| e.name == name)
         .map(|e| e.class)
+}
+
+#[must_use]
+pub fn internal_names() -> Vec<&'static str> {
+    ENV_REGISTRY
+        .iter()
+        .filter(|e| matches!(e.class, EnvClass::Internal))
+        .map(|e| e.name)
+        .collect()
+}
+
+#[must_use]
+pub fn test_only_names() -> Vec<&'static str> {
+    ENV_REGISTRY
+        .iter()
+        .filter(|e| matches!(e.class, EnvClass::Test))
+        .map(|e| e.name)
+        .collect()
 }
 
 #[must_use]
@@ -68,13 +106,51 @@ pub fn user_facing_names() -> Vec<&'static str> {
 #[cfg(test)]
 mod zc_env_classify_tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn zc_env_classify_partitions_internal_test_user() {
         assert_eq!(classify("SUSI_HOME"), Some(EnvClass::Internal));
+        assert_eq!(classify("SUSI_PORT_OFFSET"), Some(EnvClass::Internal));
+        assert_eq!(classify("SUSI_API_TOKEN"), Some(EnvClass::Internal));
+        assert_eq!(classify("SUSI_TOKEN_FILE"), Some(EnvClass::Internal));
         assert_eq!(classify("SUSI_XDG"), Some(EnvClass::Test));
+        assert_eq!(classify("SUSI_PATH_CONSENT"), Some(EnvClass::UserFacing));
         assert_eq!(classify("OPENAI_API_KEY"), Some(EnvClass::UserFacing));
-        assert!(user_facing_names().contains(&"ANTHROPIC_API_KEY"));
+        assert_eq!(classify("GEMINI_API_KEY"), Some(EnvClass::UserFacing));
+
+        let internal = internal_names();
+        assert!(internal.contains(&"SUSI_PORT_OFFSET"));
+        assert!(internal.contains(&"SUSI_API_TOKEN"));
+        assert!(internal.contains(&"SUSI_TOKEN_FILE"));
+
+        let test_only = test_only_names();
+        assert!(test_only.contains(&"SUSI_XDG"));
+        assert!(test_only.contains(&"SUSI_ALLOW_PRIMARY"));
+        assert!(test_only.contains(&"SUSI_ALLOW_MAIN"));
+
+        let user_facing = user_facing_names();
+        assert!(user_facing.contains(&"ANTHROPIC_API_KEY"));
+        assert!(user_facing.contains(&"SUSI_PATH_CONSENT"));
+        assert!(user_facing.contains(&"GEMINI_API_KEY"));
+
         assert!(classify("UNKNOWN_VAR").is_none());
+    }
+
+    #[test]
+    fn zc_env_registry_entries_are_unique_non_empty_and_exhaustively_partitioned() {
+        let mut seen = HashSet::new();
+        for entry in ENV_REGISTRY {
+            assert!(!entry.name.trim().is_empty());
+            assert!(
+                seen.insert(entry.name),
+                "duplicate ENV_REGISTRY entry: {}",
+                entry.name
+            );
+        }
+        assert_eq!(
+            internal_names().len() + test_only_names().len() + user_facing_names().len(),
+            ENV_REGISTRY.len()
+        );
     }
 }

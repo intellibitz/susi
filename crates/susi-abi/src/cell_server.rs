@@ -135,3 +135,136 @@ async fn serve_connection<H, Fut>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::swarm::SwarmRole;
+    use crate::syscall::SyscallOp;
+
+    async fn read_one_frame(stream: &mut tokio::net::TcpStream) -> WireFrame {
+        let mut decoder = FrameStream::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            if let Some(frame) = decoder.next_frame().expect("valid wire frame") {
+                return frame;
+            }
+            let n = stream.read(&mut buf).await.expect("read socket bytes");
+            assert!(n > 0, "unexpected EOF while waiting for frame");
+            decoder.push(&buf[..n]);
+        }
+    }
+
+    #[tokio::test]
+    async fn cell_server_denies_bad_token_without_trust_decay_and_scores_authenticated_syscalls() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let mut cell = SwarmCell::new(
+            "cell-loopback-01".to_string(),
+            SwarmRole::ToolDriver,
+            format!("tcp://{addr}"),
+        );
+        cell.set_ready(100);
+        let shared_cell = Arc::new(tokio::sync::Mutex::new(cell));
+        let token: Arc<str> = Arc::from("top-secret-cell-token");
+
+        let server_cell = Arc::clone(&shared_cell);
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.expect("accept client");
+            serve_connection(socket, server_cell, token, |req| async move {
+                SyscallResponse {
+                    id: req.id,
+                    status: SyscallStatus::Success,
+                    data: serde_json::json!({"echo_op": req.op}),
+                    receipt: None,
+                    latency_us: 5,
+                    message: None,
+                }
+            })
+            .await;
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect loopback client");
+
+        // 1. Unauthenticated request is Denied and must NOT penalize trust_score or missions_failed.
+        let unauth_req = SyscallRequest {
+            id: "req-unauth".to_string(),
+            caller_id: "peer".to_string(),
+            op: SyscallOp::ToolCall,
+            token: Some("wrong-token".to_string()),
+            workspace: None,
+            payload: serde_json::Value::Null,
+            timestamp: 101,
+        };
+        let unauth_bytes = WireFrame::new(
+            MessageType::SyscallRequest,
+            serde_json::to_vec(&unauth_req).expect("serialize unauth_req"),
+        )
+        .encode()
+        .expect("encode unauth frame");
+        client
+            .write_all(&unauth_bytes)
+            .await
+            .expect("write unauth frame");
+
+        let unauth_reply_frame = read_one_frame(&mut client).await;
+        assert_eq!(unauth_reply_frame.msg_type, MessageType::SyscallResponse);
+        let unauth_resp: SyscallResponse =
+            serde_json::from_slice(&unauth_reply_frame.payload).expect("decode unauth response");
+        assert_eq!(unauth_resp.id, "req-unauth");
+        assert_eq!(unauth_resp.status, SyscallStatus::Denied);
+
+        // 2. Authenticated request succeeds and increments missions_completed.
+        let auth_req = SyscallRequest {
+            id: "req-auth".to_string(),
+            caller_id: "daemon".to_string(),
+            op: SyscallOp::ToolCall,
+            token: Some("top-secret-cell-token".to_string()),
+            workspace: None,
+            payload: serde_json::json!({"tool": "ping"}),
+            timestamp: 102,
+        };
+        let auth_bytes = WireFrame::new(
+            MessageType::SyscallRequest,
+            serde_json::to_vec(&auth_req).expect("serialize auth_req"),
+        )
+        .encode()
+        .expect("encode auth frame");
+        client
+            .write_all(&auth_bytes)
+            .await
+            .expect("write auth frame");
+
+        let auth_reply_frame = read_one_frame(&mut client).await;
+        assert_eq!(auth_reply_frame.msg_type, MessageType::SyscallResponse);
+        let auth_resp: SyscallResponse =
+            serde_json::from_slice(&auth_reply_frame.payload).expect("decode auth response");
+        assert_eq!(auth_resp.id, "req-auth");
+        assert_eq!(auth_resp.status, SyscallStatus::Success);
+        assert_eq!(auth_resp.data["echo_op"], "tool_call");
+
+        // 3. Heartbeat frame returns live cell counters proving trust_score == 1.0,
+        // missions_failed == 0, and missions_completed == 1.
+        let hb_bytes = WireFrame::new(MessageType::Heartbeat, Vec::new())
+            .encode()
+            .expect("encode heartbeat frame");
+        client.write_all(&hb_bytes).await.expect("write heartbeat");
+
+        let hb_reply_frame = read_one_frame(&mut client).await;
+        assert_eq!(hb_reply_frame.msg_type, MessageType::Heartbeat);
+        let hb_status: serde_json::Value =
+            serde_json::from_slice(&hb_reply_frame.payload).expect("decode heartbeat status");
+        assert_eq!(hb_status["cell_id"], "cell-loopback-01");
+        assert_eq!(hb_status["missions_completed"], 1);
+        assert_eq!(hb_status["missions_failed"], 0);
+        assert_eq!(hb_status["trust_score"], 1.0);
+
+        drop(client);
+        server_task.await.expect("join server task");
+    }
+}

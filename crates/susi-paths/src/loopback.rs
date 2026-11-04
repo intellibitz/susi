@@ -104,6 +104,12 @@ pub fn request_with_fallback(
     {
         return None;
     }
+    if daemon_lock_absent_for_default_leaf_port(ep.port) {
+        if let Ok(mut b) = unreachable_ports().lock() {
+            b.unreachable(ep.port, now);
+        }
+        return None;
+    }
     match connect(ep) {
         Ok(stream) => {
             if let Ok(mut b) = unreachable_ports().lock() {
@@ -132,6 +138,74 @@ pub fn backed_off(port: u16) -> bool {
 fn unreachable_ports() -> &'static Mutex<Backoff> {
     static PORTS: OnceLock<Mutex<Backoff>> = OnceLock::new();
     PORTS.get_or_init(|| Mutex::new(Backoff::default()))
+}
+
+/// Fast local check (`< 0.1 ms`) avoiding the 200 ms TCP connect timeout on
+/// Windows (`FAST-06`) when the substrate daemon is stopped (`daemon.lock`
+/// absent or stale) and no explicit `SUSI_*_PORT` override is set.
+fn live_daemon_lock_in(dir: &std::path::Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(dir.join("daemon.lock")) else {
+        return false;
+    };
+    let Some(pid) = raw
+        .lines()
+        .next()
+        .and_then(|line| line.trim().parse::<u32>().ok())
+        .filter(|&pid| pid > 0)
+    else {
+        return false;
+    };
+    #[cfg(target_os = "linux")]
+    {
+        if !std::path::PathBuf::from(format!("/proc/{pid}")).is_dir() {
+            return false;
+        }
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|s| s.rsplit(')').next().map(str::to_string))
+            .and_then(|tail| tail.trim().chars().next())
+            .is_none_or(|state| !matches!(state, 'Z' | 'X'))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+fn daemon_lock_absent_for_default_leaf_port(port: u16) -> bool {
+    let is_default_leaf = [
+        crate::ports::PATHS_SERVICE,
+        crate::ports::ERROR_SERVICE,
+        crate::ports::CONFIG_SERVICE,
+        crate::ports::SANDBOX_SERVICE,
+        crate::ports::NATIVE_SERVICE,
+    ]
+    .into_iter()
+    .any(|base| crate::ports::effective(base) == port);
+    if !is_default_leaf {
+        return false;
+    }
+    if [
+        "SUSI_PATHS_PORT",
+        "SUSI_CONFIG_PORT",
+        "SUSI_SANDBOX_PORT",
+        "SUSI_ERROR_PORT",
+        "SUSI_NATIVE_PORT",
+    ]
+    .into_iter()
+    .any(|k| std::env::var_os(k).is_some())
+    {
+        return false;
+    }
+    if let Some(root) = crate::LocalDirs::instance_root() {
+        !live_daemon_lock_in(&root)
+    } else {
+        !(live_daemon_lock_in(&crate::LocalDirs::home_dir())
+            || live_daemon_lock_in(&crate::LocalDirs::legacy_base())
+            || live_daemon_lock_in(&crate::LocalDirs::config_dir())
+            || live_daemon_lock_in(&crate::LocalDirs::data_dir()))
+    }
 }
 
 /// First backoff after a failed connect.
@@ -310,5 +384,105 @@ mod tests {
         let r = Response::parse("HTTP/1.0 401 Unauthorized\r\n\r\nno").unwrap();
         assert_eq!((r.status, r.ok_body()), (401, None));
         assert!(Response::parse("garbage").is_none());
+    }
+
+    #[test]
+    fn request_with_fallback_skips_dial_immediately_when_daemon_lock_is_absent() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let empty_home =
+            std::env::temp_dir().join(format!("susi_fast06_empty_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&empty_home);
+        std::fs::create_dir_all(&empty_home).unwrap();
+        let mut env = crate::test_env::EnvGuard::isolated();
+        env.set("HOME", &empty_home);
+        env.set("SUSI_HOME", &empty_home);
+        for var in [
+            "SUSI_HERMETIC_FORBIDDEN",
+            "SUSI_PATHS_PORT",
+            "SUSI_CONFIG_PORT",
+            "SUSI_SANDBOX_PORT",
+            "SUSI_ERROR_PORT",
+            "SUSI_NATIVE_PORT",
+        ] {
+            env.remove(var);
+        }
+        let port = crate::ports::effective(crate::ports::PATHS_SERVICE);
+        if let Ok(mut b) = super::unreachable_ports().lock() {
+            b.reachable(port);
+        }
+        let ep = super::Endpoint {
+            port,
+            timeout: Duration::from_millis(200),
+            auth: super::Auth::None,
+        };
+        let started = Instant::now();
+        assert!(super::request_with_fallback(&ep, "GET", "/paths", None).is_none());
+        assert!(
+            started.elapsed() < Duration::from_millis(20),
+            "expected immediate skip (<20ms) without daemon.lock, took {:?}",
+            started.elapsed()
+        );
+        assert!(super::backed_off(port));
+        drop(env);
+        let _ = std::fs::remove_dir_all(&empty_home);
+    }
+
+    #[test]
+    fn request_with_fallback_skips_dial_when_daemon_lock_pid_is_invalid_or_dead() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stale_home =
+            std::env::temp_dir().join(format!("susi_fast06_stale_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&stale_home);
+        std::fs::create_dir_all(&stale_home).unwrap();
+        let mut env = crate::test_env::EnvGuard::isolated();
+        env.set("HOME", &stale_home);
+        env.set("SUSI_HOME", &stale_home);
+        for var in [
+            "SUSI_HERMETIC_FORBIDDEN",
+            "SUSI_PATHS_PORT",
+            "SUSI_CONFIG_PORT",
+            "SUSI_SANDBOX_PORT",
+            "SUSI_ERROR_PORT",
+            "SUSI_NATIVE_PORT",
+        ] {
+            env.remove(var);
+        }
+        assert!(!super::live_daemon_lock_in(&stale_home));
+        std::fs::write(stale_home.join("daemon.lock"), "0\n").unwrap();
+        assert!(!super::live_daemon_lock_in(&stale_home));
+        std::fs::write(stale_home.join("daemon.lock"), "corrupt-pid\n").unwrap();
+        assert!(!super::live_daemon_lock_in(&stale_home));
+        #[cfg(target_os = "linux")]
+        {
+            std::fs::write(stale_home.join("daemon.lock"), "4000000\n").unwrap();
+            assert!(!super::live_daemon_lock_in(&stale_home));
+        }
+
+        let port = crate::ports::effective(crate::ports::PATHS_SERVICE);
+        if let Ok(mut b) = super::unreachable_ports().lock() {
+            b.reachable(port);
+        }
+        let ep = super::Endpoint {
+            port,
+            timeout: Duration::from_millis(200),
+            auth: super::Auth::None,
+        };
+        let started = Instant::now();
+        assert!(super::request_with_fallback(&ep, "GET", "/paths", None).is_none());
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "expected immediate skip (<50ms) on invalid/stale daemon.lock, took {:?}",
+            started.elapsed()
+        );
+        assert!(super::backed_off(port));
+
+        std::fs::write(
+            stale_home.join("daemon.lock"),
+            format!("{}\n", std::process::id()),
+        )
+        .unwrap();
+        assert!(super::live_daemon_lock_in(&stale_home));
+        drop(env);
+        let _ = std::fs::remove_dir_all(&stale_home);
     }
 }

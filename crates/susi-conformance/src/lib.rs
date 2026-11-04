@@ -17,7 +17,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Contract ports before `port_offset` is applied.
+/// Contract ports before `port_offset` is applied, plus the explicit
+/// out-of-contract internal port and IPC inventory (`B1`).
 pub mod ports {
     /// GMCP / MCP HTTP (`/mcp`).
     pub const MCP: u16 = 9090;
@@ -30,7 +31,49 @@ pub mod ports {
     pub const MCP_ALIAS: u16 = 9093;
     /// A2A HTTP (JSON-RPC, agent card).
     pub const A2A: u16 = 9094;
+
+    /// The five stable host-contract base ports.
+    pub const CONTRACT_PORTS: [u16; 5] = [MCP, GEMI, UDP_DISCOVERY, MCP_ALIAS, A2A];
+
+    /// Explicit out-of-contract internal TCP/UDP ports (`B1`). External
+    /// products must never couple to these internal substrate ports.
+    pub const OUT_OF_CONTRACT_PORTS: &[(u16, &str)] = &[
+        (9095, "gossip"),
+        (9180, "gateway"),
+        (9181, "harness-api"),
+        (18080, "leaf-paths"),
+        (18081, "leaf-error"),
+        (18082, "leaf-config"),
+        (18083, "leaf-sandbox"),
+        (18084, "leaf-transport"),
+        (19090, "cell-gemi"),
+        (19091, "cell-gmcp"),
+        (19092, "cell-gawd"),
+        (19093, "cell-universal"),
+    ];
+
+    /// Explicit out-of-contract local IPC surfaces (`B1`).
+    pub const OUT_OF_CONTRACT_IPC: &[&str] = &["plane_bus"];
+
+    /// True when `base_port` is one of the five public host-contract ports.
+    #[must_use]
+    pub fn is_contract_port(base_port: u16) -> bool {
+        CONTRACT_PORTS.contains(&base_port)
+    }
+
+    /// Internal role name when `base_port` is on the out-of-contract list.
+    #[must_use]
+    pub fn out_of_contract_role(base_port: u16) -> Option<&'static str> {
+        OUT_OF_CONTRACT_PORTS
+            .iter()
+            .find_map(|&(port, role)| (port == base_port).then_some(role))
+    }
 }
+
+pub use ports::{
+    is_contract_port, out_of_contract_role, CONTRACT_PORTS, OUT_OF_CONTRACT_IPC,
+    OUT_OF_CONTRACT_PORTS,
+};
 
 /// Current MCP revision: stateless requests named by the `Mcp-Method` header.
 pub const MCP_CURRENT: &str = "2026-07-28";
@@ -60,6 +103,12 @@ pub struct Optional {
     /// Run the GEMI SSE check: one streamed, 1-token, local-only
     /// (`susi.allow_cloud: false`) chat completion. Costs a local inference.
     pub inference: bool,
+    /// Pre-signed `SUSI_PING_SIG*` datagram for opt-in positive UDP
+    /// discovery verification (`SUSI_PONG_SIG*`).
+    pub signed_udp_ping: Option<String>,
+    /// Optional required prefix on the positive UDP discovery pong reply
+    /// (for example `"SUSI_PONG_SIG2:"`).
+    pub signed_udp_pong_prefix: Option<String>,
 }
 
 /// Outcome of one contract check.
@@ -297,22 +346,20 @@ fn mcp_discover(target: &Target, base: u16) -> Check {
     })
 }
 
-fn mcp_tools(target: &Target) -> Check {
-    let id = format!("mcp.tools-list@{}", target.port(ports::MCP));
+fn mcp_tools_at(target: &Target, base: u16) -> Check {
+    let id = format!("mcp.tools-list@{}", target.port(base));
     if let Some(skip) = needs_token(target, &id) {
         return skip;
     }
-    timed(id, || {
-        match mcp_current(target, ports::MCP, 2, "tools/list") {
-            Ok((status, payload)) => {
-                let tools = payload["result"]["tools"].as_array().map(Vec::len);
-                verdict(
-                    status == 200 && tools.is_some(),
-                    format!("status {status}, {} tools", tools.unwrap_or(0)),
-                )
-            }
-            Err(e) => (Outcome::Fail, e),
+    timed(id, || match mcp_current(target, base, 2, "tools/list") {
+        Ok((status, payload)) => {
+            let tools = payload["result"]["tools"].as_array().map(Vec::len);
+            verdict(
+                status == 200 && tools.is_some(),
+                format!("status {status}, {} tools", tools.unwrap_or(0)),
+            )
         }
+        Err(e) => (Outcome::Fail, e),
     })
 }
 
@@ -337,8 +384,8 @@ fn mcp_unknown(target: &Target) -> Check {
 
 /// The session flow of MCP 2025-06-18: `initialize`, `notifications/initialized`,
 /// then `tools/list` on the same `Mcp-Session-Id`.
-fn mcp_session(target: &Target) -> Check {
-    let id = format!("mcp.session-{MCP_SESSION}@{}", target.port(ports::MCP));
+fn mcp_session_at(target: &Target, base: u16) -> Check {
+    let id = format!("mcp.session-{MCP_SESSION}@{}", target.port(base));
     if let Some(skip) = needs_token(target, &id) {
         return skip;
     }
@@ -346,7 +393,7 @@ fn mcp_session(target: &Target) -> Check {
         let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
             "protocolVersion": MCP_SESSION, "capabilities": {},
             "clientInfo": {"name":"susi-conformance","version": env!("CARGO_PKG_VERSION")}}});
-        let r = match target.call(ports::MCP, Call::post("/mcp", true, &[MCP_ACCEPT], &init)) {
+        let r = match target.call(base, Call::post("/mcp", true, &[MCP_ACCEPT], &init)) {
             Ok(r) => r,
             Err(e) => return (Outcome::Fail, format!("initialize: {e}")),
         };
@@ -367,10 +414,10 @@ fn mcp_session(target: &Target) -> Check {
         ];
         let note = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
         let noted = target
-            .call(ports::MCP, Call::post("/mcp", true, &headers, &note))
+            .call(base, Call::post("/mcp", true, &headers, &note))
             .map(|r| r.status);
         let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}});
-        match target.call(ports::MCP, Call::post("/mcp", true, &headers, &list)) {
+        match target.call(base, Call::post("/mcp", true, &headers, &list)) {
             Ok(r) => {
                 let tools = rpc_payload(&r).unwrap_or(Value::Null)["result"]["tools"]
                     .as_array()
@@ -392,6 +439,57 @@ fn mcp_session(target: &Target) -> Check {
     })
 }
 
+/// Validate A2A agent card identity, streaming capability, per-capability
+/// skills, and honesty (`B6` / `PSP-05` / `PSP-11`).
+///
+/// # Errors
+///
+/// Returns the first contract or honesty violation found in `card`.
+pub fn validate_agent_card_honesty(card: &Value) -> Result<usize, String> {
+    let name = card["name"].as_str().unwrap_or("");
+    if name.is_empty() {
+        return Err("missing or empty card `name`".into());
+    }
+    let url = card["supportedInterfaces"][0]["url"].as_str().unwrap_or("");
+    if url.is_empty() {
+        return Err("missing or empty `supportedInterfaces[0].url`".into());
+    }
+    if card["capabilities"]["streaming"].as_bool() != Some(true) {
+        return Err("`capabilities.streaming` must be true".into());
+    }
+    let Some(skills) = card["skills"].as_array() else {
+        return Err("missing `skills` array".into());
+    };
+    if skills.is_empty() {
+        return Err("`skills` array must not be empty".into());
+    }
+    for skill in skills {
+        let id = skill["id"].as_str().unwrap_or("");
+        let skill_name = skill["name"].as_str().unwrap_or("");
+        let desc = skill["description"].as_str().unwrap_or("");
+        if id.is_empty() || skill_name.is_empty() || desc.is_empty() {
+            return Err(format!(
+                "skill entry has empty id/name/description (id={id:?})"
+            ));
+        }
+        let desc_lower = desc.to_ascii_lowercase();
+        if desc_lower.contains("egui") || desc_lower.contains("desktop ui") {
+            return Err(format!(
+                "dishonest skill {id:?} claims desktop UI/egui capability: {desc:?}"
+            ));
+        }
+    }
+    for required in ["missions", "agents", "frameworks", "models"] {
+        if !skills
+            .iter()
+            .any(|skill| skill["id"].as_str() == Some(required))
+        {
+            return Err(format!("missing required capability skill {required:?}"));
+        }
+    }
+    Ok(skills.len())
+}
+
 fn a2a_card(target: &Target) -> Check {
     timed(
         format!("a2a.agent-card@{}", target.port(ports::A2A)),
@@ -400,10 +498,22 @@ fn a2a_card(target: &Target) -> Check {
                 let card: Value = serde_json::from_slice(&r.body).unwrap_or(Value::Null);
                 let name = card["name"].as_str().unwrap_or("");
                 let url = card["supportedInterfaces"][0]["url"].as_str().unwrap_or("");
-                verdict(
-                    r.status == 200 && !name.is_empty() && !url.is_empty(),
-                    format!("status {} name {name:?} interface {url:?}", r.status),
-                )
+                match validate_agent_card_honesty(&card) {
+                    Ok(skill_count) => verdict(
+                        r.status == 200,
+                        format!(
+                            "status {} name {name:?} interface {url:?} ({skill_count} honest skills, streaming=true)",
+                            r.status
+                        ),
+                    ),
+                    Err(reason) => (
+                        Outcome::Fail,
+                        format!(
+                            "status {} name {name:?} interface {url:?}: {reason}",
+                            r.status
+                        ),
+                    ),
+                }
             }
             Err(e) => (Outcome::Fail, e),
         },
@@ -579,11 +689,14 @@ pub fn udp_probe_all(
 }
 
 /// Unauthenticated datagrams the discovery port must never answer: the
-/// retired LAN and bare peer dialects, and a signed ping with a forged MAC.
-pub const UNAUTHENTICATED_PINGS: [&str; 3] = [
+/// retired LAN, bare and plaintext-token peer dialects, and signed pings
+/// (`SUSI_PING_SIG` and `SUSI_PING_SIG2`) with a forged MAC.
+pub const UNAUTHENTICATED_PINGS: [&str; 5] = [
     "SUSI_LAN_PING",
     "SUSI_PING",
+    "SUSI_PING:forged-token",
     "SUSI_PING_SIG:susi-conformance:CORE:0:0000000000000000:00:forged",
+    "SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged",
 ];
 
 /// UDP 9092 is bound and answers only cluster-key signed pings. The suite
@@ -633,6 +746,55 @@ fn udp_discovery(target: &Target) -> Check {
                 Outcome::Warn,
                 format!("{detail} (remote host: silence cannot prove the port is bound)"),
             )
+        }
+    })
+}
+
+/// Opt-in positive UDP discovery check: when a cluster-key signed
+/// `SUSI_PING_SIG*` datagram is supplied, UDP 9092 must answer with a
+/// `SUSI_PONG_SIG*` frame.
+fn udp_discovery_signed(target: &Target, optional: &Optional) -> Check {
+    let port = target.port(ports::UDP_DISCOVERY);
+    let id = format!("udp.discovery-signed@{port}");
+    let Some(ref ping) = optional.signed_udp_ping else {
+        return Check {
+            id,
+            outcome: Outcome::Skip,
+            millis: 0,
+            detail: "opt-in: signed_udp_ping verifies positive SUSI_PONG_SIG* reply".into(),
+        };
+    };
+    timed(id, || {
+        let wait = target.timeout.min(Duration::from_millis(500));
+        match udp_probe(&target.host, port, ping.as_bytes(), wait) {
+            UdpProbe::Answered(reply)
+                if reply.starts_with("SUSI_PONG_SIG:") || reply.starts_with("SUSI_PONG_SIG2:") =>
+            {
+                if let Some(ref prefix) = optional.signed_udp_pong_prefix {
+                    if !reply.starts_with(prefix) {
+                        return (
+                            Outcome::Fail,
+                            format!(
+                                "signed pong {reply:?} did not match required prefix {prefix:?}"
+                            ),
+                        );
+                    }
+                }
+                (Outcome::Pass, format!("signed ping answered: {reply:?}"))
+            }
+            UdpProbe::Answered(reply) => (
+                Outcome::Fail,
+                format!("signed ping drew unexpected reply: {reply:?}"),
+            ),
+            UdpProbe::Silent => (
+                Outcome::Fail,
+                "signed ping drew no reply within timeout".into(),
+            ),
+            UdpProbe::Unreachable => (
+                Outcome::Fail,
+                format!("nothing bound on udp {port} (ICMP port unreachable)"),
+            ),
+            UdpProbe::Error(e) => (Outcome::Fail, e),
         }
     })
 }
@@ -920,13 +1082,16 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     ));
     checks.push(mcp_discover(target, ports::MCP));
     checks.push(mcp_discover(target, ports::MCP_ALIAS));
-    checks.push(mcp_tools(target));
+    checks.push(mcp_tools_at(target, ports::MCP));
+    checks.push(mcp_tools_at(target, ports::MCP_ALIAS));
     checks.push(mcp_unknown(target));
-    checks.push(mcp_session(target));
+    checks.push(mcp_session_at(target, ports::MCP));
+    checks.push(mcp_session_at(target, ports::MCP_ALIAS));
     checks.push(a2a_card(target));
     checks.push(a2a_unknown(target));
     checks.push(a2a_stream(target));
     checks.push(udp_discovery(target));
+    checks.push(udp_discovery_signed(target, optional));
     checks.push(gemi_models(target));
     checks.push(gemi_stream(target, optional));
     checks.push(mcp_stdio(target, optional));
@@ -1061,11 +1226,98 @@ mod tests {
             token: None,
             timeout: Duration::from_millis(200),
         });
-        for id in ["gemi.stream@59091", "mcp.stdio"] {
+        for id in [
+            "udp.discovery-signed@59092",
+            "gemi.stream@59091",
+            "mcp.stdio",
+        ] {
             let check = checks.iter().find(|c| c.id == id).unwrap();
             assert_eq!(check.outcome, Outcome::Skip, "{id}");
             assert!(check.detail.starts_with("opt-in"), "{id}");
         }
+    }
+
+    #[test]
+    fn udp_discovery_signed_passes_on_valid_pong_and_fails_on_silence_or_bad_reply() {
+        use std::net::UdpSocket;
+        assert_eq!(UNAUTHENTICATED_PINGS.len(), 5);
+        assert!(UNAUTHENTICATED_PINGS.contains(&"SUSI_PING:forged-token"));
+        assert!(UNAUTHENTICATED_PINGS.contains(
+            &"SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged"
+        ));
+
+        let opt = Optional {
+            signed_udp_ping: Some(
+                "SUSI_PING_SIG2:susi-conformance:CORE:9090:1:deadbeef:127.0.0.1:cafebabe".into(),
+            ),
+            ..Optional::default()
+        };
+
+        // 1. Valid SUSI_PONG_SIG2 reply passes.
+        let valid = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let valid_port = valid.local_addr().unwrap().port();
+        assert!(valid_port >= ports::UDP_DISCOVERY);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((_n, src)) = valid.recv_from(&mut buf) {
+                let _ = valid.send_to(
+                    b"SUSI_PONG_SIG2:host:CORE:9090:1:deadbeef:127.0.0.1:cafebabe",
+                    src,
+                );
+            }
+        });
+        let check_ok = udp_discovery_signed(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: valid_port - ports::UDP_DISCOVERY,
+                token: None,
+                timeout: Duration::from_millis(200),
+            },
+            &opt,
+        );
+        assert_eq!(check_ok.outcome, Outcome::Pass, "{}", check_ok.detail);
+
+        // 2. Unauthenticated/legacy pong reply fails.
+        let bad = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let bad_port = bad.local_addr().unwrap().port();
+        assert!(bad_port >= ports::UDP_DISCOVERY);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((_n, src)) = bad.recv_from(&mut buf) {
+                let _ = bad.send_to(b"SUSI_PONG:legacy", src);
+            }
+        });
+        let check_bad = udp_discovery_signed(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: bad_port - ports::UDP_DISCOVERY,
+                token: None,
+                timeout: Duration::from_millis(200),
+            },
+            &opt,
+        );
+        assert_eq!(check_bad.outcome, Outcome::Fail, "{}", check_bad.detail);
+
+        // 3. Silent socket fails.
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let silent_port = silent.local_addr().unwrap().port();
+        assert!(silent_port >= ports::UDP_DISCOVERY);
+        let check_silent = udp_discovery_signed(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: silent_port - ports::UDP_DISCOVERY,
+                token: None,
+                timeout: Duration::from_millis(100),
+            },
+            &opt,
+        );
+        assert_eq!(
+            check_silent.outcome,
+            Outcome::Fail,
+            "{}",
+            check_silent.detail
+        );
+        drop(silent);
     }
 
     /// A UDP port known to be free: bound, then released. Ports at a fixed
@@ -1184,5 +1436,682 @@ mod tests {
             .iter()
             .filter(|c| !c.id.starts_with("udp."))
             .all(|c| c.outcome != Outcome::Pass));
+    }
+
+    #[test]
+    fn contract_and_out_of_contract_port_inventories_are_disjoint_and_complete() {
+        assert_eq!(CONTRACT_PORTS, [9090, 9091, 9092, 9093, 9094]);
+        for port in CONTRACT_PORTS {
+            assert!(is_contract_port(port));
+            assert_eq!(out_of_contract_role(port), None);
+        }
+        let expected_internal = [
+            9095, 9180, 9181, 18080, 18081, 18082, 18083, 18084, 19090, 19091, 19092, 19093,
+        ];
+        assert_eq!(OUT_OF_CONTRACT_PORTS.len(), expected_internal.len());
+        for port in expected_internal {
+            assert!(
+                !is_contract_port(port),
+                "internal port {port} must be out of contract"
+            );
+            assert!(
+                out_of_contract_role(port).is_some_and(|role| !role.is_empty()),
+                "missing out_of_contract_role for {port}"
+            );
+        }
+        assert!(OUT_OF_CONTRACT_IPC.contains(&"plane_bus"));
+    }
+
+    #[test]
+    fn mcp_alias_9093_runs_tools_list_conformance_check() {
+        let checks = run_with(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: 50_000,
+                token: None,
+                timeout: Duration::from_millis(100),
+            },
+            &Optional::default(),
+        );
+        let ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"mcp.tools-list@59090"), "{ids:?}");
+        assert!(ids.contains(&"mcp.tools-list@59093"), "{ids:?}");
+    }
+
+    #[test]
+    fn mcp_alias_9093_runs_stateful_session_conformance_check() {
+        let checks = run_with(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: 50_000,
+                token: None,
+                timeout: Duration::from_millis(100),
+            },
+            &Optional::default(),
+        );
+        let ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"mcp.session-2025-06-18@59090"), "{ids:?}");
+        assert!(ids.contains(&"mcp.session-2025-06-18@59093"), "{ids:?}");
+    }
+
+    #[test]
+    fn agent_card_honesty_validator_accepts_per_capability_skills_and_rejects_dishonest_cards() {
+        let valid_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        assert_eq!(validate_agent_card_honesty(&valid_card), Ok(4));
+
+        // Missing per-capability skill ("models")
+        let missing_skill_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."}
+            ]
+        });
+        let err_missing = validate_agent_card_honesty(&missing_skill_card).unwrap_err();
+        assert!(err_missing.contains("models"), "{err_missing}");
+
+        // streaming: false
+        let no_streaming_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": false},
+            "skills": valid_card["skills"].clone()
+        });
+        let err_streaming = validate_agent_card_honesty(&no_streaming_card).unwrap_err();
+        assert!(err_streaming.contains("streaming"), "{err_streaming}");
+
+        // Dishonest card claiming egui / desktop ui
+        let dishonest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Renders an egui desktop UI dashboard."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let err_dishonest = validate_agent_card_honesty(&dishonest_card).unwrap_err();
+        assert!(err_dishonest.contains("dishonest skill"), "{err_dishonest}");
+    }
+
+    struct MockReply {
+        status: u16,
+        content_type: &'static str,
+        headers: Vec<(&'static str, &'static str)>,
+        body: String,
+    }
+
+    impl MockReply {
+        fn json(status: u16, value: &Value) -> Self {
+            Self {
+                status,
+                content_type: "application/json",
+                headers: Vec::new(),
+                body: value.to_string(),
+            }
+        }
+    }
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> String {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let mut header_end = None;
+        let mut content_len = 0usize;
+        while let Ok(n) = stream.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if header_end.is_none() {
+                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    header_end = Some(pos + 4);
+                    let head = String::from_utf8_lossy(&buf[..pos]);
+                    for line in head.lines() {
+                        if let Some((k, v)) = line.split_once(':') {
+                            if k.trim().eq_ignore_ascii_case("content-length") {
+                                content_len = v.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(end) = header_end {
+                if buf.len() >= end + content_len {
+                    break;
+                }
+            }
+        }
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    fn spawn_loopback_http(
+        base_port: u16,
+        replies: Vec<MockReply>,
+    ) -> (Target, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let bound_port = listener.local_addr().unwrap().port();
+        assert!(bound_port >= base_port, "ephemeral port {bound_port}");
+        let handle = std::thread::spawn(move || {
+            let mut requests = Vec::with_capacity(replies.len());
+            for reply in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                requests.push(read_http_request(&mut stream));
+                let mut raw = format!(
+                    "HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
+                    reply.status,
+                    reply.content_type,
+                    reply.body.len()
+                );
+                for (k, v) in reply.headers {
+                    raw.push_str(&format!("{k}: {v}\r\n"));
+                }
+                raw.push_str("\r\n");
+                raw.push_str(&reply.body);
+                stream.write_all(raw.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+            }
+            requests
+        });
+        let target = Target {
+            host: "127.0.0.1".into(),
+            port_offset: bound_port - base_port,
+            token: Some("test-token".into()),
+            timeout: Duration::from_secs(2),
+        };
+        (target, handle)
+    }
+
+    #[test]
+    fn loopback_a2a_card_unknown_and_stream_conformance_checks() {
+        let honest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let dishonest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Renders a desktop UI via egui."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let (target, handle) = spawn_loopback_http(
+            ports::A2A,
+            vec![
+                // 1. a2a_card (honest -> Pass)
+                MockReply::json(200, &honest_card),
+                // 2. a2a_card (dishonest -> Fail)
+                MockReply::json(200, &dishonest_card),
+                // 3. auth_required POST / (401 -> Pass)
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 4. auth_required_as POST /stream (401 -> Pass)
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 5. a2a_unknown (-32601 -> Pass)
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 7, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                // 6..=8. a2a_stream (3 requests: unknown -> -32601, SubscribeToTask -> -32001, tasks/resubscribe -> -32001)
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 8, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 9, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 10, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+            ],
+        );
+
+        let c_card_ok = a2a_card(&target);
+        assert_eq!(c_card_ok.outcome, Outcome::Pass, "{}", c_card_ok.detail);
+        let c_card_bad = a2a_card(&target);
+        assert_eq!(c_card_bad.outcome, Outcome::Fail, "{}", c_card_bad.detail);
+        assert!(c_card_bad.detail.contains("dishonest skill"));
+
+        let c_auth_root = auth_required(&target, ports::A2A, "POST", "/");
+        assert_eq!(c_auth_root.outcome, Outcome::Pass, "{}", c_auth_root.detail);
+        let c_auth_stream = auth_required_as(&target, ports::A2A, "POST", "/stream", "/stream");
+        assert_eq!(
+            c_auth_stream.outcome,
+            Outcome::Pass,
+            "{}",
+            c_auth_stream.detail
+        );
+
+        let c_unknown = a2a_unknown(&target);
+        assert_eq!(c_unknown.outcome, Outcome::Pass, "{}", c_unknown.detail);
+
+        let c_stream = a2a_stream(&target);
+        assert_eq!(c_stream.outcome, Outcome::Pass, "{}", c_stream.detail);
+
+        let requests = handle.join().unwrap();
+        assert_eq!(requests.len(), 8);
+        assert!(requests[0].starts_with("GET /.well-known/agent-card.json HTTP/1.1"));
+        assert!(requests[5].contains("SubscribeToTask") || requests[6].contains("SubscribeToTask"));
+        assert!(requests[7].contains("tasks/resubscribe"));
+    }
+
+    #[test]
+    fn loopback_mcp_and_alias_9093_discover_tools_unauth_and_session_checks() {
+        for base in [ports::MCP, ports::MCP_ALIAS] {
+            let (target, handle) = spawn_loopback_http(
+                base,
+                vec![
+                    // 1. health
+                    MockReply::json(200, &json!({"status": "ok"})),
+                    // 2. auth_required POST /mcp -> 401
+                    MockReply::json(401, &json!({"error": "unauthorized"})),
+                    // 3. mcp_discover
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "result": {
+                                "capabilities": {"tools": {}},
+                                "_meta": {
+                                    "io.modelcontextprotocol/serverInfo": {"name": "susi-gmcp"}
+                                }
+                            }
+                        }),
+                    ),
+                    // 4. mcp_tools_at
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "result": {"tools": [{"name": "echo"}]}
+                        }),
+                    ),
+                    // 5..=7. mcp_session_at (initialize with Mcp-Session-Id -> notifications/initialized -> tools/list)
+                    MockReply {
+                        status: 200,
+                        content_type: "application/json",
+                        headers: vec![("Mcp-Session-Id", "sess-123")],
+                        body: json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "result": {
+                                "protocolVersion": MCP_SESSION,
+                                "capabilities": {"tools": {}},
+                                "serverInfo": {"name": "susi-gmcp"}
+                            }
+                        })
+                        .to_string(),
+                    },
+                    MockReply::json(202, &json!({})),
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "result": {"tools": [{"name": "echo"}, {"name": "ping"}]}
+                        }),
+                    ),
+                    // 8. mcp_session_at negative: missing Mcp-Session-Id header on initialize -> Fail
+                    MockReply::json(
+                        200,
+                        &json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "result": {"protocolVersion": MCP_SESSION}
+                        }),
+                    ),
+                ],
+            );
+
+            assert_eq!(health(&target, base).outcome, Outcome::Pass);
+            assert_eq!(
+                auth_required(&target, base, "POST", "/mcp").outcome,
+                Outcome::Pass
+            );
+            assert_eq!(mcp_discover(&target, base).outcome, Outcome::Pass);
+            assert_eq!(mcp_tools_at(&target, base).outcome, Outcome::Pass);
+
+            let c_sess = mcp_session_at(&target, base);
+            assert_eq!(c_sess.outcome, Outcome::Pass, "{}", c_sess.detail);
+            assert!(c_sess.detail.contains("2 tools"), "{}", c_sess.detail);
+
+            let c_sess_bad = mcp_session_at(&target, base);
+            assert_eq!(c_sess_bad.outcome, Outcome::Fail, "{}", c_sess_bad.detail);
+            assert!(c_sess_bad.detail.contains("without Mcp-Session-Id"));
+
+            let requests = handle.join().unwrap();
+            assert_eq!(requests.len(), 8);
+            assert!(requests[5]
+                .to_ascii_lowercase()
+                .contains("mcp-session-id: sess-123"));
+            assert!(requests[6]
+                .to_ascii_lowercase()
+                .contains("mcp-session-id: sess-123"));
+        }
+    }
+
+    #[test]
+    fn loopback_gemi_models_unauth_and_sse_stream_checks() {
+        let (target, handle) = spawn_loopback_http(
+            ports::GEMI,
+            vec![
+                // 1. auth_required GET /v1/models -> 401
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 2. gemi_models clean -> Pass
+                MockReply::json(
+                    200,
+                    &json!({"object": "list", "data": [{"id": "susi-1"}, {"id": "qwen2.5-0.5b"}]}),
+                ),
+                // 3. gemi_models leaking filesystem path -> Warn
+                MockReply::json(
+                    200,
+                    &json!({"object": "list", "data": [{"id": "/home/user/model.gguf"}]}),
+                ),
+                // 4. gemi_stream valid SSE -> Pass
+                MockReply {
+                    status: 200,
+                    content_type: "text/event-stream",
+                    headers: Vec::new(),
+                    body: "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\"}\n\ndata: [DONE]\n\n"
+                        .into(),
+                },
+            ],
+        );
+
+        let c_unauth = auth_required(&target, ports::GEMI, "GET", "/v1/models");
+        assert_eq!(c_unauth.outcome, Outcome::Pass, "{}", c_unauth.detail);
+
+        let c_models_ok = gemi_models(&target);
+        assert_eq!(c_models_ok.outcome, Outcome::Pass, "{}", c_models_ok.detail);
+        assert_eq!(c_models_ok.detail, "2 models");
+
+        let c_models_warn = gemi_models(&target);
+        assert_eq!(
+            c_models_warn.outcome,
+            Outcome::Warn,
+            "{}",
+            c_models_warn.detail
+        );
+        assert!(c_models_warn.detail.contains("local filesystem paths"));
+
+        let c_stream = gemi_stream(
+            &target,
+            &Optional {
+                inference: true,
+                ..Optional::default()
+            },
+        );
+        assert_eq!(c_stream.outcome, Outcome::Pass, "{}", c_stream.detail);
+        assert!(c_stream.detail.contains("1 JSON chunks, [DONE] true"));
+
+        let requests = handle.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert!(requests[3].starts_with("POST /v1/chat/completions HTTP/1.1"));
+    }
+
+    fn serve_bound_http(
+        listener: std::net::TcpListener,
+        replies: Vec<MockReply>,
+    ) -> std::thread::JoinHandle<usize> {
+        use std::io::Write;
+        std::thread::spawn(move || {
+            let mut count = 0;
+            for reply in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                let _ = read_http_request(&mut stream);
+                let mut raw = format!(
+                    "HTTP/1.1 {} OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
+                    reply.status,
+                    reply.content_type,
+                    reply.body.len()
+                );
+                for (k, v) in reply.headers {
+                    raw.push_str(&format!("{k}: {v}\r\n"));
+                }
+                raw.push_str("\r\n");
+                raw.push_str(&reply.body);
+                stream.write_all(raw.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+                count += 1;
+            }
+            count
+        })
+    }
+
+    #[test]
+    fn full_suite_run_with_passes_across_all_five_contract_ports_at_shared_offset() {
+        use std::net::{TcpListener, UdpSocket};
+        let mut bound = None;
+        for offset in (20_000u16..45_000).step_by(10) {
+            let l_mcp = TcpListener::bind(("127.0.0.1", ports::MCP + offset));
+            let l_gemi = TcpListener::bind(("127.0.0.1", ports::GEMI + offset));
+            let u_disc = UdpSocket::bind(("127.0.0.1", ports::UDP_DISCOVERY + offset));
+            let l_alias = TcpListener::bind(("127.0.0.1", ports::MCP_ALIAS + offset));
+            let l_a2a = TcpListener::bind(("127.0.0.1", ports::A2A + offset));
+            if let (Ok(mcp), Ok(gemi), Ok(udp), Ok(alias), Ok(a2a)) =
+                (l_mcp, l_gemi, u_disc, l_alias, l_a2a)
+            {
+                bound = Some((offset, mcp, gemi, udp, alias, a2a));
+                break;
+            }
+        }
+        let (offset, mcp_l, gemi_l, udp_s, alias_l, a2a_l) =
+            bound.expect("failed to bind 5 contiguous contract ports in 20000..45000");
+
+        let discover_reply = || {
+            MockReply::json(
+                200,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "capabilities": {"tools": {}},
+                        "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "susi-gmcp"}}
+                    }
+                }),
+            )
+        };
+        let tools_reply = || {
+            MockReply::json(
+                200,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {"tools": [{"name": "echo"}]}
+                }),
+            )
+        };
+        let session_init_reply = || MockReply {
+            status: 200,
+            content_type: "application/json",
+            headers: vec![("Mcp-Session-Id", "sess-5port")],
+            body: json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": MCP_SESSION,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "susi-gmcp"}
+                }
+            })
+            .to_string(),
+        };
+
+        // 1. MCP (9090 + offset): 8 requests (health, auth_required, discover, tools, unknown, 3x session)
+        let h_mcp = serve_bound_http(
+            mcp_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                discover_reply(),
+                tools_reply(),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 3, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                session_init_reply(),
+                MockReply::json(202, &json!({})),
+                tools_reply(),
+            ],
+        );
+
+        // 2. GEMI (9091 + offset): 4 requests (health, auth_required, models, stream)
+        let h_gemi = serve_bound_http(
+            gemi_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(200, &json!({"object": "list", "data": [{"id": "susi-1"}]})),
+                MockReply {
+                    status: 200,
+                    content_type: "text/event-stream",
+                    headers: Vec::new(),
+                    body: "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\"}\n\ndata: [DONE]\n\n"
+                        .into(),
+                },
+            ],
+        );
+
+        // 3. MCP_ALIAS (9093 + offset): 7 requests (health, auth_required, discover, tools, 3x session)
+        let h_alias = serve_bound_http(
+            alias_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                discover_reply(),
+                tools_reply(),
+                session_init_reply(),
+                MockReply::json(202, &json!({})),
+                tools_reply(),
+            ],
+        );
+
+        // 4. A2A (9094 + offset): 8 requests (health, auth /, auth /stream, card, unknown, 3x stream)
+        let honest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let h_a2a = serve_bound_http(
+            a2a_l,
+            vec![
+                MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(200, &honest_card),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 7, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 8, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 9, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 10, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+            ],
+        );
+
+        // 5. UDP_DISCOVERY (9092 + offset): 5 unauthenticated datagrams (silent) + 1 signed datagram (pong)
+        let h_udp = std::thread::spawn(move || {
+            let _ = udp_s.set_read_timeout(Some(Duration::from_secs(3)));
+            let mut buf = [0u8; 256];
+            for _ in 0..6 {
+                if let Ok((n, src)) = udp_s.recv_from(&mut buf) {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if msg.starts_with("SUSI_PING_SIG2:susi-conformance:CORE:9090:1:") {
+                        let _ = udp_s.send_to(
+                            b"SUSI_PONG_SIG2:host:CORE:9090:1:deadbeef:127.0.0.1:cafebabe",
+                            src,
+                        );
+                    }
+                }
+            }
+        });
+
+        let target = Target {
+            host: "127.0.0.1".into(),
+            port_offset: offset,
+            token: Some("test-token".into()),
+            timeout: Duration::from_millis(250),
+        };
+        let optional = Optional {
+            susi_bin: None,
+            inference: true,
+            signed_udp_ping: Some(
+                "SUSI_PING_SIG2:susi-conformance:CORE:9090:1:deadbeef:127.0.0.1:cafebabe".into(),
+            ),
+            signed_udp_pong_prefix: Some("SUSI_PONG_SIG2:host:CORE:".into()),
+        };
+
+        let checks = run_with(&target, &optional);
+        assert!(conformant(&checks), "{checks:?}");
+        for check in &checks {
+            if check.id == "mcp.stdio" {
+                assert_eq!(check.outcome, Outcome::Skip, "{}", check.detail);
+            } else {
+                assert_eq!(
+                    check.outcome,
+                    Outcome::Pass,
+                    "{}: {}",
+                    check.id,
+                    check.detail
+                );
+            }
+        }
+
+        assert_eq!(h_mcp.join().unwrap(), 8);
+        assert_eq!(h_gemi.join().unwrap(), 4);
+        assert_eq!(h_alias.join().unwrap(), 7);
+        assert_eq!(h_a2a.join().unwrap(), 8);
+        h_udp.join().unwrap();
     }
 }

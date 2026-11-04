@@ -199,8 +199,8 @@ impl GawdAgent for SearchAgent {
     }
 }
 
-/// Ensures a usable model is available (installs the default if none is
-/// found); never links MCP servers (zero-UI plan A8).
+/// Reports whether a usable model is available (never downloads one: CEO
+/// decision 2026-11-04); never links MCP servers (zero-UI plan A8).
 pub struct SusiRuntimeAgent;
 
 fn has_valid_local_weights(report: &serde_json::Value) -> bool {
@@ -251,18 +251,59 @@ impl GawdAgent for SusiRuntimeAgent {
             crate::susi_core::plane_bus::gemi::ModelManager::verify_local_models(workspace);
         let valid_local_found = has_valid_local_weights(&verifications);
 
-        // Use the same admitted small-starter policy as daemon provisioning.
-        // A synthetic engine identifier is not evidence of model weights,
-        // and runtime boot must not queue a second, unaudited alpha artifact.
+        // Core never downloads a model by itself (CEO decision 2026-11-04,
+        // "No, ask first"). With neither a cloud key nor local weights, report
+        // the observed readiness, which names the install command, instead of
+        // claiming an established runtime. A synthetic engine identifier is
+        // not evidence of model weights.
         if !cloud_available && !valid_local_found {
-            let _ = crate::susi_core::plane_bus::gemi::ModelManager::ensure_hardware_optimal_models(
-                workspace,
-            );
+            let readiness =
+                crate::susi_core::plane_bus::gemi::ModelManager::ensure_hardware_optimal_models(
+                    workspace,
+                );
+            if let Some(text) = readiness.get("text").and_then(serde_json::Value::as_str) {
+                return runtime_readiness(text);
+            }
         }
         // Third-party MCP servers are never linked here: core admits one
         // only on an explicit request (zero-UI plan A8).
 
         Ok("Runtime environment established and optimized for pulse intent.".into())
+    }
+}
+
+/// The runtime agent's answer for an observed readiness report. "No local
+/// model" (the `NoLocalModelInstalled::TAG` lead, `[NO_LOCAL_MODEL]`) is a
+/// failure: the runtime cannot answer, so the mission must not record success.
+fn runtime_readiness(text: &str) -> crate::susi_core::susi_error::EaiResult<String> {
+    if text.trim_start().starts_with("[NO_LOCAL_MODEL]") {
+        return Err(crate::susi_core::susi_error::EaiError::inference(
+            text.to_string(),
+        ));
+    }
+    Ok(text.to_string())
+}
+
+#[cfg(test)]
+mod runtime_readiness_tests {
+    use super::runtime_readiness;
+
+    #[test]
+    fn no_local_model_is_a_failure_and_names_the_command() {
+        let text = "[NO_LOCAL_MODEL] No verified local model is ready. To answer locally, \
+                    run `susi os manage model install starter`.";
+        let error = runtime_readiness(text).unwrap_err().to_string();
+        assert!(error.contains("[NO_LOCAL_MODEL]"), "{error}");
+        assert!(
+            error.contains("susi os manage model install starter"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_ready_model_is_success() {
+        let text = "Using verified cached local model qwen2.5-0.5b-instruct-q4";
+        assert_eq!(runtime_readiness(text).unwrap(), text);
     }
 }
 

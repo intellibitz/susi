@@ -496,4 +496,51 @@ mod tests {
         assert!(parse_published("\"just a string\"").is_err());
         assert!(parse_published("[]").unwrap().is_empty());
     }
+
+    #[test]
+    fn extension_watch_parse_published_accepts_camel_case_aliases_and_wrapper_keys() {
+        for wrapper in ["published", "items", "data", "results", "custom_catalog"] {
+            let doc = format!(
+                r#"{{"{wrapper}": [
+                    {{"extensionId": "acme/camel", "state": "official", "specUrl": "https://specs.example/camel.json"}},
+                    {{"extension_id": "acme/snake", "state": "Official", "spec": "https://specs.example/snake.json"}},
+                    {{"slug": "acme/slug", "status": "official", "url": "https://specs.example/slug.json"}}
+                ]}}"#
+            );
+            let parsed = parse_published(&doc).unwrap();
+            assert_eq!(parsed.len(), 3, "wrapper={wrapper}");
+            assert_eq!(parsed[0].id, "acme/camel");
+            assert_eq!(parsed[0].status, "official");
+            assert_eq!(parsed[0].spec_url, "https://specs.example/camel.json");
+            assert_eq!(parsed[1].id, "acme/snake");
+            assert_eq!(parsed[1].spec_url, "https://specs.example/snake.json");
+            assert_eq!(parsed[2].id, "acme/slug");
+            assert_eq!(parsed[2].spec_url, "https://specs.example/slug.json");
+        }
+    }
+
+    #[test]
+    fn extension_watch_json_parser_decodes_escapes_surrogate_pairs_numbers_and_booleans() {
+        let doc = r#"{
+            "meta": {"count": -42.5e+2, "ok": true, "archived": false, "next": null},
+            "extensions": [
+                {
+                    "id": "acme/rocket-\uD83D\uDE80",
+                    "status": "official",
+                    "spec_url": "https://specs.example/a\/b\"c\\d\ne\tf.json"
+                }
+            ]
+        }"#;
+        let parsed = parse_published(doc).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].id, "acme/rocket-🚀");
+        assert_eq!(
+            parsed[0].spec_url,
+            "https://specs.example/a/b\"c\\d\ne\tf.json"
+        );
+
+        assert!(parse_published(r#"[{"id": "bad-\uD800"}]"#).is_err());
+        assert!(parse_published(r#"[{"id": "bad-\uD800\u0041"}]"#).is_err());
+        assert!(parse_published(r#"[{"id": "bad-\uZZZZ"}]"#).is_err());
+    }
 }

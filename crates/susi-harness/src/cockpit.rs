@@ -124,6 +124,12 @@ pub struct WorkerView {
     pub output_tokens: u64,
     /// Prompt cache hit share in parts per thousand (`0..=1000`).
     pub cache_share_permille: u16,
+    /// Uncached cost at this worker's own input-miss + output price in micro-USD.
+    pub uncached_cost_micro_usd: u64,
+    /// Frontier reference baseline cost for this worker's calls in micro-USD.
+    pub frontier_baseline_micro_usd: u64,
+    /// Total micro-USD saved by this worker vs. the uncached frontier reference.
+    pub saved_micro_usd: u64,
     /// The model's current price, when the catalogue knows it.
     pub price: Option<ModelPrice>,
 }
@@ -156,6 +162,8 @@ pub struct Snapshot {
     pub cache_share_permille: u16,
     /// Total calls served from the response cache (`cached: true`).
     pub cached_calls: usize,
+    /// Quantified 4-lever ROI decomposition against the uncached frontier reference.
+    pub roi: crate::roi::RoiReport,
     /// The focused mission's cap, when it has one.
     pub budget_micro_usd: Option<u64>,
     /// What is left of the focused mission's cap.
@@ -251,8 +259,14 @@ impl Cockpit {
                 Outcome::Accepted => {}
             }
         }
+        let (roi, worker_roi) = crate::roi::RoiReport::from_entries(&entries);
         for worker in workers.values_mut() {
             worker.cache_share_permille = permille(worker.cache_hit_tokens, worker.input_tokens);
+            if let Some(w_roi) = worker_roi.get(&worker.model) {
+                worker.uncached_cost_micro_usd = w_roi.uncached_model_cost_micro_usd;
+                worker.frontier_baseline_micro_usd = w_roi.frontier_baseline_micro_usd;
+                worker.saved_micro_usd = w_roi.total_saved_micro_usd;
+            }
         }
 
         let plan = self.plan_path.as_deref().and_then(read_json);
@@ -404,6 +418,7 @@ impl Cockpit {
             total_output_tokens,
             cache_share_permille: permille(total_cache_hit_tokens, total_input_tokens),
             cached_calls: total_cached_calls,
+            roi,
             budget_micro_usd,
             budget_remaining_micro_usd,
             missions: missions.into_values().collect(),
@@ -523,6 +538,9 @@ impl WorkerView {
             cache_hit_tokens: 0,
             output_tokens: 0,
             cache_share_permille: 0,
+            uncached_cost_micro_usd: 0,
+            frontier_baseline_micro_usd: 0,
+            saved_micro_usd: 0,
             price: None,
         }
     }
@@ -1295,5 +1313,15 @@ mod tests {
         assert_eq!(snap.workers.len(), 1);
         assert_eq!(snap.workers[0].cache_share_permille, 900);
         assert_eq!(snap.workers[0].cached_calls, 1);
+        assert_eq!(
+            snap.roi.actual_cost_micro_usd + snap.roi.total_saved_micro_usd,
+            snap.roi.frontier_baseline_micro_usd
+        );
+        assert!(snap.roi.prompt_cache_saved_micro_usd > 0);
+        assert!(snap.roi.response_cache_saved_micro_usd > 0);
+        assert_eq!(
+            snap.workers[0].saved_micro_usd,
+            snap.roi.total_saved_micro_usd
+        );
     }
 }

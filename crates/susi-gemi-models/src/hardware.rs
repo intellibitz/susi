@@ -248,17 +248,19 @@ impl HardwareProfiler {
                     }
                 }
             }
-        } else if cfg!(target_os = "windows") {
+        }
+        if let Some(brand) = susi_config::host_metrics::cpu_brand() {
+            let trimmed = brand.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+        if cfg!(target_os = "windows") {
             if let Ok(id) = std::env::var("PROCESSOR_IDENTIFIER") {
                 let trimmed = id.trim();
                 if !trimmed.is_empty() {
                     return trimmed.to_string();
                 }
-            }
-        } else if cfg!(target_os = "macos") {
-            // machdep.cpu.brand_string, read through the sysinfo facade.
-            if let Some(brand) = susi_config::host_metrics::cpu_brand() {
-                return brand;
             }
         }
         "Generic Hardware Substrate".to_string()
@@ -272,10 +274,15 @@ impl HardwareProfiler {
                     return format!("{}, {}, {}", parts[0], parts[1], parts[2]);
                 }
             }
-        } else if cfg!(target_os = "macos") {
-            if let Some([one, five, fifteen]) = susi_config::host_metrics::load_average() {
-                return format!("{one:.2}, {five:.2}, {fifteen:.2}");
-            }
+        }
+        if let Some([one, five, fifteen]) = susi_config::host_metrics::load_average() {
+            return format!("{one:.2}, {five:.2}, {fifteen:.2}");
+        }
+        if cfg!(target_os = "windows") {
+            return match susi_config::host_metrics::cpu_util_pct() {
+                Some(pct) => format!("Linux/macOS-only (Windows CPU {pct:.1}%)"),
+                None => "Linux/macOS-only".to_string(),
+            };
         }
         "N/A".to_string()
     }
@@ -694,6 +701,11 @@ impl HardwareProfiler {
             }
         }
         if cfg!(target_os = "macos") {
+            if let Some(mem) = susi_config::host_metrics::memory() {
+                if mem.available_bytes > 0 {
+                    return mem.available_bytes;
+                }
+            }
             if let Ok(output) = std::process::Command::new("vm_stat").output() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let page_size = text
@@ -725,6 +737,11 @@ impl HardwareProfiler {
         #[cfg(windows)]
         if let Some((_, avail_phys, _)) = win32_hw::memory_status() {
             return avail_phys;
+        }
+        if let Some(mem) = susi_config::host_metrics::memory() {
+            if mem.available_bytes > 0 {
+                return mem.available_bytes;
+            }
         }
         0 // Unknown available memory must not authorize automatic downloads.
     }
@@ -1270,5 +1287,34 @@ mod tests {
         let (disk_gb, usage_pct) = HardwareProfiler::get_disk_stats();
         assert!(disk_gb > 0, "disk capacity must be non-zero");
         assert!(usage_pct <= 100, "disk usage pct must be <= 100");
+    }
+
+    #[test]
+    fn test_cross_os_hardware_profile_telemetry_and_load_avg_honesty() {
+        let profile = HardwareProfiler::get_profile();
+        assert!(
+            !profile.cpu_brand.trim().is_empty(),
+            "cpu_brand must be non-empty"
+        );
+        assert!(profile.ram_gb > 0, "ram_gb must be positive");
+        assert!(
+            profile.uptime.starts_with("up "),
+            "uptime should be populated, got {:?}",
+            profile.uptime
+        );
+        #[cfg(windows)]
+        {
+            assert!(
+                profile.load_avg.starts_with("Linux/macOS-only"),
+                "Windows load_avg must explicitly state Linux/macOS-only rather than bare N/A, got {:?}",
+                profile.load_avg
+            );
+            assert!(profile.load_avg.contains("Windows CPU"));
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            assert_ne!(profile.load_avg, "N/A");
+            assert_eq!(profile.load_avg.split(',').count(), 3);
+        }
     }
 }

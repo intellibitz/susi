@@ -37,6 +37,15 @@ pub const ALL: [(u16, &str); 5] = [
 /// Swarm-internal UDP. Same offset as [`ALL`]; **not** the host contract.
 pub const SWARM_UDP: [(u16, &str); 1] = [(GOSSIP, "swarm capability gossip")];
 
+/// Canonical leaf-service loopback HTTP ports (`18080–18084`).
+pub const LEAF_SERVICES: [(u16, &str); 5] = [
+    (PATHS_SERVICE, "susi-paths"),
+    (ERROR_SERVICE, "susi-error"),
+    (CONFIG_SERVICE, "susi-config"),
+    (SANDBOX_SERVICE, "susi-sandbox"),
+    (NATIVE_SERVICE, "susi-native"),
+];
+
 /// Offset from `SUSI_PORT_OFFSET` alone — leaf-safe resolution for code
 /// without a `SusiConfig` in scope. `SusiConfig::port_offset()` additionally
 /// honors the `port_offset` config key; env always wins.
@@ -50,4 +59,41 @@ pub fn env_port_offset() -> u16 {
 /// `base + env_offset`, saturating — never produces a port above u16::MAX.
 pub fn effective(base: u16) -> u16 {
     base.saturating_add(env_port_offset())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn canonical_port_tables_have_zero_collisions_and_non_empty_labels() {
+        let mut seen = BTreeSet::new();
+        for (port, label) in ALL
+            .iter()
+            .chain(SWARM_UDP.iter())
+            .chain(LEAF_SERVICES.iter())
+        {
+            assert!(!label.trim().is_empty(), "port {port} must have a label");
+            assert!(
+                seen.insert(*port),
+                "duplicate canonical port {port} ({label}) across ALL / SWARM_UDP / LEAF_SERVICES"
+            );
+        }
+        assert_eq!(
+            seen.len(),
+            ALL.len() + SWARM_UDP.len() + LEAF_SERVICES.len()
+        );
+        assert_eq!(LEAF_SERVICES[0], (18080, "susi-paths"));
+        assert_eq!(LEAF_SERVICES[4], (18084, "susi-native"));
+    }
+
+    #[test]
+    fn effective_port_saturates_at_u16_max() {
+        assert_eq!(
+            u16::MAX.saturating_add(env_port_offset()),
+            effective(u16::MAX)
+        );
+        assert!(effective(GMCP) >= GMCP);
+    }
 }

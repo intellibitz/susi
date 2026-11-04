@@ -1,0 +1,24 @@
+{
+  "id": "T-PATHSB81104-1",
+  "title": "B1 / B8 LEAF_SERVICES Port Table and Atomic ports.json Discovery in susi-paths",
+  "goal": "Add LEAF_SERVICES port registry and collision/saturation unit tests in crates/susi-paths/src/ports.rs, and extend PortsFile in crates/susi-paths/src/zc_ports_file.rs with api_token_path, atomic write_to_home, and read_from_home discovery helpers.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-PATHSB81104-1.json",
+    "crates/susi-paths/src/ports.rs",
+    "crates/susi-paths/src/zc_ports_file.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths"
+    ]
+  },
+  "created_by": "PATHSB81104",
+  "created_unix": 1793773700
+}

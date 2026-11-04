@@ -1,0 +1,28 @@
+{
+    "id":  "T-USPROI1104-1",
+    "title":  "Add Tier-0 SCIS spectral reflex gate, Tier-S SOVA Bellman ECVO arbitrage engine, and 4-lever quantified ROI decomposition",
+    "goal":  "",
+    "size":  "m",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-harness",
+                               "--lib",
+                               "roi"
+                           ]
+               },
+    "created_by":  "USPROI1104",
+    "created_unix":  1793766360,
+    "closed":  {
+                   "at_unix":  1793769143,
+                   "commit":  "060267c8082c21ebc9bd32456c6fcea0f03b3b9a",
+                   "by":  "USPROI1104"
+               }
+}

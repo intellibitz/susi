@@ -30,3 +30,7 @@ susi-windows-runtime = { path = "../crates/susi-windows-runtime" }
 [[bin]]
 name = "susi-dev"
 path = "src/bin/susi-dev.rs"
+
+[[bin]]
+name = "local-channel"
+path = "src/bin/local-channel.rs"

@@ -1,0 +1,28 @@
+{
+    "id":  "T-CELLUPGRADE1104-1",
+    "title":  "Enforce NP-14 cell registration in auto_discovery and make xtask installed-upgrade OS-neutral",
+    "goal":  "",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-daemon",
+                               "--lib",
+                               "auto_discovery"
+                           ]
+               },
+    "created_by":  "CELLUPGRADE1104",
+    "created_unix":  1793753061,
+    "closed":  {
+                   "at_unix":  1793753088,
+                   "commit":  "6b70e56f7b8e3192f8b33827abbf2fff1eda960a",
+                   "by":  "CELLUPGRADE1104"
+               }
+}

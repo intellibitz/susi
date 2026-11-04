@@ -1,9 +1,10 @@
 //! Fail-closed recognition of an exact SUSI release-version-only Git diff.
+#![forbid(unsafe_code)]
+
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
 use std::collections::BTreeSet;
-use std::io::Write;
 use std::process::{Command, Stdio};
 
 const MANIFESTS: [(&str, &str); 7] = [
@@ -64,20 +65,9 @@ fn version(value: &str) -> Option<[u64; 3]> {
     Some(out)
 }
 fn json_version(content: &str) -> Option<String> {
-    let mut child = Command::new("jq")
-        .args(["-er", ".version | strings"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    child.stdin.take()?.write_all(content.as_bytes()).ok()?;
-    let out = child.wait_with_output().ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8(out.stdout).ok())
-        .flatten()
-        .map(|s| s.trim().to_owned())
+    let doc: serde_json::Value = serde_json::from_str(content).ok()?;
+    let ver = doc.as_object()?.get("version")?.as_str()?.trim();
+    (!ver.is_empty()).then(|| ver.to_owned())
 }
 fn lock_has_packages(lock: &str, expected_version: &str) -> bool {
     MANIFESTS.iter().all(|(_, name)| {
@@ -159,5 +149,91 @@ fn check() -> Option<()> {
 fn main() {
     if check().is_none() {
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{field, json_version, lock_has_packages, package, version, MANIFESTS};
+
+    #[test]
+    fn version_parses_strict_semver_triples_and_rejects_leading_zeros_or_prereleases() {
+        assert_eq!(version("0.21.47"), Some([0, 21, 47]));
+        assert_eq!(version("1.0.0"), Some([1, 0, 0]));
+        for bad in [
+            "",
+            "01.2.3",
+            "1.02.3",
+            "1.2.03",
+            "1.2",
+            "1.2.3.4",
+            "1.2.3-rc1",
+            "v1.2.3",
+            "1.2.x",
+        ] {
+            assert_eq!(version(bad), None, "expected {bad:?} to be rejected");
+        }
+    }
+
+    #[test]
+    fn field_and_package_extract_unique_toml_keys_and_reject_duplicates() {
+        let toml = "[workspace]\nmembers = []\n\n[package]\nname = \"susi\"\nversion = \"0.21.47\"\n\n[dependencies]\nversion = \"9.9.9\"\n";
+        let pkg = package(toml);
+        assert!(pkg.is_some());
+        let pkg_section = pkg.unwrap_or("");
+        assert_eq!(field(pkg_section, "name"), Some("susi"));
+        assert_eq!(field(pkg_section, "version"), Some("0.21.47"));
+        assert_eq!(field(pkg_section, "missing"), None);
+
+        let dup = "name = \"susi\"\nversion = \"0.21.47\"\nversion = \"0.21.48\"\n";
+        assert_eq!(field(dup, "version"), None);
+    }
+
+    #[test]
+    fn json_version_extracts_string_version_without_external_jq_and_rejects_non_string_or_invalid_json(
+    ) {
+        assert_eq!(
+            json_version(r#"{"version":"1.2.3","meaning":"preserve"}"#),
+            Some("1.2.3".to_string())
+        );
+        for bad in [
+            "",
+            "not json",
+            r#"{"version":123}"#,
+            r#"{"version":null}"#,
+            r#"{"version":""}"#,
+            r#"{"version":["1.2.3"]}"#,
+            r#"["1.2.3"]"#,
+            r#"{}"#,
+        ] {
+            assert_eq!(json_version(bad), None, "expected {bad:?} to be rejected");
+        }
+    }
+
+    #[test]
+    fn lock_has_packages_requires_exact_seven_workspace_crates_without_external_source() {
+        let mut valid_lock = String::new();
+        for (_, name) in MANIFESTS {
+            valid_lock.push_str(&format!(
+                "[[package]]\nname = \"{name}\"\nversion = \"0.21.47\"\n\n"
+            ));
+        }
+        assert!(lock_has_packages(&valid_lock, "0.21.47"));
+        assert!(!lock_has_packages(&valid_lock, "0.21.46"));
+
+        let with_source = format!(
+            "{valid_lock}[[package]]\nname = \"susi\"\nversion = \"0.21.47\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n"
+        );
+        let replaced_source = valid_lock.replacen(
+            "name = \"susi\"\nversion = \"0.21.47\"",
+            "name = \"susi\"\nversion = \"0.21.47\"\nsource = \"registry+https://example.com\"",
+            1,
+        );
+        assert!(!lock_has_packages(&replaced_source, "0.21.47"));
+        assert!(lock_has_packages(&with_source, "0.21.47"));
+
+        let duplicate_local =
+            format!("{valid_lock}[[package]]\nname = \"susi\"\nversion = \"0.21.47\"\n");
+        assert!(!lock_has_packages(&duplicate_local, "0.21.47"));
     }
 }

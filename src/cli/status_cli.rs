@@ -58,7 +58,30 @@ pub(crate) struct RoutingSection {
     pub cooled: Vec<(String, u64)>,
     /// The local floor model that would serve a request now.
     pub chosen_local_model: Option<String>,
+    /// GGUF files present in the model directories (names only: no load,
+    /// no admission, no download).
+    pub installed_local_models: Vec<String>,
     pub budget_label: &'static str,
+}
+
+/// What `susi status` says about local models. Core never downloads one by
+/// itself (CEO decision 2026-11-04), so an empty inventory is reported as
+/// exactly that, with the command that downloads the starter.
+fn local_model_line(r: &RoutingSection) -> String {
+    match (&r.chosen_local_model, r.installed_local_models.as_slice()) {
+        (Some(m), _) => format!("local model: {m}"),
+        (None, []) => format!(
+            "local model: no local model installed in Susi's model folders \
+             (local runners such as Ollama are still used when they are running; \
+             Susi never downloads a model by itself; {})",
+            susi_gemi::models::NoLocalModelInstalled::starter().install_hint()
+        ),
+        (None, installed) => format!(
+            "local model: {} model file(s) found, verified when a goal runs: {}",
+            installed.len(),
+            installed.join(", ")
+        ),
+    }
 }
 
 /// Measured token spend from the usage ledger (USD requires a price the
@@ -420,12 +443,17 @@ fn read_routing(now: u64) -> RoutingSection {
     // publisher licenses over the network. The goal path still admits and
     // ranks models before any load.
     let chosen_local_model = selected_local_model();
+    let installed_local_models = super::setup_cli::opening_model_inventory(
+        &susi_paths::SusiDirs::config_dir(),
+        &susi_paths::SusiDirs::data_dir(),
+    );
     RoutingSection {
         preferred_cloud: pref.preferred_cloud,
         policy_override: pref.policy_override,
         auto_switched_from: pref.auto_switched_from,
         cooled,
         chosen_local_model,
+        installed_local_models,
         budget_label: cost::Budget::from_env().label(),
     }
 }
@@ -581,10 +609,8 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
 
     let r = &s.routing;
     out.push_str(&format!("budget: {}\n", r.budget_label));
-    match &r.chosen_local_model {
-        Some(m) => out.push_str(&format!("local model: {m}\n")),
-        None => out.push_str("local model: automatic (chosen when a goal runs)\n"),
-    }
+    out.push_str(&local_model_line(r));
+    out.push('\n');
     match &r.preferred_cloud {
         Some(p) => out.push_str(&format!("preferred cloud: {p}\n")),
         None => out.push_str("preferred cloud: none\n"),
@@ -700,6 +726,8 @@ fn measured_json(cwd: &Path, global_dir: &Path) -> std::io::Result<serde_json::V
         "executable": { "path": executable, "sha256": sha256, "bytes": bytes },
         "daemon": { "running": status.daemon_pid.is_some(), "pid": status.daemon_pid },
         "local_model": status.routing.chosen_local_model,
+        "local_models_installed": status.routing.installed_local_models,
+        "local_model_status": local_model_line(&status.routing),
         "missions_in_flight": status.missions.len(),
         "resumable_missions": status.resumable.len(),
         "pending_approvals": status.approvals.len(),

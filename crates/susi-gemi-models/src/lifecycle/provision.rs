@@ -1,4 +1,11 @@
-//! Hardware-optimal model provisioning and download-agent status reports.
+//! Local-model readiness, the explicit starter install and download-agent
+//! status reports.
+//!
+//! Core never downloads a model by itself (CEO decision 2026-11-04, "No, ask
+//! first"): boot, maintenance ticks, status and routing only observe what is
+//! installed. A download starts only from the user's explicit command
+//! (`STARTER_INSTALL_COMMAND`, `susi os manage model install <url>`,
+//! `susi scout-model <url>`).
 
 use crate::susi_error::EaiResult;
 use std::fs;
@@ -11,26 +18,6 @@ use super::types::*;
 use super::ModelManager;
 
 impl ModelManager {
-    pub fn spawn_background_hardware_model_provisioner(workspace: &Path) {
-        if cfg!(test) {
-            return;
-        }
-        static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if STARTED.swap(true, std::sync::atomic::Ordering::AcqRel) {
-            return;
-        }
-        let workspace = workspace.to_path_buf();
-        std::thread::spawn(move || loop {
-            let _ = Self::ensure_hardware_optimal_models(&workspace);
-            let policy = crate::susi_sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .model_lifecycle();
-            std::thread::sleep(std::time::Duration::from_secs(
-                policy.discovery_retry_secs.clamp(60, 3600),
-            ));
-        });
-    }
-
     pub fn check_network_status() -> (bool, String, u128) {
         if cfg!(test) {
             return (
@@ -71,9 +58,10 @@ impl ModelManager {
         }
     }
 
-    pub fn verify_and_provision_model_ladder(workspace: &Path) -> EaiResult<ModelAgentReport> {
+    /// Report the hardware-selected model ladder, the network and active
+    /// downloads. Verification only: it never starts a download.
+    pub fn verify_model_ladder(workspace: &Path) -> EaiResult<ModelAgentReport> {
         let models_dir = Self::get_models_dir();
-        let _ = fs::create_dir_all(&models_dir);
         let hf_base_url = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .hf_base_url();
@@ -85,10 +73,6 @@ impl ModelManager {
         );
 
         let ladder = HardwareProfiler::get_progressive_model_ladder();
-        let test_mode = std::env::var("SUSI_TEST_MODE").is_ok() || cfg!(test);
-        if !test_mode {
-            Self::spawn_background_hardware_model_provisioner(workspace);
-        }
         let mut steps = Vec::new();
         let controller = ModelDownloadController::global();
         for s in &ladder {
@@ -219,11 +203,24 @@ impl ModelManager {
         )))
     }
 
+    /// Local-model readiness for unattended callers (the daemon's readiness
+    /// and substrate-audit ticks, the `gemi.models.ensure` bus topic). It
+    /// observes only and never downloads: with no verified local model it
+    /// reports [`NoLocalModelInstalled`], which names the install command.
+    /// (The name is kept for those callers; nothing is ensured any more.)
     pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
-        Self::prepare_hardware_optimal_models(workspace).map(|outcome| outcome.summary())
+        Ok(
+            match Self::identify_best_suited_local_model(workspace, None) {
+                Some(cached) => format!("Using verified cached local model {}", cached.model_id()),
+                None => NoLocalModelInstalled::starter().to_string(),
+            },
+        )
     }
 
-    pub fn prepare_hardware_optimal_models(
+    /// Download the audited starter (weights and tokenizer) in the calling
+    /// process. Only the user's explicit `STARTER_INSTALL_COMMAND` calls
+    /// this; core never calls it on its own.
+    pub fn install_starter_model_on_request(
         workspace: &Path,
     ) -> EaiResult<ModelProvisioningOutcome> {
         static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -231,14 +228,6 @@ impl ModelManager {
             return Ok(ModelProvisioningOutcome::Active);
         };
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        if cfg
-            .settings
-            .get("auto_download_models")
-            .and_then(|v| v.as_bool())
-            == Some(false)
-        {
-            return Ok(ModelProvisioningOutcome::DownloadsDisabled);
-        }
         // Selection admits both actual weights and tokenizer and uses current
         // resource budgets. Retain a better verified cache instead of spending
         // bandwidth/disk on another model merely because a GPU is present.
@@ -256,22 +245,22 @@ impl ModelManager {
             disk: HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000),
             offline: !crate::susi_core::mac_policy::egress_permitted("https://huggingface.co/"),
         };
-        match Self::automatic_download_plan(&host, &models_dir) {
+        match Self::starter_download_plan(&host, &models_dir) {
             crate::zc_first_model::FirstRunPlan::Fetch { model, plan } => {
                 let step = crate::hardware::ModelLadderStep {
                     step: 1,
-                    label: model.id,
+                    label: model.id.clone(),
                     hf_repo: model.hf_repo,
                     hf_file: model.hf_file,
                     tokenizer_repo: "Qwen/Qwen2.5-0.5B-Instruct".into(),
                     min_bytes: model.size_bytes,
                     expected_bytes: model.size_bytes,
                 };
-                ModelDownloadController::global()
-                    .start_download(&plan.url)
-                    .map_err(crate::susi_error::EaiError::inference)?;
+                // The small tokenizer first: a refusal costs no weight bytes.
                 Self::ensure_ladder_tokenizer(&step, &models_dir, &cfg)?;
-                Ok(ModelProvisioningOutcome::Queued)
+                Self::install_model_foreground(&plan.url)
+                    .map_err(crate::susi_error::EaiError::inference)?;
+                Ok(ModelProvisioningOutcome::Installed(model.id))
             }
             crate::zc_first_model::FirstRunPlan::OfflineNoModel => {
                 Ok(ModelProvisioningOutcome::OfflineNoModel)
@@ -283,11 +272,11 @@ impl ModelManager {
         }
     }
 
-    pub(crate) fn automatic_download_plan(
+    pub(crate) fn starter_download_plan(
         host: &crate::zc_first_model::FirstRunHost,
         models_dir: &Path,
     ) -> crate::zc_first_model::FirstRunPlan {
-        // This is the production first-run policy, independent of GPU size,
+        // The explicit starter install's policy, independent of GPU size,
         // catalog popularity, configured prefetch tiers or upgrade candidates.
         crate::zc_first_model::plan_first_run(
             host,
@@ -389,7 +378,7 @@ mod license_tests {
         };
         assert_eq!(host.ram, available - 4 * 1_073_741_824);
         assert!(matches!(
-            ModelManager::automatic_download_plan(&host, Path::new("unused-models")),
+            ModelManager::starter_download_plan(&host, Path::new("unused-models")),
             crate::zc_first_model::FirstRunPlan::Fetch { .. }
         ));
         for available in [0, 4 * 1_073_741_824, 4 * 1_073_741_824 + 999_999_999] {
@@ -398,7 +387,7 @@ mod license_tests {
                 ..host
             };
             assert!(matches!(
-                ModelManager::automatic_download_plan(&too_small, Path::new("unused-models")),
+                ModelManager::starter_download_plan(&too_small, Path::new("unused-models")),
                 crate::zc_first_model::FirstRunPlan::TooSmall
             ));
         }

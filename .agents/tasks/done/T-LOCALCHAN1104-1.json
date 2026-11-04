@@ -1,0 +1,23 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-LOCALCHAN1104-1",
+  "title": "feat(xtask): add cross-OS local-channel root resolution and verify-startup action (D-OS-6, D-OS-8, D-SP-2)",
+  "status": "done", "completed_at": "2026-11-04T02:09:30Z",
+  "created_at": "2026-11-04T02:09:00Z",
+  "owner": "gemini",
+  "touch": [
+    "xtask/src/bin/local-channel.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-channel"
+    ]
+  }
+}

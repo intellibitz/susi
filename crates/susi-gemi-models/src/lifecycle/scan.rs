@@ -409,4 +409,122 @@ mod tests {
         let _ = fs::remove_file(&model);
         assert!(seen, "a model published by another process stayed hidden");
     }
+
+    #[test]
+    fn calculate_simple_checksum_returns_expected_sha256_and_errors_on_missing_path() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-scan-checksum-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file_path = root.join("fixture.gguf");
+        fs::write(&file_path, b"abc").unwrap();
+
+        let digest = ModelManager::calculate_simple_checksum(&file_path).unwrap();
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+
+        let missing = root.join("does-not-exist.gguf");
+        assert!(ModelManager::calculate_simple_checksum(&missing).is_err());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn recursive_scan_model_dir_enforces_depth_exclusions_extensions_min_bytes_and_provenance_sidecar(
+    ) {
+        let root = std::env::temp_dir().join(format!(
+            "susi-scan-rules-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let rules = ModelScanRules {
+            exclude_dirs: vec!["node_modules".to_string(), "target".to_string()],
+            extensions: vec!["gguf".to_string(), "safetensors".to_string()],
+            min_bytes: 1_000,
+        };
+
+        // 1. Valid .gguf (> min_bytes) with companion .provenance.json sidecar
+        let valid_gguf = root.join("valid.gguf");
+        fs::write(&valid_gguf, vec![0x47u8; 1_001]).unwrap();
+        let prov = ModelProvenance {
+            source_url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF".to_string(),
+            timestamp: 1_730_000_000,
+            original_checksum: Some("sha256:cafe1234".to_string()),
+        };
+        fs::write(
+            root.join("valid.provenance.json"),
+            serde_json::to_string(&prov).unwrap(),
+        )
+        .unwrap();
+
+        // 2. Valid .safetensors (> min_bytes) without sidecar
+        fs::write(root.join("weights.safetensors"), vec![1u8; 1_500]).unwrap();
+
+        // 3. Excluded by min_bytes (== min_bytes, not strictly greater)
+        fs::write(root.join("too_small.gguf"), vec![2u8; 1_000]).unwrap();
+
+        // 4. Excluded by extension (.bin is not in rules.extensions)
+        fs::write(root.join("shader_cache.bin"), vec![3u8; 5_000]).unwrap();
+
+        // 5. Excluded directories (node_modules, target)
+        let nm_dir = root.join("node_modules");
+        fs::create_dir_all(&nm_dir).unwrap();
+        fs::write(nm_dir.join("ignored_nm.gguf"), vec![4u8; 2_000]).unwrap();
+
+        let target_dir = root.join("target");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("ignored_target.gguf"), vec![5u8; 2_000]).unwrap();
+
+        // 6. Depth boundary: depth 5 is discovered, depth 6 is ignored
+        let depth5_dir = root.join("d1").join("d2").join("d3").join("d4").join("d5");
+        let depth6_dir = depth5_dir.join("d6");
+        fs::create_dir_all(&depth6_dir).unwrap();
+        fs::write(depth5_dir.join("depth5.gguf"), vec![6u8; 2_000]).unwrap();
+        fs::write(depth6_dir.join("depth6.gguf"), vec![7u8; 2_000]).unwrap();
+
+        let mut discovered = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        ModelManager::recursive_scan_model_dir(&root, &mut discovered, &mut visited, 0, &rules);
+
+        let mut names: Vec<String> = discovered.iter().map(|m| m.name().to_string()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "depth5.gguf".to_string(),
+                "valid.gguf".to_string(),
+                "weights.safetensors".to_string()
+            ]
+        );
+
+        let valid_entry = discovered
+            .iter()
+            .find(|m| m.name() == "valid.gguf")
+            .unwrap();
+        let loaded_prov: ModelProvenance =
+            serde_json::from_value(valid_entry.provenance().unwrap().clone()).unwrap();
+        assert_eq!(loaded_prov.source_url, prov.source_url);
+        assert_eq!(loaded_prov.timestamp, prov.timestamp);
+        assert_eq!(loaded_prov.original_checksum, prov.original_checksum);
+
+        let safetensors_entry = discovered
+            .iter()
+            .find(|m| m.name() == "weights.safetensors")
+            .unwrap();
+        assert!(safetensors_entry.provenance().is_none());
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

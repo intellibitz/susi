@@ -42,3 +42,57 @@ pub fn render_bare(status: &BareStatus) -> String {
         status.next_step
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_susi_status_prioritizes_daemon_then_keys_then_model_then_ready() {
+        let daemon_down = bare_susi_status(false, false, false);
+        assert!(!daemon_down.ready);
+        assert_eq!(
+            daemon_down.next_step,
+            "start the daemon (susi daemon start)"
+        );
+        assert_eq!(bare_susi_status(false, true, true), daemon_down);
+
+        let keys_missing = bare_susi_status(true, false, false);
+        assert!(!keys_missing.ready);
+        assert_eq!(
+            keys_missing.next_step,
+            "register a cloud key when you need one (prompted on first use)"
+        );
+        assert_eq!(bare_susi_status(true, true, false), keys_missing);
+
+        let model_missing = bare_susi_status(true, false, true);
+        assert!(!model_missing.ready);
+        assert_eq!(
+            model_missing.next_step,
+            "pull or select a local model (susi ecosystem scan)"
+        );
+
+        let all_ready = bare_susi_status(true, true, true);
+        assert!(all_ready.ready);
+        assert_eq!(all_ready.next_step, "run a mission (susi \"your goal\")");
+    }
+
+    #[test]
+    fn render_bare_and_serde_roundtrip_preserve_status_and_next_step() {
+        let not_ready = bare_susi_status(false, true, true);
+        assert_eq!(
+            render_bare(&not_ready),
+            "susi status: not ready\nnext: start the daemon (susi daemon start)\n"
+        );
+
+        let ready = bare_susi_status(true, true, true);
+        assert_eq!(
+            render_bare(&ready),
+            "susi status: ready\nnext: run a mission (susi \"your goal\")\n"
+        );
+
+        let json = serde_json::to_string(&ready).expect("serialize BareStatus");
+        let decoded: BareStatus = serde_json::from_str(&json).expect("deserialize BareStatus");
+        assert_eq!(decoded, ready);
+    }
+}

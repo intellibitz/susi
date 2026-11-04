@@ -37,11 +37,11 @@ const DEFAULT_RUNS: usize = 5;
 const FLOOR_MULTIPLIER: f64 = 2.0;
 /// `status` may cost at most this many milliseconds, daemon up or down.
 const STATUS_BUDGET_MS: f64 = 50.0;
-/// Every host-contract, leaf-service and cell port an instance binds, before
-/// its `SUSI_PORT_OFFSET` is added.
-const INSTANCE_PORTS: [u16; 15] = [
-    9090, 9091, 9092, 9093, 9094, 9095, 18080, 18081, 18082, 18083, 18084, 19090, 19091, 19092,
-    19093,
+/// Every host-contract, gateway, harness, leaf-service and cell port an
+/// instance binds, before its `SUSI_PORT_OFFSET` is added.
+const INSTANCE_PORTS: [u16; 17] = [
+    9090, 9091, 9092, 9093, 9094, 9095, 9180, 9181, 18080, 18081, 18082, 18083, 18084, 19090,
+    19091, 19092, 19093,
 ];
 /// Offsets the gate may pick for its daemon: above the development
 /// allocator's range (1000 + slot*100, at most 40900), low enough that the
@@ -760,6 +760,9 @@ mod tests {
 
     #[test]
     fn every_candidate_offset_keeps_all_instance_ports_in_range() {
+        assert_eq!(INSTANCE_PORTS.len(), 17);
+        assert!(INSTANCE_PORTS.contains(&9180));
+        assert!(INSTANCE_PORTS.contains(&9181));
         let offsets: Vec<u16> = offset_candidates(17).collect();
         assert_eq!(offsets.len(), usize::from(OFFSET_CANDIDATES));
         let mut unique = offsets.clone();

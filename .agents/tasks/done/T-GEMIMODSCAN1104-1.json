@@ -1,0 +1,24 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GEMIMODSCAN1104-1",
+  "title": "Local Model Discovery Scan & Coding Model Catalog Override Contract Suite in susi-gemi-models",
+  "status": "done",
+  "completed_at": "2026-11-04T02:55:00Z",
+  "created_at": "2026-11-04T02:50:00Z",
+  "owner": "GEMIMODSCAN1104",
+  "touch": [
+    "crates/susi-gemi-models/src/lifecycle/scan.rs",
+    "crates/susi-gemi-models/src/coding_models.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib"
+    ]
+  }
+}

@@ -1303,15 +1303,26 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
         // Network use is an explicit provisioning phase, performed by the
         // exact candidate's license/digest-enforcing native installer/runtime.
         // No credentials, custom endpoints or proxy settings are inherited.
-        for phase in ["install", "start"] {
+        // Core never downloads a model by itself (CEO decision 2026-11-04),
+        // so the starter download is its own explicit, user-visible command.
+        let phases: [(&str, &[&str], std::time::Duration); 3] = [
+            ("install", &["install"], HEALTH_BUDGET),
+            ("start", &["start"], HEALTH_BUDGET),
+            (
+                "model-install",
+                &["os", "manage", "model", "install", "starter"],
+                std::time::Duration::from_secs(600),
+            ),
+        ];
+        for (phase, args, budget) in phases {
             let mut setup = Command::new(binary);
-            setup.env_clear().current_dir(&workspace).arg(phase);
+            setup.env_clear().current_dir(&workspace).args(args);
             for (key, value) in command.get_envs() {
                 if let Some(value) = value {
                     setup.env(key, value);
                 }
             }
-            match measured_health(setup, &scratch, phase, HEALTH_BUDGET, b"") {
+            match measured_health(setup, &scratch, phase, budget, b"") {
                 Ok(report) => provisioning.push(report),
                 Err(error) => {
                     if measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"").is_ok() {

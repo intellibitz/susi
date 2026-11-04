@@ -63,7 +63,8 @@ Agent orchestration may supply a read-only cache with the process-local
 this. When all four default model/tokenizer artifacts exist, they are copied
 into fresh state and the candidate must admit them before offline inference.
 Otherwise the exact candidate performs native install/start and its licensed
-public model download under the default policy. Credentials, cloud endpoints,
+public model download through the explicit `susi os manage model install
+starter` command (core never downloads a model by itself). Credentials, cloud endpoints,
 proxies and third-party tool paths are absent. This explicit uncached phase
 needs public network access; Cargo build/test gates remain offline.
 

@@ -1,0 +1,32 @@
+{
+  "id": "T-UDPAUTH1104-1",
+  "title": "B7 Authenticated UDP 9092 Discovery Handshake Call-Site Parity in susi-gawd and susi-gawd-swarm",
+  "goal": "Retire unauthenticated SUSI_LAN_PING call sites in crates/susi-gawd/src/kernel_loader.rs and crates/susi-gawd-swarm/src/amas.rs by implementing probe_udp_discovery_port (sending SUSI_PING:<token> and verifying SUSI_ACK: reply) and authenticated_lan_ping_frame (emitting SUSI_PING:<token> only when a non-empty host token is seeded).",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-UDPAUTH1104-1.json",
+    "crates/susi-gawd/src/kernel_loader.rs",
+    "crates/susi-gawd-swarm/src/amas.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib"
+    ]
+  },
+  "created_by": "UDPAUTH1104",
+  "created_unix": 1793769450,
+  "closed": {
+    "commit": "c2e484d82",
+    "by": "UDPAUTH1104",
+    "at_unix": 1793770280
+  }
+}

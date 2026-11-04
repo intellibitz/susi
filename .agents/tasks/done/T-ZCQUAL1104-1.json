@@ -1,0 +1,25 @@
+{
+  "id": "T-ZCQUAL1104-1",
+  "title": "D-OS-8 and Zero-Config Release Qualification Coverage: Add Inline Unit Test Suites in zc_debt_report.rs and zc_qualification.rs",
+  "goal": "Add comprehensive inline #[cfg(test)] mod tests suites in crates/susi-config/src/zc_debt_report.rs and crates/susi-config/src/zc_qualification.rs covering scan_debt deduplication/sorting, format_debt_report across all DebtKind variants, Qualification::qualified, release_notes_section, qualify, and qualify_repo.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ZCQUAL1104-1.json",
+    "crates/susi-config/src/zc_debt_report.rs",
+    "crates/susi-config/src/zc_qualification.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "ZCQUAL1104",
+  "created_unix": 1793776200
+}

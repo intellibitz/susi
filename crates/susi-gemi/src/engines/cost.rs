@@ -25,7 +25,7 @@ impl CostTier {
         }
     }
 
-    fn steps(self) -> f32 {
+    pub fn steps(self) -> f32 {
         match self {
             Self::Free => 0.0,
             Self::Low => 1.0,

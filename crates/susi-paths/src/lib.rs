@@ -156,14 +156,34 @@ fn same_path(a: &Path, b: &Path) -> bool {
         )
 }
 
+/// Read the host API bearer token from `config_dir` (`B8`).
+///
+/// Honors `ports.json` `api_token_path` when present and non-empty, falling
+/// back to `<config_dir>/api_token`.
+#[must_use]
+pub fn host_token_in(config_dir: &Path) -> Option<String> {
+    if let Some(pf) = zc_ports_file::PortsFile::read_from_home(config_dir) {
+        if !pf.api_token_path.as_os_str().is_empty() {
+            if let Some(tok) = std::fs::read_to_string(&pf.api_token_path)
+                .ok()
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+            {
+                return Some(tok);
+            }
+        }
+    }
+    std::fs::read_to_string(config_dir.join("api_token"))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
 /// Host API bearer token (`<config_dir>/api_token`), when seeded. The
 /// susi-config and susi-sandbox leaf services require it on every request.
 #[must_use]
 pub fn host_token() -> Option<String> {
-    std::fs::read_to_string(SusiDirs::config_dir().join("api_token"))
-        .ok()
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
+    host_token_in(&SusiDirs::config_dir())
 }
 
 /// Constant-time check of an `Authorization` header value against the host
@@ -511,6 +531,65 @@ mod tests {
     fn percent_encode_query_and_path() {
         assert_eq!(percent_encode_query("Chennai, India"), "Chennai%2C%20India");
         assert_eq!(percent_encode_path("/tmp/my ws"), "/tmp/my%20ws");
+    }
+
+    #[test]
+    fn host_token_in_honors_ports_json_api_token_path_and_falls_back_to_api_token() {
+        let dir = std::env::temp_dir().join(format!("susi_host_token_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 1. No token seeded -> None
+        assert_eq!(host_token_in(&dir), None);
+
+        // 2. Fallback to <config_dir>/api_token
+        std::fs::write(dir.join("api_token"), "  fallback-token-123 \n").unwrap();
+        assert_eq!(host_token_in(&dir).as_deref(), Some("fallback-token-123"));
+
+        // 3. ports.json api_token_path overrides <config_dir>/api_token when present
+        let custom_token_path = dir.join("custom_api_token");
+        std::fs::write(&custom_token_path, "ports-json-token-456\n").unwrap();
+        let mut pf = zc_ports_file::PortsFile::for_home(dir.clone(), 0, false);
+        pf.api_token_path = custom_token_path;
+        pf.write_to_home().unwrap();
+        assert_eq!(host_token_in(&dir).as_deref(), Some("ports-json-token-456"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bearer_and_supervisor_bearer_authorization_enforce_constant_time_matching() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("susi_bearer_auth_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut env = test_env::EnvGuard::isolated();
+        env.remove("SUSI_HERMETIC_FORBIDDEN");
+        env.set("SUSI_HOME", &dir);
+
+        // Fail closed when no host token is seeded
+        assert!(!bearer_authorized(Some("Bearer secret-token")));
+        assert!(!bearer_authorized(None));
+
+        // Seed host token and verify constant-time match
+        std::fs::write(dir.join("api_token"), "secret-token\n").unwrap();
+        assert!(bearer_authorized(Some("Bearer secret-token")));
+        assert!(bearer_authorized(Some("Bearer   secret-token  ")));
+        assert!(!bearer_authorized(Some("Bearer wrong-token")));
+        assert!(!bearer_authorized(Some("Basic secret-token")));
+
+        // supervisor_bearer_authorized is open when SUSI_HOST_TOKEN is unset,
+        // and enforces constant-time matching when SUSI_HOST_TOKEN is set.
+        env.remove("SUSI_HOST_TOKEN");
+        assert!(supervisor_bearer_authorized(None));
+        env.set("SUSI_HOST_TOKEN", "sup-token-99");
+        assert!(supervisor_bearer_authorized(Some("Bearer sup-token-99")));
+        assert!(!supervisor_bearer_authorized(Some("Bearer wrong")));
+        assert!(!supervisor_bearer_authorized(None));
+
+        drop(env);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

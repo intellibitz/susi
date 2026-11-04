@@ -120,8 +120,9 @@ fn production_model_generator() -> DagModelGenerator {
 }
 
 fn production_tool_executor() -> DagToolExecutor {
+    // A DAG step never downloads a model (`USER_REQUEST_ONLY_TOOLS`).
     Arc::new(|name, args, workspace| {
-        crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace)
+        crate::susi_core::plane_bus::tools::execute_autonomous_tool(name, args, workspace)
     })
 }
 
