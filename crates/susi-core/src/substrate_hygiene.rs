@@ -216,4 +216,11 @@ mod tests {
         assert_eq!(val["kind"], "stray_bin");
         assert_eq!(val["bytes"], 300);
     }
+
+    #[test]
+    fn human_bytes_formats_kib_and_gib_fractional_values_consistently() {
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1536), "1.5 KiB");
+        assert_eq!(human_bytes(2 * 1024 * 1024 * 1024), "2.0 GiB");
+    }
 }

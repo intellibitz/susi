@@ -255,4 +255,25 @@ mod inline_tests {
             ImportVerdict::BadProvenance
         );
     }
+
+    #[test]
+    fn import_skill_with_key_validates_hmac_provenance_and_fixture_gates() {
+        let mut artifact = sample_artifact();
+        let key = b"artifact-hmac-key";
+        artifact.sign_with_key(key);
+        let trusted = BTreeSet::from(["team-security".to_string()]);
+
+        assert_eq!(
+            import_skill_with_key(&artifact, &trusted, true, Some(key)),
+            ImportVerdict::Executable
+        );
+        assert_eq!(
+            import_skill_with_key(&artifact, &trusted, true, Some(b"wrong-key")),
+            ImportVerdict::BadProvenance
+        );
+        assert_eq!(
+            import_skill_with_key(&artifact, &trusted, false, Some(key)),
+            ImportVerdict::TestsFailed
+        );
+    }
 }

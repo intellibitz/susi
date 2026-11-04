@@ -1,0 +1,22 @@
+{
+  "id": "T-CORE5TD1104-1",
+  "title": "test(core): expand Wave D inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "--",
+      "retrieval_eval::tests"
+    ]
+  },
+  "created_by": "CORE5TD1104",
+  "created_unix": 1793804083
+}
