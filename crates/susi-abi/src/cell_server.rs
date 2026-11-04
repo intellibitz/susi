@@ -267,4 +267,252 @@ mod tests {
         drop(client);
         server_task.await.expect("join server task");
     }
+
+    #[tokio::test]
+    async fn cell_server_empty_expected_token_denies_all_syscalls_without_trust_decay() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let mut cell = SwarmCell::new(
+            "cell-empty-token".to_string(),
+            SwarmRole::ToolDriver,
+            format!("tcp://{addr}"),
+        );
+        cell.set_ready(200);
+        let shared_cell = Arc::new(tokio::sync::Mutex::new(cell));
+        let empty_token: Arc<str> = Arc::from("");
+
+        let server_cell = Arc::clone(&shared_cell);
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.expect("accept client");
+            serve_connection(socket, server_cell, empty_token, |req| async move {
+                SyscallResponse {
+                    id: req.id,
+                    status: SyscallStatus::Success,
+                    data: serde_json::Value::Null,
+                    receipt: None,
+                    latency_us: 1,
+                    message: None,
+                }
+            })
+            .await;
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect loopback client");
+
+        for (id, token) in [
+            ("req-empty", Some(String::new())),
+            ("req-nonempty", Some("some-token".to_string())),
+            ("req-none", None),
+        ] {
+            let req = SyscallRequest {
+                id: id.to_string(),
+                caller_id: "peer".to_string(),
+                op: SyscallOp::Infer,
+                token,
+                workspace: None,
+                payload: serde_json::Value::Null,
+                timestamp: 201,
+            };
+            let bytes = WireFrame::new(
+                MessageType::SyscallRequest,
+                serde_json::to_vec(&req).expect("serialize req"),
+            )
+            .encode()
+            .expect("encode req");
+            client.write_all(&bytes).await.expect("write req");
+
+            let reply = read_one_frame(&mut client).await;
+            let resp: SyscallResponse =
+                serde_json::from_slice(&reply.payload).expect("decode resp");
+            assert_eq!(resp.id, id);
+            assert_eq!(resp.status, SyscallStatus::Denied);
+            assert_eq!(
+                resp.message.as_deref(),
+                Some("missing or invalid cell token")
+            );
+        }
+
+        let hb_bytes = WireFrame::new(MessageType::Heartbeat, Vec::new())
+            .encode()
+            .expect("encode heartbeat");
+        client.write_all(&hb_bytes).await.expect("write heartbeat");
+        let hb_reply = read_one_frame(&mut client).await;
+        let hb_status: serde_json::Value =
+            serde_json::from_slice(&hb_reply.payload).expect("decode heartbeat");
+        assert_eq!(hb_status["missions_completed"], 0);
+        assert_eq!(hb_status["missions_failed"], 0);
+        assert_eq!(hb_status["trust_score"], 1.0);
+
+        drop(client);
+        server_task.await.expect("join server task");
+    }
+
+    #[tokio::test]
+    async fn cell_server_records_failures_for_not_found_timeout_and_error_statuses() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let mut cell = SwarmCell::new(
+            "cell-failure-scoring".to_string(),
+            SwarmRole::ToolDriver,
+            format!("tcp://{addr}"),
+        );
+        cell.set_ready(300);
+        let shared_cell = Arc::new(tokio::sync::Mutex::new(cell));
+        let token: Arc<str> = Arc::from("score-token");
+
+        let server_cell = Arc::clone(&shared_cell);
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.expect("accept client");
+            serve_connection(socket, server_cell, token, |req| async move {
+                let status = match req.id.as_str() {
+                    "req-not-found" => SyscallStatus::NotFound,
+                    "req-timeout" => SyscallStatus::Timeout,
+                    _ => SyscallStatus::Error,
+                };
+                SyscallResponse {
+                    id: req.id,
+                    status,
+                    data: serde_json::Value::Null,
+                    receipt: None,
+                    latency_us: 10,
+                    message: Some("simulated failure".to_string()),
+                }
+            })
+            .await;
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect loopback client");
+
+        for (id, expected_status) in [
+            ("req-not-found", SyscallStatus::NotFound),
+            ("req-timeout", SyscallStatus::Timeout),
+            ("req-error", SyscallStatus::Error),
+        ] {
+            let req = SyscallRequest {
+                id: id.to_string(),
+                caller_id: "daemon".to_string(),
+                op: SyscallOp::ToolCall,
+                token: Some("score-token".to_string()),
+                workspace: None,
+                payload: serde_json::Value::Null,
+                timestamp: 301,
+            };
+            let bytes = WireFrame::new(
+                MessageType::SyscallRequest,
+                serde_json::to_vec(&req).expect("serialize req"),
+            )
+            .encode()
+            .expect("encode req");
+            client.write_all(&bytes).await.expect("write req");
+
+            let reply = read_one_frame(&mut client).await;
+            let resp: SyscallResponse =
+                serde_json::from_slice(&reply.payload).expect("decode resp");
+            assert_eq!(resp.id, id);
+            assert_eq!(resp.status, expected_status);
+        }
+
+        let hb_bytes = WireFrame::new(MessageType::Heartbeat, Vec::new())
+            .encode()
+            .expect("encode heartbeat");
+        client.write_all(&hb_bytes).await.expect("write heartbeat");
+        let hb_reply = read_one_frame(&mut client).await;
+        let hb_status: serde_json::Value =
+            serde_json::from_slice(&hb_reply.payload).expect("decode heartbeat");
+        assert_eq!(hb_status["missions_completed"], 0);
+        assert_eq!(hb_status["missions_failed"], 3);
+        let trust = hb_status["trust_score"].as_f64().expect("trust_score f64");
+        assert!(trust < 1.0, "expected decayed trust_score, got {trust}");
+
+        drop(client);
+        server_task.await.expect("join server task");
+    }
+
+    #[tokio::test]
+    async fn cell_server_ignores_malformed_json_and_non_request_frames_and_drops_on_corrupt_wire() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let mut cell = SwarmCell::new(
+            "cell-framing-guard".to_string(),
+            SwarmRole::ToolDriver,
+            format!("tcp://{addr}"),
+        );
+        cell.set_ready(400);
+        let shared_cell = Arc::new(tokio::sync::Mutex::new(cell));
+        let token: Arc<str> = Arc::from("wire-token");
+
+        let server_cell = Arc::clone(&shared_cell);
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.expect("accept client");
+            serve_connection(socket, server_cell, token, |req| async move {
+                SyscallResponse {
+                    id: req.id,
+                    status: SyscallStatus::Success,
+                    data: serde_json::json!({"ok": true}),
+                    receipt: None,
+                    latency_us: 2,
+                    message: None,
+                }
+            })
+            .await;
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect loopback client");
+
+        // 1. Send malformed JSON inside a SyscallRequest frame plus non-request/non-heartbeat frames.
+        let malformed_req =
+            WireFrame::new(MessageType::SyscallRequest, b"{not valid json".to_vec())
+                .encode()
+                .expect("encode malformed req");
+        let pheromone_frame = WireFrame::new(MessageType::SwarmPheromone, b"{}".to_vec())
+            .encode()
+            .expect("encode pheromone");
+        let raw_bytes_frame = WireFrame::new(MessageType::RawBytes, vec![1, 2, 3])
+            .encode()
+            .expect("encode raw bytes");
+        client
+            .write_all(&malformed_req)
+            .await
+            .expect("write malformed req");
+        client
+            .write_all(&pheromone_frame)
+            .await
+            .expect("write pheromone");
+        client
+            .write_all(&raw_bytes_frame)
+            .await
+            .expect("write raw bytes");
+
+        // 2. Connection must remain alive and answer a subsequent Heartbeat frame.
+        let hb_bytes = WireFrame::new(MessageType::Heartbeat, Vec::new())
+            .encode()
+            .expect("encode heartbeat");
+        client.write_all(&hb_bytes).await.expect("write heartbeat");
+        let hb_reply = read_one_frame(&mut client).await;
+        assert_eq!(hb_reply.msg_type, MessageType::Heartbeat);
+
+        // 3. Send corrupt wire magic bytes; server must drop the connection cleanly.
+        client
+            .write_all(b"BAD!_CORRUPT_HEADER_BYTES")
+            .await
+            .expect("write corrupt bytes");
+        server_task
+            .await
+            .expect("server task exits cleanly on corrupt stream");
+    }
 }
