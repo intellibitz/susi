@@ -1,0 +1,29 @@
+{
+  "id": "T-LANDALLRESIDENTREAD1105-1",
+  "title": "Land stranded worktree work: retain authenticated model weights only while their model is resident",
+  "goal": "CEO directive 2026-11-05: merge every Susi worktree. Port 84a397eea (CIPERF, residentread1102) onto current main: a bounded, Windows-only resident lease keeps a write-denying handle on authenticated model weights for as long as the model cache entry is live, so later offline verifications on other worker threads skip rehashing the same unnamed stream and digest; eviction or a failed load releases it. Its old-schema task record is kept as evidence under .agents/evidence/stranded-1105/ so it does not re-enter the task queue.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/evidence/stranded-1105/t-residentread-1.json",
+    "crates/susi-gemi-models/src/model_cache.rs",
+    "crates/susi-vendor-models/src/model_license.rs",
+    "crates/susi-vendor-models/src/model_read_window.rs",
+    ".agents/tasks/t-landallresidentread1105-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "-p",
+      "susi-gemi-models",
+      "--lib"
+    ]
+  },
+  "created_by": "LANDALLRESIDENTREAD1105",
+  "created_unix": 1793821770
+}
