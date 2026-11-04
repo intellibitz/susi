@@ -293,4 +293,22 @@ mod learned_classifier_tests {
         assert!(post.shannon_entropy_bits >= 0.0);
         assert!(c.predict("completely unrelated xylophone nebula").is_none());
     }
+
+    #[test]
+    fn extract_features_captures_structural_markers_and_prefix_stems() {
+        let feats = extract_features("```rust\nfn compiling(x: std::path::Path) -> bool?```");
+        assert!(feats.iter().any(|f| f == "__struct:code_fence"));
+        assert!(feats.iter().any(|f| f == "__struct:rust_fn"));
+        assert!(feats.iter().any(|f| f == "__struct:arrow"));
+        assert!(feats.iter().any(|f| f == "__struct:path_sep"));
+        assert!(feats.iter().any(|f| f == "__struct:question"));
+        assert!(feats.iter().any(|f| f == "^5:compi"));
+    }
+
+    #[test]
+    fn empty_classifier_returns_none_for_predict_and_posterior() {
+        let empty = LearnedClassifier::default();
+        assert!(empty.predict("any prompt").is_none());
+        assert!(empty.predict_posterior("any prompt").is_none());
+    }
 }

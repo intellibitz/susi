@@ -256,4 +256,21 @@ mod consensus_mode_tests {
             vec!["anthropic-opus".to_string(), "deepseek-r1".to_string()]
         );
     }
+
+    #[test]
+    fn consensus_empty_slice_returns_not_agreed_and_empty_value() {
+        let empty = consensus(&[]);
+        assert!(!empty.agreed);
+        assert!(empty.value.is_empty());
+    }
+
+    #[test]
+    fn bayesian_consensus_empty_votes_returns_zero_clusters_and_probability() {
+        let report = bayesian_consensus(&[], 0.85);
+        assert!(!report.agreed);
+        assert!(report.value.is_empty());
+        assert_eq!(report.cluster_count, 0);
+        assert!(report.posterior_probability.abs() < f64::EPSILON);
+        assert!(report.supporting_providers.is_empty());
+    }
 }
