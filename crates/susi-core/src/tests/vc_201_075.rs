@@ -62,3 +62,19 @@ fn vc_201_075_from_caps_and_limits_preserves_custom_grant_set() {
     assert!(custom.allows("custom.cap"));
     assert_eq!(custom.limits().max_fuel, 50);
 }
+
+#[test]
+fn vc_201_075_empty_grant_set_denies_all_capabilities_and_nonzero_memory() {
+    let empty = GrantSet::from_caps_and_limits(
+        BTreeSet::new(),
+        ResourceLimits {
+            max_memory_bytes: 0,
+            max_fuel: 0,
+            timeout_millis: 0,
+        },
+    );
+    assert!(empty.caps().is_empty());
+    assert!(!empty.allows("fs.read"));
+    assert!(empty.allows_resources(0, 0, 0));
+    assert!(!empty.allows_resources(1, 0, 0));
+}

@@ -109,3 +109,18 @@ fn otel_export_new_trace_id_and_span_builders_populate_parent_and_status_lifecyc
         Some(routing.span_id.as_str())
     );
 }
+
+#[test]
+fn otel_export_mission_span_attributes_include_mission_id_and_goal() {
+    let trace = new_trace_id();
+    let span = mission_span(&trace, "mission-42", "verify telemetry");
+    assert_eq!(span.name, "susi.mission");
+    assert!(span
+        .attributes
+        .iter()
+        .any(|kv| kv.key == "susi.mission_id" && kv.value == "mission-42"));
+    assert!(span
+        .attributes
+        .iter()
+        .any(|kv| kv.key == "susi.goal" && kv.value == "verify telemetry"));
+}

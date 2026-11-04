@@ -28,3 +28,12 @@ fn vc_201_074_read_action_always_allows_even_when_consequential_is_blocked() {
     assert!(policy_allows(&b, ActionClass::Read));
     assert!(!policy_allows(&b, ActionClass::Consequential));
 }
+
+#[test]
+fn vc_201_074_wrap_tool_output_preserves_source_and_raw_body_fields() {
+    let b = wrap_tool_output("tool:echo", "deterministic payload");
+    assert_eq!(b.source, "tool:echo");
+    assert_eq!(b.body, "deterministic payload");
+    assert!(policy_allows(&b, ActionClass::Read));
+    assert!(policy_allows(&b, ActionClass::Consequential));
+}
