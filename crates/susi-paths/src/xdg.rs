@@ -247,4 +247,43 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn abs_path_and_empty_or_missing_base_dirs_behave_deterministically() {
+        for valid in [
+            "/abs/unix/path",
+            r"\\server\share\folder",
+            r"C:\Windows\System32",
+            "D:/data/models",
+        ] {
+            let p = Path::new(valid);
+            assert!(is_abs_cross_os(p), "expected {valid} to be cross-OS abs");
+            assert_eq!(abs_path(Some(p)), Some(p.to_path_buf()));
+        }
+
+        for invalid in ["", "   ", "relative/path", r"relative\win"] {
+            let p = Path::new(invalid);
+            assert_eq!(abs_path(Some(p)), None, "expected {invalid:?} to be None");
+        }
+        assert_eq!(abs_path(None), None);
+
+        let empty = Path::new("");
+        for os in ["linux", "macos", "windows"] {
+            assert_eq!(config_dir_for(os, None, None, None), None);
+            assert_eq!(data_dir_for(os, None, None, None), None);
+            assert_eq!(cache_dir_for(os, None, None, None), None);
+            assert_eq!(
+                config_dir_for(os, Some(empty), Some(empty), Some(empty)),
+                None
+            );
+            assert_eq!(
+                data_dir_for(os, Some(empty), Some(empty), Some(empty)),
+                None
+            );
+            assert_eq!(
+                cache_dir_for(os, Some(empty), Some(empty), Some(empty)),
+                None
+            );
+        }
+    }
 }
