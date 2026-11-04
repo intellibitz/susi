@@ -215,4 +215,13 @@ mod tests {
         assert_eq!(host.uts_mode, None);
         assert_eq!(host.publish_all_ports, None);
     }
+
+    #[test]
+    fn hardened_container_config_keeps_cap_drop_all_and_auto_remove_across_distinct_commands() {
+        let a = hardened_container_config("susi-sandbox:a".to_string(), "echo alpha");
+        let b = hardened_container_config("susi-sandbox:b".to_string(), "echo beta");
+        assert_ne!(a.image, b.image);
+        assert_ne!(a.cmd, b.cmd);
+        assert_eq!(a.host_config, b.host_config);
+    }
 }

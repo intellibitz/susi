@@ -542,4 +542,23 @@ mod tests {
 
         assert_eq!(verify_with_key(&log, &key), Ok(3));
     }
+
+    #[test]
+    fn verify_with_key_since_counts_only_entries_at_or_after_cutoff_after_full_chain_check() {
+        let log = scratch("since_filter").join("audit.log");
+        let key = [0x42; 32];
+        append_with_key(
+            &log,
+            &key,
+            &Entry {
+                level: "Info",
+                event_type: "BOOT",
+                details: "alpha",
+                pid: 7,
+            },
+        )
+        .unwrap();
+        assert_eq!(verify_with_key_since(&log, &key, Some(0)), Ok(1));
+        assert_eq!(verify_with_key_since(&log, &key, Some(u64::MAX)), Ok(0));
+    }
 }
