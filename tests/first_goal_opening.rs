@@ -141,6 +141,7 @@ fn unit_isolate_home_redirects_home_and_userprofile_to_target_directory() {
         .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_os_string())))
         .collect();
     assert_eq!(envs.get("HOME"), Some(&target.as_os_str().to_os_string()));
+    #[cfg(windows)]
     assert_eq!(
         envs.get("USERPROFILE"),
         Some(&target.as_os_str().to_os_string())
