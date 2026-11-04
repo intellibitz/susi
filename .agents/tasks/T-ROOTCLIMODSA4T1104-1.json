@@ -10,7 +10,8 @@
       "test",
       "--offline",
       "--locked",
-      "--lib",
+      "--bin",
+      "susi",
       "--",
       "cli::"
     ]
