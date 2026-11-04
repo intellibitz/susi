@@ -1,0 +1,8 @@
+{
+  "id": "T-PEREPRO1103-1",
+  "created_by": "PEREPRO1103",
+  "title": "Request reproducible Windows PE links for Susi and its five native helpers",
+  "deps": [],
+  "scopes": ["xtask/bootstrap/os_ucrt.rs", "xtask/tests/pe_link_repro.rs", ".agents/tasks/T-PEREPRO1103-1.json"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--test", "pe_link_repro"]}
+}
