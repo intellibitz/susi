@@ -416,3 +416,84 @@ pub fn run_dev_matrix() -> ChaosReport {
             .collect(),
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn dev_deployment_start_and_write_artifact_enforce_credentials_budget_and_storage() {
+        let mut dep = DevDeployment::new("ns-1", "cred-ok", 20, 10);
+        assert_eq!(dep.namespace(), "ns-1");
+        assert_eq!(dep.state(), DeploymentState::Stopped);
+        assert_eq!(dep.budget().limit(), 20);
+
+        assert_eq!(
+            dep.start("wrong-cred", 5),
+            Err(DeploymentError::CredentialRejected)
+        );
+        assert_eq!(dep.start("cred-ok", 5), Ok(()));
+        assert_eq!(dep.state(), DeploymentState::Ready);
+        assert_eq!(dep.budget().spent(), 5);
+
+        assert_eq!(dep.write_artifact("a", b"12345", 10), Ok(()));
+        assert_eq!(dep.budget().spent(), 15);
+        assert_eq!(
+            dep.write_artifact("b", b"123456", 1),
+            Err(DeploymentError::DiskFull)
+        );
+        assert_eq!(
+            dep.state(),
+            DeploymentState::Degraded(DegradedReason::DiskFull)
+        );
+    }
+
+    #[test]
+    fn inject_and_recover_restore_ready_state_within_three_step_recovery_ceiling() {
+        let mut dep = DevDeployment::new("ns-2", "cred-2", 50, 64);
+        dep.start("cred-2", 5).expect("start");
+        dep.write_artifact("state", b"hello", 5).expect("write");
+
+        dep.inject(DevFault::CorruptState);
+        assert!(dep.is_corrupt());
+        assert_eq!(
+            dep.state(),
+            DeploymentState::Degraded(DegradedReason::CorruptState)
+        );
+        assert_eq!(dep.recover(), Ok(()));
+        assert!(!dep.is_corrupt());
+        assert_eq!(dep.state(), DeploymentState::Ready);
+        assert_eq!(dep.recovery_steps(), 1);
+    }
+
+    #[test]
+    fn revoked_credential_requires_reauthorize_with_fresh_non_empty_secret() {
+        let mut dep = DevDeployment::new("ns-3", "initial-secret", 50, 64);
+        dep.start("initial-secret", 5).expect("start");
+        dep.inject(DevFault::RevokedCredential);
+        assert_eq!(dep.recover(), Err(DeploymentError::CredentialRejected));
+        assert_eq!(
+            dep.reauthorize("initial-secret"),
+            Err(DeploymentError::CredentialRejected)
+        );
+        assert_eq!(
+            dep.reauthorize(""),
+            Err(DeploymentError::CredentialRejected)
+        );
+        assert_eq!(dep.reauthorize("rotated-secret"), Ok(()));
+        assert_eq!(dep.state(), DeploymentState::Ready);
+    }
+
+    #[test]
+    fn run_dev_matrix_executes_all_four_fault_drills_and_passes_every_guard() {
+        let report = run_dev_matrix();
+        assert_eq!(report.scenarios.len(), 4);
+        assert!(report.all_passed());
+        for scenario in &report.scenarios {
+            assert_eq!(scenario.recovered_state, DeploymentState::Ready);
+            assert!(!scenario.trace.is_empty());
+        }
+    }
+}

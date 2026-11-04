@@ -630,3 +630,90 @@ impl CancelBus {
             .unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn cancellation_handle_tracks_cancel_deadline_and_unresolved_remotes() {
+        let handle = CancellationHandle::new();
+        assert!(!handle.is_cancelled());
+        assert!(!handle.deadline_exceeded());
+        assert!(!handle.should_stop());
+        assert_eq!(handle.active_operations(), 0);
+
+        handle.record_unresolved_remote("peer-1", "transport detached");
+        assert_eq!(
+            handle
+                .unresolved_remotes()
+                .get("peer-1")
+                .map(String::as_str),
+            Some("transport detached")
+        );
+
+        handle.cancel();
+        assert!(handle.is_cancelled());
+        assert!(handle.should_stop());
+        assert!(handle.wait_for_idle(Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn run_cancellable_completes_normal_work_and_short_circuits_when_already_cancelled() {
+        let handle = CancellationHandle::new();
+        let done = run_cancellable(&handle, || 42usize).expect("run cancellable");
+        assert_eq!(done, CancellableResult::Completed(42));
+
+        handle.cancel();
+        let skipped = run_cancellable(&handle, || 99usize).expect("cancelled handle");
+        assert_eq!(skipped, CancellableResult::Cancelled);
+    }
+
+    #[test]
+    fn cancel_token_fresh_remaining_secs_and_cancel_transition_cleanly() {
+        let mut tok = CancelToken::fresh("root-1", 1_000);
+        assert_eq!(tok.root_id, "root-1");
+        assert!(!tok.cancelled);
+        assert_eq!(tok.remaining_secs(940), Some(60));
+        assert_eq!(tok.remaining_secs(1_000), None);
+
+        tok.cancel();
+        assert!(tok.cancelled);
+        assert_eq!(tok.remaining_secs(940), None);
+    }
+
+    #[test]
+    fn cancel_bus_propagate_terminates_cancellable_descendants_and_reports_irreversible() {
+        let mut bus = CancelBus::default();
+        assert!(bus.propagate().is_empty());
+
+        bus.set_token(CancelToken::fresh("mission-7", CancelBus::now_unix() + 600));
+        let sig = Arc::new(AtomicBool::new(false));
+        bus.register(Descendant {
+            id: "worker-local".to_string(),
+            kind: WorkerKind::Local,
+            cancellable: true,
+            cancel_scope: None,
+            signal: Some(Arc::clone(&sig)),
+        });
+        bus.register(Descendant {
+            id: "worker-remote".to_string(),
+            kind: WorkerKind::PeerDispatch,
+            cancellable: false,
+            cancel_scope: None,
+            signal: None,
+        });
+
+        let reports = bus.propagate();
+        assert!(sig.load(Ordering::Acquire));
+        assert!(bus.terminated.contains("worker-local"));
+        assert!(bus.irreversible_running.contains("worker-remote"));
+        assert_eq!(
+            reports,
+            vec!["irreversible remote job still running: worker-remote".to_string()]
+        );
+    }
+}

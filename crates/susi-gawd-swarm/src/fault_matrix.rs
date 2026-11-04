@@ -358,3 +358,58 @@ pub fn run_matrix() -> MatrixReport {
         ],
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn run_matrix_executes_all_seven_fault_scenarios_and_passes_all_guards() {
+        let report = run_matrix();
+        assert_eq!(report.scenarios.len(), 7);
+        assert!(report.all_passed());
+        for scenario in &report.scenarios {
+            assert!(scenario.passed);
+            assert!(!scenario.trace.is_empty());
+            assert!(!scenario.expected_guard.is_empty());
+        }
+    }
+
+    #[test]
+    fn run_matrix_enumerates_non_empty_unsupported_failure_modes() {
+        let report = run_matrix();
+        assert_eq!(report.unsupported.len(), 3);
+        assert!(report
+            .unsupported
+            .iter()
+            .any(|u| u.contains("compromised current cluster key")));
+    }
+
+    #[test]
+    fn matrix_report_all_passed_returns_false_when_any_scenario_fails() {
+        let mut report = run_matrix();
+        assert!(report.all_passed());
+        report.scenarios[0].passed = false;
+        assert!(!report.all_passed());
+    }
+
+    #[test]
+    fn save_report_writes_pretty_json_archive_to_nested_path() {
+        let tmp = std::env::temp_dir()
+            .join(format!("susi_fault_matrix_{}", std::process::id()))
+            .join("nested")
+            .join("report.json");
+        let _ = std::fs::remove_dir_all(tmp.parent().unwrap().parent().unwrap());
+
+        let report = run_matrix();
+        save_report(&tmp, &report).expect("save report");
+        let raw = std::fs::read_to_string(&tmp).expect("read saved report");
+        let decoded: MatrixReport = serde_json::from_str(&raw).expect("parse saved report");
+        assert_eq!(decoded.scenarios.len(), report.scenarios.len());
+        assert!(decoded.all_passed());
+
+        let _ = std::fs::remove_dir_all(tmp.parent().unwrap().parent().unwrap());
+    }
+}

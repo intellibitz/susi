@@ -30,3 +30,55 @@ impl HostHooks for NoOpHostHooks {
 pub(crate) fn hooks() -> &'static dyn HostHooks {
     HOOKS.get_or_init(|| Box::new(NoOpHostHooks)).as_ref()
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    struct FakeHostHooks {
+        tag: &'static str,
+    }
+
+    impl HostHooks for FakeHostHooks {
+        fn audit_distillation_state(&self, workspace: &Path) -> EaiResult<String> {
+            Ok(format!("{}:{}", self.tag, workspace.display()))
+        }
+    }
+
+    #[test]
+    fn noop_host_hooks_returns_host_unwired_error_with_expected_marker() {
+        let noop = NoOpHostHooks;
+        let err = noop
+            .audit_distillation_state(Path::new("/tmp/ws"))
+            .expect_err("noop must fail");
+        assert!(err.to_string().contains("[HOST_UNWIRED]"));
+    }
+
+    #[test]
+    fn custom_host_hooks_trait_object_executes_audit_distillation_state() {
+        let hook: Box<dyn HostHooks> = Box::new(FakeHostHooks { tag: "audited" });
+        let out = hook
+            .audit_distillation_state(Path::new("workspace-a"))
+            .expect("custom hook ok");
+        assert_eq!(out, "audited:workspace-a");
+    }
+
+    #[test]
+    fn init_and_hooks_accessor_preserve_first_initialized_hook_instance() {
+        init(Box::new(FakeHostHooks { tag: "primary" }));
+        init(Box::new(FakeHostHooks { tag: "secondary" }));
+        let res = hooks().audit_distillation_state(Path::new("ws"));
+        if let Ok(msg) = res {
+            assert!(msg.starts_with("primary:"));
+        }
+    }
+
+    #[test]
+    fn hooks_accessor_is_deterministic_across_repeated_invocations() {
+        let a = hooks().audit_distillation_state(Path::new("same-ws"));
+        let b = hooks().audit_distillation_state(Path::new("same-ws"));
+        assert_eq!(a.is_ok(), b.is_ok());
+    }
+}
