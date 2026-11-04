@@ -1,11 +1,22 @@
 # Disposable keys exercise the verifier. They do not authorize a real check.
 param(
-    [Parameter(Mandatory)] [string] $Verifier,
-    [Parameter(Mandatory)] [string] $Subject,
-    [Parameter(Mandatory)] [string] $Receipt,
-    [Parameter(Mandatory)] [string] $Publication
+    [string] $Verifier = $env:SUSI_CHECKPOINT_VERIFIER,
+    [string] $Subject = (Join-Path $PSScriptRoot '../..'),
+    [string] $AuthorityBundle = $env:SUSI_CHECKPOINT_AUTHORITY_DIR,
+    [string] $TrustedFingerprint = $env:SUSI_CHECKPOINT_PRIMARY_FINGERPRINT,
+    [string] $Receipt,
+    [string] $Publication
 )
 $ErrorActionPreference = 'Stop'
+if (!$Verifier) { throw 'Supply the trusted verifier via -Verifier or SUSI_CHECKPOINT_VERIFIER' }
+$Verifier = (Resolve-Path $Verifier).Path
+$Subject = (Resolve-Path $Subject).Path
+if ($AuthorityBundle) {
+    $AuthorityBundle = (Resolve-Path $AuthorityBundle).Path
+    if (!$Receipt) { $Receipt=Join-Path $AuthorityBundle 'native-receipt' }
+    if (!$Publication) { $Publication=Join-Path $AuthorityBundle 'publication.json' }
+}
+if (!$Receipt -or !$Publication) { throw 'Supply receipt and publication, or a trusted authority bundle' }
 $dir = Join-Path ([IO.Path]::GetTempPath()) ("susi-compliance-" + [guid]::NewGuid())
 $keys = Join-Path $dir 'keys'
 New-Item -ItemType Directory $keys | Out-Null
@@ -87,6 +98,26 @@ foreach ($i in 2,3) {
 $changed=$verify.Clone()
 $changed[11]=Join-Path $dir 'missing.sig'
 Check 'unsigned' 1 $changed
+if ($AuthorityBundle) {
+    if (!$TrustedFingerprint) { throw 'Set the independently approved primary fingerprint' }
+    $real=@('verify',$subjectRepo,$Receipt,$Publication,(Join-Path $AuthorityBundle 'statement.json')) + $context +
+        @((Join-Path $AuthorityBundle 'statement.sig'),(Join-Path $AuthorityBundle 'authority.gpg'),$TrustedFingerprint)
+    Check 'authentic independent authority' 0 $real
+    foreach ($case in @(@('PR',6,'1300'),@('base',9,$head),@('head',10,$base))) {
+        $changed=$real.Clone()
+        $changed[$case[1]]=$case[2]
+        Check "authentic signature replay on changed $($case[0])" 1 $changed
+    }
+    $badSig=Join-Path $dir 'corrupt-authority.sig'
+    & gpg --homedir $keys --batch --yes --output $badSig --dearmor $real[11]
+    if ($LASTEXITCODE) { throw 'expected armored authority signature' }
+    $packet=[IO.File]::ReadAllBytes($badSig)
+    $packet[-1]=$packet[-1] -bxor 1
+    [IO.File]::WriteAllBytes($badSig,$packet)
+    $changed=$real.Clone()
+    $changed[11]=$badSig
+    Check 'real signature packet mutation' 1 $changed
+}
 
 # Exercise the unchanged nonnative gate with a live remote-style claim snapshot.
 $legacy=Join-Path $dir 'legacy'
