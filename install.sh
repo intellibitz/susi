@@ -104,8 +104,9 @@ case "$OS_TYPE" in
     linux*)  PLATFORM="linux" ;;
     darwin*) PLATFORM="macos" ;;
     mingw*|cygwin*|msys*)
-        echo "Error: Native Windows is not currently supported." >&2
-        echo "Please install susi via Windows Subsystem for Linux (WSL)." >&2
+        echo "Error: Native Windows shell detected ($OS_TYPE). Use the native Windows PowerShell installer instead:" >&2
+        echo "  powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1" >&2
+        echo "  irm https://raw.githubusercontent.com/${SUSI_REPO}/main/install.ps1 | iex" >&2
         exit 1
         ;;
     *)       PLATFORM="unknown" ;;

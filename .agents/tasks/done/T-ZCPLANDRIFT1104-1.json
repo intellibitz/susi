@@ -1,0 +1,25 @@
+{
+  "id": "T-ZCPLANDRIFT1104-1",
+  "title": "VC-201-063 and VC-201-064 Config Plan/Apply and Managed Drift Reconcile Contract Suite in susi-config",
+  "goal": "Add comprehensive inline #[cfg(test)] mod tests suites in crates/susi-config/src/plan_apply.rs and crates/susi-config/src/managed_drift.rs covering ConfigStore::plan/apply, PlanOp::render secret redaction, idempotent replay, stale plan rejection, drift detection, and reconcile conflict handling.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ZCPLANDRIFT1104-1.json",
+    "crates/susi-config/src/plan_apply.rs",
+    "crates/susi-config/src/managed_drift.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "ZCPLANDRIFT1104",
+  "created_unix": 1793777300
+}

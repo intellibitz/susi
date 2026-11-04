@@ -54,3 +54,7 @@ pub fn register_local_embed_provider() {
         registry.register_provider(LocalEmbedProvider);
     }
 }
+
+/// The explicit embedding-model install, re-exported so the CLI reaches it
+/// through this crate instead of linking the embedding engine directly.
+pub use susi_vendor_fastembed::{install_on_request, INSTALL_SOURCE};

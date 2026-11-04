@@ -197,6 +197,48 @@ mod tests {
         router.evaporate_expired(106);
         assert_eq!(router.query_topic("intent.test").len(), 0);
     }
+
+    #[test]
+    fn register_cell_upserts_in_place_and_unregister_removes_target_cell() {
+        let mut router = PheromoneRouter::new();
+
+        let mut cell_v1 = SwarmCell::new(
+            "cell-upsert".to_string(),
+            SwarmRole::ToolDriver,
+            "tcp://127.0.0.1:19090".to_string(),
+        );
+        cell_v1.set_ready(10);
+
+        let mut cell_other = SwarmCell::new(
+            "cell-keep".to_string(),
+            SwarmRole::InferenceDriver,
+            "tcp://127.0.0.1:19091".to_string(),
+        );
+        cell_other.set_ready(10);
+
+        router.register_cell(cell_v1);
+        router.register_cell(cell_other);
+        assert_eq!(router.list_cell_manifests().len(), 2);
+
+        let mut cell_v2 = SwarmCell::new(
+            "cell-upsert".to_string(),
+            SwarmRole::ToolDriver,
+            "tcp://127.0.0.1:29090".to_string(),
+        );
+        cell_v2.set_ready(20);
+        router.register_cell(cell_v2);
+
+        let manifests = router.list_cell_manifests();
+        assert_eq!(manifests.len(), 2);
+        assert_eq!(manifests[0].cell_id, "cell-upsert");
+        assert_eq!(manifests[0].endpoint, "tcp://127.0.0.1:29090");
+        assert_eq!(manifests[0].last_heartbeat, 20);
+
+        router.unregister_cell("cell-upsert");
+        let remaining = router.list_cell_manifests();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].cell_id, "cell-keep");
+    }
 }
 
 #[cfg(test)]

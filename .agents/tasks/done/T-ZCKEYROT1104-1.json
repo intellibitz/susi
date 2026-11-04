@@ -1,0 +1,22 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ZCKEYROT1104-1",
+  "agent": "ZCKEYROT1104",
+  "scope": [
+    "crates/susi-config/src/key_rotation.rs",
+    "crates/susi-config/src/rekey_schedule.rs"
+  ],
+  "summary": "Add inline unit test suites to key_rotation.rs and rekey_schedule.rs (VC-201-077)",
+  "started_at": "2026-11-04T08:43:31Z",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  }
+}

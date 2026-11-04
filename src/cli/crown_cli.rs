@@ -588,6 +588,27 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         format!("Rayon swarm pool {rayon_threads} threads; Tokio multi-thread runtime builds={tokio_ok}"),
     ));
 
+    // --- USP ROI & SOVA Algorithmic Arbitrage ---
+    let sova = susi_harness::roi::verify_sova_invariants();
+    let tier0_roi = susi_gemi::pulse::SusiPulse::roi_summary(workspace);
+    out.push(check(
+        "usp_roi_arbitrage",
+        true,
+        sova.is_ok(),
+        match sova {
+            Ok(proof) => format!(
+                "{proof}; Tier-0 offload {} bps (saved {} micro-USD across {} local reflexes)",
+                tier0_roi.offload_rate_bps,
+                tier0_roi.avoided_cloud_micro_usd,
+                tier0_roi
+                    .sub_100us_cache_hits
+                    .saturating_add(tier0_roi.neural_reflex_hits)
+                    .saturating_add(tier0_roi.tier1_generative_hits),
+            ),
+            Err(error) => format!("SOVA invariant failed: {error}"),
+        },
+    ));
+
     // --- Provision: the model inference would use exists on disk ---
     let selected = susi_core::plane_bus::gemi::ModelManager::get_selected_model(Some(workspace));
     let weights = selected

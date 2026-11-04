@@ -14,8 +14,7 @@ use super::peers_cli;
 use super::services_cli;
 use super::status_cli;
 
-// env/PathBuf/Command serve the uninstall path's linux/macos service
-// deregistration blocks; Windows has neither systemd nor launchd.
+// env/PathBuf/Command serve the uninstall path's service deregistration blocks.
 #[cfg(unix)]
 use std::env;
 use std::fs;
@@ -23,7 +22,7 @@ use std::io::{self};
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "windows"))]
 use std::process::Command;
 
 use susi::SUSI_VERSION;
@@ -338,7 +337,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Keys { action } => keys_cli::run(action),
         Commands::Admin { subcommand } => admin_cli::run(subcommand, host),
         Commands::VerifyDownloadAgent => {
-            match susi_gemi::models::ModelManager::verify_and_provision_model_ladder(cwd) {
+            match susi_gemi::models::ModelManager::verify_model_ladder(cwd) {
                 Ok(report) => {
                     println!("=== SUSI Model Download Agent & Network Verification Report ===");
                     println!("- Network Status: {}", report.network_status);
@@ -372,6 +371,11 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     } else {
                         println!(
                             "\nINCOMPLETE: one or more provisioning steps are not COMPLETED_VERIFIED."
+                        );
+                        // Verification only: Susi never downloads by itself.
+                        println!(
+                            "No download was started. To install the local starter model, {}.",
+                            susi_gemi::models::NoLocalModelInstalled::starter().install_hint()
                         );
                         std::process::exit(1);
                     }
@@ -496,6 +500,21 @@ fn uninstall(global_dir: &Path) {
             let _ = Command::new("launchctl").arg("unload").arg(&plist).status();
             let _ = fs::remove_file(&plist);
             steps.push("removed launchd agent".to_string());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let has_task = Command::new("schtasks")
+            .args(["/Query", "/TN", "susi-daemon"])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if has_task
+            && Command::new("schtasks")
+                .args(["/Delete", "/TN", "susi-daemon", "/F"])
+                .status()
+                .is_ok_and(|s| s.success())
+        {
+            steps.push("removed Windows scheduled task (susi-daemon)".to_string());
         }
     }
 

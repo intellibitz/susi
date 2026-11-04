@@ -107,6 +107,28 @@ mod honesty_tests {
             .iter()
             .all(|i| i.protocol_binding.0.contains("JSONRPC")));
     }
+
+    #[test]
+    fn executor_skills_match_profile_capabilities_without_ui_claims() {
+        let skills = GawdA2AExecutor::skills();
+        assert!(skills.len() >= 8);
+        for skill in &skills {
+            assert!(
+                !skill.description.trim().is_empty(),
+                "empty skill {}",
+                skill.id
+            );
+            let lower = skill.description.to_ascii_lowercase();
+            for banned in ["dashboard", "egui", "tauri", "webview", "gui"] {
+                assert!(
+                    !lower.contains(banned),
+                    "skill {} must not claim UI surface `{banned}`: {}",
+                    skill.id,
+                    skill.description
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

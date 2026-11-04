@@ -37,3 +37,62 @@ pub(crate) fn router() -> Router {
         .route("/wasm/execute", post(wasm_execute))
         .layer(axum::middleware::from_fn(crate::auth::supervisor))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[test]
+    fn wasm_exec_req_requires_both_fields() {
+        let ok: WasmExecReq = serde_json::from_value(json!({
+            "wasm_path": "/tmp/a.wasm",
+            "arg": "--help"
+        }))
+        .unwrap();
+        assert_eq!(ok.wasm_path, PathBuf::from("/tmp/a.wasm"));
+        assert_eq!(ok.arg, "--help");
+        assert!(
+            serde_json::from_value::<WasmExecReq>(json!({"wasm_path": "/tmp/a.wasm"})).is_err()
+        );
+        assert!(serde_json::from_value::<WasmExecReq>(json!({"arg": "--help"})).is_err());
+        assert!(
+            serde_json::from_value::<WasmExecReq>(json!({"wasm_path": 7, "arg": "x"})).is_err()
+        );
+    }
+
+    // The supervisor policy is open without SUSI_HOST_TOKEN and 401 with it, so
+    // a method mismatch is either 405 or 401 depending on the process env, and
+    // never a successful execution.
+    #[tokio::test]
+    async fn wasm_execute_is_post_only() {
+        for method in ["GET", "PUT", "DELETE"] {
+            let request = Request::builder()
+                .method(method)
+                .uri("/wasm/execute")
+                .body(Body::empty())
+                .unwrap();
+            let status = router().oneshot(request).await.unwrap().status();
+            assert!(
+                status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::UNAUTHORIZED,
+                "{method} -> {status}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_native_paths_are_not_routed() {
+        let request = Request::post("/wasm/other").body(Body::empty()).unwrap();
+        let response = router().oneshot(request).await.unwrap();
+        // The supervisor layer wraps the fallback too: 404 when open, 401 when
+        // the process env arms SUSI_HOST_TOKEN. Never a routed success.
+        let status = response.status();
+        assert!(
+            status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED,
+            "{status}"
+        );
+    }
+}

@@ -76,3 +76,117 @@ pub(crate) fn list_tools(config_: McpServerConfig) -> Result<Vec<(String, String
         Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10)),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use susi_core::mac_policy::PrivacyMode;
+
+    fn server(command: &str, capabilities: Option<Value>) -> McpServerConfig {
+        let mut extra = std::collections::HashMap::new();
+        if let Some(c) = capabilities {
+            extra.insert("capabilities".to_string(), c);
+        }
+        McpServerConfig {
+            command: command.to_string(),
+            args: Vec::new(),
+            env: None,
+            extra,
+        }
+    }
+
+    /// In-memory policy (no state dir): `LocalOnly` seeds filesystem grants
+    /// but neither `process.exec` nor `network.egress`.
+    fn local_only() -> MacPolicy {
+        MacPolicy::new([7u8; 32], PrivacyMode::LocalOnly, false)
+    }
+
+    #[test]
+    fn subprocess_server_requires_process_exec() {
+        let err = authorize_transport(&server("npx", None), &local_only()).unwrap_err();
+        assert!(err.contains(actions::PROCESS_EXEC), "{err}");
+        assert!(err.contains("`npx`"), "{err}");
+
+        let balanced = MacPolicy::new([7u8; 32], PrivacyMode::Balanced, false);
+        assert_eq!(authorize_transport(&server("npx", None), &balanced), Ok(()));
+
+        // An explicit grant scoped to the command opens it under LocalOnly.
+        let policy = local_only();
+        policy
+            .grant("susi", actions::PROCESS_EXEC, "npx", None)
+            .unwrap();
+        assert_eq!(authorize_transport(&server("npx", None), &policy), Ok(()));
+    }
+
+    #[test]
+    fn remote_http_requires_network_egress_but_loopback_does_not() {
+        let policy = local_only();
+        let err =
+            authorize_transport(&server("https://mcp.example.com/mcp", None), &policy).unwrap_err();
+        assert!(err.contains(actions::NETWORK_EGRESS), "{err}");
+
+        for loopback in [
+            "http://127.0.0.1:9090/mcp",
+            "http://localhost:9093",
+            "http://[::1]:9090/mcp",
+        ] {
+            assert_eq!(
+                authorize_transport(&server(loopback, None), &policy),
+                Ok(()),
+                "{loopback} must stay local"
+            );
+        }
+
+        let open = MacPolicy::new([7u8; 32], PrivacyMode::Open, false);
+        assert_eq!(
+            authorize_transport(&server("https://mcp.example.com/mcp", None), &open),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn declared_capabilities_are_validated_and_gated() {
+        let policy = local_only();
+        let local = "http://127.0.0.1:9090/mcp";
+
+        // Filesystem read+write are seeded even under LocalOnly.
+        assert_eq!(
+            authorize_transport(
+                &server(local, Some(json!(["tools", "filesystem"]))),
+                &policy
+            ),
+            Ok(())
+        );
+
+        // "network" re-imposes egress even on a loopback transport.
+        let err =
+            authorize_transport(&server(local, Some(json!(["network"]))), &policy).unwrap_err();
+        assert!(err.contains(actions::NETWORK_EGRESS), "{err}");
+
+        let err = authorize_transport(&server(local, Some(json!(["tools", "telepathy"]))), &policy)
+            .unwrap_err();
+        assert_eq!(err, "MCP capability `telepathy` is not supported");
+
+        let err = authorize_transport(&server(local, Some(json!([42]))), &policy).unwrap_err();
+        assert_eq!(err, "MCP capability must be a string");
+
+        let err = authorize_transport(&server(local, Some(json!("tools"))), &policy).unwrap_err();
+        assert_eq!(err, "MCP capabilities must be a list");
+
+        // Empty list declares nothing extra.
+        assert_eq!(
+            authorize_transport(&server(local, Some(json!([]))), &policy),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn transport_denial_precedes_capability_validation() {
+        // A subprocess denied `process.exec` is refused before its (invalid)
+        // capability list is even inspected.
+        let err = authorize_transport(&server("npx", Some(json!("not-a-list"))), &local_only())
+            .unwrap_err();
+        assert!(err.contains(actions::PROCESS_EXEC), "{err}");
+    }
+}

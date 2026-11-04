@@ -1,0 +1,25 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-GAWDHOOKS1104-1",
+  "agent": "GAWDHOOKS1104",
+  "branch": "gawd-agents-hooks-1104",
+  "Started": "2026-11-04T03:40:30Z",
+  "goal": "Prevent unwired admin_hooks::hooks() from locking out init(), extract initialize_with_config_dir and run_with seams, and add inline unit test suites to admin_hooks, axiom, brain, and dag_hooks in susi-gawd-agents (D-OS-8)",
+  "touch": [
+    "crates/susi-gawd-agents/src/admin_hooks.rs",
+    "crates/susi-gawd-agents/src/axiom.rs",
+    "crates/susi-gawd-agents/src/brain.rs",
+    "crates/susi-gawd-agents/src/dag_hooks.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-agents",
+      "--lib"
+    ]
+  }
+}

@@ -6,7 +6,7 @@
 //! go through [`env_or_cloud_env`] and child processes receive the keys
 //! explicitly via [`cloud_env_overlay`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Location of the host key file.
 pub fn cloud_env_path() -> PathBuf {
@@ -46,12 +46,18 @@ pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Current `cloud.env` entries (mtime-cached read; empty when absent).
-fn cloud_env_entries() -> Vec<(String, String)> {
-    super::cluster_key::cached_file_bytes(&cloud_env_path())
+/// Load `cloud.env` entries from `home` (mtime-cached read; empty when absent).
+#[must_use]
+pub fn load_cloud_env_from(home: &Path) -> Vec<(String, String)> {
+    super::cluster_key::cached_file_bytes(&home.join("cloud.env"))
         .and_then(|raw| String::from_utf8(raw).ok())
         .map(|text| parse_env_file(&text))
         .unwrap_or_default()
+}
+
+/// Current `cloud.env` entries (mtime-cached read; empty when absent).
+fn cloud_env_entries() -> Vec<(String, String)> {
+    load_cloud_env_from(&susi_paths::SusiDirs::config_dir())
 }
 
 /// `std::env::var` with `cloud.env` as the fallback: a non-empty process
@@ -68,18 +74,33 @@ pub fn env_or_cloud_env(name: &str) -> Result<String, std::env::VarError> {
     }
 }
 
+/// Filter `entries` to keys where `!is_already_set(key)`.
+#[must_use]
+pub fn cloud_env_overlay_from<F>(
+    entries: Vec<(String, String)>,
+    is_already_set: F,
+) -> Vec<(String, String)>
+where
+    F: Fn(&str) -> bool,
+{
+    entries
+        .into_iter()
+        .filter(|(key, _)| !is_already_set(key))
+        .collect()
+}
+
 /// Registered keys the process environment does not already set — pass to
 /// `Command::envs` so spawned agents see the same keys lookups do.
 pub fn cloud_env_overlay() -> Vec<(String, String)> {
-    cloud_env_entries()
-        .into_iter()
-        .filter(|(key, _)| std::env::var_os(key).is_none_or(|v| v.is_empty()))
-        .collect()
+    cloud_env_overlay_from(cloud_env_entries(), |key| {
+        std::env::var_os(key).is_some_and(|v| !v.is_empty())
+    })
 }
 
 #[cfg(test)]
 mod malformed_quote_tests {
-    use super::parse_env_file;
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
     fn lone_quote_is_empty_and_following_entries_survive() {
@@ -90,5 +111,61 @@ mod malformed_quote_tests {
                 ("FOURTH".into(), "é".into())
             ]
         );
+    }
+
+    #[test]
+    fn parse_env_file_handles_comments_export_quotes_and_rejects_malformed_keys_or_empty_values() {
+        let content = "\
+            # comment line\n\
+            \n\
+            export OPENAI_API_KEY=\"sk-openai-123\"\n\
+            ANTHROPIC_API_KEY = 'sk-ant-456'\n\
+            GEMINI_API_KEY=ai-gem-789\n\
+            =missing_key\n\
+            BAD KEY=val\n\
+            EMPTY_VAL=\n\
+            EMPTY_QUOTED=\"\"\n\
+            NO_EQUALS_LINE\n";
+        assert_eq!(
+            parse_env_file(content),
+            vec![
+                ("OPENAI_API_KEY".into(), "sk-openai-123".into()),
+                ("ANTHROPIC_API_KEY".into(), "sk-ant-456".into()),
+                ("GEMINI_API_KEY".into(), "ai-gem-789".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn cloud_env_overlay_from_and_load_cloud_env_from_filter_and_load_deterministically() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_cloud_env_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Absent cloud.env returns empty Vec.
+        assert!(load_cloud_env_from(&dir).is_empty());
+
+        std::fs::write(
+            dir.join("cloud.env"),
+            "export OPENAI_API_KEY='sk-1'\nGEMINI_API_KEY=\"gm-2\"\n",
+        )
+        .unwrap();
+        let loaded = load_cloud_env_from(&dir);
+        assert_eq!(
+            loaded,
+            vec![
+                ("OPENAI_API_KEY".into(), "sk-1".into()),
+                ("GEMINI_API_KEY".into(), "gm-2".into()),
+            ]
+        );
+
+        let filtered = cloud_env_overlay_from(loaded, |k| k == "OPENAI_API_KEY");
+        assert_eq!(filtered, vec![("GEMINI_API_KEY".into(), "gm-2".into())]);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

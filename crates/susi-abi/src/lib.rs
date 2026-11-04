@@ -24,7 +24,8 @@ pub mod syscall;
 pub mod wire;
 
 pub use cell::{CellState, SwarmCell};
-pub use evidence::{GroundedClaim, ReceiptStatus, ToolReceipt};
+pub use evidence::{EvidenceSessionSummary, GroundedClaim, ReceiptStatus, ToolReceipt};
+pub use memory::{EpisodicMemory, MemoryFragment, MemorySearchRequest, MemorySearchResult};
 pub use router::{PheromoneRouter, RouteCandidate, CELL_HEARTBEAT_TIMEOUT_SECS};
 pub use swarm::{CapabilityBloom, PheromoneKind, SwarmCellManifest, SwarmPheromone, SwarmRole};
 pub use syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};

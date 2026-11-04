@@ -135,7 +135,7 @@ pub(crate) fn execute() -> ExitCode {
     match result {
         Ok(path) => {
             println!("Susi installed: {}", path.display());
-            println!("Open Susi and enter your first goal. A compatible licensed starter model downloads automatically when needed.");
+            println!("Open Susi and enter your first goal. Susi never downloads a model by itself: to answer locally, {}.", susi_gemi::models::NoLocalModelInstalled::starter().install_hint());
             if cfg!(debug_assertions) {
                 println!("This is a debug candidate; production qualification and promotion remain separate.");
             }

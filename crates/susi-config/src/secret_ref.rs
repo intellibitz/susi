@@ -339,3 +339,78 @@ pub fn redact_for_export(text: &str) -> String {
     // invalidates exact native-read receipts for otherwise unchanged files.
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_ref_parse_display_and_scope_boundary_isolation() {
+        let parsed = SecretRef::parse("secret://deploy/openai_key").expect("valid secret ref");
+        assert_eq!(
+            parsed,
+            SecretRef {
+                scope: "deploy".into(),
+                name: "openai_key".into()
+            }
+        );
+        assert_eq!(parsed.display(), "secret://deploy/openai_key");
+
+        assert!(SecretRef::parse("deploy/openai_key").is_none());
+        assert!(SecretRef::parse("secret:///openai_key").is_none());
+        assert!(SecretRef::parse("secret://deploy/").is_none());
+        assert!(SecretRef::parse("secret://no_slash").is_none());
+
+        let mut vault = SecretVault::default();
+        vault.put("deploy", "token", "s3cr3t-body");
+        vault.put("prod", "token", "prod-only-body");
+
+        let boundary = vault.issue_boundary("deploy");
+        assert_eq!(boundary.scope(), "deploy");
+
+        let resolved = boundary
+            .resolve(&SecretRef::parse("secret://deploy/token").unwrap())
+            .expect("in-scope secret resolves");
+        assert_eq!(resolved.expose(), "s3cr3t-body");
+        assert_eq!(format!("{resolved:?}"), "[REDACTED]");
+
+        let cross_scope_err = boundary
+            .resolve(&SecretRef::parse("secret://prod/token").unwrap())
+            .unwrap_err();
+        assert!(cross_scope_err.contains("outside this boundary's scope"));
+
+        let missing_err = boundary
+            .resolve(&SecretRef::parse("secret://deploy/absent").unwrap())
+            .unwrap_err();
+        assert_eq!(missing_err, "missing secret secret://deploy/absent");
+    }
+
+    #[test]
+    fn redact_for_export_and_vault_scrub_secret_bodies_and_preserve_refs_and_non_credentials() {
+        let mut vault = SecretVault::default();
+        vault.put("deploy", "short", "abc123secret");
+        vault.put("deploy", "long", "abc123secret-with-more-bytes");
+        let boundary = vault.issue_boundary("deploy");
+
+        let raw = "ref=secret://deploy/key api_key=sk-live-999 \"client_secret\": \"top-val\" \
+                   Authorization: \"Bearer tok-xyz\" bearer=tok-bare resolved=\"multi word secret\" \
+                   embedded=abc123secret-with-more-bytes \
+                   max_generation_tokens=4096 api_key_env=OPENAI_API_KEY unresolved=1\n";
+
+        let scrubbed = vault.redact_for_export(raw);
+        assert_eq!(boundary.redact_for_export(raw), scrubbed);
+        assert!(!scrubbed.contains("sk-live-999"));
+        assert!(!scrubbed.contains("top-val"));
+        assert!(!scrubbed.contains("tok-xyz"));
+        assert!(!scrubbed.contains("tok-bare"));
+        assert!(!scrubbed.contains("multi word secret"));
+        assert!(!scrubbed.contains("abc123secret"));
+        assert!(scrubbed.contains("secret://deploy/key"));
+        assert!(scrubbed.contains("api_key=[REDACTED]"));
+        assert!(scrubbed.contains("\"client_secret\": \"[REDACTED]\""));
+        assert!(scrubbed.contains("resolved=\"[REDACTED]\""));
+        assert!(scrubbed.contains("max_generation_tokens=4096"));
+        assert!(scrubbed.contains("api_key_env=OPENAI_API_KEY"));
+        assert!(scrubbed.contains("unresolved=1\n"));
+    }
+}

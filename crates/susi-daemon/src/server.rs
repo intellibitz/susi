@@ -1295,9 +1295,6 @@ impl SusiDaemon {
             crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
         );
 
-        // Spawn Autonomous Background Model Provisioner & Resumable Downloader
-        susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
-
         // Cluster scout: discovery broadcasts, liveness decay, roster
         // rehydration, and commit-ledger anti-entropy all live in the
         // thread `list_cluster_nodes` lazily spawns. Without this kick it

@@ -56,9 +56,12 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
         key: "alpha_weights_url",
         derivation: SettingDerivation::Constant,
     },
+    // Deprecated, no effect: core never downloads a model by itself (CEO
+    // decision 2026-11-04). Kept, defaulting to `false`, so existing host
+    // `config.json` files still load.
     SettingEntry {
         key: "auto_download_models",
-        derivation: SettingDerivation::Detection,
+        derivation: SettingDerivation::Constant,
     },
     SettingEntry {
         key: "axiomatic_risk_patterns",
@@ -302,4 +305,52 @@ pub fn registry_keys() -> Vec<&'static str> {
 #[must_use]
 pub fn lookup(key: &str) -> Option<&'static SettingEntry> {
     SETTING_REGISTRY.iter().find(|e| e.key == key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setting_registry_keys_are_sorted_unique_and_non_empty() {
+        assert!(!SETTING_REGISTRY.is_empty());
+        let keys = registry_keys();
+        assert_eq!(keys.len(), SETTING_REGISTRY.len());
+        for key in &keys {
+            assert!(!key.trim().is_empty(), "registry key must not be empty");
+        }
+        for pair in keys.windows(2) {
+            assert!(
+                pair[0] < pair[1],
+                "registry keys must be strictly sorted and unique: {:?} vs {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
+    fn lookup_resolves_all_derivation_categories_and_returns_none_for_unknown() {
+        assert_eq!(
+            lookup("gemi_port").map(|e| e.derivation),
+            Some(SettingDerivation::Constant)
+        );
+        assert_eq!(
+            lookup("max_concurrent_agents").map(|e| e.derivation),
+            Some(SettingDerivation::Hardware)
+        );
+        assert_eq!(
+            lookup("local_scan_paths").map(|e| e.derivation),
+            Some(SettingDerivation::Detection)
+        );
+        assert_eq!(
+            lookup("execution_lease_secs").map(|e| e.derivation),
+            Some(SettingDerivation::Measurement)
+        );
+        assert_eq!(
+            lookup("privacy").map(|e| e.derivation),
+            Some(SettingDerivation::Consent)
+        );
+        assert_eq!(lookup("nonexistent_key"), None);
+    }
 }

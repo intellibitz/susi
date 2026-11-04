@@ -31,7 +31,8 @@ fn emit_final_report(report: &SusiMissionReport, callback: &dyn Fn(String)) {
 
 fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
     let source = format!("tool:{name}");
-    match crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace) {
+    // A mission plan never downloads a model (`USER_REQUEST_ONLY_TOOLS`).
+    match crate::susi_core::plane_bus::tools::execute_autonomous_tool(name, args, workspace) {
         Ok(output) => enforce_action(
             &wrap_tool_output(&source, &output),
             ActionClass::Consequential,
@@ -1451,9 +1452,7 @@ impl SusiMasterAgent {
                         Some(workspace),
                         min_complexity_for_attempt,
                     );
-                let model_name = selected_model
-                    .as_deref()
-                    .unwrap_or("automatic provisioning");
+                let model_name = selected_model.as_deref().unwrap_or("automatic selection");
                 let mut local_inference = match selected_model.as_deref() {
                     Some(model) => {
                         crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(

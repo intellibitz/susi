@@ -397,3 +397,356 @@ pub fn merge_missing_registry_defaults(
     }
     changed
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn scratch(tag: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi-json-util-{tag}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn atomic_write_json_pretty_creates_parents_and_replaces_without_staging_files() {
+        let dir = scratch("pretty");
+        let path = dir.join("nested").join("deeper").join("state.json");
+        atomic_write_json_pretty(&path, &json!({"a": 1})).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains('\n'), "pretty output is multi-line");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).unwrap(),
+            json!({"a": 1})
+        );
+
+        atomic_write_json_pretty(&path, &json!({"a": 2, "b": [true]})).unwrap();
+        let again: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(again, json!({"a": 2, "b": [true]}));
+        assert_eq!(entries(path.parent().unwrap()), ["state.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_write_bytes_replaces_whole_content_and_leaves_no_temporaries() {
+        let dir = scratch("bytes");
+        let path = dir.join("blob.bin");
+        atomic_write_bytes(&path, b"first, longer content").unwrap();
+        atomic_write_bytes(&path, b"short").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"short");
+        assert_eq!(entries(&dir), ["blob.bin"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_file_if_present_is_idempotent_but_reports_real_failures() {
+        let dir = scratch("remove");
+        let path = dir.join("gone.txt");
+        fs::write(&path, "x").unwrap();
+        remove_file_if_present(&path).unwrap();
+        assert!(!path.exists());
+        remove_file_if_present(&path).unwrap();
+        // A directory is not a removable file: that is a real error, not "absent".
+        assert!(remove_file_if_present(&dir).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_private_dir_creates_nested_directories_idempotently() {
+        let dir = scratch("private-dir");
+        let nested = dir.join("a").join("b");
+        create_private_dir(&nested).unwrap();
+        create_private_dir(&nested).unwrap();
+        assert!(nested.is_dir());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn json_overrides_are_written_per_id_and_cleared_idempotently() {
+        let dir = scratch("override");
+        let overrides = dir.join("overrides");
+        write_json_override(&overrides, "model-a", &json!({"tier": "Deep"})).unwrap();
+        write_json_override(&overrides, "model-b", &json!({"tier": "Reflex"})).unwrap();
+        assert_eq!(entries(&overrides), ["model-a.json", "model-b.json"]);
+        let stored: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(overrides.join("model-a.json")).unwrap())
+                .unwrap();
+        assert_eq!(stored, json!({"tier": "Deep"}));
+
+        clear_json_override(&overrides, "model-a").unwrap();
+        clear_json_override(&overrides, "model-a").unwrap();
+        clear_json_override(&overrides, "never-written").unwrap();
+        assert_eq!(entries(&overrides), ["model-b.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_or_create_secret_creates_32_bytes_once_and_reloads_the_same_key() {
+        let dir = scratch("secret");
+        let path = dir.join("keys").join("cluster.key");
+        let first = load_or_create_secret(&path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), first);
+        assert_ne!(first, [0u8; 32], "an entropy-backed key is never all zero");
+        assert_eq!(load_or_create_secret(&path).unwrap(), first);
+        assert_eq!(entries(path.parent().unwrap()), ["cluster.key"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_or_create_secret_never_replaces_a_wrong_length_secret() {
+        let dir = scratch("secret-bad");
+        for (name, bytes) in [
+            ("short", vec![7u8; 31]),
+            ("long", vec![7u8; 33]),
+            ("empty", vec![]),
+        ] {
+            let path = dir.join(name);
+            fs::write(&path, &bytes).unwrap();
+            let err = load_or_create_secret(&path).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{name}");
+            assert!(err.to_string().contains("expected 32"), "{err}");
+            assert_eq!(fs::read(&path).unwrap(), bytes, "{name} left untouched");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_first_use_converges_on_a_single_secret() {
+        let dir = scratch("secret-race");
+        let path = dir.join("race.key");
+        let keys: Vec<[u8; 32]> = (0..6)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || load_or_create_secret(&path).unwrap())
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
+        assert_eq!(fs::read(&path).unwrap(), keys[0]);
+        assert_eq!(entries(&dir), ["race.key"], "no staging file may remain");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn install_private_file_never_overwrites_an_existing_destination() {
+        let dir = scratch("install");
+        let path = dir.join("sub").join("token");
+        assert!(install_private_file(&path, b"winner").unwrap());
+        assert!(!install_private_file(&path, b"loser").unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"winner");
+        assert_eq!(entries(path.parent().unwrap()), ["token"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_file_replaces_content_and_creates_parents() {
+        let dir = scratch("replace");
+        let path = dir.join("src").join("lib.rs");
+        atomic_replace_file(&path, b"fn a() {}").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"fn a() {}");
+        atomic_replace_file(&path, b"fn b() {}").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"fn b() {}");
+        assert_eq!(entries(path.parent().unwrap()), ["lib.rs"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_replace_file_refuses_to_follow_or_clobber_a_symlink() {
+        let dir = scratch("replace-link");
+        let target = dir.join("target.txt");
+        let link = dir.join("link.txt");
+        fs::write(&target, "original").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let err = atomic_replace_file(&link, b"hijack").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "original");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_node_is_stable_for_one_file_and_changes_when_it_is_replaced() {
+        let dir = scratch("node");
+        let path = dir.join("watched.txt");
+        fs::write(&path, "same size").unwrap();
+        let first = file_node(&fs::metadata(&path).unwrap());
+        assert_eq!(first, file_node(&fs::metadata(&path).unwrap()));
+        #[cfg(any(unix, windows))]
+        assert!(!first.is_empty());
+
+        // Replace with identical-length content: size alone cannot tell them apart.
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        atomic_replace_file(&path, b"SAME SIZE").unwrap();
+        #[cfg(any(unix, windows))]
+        assert_ne!(first, file_node(&fs::metadata(&path).unwrap()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn confined_workspace_join_admits_relative_paths_including_missing_subdirectories() {
+        let dir = scratch("confine-ok");
+        let canonical = dir.canonicalize().unwrap();
+
+        let top = confined_workspace_join(&dir, "notes.txt").unwrap();
+        assert_eq!(top, canonical.join("notes.txt"));
+
+        let nested = confined_workspace_join(&dir, "new/sub/dir/file.rs").unwrap();
+        assert!(nested.starts_with(&canonical));
+        assert!(nested.ends_with(Path::new("new").join("sub").join("dir").join("file.rs")));
+        assert!(
+            !dir.join("new").exists(),
+            "joining must not create anything"
+        );
+
+        let quoted = confined_workspace_join(&dir, "  \"quoted.txt\"  ").unwrap();
+        assert_eq!(quoted, canonical.join("quoted.txt"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn confined_workspace_join_rejects_absolute_traversal_and_empty_paths() {
+        let dir = scratch("confine-bad");
+        let absolute = std::env::temp_dir().to_string_lossy().into_owned();
+        for (input, needle) in [
+            (absolute.as_str(), "Absolute paths not allowed"),
+            ("../outside.txt", "Parent directory traversal"),
+            ("a/../../outside.txt", "Parent directory traversal"),
+            ("a/b/..", "Parent directory traversal"),
+            ("", "Empty path not allowed"),
+            ("   ", "Empty path not allowed"),
+            (".", "Empty path not allowed"),
+            ("./", "Empty path not allowed"),
+        ] {
+            let err = confined_workspace_join(&dir, input)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains(needle),
+                "{input:?}: wanted {needle:?}, got {err}"
+            );
+        }
+        let missing = dir.join("no-such-workspace");
+        let err = confined_workspace_join(&missing, "a.txt")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Workspace error"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn confined_workspace_join_rejects_a_symlink_that_escapes_the_workspace() {
+        let dir = scratch("confine-link");
+        let outside = scratch("confine-outside");
+        std::os::unix::fs::symlink(&outside, dir.join("escape")).unwrap();
+        let err = confined_workspace_join(&dir, "escape/file.txt")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Path escape attempt"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn merge_missing_json_defaults_backfills_without_overwriting_user_values() {
+        let mut existing = json!({
+            "keep": "user",
+            "nested": {"user_only": 1, "shared": "mine"},
+            "explicit_null": null
+        });
+        let default = json!({
+            "keep": "default",
+            "added": 5,
+            "nested": {"shared": "default", "fresh": {"deep": true}},
+            "explicit_null": {"would": "replace"}
+        });
+        assert!(merge_missing_json_defaults(&mut existing, &default));
+        assert_eq!(
+            existing,
+            json!({
+                "keep": "user",
+                "added": 5,
+                "nested": {
+                    "user_only": 1,
+                    "shared": "mine",
+                    "fresh": {"deep": true}
+                },
+                "explicit_null": null
+            })
+        );
+        // Converged: a second pass changes nothing.
+        assert!(!merge_missing_json_defaults(&mut existing, &default));
+    }
+
+    #[test]
+    fn merge_missing_json_defaults_heals_same_length_arrays_only() {
+        let mut same = json!([{"a": 1}, {"b": 2}]);
+        let default_same = json!([{"a": 9, "x": 0}, {"b": 9, "y": 0}]);
+        assert!(merge_missing_json_defaults(&mut same, &default_same));
+        assert_eq!(same, json!([{"a": 1, "x": 0}, {"b": 2, "y": 0}]));
+
+        let mut shorter = json!([{"a": 1}]);
+        let before = shorter.clone();
+        assert!(!merge_missing_json_defaults(&mut shorter, &default_same));
+        assert_eq!(shorter, before, "length-mismatched arrays are user data");
+    }
+
+    #[test]
+    fn merge_missing_json_defaults_ignores_type_mismatches() {
+        let mut scalar = json!("user");
+        assert!(!merge_missing_json_defaults(&mut scalar, &json!({"k": 1})));
+        assert_eq!(scalar, json!("user"));
+        let mut object = json!({"k": 1});
+        assert!(!merge_missing_json_defaults(&mut object, &json!([1, 2])));
+        assert_eq!(object, json!({"k": 1}));
+        let mut equal = json!({"k": [1, 2]});
+        assert!(!merge_missing_json_defaults(
+            &mut equal,
+            &json!({"k": [3, 4]})
+        ));
+    }
+
+    #[test]
+    fn merge_missing_registry_defaults_backfills_top_level_and_heals_nested() {
+        let mut existing: DynamicRegistry = serde_json::from_value(json!({
+            "mine": "kept",
+            "section": {"user": 1}
+        }))
+        .unwrap();
+        let default: DynamicRegistry = serde_json::from_value(json!({
+            "mine": "default",
+            "section": {"user": 0, "added": 2},
+            "top_level_new": [1]
+        }))
+        .unwrap();
+        assert!(merge_missing_registry_defaults(&mut existing, &default));
+        assert_eq!(existing["mine"], json!("kept"));
+        assert_eq!(existing["section"], json!({"user": 1, "added": 2}));
+        assert_eq!(existing["top_level_new"], json!([1]));
+        assert!(!merge_missing_registry_defaults(&mut existing, &default));
+        assert!(!merge_missing_registry_defaults(
+            &mut existing,
+            &DynamicRegistry::new()
+        ));
+    }
+}

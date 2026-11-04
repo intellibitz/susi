@@ -309,3 +309,173 @@ mod audit_chain_tests {
         assert!(verify_chain(&path).is_err());
     }
 }
+
+#[cfg(test)]
+mod service_ipc_tests {
+    use crate::daemon_state::SusiDaemonState;
+    use crate::service;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::path::Path;
+
+    fn read_http_request(stream: &mut TcpStream) -> (String, String) {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let header_end = loop {
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos;
+            }
+            let n = stream.read(&mut chunk).expect("read request header");
+            assert!(n > 0, "unexpected EOF reading HTTP request header");
+            buf.extend_from_slice(&chunk[..n]);
+        };
+        let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+        let content_len = head
+            .lines()
+            .find_map(|line| {
+                let (k, v) = line.split_once(':')?;
+                k.eq_ignore_ascii_case("content-length")
+                    .then(|| v.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+        let body_start = header_end + 4;
+        while buf.len() < body_start + content_len {
+            let n = stream.read(&mut chunk).expect("read request body");
+            assert!(n > 0, "unexpected EOF reading HTTP request body");
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        let body = String::from_utf8_lossy(&buf[body_start..body_start + content_len]).to_string();
+        (head, body)
+    }
+
+    fn write_http_response(stream: &mut TcpStream, status: &str, body: &str) {
+        write!(
+            stream,
+            "HTTP/1.0 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .expect("write HTTP response");
+        stream.flush().expect("flush HTTP response");
+    }
+
+    #[test]
+    fn sandbox_service_client_routes_all_five_endpoints_and_honors_local_override() {
+        let _guard = crate::env_test_lock();
+        let temp_home =
+            std::env::temp_dir().join(format!("susi_sbx_ipc_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_home);
+        std::fs::create_dir_all(&temp_home).expect("create temp SUSI_HOME");
+        std::fs::write(temp_home.join("api_token"), "sbx-secret-token\n").expect("seed api_token");
+        std::fs::write(
+            temp_home.join("daemon.lock"),
+            format!("{}\n", std::process::id()),
+        )
+        .expect("seed daemon.lock");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let port = listener.local_addr().expect("listener addr").port();
+
+        let prev_home = std::env::var_os("SUSI_HOME");
+        let prev_port = std::env::var_os("SUSI_SANDBOX_PORT");
+        let prev_xdg = std::env::var_os("SUSI_XDG");
+        let prev_cfg = std::env::var_os("XDG_CONFIG_HOME");
+        let prev_data = std::env::var_os("XDG_DATA_HOME");
+        let prev_cache = std::env::var_os("XDG_CACHE_HOME");
+
+        std::env::set_var("SUSI_HOME", &temp_home);
+        std::env::set_var("SUSI_SANDBOX_PORT", port.to_string());
+        std::env::remove_var("SUSI_XDG");
+        std::env::remove_var("XDG_CONFIG_HOME");
+        std::env::remove_var("XDG_DATA_HOME");
+        std::env::remove_var("XDG_CACHE_HOME");
+
+        let server = std::thread::spawn(move || {
+            // 1. POST /sandbox/ensure_global -> 204 No Content
+            let (mut s1, _) = listener.accept().expect("accept ensure_global");
+            let (h1, b1) = read_http_request(&mut s1);
+            assert!(
+                h1.starts_with("POST /sandbox/ensure_global HTTP/1.0"),
+                "{h1}"
+            );
+            assert!(
+                h1.contains("Authorization: Bearer sbx-secret-token"),
+                "{h1}"
+            );
+            let j1: serde_json::Value = serde_json::from_str(&b1).unwrap();
+            assert!(j1["global_dir"].as_str().unwrap().contains("global-sbx"));
+            write_http_response(&mut s1, "204 No Content", "");
+            drop(s1);
+
+            // 2. POST /sandbox/docker_exec -> 200 OK "container-ok"
+            let (mut s2, _) = listener.accept().expect("accept docker_exec");
+            let (h2, b2) = read_http_request(&mut s2);
+            assert!(h2.starts_with("POST /sandbox/docker_exec HTTP/1.0"), "{h2}");
+            let j2: serde_json::Value = serde_json::from_str(&b2).unwrap();
+            assert_eq!(j2["cmd"], "echo sandbox");
+            write_http_response(&mut s2, "200 OK", "\"container-ok\"");
+            drop(s2);
+
+            // 3. GET /daemon/status -> 200 OK true
+            let (mut s3, _) = listener.accept().expect("accept daemon/status");
+            let (h3, _) = read_http_request(&mut s3);
+            assert!(h3.starts_with("GET /daemon/status?workspace="), "{h3}");
+            write_http_response(&mut s3, "200 OK", "true");
+            drop(s3);
+
+            // 4. POST /daemon/verify_integrity -> 200 OK true
+            let (mut s4, _) = listener.accept().expect("accept verify_integrity");
+            let (h4, b4) = read_http_request(&mut s4);
+            assert!(
+                h4.starts_with("POST /daemon/verify_integrity HTTP/1.0"),
+                "{h4}"
+            );
+            let j4: serde_json::Value = serde_json::from_str(&b4).unwrap();
+            assert!(j4["bin_path"].as_str().unwrap().contains("susi-bin"));
+            write_http_response(&mut s4, "200 OK", "true");
+            drop(s4);
+
+            // 5. POST /daemon/hash_cached -> 200 OK "deadbeef..."
+            let (mut s5, _) = listener.accept().expect("accept hash_cached");
+            let (h5, _) = read_http_request(&mut s5);
+            assert!(h5.starts_with("POST /daemon/hash_cached HTTP/1.0"), "{h5}");
+            write_http_response(&mut s5, "200 OK", "\"sha256-cached-digest\"");
+            drop(s5);
+        });
+
+        let gdir = temp_home.join("global-sbx");
+        let ws = temp_home.join("ws");
+        let bin = temp_home.join("susi-bin");
+
+        assert!(service::ensure_global(&gdir));
+        assert_eq!(
+            service::docker_exec("echo sandbox").as_deref(),
+            Some("container-ok")
+        );
+        assert!(SusiDaemonState::check_status(&ws, &gdir));
+        assert!(SusiDaemonState::verify_binary_integrity(&bin, &gdir).unwrap());
+        assert_eq!(
+            SusiDaemonState::calculate_binary_hash_cached(&bin, &gdir).unwrap(),
+            "sha256-cached-digest"
+        );
+
+        // When SUSI_XDG is set, local_override() short-circuits IPC without dialling
+        std::env::set_var("SUSI_XDG", "1");
+        assert!(!service::ensure_global(Path::new("/unused")));
+        assert!(service::docker_exec("echo bypassed").is_none());
+
+        server.join().expect("server thread completed cleanly");
+
+        let restore = |k: &str, v: Option<std::ffi::OsString>| match v {
+            Some(val) => std::env::set_var(k, val),
+            None => std::env::remove_var(k),
+        };
+        restore("SUSI_HOME", prev_home);
+        restore("SUSI_SANDBOX_PORT", prev_port);
+        restore("SUSI_XDG", prev_xdg);
+        restore("XDG_CONFIG_HOME", prev_cfg);
+        restore("XDG_DATA_HOME", prev_data);
+        restore("XDG_CACHE_HOME", prev_cache);
+        let _ = std::fs::remove_dir_all(&temp_home);
+    }
+}

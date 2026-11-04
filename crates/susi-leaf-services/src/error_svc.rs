@@ -31,3 +31,59 @@ pub(crate) fn router() -> Router {
         )
         .route("/log_error", post(log_error))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[test]
+    fn recent_query_n_is_optional_and_unsigned() {
+        let some: RecentQuery = serde_json::from_value(serde_json::json!({"n": 10})).unwrap();
+        assert_eq!(some.n, Some(10));
+        let none: RecentQuery = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(none.n, None);
+        assert!(serde_json::from_value::<RecentQuery>(serde_json::json!({"n": -1})).is_err());
+        assert!(serde_json::from_value::<RecentQuery>(serde_json::json!({"n": "ten"})).is_err());
+    }
+
+    async fn post(content_type: Option<&str>, body: &str) -> StatusCode {
+        let mut builder = Request::post("/log_error");
+        if let Some(value) = content_type {
+            builder = builder.header("content-type", value);
+        }
+        let request = builder.body(Body::from(body.to_string())).unwrap();
+        router().oneshot(request).await.unwrap().status()
+    }
+
+    // `/log_error` is open by contract, so no middleware precedes the extractor
+    // and these rejections are independent of any auth state.
+    #[tokio::test]
+    async fn log_error_rejects_malformed_payloads_before_touching_the_sink() {
+        let json = Some("application/json");
+        assert_eq!(post(json, "{not json").await, StatusCode::BAD_REQUEST);
+        assert_eq!(post(json, "").await, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            post(json, "[1, 2, 3]").await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            post(None, r#"{"message":"no content type"}"#).await,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            post(Some("text/plain"), r#"{"message":"wrong type"}"#).await,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+    }
+
+    #[tokio::test]
+    async fn log_error_is_write_only() {
+        let request = Request::get("/log_error").body(Body::empty()).unwrap();
+        let response = router().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+}

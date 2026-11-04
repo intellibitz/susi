@@ -74,3 +74,20 @@ fn zc_platform_installers_do_not_require_hand_edited_config() {
         );
     }
 }
+
+#[test]
+fn zc_install_sh_points_native_windows_users_to_install_ps1() {
+    let (sh, _ps1) = read_installers();
+    assert!(
+        sh.contains("mingw*|cygwin*|msys*)"),
+        "install.sh must detect native Windows MSYS/MinGW/Cygwin shells"
+    );
+    assert!(
+        sh.contains("install.ps1"),
+        "install.sh must direct native Windows users to install.ps1"
+    );
+    assert!(
+        !sh.contains("Native Windows is not currently supported"),
+        "install.sh must not claim native Windows is unsupported"
+    );
+}

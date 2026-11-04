@@ -70,7 +70,15 @@ if ($null -eq $env:LOCAL_SOURCE) {
 
     # The release publishes `susi-windows-x86_64.exe` (+ .sha256), the same
     # `<product>-<platform>-<arch>` naming install.sh resolves on Unix.
-    $EngineBinary = "susi-windows-x86_64.exe"
+    # Open-core defaults to `windows-x86_64` while keeping `windows-aarch64`
+    # asset selection gated by `SUSI_ALLOW_WINDOWS_ARM64=1` (D-OS-7).
+    $RawArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLower()
+    $Arch = switch ($RawArch) {
+        "x64"   { "x86_64" }
+        "arm64" { "aarch64" }
+        default { $RawArch }
+    }
+    $EngineBinary = if ($Arch -eq "aarch64" -and $env:SUSI_ALLOW_WINDOWS_ARM64 -eq "1") { "susi-windows-aarch64.exe" } else { "susi-windows-x86_64.exe" }
     $EngineTmpPath = Join-Path $GlobalBinDir "susi-engine-new.exe"
     $ChecksumTmpPath = "$EngineTmpPath.sha256"
 

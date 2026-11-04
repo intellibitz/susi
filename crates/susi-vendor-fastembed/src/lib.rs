@@ -6,9 +6,13 @@
 //! BAAI/bge-small-en-v1.5 runs through Candle's BERT implementation: the
 //! pretrained CLS token is L2 normalized, producing 384-dimensional vectors.
 //! No ONNX Runtime, Python, native model runtime or synthetic hash fallback is
-//! involved. The MIT-licensed model revision is pinned; artifacts are loaded
-//! lazily through the existing bounded HTTP transport. CPU is the portable
-//! default. Existing public `embed`, `embed_one`, and `load_failed` APIs remain.
+//! involved. The MIT-licensed model revision is pinned. Core never downloads
+//! it by itself (CEO decision 2026-11-04, "No, ask first"): `embed` loads only
+//! verified cached artifacts and otherwise fails with a typed
+//! `[NO_EMBEDDING_MODEL]` error naming [`INSTALL_COMMAND`]; that explicit
+//! command calls [`install_on_request`], which fetches the artifacts through
+//! the existing bounded HTTP transport. CPU is the portable default. Existing
+//! public `embed`, `embed_one`, and `load_failed` APIs remain.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -26,6 +30,58 @@ const DOWNLOAD_TIMEOUT_SECS: u64 = 120;
 const MAX_REDIRECTS: u32 = 5;
 const BATCH_SIZE: usize = 32;
 const EMBEDDING_DIM: usize = 384;
+const ARTIFACTS: [&str; 3] = ["config.json", "tokenizer.json", "model.safetensors"];
+
+/// The explicit command that downloads the embedding model.
+pub const INSTALL_COMMAND: &str = "susi os manage model install embeddings";
+/// The explicit source argument `INSTALL_COMMAND` passes.
+pub const INSTALL_SOURCE: &str = "embeddings";
+/// Leading tag of the not-installed error, for callers that carry it as text.
+pub const NOT_INSTALLED_TAG: &str = "[NO_EMBEDDING_MODEL]";
+
+/// The typed error a lazy load returns when the model is not cached.
+fn not_installed_message() -> String {
+    format!(
+        "{NOT_INSTALLED_TAG} The BAAI/bge-small-en-v1.5 embedding model is not installed, \
+         and Susi does not download a model by itself. Run `{INSTALL_COMMAND}` to download \
+         it. Semantic search needs it; chat and keyword search do not."
+    )
+}
+
+/// Cache roots a lazy load searches: `FASTEMBED_CACHE_DIR` when set,
+/// otherwise the working directory's `.fastembed_cache` (the daemon's
+/// working directory is the substrate home) and the substrate home's.
+fn cache_roots(env_override: Option<&str>) -> Vec<PathBuf> {
+    match env_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(root) => vec![PathBuf::from(root)],
+        None => vec![PathBuf::from(".fastembed_cache"), install_root_from(None)],
+    }
+}
+
+/// Where [`install_on_request`] writes: `FASTEMBED_CACHE_DIR` when set,
+/// otherwise the substrate home's `.fastembed_cache`, which the daemon reads.
+fn install_root_from(env_override: Option<&str>) -> PathBuf {
+    env_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| susi_paths::SusiDirs::substrate_home().join(".fastembed_cache"))
+}
+
+/// The first model directory under `roots` holding every artifact.
+fn installed_dir(roots: &[PathBuf]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .map(|root| root.join(DEFAULT_MODEL_SUBDIR))
+        .find(|dir| {
+            ARTIFACTS.iter().all(|name| {
+                std::fs::metadata(dir.join(name)).is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+            })
+        })
+}
 
 struct Embedder {
     model: BertModel,
@@ -37,16 +93,6 @@ type ModelCell = OnceLock<Result<Mutex<Embedder>, String>>;
 fn model_cell() -> &'static ModelCell {
     static MODEL: ModelCell = OnceLock::new();
     &MODEL
-}
-
-fn cache_dir_from(env_override: Option<&str>) -> PathBuf {
-    PathBuf::from(
-        env_override
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(".fastembed_cache"),
-    )
-    .join(DEFAULT_MODEL_SUBDIR)
 }
 
 fn base_url_from(env_override: Option<&str>) -> String {
@@ -77,15 +123,9 @@ fn verify_pinned_artifact(name: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, String> {
-    ensure_cached_file_with_policy(cache, base, name, &susi_core::mac_policy::egress_permitted)
-}
-fn ensure_cached_file_with_policy(
-    cache: &Path,
-    base: &str,
-    name: &str,
-    egress_allowed: &dyn Fn(&str) -> bool,
-) -> Result<Vec<u8>, String> {
+/// A verified cached artifact, `None` when it is not cached. Never touches
+/// the network.
+fn read_cached_file(cache: &Path, base: &str, name: &str) -> Result<Option<Vec<u8>>, String> {
     if base.trim_end_matches('/') != DEFAULT_MODEL_BASE_URL {
         return Err("[MODEL LICENSE] Unverified embedding model override refused; use the pinned MIT-licensed BGE model. Custom cache locations remain supported.".into());
     }
@@ -102,14 +142,53 @@ fn ensure_cached_file_with_policy(
                     path.display()
                 ));
             }
-            if !bytes.is_empty() {
-                verify_pinned_artifact(name, &bytes)?;
-                return Ok(bytes);
+            if bytes.is_empty() {
+                return Ok(None);
             }
+            verify_pinned_artifact(name, &bytes)?;
+            Ok(Some(bytes))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("opening {}: {error}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("opening {}: {error}", path.display())),
     }
+}
+
+/// A verified cached artifact for a lazy load: never downloads, and a
+/// missing artifact is the typed not-installed error.
+fn cached_only(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, String> {
+    read_cached_file(cache, base, name)?.ok_or_else(not_installed_message)
+}
+
+/// Download (or re-verify) the pinned embedding model into the install
+/// root. Only the user's explicit [`INSTALL_COMMAND`] calls this; core never
+/// calls it on its own.
+pub fn install_on_request() -> EaiResult<String> {
+    let base = base_url_from(std::env::var("SUSI_FASTEMBED_MODEL_URL").ok().as_deref());
+    let dir = install_root_from(std::env::var("FASTEMBED_CACHE_DIR").ok().as_deref())
+        .join(DEFAULT_MODEL_SUBDIR);
+    for name in ARTIFACTS {
+        ensure_cached_file(&dir, &base, name)
+            .map_err(|error| EaiError::inference(format!("embedding model install: {error}")))?;
+    }
+    Ok(format!(
+        "Installed and verified the BAAI/bge-small-en-v1.5 embedding model in {}",
+        dir.display()
+    ))
+}
+
+fn ensure_cached_file(cache: &Path, base: &str, name: &str) -> Result<Vec<u8>, String> {
+    ensure_cached_file_with_policy(cache, base, name, &susi_core::mac_policy::egress_permitted)
+}
+fn ensure_cached_file_with_policy(
+    cache: &Path,
+    base: &str,
+    name: &str,
+    egress_allowed: &dyn Fn(&str) -> bool,
+) -> Result<Vec<u8>, String> {
+    if let Some(bytes) = read_cached_file(cache, base, name)? {
+        return Ok(bytes);
+    }
+    let path = cache.join(name);
     let url = format!("{base}/{name}");
     if !egress_allowed(&url) {
         return Err("[PRIVACY] Embedding download denied by network-egress policy; verified cached artifacts remain available".into());
@@ -145,15 +224,13 @@ fn ensure_cached_file_with_policy(
 
 impl Embedder {
     fn load(cache: &Path, base: &str) -> Result<Self, String> {
-        let config: Config =
-            serde_json::from_slice(&ensure_cached_file(cache, base, "config.json")?)
-                .map_err(|e| format!("invalid BERT config: {e}"))?;
+        let config: Config = serde_json::from_slice(&cached_only(cache, base, "config.json")?)
+            .map_err(|e| format!("invalid BERT config: {e}"))?;
         if config.hidden_size != EMBEDDING_DIM || config.max_position_embeddings < 2 {
             return Err("expected the 384-dimensional BGE small model".into());
         }
-        let mut tokenizer =
-            Tokenizer::from_bytes(ensure_cached_file(cache, base, "tokenizer.json")?)
-                .map_err(|e| format!("invalid tokenizer: {e}"))?;
+        let mut tokenizer = Tokenizer::from_bytes(cached_only(cache, base, "tokenizer.json")?)
+            .map_err(|e| format!("invalid tokenizer: {e}"))?;
         tokenizer.with_padding(Some(PaddingParams {
             strategy: PaddingStrategy::BatchLongest,
             pad_id: u32::try_from(config.pad_token_id).map_err(|e| e.to_string())?,
@@ -165,7 +242,7 @@ impl Embedder {
                 ..Default::default()
             }))
             .map_err(|e| e.to_string())?;
-        let weights = ensure_cached_file(cache, base, "model.safetensors")?;
+        let weights = cached_only(cache, base, "model.safetensors")?;
         let variables = VarBuilder::from_buffered_safetensors(weights, DType::F32, &Device::Cpu)
             .map_err(|e| format!("invalid model weights: {e}"))?;
         let model = BertModel::load(variables, &config).map_err(|e| e.to_string())?;
@@ -232,11 +309,19 @@ fn normalize(mut vector: Vec<f32>) -> Result<Vec<f32>, String> {
 }
 
 fn model() -> EaiResult<&'static Mutex<Embedder>> {
+    // Not installed is not a load failure: leave the cell empty, so the
+    // model loads once the user runs `INSTALL_COMMAND`, without a restart.
+    let dir = if model_cell().get().is_none() {
+        let roots = cache_roots(std::env::var("FASTEMBED_CACHE_DIR").ok().as_deref());
+        Some(installed_dir(&roots).ok_or_else(|| EaiError::inference(not_installed_message()))?)
+    } else {
+        None
+    };
     model_cell()
         .get_or_init(|| {
-            let cache = cache_dir_from(std::env::var("FASTEMBED_CACHE_DIR").ok().as_deref());
+            let dir = dir.ok_or_else(not_installed_message)?;
             let base = base_url_from(std::env::var("SUSI_FASTEMBED_MODEL_URL").ok().as_deref());
-            Embedder::load(&cache, &base).map(Mutex::new)
+            Embedder::load(&dir, &base).map(Mutex::new)
         })
         .as_ref()
         .map_err(|error| EaiError::inference(format!("embedder unavailable: {error}")))
@@ -276,6 +361,33 @@ mod tests {
     fn empty_batch_does_not_initialize_or_download() {
         assert!(embed(Vec::new()).unwrap().is_empty());
         assert!(!load_failed());
+    }
+
+    /// An empty cache is the typed not-installed error naming the explicit
+    /// install command; a lazy load never reaches the network for it.
+    #[test]
+    fn a_missing_model_is_not_installed_and_never_downloaded_lazily() {
+        let root = std::env::temp_dir().join(format!("susi-bge-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(installed_dir(std::slice::from_ref(&root)), None);
+        let dir = root.join(DEFAULT_MODEL_SUBDIR);
+        for name in ARTIFACTS {
+            let error = cached_only(&dir, DEFAULT_MODEL_BASE_URL, name).unwrap_err();
+            assert!(error.starts_with(NOT_INSTALLED_TAG), "{error}");
+            assert!(error.contains(INSTALL_COMMAND), "{error}");
+        }
+        assert!(!dir.exists(), "a lazy load created the model cache");
+        let error = Embedder::load(&dir, DEFAULT_MODEL_BASE_URL)
+            .err()
+            .expect("an empty cache cannot load");
+        assert!(error.starts_with(NOT_INSTALLED_TAG), "{error}");
+        std::fs::remove_dir_all(&root).unwrap();
+
+        let override_roots = cache_roots(Some("C:/custom"));
+        assert_eq!(override_roots, vec![PathBuf::from("C:/custom")]);
+        let default_roots = cache_roots(None);
+        assert_eq!(default_roots[0], PathBuf::from(".fastembed_cache"));
+        assert_eq!(default_roots[1], install_root_from(None));
     }
 
     #[test]

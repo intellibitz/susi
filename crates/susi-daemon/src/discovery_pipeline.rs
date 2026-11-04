@@ -129,8 +129,8 @@ pub async fn bootstrap_zero_config_substrate() {
         susi_gmcp::embed_provider::register_local_embed_provider,
     );
 
-    // 4. Background weight priming (hardware-optimal ladder) — idempotent.
-    susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&substrate);
+    // 4. No model download: core never fetches weights by itself (CEO
+    // decision 2026-11-04); `susi os manage model install starter` does.
 
     if std::env::var("SUSI_VERBOSE").is_ok() {
         eprintln!("[BOOTSTRAP] Capability Registry Loaded:");

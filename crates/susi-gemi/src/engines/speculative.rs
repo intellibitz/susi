@@ -114,6 +114,94 @@ fn penalized_argmax(
     argmax(logits)
 }
 
+/// Closed-form Leviathan et al. (2023) expected tokens produced per verification
+/// step of draft length $\gamma$ at per-token acceptance probability $\alpha \in [0, 1]$:
+/// $$\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma + 1}}{1 - \alpha}$$
+#[must_use]
+pub fn expected_tokens_per_verify(alpha: f64, gamma: u32) -> f64 {
+    let a = alpha.clamp(0.0, 1.0);
+    if (1.0 - a).abs() < 1e-9 {
+        return f64::from(gamma) + 1.0;
+    }
+    let exp = i32::try_from(gamma.saturating_add(1)).unwrap_or(i32::MAX);
+    (1.0 - a.powi(exp)) / (1.0 - a)
+}
+
+/// Closed-form wall-clock speedup factor $S(\gamma, \alpha, c)$ for draft length $\gamma$,
+/// token acceptance rate $\alpha \in [0, 1]$, and draft-to-target single-forward cost
+/// ratio $c = T_{\text{draft}} / T_{\text{target}} > 0$:
+/// $$S(\gamma, \alpha, c) = \frac{1 - \alpha^{\gamma + 1}}{(1 - \alpha)(1 + \gamma c)}$$
+#[must_use]
+pub fn net_speedup_factor(alpha: f64, cost_ratio_c: f64, gamma: u32) -> f64 {
+    if gamma == 0 {
+        return 1.0;
+    }
+    let c = cost_ratio_c.max(1e-4);
+    expected_tokens_per_verify(alpha, gamma) / (1.0 + f64::from(gamma) * c)
+}
+
+/// Solve for the exact integer draft length $\gamma^* \in [0, \gamma_{\max}]$ that
+/// maximizes net wall-clock speedup $S(\gamma, \alpha, c)$.
+///
+/// Returns `(0, 1.0)` whenever speculative overhead exceeds the acceptance gain
+/// ($S(\gamma^*, \alpha, c) \le 1.05$), mathematically preventing speculative
+/// decoding from regressing throughput when the draft model is too slow or
+/// disagrees too often with the target.
+#[must_use]
+pub fn optimal_draft_gamma(alpha: f64, cost_ratio_c: f64, max_gamma: u32) -> (u32, f64) {
+    let cap = max_gamma.min(32);
+    let mut best_gamma = 0_u32;
+    let mut best_speedup = 1.0_f64;
+    for g in 1..=cap {
+        let s = net_speedup_factor(alpha, cost_ratio_c, g);
+        if s > best_speedup {
+            best_speedup = s;
+            best_gamma = g;
+        }
+    }
+    if best_speedup <= 1.05 {
+        (0, 1.0)
+    } else {
+        (best_gamma, best_speedup)
+    }
+}
+
+/// Online EWMA tracker for empirical token acceptance rate $\hat{\alpha}$ and
+/// draft-to-target latency ratio $\hat{c}$ during speculative generation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpeculativeAcceptanceTracker {
+    pub alpha_ewma: f64,
+    pub cost_ratio_c: f64,
+    pub rounds: u32,
+}
+
+impl SpeculativeAcceptanceTracker {
+    #[must_use]
+    pub fn new(initial_alpha: f64, cost_ratio_c: f64) -> Self {
+        Self {
+            alpha_ewma: initial_alpha.clamp(0.05, 0.99),
+            cost_ratio_c: cost_ratio_c.max(0.01),
+            rounds: 0,
+        }
+    }
+
+    /// Record one verification round where `drafted` tokens were proposed and
+    /// `accepted` matched the target's greedy pick, returning the updated
+    /// optimal draft length $\gamma^*$.
+    pub fn observe_round(&mut self, drafted: u32, accepted: u32, max_gamma: u32) -> (u32, f64) {
+        if drafted > 0 {
+            let rate = (f64::from(accepted.min(drafted)) / f64::from(drafted)).clamp(0.0, 1.0);
+            self.alpha_ewma = if self.rounds == 0 {
+                0.5 * self.alpha_ewma + 0.5 * rate
+            } else {
+                0.7 * self.alpha_ewma + 0.3 * rate
+            };
+            self.rounds = self.rounds.saturating_add(1);
+        }
+        optimal_draft_gamma(self.alpha_ewma, self.cost_ratio_c, max_gamma)
+    }
+}
+
 pub struct SpeculativeDecoder;
 
 impl SpeculativeDecoder {
@@ -797,5 +885,30 @@ mod tests {
             "a KB-scale non-model file must never be selected as a draft"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn leviathan_closed_form_optimal_gamma_maximizes_speedup_and_disengages_on_slow_draft() {
+        // High acceptance (alpha=0.80) and cheap draft (c=0.05) -> positive speedup > 2.2x
+        let (gamma, speedup) = optimal_draft_gamma(0.80, 0.05, 16);
+        assert!((4..=10).contains(&gamma), "gamma={gamma}");
+        assert!(speedup > 2.2, "speedup={speedup}");
+
+        // Heavy host-overhead draft (c=0.85, alpha=0.50) -> speedup < 1.0 -> disengages (gamma=0)
+        let (disengaged, sp) = optimal_draft_gamma(0.50, 0.85, 16);
+        assert_eq!(disengaged, 0);
+        assert!((sp - 1.0).abs() < 1e-9);
+
+        let mut tracker = SpeculativeAcceptanceTracker::new(0.8, 0.08);
+        let (g1, _) = tracker.observe_round(5, 5, 12);
+        assert!(g1 >= 4);
+        for _ in 0..8 {
+            tracker.observe_round(5, 0, 12);
+        }
+        let (g_collapsed, _) = tracker.observe_round(5, 0, 12);
+        assert_eq!(
+            g_collapsed, 0,
+            "persistent draft rejections must auto-disengage"
+        );
     }
 }

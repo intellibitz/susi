@@ -111,11 +111,16 @@ fn print_plan(plan: &SetupPlan) {
 
 /// A bounded filename inventory, not model admission or recursive discovery.
 /// Installed channels reuse existing model directories through these paths.
-fn opening_model_inventory(
+/// `susi status` and `susi auto status` report it too: reading names starts
+/// no probe and no download.
+pub(crate) fn opening_model_inventory(
     config_home: &std::path::Path,
     data_home: &std::path::Path,
 ) -> Vec<String> {
     let mut roots = vec![data_home.join("models")];
+    if let Some(dir) = std::env::var_os("SUSI_MODEL_DIR") {
+        roots.push(std::path::PathBuf::from(dir));
+    }
     if let Some(config) = std::fs::read_to_string(config_home.join("config.json"))
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())

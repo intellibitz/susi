@@ -118,7 +118,16 @@ mod tests {
     #[test]
     fn agent_card_publishes_per_capability_skills() {
         let card = GawdA2AExecutor::new().agent_card();
-        for id in ["missions", "agents", "frameworks", "models"] {
+        for id in [
+            "missions",
+            "agents",
+            "frameworks",
+            "models",
+            "harness",
+            "extensions",
+            "agent_orchestration",
+            "task_delegation",
+        ] {
             let skill = card
                 .skills
                 .iter()
@@ -128,6 +137,10 @@ mod tests {
             assert_eq!(skill.input_modes, ["text/plain"], "{id}");
             assert_eq!(skill.output_modes, ["text/plain"], "{id}");
         }
+        let harness = card.skills.iter().find(|s| s.id == "harness").unwrap();
+        assert!(harness.description.contains("brain_pareto"));
+        let extensions = card.skills.iter().find(|s| s.id == "extensions").unwrap();
+        assert!(extensions.description.contains("extensions_"));
         let mut ids: Vec<&str> = card.skills.iter().map(|s| s.id.as_str()).collect();
         ids.sort_unstable();
         let before = ids.len();

@@ -14,6 +14,12 @@ It preserves input order and uses attention-masked batches of at most 32 texts.
 Model artifacts use a separate pinned-revision cache directory, so existing
 ONNX artifacts are never mistaken for safetensors or deleted.
 
+Core never downloads the model by itself (CEO decision 2026-11-04). `embed`
+loads only verified cached artifacts; when none are cached it fails with a typed
+`[NO_EMBEDDING_MODEL]` error naming `susi os manage model install embeddings`,
+the explicit command that downloads them (`install_on_request`) into the
+substrate home's `.fastembed_cache`, which the daemon reads.
+
 `FASTEMBED_CACHE_DIR` remains a supported cache-root override.
 `SUSI_FASTEMBED_MODEL_URL` accepts only the audited pinned publisher URL.
 Other origins or models are refused until they have an artifact-bound license

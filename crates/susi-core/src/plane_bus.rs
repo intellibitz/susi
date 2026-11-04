@@ -1032,6 +1032,50 @@ pub mod tools {
             .to_string())
     }
 
+    /// Tools that download a model. They run only on an explicit user or
+    /// client request (the CLI, or an MCP client's `tools/call`), never
+    /// because a model's reply, a mission plan or a DAG step named them:
+    /// core never downloads a model by itself (CEO decision 2026-11-04,
+    /// "No, ask first").
+    pub const USER_REQUEST_ONLY_TOOLS: &[&str] = &["scout_model"];
+
+    /// True when `name` is one of [`USER_REQUEST_ONLY_TOOLS`].
+    #[must_use]
+    pub fn is_user_request_only(name: &str) -> bool {
+        let name = name.trim();
+        USER_REQUEST_ONLY_TOOLS
+            .iter()
+            .any(|tool| tool.eq_ignore_ascii_case(name))
+    }
+
+    /// Why an autonomous dispatcher refused a [`USER_REQUEST_ONLY_TOOLS`]
+    /// call, naming the commands that download a model on request.
+    #[must_use]
+    pub fn user_request_only_refusal(name: &str) -> String {
+        format!(
+            "`{}` downloads a model, and Susi never downloads one by itself: \
+             it runs only when you ask. Run `susi os manage model install starter` \
+             for the audited starter, or `susi scout-model <https url>` for a \
+             specific model. Cloud models work without a download.",
+            name.trim()
+        )
+    }
+
+    /// Execute a tool that a model reply, a mission plan or a DAG step
+    /// named, rather than the user. A [`USER_REQUEST_ONLY_TOOLS`] call is
+    /// refused before it reaches the bus; every other tool runs exactly as
+    /// [`execute_tool`] runs it.
+    pub fn execute_autonomous_tool(
+        name: &str,
+        args: &Value,
+        workspace: &Path,
+    ) -> EaiResult<String> {
+        if is_user_request_only(name) {
+            return Err(EaiError::governance(user_request_only_refusal(name)));
+        }
+        execute_tool(name, args, workspace)
+    }
+
     pub fn scout_reasoning_remotes() -> Value {
         req_ok(topics::TOOLS_SCOUT_REMOTES, json!({}))
     }
@@ -1283,6 +1327,26 @@ pub mod gawd_hooks {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn autonomous_dispatch_refuses_model_download_tools_before_the_bus() {
+        for name in ["scout_model", " SCOUT_MODEL "] {
+            let error = tools::execute_autonomous_tool(
+                name,
+                &json!("https://huggingface.co/x/y/resolve/main/m.gguf"),
+                Path::new("."),
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains("never downloads one by itself"), "{error}");
+            assert!(
+                error.contains("susi os manage model install starter"),
+                "{error}"
+            );
+        }
+        assert!(!tools::is_user_request_only("read_file"));
+        assert!(!tools::is_user_request_only("verify_model_download_agent"));
+    }
 
     struct Echo;
 
