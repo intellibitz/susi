@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ROOTTESTS5TD1104",
-  "created_unix": 1793816374
+  "created_unix": 1793816374,
+  "closed": {
+    "at_unix": 1793816794,
+    "commit": "ed17025d77eaaf874cc60f92dc05ef15c45cb496",
+    "by": "ROOTTESTS5TD1104"
+  }
 }
