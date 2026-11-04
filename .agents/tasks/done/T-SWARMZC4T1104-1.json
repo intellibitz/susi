@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "SWARMZC4T1104",
-  "created_unix": 1793787213
+  "created_unix": 1793787213,
+  "closed": {
+    "at_unix": 1793787635,
+    "commit": "d34de0e29b9f86f7b59f2c2dbcdab2f6747eaf0f",
+    "by": "SWARMZC4T1104"
+  }
 }
