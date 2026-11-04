@@ -52,3 +52,46 @@ pub fn install(service: &GmcpService) -> Result<(), ErrorData> {
 fn internal(e: impl std::fmt::Display) -> ErrorData {
     ErrorData::internal_error(e.to_string(), None)
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn internal_helper_builds_internal_error_data_with_message() {
+        let err = internal("catalog serialization failure");
+        assert!(err.message.contains("catalog serialization failure"));
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+    }
+
+    #[test]
+    fn install_registers_builtin_resources_templates_prompts_and_completions() {
+        let ws = std::env::temp_dir().join("susi-gmcp-catalog-install");
+        let service = GmcpService::new(ws);
+        install(&service).unwrap();
+
+        let discover = service.discover_result();
+        let wire = serde_json::to_value(&discover).unwrap();
+        assert!(wire.to_string().contains("susi-gmcp"));
+    }
+
+    #[test]
+    fn install_is_idempotent_across_repeated_invocations_on_same_service() {
+        let ws = std::env::temp_dir().join("susi-gmcp-catalog-idempotent");
+        let service = GmcpService::new(ws);
+        install(&service).unwrap();
+        install(&service).unwrap();
+    }
+
+    #[test]
+    fn session_clone_shares_installed_catalog_across_sessions() {
+        let ws = std::env::temp_dir().join("susi-gmcp-catalog-session");
+        let service = GmcpService::new(ws);
+        install(&service).unwrap();
+        let session = service.session();
+        assert_eq!(
+            serde_json::to_value(service.discover_result()).unwrap(),
+            serde_json::to_value(session.discover_result()).unwrap()
+        );
+    }
+}
