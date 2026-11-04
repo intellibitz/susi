@@ -304,4 +304,29 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn decide_handles_zero_replicas_overload_and_saturated_hourly_spend_above_cap() {
+        let policy = sample_policy();
+        let zero_replicas_overloaded = EndpointMetrics {
+            replicas: 0,
+            queue_depth: 20,
+            p95_latency_ms: 100,
+            in_flight: 0,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&zero_replicas_overloaded, &policy, 5, 0),
+            ScaleDecision::ScaleOut {
+                add: 5,
+                reason: "queue/latency above target",
+            }
+        );
+        assert_eq!(
+            decide(&zero_replicas_overloaded, &policy, 5, 600),
+            ScaleDecision::Hold {
+                reason: "spend-cap: no replica-hour budget left",
+            }
+        );
+    }
 }

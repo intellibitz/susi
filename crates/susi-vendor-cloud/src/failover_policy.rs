@@ -275,4 +275,26 @@ mod tests {
             assert_eq!(err.to_string(), "no policy-preserving route ()");
         }
     }
+
+    #[test]
+    fn privacy_ordering_and_error_trait_implementation_for_no_route() {
+        assert!(Privacy::LocalOnly < Privacy::CloudOk);
+        let no_route = NoRoute { refusals: vec![] };
+        assert!(std::error::Error::source(&no_route).is_none());
+
+        let constraints = RouteConstraints {
+            needs_capability: "tool:search".into(),
+            privacy: Privacy::LocalOnly,
+            deadline_ms: 100,
+            budget_cents: 50,
+        };
+        let multi_cap = Endpoint {
+            capabilities: vec!["tool:code".into(), "tool:search".into()],
+            ..base_endpoint("ep-multicap")
+        };
+        assert_eq!(
+            route(&constraints, std::slice::from_ref(&multi_cap)),
+            Ok(multi_cap)
+        );
+    }
 }
