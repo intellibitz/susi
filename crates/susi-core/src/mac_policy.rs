@@ -882,7 +882,7 @@ impl MacPolicy {
             // per-sender dispatch check ever ran.
             return vec![(actions::TRANSMIT, "app://*")];
         }
-        if t == "reason" || t == "susi_solve" || t.starts_with("agents_") {
+        if t == "reason" || t == "susi_solve" || t == "mission_run" || t.starts_with("agents_") {
             // Local swarm reasoning — read only at MAC layer; cloud blocked separately.
             return vec![(actions::FILESYSTEM_READ, "*")];
         }
