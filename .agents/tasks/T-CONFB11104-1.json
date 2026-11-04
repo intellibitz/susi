@@ -1,0 +1,19 @@
+{
+  "id": "T-CONFB11104-1",
+  "title": "B1 out-of-contract internal port registry and 9093 MCP alias tools/list conformance",
+  "goal": "Add CONTRACT_PORTS, OUT_OF_CONTRACT_PORTS, OUT_OF_CONTRACT_IPC, is_contract_port, and out_of_contract_role in susi-conformance, and extend mcp_tools to verify tools/list on both 9090 and 9093 (MCP_ALIAS).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-conformance"
+    ]
+  },
+  "created_by": "CONFB11104",
+  "created_unix": 1793755000
+}
