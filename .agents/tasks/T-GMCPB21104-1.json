@@ -1,0 +1,27 @@
+{
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "susi-gmcp",
+                               "--lib",
+                               "protocol::tests"
+                           ]
+               },
+    "id":  "T-GMCPB21104-1",
+    "size":  "s",
+    "goal":  "Add B2 (PSP-03) schema compilation, complexity limit, and registered tool validation unit tests to crates/susi-gmcp/src/protocol.rs verifying every registered MCP tool inputSchema compiles cleanly and declares typed properties or explicit no-args.",
+    "scopes":  [
+                   ".agents/tasks/T-GMCPB21104-1.json",
+                   "crates/susi-gmcp/src/protocol.rs"
+               ],
+    "created_unix":  1793772200,
+    "created_by":  "GMCPB21104",
+    "title":  "B2 (PSP-03) MCP Tool Schema and Complexity Invariant Verification in susi-gmcp",
+    "deps":  [
+
+             ]
+}

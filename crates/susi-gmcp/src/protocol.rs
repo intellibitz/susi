@@ -877,4 +877,172 @@ mod tests {
         let request = serde_json::from_value(json!({"cursor":"bad"})).unwrap();
         assert!(page(vec![1], Some(request)).is_err());
     }
+
+    #[test]
+    fn every_registered_mcp_tool_has_valid_typed_or_explicit_input_schema() {
+        let service = GmcpService::new(std::env::temp_dir());
+        let tools = service.tools().expect("tools catalog must load");
+        assert!(!tools.is_empty(), "MCP tools catalog must not be empty");
+
+        let mut core_checked = 0usize;
+        for tool in &tools {
+            let schema_val = Value::Object((*tool.input_schema).clone());
+            compile_schema(&schema_val).unwrap_or_else(|e| {
+                panic!(
+                    "tool `{}` input_schema failed compile_schema: {}",
+                    tool.name, e.message
+                )
+            });
+            assert_eq!(
+                tool.input_schema.get("type").and_then(Value::as_str),
+                Some("object"),
+                "tool `{}` input_schema must declare root type \"object\"",
+                tool.name
+            );
+
+            if crate::tools::args::core_input_schema(&tool.name).is_some() {
+                core_checked += 1;
+                assert!(
+                    !tool
+                        .input_schema
+                        .contains_key(crate::tools::args::PASSTHROUGH_KEY),
+                    "core tool `{}` must not use passthrough input schema",
+                    tool.name
+                );
+                let props = tool
+                    .input_schema
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "core tool `{}` must declare an object `properties` map",
+                            tool.name
+                        )
+                    });
+                let explicit_no_args = props.is_empty()
+                    && tool
+                        .input_schema
+                        .get("additionalProperties")
+                        .and_then(Value::as_bool)
+                        == Some(false);
+                assert!(
+                    !props.is_empty() || explicit_no_args,
+                    "core tool `{}` must have non-empty `properties` or explicit no-args (`additionalProperties: false`)",
+                    tool.name
+                );
+            }
+        }
+        assert!(
+            core_checked > 0,
+            "at least one built-in core tool must be verified"
+        );
+    }
+
+    #[test]
+    fn compile_schema_enforces_depth_and_node_complexity_limits() {
+        let valid_schema = json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "minLength": 1 }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        });
+        let validator = compile_schema(&valid_schema).expect("valid object schema must compile");
+        assert!(validator.is_valid(&json!({ "query": "status" })));
+        assert!(!validator.is_valid(&json!({ "query": "" })));
+        assert!(!validator.is_valid(&json!({})));
+
+        // Build a schema nested beyond the 64-level depth ceiling.
+        let mut deep = json!({ "type": "string" });
+        for _ in 0..70 {
+            deep = json!({
+                "type": "object",
+                "properties": { "nested": deep }
+            });
+        }
+        let deep_err = match compile_schema(&deep) {
+            Ok(_) => panic!("schema exceeding depth limit must be rejected"),
+            Err(err) => err,
+        };
+        assert_eq!(deep_err.code, ErrorCode::INVALID_PARAMS);
+        assert!(
+            deep_err.message.contains("Schema exceeds complexity limit"),
+            "unexpected error message: {}",
+            deep_err.message
+        );
+
+        let invalid_type = json!({
+            "type": "not-a-valid-json-schema-type"
+        });
+        let type_err = match compile_schema(&invalid_type) {
+            Ok(_) => panic!("malformed schema type must be rejected"),
+            Err(err) => err,
+        };
+        assert_eq!(type_err.code, ErrorCode::INVALID_PARAMS);
+        assert!(
+            type_err.message.contains("Invalid tool schema"),
+            "unexpected error message: {}",
+            type_err.message
+        );
+    }
+
+    #[test]
+    fn register_tool_replaces_catalog_entry_and_validates_arguments() {
+        let service = GmcpService::new(std::env::temp_dir());
+        let schema_obj: JsonObject = serde_json::from_value(json!({
+            "type": "object",
+            "properties": {
+                "count": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["count"],
+            "additionalProperties": false
+        }))
+        .expect("schema object");
+        let tool = Tool::new_with_raw(
+            "custom_counter",
+            Some("Count items with strict schema validation".into()),
+            Arc::new(schema_obj),
+        );
+        let handler: ToolHandler = Arc::new(|_req, _ctx| {
+            Box::pin(async {
+                Ok(CallToolResult::success(vec![ContentBlock::text("counted")]).into())
+            })
+        });
+        service
+            .register_tool(tool, handler)
+            .expect("custom tool with valid schema must register");
+
+        let fetched = service
+            .get_tool("custom_counter")
+            .expect("registered tool must appear in get_tool");
+        assert_eq!(
+            fetched.description.as_deref(),
+            Some("Count items with strict schema validation")
+        );
+
+        let registered = service
+            .catalog
+            .read()
+            .tools
+            .get("custom_counter")
+            .cloned()
+            .expect("catalog entry must exist");
+        assert!(registered.input.is_valid(&json!({ "count": 3 })));
+        assert!(!registered.input.is_valid(&json!({ "count": 0 })));
+        assert!(!registered.input.is_valid(&json!({ "count": "three" })));
+        assert!(!registered.input.is_valid(&json!({})));
+
+        let bad_schema: JsonObject = serde_json::from_value(json!({
+            "type": "invalid_type_name"
+        }))
+        .expect("bad schema object");
+        let bad_tool = Tool::new_with_raw("bad_tool", None, Arc::new(bad_schema));
+        let bad_handler: ToolHandler =
+            Arc::new(|_req, _ctx| Box::pin(async { Ok(CallToolResult::success(vec![]).into()) }));
+        assert!(
+            service.register_tool(bad_tool, bad_handler).is_err(),
+            "register_tool must reject invalid inputSchema"
+        );
+    }
 }
