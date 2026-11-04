@@ -77,3 +77,105 @@ fn independent_verify_dispatch_wiring() {
             .completed
     );
 }
+
+#[test]
+fn independent_verify_rejects_failing_conclusion_even_from_distinct_verifier() {
+    let fleet = vec![
+        AgentEvidence {
+            id: "DevOpsAgent".into(),
+            capabilities: BTreeSet::from(["code".into()]),
+            suitability: 0.9,
+            cost_per_success: 1.0,
+        },
+        AgentEvidence {
+            id: "EpistemicAuditorAgent".into(),
+            capabilities: BTreeSet::from(["review".into()]),
+            suitability: 0.8,
+            cost_per_success: 0.5,
+        },
+    ];
+    let mut dag = MissionDag::new("reject pass=false");
+    let roles = dag
+        .assign_native_roles(
+            &fleet,
+            &BTreeSet::from(["code".into(), "review".into()]),
+            10.0,
+        )
+        .expect("roles");
+    let failed = ReviewConclusion {
+        reviewer: roles.verifier,
+        pass: false,
+        receipts: vec![ToolReceipt {
+            tool: "cargo_test".into(),
+            digest: digest_fields(&["receipt", "fail-1"]),
+        }],
+        implementer: roles.implementer,
+    };
+    assert!(!dag.accept_independent_verify(&failed));
+    assert!(
+        !dag.nodes
+            .iter()
+            .find(|n| n.title == "Independent Verify")
+            .expect("verify node")
+            .completed
+    );
+}
+
+#[test]
+fn independent_verify_rejects_duplicate_receipt_digests() {
+    let mut dag = MissionDag::new("reject duplicate receipt digests");
+    let dup_digest = digest_fields(&["receipt", "dup"]);
+    let replayed = ReviewConclusion {
+        reviewer: "EpistemicAuditorAgent".into(),
+        pass: true,
+        receipts: vec![
+            ToolReceipt {
+                tool: "cargo_test".into(),
+                digest: dup_digest.clone(),
+            },
+            ToolReceipt {
+                tool: "cargo_clippy".into(),
+                digest: dup_digest,
+            },
+        ],
+        implementer: "DevOpsAgent".into(),
+    };
+    assert!(!dag.accept_independent_verify(&replayed));
+}
+
+#[test]
+fn assign_native_roles_errors_without_independent_verifier_and_tracks_cost_bound() {
+    let single_agent = vec![AgentEvidence {
+        id: "DevOpsAgent".into(),
+        capabilities: BTreeSet::from(["code".into()]),
+        suitability: 0.9,
+        cost_per_success: 5.0,
+    }];
+    let mut dag = MissionDag::new("role selection bounds");
+    assert!(dag
+        .assign_native_roles(&single_agent, &BTreeSet::from(["code".into()]), 10.0)
+        .is_err());
+
+    let pair = vec![
+        AgentEvidence {
+            id: "DevOpsAgent".into(),
+            capabilities: BTreeSet::from(["code".into()]),
+            suitability: 0.9,
+            cost_per_success: 5.0,
+        },
+        AgentEvidence {
+            id: "EpistemicAuditorAgent".into(),
+            capabilities: BTreeSet::from(["review".into()]),
+            suitability: 0.8,
+            cost_per_success: 5.0,
+        },
+    ];
+    let assigned = dag
+        .assign_native_roles(
+            &pair,
+            &BTreeSet::from(["code".into(), "review".into()]),
+            4.0,
+        )
+        .expect("two native agents assign");
+    assert!(!assigned.multi_agent_cheaper);
+}
