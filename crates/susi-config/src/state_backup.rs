@@ -415,4 +415,59 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn restore_rejects_ciphertext_tampering_manifest_section_mismatch_and_missing_backup_root() {
+        let mut sections = BTreeMap::new();
+        sections.insert("config.json".to_string(), br#"{"port_offset":0}"#.to_vec());
+        sections.insert("settings.json".to_string(), br#"{"theme":"dark"}"#.to_vec());
+
+        let blob = backup(&sections, 11, false).expect("create valid backup");
+
+        // 1. Tampering with a section's ciphertext causes restore to fail authentication.
+        let mut tampered_cipher = blob.clone();
+        let entry = tampered_cipher
+            .sections
+            .get_mut("config.json")
+            .expect("config.json ciphertext");
+        let last = if entry.ends_with('0') { '1' } else { '0' };
+        entry.pop();
+        entry.push(last);
+        let auth_err =
+            restore(&tampered_cipher, 11).expect_err("tampered ciphertext must fail restore");
+        assert!(auth_err.contains("backup authentication failed"));
+
+        // 2. Truncated ciphertext shorter than or equal to nonce length is rejected.
+        let mut short_cipher = blob.clone();
+        short_cipher
+            .sections
+            .insert("config.json".to_string(), hex::encode([0u8; NONCE_LEN]));
+        let short_err =
+            restore(&short_cipher, 11).expect_err("nonce-only ciphertext must fail restore");
+        assert!(short_err.contains("has no authenticated payload"));
+
+        // 3. Removing an encrypted section while keeping it in manifest.sections fails manifest validation.
+        let mut missing_sec = blob.clone();
+        missing_sec.sections.remove("settings.json");
+        let mismatch_err =
+            restore(&missing_sec, 11).expect_err("manifest/section mismatch must fail");
+        assert!(mismatch_err.contains("backup manifest does not match encrypted sections"));
+
+        // 4. Duplicate section entries in manifest.sections are rejected.
+        let mut dup_manifest = blob;
+        dup_manifest
+            .manifest
+            .sections
+            .push("config.json".to_string());
+        let dup_err = restore(&dup_manifest, 11).expect_err("duplicate manifest section must fail");
+        assert!(dup_err.contains("backup manifest contains duplicate sections"));
+
+        // 5. collect_sections_report on a non-existent root directory returns an unavailable root error.
+        let absent_root =
+            std::env::temp_dir().join(format!("susi-absent-backup-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&absent_root);
+        let root_err = collect_sections_report(&absent_root, &["config.json"])
+            .expect_err("non-existent root must fail");
+        assert!(root_err.contains("backup root is unavailable"));
+    }
 }

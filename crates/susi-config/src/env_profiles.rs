@@ -385,4 +385,76 @@ mod tests {
         assert_eq!(loaded, set);
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn resolve_unknown_profile_self_inheritance_cycle_and_invalid_workspace_profiles_fail() {
+        let mut set = ProfileSet::default();
+        set.profiles.insert(
+            "dev".into(),
+            Profile {
+                env: EnvKind::Development,
+                extends: vec![],
+                values: BTreeMap::new(),
+            },
+        );
+
+        // 1. Resolving an unknown profile name returns Err.
+        let unknown_err = set
+            .resolve("nonexistent")
+            .expect_err("unknown profile must fail")
+            .to_string();
+        assert!(unknown_err.contains("unknown profile nonexistent"));
+
+        // 2. Self-inheritance (a extends a) is rejected as a profile inheritance cycle.
+        let mut self_cycle = ProfileSet::default();
+        self_cycle.profiles.insert(
+            "a".into(),
+            Profile {
+                env: EnvKind::Shared,
+                extends: vec!["a".into()],
+                values: BTreeMap::new(),
+            },
+        );
+        let cycle_err = self_cycle
+            .validate()
+            .expect_err("self-inheritance must fail")
+            .to_string();
+        assert!(cycle_err.contains("profile inheritance cycle"));
+
+        // 3. load_workspace_or_default returns Err when .susi/profiles.json has an invalid graph.
+        let ws = std::env::temp_dir().join(format!("susi_env_prof_invalid_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        let dot_susi = ws.join(".susi");
+        std::fs::create_dir_all(&dot_susi).unwrap();
+
+        let mut bad_set = ProfileSet::default();
+        bad_set.profiles.insert(
+            "prod".into(),
+            Profile {
+                env: EnvKind::Production,
+                extends: vec![],
+                values: BTreeMap::new(),
+            },
+        );
+        bad_set.profiles.insert(
+            "dev".into(),
+            Profile {
+                env: EnvKind::Development,
+                extends: vec!["prod".into()],
+                values: BTreeMap::new(),
+            },
+        );
+        std::fs::write(
+            dot_susi.join("profiles.json"),
+            serde_json::to_string_pretty(&bad_set).unwrap(),
+        )
+        .unwrap();
+
+        let load_err = ProfileSet::load_workspace_or_default(&ws)
+            .expect_err("invalid workspace profiles.json must fail")
+            .to_string();
+        assert!(load_err.contains("extends higher-environment profile"));
+
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

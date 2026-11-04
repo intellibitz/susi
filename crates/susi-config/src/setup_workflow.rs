@@ -519,4 +519,48 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn truncate_output_multibyte_boundaries_and_json_validation_helpers() {
+        // 1. truncate_output leaves strings <= 4096 bytes unchanged and truncates on a UTF-8 char boundary.
+        let exact = "a".repeat(4096);
+        assert_eq!(truncate_output(&exact), exact);
+
+        // Build a string where byte 4096 lands inside a 4-byte emoji ('🦀').
+        let prefix = "x".repeat(4094);
+        let over = format!("{prefix}🦀tail");
+        assert!(over.len() > 4096);
+        let truncated = truncate_output(&over);
+        assert!(truncated.ends_with('…'));
+        let without_ellipsis = truncated.strip_suffix('…').expect("trailing ellipsis");
+        assert_eq!(without_ellipsis.len(), 4094);
+
+        // 2. validate_json_object accepts JSON objects and rejects arrays, primitives, and malformed JSON.
+        assert!(validate_json_object("{}", "tools").is_ok());
+        assert!(validate_json_object(r#"{"k":1}"#, "tools").is_ok());
+        let arr_err = validate_json_object("[1, 2]", "tools").expect_err("array is not object");
+        assert!(arr_err.contains("tools must be a JSON object"));
+        let num_err = validate_json_object("42", "policy").expect_err("primitive is not object");
+        assert!(num_err.contains("policy must be a JSON object"));
+        let bad_err = validate_json_object("{bad", "config").expect_err("malformed JSON");
+        assert!(bad_err.contains("config are not valid JSON"));
+
+        // 3. write_or_validate_json preserves an existing valid JSON file and fails on corrupt JSON.
+        let dir = unique_temp_dir("json-helpers");
+        let target = dir.join("custom.json");
+        write_or_validate_json(&target, &serde_json::json!({"seeded": true}), "custom")
+            .expect("write initial json");
+        std::fs::write(&target, r#"{"user_preserved": 99}"#).expect("write user json");
+        write_or_validate_json(&target, &serde_json::json!({"seeded": true}), "custom")
+            .expect("validate existing valid json without overwriting");
+        let preserved = std::fs::read_to_string(&target).expect("read preserved json");
+        assert!(preserved.contains("user_preserved"));
+
+        std::fs::write(&target, b"{corrupt").expect("write corrupt json");
+        let corrupt_err =
+            write_or_validate_json(&target, &serde_json::json!({}), "custom").unwrap_err();
+        assert!(corrupt_err.contains("custom is not valid JSON"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

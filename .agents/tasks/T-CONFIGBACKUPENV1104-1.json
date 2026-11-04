@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CONFIGBACKUPENV1104-1",
+  "title": "Expand inline unit tests for setup_workflow, state_backup, secret_ref, and env_profiles in susi-config",
+  "touch": [
+    "crates/susi-config/src/setup_workflow.rs",
+    "crates/susi-config/src/state_backup.rs",
+    "crates/susi-config/src/secret_ref.rs",
+    "crates/susi-config/src/env_profiles.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-config --lib",
+      "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings"
+    ]
+  }
+}
