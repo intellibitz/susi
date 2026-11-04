@@ -16,8 +16,9 @@
 
 use std::path::PathBuf;
 use susi_gawd::cross_platform_service::{
-    render_launchd_plist, render_systemd_unit, render_windows_schtasks_cmd, PlatformDiagnostics,
-    PlatformKind, ServiceManagerKind,
+    render_launchd_plist, render_systemd_unit, render_windows_schtasks_cmd,
+    render_windows_schtasks_delete_cmd, uninstall_service_command, PlatformDiagnostics,
+    PlatformKind, ServiceConfig, ServiceManagerKind,
 };
 
 #[test]
@@ -40,6 +41,29 @@ fn cross_platform_service_definitions_are_non_empty() {
 
     let win_task = render_windows_schtasks_cmd(&test_bin);
     assert!(win_task.contains("Register-ScheduledTask"));
+    assert!(win_task.contains("-RunLevel Limited"));
+    assert!(!win_task.contains("-RunLevel Highest"));
+}
+
+#[test]
+fn cross_platform_service_uninstall_commands_render_for_every_os() {
+    let cfg = ServiceConfig::default_daemon("susi");
+    assert_eq!(
+        render_windows_schtasks_delete_cmd(&cfg),
+        "schtasks /Delete /TN \"susi-daemon\" /F"
+    );
+    assert_eq!(
+        uninstall_service_command(PlatformKind::Windows, &cfg),
+        "schtasks /Delete /TN \"susi-daemon\" /F"
+    );
+    assert_eq!(
+        uninstall_service_command(PlatformKind::Linux, &cfg),
+        "systemctl --user disable --now susi-daemon.service"
+    );
+    assert_eq!(
+        uninstall_service_command(PlatformKind::MacOS, &cfg),
+        "launchctl unload ~/Library/LaunchAgents/com.intellibitz.susi.susi-daemon.plist"
+    );
 }
 
 #[test]

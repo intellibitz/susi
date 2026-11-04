@@ -242,16 +242,62 @@ pub fn render_launchd_plist(binary_path: &Path) -> String {
     )
 }
 
-/// Render a Windows PowerShell command to register the daemon as a Scheduled Task.
+/// Alias for [`PlatformKind`] used by service installation/uninstallation helpers.
+pub type ServicePlatform = PlatformKind;
+
+/// Declarative configuration for a background daemon service unit or scheduled task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceConfig {
+    pub name: String,
+    pub binary_path: std::path::PathBuf,
+}
+
+impl ServiceConfig {
+    #[must_use]
+    pub fn new(name: impl Into<String>, binary_path: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            name: name.into(),
+            binary_path: binary_path.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn default_daemon(binary_path: impl Into<std::path::PathBuf>) -> Self {
+        Self::new("susi-daemon", binary_path)
+    }
+}
+
+/// Render a Windows PowerShell command to register the daemon as a Scheduled Task
+/// under least privilege (`-RunLevel Limited`, matching `install.ps1`).
 #[must_use]
 pub fn render_windows_schtasks_cmd(binary_path: &Path) -> String {
     format!(
         "$action = New-ScheduledTaskAction -Execute '{}' -Argument 'daemon'; \
          $trigger = New-ScheduledTaskTrigger -AtLogOn; \
-         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest; \
+         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Limited; \
          Register-ScheduledTask -TaskName 'susi-daemon' -Action $action -Trigger $trigger -Principal $principal -Force",
         binary_path.display()
     )
+}
+
+/// Render the Windows `schtasks` command to delete a registered Scheduled Task.
+#[must_use]
+pub fn render_windows_schtasks_delete_cmd(config: &ServiceConfig) -> String {
+    format!("schtasks /Delete /TN \"{}\" /F", config.name)
+}
+
+/// Render the OS-appropriate service uninstallation command for `platform`.
+#[must_use]
+pub fn uninstall_service_command(platform: ServicePlatform, config: &ServiceConfig) -> String {
+    match platform {
+        PlatformKind::Linux => format!("systemctl --user disable --now {}.service", config.name),
+        PlatformKind::MacOS => format!(
+            "launchctl unload ~/Library/LaunchAgents/com.intellibitz.susi.{}.plist",
+            config.name
+        ),
+        PlatformKind::Windows => render_windows_schtasks_delete_cmd(config),
+        PlatformKind::Other => format!("pkill -f {}", config.name),
+    }
 }
 
 #[cfg(test)]
@@ -308,7 +354,25 @@ mod tests {
         let bin = PathBuf::from("C:\\Users\\user\\.susi\\bin\\susi.exe");
         let rendered = render_windows_schtasks_cmd(&bin);
         assert!(rendered.contains("Register-ScheduledTask -TaskName 'susi-daemon'"));
+        assert!(rendered.contains("-RunLevel Limited"));
+        assert!(!rendered.contains("-RunLevel Highest"));
         assert!(rendered.contains("C:\\Users\\user\\.susi\\bin\\susi.exe"));
+    }
+
+    #[test]
+    fn windows_schtasks_delete_and_cross_platform_uninstall_render_cleanly() {
+        let cfg = ServiceConfig::default_daemon("C:\\Users\\user\\.susi\\bin\\susi.exe");
+        assert_eq!(
+            render_windows_schtasks_delete_cmd(&cfg),
+            "schtasks /Delete /TN \"susi-daemon\" /F"
+        );
+        assert_eq!(
+            uninstall_service_command(PlatformKind::Windows, &cfg),
+            "schtasks /Delete /TN \"susi-daemon\" /F"
+        );
+        assert!(uninstall_service_command(PlatformKind::Linux, &cfg)
+            .contains("systemctl --user disable --now susi-daemon.service"));
+        assert!(uninstall_service_command(PlatformKind::MacOS, &cfg).contains("launchctl unload"));
     }
 
     #[test]

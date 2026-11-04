@@ -307,10 +307,95 @@ impl SusiRuntimeAdmin {
     }
 
     #[cfg(not(unix))]
-    fn scan_for_exfiltration_risks(_substrate_home: &Path) -> Vec<String> {
-        // Permission-based exposure checks are Unix-specific; nothing to
-        // flag on platforms without POSIX mode bits.
-        Vec::new()
+    fn scan_for_exfiltration_risks(substrate_home: &Path) -> Vec<String> {
+        const SENSITIVE_NAME_FRAGMENTS: &[&str] = &[
+            "key",
+            "token",
+            "secret",
+            "credential",
+            "id_rsa",
+            "id_ed25519",
+            ".pem",
+        ];
+        const MAX_ENTRIES: usize = 4096;
+
+        let mut findings = Vec::new();
+        let mut stack = vec![substrate_home.to_path_buf()];
+        let mut visited = 0usize;
+
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                visited += 1;
+                if visited > MAX_ENTRIES {
+                    return findings;
+                }
+                let path = entry.path();
+                let Ok(metadata) = entry.metadata() else {
+                    continue;
+                };
+                if metadata.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                let lower = name.to_ascii_lowercase();
+                if !SENSITIVE_NAME_FRAGMENTS
+                    .iter()
+                    .any(|frag| lower.contains(frag))
+                {
+                    continue;
+                }
+                if let Ok(out) = std::process::Command::new("icacls").arg(&path).output() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if Self::windows_acl_is_overly_permissive(&stdout) {
+                        findings.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+        findings
+    }
+
+    /// Inspect `icacls` output and return `true` when broad non-owner principals
+    /// (`Everyone`, `BUILTIN\Users`, `Authenticated Users`, `Guests`) are granted
+    /// write, modify, or full-access permissions (`(F)`, `(M)`, `(W)`), or when
+    /// `Everyone` is granted read access on a credential file.
+    #[cfg(any(not(unix), test))]
+    #[must_use]
+    pub(crate) fn windows_acl_is_overly_permissive(icacls_output: &str) -> bool {
+        const BROAD_PRINCIPALS: &[&str] = &[
+            "everyone:",
+            "builtin\\users:",
+            "nt authority\\authenticated users:",
+            "authenticated users:",
+            "builtin\\guests:",
+            "guest:",
+        ];
+        for raw_line in icacls_output.lines() {
+            let line = raw_line.trim().to_ascii_lowercase();
+            if line.is_empty() || line.starts_with("successfully processed") {
+                continue;
+            }
+            for principal in BROAD_PRINCIPALS {
+                if let Some(idx) = line.find(principal) {
+                    let perms = &line[idx + principal.len()..];
+                    if *principal == "everyone:"
+                        || perms.contains("(f)")
+                        || perms.contains("(m)")
+                        || perms.contains("(w)")
+                        || perms.contains("(rx,w)")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Host-only readiness (models, substrate safety). Never treats
@@ -796,6 +881,70 @@ mod tests {
 
         std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_acl_parser_detects_overly_permissive_grants() {
+        let exposed_everyone = "C:\\susi\\cluster.key Everyone:(I)(F)\r\n\
+                                NT AUTHORITY\\SYSTEM:(I)(F)\r\n\
+                                Successfully processed 1 files; Failed processing 0 files";
+        assert!(SusiRuntimeAdmin::windows_acl_is_overly_permissive(
+            exposed_everyone
+        ));
+
+        let exposed_users_write = "C:\\susi\\api.token BUILTIN\\Users:(I)(M)\r\n\
+                                   DESKTOP\\user:(I)(F)\r\n";
+        assert!(SusiRuntimeAdmin::windows_acl_is_overly_permissive(
+            exposed_users_write
+        ));
+
+        let locked_down = "C:\\susi\\cluster.key DESKTOP\\user:(F)\r\n\
+                           NT AUTHORITY\\SYSTEM:(I)(F)\r\n\
+                           BUILTIN\\Administrators:(I)(F)\r\n\
+                           BUILTIN\\Users:(I)(R)\r\n\
+                           Successfully processed 1 files; Failed processing 0 files";
+        assert!(!SusiRuntimeAdmin::windows_acl_is_overly_permissive(
+            locked_down
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn readiness_scan_flags_overly_permissive_windows_key_files() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_win_readiness_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_path = dir.join("cluster.key");
+        std::fs::write(&key_path, b"secret").unwrap();
+
+        let granted = std::process::Command::new("icacls")
+            .args([key_path.to_str().unwrap(), "/grant", "*S-1-1-0:F"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if granted {
+            let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
+            assert_eq!(findings.len(), 1);
+        }
+
+        let user = std::env::var("USERNAME").unwrap_or_default();
+        if !user.is_empty() {
+            let restricted = std::process::Command::new("icacls")
+                .args([
+                    key_path.to_str().unwrap(),
+                    "/inheritance:r",
+                    "/remove",
+                    "*S-1-1-0",
+                    "/grant:r",
+                    &format!("{user}:F"),
+                ])
+                .output()
+                .is_ok_and(|o| o.status.success());
+            if restricted {
+                assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
+            }
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

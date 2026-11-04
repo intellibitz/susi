@@ -14,8 +14,7 @@ use super::peers_cli;
 use super::services_cli;
 use super::status_cli;
 
-// env/PathBuf/Command serve the uninstall path's linux/macos service
-// deregistration blocks; Windows has neither systemd nor launchd.
+// env/PathBuf/Command serve the uninstall path's service deregistration blocks.
 #[cfg(unix)]
 use std::env;
 use std::fs;
@@ -23,7 +22,7 @@ use std::io::{self};
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "windows"))]
 use std::process::Command;
 
 use susi::SUSI_VERSION;
@@ -501,6 +500,21 @@ fn uninstall(global_dir: &Path) {
             let _ = Command::new("launchctl").arg("unload").arg(&plist).status();
             let _ = fs::remove_file(&plist);
             steps.push("removed launchd agent".to_string());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let has_task = Command::new("schtasks")
+            .args(["/Query", "/TN", "susi-daemon"])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if has_task
+            && Command::new("schtasks")
+                .args(["/Delete", "/TN", "susi-daemon", "/F"])
+                .status()
+                .is_ok_and(|s| s.success())
+        {
+            steps.push("removed Windows scheduled task (susi-daemon)".to_string());
         }
     }
 
