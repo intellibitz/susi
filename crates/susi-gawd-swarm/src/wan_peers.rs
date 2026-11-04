@@ -232,4 +232,27 @@ mod inline_tests {
             WanVerdict::Admitted
         );
     }
+
+    #[test]
+    fn admit_wan_peer_accepts_trusted_relay_and_wan_peer_pin_round_trips_serde_json() {
+        let mut pin = sample_pin();
+        pin.transport = WanTransport::Relay {
+            relay_endpoint: "relay.example:443".to_string(),
+        };
+        let mut hs = sample_handshake();
+        hs.arrived_via = pin.transport.clone();
+        let egress = EgressPolicy {
+            allow_endpoints: BTreeSet::from([pin.endpoint.clone()]),
+            allow_relays: BTreeSet::from(["relay.example:443".to_string()]),
+        };
+        let mut replay = ReplaySet::default();
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &egress, &mut replay),
+            WanVerdict::Admitted
+        );
+
+        let encoded = serde_json::to_string(&pin).unwrap();
+        let decoded: WanPeerPin = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, pin);
+    }
 }

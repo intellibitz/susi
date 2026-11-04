@@ -50,4 +50,17 @@ mod zc_nat_auto_tests {
         let decoded: NatStatus = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, status);
     }
+
+    #[test]
+    fn nat_status_clone_and_debug_preserve_reachability_flags() {
+        for (priv_ip, stun) in [(false, false), (false, true), (true, false), (true, true)] {
+            let status = detect_nat(priv_ip, stun);
+            assert_eq!(status.clone(), status);
+            assert_eq!(
+                (status.behind_nat, status.public_reachable),
+                (priv_ip, stun)
+            );
+            assert!(format!("{status:?}").contains("behind_nat"));
+        }
+    }
 }
