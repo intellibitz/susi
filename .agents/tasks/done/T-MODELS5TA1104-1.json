@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "MODELS5TA1104",
-  "created_unix": 1793804000
+  "created_unix": 1793804000,
+  "closed": {
+    "at_unix": 1793804971,
+    "commit": "a695f7eeccf7367c6002cfffda3190319c19880e",
+    "by": "MODELS5TA1104"
+  }
 }
