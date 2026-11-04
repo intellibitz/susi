@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "SWARMTESTS5TB1104",
-  "created_unix": 1793814200
+  "created_unix": 1793814200,
+  "closed": {
+    "at_unix": 1793814538,
+    "commit": "83a23571a99534401b0286a71ca67fe4ba1a3aaf",
+    "by": "SWARMTESTS5TB1104"
+  }
 }
