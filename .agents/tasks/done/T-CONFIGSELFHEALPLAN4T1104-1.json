@@ -1,0 +1,17 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CONFIGSELFHEALPLAN4T1104-1",
+  "title": "Expand inline unit test suites (3->4) across susi-config selfheal, plan_apply, desired_state, and credential",
+  "touch": [
+    "crates/susi-config/src/selfheal.rs",
+    "crates/susi-config/src/plan_apply.rs",
+    "crates/susi-config/src/desired_state.rs",
+    "crates/susi-config/src/credential.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-config --lib",
+      "cargo clippy --offline --locked -p susi-config --all-targets -- -D warnings"
+    ]
+  }
+}

@@ -258,4 +258,25 @@ mod tests {
         assert!(saved_val.get("api_auth_token").is_none());
         let _ = fs::remove_dir_all(&dir_dep);
     }
+
+    #[test]
+    fn selfheal_report_serde_roundtrip_and_render_with_messages_without_backup() {
+        let info_report = SelfHealReport {
+            repaired: false,
+            backup_path: None,
+            messages: vec![
+                "no config.json; using bundled defaults (zero-config)".into(),
+                "verified default schema".into(),
+            ],
+        };
+        let rendered = info_report.render();
+        assert!(rendered.starts_with("config self-heal:\n"));
+        assert!(rendered.contains("  - no config.json; using bundled defaults (zero-config)\n"));
+        assert!(rendered.contains("  - verified default schema\n"));
+        assert!(!rendered.contains("backup:"));
+
+        let json = serde_json::to_string(&info_report).unwrap();
+        let roundtrip: SelfHealReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, info_report);
+    }
 }
