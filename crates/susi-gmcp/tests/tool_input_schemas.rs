@@ -127,6 +127,17 @@ fn typed_schemas_match_handler_arguments() {
             .unwrap()
             .contains("bare-string"));
     }
+    // B4 group 11 (PSP-20): extension pack admission tools.
+    assert_eq!(shape(&schema("extensions_list")), Shape::NoArgs);
+    assert_eq!(shape(&schema("extensions_status")), Shape::NoArgs);
+    let ext_validate = schema("extensions_validate");
+    assert_eq!(ext_validate["required"], json!(["path"]));
+    assert_eq!(ext_validate["properties"]["path"]["type"], "string");
+    for name in ["extensions_load", "extensions_unload"] {
+        let s = schema(name);
+        assert_eq!(s["required"], json!(["id"]));
+        assert_eq!(s["properties"]["id"]["type"], "string");
+    }
 }
 
 /// Every tool the daemon bootstrap registers is served over MCP with its

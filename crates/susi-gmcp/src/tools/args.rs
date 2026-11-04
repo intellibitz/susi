@@ -186,6 +186,12 @@ pub fn core_tool_definitions() -> Vec<rmcp::model::Tool> {
         CoreTools::tx_commit_tool_attr(),
         CoreTools::tx_abort_tool_attr(),
         CoreTools::delegate_to_ide_tool_attr(),
+        CoreTools::extensions_list_tool_attr(),
+        CoreTools::extensions_status_tool_attr(),
+        CoreTools::extensions_validate_tool_attr(),
+        CoreTools::extensions_load_tool_attr(),
+        CoreTools::extensions_unload_tool_attr(),
+        CoreTools::brain_pareto_tool_attr(),
     ]
 }
 
@@ -750,4 +756,27 @@ pub struct TxBegin {
 pub struct TxId {
     /// Transaction id returned by tx_begin.
     pub id: String,
+}
+
+// ── Extension packs (PSP-20 / plan B4 group 11) ────────────────────────
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ExtensionPackId {
+    /// Extension pack id under `<config_dir>/extensions/<id>` (e.g. `commercial-default`).
+    pub id: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct ExtensionsValidate {
+    /// Path to a pack directory containing `manifest.json` (absolute or workspace-relative).
+    pub path: String,
+}
+
+#[derive(JsonSchema)]
+#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+pub struct BrainPareto {
+    /// Optional task class filter (e.g. reflex, chat, code, reasoning, estate_ops). Defaults to `code`.
+    pub class: Option<String>,
 }
