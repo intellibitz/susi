@@ -76,4 +76,13 @@ mod zc_key_aliases_tests {
             serde_json::from_str(&json).expect("KeyAliasMap must deserialize");
         assert_eq!(roundtripped, m);
     }
+
+    #[test]
+    fn empty_alias_map_returns_none_for_default_vendor_keys() {
+        let empty = KeyAliasMap {
+            aliases: BTreeMap::new(),
+        };
+        assert!(canonical_vendor(&empty, "OPENAI_API_KEY").is_none());
+        assert!(canonical_vendor(&empty, "ANTHROPIC_API_KEY").is_none());
+    }
 }

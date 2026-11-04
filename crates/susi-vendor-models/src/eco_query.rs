@@ -260,4 +260,14 @@ mod tests {
         )
         .is_err());
     }
+
+    #[test]
+    fn search_with_capability_filter_returns_matching_entities() {
+        let all = kb_query(&json!({"action": "list", "kind": "capability"})).unwrap();
+        let caps = all.as_array().expect("capabilities array");
+        assert!(!caps.is_empty());
+        let cap_id = caps[0]["id"].as_str().expect("cap id");
+        let res = kb_query(&json!({"action": "search", "capability": cap_id})).unwrap();
+        assert!(res["count"].as_u64().is_some());
+    }
 }

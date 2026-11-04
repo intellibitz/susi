@@ -169,4 +169,17 @@ mod inline_tests {
         assert!(!report.checksum_ok);
         assert!(!report.is_complete());
     }
+
+    #[test]
+    fn pack_bundle_sorts_all_three_collections_and_produces_sixteen_hex_checksum() {
+        let bundle = pack_bundle(
+            vec!["z-bin".into(), "a-bin".into()],
+            vec!["phi4".into(), "deepseek".into()],
+            vec!["ext-2".into(), "ext-1".into()],
+        );
+        assert_eq!(bundle.checksum.len(), 16);
+        assert_eq!(bundle.binaries, vec!["a-bin", "z-bin"]);
+        assert_eq!(bundle.models, vec!["deepseek", "phi4"]);
+        assert_eq!(bundle.extension_metadata, vec!["ext-1", "ext-2"]);
+    }
 }
