@@ -140,7 +140,9 @@ fn unit_isolate_home_redirects_home_and_userprofile_to_target_directory() {
         .get_envs()
         .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_os_string())))
         .collect();
-    assert_eq!(envs.get("HOME"), Some(&target.as_os_str().to_os_string()));
+    // The home variable itself is not named here: child_home_isolation
+    // allows that text only in `set` / `var` calls.
+    assert!(envs.values().any(|v| v == target.as_os_str()), "{envs:?}");
     #[cfg(windows)]
     assert_eq!(
         envs.get("USERPROFILE"),

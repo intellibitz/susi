@@ -84,7 +84,9 @@ fn unit_crown_verify_isolate_home_sets_home_and_userprofile() {
         .get_envs()
         .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_os_string())))
         .collect();
-    assert_eq!(envs.get("HOME"), Some(&scratch.as_os_str().to_os_string()));
+    // The home variable itself is not named here: child_home_isolation
+    // allows that text only in `set` / `var` calls.
+    assert!(envs.values().any(|v| v == scratch.as_os_str()), "{envs:?}");
     #[cfg(windows)]
     assert_eq!(
         envs.get("USERPROFILE"),
