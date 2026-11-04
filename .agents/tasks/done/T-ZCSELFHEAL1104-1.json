@@ -1,0 +1,25 @@
+{
+  "id": "T-ZCSELFHEAL1104-1",
+  "title": "VC-201-065 Startup Config Self-Heal and Automatic Host-State Migration Contract Suite in susi-config",
+  "goal": "Add comprehensive inline #[cfg(test)] mod tests suites in crates/susi-config/src/selfheal.rs and crates/susi-config/src/state_migration.rs covering SelfHealReport::render, load_or_selfheal on empty/corrupt/unknown-key configs, MigrationReport::render, and migrate_state_dir v0->v1 migration, idempotent noop, and failure rollback.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-ZCSELFHEAL1104-1.json",
+    "crates/susi-config/src/selfheal.rs",
+    "crates/susi-config/src/state_migration.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "ZCSELFHEAL1104",
+  "created_unix": 1793777760
+}
