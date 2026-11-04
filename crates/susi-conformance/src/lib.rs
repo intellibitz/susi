@@ -60,6 +60,9 @@ pub struct Optional {
     /// Run the GEMI SSE check: one streamed, 1-token, local-only
     /// (`susi.allow_cloud: false`) chat completion. Costs a local inference.
     pub inference: bool,
+    /// Pre-signed `SUSI_PING_SIG*` datagram for opt-in positive UDP
+    /// discovery verification (`SUSI_PONG_SIG*`).
+    pub signed_udp_ping: Option<String>,
 }
 
 /// Outcome of one contract check.
@@ -579,11 +582,14 @@ pub fn udp_probe_all(
 }
 
 /// Unauthenticated datagrams the discovery port must never answer: the
-/// retired LAN and bare peer dialects, and a signed ping with a forged MAC.
-pub const UNAUTHENTICATED_PINGS: [&str; 3] = [
+/// retired LAN, bare and plaintext-token peer dialects, and signed pings
+/// (`SUSI_PING_SIG` and `SUSI_PING_SIG2`) with a forged MAC.
+pub const UNAUTHENTICATED_PINGS: [&str; 5] = [
     "SUSI_LAN_PING",
     "SUSI_PING",
+    "SUSI_PING:forged-token",
     "SUSI_PING_SIG:susi-conformance:CORE:0:0000000000000000:00:forged",
+    "SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged",
 ];
 
 /// UDP 9092 is bound and answers only cluster-key signed pings. The suite
@@ -633,6 +639,45 @@ fn udp_discovery(target: &Target) -> Check {
                 Outcome::Warn,
                 format!("{detail} (remote host: silence cannot prove the port is bound)"),
             )
+        }
+    })
+}
+
+/// Opt-in positive UDP discovery check: when a cluster-key signed
+/// `SUSI_PING_SIG*` datagram is supplied, UDP 9092 must answer with a
+/// `SUSI_PONG_SIG*` frame.
+fn udp_discovery_signed(target: &Target, optional: &Optional) -> Check {
+    let port = target.port(ports::UDP_DISCOVERY);
+    let id = format!("udp.discovery-signed@{port}");
+    let Some(ref ping) = optional.signed_udp_ping else {
+        return Check {
+            id,
+            outcome: Outcome::Skip,
+            millis: 0,
+            detail: "opt-in: signed_udp_ping verifies positive SUSI_PONG_SIG* reply".into(),
+        };
+    };
+    timed(id, || {
+        let wait = target.timeout.min(Duration::from_millis(500));
+        match udp_probe(&target.host, port, ping.as_bytes(), wait) {
+            UdpProbe::Answered(reply)
+                if reply.starts_with("SUSI_PONG_SIG:") || reply.starts_with("SUSI_PONG_SIG2:") =>
+            {
+                (Outcome::Pass, format!("signed ping answered: {reply:?}"))
+            }
+            UdpProbe::Answered(reply) => (
+                Outcome::Fail,
+                format!("signed ping drew unexpected reply: {reply:?}"),
+            ),
+            UdpProbe::Silent => (
+                Outcome::Fail,
+                "signed ping drew no reply within timeout".into(),
+            ),
+            UdpProbe::Unreachable => (
+                Outcome::Fail,
+                format!("nothing bound on udp {port} (ICMP port unreachable)"),
+            ),
+            UdpProbe::Error(e) => (Outcome::Fail, e),
         }
     })
 }
@@ -927,6 +972,7 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     checks.push(a2a_unknown(target));
     checks.push(a2a_stream(target));
     checks.push(udp_discovery(target));
+    checks.push(udp_discovery_signed(target, optional));
     checks.push(gemi_models(target));
     checks.push(gemi_stream(target, optional));
     checks.push(mcp_stdio(target, optional));
@@ -1061,11 +1107,98 @@ mod tests {
             token: None,
             timeout: Duration::from_millis(200),
         });
-        for id in ["gemi.stream@59091", "mcp.stdio"] {
+        for id in [
+            "udp.discovery-signed@59092",
+            "gemi.stream@59091",
+            "mcp.stdio",
+        ] {
             let check = checks.iter().find(|c| c.id == id).unwrap();
             assert_eq!(check.outcome, Outcome::Skip, "{id}");
             assert!(check.detail.starts_with("opt-in"), "{id}");
         }
+    }
+
+    #[test]
+    fn udp_discovery_signed_passes_on_valid_pong_and_fails_on_silence_or_bad_reply() {
+        use std::net::UdpSocket;
+        assert_eq!(UNAUTHENTICATED_PINGS.len(), 5);
+        assert!(UNAUTHENTICATED_PINGS.contains(&"SUSI_PING:forged-token"));
+        assert!(UNAUTHENTICATED_PINGS.contains(
+            &"SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged"
+        ));
+
+        let opt = Optional {
+            signed_udp_ping: Some(
+                "SUSI_PING_SIG2:susi-conformance:CORE:9090:1:deadbeef:127.0.0.1:cafebabe".into(),
+            ),
+            ..Optional::default()
+        };
+
+        // 1. Valid SUSI_PONG_SIG2 reply passes.
+        let valid = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let valid_port = valid.local_addr().unwrap().port();
+        assert!(valid_port >= ports::UDP_DISCOVERY);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((_n, src)) = valid.recv_from(&mut buf) {
+                let _ = valid.send_to(
+                    b"SUSI_PONG_SIG2:host:CORE:9090:1:deadbeef:127.0.0.1:cafebabe",
+                    src,
+                );
+            }
+        });
+        let check_ok = udp_discovery_signed(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: valid_port - ports::UDP_DISCOVERY,
+                token: None,
+                timeout: Duration::from_millis(200),
+            },
+            &opt,
+        );
+        assert_eq!(check_ok.outcome, Outcome::Pass, "{}", check_ok.detail);
+
+        // 2. Unauthenticated/legacy pong reply fails.
+        let bad = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let bad_port = bad.local_addr().unwrap().port();
+        assert!(bad_port >= ports::UDP_DISCOVERY);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((_n, src)) = bad.recv_from(&mut buf) {
+                let _ = bad.send_to(b"SUSI_PONG:legacy", src);
+            }
+        });
+        let check_bad = udp_discovery_signed(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: bad_port - ports::UDP_DISCOVERY,
+                token: None,
+                timeout: Duration::from_millis(200),
+            },
+            &opt,
+        );
+        assert_eq!(check_bad.outcome, Outcome::Fail, "{}", check_bad.detail);
+
+        // 3. Silent socket fails.
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let silent_port = silent.local_addr().unwrap().port();
+        assert!(silent_port >= ports::UDP_DISCOVERY);
+        let check_silent = udp_discovery_signed(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: silent_port - ports::UDP_DISCOVERY,
+                token: None,
+                timeout: Duration::from_millis(100),
+            },
+            &opt,
+        );
+        assert_eq!(
+            check_silent.outcome,
+            Outcome::Fail,
+            "{}",
+            check_silent.detail
+        );
+        drop(silent);
     }
 
     /// A UDP port known to be free: bound, then released. Ports at a fixed
