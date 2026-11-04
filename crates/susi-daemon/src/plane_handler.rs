@@ -144,4 +144,19 @@ mod tests {
                 .contains("unhandled topic")
         );
     }
+
+    #[test]
+    fn handler_refuses_missing_service_action_and_routes_providers_validation() {
+        let h = DaemonPlaneHandler;
+        assert!(
+            h.handle(topics::DAEMON_SERVICES_CONTROL, json!({"name": "gmcp"}))
+                .unwrap_err()
+                .contains("action is required")
+        );
+        assert!(
+            h.handle(topics::DAEMON_PROVIDERS, json!({}))
+                .unwrap_err()
+                .contains("action")
+        );
+    }
 }

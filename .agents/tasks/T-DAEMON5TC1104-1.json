@@ -1,0 +1,22 @@
+{
+  "id": "T-DAEMON5TC1104-1",
+  "title": "test(daemon): expand Wave C inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "--",
+      "harness_ops::tests"
+    ]
+  },
+  "created_by": "DAEMON5TC1104",
+  "created_unix": 1793805027
+}
