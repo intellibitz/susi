@@ -399,4 +399,28 @@ mod inline_tests {
         assert!(prev_cert_at(&dir, 2_020).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn activate_staged_cert_at_rejects_expired_stage_and_cleans_up_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-tls-expired-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let sans = vec!["localhost".to_string()];
+        let (cert, key) = generate_self_signed(&sans).unwrap();
+        let fp = cert_fingerprint(&cert).unwrap();
+        stage_cert_pair_at(&dir, &cert, &key, 1_000).unwrap();
+        assert!(!activate_staged_cert_at(
+            &dir,
+            &fp,
+            1_000 + MAX_CERT_STAGE_AGE_SECS + 5
+        ));
+        assert!(!dir.join("cert.pem.next").exists());
+        assert!(!dir.join("key.pem.next").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

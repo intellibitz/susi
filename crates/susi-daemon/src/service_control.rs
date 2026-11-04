@@ -257,4 +257,23 @@ mod tests {
         let err = control("", "not-a-service").expect_err("blank action must fail");
         assert!(err.contains("unknown services action"), "err={err}");
     }
+
+    #[test]
+    fn direct_start_stop_and_restart_functions_reject_unknown_service_names() {
+        assert!(
+            start("nonexistent-svc")
+                .unwrap_err()
+                .contains("unknown service")
+        );
+        assert!(
+            stop("nonexistent-svc")
+                .unwrap_err()
+                .contains("unknown service")
+        );
+        assert!(
+            restart("nonexistent-svc")
+                .unwrap_err()
+                .contains("unknown service")
+        );
+    }
 }

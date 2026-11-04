@@ -1,0 +1,27 @@
+{
+  "id": "T-DAEMON5TD1104-1",
+  "title": "test(daemon): expand Wave D inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "--",
+      "provider_ops::tests"
+    ]
+  },
+  "created_by": "DAEMON5TD1104",
+  "created_unix": 1793805193,
+  "closed": {
+    "at_unix": 1793806026,
+    "commit": "8bd06ed592378cc571587a1817a7200e15f16642",
+    "by": "DAEMON5TD1104"
+  }
+}

@@ -167,4 +167,17 @@ mod inline_tests {
     fn count_wasm_reflexes_returns_usize_without_panicking() {
         let _count = count_wasm_reflexes();
     }
+
+    #[test]
+    fn collect_produces_structured_substrate_status_with_concurrency_model() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-sub-status-collect-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let doc = collect(&dir, false);
+        assert_eq!(doc["sandbox"]["docker_sandbox_exec"], false);
+        assert_eq!(doc["concurrency"]["swarm"], "rayon work-stealing");
+        assert_eq!(doc["concurrency"]["daemon_http"], "tokio");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
