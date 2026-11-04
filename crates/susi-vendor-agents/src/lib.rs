@@ -101,4 +101,20 @@ mod inline_tests {
         let scores = board.scores();
         assert!(scores[0].cost_per_success.is_none());
     }
+
+    #[test]
+    fn scoreboard_computes_cost_per_success_when_runs_succeed() {
+        let mut board = Scoreboard::new();
+        board.record(AgentRun {
+            agent: "codex".into(),
+            task_class: "code".into(),
+            success: true,
+            duration_ms: 80,
+            cost_usd: 0.04,
+            unix_ms: 10,
+        });
+        let scores = board.scores();
+        assert_eq!(scores.len(), 1);
+        assert_eq!(scores[0].cost_per_success, Some(0.04));
+    }
 }

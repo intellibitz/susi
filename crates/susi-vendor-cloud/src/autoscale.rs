@@ -329,4 +329,23 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn decide_scales_in_at_most_one_replica_per_tick_even_when_many_surplus_replicas_are_idle() {
+        let policy = sample_policy();
+        let very_idle = EndpointMetrics {
+            replicas: 7,
+            queue_depth: 0,
+            p95_latency_ms: 10,
+            in_flight: 0,
+            last_change_tick: 0,
+        };
+        assert_eq!(
+            decide(&very_idle, &policy, 50, 100),
+            ScaleDecision::ScaleIn {
+                remove: 1,
+                reason: "sustained idle past stabilization window",
+            }
+        );
+    }
 }

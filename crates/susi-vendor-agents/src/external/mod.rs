@@ -802,4 +802,30 @@ mod unit_tests {
 
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn configure_adapter_and_reset_roundtrip_custom_command_adapter_on_disk() {
+        let root = temp_workspace("configure-reset");
+        let mgr = AgentManager::with_config(&root, CatalogKind::Execution, root.join("cfg"))
+            .unwrap()
+            .with_catalog(vec![test_def("codex", "CodexAgent", 1)]);
+
+        let custom = Adapter::Command {
+            program: "custom-codex".into(),
+            args: vec!["--quiet".into()],
+        };
+        mgr.configure("codex", &custom).unwrap();
+        let loaded = mgr.adapter("codex").unwrap();
+        assert!(matches!(
+            loaded,
+            Adapter::Command { program, args }
+                if program == "custom-codex" && args == vec!["--quiet".to_string()]
+        ));
+
+        mgr.reset("codex").unwrap();
+        let reverted = mgr.adapter("codex").unwrap();
+        assert!(reverted.is_cloud());
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

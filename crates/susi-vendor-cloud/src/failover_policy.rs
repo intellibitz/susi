@@ -297,4 +297,24 @@ mod tests {
             Ok(multi_cap)
         );
     }
+
+    #[test]
+    fn route_with_local_only_privacy_skips_cloud_and_selects_later_local_endpoint() {
+        let constraints = RouteConstraints {
+            needs_capability: "tool:search".into(),
+            privacy: Privacy::LocalOnly,
+            deadline_ms: 100,
+            budget_cents: 50,
+        };
+        let candidates = vec![
+            Endpoint {
+                class: EndpointClass::Cloud,
+                ..base_endpoint("cloud-fast")
+            },
+            base_endpoint("local-fallback"),
+        ];
+        let selected = route(&constraints, &candidates).expect("local fallback must route");
+        assert_eq!(selected.id, "local-fallback");
+        assert_eq!(selected.class, EndpointClass::Local);
+    }
 }
