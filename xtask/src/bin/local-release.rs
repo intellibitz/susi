@@ -244,7 +244,7 @@ fn compiler(root: &Path) -> Result<(String, String)> {
 }
 
 fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
-    fs::create_dir_all(home)?;
+    fs::create_dir_all(home.join("AppData/Local"))?;
     let original = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from)
         .ok_or("missing provisioned toolchain home")?;
