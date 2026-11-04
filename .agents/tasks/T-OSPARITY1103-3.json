@@ -1,0 +1,21 @@
+{
+  "id": "T-OSPARITY1103-3",
+  "title": "CI: branch gate always runs the repo-wide guard tests (CEO approved)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "OSPARITY1103",
+  "created_unix": 1793772881
+}

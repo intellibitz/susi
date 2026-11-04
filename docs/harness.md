@@ -13,12 +13,12 @@ a stronger model instead of retrying it blindly, and shows the operator what is
 happening while it runs. SUSI uses it to build SUSI.
 
 The architecture beyond this chain — a provider registry, a public ingress, a
-tool and MCP layer, an agent graph and plugins — is in
+tool and MCP layer and an agent graph — is in
 [harness-os.md](harness-os.md), together with the phases that get there.
 
 ```
                    ┌──────────────────────────────────────────┐
-                   │ CEO cockpit (browser / harness desktop)   │
+                   │ harness API client (JSON/SSE; no core UI) │
                    │ spend · tasks · workers · controls        │
                    └───────────────┬──────────────────────────┘
                                    │ GET /api/status · POST /api/command
@@ -68,9 +68,10 @@ tool and MCP layer, an agent graph and plugins — is in
 4. **The supervisor** runs a plan against a susi checkout: prepare a worktree,
    add and claim a task, run the agent, verify the acceptance, land through
    `workflow finish`. It persists after every task, so a rerun resumes.
-5. **The cockpit** reads the ledger, the event feed, the supervisor state, the
-   plan and the control log, and renders one snapshot. It is read-mostly and
-   never a second source of truth.
+5. **The harness API** reads the ledger, the event feed, the supervisor state,
+   the plan and the control log, and serves one JSON snapshot (and an SSE
+   feed of it). It is read-mostly and never a second source of truth. Core
+   renders no view of it; any visual view lives in Susi Commercial Apps.
 
 ## Model tiers
 
@@ -353,7 +354,7 @@ susi harness api \
   decisions, warnings, controls, recent events, the agent graph (`graph`),
   spend per graph role in the focused mission (`role_spend`), and that
   mission's replay timeline (`replay`).
-  The graph is read from `--graph` (the cockpit's `graph_path`), which takes
+  The graph is read from `--graph` (the API's `graph_path`), which takes
   precedence over `SUSI_HARNESS_GRAPH`, or from `graph.jsonl` beside the ledger
   when neither names a bus.
 - `GET /api/events` — the same snapshot once a second over SSE.
@@ -460,7 +461,7 @@ not a permanent exception to the native tooling mandate.
 The ledger is the answer. One JSON line per priced call with the mission, task,
 attempt, model, tokens (including cache hits), the price in force, the cost, and
 whether the gateway served it from cache. A later catalogue change cannot rewrite
-history, and the cockpit's totals are an integer sum of that file.
+history, and the harness API's totals are an integer sum of that file.
 
 A line torn by a crash or a full disk costs only itself where spend is
 checked: the mission's `--budget-usd`, the `--daily-usd` cap, the provider

@@ -6,7 +6,7 @@
 
 susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
 
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / Candle fallback); install + optional API keys still apply.
+> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including external coding agents and agent frameworks from an installed extension pack or `~/.susi/execution-agents/` adapter files via `susi agents` / `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start over what is already installed (engines / Candle fallback); it launches no third-party engine, CLI or MCP server (`tests/core_boot_starts_nothing.rs`). Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin content; the desktop, any visual view and curated plugin packs live in Susi Commercial Apps. Install + optional API keys still apply.
 
 ## One operating layer, two AI ecosystems
 
@@ -161,7 +161,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 6. **Audit** — append-only HMAC accountability chain; cross-process writers
    serialize, complete JSONL records are emitted in one write, stale tip
    checkpoints rebuild from the verified log, and unreadable input fails closed.
-   Recent-activity readers (drift audit, dashboard) read only the log's tail.
+   Recent-activity readers (drift audit, the GMCP `sovereign_dashboard` report tool, placement-decision lookup) read only the log's tail.
 7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
    First-run host config comes from the defaults compiled into the binary,
    never from a `config.default.json` in whatever directory SUSI runs in.
@@ -180,7 +180,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    `local_only` instead of silently reading as `balanced`.
    Under `local_only`, the HTTP inference provider itself refuses to send
    prompts or embedding text to any endpoint off the host/LAN, and model
-   downloads (including zero-config auto-prime) and admitted search tools
+   downloads (including the background starter-model download) and admitted search tools
    (Brave/Google/`web_search`), external peer agents,
    proxy endpoints, crates.io scouting, cloud coding agents (Devin/Manus), and
    Hugging Face catalog discovery, and remote MCP servers over HTTP need
@@ -189,7 +189,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    `/srv/ws` never authorizes `/srv/ws2`.
    Local agent messaging (`ipc_send`) is authorized by the default
    `app://*` transmit grant; the broker still checks per-sender dispatch grants.
-9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
+9. **Pluggable** — admission protocols: `CapabilityRegistry` + installed extension packs (core ships and seeds none); managed catalog commands (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`) read compiled model catalogs and whatever installed packs provide.
    Core never enables, configures or launches a third-party MCP server on its
    own: a server runs only after an explicit `susi mcp-add` / `susi mcp enable`
    (servers an earlier core enabled on its own stay in `mcp_config.json` until
@@ -266,12 +266,12 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 |-------|----------|
 | Tier S crown | `susi crown verify` — Truth/Evidence/Swarm/Blackboard/Glass/Audit/Auto/Governance/Pluggable/Sandbox/Host/Reflexes/Provision/Concurrency |
 | Agent-of-agents / OS layer for AI | Multi-agent swarm + host daemon/ports — layer *for* agents, not a host OS (Mandate 45) |
-| Plugin protocol agents | **~10** executors + **~10** frameworks; UNAVAILABLE until driver/config present |
-| Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
-| Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
-| Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
+| Admission protocol: agents | executors and frameworks admitted from an installed pack or `~/.susi/execution-agents/` adapter file; core bundles no agent catalog; UNAVAILABLE until driver/config present |
+| Admission protocol: engines | inference endpoints the user configures (+ discovered local ports); core starts none at boot |
+| Admission protocol: models | compiled coding / frontier / open-weight / OpenRouter catalog views + live `/models`; local GGUF / Ollama |
+| Admission protocol: MCP | any server admitted explicitly (`susi mcp-add`, or `susi mcp enable` from an installed pack); core bundles no MCP server catalog |
 | Bloat audit | `susi bloat-audit` runs the AST auditor directly (no model narration) and scans every non-test Rust source in the workspace; last measured: 967 files, ~275k lines, 28 `unwrap`, 63 `expect`, 32 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
-| Substrate report | `susi substrate-report` counts audited activity by its real event type (no invented self-heal/distillation counters) |
+| Substrate report | `susi substrate-report` reports the compiled constitution, topology and selected model; the GMCP `sovereign_dashboard` report tool counts audited activity by its real event type (no invented self-heal/distillation counters) |
 | Version sync | `susi admin sync` replaces Cargo.toml, the README badge, the governance ledgers, and the binary trust anchor atomically |
 | Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; `admin verify` checks version alignment; `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
 | Model ladder | `susi verify-download-agent` reports network status and each step of the hardware-selected model ladder (no fixed 32B/72B promise) |
@@ -412,6 +412,11 @@ susi restart
 
 # Task across the agent swarm (cwd = workspace)
 susi "analyze this workspace and propose an optimization plan"
+
+# One plain-text operator snapshot, printed once; --json for machines
+susi top
+susi top --filter providers
+susi top --json
 
 # Identity / status
 susi identity
@@ -608,12 +613,12 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Traceable reasoning** — Mandate 26; thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`); not “100% transparency” of secrets or vendor internals.
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware (Mandates 5, 28–30; lock-preferring, not “zero blocking forever”).
 - **Rust-only implementation** — runtime, tooling and shipped dependency closure must be Rust (Mandates 43 and 63); incompatible existing components remain migration defects.
-- **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); agents own technical setup; credentials and paid-service consent remain explicit gates.
+- **Zero-config auto** — boot primes preferences from what is already installed (coding models; execution agents from installed packs) without hand-edited config (Mandate 44); it enables or launches no MCP server, engine or peer on its own; agents own technical setup; credentials and paid-service consent remain explicit gates.
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
 - **Native installation** — verified artifacts and native provisioning without a Windows shell/emulation prerequisite (Mandates 47 and 64); legacy installer scripts are migration work.
 - **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only locally qualified, health-checked promotion may replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
 
-Crate boundaries, composition roots, ports, and the plugin triad are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
+Crate boundaries, composition roots, ports, and the admission protocols are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
 ---
 
 ## License

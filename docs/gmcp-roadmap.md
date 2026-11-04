@@ -102,8 +102,8 @@ This audit is a baseline, not a delivery verdict.
 | Server protocol | `crates/susi-gmcp/src/protocol.rs` implements current discovery, core primitives, modern subscriptions, MRTR, tasks, schema checks, and older request handling | normative ledger, exhaustive edge cases, true cross-surface state isolation, official suites, and retained evidence |
 | Transports | bounded stdio and Streamable HTTP, local auth, origin/host checks, rate and concurrency controls, TLS for remote use | complete client/server semantics, legacy isolation, HTTP/2/proxy/drain testing, common adapter harness, and platform parity |
 | Server primitives | tools, resources, templates, prompts, completion, progress, notifications, and structured outputs have substantial tests | full metadata/cache/filter matrices, adversarial schemas/content, authorization re-checks, durability, and differential coverage |
-| Client | `susi-vendor-mcp` connects over stdio or HTTP and lists/calls tools | resources, prompts, completion, subscriptions, callbacks, MRTR, tasks, Apps, auth, cancellation, full host UX, and reference interop |
-| Ecosystem | curated leading servers, a static registry, configuration import, health checks, and runtime hot-plugging exist | official Registry lifecycle, trustworthy package resolution, transactional runtime management, desired state, catalog reconciliation, and publication |
+| Client | `susi-vendor-mcp` connects over stdio or HTTP and lists/calls tools | resources, prompts, completion, subscriptions, callbacks, MRTR, tasks, Apps (`ui://` pass-through only), auth, cancellation, the host interaction protocol (core renders no UI), and reference interop |
+| Ecosystem | configuration import, health checks, and runtime hot-plugging of explicitly admitted servers exist; core bundles no curated server list or static registry (installed packs from Susi Commercial Apps carry them) | official Registry lifecycle, trustworthy package resolution, transactional runtime management, desired state, catalog reconciliation, and publication |
 | Security | bearer/peer controls, untrusted-output policy, data classification, sandbox pieces, and signed audit foundations exist | unified policy choke point, OAuth roles, secret store, OS sandbox profiles, supply-chain proof, injection/rug-pull/SSRF corpora, and tenant isolation |
 | Operations | daemon integration, status/doctor commands, process launch, rate limits, and audit infrastructure exist | durable supervisor, recovery, OpenTelemetry schema, SLOs, capacity/fairness gates, offline restore, cross-platform packaging, and laboratory tooling |
 | Verification | unit/integration tests and a previous lifecycle probe exist | pinned official conformance in both roles, extension suites, reference SDK matrix, fuzz/model checking, red-team, platform/performance/recovery gates, and independent qualification |
@@ -180,12 +180,12 @@ evidence artifact, matrix cell, risk disposition, or upstream change is missing.
 | VC-203-012 | P0 | CORE | Subscriptions, notifications, progress, and operational messages | VC-203-005, VC-203-006, VC-203-009, VC-203-010, VC-203-011 |
 | VC-203-013 | P0 | CORE | MRTR, elicitation, sampling, and roots interaction model | VC-203-003, VC-203-008 |
 | VC-203-014 | P0 | CORE | Official Tasks extension and durable long-running work | VC-203-003, VC-203-013, VC-203-016 |
-| VC-203-015 | P1 | MEMORY_AND_ECOSYSTEM | MCP Apps extension and secure interactive UI | VC-203-009, VC-203-010, VC-203-016, VC-203-019 |
+| VC-203-015 | P1 | MEMORY_AND_ECOSYSTEM | MCP Apps extension: pass-through of `ui://` resources only (core renders no UI; hosts such as Susi Commercial Apps render them) | VC-203-009, VC-203-010, VC-203-016, VC-203-019 |
 | VC-203-016 | P0 | GOVERNANCE | First-class extension framework and extension governance | VC-203-001, VC-203-003, VC-203-008 |
 | VC-203-017 | P0 | CORE | Complete MCP client and host | VC-203-004, VC-203-009, VC-203-010, VC-203-011, VC-203-012, VC-203-013, VC-203-016 |
 | VC-203-018 | P0 | CORE | Client connection runtime, caching, retries, and concurrency | VC-203-005, VC-203-006, VC-203-017 |
 | VC-203-019 | P0 | GOVERNANCE | Human consent, approvals, and interaction UX | VC-203-013, VC-203-017, VC-203-024 |
-| VC-203-020 | P1 | MEMORY_AND_ECOSYSTEM | GMCP server authoring SDK and plugin lifecycle | VC-203-008, VC-203-009, VC-203-010, VC-203-011, VC-203-013, VC-203-016 |
+| VC-203-020 | P1 | MEMORY_AND_ECOSYSTEM | GMCP server authoring protocol SDK (no bundled plugins; plugin packs live in Susi Commercial Apps) | VC-203-008, VC-203-009, VC-203-010, VC-203-011, VC-203-013, VC-203-016 |
 | VC-203-021 | P0 | FEDERATION | Local MCP gateway, reverse proxy, and aggregation plane | VC-203-017, VC-203-018, VC-203-024 |
 | VC-203-022 | P0 | FEDERATION | Namespacing, routing, composition, and virtual capabilities | VC-203-009, VC-203-010, VC-203-011, VC-203-012, VC-203-021 |
 | VC-203-023 | P2 | MEMORY_AND_ECOSYSTEM | Service adapters and generated MCP surfaces | VC-203-020, VC-203-022 |

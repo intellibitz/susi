@@ -46,19 +46,27 @@ The author is the **supervisor** model. Each task names a worker model. Read the
 plan before running it: a task reserves scopes and declares an acceptance, and
 the run refuses a plan whose packages, scopes or acceptance do not resolve.
 
-## 3. Start the harness API first
+## 3. Watch spend from the command line
 
 ```sh
-susi harness api \
-  --ledger out/ledger.jsonl --events out/events.jsonl \
-  --plan plan.json --state supervisor-state.json \
-  --controls out/control.jsonl \
-  --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
+susi harness budget --ledger out/ledger.jsonl
+susi harness status --ledger out/ledger.jsonl --events out/events.jsonl
+```
+
+`budget` prints the one-line budget report and any top-up alert; `status`
+prints the harness API snapshot built from the ledger and event feed only (no
+plan, supervisor state, controls or budget). Neither needs a server.
+
+Optionally, for a client that wants a live feed, serve the harness API:
+
+```sh
+susi harness api \n  --ledger out/ledger.jsonl --events out/events.jsonl \n  --plan plan.json --state supervisor-state.json \n  --controls out/control.jsonl \n  --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
 ```
 
 It serves JSON and SSE only, with no page at `/`: `GET /api/status`,
 `GET /api/events`, `POST /api/command` and `GET /health` on
-`http://127.0.0.1:9181`. Any visual view of it lives in the commercial desktop.
+`http://127.0.0.1:9181`. Core ships no UI; any visual view of it lives in the
+commercial desktop (Susi Commercial Apps).
 
 ## 4. Run the mission
 
@@ -91,8 +99,9 @@ susi harness status --ledger out/ledger.jsonl --events out/events.jsonl
 ```
 
 The report is `done`, `failed`, `skipped`, `unstarted`, `budget_exhausted`,
-`paused`, `aborted`. The cockpit shows per-mission spend, per-worker cost and
-the last operator commands.
+`paused`, `aborted`. The snapshot carries per-mission spend and per-worker cost;
+the harness API snapshot (served with `--controls`) also carries the last
+operator commands.
 
 ## When something blocks
 
@@ -100,7 +109,7 @@ the last operator commands.
 |---|---|
 | `budget_exhausted`, tasks unstarted | raise `--budget-usd`, or run a smaller plan. The ledger shows what the attempts cost. |
 | a task failed on every model | the error is about the task or the environment, not the model. Fix the acceptance/scope; the ladder deliberately stopped instead of spending more. |
-| operator paused | press **resume** in the cockpit (or append a resume command), rerun the same command. |
+| operator paused | send `{"command":"resume","mission_id":"…"}` to `POST /api/command` (or append a resume command to the control log), rerun the same command. |
 | operator aborted | the abort is sticky in that control log. Start a new mission or use a fresh control log. |
 | a claim is stale | `susi tasks audit`; the queue reports the holder and the lease. |
 | a model 401s or says the key is unset | the provider key for that model is unset in the environment the gateway runs in. |
@@ -117,4 +126,4 @@ the last operator commands.
 
 ## Budget refusals
 
-A refused attempt is not a failure of the model. The cockpit reports `budget_exhausted` and the task stays unstarted. Read the ledger for what the attempts cost, raise the cap with `--budget-usd`, and rerun the same command: the supervisor skips what landed and starts with the task that was refused.
+A refused attempt is not a failure of the model. The report says `budget_exhausted` and the task stays unstarted. Read the ledger for what the attempts cost, raise the cap with `--budget-usd`, and rerun the same command: the supervisor skips what landed and starts with the task that was refused.

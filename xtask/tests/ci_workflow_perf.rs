@@ -679,35 +679,161 @@ fn branch_compile_gate_restores_target_archive() {
     );
 }
 
-/// The target archive is useful for large compile closures, but it can take
-/// longer to restore than the standalone xtask package takes to check.
+/// An xtask-only push used to skip the target archive (12-15 s to restore for
+/// 1-9 s of clippy). Since the root guard tests build the root package on
+/// every push (CEO decision 2026-11-04), every push compiles the heaviest
+/// closure, so the archive is restored on every push and no per-package
+/// `target_cache` decision remains to skip it.
 #[test]
-fn xtask_only_gate_skips_target_cache() {
+fn branch_gate_restores_target_archive_on_every_push() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
     let check = job(&jobs, "check");
     assert!(
-        check
-            .body
-            .contains("if [ \"$pkgs\" = \"xtask\" ] || [ \"$pkgs\" = \"susi-unsafe-ratchet\" ]; then target_cache=false; fi")
-            && check
-                .body
-                .contains("echo \"target_cache=$target_cache\" >> \"$GITHUB_OUTPUT\""),
-        "an xtask-only change should skip restoring the heavyweight target archive"
+        !check.body.contains("target_cache"),
+        "the root guard tests compile the root package on every push; skipping the target \
+         archive for an xtask-only push now makes that build cold"
     );
     let cache = steps(&check.body)
         .into_iter()
         .find(|step| step.contains("name: Cache Cargo"))
         .expect("branch compile gate has a Cargo cache step");
     assert!(
-        cache.contains("steps.affected.outputs.target_cache != 'false'"),
-        "the target archive restore should remain enabled for other affected sets"
+        !step_has_condition(&cache),
+        "the target archive restore must run on every push:\n{cache}"
     );
     assert!(
         check.body.contains("RUSTC_WRAPPER: \"sccache\"")
             && check.body.contains("RUSTC_WORKSPACE_WRAPPER: \"sccache\""),
-        "the xtask compile still uses shared sccache entries"
+        "every compile in the gate still uses shared sccache entries"
     );
+}
+
+/// The root package's repo-wide guard tests scan the whole tree, so a PR that
+/// changes one crate, a task file or an xtask name can break them without the
+/// root package being affected. On 2026-11-04 that turned main red several
+/// times (unjustified panic allowances, BOM task files, the xtask rename, a
+/// download-guard false positive). CEO decision 2026-11-04: the branch gate
+/// runs them on every branch push, unconditionally, inside the required
+/// `Compile Check (branch pushes)` job, and a failure fails that job.
+#[test]
+fn the_branch_gate_always_runs_the_root_guard_targets() {
+    const GUARDS: &[&str] = &[
+        "architecture_tests",
+        "socket_parity",
+        "core_boot_starts_nothing",
+        "core_never_downloads_models_unasked",
+    ];
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    assert_eq!(
+        value_of(&check.body, "name").as_deref(),
+        Some("Compile Check (branch pushes)"),
+        "rulesets and auto-merge refer to the branch gate by this name"
+    );
+    let steps = steps(&check.body);
+    let guard_at = steps
+        .iter()
+        .position(|s| s.contains("name: Root-package guard tests"))
+        .expect("check has a root-package guard test step");
+    let guard = &steps[guard_at];
+    let runs: Vec<&str> = guard
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix("run: "))
+        .collect();
+    // The exact command: a trailing libtest filter (`-- name`) or `--no-run`
+    // would keep every `--test` pair present while the guards run 0 tests.
+    let expected = format!(
+        "cargo test --locked -p susi{}",
+        GUARDS
+            .iter()
+            .map(|t| format!(" --test {t}"))
+            .collect::<String>()
+    );
+    assert_eq!(
+        runs,
+        [expected.as_str()],
+        "the guard step must run exactly the root guard targets, unfiltered, with the \
+         committed lockfile"
+    );
+    for target in GUARDS {
+        assert!(
+            root().join("tests").join(format!("{target}.rs")).is_file(),
+            "guard target tests/{target}.rs no longer exists; update the branch gate"
+        );
+    }
+    assert!(
+        !step_has_condition(guard),
+        "guard step must run on every branch push, whatever the affected set:\n{guard}"
+    );
+    for needle in ["continue-on-error", "|| true"] {
+        assert!(
+            !guard.contains(needle),
+            "guard step: a guard failure must fail the required check:\n{guard}"
+        );
+    }
+    for setup in [
+        "name: Install Rust",
+        "name: Install sccache",
+        "name: Cache Cargo",
+        "name: Install Linux System Dependencies",
+        "name: Install mold",
+        "name: Pre-fetch ONNX Runtime",
+    ] {
+        let at = steps
+            .iter()
+            .position(|s| s.contains(setup))
+            .unwrap_or_else(|| panic!("check has no `{setup}` step"));
+        assert!(at < guard_at, "`{setup}` must come before the guard tests");
+        assert!(
+            !step_has_condition(&steps[at]),
+            "`{setup}` must run on every push: the guard tests always need it"
+        );
+    }
+    // The inline merge gate compiles the merge tree but runs no tests, so a
+    // semantic conflict between a green head and a newer main can still break
+    // these guards on main. Either the merge gate runs them too, or the check
+    // job says that main's full suite is what catches that case.
+    let merge_gate = read("scripts/merge-gate.sh");
+    assert!(
+        merge_gate.contains(&expected)
+            || text.contains(
+                "  # The inline merge gate (scripts/merge-gate.sh) does not re-run these guards\n  \
+                 # on the merge tree: a semantic conflict between a green head and a newer\n  \
+                 # main is left to main's full suite, which runs them after the merge lands.\n"
+            ),
+        "the merge gate must run the root guards on the merge tree, or the check job must \
+         record that merge-tree conflicts are left to main's full suite"
+    );
+}
+
+/// Whether a step (as `steps` splits it) carries a step-level `if:`, written
+/// either as the list item's first key (`      - if:`) or as a later key
+/// (`        if:`). A `save-if:` input or an `if` inside a script does not
+/// count.
+fn step_has_condition(step: &str) -> bool {
+    step.lines().any(|l| {
+        l.strip_prefix("      - ")
+            .or_else(|| l.strip_prefix("        "))
+            .is_some_and(|key| key.starts_with("if:"))
+    })
+}
+
+#[test]
+fn step_has_condition_sees_an_if_at_any_step_key_position() {
+    assert!(step_has_condition(
+        "      - name: x\n        if: always()\n        run: true\n"
+    ));
+    assert!(step_has_condition(
+        "      - if: steps.affected.outputs.lintcmd != ''\n        name: x\n        run: true\n"
+    ));
+    assert!(!step_has_condition(
+        "      - name: x\n        uses: Swatinem/rust-cache@v2\n        with:\n          save-if: false\n"
+    ));
+    assert!(!step_has_condition(
+        "      - name: x\n        run: |\n          if: not a key\n          if [ -n \"$a\" ]; then :; fi\n"
+    ));
 }
 
 /// Taking tests off the branch gate is only sound while they still run
@@ -2761,9 +2887,11 @@ esac"#,
     );
 }
 
-/// A .agents/-only push has an empty lint set, and paying for a toolchain
-/// first was ~90 s of setup for nothing. Scope resolution must come first
-/// and every install must be gated on it.
+/// A .agents/-only push has an empty lint set. It used to skip the toolchain
+/// entirely (~90 s of setup), but since the root guard tests run on every push
+/// (CEO decision 2026-11-04; a BOM task file is one of the breaks they catch)
+/// the installs run on every push. Scope resolution still comes first, and
+/// clippy stays gated on a non-empty lint set.
 #[test]
 fn pending_gate_resolves_scope_before_installing_a_toolchain() {
     let text = read(".github/workflows/test.yml");
@@ -2786,11 +2914,16 @@ fn pending_gate_resolves_scope_before_installing_a_toolchain() {
     ] {
         let idx = at(&format!("name: {name}"));
         assert!(idx > scope, "`{name}` must come after scope resolution");
-        assert!(
-            steps[idx].contains("steps.affected.outputs.lintcmd != ''"),
-            "`{name}` must be gated on a non-empty lint set"
-        );
     }
+    assert!(
+        steps[at("name: cargo clippy")].contains("steps.affected.outputs.lintcmd != ''"),
+        "clippy must stay gated on a non-empty lint set"
+    );
+    assert!(
+        steps[at("name: Test affected crates")]
+            .contains("steps.affected.outputs.has_tests == 'true'"),
+        "the affected-crate tests must stay gated on the plan"
+    );
 }
 
 /// The board hygiene check only ever ran in report mode, so the debris it
@@ -3487,27 +3620,38 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The ONNX prefetch builds susi-vendor-fastembed to warm a CDN download; on a
-/// push whose affected set cannot reach that crate it is a pure wait. The gate
-/// must resolve the intersection, not run it for every crate-touching push.
+/// The ONNX prefetch builds susi-vendor-fastembed to warm a CDN download with
+/// bounded retries. It used to run only when the affected set reached that
+/// crate. The root guard tests now build the root package on every push (CEO
+/// decision 2026-11-04), and the root package reaches susi-vendor-fastembed,
+/// so every push's build reaches ort-sys: the prefetch must run on every push,
+/// before the guard tests, or a CDN hiccup reddens the gate unretried.
 #[test]
-fn the_branch_gate_prefetches_onnx_only_when_the_closure_can_reach_it() {
+fn the_branch_gate_prefetches_onnx_before_the_root_guard_build() {
     let text = read(".github/workflows/test.yml");
     let test_jobs = jobs(&text);
     let check = job(&test_jobs, "check");
+    let steps = steps(&check.body);
+    let prefetch = steps
+        .iter()
+        .position(|s| s.contains("ci-prefetch-onnxruntime.sh"))
+        .expect("check must prefetch ONNX Runtime");
+    let guard = steps
+        .iter()
+        .position(|s| s.contains("name: Root-package guard tests"))
+        .expect("check has a root-package guard test step");
     assert!(
-        check
-            .body
-            .contains("ci-reverse-deps.sh susi-vendor-fastembed"),
-        "the check job must compute the fastembed reverse-dependency set"
+        !step_has_condition(&steps[prefetch]),
+        "the guard tests build the root package on every push, which reaches ort-sys:\n{}",
+        steps[prefetch]
     );
-    let prefetch = steps(&check.body)
-        .into_iter()
-        .find(|s| s.contains("ci-prefetch-onnxruntime.sh"))
-        .expect("check must still prefetch when the closure can reach ort");
     assert!(
-        prefetch.contains("steps.affected.outputs.onnx == 'true'"),
-        "the prefetch must be gated on the resolved intersection:\n{prefetch}"
+        prefetch < guard,
+        "the prefetch must precede the guard build"
+    );
+    assert!(
+        !check.body.contains("outputs.onnx"),
+        "no per-package ONNX decision can skip the prefetch any more"
     );
 }
 
