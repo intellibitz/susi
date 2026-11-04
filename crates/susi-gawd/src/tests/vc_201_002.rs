@@ -25,3 +25,17 @@ fn vc_201_002_records_required_fields_for_comparison() {
     assert!(a.is_comparable_to(&b));
     assert!(a.tokens > 0 || a.latency_ms > 0 || a.success_rate >= 0.0);
 }
+
+#[test]
+fn vc_201_002_rejects_mismatched_hardware_dataset_or_empty_command() {
+    let base = BaselineRecord::release_reference("a", "cpus=8", "susi brain bench");
+    let diff_hw = BaselineRecord::candidate_on_dev("b", "cpus=16", "susi brain bench");
+    assert!(!base.is_comparable_to(&diff_hw));
+
+    let empty_cmd = BaselineRecord::candidate_on_dev("b", "cpus=8", "");
+    assert!(!base.is_comparable_to(&empty_cmd));
+
+    let mut diff_dataset = BaselineRecord::candidate_on_dev("b", "cpus=8", "susi brain bench");
+    diff_dataset.dataset = "custom-suite".into();
+    assert!(!base.is_comparable_to(&diff_dataset));
+}

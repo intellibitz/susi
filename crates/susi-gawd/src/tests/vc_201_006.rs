@@ -46,3 +46,28 @@ fn vc_201_006_noisy_pair_is_inconclusive() {
     ];
     assert_eq!(decide(&trials, 5, 0.95), RegressionDecision::Inconclusive);
 }
+
+#[test]
+fn vc_201_006_consistent_degradation_decides_regressed() {
+    let regressed_trials: Vec<_> = (0..6)
+        .map(|_| PairedTrial {
+            baseline: 2.0,
+            candidate: 1.0,
+        })
+        .collect();
+    assert_eq!(
+        decide(&regressed_trials, 5, 0.99),
+        RegressionDecision::Regressed
+    );
+
+    let flat_trials: Vec<_> = (0..6)
+        .map(|_| PairedTrial {
+            baseline: 1.5,
+            candidate: 1.5,
+        })
+        .collect();
+    assert_eq!(
+        decide(&flat_trials, 5, 0.95),
+        RegressionDecision::Inconclusive
+    );
+}

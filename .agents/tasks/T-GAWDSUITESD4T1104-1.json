@@ -1,0 +1,19 @@
+{
+  "id": "T-GAWDSUITESD4T1104-1",
+  "title": "Expand 5 susi-gawd tests suites D (vc_201_002, vc_201_004, vc_201_005, vc_201_006, vc_201_008) to 4 unit tests each",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "vc_201_00"
+    ]
+  },
+  "created_by": "GAWDSUITESD4T1104",
+  "created_unix": 1793790963
+}

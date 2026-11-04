@@ -45,3 +45,18 @@ fn vc_201_005_honest_candidate_passes() {
     };
     assert_eq!(judge(&c, &s, false), PromotionGate::Pass);
 }
+
+#[test]
+fn vc_201_005_missing_expected_output_fails_wrong_output() {
+    let c = CandidateArtifact {
+        id: "c-incomplete".into(),
+        actual_output: BTreeSet::from(["only-one".into()]),
+        expected_results: BTreeSet::from(["only-one".into()]),
+    };
+    let s = HeldOutSuite {
+        inputs: vec!["i1".into(), "i2".into()],
+        expected: BTreeSet::from(["only-one".into(), "missing-two".into()]),
+    };
+    assert_eq!(judge(&c, &s, false), PromotionGate::FailWrongOutput);
+    assert_eq!(judge(&c, &s, true), PromotionGate::FailWriteAttempt);
+}
