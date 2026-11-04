@@ -48,4 +48,43 @@ mod zc_tasks_next_tests {
         ]);
         assert_eq!(pick.as_deref(), Some("T-S"));
     }
+
+    #[test]
+    fn zc_tasks_next_empty_slice_returns_none() {
+        assert_eq!(pick_next(&[]), None);
+    }
+
+    #[test]
+    fn zc_tasks_next_all_blocked_returns_none() {
+        let pick = pick_next(&[
+            TaskCandidate {
+                id: "T-1".into(),
+                size: "s".into(),
+                has_deps: true,
+            },
+            TaskCandidate {
+                id: "T-2".into(),
+                size: "m".into(),
+                has_deps: true,
+            },
+        ]);
+        assert_eq!(pick, None);
+    }
+
+    #[test]
+    fn zc_tasks_next_selects_medium_over_large_when_no_small_exists() {
+        let pick = pick_next(&[
+            TaskCandidate {
+                id: "T-LARGE".into(),
+                size: "l".into(),
+                has_deps: false,
+            },
+            TaskCandidate {
+                id: "T-MEDIUM".into(),
+                size: "m".into(),
+                has_deps: false,
+            },
+        ]);
+        assert_eq!(pick.as_deref(), Some("T-MEDIUM"));
+    }
 }
