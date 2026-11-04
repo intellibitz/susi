@@ -1,0 +1,28 @@
+{
+    "id":  "T-LOCALCHANNEL1104-1",
+    "title":  "Port susi-local.ps1 and test-local-channel.ps1 to OS-neutral xtask local-channel binary (D-OS-6)",
+    "goal":  "",
+    "size":  "s",
+    "deps":  [
+
+             ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--bin",
+                               "local-channel"
+                           ]
+               },
+    "created_by":  "LOCALCHANNEL1104",
+    "created_unix":  1793753876,
+    "closed":  {
+                   "at_unix":  1793753900,
+                   "commit":  "0feb337d833596636d94faf16309ad2bf7dc73de",
+                   "by":  "LOCALCHANNEL1104"
+               }
+}
