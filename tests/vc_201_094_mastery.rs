@@ -192,3 +192,12 @@ fn vc_201_094_limits_accessor_and_serde_roundtrip() {
     let rep_json = serde_json::to_string(&report).expect("serialize SaturationReport");
     assert!(rep_json.contains("missions"));
 }
+
+#[test]
+fn vc_201_094_default_load_point_has_zero_in_flight_across_all_dimensions() {
+    let pt = LoadPoint::default();
+    assert_eq!(pt.missions, 0);
+    assert_eq!(pt.streaming, 0);
+    assert_eq!(pt.peer_repair, 0);
+    assert_eq!(pt.model_churn, 0);
+}

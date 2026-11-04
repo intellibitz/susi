@@ -90,3 +90,16 @@ fn vc_201_017_dev_instance_ports_are_contiguous_and_distinct_from_prod() {
     }
     assert!(ports.iter().all(|&p| p >= 9190));
 }
+
+#[test]
+fn vc_201_017_infinite_regression_limit_or_candidate_metric_is_handled_deterministically() {
+    assert_eq!(
+        evaluate_canary(&trial(f64::NEG_INFINITY, 1.0, 0.1)),
+        CanaryResult::StopTrial
+    );
+    let t = trial(0.8, 0.9, 0.15);
+    assert_eq!(t.candidate_metric, 0.8);
+    assert_eq!(t.baseline_metric, 0.9);
+    assert_eq!(t.regression_limit, 0.15);
+    assert_eq!(evaluate_canary(&t), CanaryResult::Continue);
+}

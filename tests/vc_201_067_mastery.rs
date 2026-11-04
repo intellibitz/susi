@@ -374,3 +374,20 @@ fn vc_201_067_diamond_shared_inheritance_preserves_earlier_parent_precedence() {
         Some("left")
     );
 }
+
+#[test]
+fn vc_201_067_self_referential_profile_fails_cycle_validation() {
+    let mut set = ProfileSet::default();
+    set.profiles.insert(
+        "self_loop".into(),
+        Profile {
+            env: EnvKind::Shared,
+            extends: vec!["self_loop".into()],
+            values: BTreeMap::new(),
+        },
+    );
+    let err = set
+        .validate()
+        .expect_err("self-extending profile must fail");
+    assert!(err.to_string().contains("cycle"));
+}
