@@ -605,7 +605,7 @@ fn prose_and_has_word_strip_inline_code_and_markdown_links() {
 
     assert!(has_word("dashboards are external", "dashboard"));
     assert!(!has_word("guided tour", "gui"));
-    assert!(is_history("1. Retracted: old item"));
-    assert!(is_history("Note (superseded by v2)"));
-    assert!(!is_history("Normal sentence about architecture"));
+    assert!(is_history(&plain("1. Retracted: old item")));
+    assert!(is_history(&plain("Note (superseded by v2)")));
+    assert!(!is_history(&plain("Normal sentence about architecture")));
 }
