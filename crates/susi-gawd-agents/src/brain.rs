@@ -137,4 +137,53 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn initialize_with_config_dir_on_empty_directory_uses_default_config_values() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-brain-empty-cfg-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let ws = dir.join("empty-ws");
+        let ctx = AlphaBrainContext::initialize_with_config_dir(&ws, &dir);
+        let default_cfg = SusiConfig::default();
+        assert_eq!(ctx.self_version, AlphaSelf::VERSION);
+        assert_eq!(ctx.workspace_path, ws);
+        assert_eq!(ctx.default_engine, default_cfg.default_engine());
+        assert_eq!(ctx.default_model, default_cfg.default_model());
+        assert_eq!(ctx.gmcp_port, default_cfg.gmcp_port());
+        assert_eq!(ctx.gemi_port, default_cfg.gemi_port());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn alpha_brain_context_clone_debug_and_custom_hardware_port_reflection_in_tri_state() {
+        let ctx = AlphaBrainContext {
+            self_version: AlphaSelf::VERSION,
+            system_cpus: 64,
+            system_gpu: "NVIDIA H100 80GB".to_string(),
+            system_ram_gb: 256,
+            workspace_path: PathBuf::from("/custom/workspace"),
+            default_engine: "gemi-native".to_string(),
+            default_model: "gemi-ultra".to_string(),
+            gmcp_port: 19090,
+            gemi_port: 19091,
+        };
+        let cloned = ctx.clone();
+        let dbg = format!("{cloned:?}");
+        assert!(dbg.contains("AlphaBrainContext"));
+        assert!(dbg.contains("NVIDIA H100 80GB"));
+
+        let tri = cloned.inspect_tri_state();
+        assert!(tri.contains("64 CPUs | NVIDIA H100 80GB | 256GB RAM"));
+        assert!(tri.contains("GMCP Port: 19090 | GEMI Port: 19091"));
+    }
 }

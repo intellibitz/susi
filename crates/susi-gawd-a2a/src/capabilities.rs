@@ -93,4 +93,36 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn gawd_capabilities_serde_roundtrip_and_default_orchestrator_equivalence() {
+        let def = GawdCapabilities::default();
+        let orch = GawdCapabilities::orchestrator();
+        assert_eq!(def.streaming, orch.streaming);
+        assert_eq!(def.push_notifications, orch.push_notifications);
+
+        let a2a = orch.as_capabilities();
+        let val = serde_json::to_value(&a2a).expect("AgentCapabilities must serialize");
+        let decoded: ra2a::types::AgentCapabilities =
+            serde_json::from_value(val).expect("AgentCapabilities must deserialize");
+        assert_eq!(decoded.streaming, Some(true));
+        assert_eq!(decoded.push_notifications, Some(true));
+    }
+
+    #[test]
+    fn gawd_capabilities_independent_mutation_and_fresh_agent_capabilities_allocation() {
+        let mut caps = GawdCapabilities::orchestrator();
+        caps.streaming = false;
+        let first = caps.as_capabilities();
+        caps.push_notifications = false;
+        let second = caps.as_capabilities();
+
+        assert_eq!(first.streaming, Some(false));
+        assert_eq!(first.push_notifications, Some(true));
+        assert_eq!(first.state_transition_history, None);
+
+        assert_eq!(second.streaming, Some(false));
+        assert_eq!(second.push_notifications, Some(false));
+        assert_eq!(second.state_transition_history, None);
+    }
 }
