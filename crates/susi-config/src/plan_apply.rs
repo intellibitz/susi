@@ -286,4 +286,13 @@ mod tests {
         assert_eq!(store.values.get("k1"), Some(&"already_mutated".into()));
         assert_eq!(store.values.get("k2"), Some(&"v2_new".into()));
     }
+
+    #[test]
+    fn config_store_default_is_empty_and_empty_desired_on_empty_store_produces_noop_apply() {
+        let mut store = ConfigStore::default();
+        assert!(store.values.is_empty());
+        let plan = store.plan(&BTreeMap::new());
+        assert!(plan.ops.is_empty());
+        assert!(store.apply(&plan).unwrap().is_empty());
+    }
 }

@@ -208,4 +208,13 @@ mod tests {
         assert_eq!(removed.reason, RekeyReason::MemberRemoved);
         assert_eq!(removed.members_removed_since, 2);
     }
+
+    #[test]
+    fn rekey_policy_default_enables_member_removal_rotation_with_positive_interval() {
+        let p = RekeyPolicy::default();
+        assert!(p.interval_secs > 0);
+        assert!(p.rotate_on_member_removed);
+        let json = serde_json::to_string(&p).unwrap();
+        assert_eq!(serde_json::from_str::<RekeyPolicy>(&json).unwrap(), p);
+    }
 }
