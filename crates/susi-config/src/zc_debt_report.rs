@@ -243,4 +243,10 @@ mod tests {
         assert!(report.contains("- [envvar] legacy env override — removes via T-ZC-E1\n"));
         assert!(report.contains("- [prompt] interactive confirm prompt — removes via T-ZC-P1\n"));
     }
+
+    #[test]
+    fn format_debt_report_on_empty_slice_renders_none_header() {
+        let report = format_debt_report(&[]);
+        assert_eq!(report, "zero-config debt: none\n");
+    }
 }

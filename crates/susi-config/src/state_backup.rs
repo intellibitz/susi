@@ -513,4 +513,13 @@ mod tests {
         let restored = restore(&localhost_blob, 23).expect("restore localhost file ref");
         assert_eq!(restored, localhost_sections);
     }
+
+    #[test]
+    fn backup_rejects_wrong_passphrase_seed_on_restore() {
+        let mut sections = BTreeMap::new();
+        sections.insert("config.json".to_string(), br#"{"ok":true}"#.to_vec());
+        let blob = backup(&sections, 101, false).expect("backup section");
+        let err = restore(&blob, 202).expect_err("wrong seed must fail AEAD open");
+        assert!(err.contains("backup authentication failed"));
+    }
 }

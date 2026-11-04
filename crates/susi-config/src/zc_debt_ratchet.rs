@@ -158,4 +158,19 @@ mod tests {
         assert!(ratchet_check(&dir.join("absent.json"), &[]).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn ratchet_verdict_clone_and_equality_preserve_variant_fields() {
+        let v1 = RatchetVerdict::Holds { count: 3 };
+        let v2 = RatchetVerdict::Improved { now: 1, was: 3 };
+        let v3 = RatchetVerdict::Regressed {
+            now: 4,
+            max: 3,
+            new_ids: vec!["x".into()],
+        };
+        assert_eq!(v1.clone(), v1);
+        assert_eq!(v2.clone(), v2);
+        assert_eq!(v3.clone(), v3);
+        assert_ne!(v1, v2);
+    }
 }
