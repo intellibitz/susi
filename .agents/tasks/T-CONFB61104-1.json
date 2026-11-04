@@ -1,7 +1,7 @@
 ﻿{
   "id": "T-CONFB61104-1",
   "title": "B1 stateful MCP session conformance on 9093 and B6 A2A agent card skill/capability honesty check",
-  "state": "open",
+  "state": "closed",
   "created_by": "CONFB61104",
   "created_at_unix": 1793755560,
   "scope": {
@@ -18,5 +18,10 @@
       "-p",
       "susi-conformance"
     ]
+  },
+  "closed": {
+    "commit": "e99dac675a1353133db1445612d919ca9071f1db",
+    "by": "CONFB61104",
+    "at_unix": 1793755580
   }
 }
