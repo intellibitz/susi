@@ -119,4 +119,26 @@ mod tests {
         let advice = advise(&SwarmMetricsSnapshot::default(), &SlaTargets::default());
         assert_eq!(advice.direction, TuneDirection::Hold);
     }
+
+    #[test]
+    fn min_success_rate_violation_decreases_concurrency_and_partial_success_within_sla_holds() {
+        let strict_targets = SlaTargets {
+            max_avg_resolution_ms: Some(1000),
+            min_success_rate: Some(0.90),
+        };
+        let low_success = snapshot(10, 5, 20);
+        assert_eq!(
+            advise(&low_success, &strict_targets).direction,
+            TuneDirection::DecreaseConcurrency
+        );
+
+        let lenient_targets = SlaTargets {
+            max_avg_resolution_ms: Some(1000),
+            min_success_rate: Some(0.40),
+        };
+        assert_eq!(
+            advise(&low_success, &lenient_targets).direction,
+            TuneDirection::Hold
+        );
+    }
 }

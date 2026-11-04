@@ -336,4 +336,23 @@ mod tests {
         let _ = report.files_changed;
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn scan_with_state_returns_zero_on_second_pass_of_unchanged_dir() {
+        let ws = std::env::temp_dir().join(format!("susi-ambient-repeat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("readme.md"), "stable content").unwrap();
+        let mut state = HashMap::new();
+        assert_eq!(scan_with_state(&ws, &mut state), 1);
+        assert_eq!(scan_with_state(&ws, &mut state), 0);
+        let json = AmbientPulseReport {
+            files_changed: 1,
+            docs_indexed: 2,
+        }
+        .to_json();
+        assert_eq!(json["files_changed"], 1);
+        assert_eq!(json["docs_indexed"], 2);
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

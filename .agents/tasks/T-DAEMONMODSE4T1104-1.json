@@ -1,0 +1,21 @@
+{
+  "id": "T-DAEMONMODSE4T1104-1",
+  "title": "Expand 6 3-test modules in crates/susi-daemon/src/ to 4 unit tests each and harden vc_202_010_mastery",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "auto_tune"
+    ]
+  },
+  "created_by": "DAEMONMODSE4T1104",
+  "created_unix": 1793793324
+}

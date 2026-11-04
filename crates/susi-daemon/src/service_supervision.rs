@@ -602,12 +602,18 @@ mod tests {
     fn vc_202_010_mastery() {
         let sup = Supervisor::new();
         let runs = Arc::new(AtomicUsize::new(0));
+        let allow_exit_through = Arc::new(AtomicUsize::new(1));
         {
             let runs = Arc::clone(&runs);
+            let allow_exit_through = Arc::clone(&allow_exit_through);
             sup.spawn("worker", 2, None, move || {
                 let runs = Arc::clone(&runs);
+                let allow_exit_through = Arc::clone(&allow_exit_through);
                 Some(move || {
-                    runs.fetch_add(1, Ordering::SeqCst);
+                    let this_run = runs.fetch_add(1, Ordering::SeqCst) + 1;
+                    while allow_exit_through.load(Ordering::SeqCst) < this_run {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
                 })
             });
         }
@@ -626,6 +632,7 @@ mod tests {
                 WorkerState::Running,
                 "restart {expected_restarts} reports running"
             );
+            allow_exit_through.store(expected_restarts as usize + 1, Ordering::SeqCst);
         }
         // Third death: the budget of two is spent — down, reported.
         assert!(wait_until(|| !sup.alive("worker")));
