@@ -184,3 +184,118 @@ pub fn run_cycle(
         commit,
     })
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn git_helper_runs_version_and_reports_error_on_invalid_subcommand() {
+        let ver = git(Path::new("."), &["--version"]).expect("git --version");
+        assert!(ver.contains("git version"));
+
+        let err = git(Path::new("."), &["definitely-not-a-git-subcommand-xyz"])
+            .expect_err("invalid subcommand must fail");
+        assert!(err.to_string().contains("failed"));
+    }
+
+    #[test]
+    fn run_cycle_rejects_non_git_directory_before_selecting_task() {
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_autonomous_builder_nongit_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).expect("create temp dir");
+
+        let res = run_cycle(&tmp, "BUILDER", |_| None, |_| None, |_| Ok(()));
+        assert!(res.is_err());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn run_cycle_in_synced_repo_reports_no_open_task_or_unknown_task_id() {
+        let root = std::env::temp_dir().join(format!(
+            "susi_autonomous_builder_synced_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let origin = root.join("origin.git");
+        let repo = root.join("repo");
+        fs::create_dir_all(&origin).expect("create origin");
+        fs::create_dir_all(&repo).expect("create repo");
+
+        git(&origin, &["init", "--bare", "-q"]).expect("init bare");
+        git(&repo, &["init", "-q"]).expect("init repo");
+        git(&repo, &["config", "user.email", "test@example.com"]).expect("config email");
+        git(&repo, &["config", "user.name", "test"]).expect("config name");
+        git(&repo, &["checkout", "-q", "-B", "main"]).expect("checkout main");
+        git(
+            &repo,
+            &["remote", "add", "origin", &origin.to_string_lossy()],
+        )
+        .expect("add remote");
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]).expect("commit init");
+        git(&repo, &["push", "-q", "-u", "origin", "main"]).expect("push main");
+
+        let err_none = run_cycle(&repo, "BUILDER", |_| None, |_| None, |_| Ok(()))
+            .expect_err("no task picked");
+        assert!(err_none.to_string().contains("no open task to build"));
+
+        let err_missing = run_cycle(
+            &repo,
+            "BUILDER",
+            |_| Some("T-MISSING".to_string()),
+            |_| None,
+            |_| Ok(()),
+        )
+        .expect_err("unknown task id");
+        assert!(err_missing
+            .to_string()
+            .contains("picked task T-MISSING is not open"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delegation_and_build_outcome_preserve_constructed_fields() {
+        let task: Task = serde_json::from_str(
+            r#"{
+                "id": "T-42",
+                "title": "Test builder",
+                "goal": "Implement feature",
+                "size": "s",
+                "deps": [],
+                "accept": { "cmd": ["cargo", "test"] },
+                "created_by": "TEST",
+                "created_unix": 1000
+            }"#,
+        )
+        .expect("deserialize task");
+        let wt = PathBuf::from("/tmp/builder-T-42");
+        let briefed_goal = brief_task(&wt, &task.goal);
+        let delegation = Delegation {
+            task,
+            agent: "codex".to_string(),
+            worktree: wt.clone(),
+            briefed_goal,
+        };
+        assert_eq!(delegation.task.id, "T-42");
+        assert_eq!(delegation.agent, "codex");
+        assert!(delegation.briefed_goal.contains("Implement feature"));
+
+        let outcome = BuildOutcome {
+            task_id: "T-42".to_string(),
+            agent: "codex".to_string(),
+            worktree: wt,
+            branch: "agent/t-42".to_string(),
+            commit: "deadbeef".to_string(),
+        };
+        assert_eq!(outcome.task_id, "T-42");
+        assert_eq!(outcome.branch, "agent/t-42");
+        assert_eq!(outcome.commit, "deadbeef");
+    }
+}

@@ -266,3 +266,92 @@ mod kani_proofs {
         ));
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn lease_is_fenced_and_budget_transition_enforce_generation_expiry_and_cap() {
+        assert!(lease_is_fenced(3, 3, 100, 200));
+        assert!(!lease_is_fenced(3, 4, 100, 200));
+        assert!(!lease_is_fenced(3, 3, 200, 200));
+
+        assert_eq!(budget_transition(40, 30, 30, 100), BudgetTransition::Admit);
+        assert_eq!(budget_transition(40, 30, 31, 100), BudgetTransition::Reject);
+        assert_eq!(
+            budget_transition(u64::MAX, 1, 1, u64::MAX - 1),
+            BudgetTransition::Reject
+        );
+    }
+
+    #[test]
+    fn policy_precedence_and_quarantine_ladder_secs_follow_formal_rules() {
+        assert_eq!(
+            policy_precedence(PolicyClass::FreeOnly, true, true),
+            PolicyDecision::Free
+        );
+        assert_eq!(
+            policy_precedence(PolicyClass::FreeOnly, false, true),
+            PolicyDecision::Denied
+        );
+        assert_eq!(
+            policy_precedence(PolicyClass::AskFirst, true, false),
+            PolicyDecision::NeedsConsent
+        );
+        assert_eq!(
+            policy_precedence(PolicyClass::PaidAuthorized, false, false),
+            PolicyDecision::Paid
+        );
+
+        assert_eq!(quarantine_ladder_secs(0), 600);
+        assert_eq!(quarantine_ladder_secs(1), 600);
+        assert_eq!(quarantine_ladder_secs(2), 3_600);
+        assert_eq!(quarantine_ladder_secs(99), QUARANTINE_CAP_SECS);
+    }
+
+    #[test]
+    fn claim_model_enforces_first_writer_wins_and_expired_lease_takeover() {
+        let mut model = ClaimModel::new();
+        assert_eq!(
+            model.try_claim("T-1", "agent-a", 100, 50),
+            ClaimOutcome::Won
+        );
+        assert_eq!(model.live_holder("T-1", 120), Some("agent-a"));
+        assert_eq!(model.lease_until("T-1"), Some(150));
+        assert_eq!(
+            model.try_claim("T-1", "agent-b", 120, 50),
+            ClaimOutcome::LostAlive
+        );
+
+        assert_eq!(model.live_holder("T-1", 150), None);
+        assert_eq!(
+            model.try_claim("T-1", "agent-b", 150, 60),
+            ClaimOutcome::TookOverExpired
+        );
+        assert_eq!(model.live_holder("T-1", 180), Some("agent-b"));
+    }
+
+    #[test]
+    fn claim_safety_verifies_valid_model_and_detects_corrupted_invariants() {
+        let mut model = ClaimModel::new();
+        model.try_claim("T-9", "agent-x", 500, 100);
+        assert_eq!(claim_safety(&model, 550), Ok(()));
+
+        model.claims.insert(
+            "T-bad".to_string(),
+            (
+                1,
+                ModelClaim {
+                    task: "T-other".to_string(),
+                    agent: "agent-y".to_string(),
+                    claimed_unix: 500,
+                    lease_until_unix: 600,
+                },
+            ),
+        );
+        assert!(claim_safety(&model, 550).is_err());
+    }
+}
