@@ -147,3 +147,96 @@ pub fn load_last(journal: &Path) -> Option<Ballot> {
         .filter_map(|l| serde_json::from_str::<Ballot>(l).ok())
         .next_back()
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn candidate(provider: &str, meets_floor: bool, unfit: bool, cost: Option<f64>) -> Ranked {
+        Ranked {
+            provider: provider.to_string(),
+            meets_floor,
+            capability: if meets_floor { "coding" } else { "basic" },
+            unfit,
+            last_failure: None,
+            score: 0.8,
+            cost_tier: "low",
+            expected_cost_usd: cost,
+            cost_per_outcome_usd: cost,
+            billing: "metered",
+            quota_remaining: Some(1.0),
+            effective_cost_usd: cost,
+            samples: 5,
+            success_rate: Some(0.9),
+            avg_latency_ms: Some(100),
+        }
+    }
+
+    #[test]
+    fn elect_returns_none_when_no_candidate_is_working_and_meets_floor() {
+        let ranked = vec![
+            candidate("unfit-one", true, true, Some(0.01)),
+            candidate("weak-one", false, false, Some(0.001)),
+        ];
+        assert!(elect(&ranked, TaskClass::Code, 100).is_none());
+    }
+
+    #[test]
+    fn elect_picks_first_working_candidate_and_records_all_rejection_reasons() {
+        let ranked = vec![
+            candidate("unfit-first", true, true, Some(0.001)),
+            candidate("below-floor", false, false, Some(0.002)),
+            candidate("winner", true, false, Some(0.01)),
+            candidate("runner-up", true, false, Some(0.02)),
+        ];
+        let election = elect(&ranked, TaskClass::Code, 500).unwrap();
+        assert_eq!(election.primary, "winner");
+        assert_eq!(election.field, 2);
+        assert_eq!(election.rejected.len(), 3);
+        assert!(
+            matches!(&election.rejected[0], Rejection::Unfit { provider, .. } if provider == "unfit-first")
+        );
+        assert!(
+            matches!(&election.rejected[1], Rejection::BelowFloor { provider, .. } if provider == "below-floor")
+        );
+        assert!(
+            matches!(&election.rejected[2], Rejection::Pricier { provider, .. } if provider == "runner-up")
+        );
+    }
+
+    #[test]
+    fn single_working_candidate_is_elected_with_field_one() {
+        let ranked = vec![candidate("solo", true, false, Some(0.05))];
+        let election = elect(&ranked, TaskClass::Reasoning, 777).unwrap();
+        assert_eq!(election.primary, "solo");
+        assert_eq!(election.field, 1);
+        assert!(election.rejected.is_empty());
+    }
+
+    #[test]
+    fn append_and_load_last_roundtrip_latest_ballot() {
+        let path = std::env::temp_dir().join(format!(
+            "susi-election-inline-{}-{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_file(&path);
+        assert!(load_last(&path).is_none());
+
+        let b1 = Ballot {
+            unix: 100,
+            elections: Vec::new(),
+        };
+        let b2 = Ballot {
+            unix: 200,
+            elections: Vec::new(),
+        };
+        append(&path, &b1).unwrap();
+        append(&path, &b2).unwrap();
+        assert_eq!(load_last(&path).unwrap().unix, 200);
+        let _ = std::fs::remove_file(&path);
+    }
+}
