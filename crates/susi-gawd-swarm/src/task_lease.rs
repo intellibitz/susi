@@ -327,3 +327,99 @@ impl TaskLease {
         }
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_and_complete_enforce_owner_fence_and_expiration() {
+        let mut table = LeaseTable::new();
+        let lease = table.dispatch("t-1", "worker-a", 100, 30);
+        assert_eq!(lease.fence, 1);
+        assert_eq!(
+            table.check_fence("t-1", "worker-b", 1, 110),
+            CompleteVerdict::NotOwner
+        );
+        assert_eq!(
+            table.check_fence("t-1", "worker-a", 99, 110),
+            CompleteVerdict::StaleFence
+        );
+        assert_eq!(
+            table.check_fence("t-1", "worker-a", 1, 130),
+            CompleteVerdict::Expired
+        );
+        assert_eq!(
+            table.complete("t-1", "worker-a", 1, 120),
+            CompleteVerdict::Accepted
+        );
+        assert_eq!(
+            table.check_fence("t-1", "worker-a", 1, 121),
+            CompleteVerdict::UnknownTask
+        );
+    }
+
+    #[test]
+    fn authorize_mutation_and_renew_extend_ttl_when_authority_matches() {
+        let mut table = LeaseTable::new();
+        let _lease = table.dispatch("t-2", "worker-a", 100, 10);
+        let token = table.authority_for("t-2").unwrap();
+        let permit = table
+            .authorize_mutation("t-2", "worker-a", token, 105)
+            .unwrap();
+        assert_eq!(table.check_permit(permit, 105), CompleteVerdict::Accepted);
+
+        assert_eq!(
+            table.renew("t-2", "worker-a", token, 108, 50),
+            CompleteVerdict::Accepted
+        );
+        assert_eq!(
+            table.check_fence("t-2", "worker-a", token.fence, 140),
+            CompleteVerdict::Accepted
+        );
+    }
+
+    #[test]
+    fn begin_recovery_revokes_prior_epoch_leases_as_stale_fence() {
+        let mut table = LeaseTable::new();
+        let _lease = table.dispatch("t-3", "worker-old", 100, 60);
+        let old_token = table.authority_for("t-3").unwrap();
+        let next_epoch = table.epoch.next();
+        table.begin_recovery(next_epoch, 110);
+
+        assert!(table.recovery.revoked_workers.contains("worker-old"));
+        assert_eq!(
+            table.check_authority("t-3", "worker-old", old_token, 115),
+            CompleteVerdict::StaleFence
+        );
+    }
+
+    #[test]
+    fn adopt_merges_persisted_table_keeping_monotonic_fence_and_epoch() {
+        let mut persisted = LeaseTable::new();
+        let _ = persisted.dispatch_in_epoch(
+            "t-4",
+            "worker-p",
+            200,
+            60,
+            OwnershipEpoch {
+                mission: 2,
+                coordinator: 3,
+            },
+        );
+        let mut fresh = LeaseTable::new();
+        fresh.adopt(&persisted);
+        assert_eq!(
+            fresh.epoch,
+            OwnershipEpoch {
+                mission: 2,
+                coordinator: 3
+            }
+        );
+        assert!(fresh.leases().contains_key("t-4"));
+        let next = fresh.dispatch("t-5", "worker-n", 210, 60);
+        assert!(next.fence > 1);
+    }
+}

@@ -174,3 +174,96 @@ impl ChaosNetwork {
         Ok(())
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn elect_selects_highest_trust_with_lexicographic_tiebreak_and_advances_term() {
+        let mut node = ChaosNode::new("n1");
+        let candidates = vec![
+            ("n1".to_string(), 0.8),
+            ("n2".to_string(), 0.9),
+            ("n3".to_string(), 0.9),
+        ];
+        node.elect(&candidates);
+        assert_eq!(node.leader, "n3");
+        assert_eq!(node.term, 1);
+        node.elect(&candidates);
+        assert_eq!(node.term, 1);
+    }
+
+    #[test]
+    fn propose_commit_and_accept_enforce_leader_term_and_split_brain_guard() {
+        let mut leader = ChaosNode::new("n1");
+        assert!(leader.propose_commit(1, "init").is_none());
+        leader.elect(&[("n1".to_string(), 1.0)]);
+        let rec = leader.propose_commit(1, "cmd-a").unwrap();
+
+        let mut follower = ChaosNode::new("n2");
+        assert!(follower.accept(rec.clone()));
+        assert!(follower.accept(rec));
+        assert_eq!(follower.log.len(), 1);
+
+        let split = CommitRecord {
+            term: 1,
+            leader: "rogue".to_string(),
+            seq: 2,
+            payload: "cmd-b".to_string(),
+        };
+        assert!(!follower.accept(split));
+    }
+
+    #[test]
+    fn broadcast_and_flush_delayed_deliver_after_partition_heals() {
+        let mut net = ChaosNetwork::default();
+        net.add("n1");
+        net.add("n2");
+        net.nodes
+            .get_mut("n1")
+            .unwrap()
+            .elect(&[("n1".to_string(), 1.0)]);
+        net.partition("n2", true);
+
+        let rec = net
+            .nodes
+            .get("n1")
+            .unwrap()
+            .propose_commit(1, "op-1")
+            .unwrap();
+        net.broadcast("n1", rec, true);
+        assert_eq!(net.nodes["n2"].log.len(), 0);
+        assert_eq!(net.delayed.len(), 1);
+
+        net.partition("n2", false);
+        net.flush_delayed();
+        assert_eq!(net.nodes["n2"].log.len(), 1);
+        assert!(net.assert_no_split_brain_commit().is_ok());
+    }
+
+    #[test]
+    fn assert_no_split_brain_commit_detects_conflicting_records_and_connected_leaders() {
+        let mut net = ChaosNetwork::default();
+        net.add("n1");
+        net.add("n2");
+        net.nodes.get_mut("n1").unwrap().log.push(CommitRecord {
+            term: 2,
+            leader: "n1".to_string(),
+            seq: 1,
+            payload: "a".to_string(),
+        });
+        net.nodes.get_mut("n2").unwrap().log.push(CommitRecord {
+            term: 2,
+            leader: "n2".to_string(),
+            seq: 1,
+            payload: "b".to_string(),
+        });
+        assert!(net
+            .assert_no_split_brain_commit()
+            .unwrap_err()
+            .contains("split-brain commit"));
+    }
+}

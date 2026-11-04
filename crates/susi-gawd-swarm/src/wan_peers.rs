@@ -119,3 +119,117 @@ pub fn admit_wan_peer(
     }
     WanVerdict::Admitted
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_pin() -> WanPeerPin {
+        WanPeerPin {
+            node_id: "peer-1".to_string(),
+            endpoint: "203.0.113.10:9443".to_string(),
+            transport: WanTransport::Direct,
+            pinned_identity: "fp-sha256-abc".to_string(),
+        }
+    }
+
+    fn sample_handshake() -> WanHandshake {
+        WanHandshake {
+            node_id: "peer-1".to_string(),
+            observed_endpoint: "203.0.113.10:9443".to_string(),
+            arrived_via: WanTransport::Direct,
+            presented_identity: "fp-sha256-abc".to_string(),
+            signature_ok: true,
+            nonce: "nonce-1".to_string(),
+        }
+    }
+
+    #[test]
+    fn admit_wan_peer_accepts_matching_pin_signature_and_fresh_nonce() {
+        let pin = sample_pin();
+        let hs = sample_handshake();
+        let egress = EgressPolicy::default();
+        let mut replay = ReplaySet::default();
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &egress, &mut replay),
+            WanVerdict::Admitted
+        );
+    }
+
+    #[test]
+    fn admit_wan_peer_rejects_endpoint_transport_and_identity_mismatches() {
+        let pin = sample_pin();
+        let egress = EgressPolicy::default();
+        let mut replay = ReplaySet::default();
+
+        let mut bad_ep = sample_handshake();
+        bad_ep.observed_endpoint = "198.51.100.1:9443".to_string();
+        assert_eq!(
+            admit_wan_peer(&pin, &bad_ep, &egress, &mut replay),
+            WanVerdict::Refused("endpoint/identity mismatch with pin")
+        );
+
+        let mut bad_tr = sample_handshake();
+        bad_tr.arrived_via = WanTransport::Relay {
+            relay_endpoint: "relay:443".to_string(),
+        };
+        assert_eq!(
+            admit_wan_peer(&pin, &bad_tr, &egress, &mut replay),
+            WanVerdict::Refused("transport differs from pin")
+        );
+
+        let mut bad_sig = sample_handshake();
+        bad_sig.signature_ok = false;
+        assert_eq!(
+            admit_wan_peer(&pin, &bad_sig, &egress, &mut replay),
+            WanVerdict::Refused("identity/signature does not verify against pin")
+        );
+    }
+
+    #[test]
+    fn admit_wan_peer_enforces_egress_endpoint_and_relay_allowlists() {
+        let mut pin = sample_pin();
+        let mut hs = sample_handshake();
+        let mut replay = ReplaySet::default();
+        let egress = EgressPolicy {
+            allow_endpoints: BTreeSet::from(["other:443".to_string()]),
+            allow_relays: BTreeSet::new(),
+        };
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &egress, &mut replay),
+            WanVerdict::Refused("egress policy does not allow endpoint")
+        );
+
+        pin.transport = WanTransport::Relay {
+            relay_endpoint: "untrusted-relay:443".to_string(),
+        };
+        hs.arrived_via = pin.transport.clone();
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &EgressPolicy::default(), &mut replay),
+            WanVerdict::Refused("relay not in egress policy")
+        );
+    }
+
+    #[test]
+    fn replay_set_blocks_replayed_nonce_until_forgotten() {
+        let pin = sample_pin();
+        let hs = sample_handshake();
+        let egress = EgressPolicy::default();
+        let mut replay = ReplaySet::default();
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &egress, &mut replay),
+            WanVerdict::Admitted
+        );
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &egress, &mut replay),
+            WanVerdict::Refused("replay: nonce already consumed")
+        );
+        replay.forget(&hs.nonce);
+        assert_eq!(
+            admit_wan_peer(&pin, &hs, &egress, &mut replay),
+            WanVerdict::Admitted
+        );
+    }
+}
