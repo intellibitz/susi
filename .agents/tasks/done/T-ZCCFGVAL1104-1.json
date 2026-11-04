@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "ZCKEYROT1104",
-  "created_unix": 1793764560
+  "created_unix": 1793764560,
+  "closed": {
+    "at_unix": 1793766866,
+    "commit": "7b205eaedf8f704484862bf6d5b68df5bb2d3e77",
+    "by": "ZCKEYROT1104"
+  }
 }
