@@ -18,5 +18,10 @@
     ]
   },
   "created_by": "GEMIMODELS5TA1104",
-  "created_unix": 1793809467
+  "created_unix": 1793809467,
+  "closed": {
+    "at_unix": 1793809862,
+    "commit": "40da7640b5fac0d9538ae03beaf1610b3a6f5459",
+    "by": "GEMIMODELS5TA1104"
+  }
 }
