@@ -101,3 +101,42 @@ fn capability_bus_refuses_permission_timeout_and_budget_violations() {
         Err(CapabilityError::BudgetExceeded { .. })
     ));
 }
+
+#[test]
+fn capability_bus_rejects_unknown_capability_and_invalid_or_duplicate_descriptors() {
+    let mut bus = catalog();
+    let missing = CapabilityRequest::new(
+        "missing.cap",
+        "agent",
+        ["invoke:capability".to_string()],
+        50,
+        50,
+    );
+    assert_eq!(
+        bus.dispatch(&missing, |_| unreachable!()),
+        Err(CapabilityError::UnknownCapability("missing.cap".into()))
+    );
+
+    assert!(matches!(
+        bus.register(CapabilityDescriptor::new(
+            "mcp.tool",
+            CapabilitySurface::Mcp,
+            "invoke",
+            "invoke:capability",
+            100,
+            50,
+        )),
+        Err(CapabilityError::InvalidDescriptor(_))
+    ));
+    assert!(matches!(
+        bus.register(CapabilityDescriptor::new(
+            "   ",
+            CapabilitySurface::Mcp,
+            "invoke",
+            "invoke:capability",
+            100,
+            50,
+        )),
+        Err(CapabilityError::InvalidDescriptor(_))
+    ));
+}

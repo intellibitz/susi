@@ -30,3 +30,20 @@ fn vc_201_071_all_allow_permits() {
 fn vc_201_071_empty_layers_deny() {
     assert_eq!(evaluate(EntryPoint::Model, &[]), LayerVerdict::Deny);
 }
+
+#[test]
+fn vc_201_071_all_allow_across_multiple_layers_permits_every_entry_point() {
+    let layers = [
+        LayerDecision {
+            layer: "mac".into(),
+            verdict: LayerVerdict::Allow,
+        },
+        LayerDecision {
+            layer: "capability".into(),
+            verdict: LayerVerdict::Allow,
+        },
+    ];
+    for ep in [EntryPoint::Tool, EntryPoint::Peer, EntryPoint::Model] {
+        assert_eq!(evaluate(ep, &layers), LayerVerdict::Allow);
+    }
+}
