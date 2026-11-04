@@ -60,3 +60,33 @@ fn vc_201_017_mastery() {
     // 6. Memory layout contract
     assert_eq!(std::mem::size_of::<CanaryTrial>(), 24);
 }
+
+#[test]
+fn vc_201_017_candidate_improvement_over_baseline_continues_trial() {
+    assert_eq!(
+        evaluate_canary(&trial(0.95, 0.90, 0.05)),
+        CanaryResult::Continue
+    );
+    assert_eq!(
+        evaluate_canary(&trial(0.90, 0.90, 0.0)),
+        CanaryResult::Continue
+    );
+}
+
+#[test]
+fn vc_201_017_nan_baseline_metric_stops_trial() {
+    assert_eq!(
+        evaluate_canary(&trial(0.90, f64::NAN, 0.1)),
+        CanaryResult::StopTrial
+    );
+}
+
+#[test]
+fn vc_201_017_dev_instance_ports_are_contiguous_and_distinct_from_prod() {
+    let ports = dev_instance_ports();
+    assert_eq!(ports.len(), 5);
+    for window in ports.windows(2) {
+        assert_eq!(window[1] - window[0], 1);
+    }
+    assert!(ports.iter().all(|&p| p >= 9190));
+}

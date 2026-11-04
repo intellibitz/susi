@@ -198,4 +198,25 @@ mod tests {
         assert_eq!(fs::read(&existing).unwrap(), b"existing production");
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn install_rejects_relative_installation_home() {
+        let err = install(Path::new("susi"), Path::new("relative-home")).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("installation home must be absolute"));
+    }
+
+    #[test]
+    fn digest_computes_deterministic_sha256_hex_for_file() {
+        let root = env::temp_dir().join(format!("susi-install-digest-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("payload.bin");
+        fs::write(&file, b"susi-digest-verification").unwrap();
+        let d1 = digest(&file).unwrap();
+        let d2 = digest(&file).unwrap();
+        assert_eq!(d1.len(), 64);
+        assert_eq!(d1, d2);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

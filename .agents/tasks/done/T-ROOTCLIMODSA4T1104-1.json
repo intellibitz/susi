@@ -1,0 +1,26 @@
+{
+  "id": "T-ROOTCLIMODSA4T1104-1",
+  "title": "Expand 5 root CLI modules in src/cli/ to 4 unit tests each under D-OS-8",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--bin",
+      "susi",
+      "--",
+      "cli::"
+    ]
+  },
+  "created_by": "ROOTCLIMODSA4T1104",
+  "created_unix": 1793795075,
+  "closed": {
+    "at_unix": 1793795513,
+    "commit": "9271e06263b498945957905f6d83a60df792687a",
+    "by": "ROOTCLIMODSA4T1104"
+  }
+}
