@@ -140,7 +140,7 @@ pub fn token_matches(presented: Option<&str>, expected: &str) -> bool {
 
 #[cfg(test)]
 mod token_tests {
-    use super::token_matches;
+    use super::{token_matches, SyscallOp};
 
     #[test]
     fn token_matching_is_exact_and_fails_closed() {
@@ -150,5 +150,36 @@ mod token_tests {
         assert!(!token_matches(None, "s3cret"));
         assert!(!token_matches(Some(""), ""));
         assert!(!token_matches(Some("anything"), ""));
+    }
+
+    #[test]
+    fn all_thirteen_syscall_opcodes_biject_and_round_trip_serde() {
+        let table = [
+            (0x01, SyscallOp::Infer, "\"infer\""),
+            (0x02, SyscallOp::ToolCall, "\"tool_call\""),
+            (0x03, SyscallOp::ContextAlloc, "\"context_alloc\""),
+            (0x04, SyscallOp::BlackboardPost, "\"blackboard_post\""),
+            (0x05, SyscallOp::BlackboardRead, "\"blackboard_read\""),
+            (0x06, SyscallOp::ConsensusVote, "\"consensus_vote\""),
+            (0x07, SyscallOp::ReflexMount, "\"reflex_mount\""),
+            (0x08, SyscallOp::AuditSeal, "\"audit_seal\""),
+            (0x09, SyscallOp::Heartbeat, "\"heartbeat\""),
+            (0x0A, SyscallOp::TelemetryGet, "\"telemetry_get\""),
+            (0x0B, SyscallOp::Fork, "\"fork\""),
+            (0x0C, SyscallOp::IdentityVerify, "\"identity_verify\""),
+            (0x0D, SyscallOp::Yield, "\"yield\""),
+        ];
+        assert_eq!(table.len(), 13);
+        for (expected_code, op, expected_json) in table {
+            assert_eq!(op.opcode(), expected_code);
+            assert_eq!(SyscallOp::from_opcode(expected_code), Some(op));
+            let encoded = serde_json::to_string(&op).expect("serialize SyscallOp");
+            assert_eq!(encoded, expected_json);
+            let decoded: SyscallOp = serde_json::from_str(&encoded).expect("deserialize SyscallOp");
+            assert_eq!(decoded, op);
+        }
+        for invalid in [0x00, 0x0E, 0xFF, u32::MAX] {
+            assert_eq!(SyscallOp::from_opcode(invalid), None);
+        }
     }
 }
