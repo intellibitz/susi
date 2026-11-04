@@ -381,8 +381,8 @@ fn mcp_unknown(target: &Target) -> Check {
 
 /// The session flow of MCP 2025-06-18: `initialize`, `notifications/initialized`,
 /// then `tools/list` on the same `Mcp-Session-Id`.
-fn mcp_session(target: &Target) -> Check {
-    let id = format!("mcp.session-{MCP_SESSION}@{}", target.port(ports::MCP));
+fn mcp_session_at(target: &Target, base: u16) -> Check {
+    let id = format!("mcp.session-{MCP_SESSION}@{}", target.port(base));
     if let Some(skip) = needs_token(target, &id) {
         return skip;
     }
@@ -390,7 +390,7 @@ fn mcp_session(target: &Target) -> Check {
         let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
             "protocolVersion": MCP_SESSION, "capabilities": {},
             "clientInfo": {"name":"susi-conformance","version": env!("CARGO_PKG_VERSION")}}});
-        let r = match target.call(ports::MCP, Call::post("/mcp", true, &[MCP_ACCEPT], &init)) {
+        let r = match target.call(base, Call::post("/mcp", true, &[MCP_ACCEPT], &init)) {
             Ok(r) => r,
             Err(e) => return (Outcome::Fail, format!("initialize: {e}")),
         };
@@ -411,10 +411,10 @@ fn mcp_session(target: &Target) -> Check {
         ];
         let note = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
         let noted = target
-            .call(ports::MCP, Call::post("/mcp", true, &headers, &note))
+            .call(base, Call::post("/mcp", true, &headers, &note))
             .map(|r| r.status);
         let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}});
-        match target.call(ports::MCP, Call::post("/mcp", true, &headers, &list)) {
+        match target.call(base, Call::post("/mcp", true, &headers, &list)) {
             Ok(r) => {
                 let tools = rpc_payload(&r).unwrap_or(Value::Null)["result"]["tools"]
                     .as_array()
@@ -436,6 +436,57 @@ fn mcp_session(target: &Target) -> Check {
     })
 }
 
+/// Validate A2A agent card identity, streaming capability, per-capability
+/// skills, and honesty (`B6` / `PSP-05` / `PSP-11`).
+///
+/// # Errors
+///
+/// Returns the first contract or honesty violation found in `card`.
+pub fn validate_agent_card_honesty(card: &Value) -> Result<usize, String> {
+    let name = card["name"].as_str().unwrap_or("");
+    if name.is_empty() {
+        return Err("missing or empty card `name`".into());
+    }
+    let url = card["supportedInterfaces"][0]["url"].as_str().unwrap_or("");
+    if url.is_empty() {
+        return Err("missing or empty `supportedInterfaces[0].url`".into());
+    }
+    if card["capabilities"]["streaming"].as_bool() != Some(true) {
+        return Err("`capabilities.streaming` must be true".into());
+    }
+    let Some(skills) = card["skills"].as_array() else {
+        return Err("missing `skills` array".into());
+    };
+    if skills.is_empty() {
+        return Err("`skills` array must not be empty".into());
+    }
+    for skill in skills {
+        let id = skill["id"].as_str().unwrap_or("");
+        let skill_name = skill["name"].as_str().unwrap_or("");
+        let desc = skill["description"].as_str().unwrap_or("");
+        if id.is_empty() || skill_name.is_empty() || desc.is_empty() {
+            return Err(format!(
+                "skill entry has empty id/name/description (id={id:?})"
+            ));
+        }
+        let desc_lower = desc.to_ascii_lowercase();
+        if desc_lower.contains("egui") || desc_lower.contains("desktop ui") {
+            return Err(format!(
+                "dishonest skill {id:?} claims desktop UI/egui capability: {desc:?}"
+            ));
+        }
+    }
+    for required in ["missions", "agents", "frameworks", "models"] {
+        if !skills
+            .iter()
+            .any(|skill| skill["id"].as_str() == Some(required))
+        {
+            return Err(format!("missing required capability skill {required:?}"));
+        }
+    }
+    Ok(skills.len())
+}
+
 fn a2a_card(target: &Target) -> Check {
     timed(
         format!("a2a.agent-card@{}", target.port(ports::A2A)),
@@ -444,10 +495,22 @@ fn a2a_card(target: &Target) -> Check {
                 let card: Value = serde_json::from_slice(&r.body).unwrap_or(Value::Null);
                 let name = card["name"].as_str().unwrap_or("");
                 let url = card["supportedInterfaces"][0]["url"].as_str().unwrap_or("");
-                verdict(
-                    r.status == 200 && !name.is_empty() && !url.is_empty(),
-                    format!("status {} name {name:?} interface {url:?}", r.status),
-                )
+                match validate_agent_card_honesty(&card) {
+                    Ok(skill_count) => verdict(
+                        r.status == 200,
+                        format!(
+                            "status {} name {name:?} interface {url:?} ({skill_count} honest skills, streaming=true)",
+                            r.status
+                        ),
+                    ),
+                    Err(reason) => (
+                        Outcome::Fail,
+                        format!(
+                            "status {} name {name:?} interface {url:?}: {reason}",
+                            r.status
+                        ),
+                    ),
+                }
             }
             Err(e) => (Outcome::Fail, e),
         },
@@ -1009,7 +1072,8 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     checks.push(mcp_tools_at(target, ports::MCP));
     checks.push(mcp_tools_at(target, ports::MCP_ALIAS));
     checks.push(mcp_unknown(target));
-    checks.push(mcp_session(target));
+    checks.push(mcp_session_at(target, ports::MCP));
+    checks.push(mcp_session_at(target, ports::MCP_ALIAS));
     checks.push(a2a_card(target));
     checks.push(a2a_unknown(target));
     checks.push(a2a_stream(target));
@@ -1399,5 +1463,76 @@ mod tests {
         let ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
         assert!(ids.contains(&"mcp.tools-list@59090"), "{ids:?}");
         assert!(ids.contains(&"mcp.tools-list@59093"), "{ids:?}");
+    }
+
+    #[test]
+    fn mcp_alias_9093_runs_stateful_session_conformance_check() {
+        let checks = run_with(
+            &Target {
+                host: "127.0.0.1".into(),
+                port_offset: 50_000,
+                token: None,
+                timeout: Duration::from_millis(100),
+            },
+            &Optional::default(),
+        );
+        let ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"mcp.session-2025-06-18@59090"), "{ids:?}");
+        assert!(ids.contains(&"mcp.session-2025-06-18@59093"), "{ids:?}");
+    }
+
+    #[test]
+    fn agent_card_honesty_validator_accepts_per_capability_skills_and_rejects_dishonest_cards() {
+        let valid_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        assert_eq!(validate_agent_card_honesty(&valid_card), Ok(4));
+
+        // Missing per-capability skill ("models")
+        let missing_skill_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Run a GAWD mission."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."}
+            ]
+        });
+        let err_missing = validate_agent_card_honesty(&missing_skill_card).unwrap_err();
+        assert!(err_missing.contains("models"), "{err_missing}");
+
+        // streaming: false
+        let no_streaming_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": false},
+            "skills": valid_card["skills"].clone()
+        });
+        let err_streaming = validate_agent_card_honesty(&no_streaming_card).unwrap_err();
+        assert!(err_streaming.contains("streaming"), "{err_streaming}");
+
+        // Dishonest card claiming egui / desktop ui
+        let dishonest_card = json!({
+            "name": "susi-gawd",
+            "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
+            "capabilities": {"streaming": true},
+            "skills": [
+                {"id": "missions", "name": "missions", "description": "Renders an egui desktop UI dashboard."},
+                {"id": "agents", "name": "agents", "description": "Delegate to installed agents."},
+                {"id": "frameworks", "name": "frameworks", "description": "Run external frameworks."},
+                {"id": "models", "name": "models", "description": "Route through GEMI models."}
+            ]
+        });
+        let err_dishonest = validate_agent_card_honesty(&dishonest_card).unwrap_err();
+        assert!(err_dishonest.contains("dishonest skill"), "{err_dishonest}");
     }
 }
