@@ -1,0 +1,24 @@
+{
+  "id": "T-ROOTINTTESTSE4T1104-1",
+  "title": "Expand 10 root integration test suites B & E to 4 unit tests each under D-OS-8",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "cloud_budget"
+    ]
+  },
+  "created_by": "ROOTINTTESTSE4T1104",
+  "created_unix": 1793793861,
+  "closed": {
+    "at_unix": 1793794383,
+    "commit": "26a348180ab330fc8b3ab5d51abf215090f0ca85",
+    "by": "ROOTINTTESTSE4T1104"
+  }
+}
