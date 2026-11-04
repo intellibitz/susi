@@ -130,4 +130,21 @@ mod model_placement_tests {
         let p_back: Placement = serde_json::from_str(&p_json).unwrap();
         assert_eq!(p_back, placed[0]);
     }
+
+    #[test]
+    fn place_models_does_not_mutate_caller_node_capacities_and_places_zero_vram_model() {
+        let nodes = [NodeCapacity {
+            id: "zero-node".into(),
+            free_vram_mb: 0,
+        }];
+        let placed = place_models(&[("cpu-only".into(), 0)], &nodes);
+        assert_eq!(
+            placed,
+            vec![Placement {
+                model: "cpu-only".into(),
+                node: "zero-node".into(),
+            }]
+        );
+        assert_eq!(nodes[0].free_vram_mb, 0);
+    }
 }

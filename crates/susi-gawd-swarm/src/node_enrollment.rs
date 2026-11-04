@@ -100,4 +100,13 @@ mod node_enrollment_tests {
             assert!(!format!("{item:?}").is_empty());
         }
     }
+
+    #[test]
+    fn enroll_rejects_empty_token_mismatch_and_prioritizes_token_check_over_mtls() {
+        let empty_mismatch = enroll("", "secret-token", Some("node-1"), 3);
+        assert!(!empty_mismatch.accepted);
+        assert_eq!(empty_mismatch.reason, "bad join token");
+        assert!(empty_mismatch.peer_id.is_none());
+        assert!(empty_mismatch.key_epoch.is_none());
+    }
 }

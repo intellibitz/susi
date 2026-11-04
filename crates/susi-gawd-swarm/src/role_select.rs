@@ -153,4 +153,21 @@ mod inline_tests {
         assert_eq!(assigned.specialist.as_deref(), Some("spec"));
         assert!(!assigned.multi_agent_cheaper);
     }
+
+    #[test]
+    fn select_roles_leaves_specialist_none_when_no_third_agent_covers_gap_and_roundtrips_serde() {
+        let required = BTreeSet::from(["rust".to_string(), "gpu".to_string()]);
+        let agents = vec![
+            agent("imp", &["rust"], 0.9, 0.20),
+            agent("ver", &["test"], 0.8, 0.20),
+            agent("other", &["docs"], 0.7, 0.10),
+        ];
+        let assigned = select_roles(&agents, &required, 0.50).unwrap();
+        assert_eq!(assigned.specialist, None);
+        assert!(assigned.multi_agent_cheaper);
+
+        let json = serde_json::to_string(&assigned).unwrap();
+        let decoded: RoleAssignment = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, assigned);
+    }
 }
