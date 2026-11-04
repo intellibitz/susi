@@ -158,4 +158,25 @@ mod inline_tests {
             Err(WorkflowError::DependencyFailed)
         );
     }
+
+    #[test]
+    fn workflow_request_and_evidence_serde_json_roundtrip_all_modes() {
+        assert_ne!(WorkflowError::OfflineBlocked, WorkflowError::EgressDenied);
+        let req = WorkflowRequest {
+            mode: WorkflowMode::Online,
+            allow_delegate: false,
+            model_allowed: true,
+            mcp_tool: "search".to_string(),
+            mcp_available: true,
+        };
+        let req_json = serde_json::to_string(&req).expect("serialize request");
+        let req_back: WorkflowRequest = serde_json::from_str(&req_json).expect("deserialize");
+        assert_eq!(req_back, req);
+
+        let ev = run_vertical_workflow(&req).expect("online without delegation");
+        assert_eq!(ev.delegated_agent, None);
+        let ev_json = serde_json::to_string(&ev).expect("serialize evidence");
+        let ev_back: WorkflowEvidence = serde_json::from_str(&ev_json).expect("deserialize");
+        assert_eq!(ev_back, ev);
+    }
 }

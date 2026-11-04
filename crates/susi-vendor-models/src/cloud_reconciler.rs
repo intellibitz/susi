@@ -414,4 +414,24 @@ mod inline_tests {
         assert_eq!(gen2.generation, 1);
         assert_eq!(obs.phase, DeploymentPhase::RolledBack);
     }
+
+    #[test]
+    fn reconcile_triggers_rollback_on_failed_phase_and_rollback_errors_without_history() {
+        let mut rec = CloudReconciler::default();
+        let mut desired = sample_desired(2, 2, 4);
+        let mut obs = sample_observed(2, 0, DeploymentPhase::Failed);
+
+        let first = rec.reconcile(&desired, &mut obs);
+        assert_eq!(first.action, ReconcileAction::Rollback);
+        assert!(!first.deduplicated);
+        assert_eq!(obs.phase, DeploymentPhase::RollingBack);
+
+        obs.phase = DeploymentPhase::Degraded;
+        let second = rec.reconcile(&desired, &mut obs);
+        assert_eq!(second.action, ReconcileAction::Rollback);
+        assert!(second.deduplicated);
+
+        let err = rec.rollback(&mut desired, &mut obs).unwrap_err();
+        assert!(err.contains("No generation history"), "{err}");
+    }
 }

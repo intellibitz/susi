@@ -53,4 +53,16 @@ mod zc_consent_jit_tests {
         let back: EgressConsent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, orig);
     }
+
+    #[test]
+    fn egress_consent_clone_preserves_independent_grant_transitions() {
+        let ungranted = EgressConsent::default();
+        let mut cloned = ungranted.clone();
+        assert_eq!(cloned, ungranted);
+        cloned.grant();
+        assert!(!ungranted.granted);
+        assert!(cloned.granted);
+        assert!(ungranted.require_for_cloud(true));
+        assert!(!cloned.require_for_cloud(true));
+    }
 }

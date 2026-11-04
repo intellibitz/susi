@@ -189,4 +189,21 @@ mod inline_tests {
         assert!(!wasm.allows("net.loopback"));
         assert_eq!(wasm.limits(), ResourceLimits::default());
     }
+
+    #[test]
+    fn from_caps_and_limits_enforces_exact_fuel_and_timeout_boundaries() {
+        let caps = BTreeSet::from(["fs.read".to_string()]);
+        let limits = ResourceLimits {
+            max_memory_bytes: 4096,
+            max_fuel: 500,
+            timeout_millis: 100,
+        };
+        let grants = GrantSet::from_caps_and_limits(caps, limits);
+        assert!(grants.allows_resources(4096, 500, 100));
+        assert!(!grants.allows_resources(4096, 501, 100));
+        assert!(!grants.allows_resources(4096, 500, 101));
+
+        let missing = BTreeSet::from(["fs.read".to_string(), "clock".to_string()]);
+        assert!(!grants.allows_all(&missing));
+    }
 }

@@ -74,4 +74,13 @@ mod zc_egress_allowlist_tests {
         let back: EgressAllowlist = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, populated);
     }
+
+    #[test]
+    fn allowlist_from_vendors_with_empty_slice_produces_empty_host_set() {
+        let list = allowlist_from_vendors(&[]);
+        assert_eq!(list, EgressAllowlist::default());
+        assert!(!allows(&list, "api.openai.com"));
+        assert!(!allows(&list, "api.anthropic.com"));
+        assert!(!allows(&list, "huggingface.co"));
+    }
 }
