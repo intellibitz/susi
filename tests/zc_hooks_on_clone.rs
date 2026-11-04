@@ -163,3 +163,17 @@ fn zc_hooks_on_clone_ignores_repos_without_githooks() {
     assert!(git_get(&root, &["config", "--get", "merge.ledger.driver"]).is_empty());
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn zc_hooks_on_clone_fixture_helper_populates_all_four_hook_stubs_and_gitattributes() {
+    let root = fixture("layout");
+    for h in ["commit-msg", "pre-commit", "pre-push", "workflow-guard"] {
+        assert!(
+            root.join(".githooks").join(h).is_file(),
+            "missing hook stub {h}"
+        );
+    }
+    assert!(root.join("scripts/merge-ledger.sh").is_file());
+    assert!(root.join(".gitattributes").is_file());
+    std::fs::remove_dir_all(&root).ok();
+}
