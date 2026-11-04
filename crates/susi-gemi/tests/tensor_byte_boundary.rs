@@ -1,3 +1,4 @@
+#![cfg(feature = "local-engine")]
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used)] // Integration regressions report the exact failing tensor operation.
 

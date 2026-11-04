@@ -1,12 +1,16 @@
 //! Native inference engines and the process-wide engine registry.
 
+#[cfg(feature = "local-engine")]
 use super::runtime_substrate::{apply_repeat_penalty, InferenceHost};
 use super::GemiEngine;
+#[cfg(feature = "local-engine")]
 use crate::models::hardware::HardwareProfiler;
+#[cfg(feature = "local-engine")]
 use crate::models::ModelManager;
 use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
 use std::sync::{Arc, OnceLock};
+#[cfg(feature = "local-engine")]
 use susi_vendor_candle::candle_core;
 
 pub trait NativeInferenceEngine: Send + Sync {
@@ -84,6 +88,20 @@ impl NativeInferenceEngine for SusiGgufEngine {
 }
 
 impl SusiGgufEngine {
+    #[cfg(not(feature = "local-engine"))]
+    fn run_inference_stream_inner(
+        &self,
+        _prompt: &str,
+        _callback: &dyn Fn(String),
+        _selected_model: Option<&str>,
+        _task_handle: &Arc<crate::susi_core::task_manager::TaskHandle>,
+    ) -> EaiResult<String> {
+        Err(EaiError::inference(
+            "built-in local model engine is not in this core; rebuild with --features local-engine",
+        ))
+    }
+
+    #[cfg(feature = "local-engine")]
     fn run_inference_stream_inner(
         &self,
         prompt: &str,

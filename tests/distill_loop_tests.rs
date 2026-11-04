@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+#![cfg(feature = "local-engine")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -10,8 +12,6 @@
 //! over the bus, held-out gate, publication, cycle log) → Tier-0 serving
 //! through `SusiPulse`. Each piece has unit tests in its own crate; this
 //! proves they compose.
-
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
