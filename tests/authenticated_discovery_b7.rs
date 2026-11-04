@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Permanent architectural ratchet for `B7` (Authenticated UDP `9092` Discovery).
 //!
 //! Verifies that:
