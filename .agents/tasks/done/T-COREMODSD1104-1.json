@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "COREMODSD1104",
-  "created_unix": 1793785146
+  "created_unix": 1793785146,
+  "closed": {
+    "at_unix": 1793785366,
+    "commit": "bb9907bef2c327fc89414e85ff6b17190f40abef",
+    "by": "COREMODSD1104"
+  }
 }
