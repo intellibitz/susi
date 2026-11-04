@@ -233,4 +233,42 @@ mod tests {
         assert_eq!(index.all_docs(10).unwrap().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn get_missing_doc_and_error_paths_for_search_writer_and_file_target() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_vendor_tantivy_err_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let index = DocIndex::open_or_create(&dir).unwrap();
+
+        // 1. DocIndex::get returns Ok(None) when doc_id is absent.
+        assert_eq!(index.get("nonexistent:doc").unwrap(), None);
+
+        // 2. DocIndex::search returns Err on an unparseable query expression.
+        assert!(
+            index.search("(", 5).is_err(),
+            "unclosed parenthesis query must fail to parse"
+        );
+
+        // 3. DocIndex::writer returns Err when heap_bytes is below Tantivy's minimum budget.
+        assert!(
+            index.writer(1024).is_err(),
+            "tiny 1024-byte heap budget must be rejected by Tantivy"
+        );
+
+        drop(index);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // 4. DocIndex::open_or_create returns Err when target path is a regular file.
+        let file_path = std::env::temp_dir().join(format!(
+            "susi_vendor_tantivy_regular_file_{}",
+            std::process::id()
+        ));
+        std::fs::write(&file_path, b"not a directory").unwrap();
+        assert!(
+            DocIndex::open_or_create(&file_path).is_err(),
+            "open_or_create on a regular file path must return Err"
+        );
+        let _ = std::fs::remove_file(&file_path);
+    }
 }

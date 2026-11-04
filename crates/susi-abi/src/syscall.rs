@@ -182,4 +182,94 @@ mod token_tests {
             assert_eq!(SyscallOp::from_opcode(invalid), None);
         }
     }
+
+    #[test]
+    fn syscall_status_round_trips_all_five_snake_case_variants() {
+        use super::SyscallStatus;
+        let cases = [
+            (SyscallStatus::Success, "\"success\""),
+            (SyscallStatus::Denied, "\"denied\""),
+            (SyscallStatus::NotFound, "\"not_found\""),
+            (SyscallStatus::Timeout, "\"timeout\""),
+            (SyscallStatus::Error, "\"error\""),
+        ];
+        for (status, expected_json) in cases {
+            let encoded = serde_json::to_string(&status).expect("serialize SyscallStatus");
+            assert_eq!(encoded, expected_json);
+            let decoded: SyscallStatus =
+                serde_json::from_str(&encoded).expect("deserialize SyscallStatus");
+            assert_eq!(decoded, status);
+        }
+    }
+
+    #[test]
+    fn syscall_request_and_response_round_trip_serde_with_and_without_optional_fields() {
+        use super::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
+        use crate::evidence::{ReceiptStatus, ToolReceipt};
+
+        let req_minimal = SyscallRequest {
+            id: "req-min-01".to_string(),
+            caller_id: "agent-alpha".to_string(),
+            op: SyscallOp::Heartbeat,
+            token: None,
+            workspace: None,
+            payload: serde_json::Value::Null,
+            timestamp: 1_700_000_000,
+        };
+        let req_min_json = serde_json::to_string(&req_minimal).expect("serialize minimal request");
+        let req_min_back: SyscallRequest =
+            serde_json::from_str(&req_min_json).expect("deserialize minimal request");
+        assert_eq!(req_min_back, req_minimal);
+
+        let req_full = SyscallRequest {
+            id: "req-full-02".to_string(),
+            caller_id: "cell-gawd".to_string(),
+            op: SyscallOp::ToolCall,
+            token: Some("bearer-tok-xyz".to_string()),
+            workspace: Some("/workspace/project".to_string()),
+            payload: serde_json::json!({"cmd": "cargo test", "timeout_ms": 5000}),
+            timestamp: 1_700_000_123,
+        };
+        let req_full_json = serde_json::to_string(&req_full).expect("serialize full request");
+        let req_full_back: SyscallRequest =
+            serde_json::from_str(&req_full_json).expect("deserialize full request");
+        assert_eq!(req_full_back, req_full);
+
+        let resp_minimal = SyscallResponse {
+            id: "req-min-01".to_string(),
+            status: SyscallStatus::Success,
+            data: serde_json::json!({"alive": true}),
+            receipt: None,
+            latency_us: 42,
+            message: None,
+        };
+        let resp_min_json =
+            serde_json::to_string(&resp_minimal).expect("serialize minimal response");
+        let resp_min_back: SyscallResponse =
+            serde_json::from_str(&resp_min_json).expect("deserialize minimal response");
+        assert_eq!(resp_min_back, resp_minimal);
+
+        let receipt = ToolReceipt {
+            receipt_id: "rcpt-syscall-99".to_string(),
+            tool_name: "shell_exec".to_string(),
+            args_hash: "sha256:1111".to_string(),
+            output_hash: "sha256:2222".to_string(),
+            status: ReceiptStatus::Success,
+            duration_us: 980,
+            observed_at: 1_700_000_124,
+            summary: Some("0 errors".to_string()),
+        };
+        let resp_full = SyscallResponse {
+            id: "req-full-02".to_string(),
+            status: SyscallStatus::Error,
+            data: serde_json::json!({"exit_code": 1}),
+            receipt: Some(receipt),
+            latency_us: 1024,
+            message: Some("command exited with status 1".to_string()),
+        };
+        let resp_full_json = serde_json::to_string(&resp_full).expect("serialize full response");
+        let resp_full_back: SyscallResponse =
+            serde_json::from_str(&resp_full_json).expect("deserialize full response");
+        assert_eq!(resp_full_back, resp_full);
+    }
 }

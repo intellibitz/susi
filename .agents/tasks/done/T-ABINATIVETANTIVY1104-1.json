@@ -1,0 +1,19 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-ABINATIVETANTIVY1104-1",
+  "title": "Expand inline unit tests for susi-abi, susi-native-client, and susi-vendor-tantivy",
+  "touch": [
+    "crates/susi-abi/src/cell_server.rs",
+    "crates/susi-abi/src/syscall.rs",
+    "crates/susi-native-client/src/lib.rs",
+    "crates/susi-vendor-tantivy/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo test --offline --locked -p susi-abi --all-features --lib",
+      "cargo test --offline --locked -p susi-native-client -p susi-vendor-tantivy --lib",
+      "cargo clippy --offline --locked -p susi-abi --all-features --all-targets -- -D warnings",
+      "cargo clippy --offline --locked -p susi-native-client -p susi-vendor-tantivy --all-targets -- -D warnings"
+    ]
+  }
+}
