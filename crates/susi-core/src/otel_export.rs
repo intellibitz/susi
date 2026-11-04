@@ -399,3 +399,95 @@ fn append_file_bounded(path: &Path, line: &str, max_bytes: u64) -> EaiResult<()>
     writeln!(f, "{line}").map_err(|e| EaiError::io(e.to_string()))?;
     Ok(())
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn trace_and_span_ids_have_expected_hex_lengths_and_span_builders_populate_attributes() {
+        let tid = new_trace_id();
+        let sid = new_span_id();
+        assert_eq!(tid.len(), 32);
+        assert_eq!(sid.len(), 16);
+
+        let root = mission_span(&tid, "m-1", "ship feature");
+        assert_eq!(root.name, "susi.mission");
+        assert!(root.parent_span_id.is_none());
+
+        let route = routing_span(&tid, &root.span_id, "gemi", "latency");
+        assert_eq!(route.parent_span_id.as_deref(), Some(root.span_id.as_str()));
+
+        let prov = provider_span(&tid, &route.span_id, "google", "gemini-2.5-pro");
+        assert_eq!(prov.name, "susi.provider");
+    }
+
+    #[test]
+    fn span_record_ok_and_record_error_update_status_code_and_message() {
+        let mut span = mission_span(&new_trace_id(), "m-2", "verify status");
+        assert_eq!(span.status_code, OtelStatusCode::Unset);
+
+        span.record_error("timeout exceeded");
+        assert_eq!(span.status_code, OtelStatusCode::Error);
+        assert_eq!(span.status_message.as_deref(), Some("timeout exceeded"));
+
+        span.record_ok();
+        assert_eq!(span.status_code, OtelStatusCode::Ok);
+        assert!(span.status_message.is_none());
+    }
+
+    #[test]
+    fn redact_span_scrubs_credentials_in_attributes_and_status_message() {
+        let mut span = mission_span(&new_trace_id(), "m-3", "redact check");
+        span.attributes.push(OtelKeyValue {
+            key: "http.authorization".into(),
+            value: serde_json::Value::String("Bearer secret-jwt-token".into()),
+        });
+        span.attributes.push(OtelKeyValue {
+            key: "provider.api_key".into(),
+            value: serde_json::Value::String("sk-1234567890abcdef1234567890abcdef".into()),
+        });
+        let scrubbed = redact_span(&span);
+        let auth_val = scrubbed
+            .attributes
+            .iter()
+            .find(|a| a.key == "http.authorization")
+            .unwrap();
+        assert_eq!(
+            auth_val.value,
+            serde_json::Value::String("Bearer [REDACTED]".into())
+        );
+        let key_val = scrubbed
+            .attributes
+            .iter()
+            .find(|a| a.key == "provider.api_key")
+            .unwrap();
+        assert_eq!(
+            key_val.value,
+            serde_json::Value::String("[REDACTED]".into())
+        );
+    }
+
+    #[test]
+    fn export_spans_with_limit_writes_and_rotates_bounded_files_and_handles_empty() {
+        let dir = std::env::temp_dir().join(format!("susi-otel-inline-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("spans.jsonl");
+        let target = OtelExportTarget::File { path: path.clone() };
+
+        assert_eq!(export_spans(&target, &[]).unwrap(), ExportOutcome::Empty);
+
+        let s1 = mission_span(&new_trace_id(), "m-rot-1", "first batch");
+        let out1 = export_spans_with_limit(&target, &[s1], 10).unwrap();
+        assert!(matches!(out1, ExportOutcome::WroteFile { spans: 1, .. }));
+
+        let s2 = mission_span(&new_trace_id(), "m-rot-2", "second batch triggers rotation");
+        export_spans_with_limit(&target, &[s2], 10).unwrap();
+        assert!(path.exists());
+        assert!(dir.join("spans.jsonl.1").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

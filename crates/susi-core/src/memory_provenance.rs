@@ -232,3 +232,111 @@ impl MemoryStore {
         record.read_body(caller, clearance, now)
     }
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    fn sample_provenance(
+        owner: &str,
+        classification: DataClassification,
+        retention_secs: u64,
+    ) -> Provenance {
+        Provenance {
+            source: ProvenanceSource::from("evidence"),
+            workspace: "ws-1".into(),
+            receipt: Some("rcpt-1".into()),
+            revision: "r1".into(),
+            classification,
+            owner: owner.into(),
+            recorded_unix: 1_000,
+            retention_secs,
+        }
+    }
+
+    #[test]
+    fn provenance_source_from_str_and_authoritative_names_match() {
+        let ev = ProvenanceSource::from("evidence");
+        assert!(ev.is_evidence());
+        assert!(!ev.is_model_assertion());
+        assert_eq!(ev.authoritative_name(), "evidence");
+
+        let ma = ProvenanceSource::from("model-assertion");
+        assert!(ma.is_model_assertion());
+        assert_eq!(ma.authoritative_name(), "model-assertion");
+
+        let custom = ProvenanceSource::from("audit-hook");
+        assert_eq!(custom.authoritative_name(), "audit-hook");
+    }
+
+    #[test]
+    fn memory_record_expired_respects_zero_indefinite_and_elapsed_ttl() {
+        let permanent = MemoryRecord::new(
+            "perm",
+            "forever",
+            sample_provenance("alice", DataClassification::Public, 0),
+        );
+        assert!(!permanent.expired(999_999_999));
+
+        let bounded = MemoryRecord::new(
+            "ttl",
+            "ephemeral",
+            sample_provenance("alice", DataClassification::Public, 60),
+        );
+        assert!(!bounded.expired(1_059));
+        assert!(bounded.expired(1_060));
+        let err = bounded
+            .read_body("alice", DataClassification::Public, 1_060)
+            .unwrap_err();
+        assert!(err.to_string().contains("expired"));
+    }
+
+    #[test]
+    fn read_body_enforces_owner_authorization_and_admin_override() {
+        let rec = MemoryRecord::new(
+            "sec-1",
+            "payload",
+            sample_provenance("alice", DataClassification::Internal, 300),
+        );
+        assert_eq!(
+            rec.read_body("alice", DataClassification::Internal, 1_100)
+                .unwrap(),
+            "payload"
+        );
+        assert_eq!(
+            rec.read_body("admin", DataClassification::Internal, 1_100)
+                .unwrap(),
+            "payload"
+        );
+        let unauth = rec
+            .read_body("bob", DataClassification::Restricted, 1_100)
+            .unwrap_err();
+        assert!(matches!(unauth, MemoryAccessError::Unauthorized { .. }));
+    }
+
+    #[test]
+    fn memory_store_insert_and_read_enforce_classification_clearance() {
+        let mut store = MemoryStore::default();
+        store.insert(MemoryRecord::new(
+            "conf-1",
+            "secret-body",
+            sample_provenance("alice", DataClassification::Confidential, 300),
+        ));
+        assert!(store.get_record("conf-1").is_some());
+        let denied = store
+            .read("conf-1", "alice", DataClassification::Internal, 1_100)
+            .unwrap_err();
+        assert!(matches!(
+            denied,
+            MemoryAccessError::ClassificationDenied { .. }
+        ));
+        assert_eq!(
+            store
+                .read("conf-1", "alice", DataClassification::Restricted, 1_100)
+                .unwrap(),
+            "secret-body"
+        );
+    }
+}

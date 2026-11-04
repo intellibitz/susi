@@ -129,3 +129,82 @@ fn observe<T>(v: Option<T>, observed_unix: u64, source: &str, reason: &str) -> O
         },
     }
 }
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn observation_helpers_distinguish_value_and_unknown_variants() {
+        let val = observe(Some(16_u32), 1_700_000_000, "cpu", "missing");
+        assert!(!val.is_unknown());
+        assert_eq!(val.value_ref(), Some(&16));
+
+        let unk = observe::<u32>(None, 1_700_000_000, "cpu", "cpu count unavailable");
+        assert!(unk.is_unknown());
+        assert_eq!(unk.value_ref(), None);
+    }
+
+    #[test]
+    fn from_probes_populates_all_observed_fields_and_clears_unknown_readiness() {
+        let inv = ResourceInventory::from_probes(ProbeInputs {
+            cpu_cores: Some(8),
+            ram_bytes: Some(32 * 1024 * 1024 * 1024),
+            gpu_name: Some("RTX 4090".to_string()),
+            vram_bytes: Some(24 * 1024 * 1024 * 1024),
+            disk_free_bytes: Some(500 * 1024 * 1024 * 1024),
+            models: Some(vec!["qwen2.5-7b".to_string()]),
+            runtimes: Some(vec!["candle-cpu".to_string()]),
+            now_unix: Some(1_700_000_123),
+        });
+        assert_eq!(inv.captured_unix, 1_700_000_123);
+        assert!(!inv.has_unknown_readiness());
+        assert_eq!(inv.cpu_cores.value_ref(), Some(&8));
+        assert_eq!(
+            inv.gpu_name.value_ref().map(String::as_str),
+            Some("RTX 4090")
+        );
+    }
+
+    #[test]
+    fn has_unknown_readiness_triggers_when_any_critical_probe_is_missing() {
+        let base = ProbeInputs {
+            cpu_cores: Some(8),
+            ram_bytes: Some(16_000_000_000),
+            gpu_name: None,
+            vram_bytes: Some(8_000_000_000),
+            disk_free_bytes: Some(100_000_000_000),
+            models: None,
+            runtimes: None,
+            now_unix: Some(100),
+        };
+        assert!(!ResourceInventory::from_probes(base.clone()).has_unknown_readiness());
+
+        let missing_vram = ProbeInputs {
+            vram_bytes: None,
+            ..base
+        };
+        let inv = ResourceInventory::from_probes(missing_vram);
+        assert!(inv.has_unknown_readiness());
+        assert!(inv.vram_bytes.is_unknown());
+    }
+
+    #[test]
+    fn default_probe_inputs_produce_unknown_observations_with_unavailable_provenance() {
+        let inv = ResourceInventory::from_probes(ProbeInputs {
+            now_unix: Some(42),
+            ..ProbeInputs::default()
+        });
+        assert_eq!(inv.captured_unix, 42);
+        assert!(inv.has_unknown_readiness());
+        assert_eq!(
+            inv.cpu_cores,
+            Observation::Unknown {
+                observed_unix: 42,
+                provenance: ProbeProvenance::Unavailable {
+                    reason: "cpu count unavailable".to_string(),
+                },
+            }
+        );
+    }
+}
