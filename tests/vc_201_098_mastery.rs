@@ -142,3 +142,21 @@ fn vc_201_098_installer_fixtures_enforce_strict_shell_and_powershell_safety_head
     assert!(ps1.contains("ErrorActionPreference"));
     assert!(ps1.contains("Get-FileHash"));
 }
+
+#[test]
+fn vc_201_098_platform_matrix_unique_platforms_and_installer_extensions() {
+    assert_eq!(PLATFORM_MATRIX.len(), 3);
+    for (idx, row) in PLATFORM_MATRIX.iter().enumerate() {
+        assert!(
+            row.installer.ends_with(".sh") || row.installer.ends_with(".ps1"),
+            "unexpected installer extension: {}",
+            row.installer
+        );
+        for earlier in &PLATFORM_MATRIX[..idx] {
+            assert_ne!(earlier.platform, row.platform);
+        }
+    }
+    let stages = lifecycle_smoke();
+    assert_eq!(stages.first(), Some(&LifecycleStage::Install));
+    assert_eq!(stages.last(), Some(&LifecycleStage::LocalRuntime));
+}

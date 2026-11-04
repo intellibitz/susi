@@ -88,3 +88,15 @@ fn zc_qualification_missing_baseline_fails_the_gate() {
     std::fs::remove_dir_all(&home).ok();
     std::fs::remove_dir_all(&empty_repo).ok();
 }
+
+#[test]
+fn zc_qualification_baseline_file_exists_in_repo_and_scratch_dir_is_empty() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(DEBT_BASELINE_REL.ends_with(".json"));
+    assert!(root.join(DEBT_BASELINE_REL).is_file());
+
+    let dir = scratch("unit-empty");
+    assert!(dir.is_dir());
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    std::fs::remove_dir_all(&dir).ok();
+}

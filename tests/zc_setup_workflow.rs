@@ -106,6 +106,17 @@ fn unit_zc_setup_workflow_empty_dir_detection_and_consent_serialization() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn unit_zc_setup_workflow_duplicate_consent_grant_is_idempotent() {
+    let dir = scratch_home();
+    let mut plan = SetupPlan::detect(&dir);
+    plan.grant_consent(ConsentKind::CloudApiKey);
+    let count_once = plan.consents_granted.len();
+    plan.grant_consent(ConsentKind::CloudApiKey);
+    assert_eq!(plan.consents_granted.len(), count_once);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn scratch_home() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "susi-step1-{}-{}",

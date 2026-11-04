@@ -89,3 +89,14 @@ fn zc_fresh_home_detects_ready_execution_agents_when_present() {
     assert!(!plan.policy.is_empty());
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn zc_fresh_home_network_egress_consent_records_on_clean_home() {
+    let home = unique_home("egress");
+    let mut plan = SetupPlan::detect(&home);
+    assert!(plan.consents_granted.is_empty());
+    plan.grant_consent(ConsentKind::NetworkEgress);
+    plan.grant_consent(ConsentKind::NetworkEgress);
+    assert_eq!(plan.consents_granted, vec![ConsentKind::NetworkEgress]);
+    let _ = std::fs::remove_dir_all(&home);
+}
