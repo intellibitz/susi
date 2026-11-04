@@ -1,0 +1,1 @@
+{"id":"T-CELLUPGRADE1104-1","agent":"CELLUPGRADE1104","title":"Enforce NP-14 cell registration in auto_discovery and make xtask installed-upgrade OS-neutral","paths":["crates/susi-daemon/src/auto_discovery.rs","xtask/src/bin/installed-upgrade.rs"],"started":"2026-11-04T00:42:14Z"}
