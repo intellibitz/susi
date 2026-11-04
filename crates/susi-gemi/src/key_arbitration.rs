@@ -448,3 +448,115 @@ pub fn quota_headroom(scope: &str) -> Option<(u64, u64)> {
 /// tightest window, `None` when no windows are declared. Routing takes it
 /// as a parameter so tests inject headroom without the global arbiter.
 pub type HeadroomFn = dyn Fn(&str) -> Option<(u64, u64)>;
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn window_kind_reset_after_and_label_follow_rolling_daily_and_weekly_rules() {
+        let rolling = WindowKind::Rolling { period_secs: 300 };
+        assert_eq!(rolling.label(), "rolling");
+        assert_eq!(rolling.reset_after(1_000), 1_300);
+
+        let daily = WindowKind::DailyUtc;
+        assert_eq!(daily.label(), "daily");
+        assert_eq!(daily.reset_after(86_400 + 123), 2 * 86_400);
+
+        let weekly = WindowKind::WeeklyUtc;
+        assert_eq!(weekly.label(), "weekly");
+        assert_eq!(weekly.reset_after(0), 4 * 86_400);
+    }
+
+    #[test]
+    fn try_acquire_enforces_per_key_concurrency_rate_window_and_global_limits() {
+        let limits = ArbiterLimits {
+            per_key_concurrent: 1,
+            per_key_requests: 2,
+            window_secs: 60,
+            global_concurrent: 2,
+            quota: Vec::new(),
+        };
+        let arbiter = KeyArbiter::with_clock(limits, Arc::new(|| 1_000));
+
+        let p1 = arbiter.try_acquire("key-a").expect("first acquire");
+        assert_eq!(
+            arbiter.try_acquire("key-a").err(),
+            Some(Denial::Concurrency)
+        );
+
+        let p2 = arbiter.try_acquire("key-b").expect("second key acquire");
+        assert_eq!(arbiter.try_acquire("key-c").err(), Some(Denial::Global));
+
+        drop(p1);
+        drop(p2);
+
+        let p3 = arbiter
+            .try_acquire("key-a")
+            .expect("second request in window");
+        drop(p3);
+        assert_eq!(arbiter.try_acquire("key-a").err(), Some(Denial::RateWindow));
+    }
+
+    #[test]
+    fn quota_windows_enforce_allowance_report_headroom_and_roll_forward_on_clock_advance() {
+        let now = Arc::new(AtomicU64::new(1_000));
+        let clock_now = Arc::clone(&now);
+        let limits = ArbiterLimits {
+            per_key_concurrent: 4,
+            per_key_requests: 60,
+            window_secs: 60,
+            global_concurrent: 8,
+            quota: vec![QuotaWindowSpec {
+                kind: WindowKind::Rolling { period_secs: 100 },
+                allowance: 2,
+            }],
+        };
+        let arbiter =
+            KeyArbiter::with_clock(limits, Arc::new(move || clock_now.load(Ordering::SeqCst)));
+
+        assert_eq!(arbiter.quota_headroom("scoped"), Some((2, 2)));
+        drop(arbiter.try_acquire("scoped").expect("first quota permit"));
+        assert_eq!(arbiter.quota_headroom("scoped"), Some((1, 2)));
+        drop(arbiter.try_acquire("scoped").expect("second quota permit"));
+        assert_eq!(arbiter.quota_headroom("scoped"), Some((0, 2)));
+        assert_eq!(
+            arbiter.try_acquire("scoped").err(),
+            Some(Denial::Quota { reset_unix: 1_100 })
+        );
+
+        now.store(1_100, Ordering::SeqCst);
+        assert_eq!(arbiter.quota_headroom("scoped"), Some((2, 2)));
+        assert!(arbiter.try_acquire("scoped").is_ok());
+    }
+
+    #[test]
+    fn quota_view_utilization_percent_and_denial_descriptions_are_exact() {
+        let view = QuotaView {
+            kind: WindowKind::DailyUtc,
+            remaining: 1,
+            allowance: 2,
+            reset_unix: 86_400,
+        };
+        assert_eq!(view.utilization_percent(), 50);
+
+        let zero_view = QuotaView {
+            kind: WindowKind::DailyUtc,
+            remaining: 0,
+            allowance: 0,
+            reset_unix: 86_400,
+        };
+        assert_eq!(zero_view.utilization_percent(), 0);
+
+        assert_eq!(Denial::Concurrency.describe(), "key concurrency saturated");
+        assert_eq!(Denial::RateWindow.describe(), "key rate window exhausted");
+        assert_eq!(Denial::Global.describe(), "global concurrency saturated");
+        assert_eq!(
+            Denial::Quota { reset_unix: 42 }.describe(),
+            "key quota window exhausted"
+        );
+    }
+}

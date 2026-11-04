@@ -51,3 +51,53 @@ pub fn probe(id: &str, prompt: &str) -> Result<String> {
         .map_err(|e| susi_error::eai_err!(e.to_string()))?;
     Ok(crate::susi_config::redact_credentials(&text))
 }
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn probe_rejects_empty_and_whitespace_only_prompts_before_network() {
+        let empty_err = probe("qwen", "").expect_err("empty prompt must fail");
+        assert!(empty_err
+            .to_string()
+            .contains("probe prompt must not be empty"));
+
+        let ws_err = probe("qwen", "  \t\n ").expect_err("whitespace prompt must fail");
+        assert!(ws_err
+            .to_string()
+            .contains("probe prompt must not be empty"));
+    }
+
+    #[test]
+    fn provider_rejects_unknown_open_weight_model_identifier() {
+        let manager = OpenWeightManager::new().expect("open-weight manager");
+        let res = provider(&manager, "nonexistent-open-weight-model-xyz");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn provider_builds_http_provider_for_catalog_open_weight_model() {
+        let manager = OpenWeightManager::new().expect("open-weight manager");
+        let catalog = OpenWeightManager::catalog().expect("open-weight catalog");
+        assert!(!catalog.is_empty());
+        let first = &catalog[0];
+        let built = provider(&manager, &first.id).expect("provider for catalog model");
+        assert_eq!(built.name, format!("open-weight-{}", first.id));
+        assert_eq!(built.model, first.ollama_tag);
+        assert!(built.api_key.is_empty());
+    }
+
+    #[test]
+    fn open_weight_catalog_entries_have_non_empty_ids_and_ollama_tags() {
+        let catalog = OpenWeightManager::catalog().expect("open-weight catalog");
+        assert!(!catalog.is_empty());
+        for entry in catalog {
+            assert!(!entry.id.trim().is_empty());
+            assert!(!entry.ollama_tag.trim().is_empty());
+            assert!(!entry.engine.trim().is_empty());
+        }
+    }
+}
