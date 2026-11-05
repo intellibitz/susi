@@ -454,7 +454,11 @@ pub fn scan_source(
     file: &str,
     source: &str,
 ) {
-    scan_source_in(workspace, package, crate_dir, file, source, false);
+    let member = Member {
+        name: package.to_owned(),
+        dir: crate_dir.to_owned(),
+    };
+    scan_source_in(workspace, &member, file, source, false);
 }
 
 /// [`scan_source`] for a file that may be compiled only into its package's
@@ -462,12 +466,13 @@ pub fn scan_source(
 /// inputs of dependents.
 pub fn scan_source_in(
     workspace: &mut Workspace,
-    package: &str,
-    crate_dir: &str,
+    member: &Member,
     file: &str,
     source: &str,
     test_only: bool,
 ) {
+    let package = member.name.as_str();
+    let crate_dir = member.dir.as_str();
     let file_dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     let build_script = file.rsplit('/').next() == Some("build.rs");
     for (literal, embedded) in parent_literals(source, test_only) {
@@ -743,14 +748,7 @@ pub fn load(root: &Path) -> Result<Workspace> {
             continue;
         };
         let only_tests = test_only.contains(file);
-        scan_source_in(
-            &mut workspace,
-            &member.name,
-            &member.dir,
-            file,
-            source,
-            only_tests,
-        );
+        scan_source_in(&mut workspace, member, file, source, only_tests);
     }
     Ok(workspace)
 }
@@ -1097,14 +1095,11 @@ pub(crate) mod t { fn a() {} }
     fn a_test_only_file_embed_does_not_select_dependents() {
         let mut ws = workspace();
         let source = "const SPEC: &str = include_str!(\"../../../docs/spec.md\");";
-        scan_source_in(
-            &mut ws,
-            "config",
-            "crates/config",
-            "crates/config/src/tests.rs",
-            source,
-            true,
-        );
+        let member = Member {
+            name: "config".into(),
+            dir: "crates/config".into(),
+        };
+        scan_source_in(&mut ws, &member, "crates/config/src/tests.rs", source, true);
         assert_eq!(
             names(select(&ws, &["docs/spec.md".into()])),
             ["config", "root"]
