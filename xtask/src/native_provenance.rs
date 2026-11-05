@@ -201,6 +201,102 @@ fn blob(root: &Path, object: &str) -> Result<Vec<u8>> {
     git_bytes(root, &["cat-file", "blob", object])
 }
 
+/// `(path, blob oid)` for every blob under `prefix` in `commit`'s tree, from a
+/// single `git ls-tree` (no per-file `rev-parse`).
+fn tree_blobs(root: &Path, commit: &str, prefix: &str) -> Result<Vec<(String, String)>> {
+    oid(commit)?;
+    let listing = git_bytes(root, &["ls-tree", "-r", "-z", commit, "--", prefix])?;
+    let mut entries = Vec::new();
+    for record in listing.split(|byte| *byte == 0).filter(|r| !r.is_empty()) {
+        let record = std::str::from_utf8(record)?;
+        let (meta, path) = record
+            .split_once('\t')
+            .ok_or("malformed git ls-tree record")?;
+        let mut fields = meta.split(' ');
+        let (_mode, kind, object) = (
+            fields.next().ok_or("ls-tree mode")?,
+            fields.next().ok_or("ls-tree type")?,
+            fields.next().ok_or("ls-tree object")?,
+        );
+        if kind != "blob" {
+            continue;
+        }
+        oid(object)?;
+        entries.push((path.to_owned(), object.to_owned()));
+    }
+    Ok(entries)
+}
+
+/// The contents of `objects` (blob oids) from one `git cat-file --batch`
+/// process, in order. Each reply header must name the requested oid as a blob
+/// of the stated size, so a missing or substituted object fails closed.
+fn blobs(root: &Path, objects: &[String]) -> Result<Vec<Vec<u8>>> {
+    if objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    for object in objects {
+        oid(object)?;
+    }
+    let mut child = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args(["cat-file", "--batch"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("provenance git cat-file --batch: {error}"))?;
+    let mut stdin = child.stdin.take().ok_or("git cat-file stdin")?;
+    let request: String = objects.iter().map(|object| format!("{object}\n")).collect();
+    // Write from a thread: git streams replies while it reads requests, and a
+    // full stdout pipe would otherwise deadlock a large request.
+    let writer = std::thread::spawn(move || {
+        use std::io::Write as _;
+        stdin.write_all(request.as_bytes())
+    });
+    let output = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| "git cat-file writer panicked")??;
+    if !output.status.success() {
+        return Err(format!(
+            "git cat-file --batch: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    let data = output.stdout;
+    let mut at = 0;
+    let mut contents = Vec::with_capacity(objects.len());
+    for object in objects {
+        let end = data[at..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .ok_or("truncated git cat-file reply")?
+            + at;
+        let header = std::str::from_utf8(&data[at..end])?;
+        let mut fields = header.split(' ');
+        if fields.next() != Some(object.as_str()) || fields.next() != Some("blob") {
+            return Err(format!("git cat-file did not return blob {object}: {header}").into());
+        }
+        let size: usize = fields
+            .next()
+            .ok_or("git cat-file reply without size")?
+            .parse()?;
+        let body = end + 1;
+        if data.len() < body + size + 1 || data[body + size] != b'\n' {
+            return Err("truncated git cat-file blob".into());
+        }
+        contents.push(data[body..body + size].to_vec());
+        at = body + size + 1;
+    }
+    if at != data.len() {
+        return Err("unexpected trailing git cat-file output".into());
+    }
+    Ok(contents)
+}
+
 fn evidence_blob(root: &Path, object: &str) -> Result<Vec<u8>> {
     oid(object)?;
     let reference = format!("refs/susi/evidence/objects/{object}");
@@ -391,20 +487,26 @@ pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]
     oid(source)?;
     let held = scope_set(scopes)?;
     let mut found = None;
-    for path in git(
+    // One ls-tree and one batched cat-file instead of two git processes per
+    // task record: ~400 records cost 76 s of process launches on Windows.
+    let records: Vec<(String, String)> = tree_blobs(root, source, ".agents/tasks/")?
+        .into_iter()
+        .filter(|(path, _)| {
+            path.starts_with(".agents/tasks/T-")
+                && path.ends_with(".json")
+                && !path[14..].contains('/')
+        })
+        .collect();
+    let contents = blobs(
         root,
-        &["ls-tree", "-r", "--name-only", source, ".agents/tasks/"],
-    )?
-    .lines()
-    {
-        if !path.starts_with(".agents/tasks/T-")
-            || !path.ends_with(".json")
-            || path[14..].contains('/')
-        {
-            continue;
-        }
-        let object = git(root, &["rev-parse", &format!("{source}:{path}")])?;
-        let value = native_json::from_slice(&blob(root, &object)?)?;
+        &records
+            .iter()
+            .map(|(_, object)| object.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    for ((path, object), bytes) in records.into_iter().zip(contents) {
+        let path = path.as_str();
+        let value = native_json::from_slice(&bytes)?;
         if value.get("native_worker").and_then(Value::as_str) != Some(worker) {
             continue;
         }
@@ -464,7 +566,10 @@ pub fn gate(root: &Path, execution: GateExecution<'_>) -> Result<Value> {
     if !status.success() || status.code() != Some(0) {
         return Err(format!("gate {id} did not exit successfully").into());
     }
-    if argv.get(1).map(String::as_str) == Some("test") && (passed == 0 || failed != 0) {
+    let doc = argv.iter().any(|arg| arg == "--doc");
+    if matches!(argv.get(1).map(String::as_str), Some("test" | "nextest"))
+        && (failed != 0 || (!doc && passed == 0))
+    {
         return Err(format!("gate {id} did not execute nonempty passing tests").into());
     }
     Ok(
@@ -570,6 +675,22 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
         }
         if argv.get(1).map(String::as_str) == Some("test") {
             acceptance(&argv)?;
+            if passed == 0 && !argv.iter().any(|arg| arg == "--doc") {
+                return Err("zero executed native tests".into());
+            }
+        }
+        if argv.get(1).map(String::as_str) == Some("nextest") {
+            if argv.get(2).map(String::as_str) != Some("run")
+                || argv.iter().any(|arg| {
+                    matches!(
+                        arg.as_str(),
+                        "--" | "--list" | "--no-run" | "-E" | "--filterset"
+                    ) || arg.starts_with("--filterset=")
+                        || arg.starts_with("--partition")
+                })
+            {
+                return Err("native nextest gate must run the whole selection unfiltered".into());
+            }
             if passed == 0 {
                 return Err("zero executed native tests".into());
             }
@@ -600,6 +721,16 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
     expected_ids.extend(tasks.iter().map(|task| format!("task:{task}")));
     if product {
         expected_ids.extend((4..14).map(|index| format!("integration:{index}")));
+    }
+    // A nextest workspace gate skips doctests, so it must be accompanied by
+    // the `doc-tests` gate; a `cargo test` workspace gate runs them itself.
+    let nextest_workspace = gates.iter().any(|gate| {
+        gate["id"] == "workspace-tests"
+            && strings(gate, "argv")
+                .is_ok_and(|argv| argv.get(1).map(String::as_str) == Some("nextest"))
+    });
+    if nextest_workspace {
+        expected_ids.insert("doc-tests".into());
     }
     if ids
         .iter()
@@ -641,6 +772,32 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
             &["cargo", "test", "--workspace", "--offline", "--locked"],
         ),
     ];
+    let mut required: Vec<(&str, &[&str])> = required.to_vec();
+    if nextest_workspace {
+        for entry in &mut required {
+            if entry.0 == "workspace-tests" {
+                entry.1 = &[
+                    "cargo",
+                    "nextest",
+                    "run",
+                    "--workspace",
+                    "--offline",
+                    "--locked",
+                ];
+            }
+        }
+        required.push((
+            "doc-tests",
+            &[
+                "cargo",
+                "test",
+                "--doc",
+                "--workspace",
+                "--offline",
+                "--locked",
+            ],
+        ));
+    }
     for (id, prefix) in required {
         let entry = gates
             .iter()
@@ -656,7 +813,7 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
             return Err("required gate command weakened".into());
         }
         let mut suffix: Vec<_> = argv[prefix.len()..].iter().map(String::as_str).collect();
-        if matches!(id, "clippy" | "workspace-tests") {
+        if matches!(id, "clippy" | "workspace-tests" | "doc-tests") {
             if suffix.len() < 4
                 || suffix[0] != "--target"
                 || suffix[2] != "--target-dir"
