@@ -703,7 +703,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     // The standalone vendored adapters change only with `vendor/` or the
     // toolchain, both of which select the whole workspace.
     if matches!(selection, affected::Selection::Workspace(_)) {
-        gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+        gates.extend(timed("vendored adapter plan", || {
+            vendor_regressions::commands(candidate, host, &target)
+        })?);
     }
     let mut gate_ids: Vec<String> = (0..gates.len())
         .map(|index| match index {
@@ -733,7 +735,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                     .ok_or("invalid native scope")
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let task = native_provenance::task_for_claim(candidate, source, worker, &scopes)?;
+        let task = timed("task acceptance plan", || {
+            native_provenance::task_for_claim(candidate, source, worker, &scopes)
+        })?;
         let mut args = task.argv[1..].to_vec();
         args.extend([
             "--target".into(),
