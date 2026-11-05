@@ -1036,6 +1036,50 @@ What changed:
   now authenticated once per process and the file hashing runs on up to 16
   threads. Every digest comparison is unchanged.
 
-Next, measured but not yet changed: the 559 s of sequential test-binary
-execution (cargo runs test binaries one after another; the longest single
-binary takes 83 s), and the 48 s acceptance recording (now timed by sub-step).
+Both were then changed; see the next section.
+
+## Parallel test gate, batched task reads, checks on the host gate (2026-11-06)
+
+- **Task records are read in one batch.** `native_provenance::task_for_claim`
+  ran two git processes (`rev-parse`, `cat-file`) per task record; about 400
+  records cost 76.4 s in the gate's setup and again in acceptance recording.
+  It now uses one `git ls-tree` and one `git cat-file --batch`, and each reply
+  must name the requested blob and size. Measured in the next ship: task
+  acceptance plan 76.4 s to 0.4 s, acceptance recording 49.9 s to 4.2 s.
+- **The test gate runs test binaries in parallel.** `cargo test` runs the
+  workspace's test binaries one after another. The ship/integrate gate and
+  `local-workflow check` now run the test gate with `cargo nextest run`
+  (`NEXTEST_TEST_THREADS=16`, below the 28 logical cores so the
+  process-spawning tests keep the CPU their deadlines assume;
+  `.config/nextest.toml`'s two-slot reservations still apply) and add a
+  `cargo test --doc` gate for the selected library packages, because nextest
+  skips doctests. Same 7 packages, same isolated home, tests already built:
+  `cargo test` ran 736 s; `nextest` ran all 3 129 tests in 351 s in the ship.
+  nextest runs each test in its own process, which also avoided a cross-test
+  failure that `cargo test` hit in `susi-gawd`'s library tests.
+- **Evidence stays exact.** nextest results come from its one complete
+  summary line (no partial runs, no filters, timed-out counts as failed;
+  parenthesised annotations such as `(2 slow, 17 leaky)` are ignored), the
+  doctest gate from its `Doc-tests` blocks (zero doctests is allowed, a
+  failing one is not), and `ship` still refuses to publish without passing
+  fmt, deny, clippy and test evidence. The provenance verifier accepts a
+  nextest workspace gate only together with its doctest gate. The signed
+  workspace-pass attestation remains tied to `cargo test` and is not emitted
+  for nextest gates.
+- **Checks queue on the host gate.** A ship's nextest gate lost two
+  wall-clock-bounded tests (a 15 s fixture and a 30 s sweep) while another
+  agent's check saturated the CPU; both pass on an idle machine. `check` now
+  takes the same machine-wide host gate as ship and integrate.
+
+Ship of this change (7 packages, a `xtask/src/bin/local-workflow.rs` edit):
+format 17.2 s, licenses 3.9 s, trusted sysroot 3.3 s, clippy 128.3 s, test
+gate 504.2 s (build 2 min 25 s, nextest run 351 s), the task's own acceptance
+89.5 s, doctests 5.0 s, acceptance recording 4.2 s, publish 3.8 s; 13.0 min of
+measured phases, against 27.8 min for the same kind of change at the start
+of the day. The first publish attempt was refused by GitHub ("fatal error in
+commit_refs"); `ship --retry` published the verified head in 19 s.
+
+Still large, not yet changed: clippy (about 2 min) and the test build
+(about 2.5 min) for a 7-package selection, and the slowest individual tests
+(the `susi-gawd` `admin::tasks` tests at 40-60 s each, which spawn git and
+cargo).
