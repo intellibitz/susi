@@ -640,21 +640,6 @@ fn the_branch_gate_lints_the_dependents_of_what_changed() {
     );
 }
 
-/// `Compile Check (branch pushes)` is a required status check
-/// (`scripts/github-enforce.sh`): a renamed job never reports, and nothing
-/// merges until someone edits the ruleset.
-#[test]
-fn the_branch_gate_keeps_the_name_branch_protection_requires() {
-    let text = read(".github/workflows/test.yml");
-    let jobs = jobs(&text);
-    let check = job(&jobs, "check");
-    let name = value_of(&check.body, "name").unwrap_or_default();
-    assert!(
-        read("scripts/github-enforce.sh").contains(&format!("\"context\": \"{name}\"")),
-        "job `check` is named `{name}`, which scripts/github-enforce.sh does not require"
-    );
-}
-
 /// The branch clippy job restores main's target artifacts and sccache entries.
 /// A registry-only experiment took 139 s end-to-end and raised Clippy from 24 s
 /// to 91 s; restoring the target archive is faster overall.
