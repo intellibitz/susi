@@ -425,7 +425,6 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
-    eprintln!("verify: {}", candidate.display());
     native_provenance::require_unmodified_history(candidate)
         .map_err(|error| format!("provenance: {error}"))?;
     let compiler = Command::new("rustc")
@@ -448,9 +447,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .map(PathBuf::from)
         .ok_or("cannot identify toolchain home")?;
     let home = attempt.join("test-home");
-    eprintln!("verify home: {}", home.display());
-    fs::create_dir_all(home.join("AppData/Local"))
-        .map_err(|error| format!("test home {}: {error}", home.display()))?;
+    fs::create_dir_all(home.join("AppData/Local"))?;
     let target = candidate.join("target");
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
@@ -1978,7 +1975,6 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
         .parent()
         .ok_or("checkout has no parent")?
         .join(format!("susi-verify-{stamp}-{}", std::process::id()));
-    eprintln!("merge: add {}", candidate.display());
     git(
         root,
         &[
@@ -1991,7 +1987,6 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
             base,
         ],
     )?;
-    eprintln!("merge: added");
     for input in inputs {
         if let Err(error) = git(
             &candidate,
@@ -2076,6 +2071,22 @@ where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
     let candidate = merge_onto(root, base, inputs)?;
+    let attempt = workflow.join("publish");
+    fs::write(
+        attempt.join("native-inputs.json"),
+        serde_json::to_vec_pretty(
+            &inputs
+                .iter()
+                .map(|input| {
+                    serde_json::json!({
+                        "worker": input.claim.name,
+                        "source": input.source,
+                        "scopes": input.claim.scopes,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )?,
+    )?;
     let before = git(&candidate, &["rev-parse", "HEAD"])?;
     let evidence = match verify(&candidate, &workflow.join("publish")) {
         Ok(evidence) => evidence,
