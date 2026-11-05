@@ -43,7 +43,9 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         )
         .into());
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
 }
 
 fn text(path: &Path) -> Result<&str> {
@@ -252,7 +254,9 @@ fn git_input(root: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).into_owned().into());
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
 }
 
 fn receipt_matches(
@@ -1597,8 +1601,38 @@ trait Remote {
 
 struct GhRemote;
 
+fn gh_command(root: &Path) -> Command {
+    let mut command = Command::new("gh");
+    command
+        .current_dir(root)
+        .env_remove("GH_FORCE_TTY")
+        .env("NO_COLOR", "1")
+        .env("CLICOLOR", "0");
+    command
+}
+
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(character);
+    }
+    out
+}
+
 fn gh_output(root: &Path, args: &[String]) -> Result<String> {
-    let out = Command::new("gh").current_dir(root).args(args).output()?;
+    let out = gh_command(root).args(args).output()?;
     if !out.status.success() {
         return Err(format!(
             "gh {}: {}",
@@ -1607,7 +1641,9 @@ fn gh_output(root: &Path, args: &[String]) -> Result<String> {
         )
         .into());
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
 }
 
 fn repo_slug(root: &Path) -> Result<String> {
@@ -2342,7 +2378,11 @@ fn apply_ruleset(root: &Path, apply: bool) -> Result<()> {
     let slug = repo_slug(root)?;
     let name = body["name"].as_str().ok_or("ruleset is missing a name")?;
     let listed = gh_output(root, &["api".into(), format!("repos/{slug}/rulesets")])?;
-    let parsed = listed.trim().trim_start_matches('\u{feff}');
+    let parsed = strip_ansi(listed.trim())
+        .trim()
+        .trim_start_matches('\u{feff}')
+        .to_owned();
+    let parsed = parsed.as_str();
     let listed: serde_json::Value = serde_json::from_str(parsed)
         .map_err(|error| format!("ruleset list was not json ({error}): {parsed:.180}"))?;
     let id = listed.as_array().and_then(|items| {
@@ -2387,8 +2427,7 @@ fn disable_merge_path(root: &Path, dry_run: bool) -> Result<()> {
 }
 
 fn gh_input(root: &Path, args: &[String], input: &[u8]) -> Result<String> {
-    let mut child = Command::new("gh")
-        .current_dir(root)
+    let mut child = gh_command(root)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2408,7 +2447,9 @@ fn gh_input(root: &Path, args: &[String], input: &[u8]) -> Result<String> {
         )
         .into());
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
 }
 
 fn run(args: &[String]) -> Result<()> {
