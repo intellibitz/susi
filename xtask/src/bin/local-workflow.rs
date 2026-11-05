@@ -2066,7 +2066,6 @@ where
         }
     };
     remove_candidate(root, &candidate);
-    println!("Shipped {head} as pull request {pr}, merge {merge}.");
     Ok(ShipReport { pr, head, merge })
 }
 
@@ -2147,12 +2146,18 @@ fn publish_head(
         remote.post_status(root, head, context, line)?;
     }
     let merge = remote.merge_pr(root, pr, head)?;
-    println!("Shipped {head} as pull request {pr}, merge {merge}.");
     Ok(ShipReport {
         pr,
         head: head.to_owned(),
         merge,
     })
+}
+
+fn print_ship(report: &ShipReport) {
+    println!(
+        "Shipped {} as pull request {}, merge {}.",
+        report.head, report.pr, report.merge
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2451,19 +2456,16 @@ fn run(args: &[String]) -> Result<()> {
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
         Some("ship") if args.get(1).map(String::as_str) == Some("--retry") && args.len() == 2 => {
-            ship_retry(&root, &mut GhRemote)?;
+            print_ship(&ship_retry(&root, &mut GhRemote)?);
         }
         Some("ship") if args.len() >= 2 => {
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
             let mut remote = GhRemote;
-            match repo_kind(&root)? {
-                RepoKind::Susi => {
-                    ship(&root, &names, &mut remote, verify_candidate)?;
-                }
-                RepoKind::Commercial => {
-                    ship(&root, &names, &mut remote, commercial_gate)?;
-                }
-            }
+            let report = match repo_kind(&root)? {
+                RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate)?,
+                RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate)?,
+            };
+            print_ship(&report);
         }
         Some("ruleset") if args.get(1).map(String::as_str) == Some("apply") && args.len() <= 3 => {
             let apply = args.len() == 3 && args[2] == "--apply";
