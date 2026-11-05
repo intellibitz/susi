@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn doctest_counts_sum_blocks_and_allow_crates_without_doctests() {
-        let log = "   Doc-tests alpha\n\nrunning 2 tests\ntest src/lib.rs - f (line 3) ... ok\ntest src/lib.rs - g (line 9) ... ok\n\ntest result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.50s\n\n   Doc-tests beta\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n";
+        let log = "   Doc-tests alpha\n\nrunning 3 tests\ntest src/lib.rs - f (line 3) ... ok\ntest src/lib.rs - g (line 9) ... ok\ntest src/lib.rs - h (line 20) ... ignored\n\ntest result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.50s\n\n   Doc-tests beta\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n";
         assert_eq!(doctest_counts(log).unwrap(), (2, 0, 1));
         assert_eq!(doctest_counts("").unwrap(), (0, 0, 0));
         let broken = "   Doc-tests alpha\n\nrunning 1 test\n";

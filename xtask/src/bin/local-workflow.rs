@@ -7,6 +7,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -235,8 +236,10 @@ fn include_release_tooling_for_xtask(
         return;
     }
     for args in gates {
-        if matches!(args.first().map(String::as_str), Some("clippy" | "test"))
-            && !args.iter().any(|arg| arg == "xtask/release-tooling")
+        if matches!(
+            args.first().map(String::as_str),
+            Some("clippy" | "test" | "nextest")
+        ) && !args.iter().any(|arg| arg == "xtask/release-tooling")
         {
             let at = args
                 .iter()
@@ -666,7 +669,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             "warnings",
         ],
         &[
-            "test",
+            "nextest",
+            "run",
             "--workspace",
             "--offline",
             "--locked",
@@ -680,11 +684,15 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
-    let selection = timed("affected selection", || gate_selection(candidate, attempt))?;
+    let (selection, libraries) =
+        timed("affected selection", || gate_selection(candidate, attempt))?;
     match &selection {
         affected::Selection::Packages(packages) => {
             for args in &mut gates {
-                if matches!(args.first().map(String::as_str), Some("clippy" | "test")) {
+                if matches!(
+                    args.first().map(String::as_str),
+                    Some("clippy" | "test" | "nextest")
+                ) {
                     affected::narrow(args, packages);
                 }
             }
@@ -700,6 +708,15 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         }
     }
     vendor_regressions::include_release_tooling(candidate, &mut gates);
+    if matches!(selection, affected::Selection::Workspace(_))
+        && candidate.join("crates/susi-core/Cargo.toml").is_file()
+    {
+        // `include_release_tooling` recognizes clippy and test; the nextest
+        // workspace gate needs the same feature.
+        let all: BTreeSet<String> = ["xtask".to_owned()].into();
+        include_release_tooling_for_xtask(&mut gates, &all);
+    }
+    let doc = doc_gate(&gates[3], libraries.as_ref());
     // The standalone vendored adapters change only with `vendor/` or the
     // toolchain, both of which select the whole workspace.
     if matches!(selection, affected::Selection::Workspace(_)) {
@@ -747,6 +764,10 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         ]);
         gate_ids.push(format!("task:{}", task.id));
         gates.push(args);
+    }
+    if let Some(doc) = doc {
+        gate_ids.push("doc-tests".into());
+        gates.push(doc);
     }
     let plan: Vec<_> = gate_ids
         .iter()
@@ -831,6 +852,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             // configuration or run a shared daemon. The local gate is self-contained.
             .env("RUSTC_WRAPPER", "")
             .env("RUSTC_WORKSPACE_WRAPPER", "")
+            .env("NEXTEST_TEST_THREADS", GATE_TEST_THREADS)
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
         let measure = |cmd: &Command| {
@@ -865,12 +887,22 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             &format!("gate {}", gate_ids.get(index).map_or("?", String::as_str)),
             started.elapsed().as_millis(),
         );
-        if status.success() && args.first().is_some_and(|arg| arg == "test") {
+        let doc_tests = args.iter().any(|arg| arg == "--doc");
+        if status.success() && !doc_tests {
             let log_path = attempt.join(format!("gate-{index}.log"));
-            let passed = workspace_test_count::verified_pass_count(&log_path).map_err(|error| {
-                format!("gate failed: {result}; {}: {error}", log_path.display())
-            })?;
-            result.push_str(&format!("; observed-passes={passed}"));
+            let counted = match args.first().map(String::as_str) {
+                Some("test") => Some(workspace_test_count::verified_pass_count(&log_path)),
+                Some("nextest") => {
+                    Some(workspace_test_count::verified_nextest_pass_count(&log_path))
+                }
+                _ => None,
+            };
+            if let Some(counted) = counted {
+                let passed = counted.map_err(|error| {
+                    format!("gate failed: {result}; {}: {error}", log_path.display())
+                })?;
+                result.push_str(&format!("; observed-passes={passed}"));
+            }
         }
         evidence.push(result.clone());
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
@@ -928,21 +960,73 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
 /// recorded integration base can affect. Without a recorded base, or with
 /// `SUSI_LOCAL_GATE=full`, the whole workspace. Production qualification
 /// (`local-release qualify`) always runs the whole workspace.
-fn gate_selection(candidate: &Path, attempt: &Path) -> Result<affected::Selection> {
+/// The gate's package selection, and the workspace's library packages when
+/// they were loaded (the doctest gate may only name those).
+type GateSelection = (affected::Selection, Option<BTreeSet<String>>);
+
+fn gate_selection(candidate: &Path, attempt: &Path) -> Result<GateSelection> {
     if env::var("SUSI_LOCAL_GATE").is_ok_and(|mode| mode == "full") {
-        return Ok(affected::Selection::Workspace(
-            "SUSI_LOCAL_GATE=full".into(),
+        return Ok((
+            affected::Selection::Workspace("SUSI_LOCAL_GATE=full".into()),
+            None,
         ));
     }
     let Ok(base) = fs::read_to_string(attempt.join("selection-base")) else {
-        return Ok(affected::Selection::Workspace("no recorded base".into()));
+        return Ok((
+            affected::Selection::Workspace("no recorded base".into()),
+            None,
+        ));
     };
     let base = base.trim();
     if !valid_oid(base) {
         return Err("recorded selection base is not a commit oid".into());
     }
     let changed = affected::changed(candidate, base, "HEAD")?;
-    Ok(affected::select(&affected::load(candidate)?, &changed))
+    let workspace = affected::load(candidate)?;
+    Ok((
+        affected::select(&workspace, &changed),
+        Some(workspace.libraries.clone()),
+    ))
+}
+
+/// Test threads for nextest gates: enough to finish the suite in parallel,
+/// fewer than the machine's logical cores so the process-spawning tests keep
+/// the CPU their wall-clock deadlines assume (see `.config/nextest.toml`).
+const GATE_TEST_THREADS: &str = "16";
+
+/// The doctest companion of a nextest test gate (nextest does not run
+/// doctests), narrowed to the selected packages that have a library target.
+/// `None` when the selection holds no library, so there is nothing to run.
+fn doc_gate(test_gate: &[String], libraries: Option<&BTreeSet<String>>) -> Option<Vec<String>> {
+    let mut gate: Vec<String> = vec!["test".into(), "--doc".into()];
+    let mut packages = Vec::new();
+    let mut rest = test_gate.iter().skip(2).peekable();
+    while let Some(arg) = rest.next() {
+        if arg == "-p" {
+            let package = rest.next()?;
+            if libraries.is_none_or(|libs| libs.contains(package)) {
+                packages.push(package.clone());
+            }
+            continue;
+        }
+        gate.push(arg.clone());
+    }
+    if !test_gate.iter().any(|arg| arg == "--workspace") {
+        if packages.is_empty() {
+            return None;
+        }
+        // Keep the package flags where narrowing put them: before `--offline`.
+        let at = gate
+            .iter()
+            .position(|arg| arg == "--offline")
+            .unwrap_or(gate.len());
+        let flags: Vec<String> = packages
+            .into_iter()
+            .flat_map(|package| ["-p".to_owned(), package])
+            .collect();
+        gate.splice(at..at, flags);
+    }
+    Some(gate)
 }
 
 /// Serialize only integration, not agent edits/commits. Publish the tested commit
@@ -2064,8 +2148,11 @@ fn require_ship_evidence(evidence: &[String]) -> Result<()> {
             _ => return Err(format!("refusing to publish a failed gate: {line}").into()),
         }
     }
-    for subcommand in ["fmt", "deny", "clippy", "test"] {
+    for subcommand in ["fmt", "deny", "clippy"] {
         gate_evidence(evidence, subcommand)?;
+    }
+    if gate_evidence(evidence, "nextest").is_err() {
+        gate_evidence(evidence, "test")?;
     }
     Ok(())
 }
@@ -2849,12 +2936,15 @@ fn check(root: &Path) -> Result<()> {
         .iter()
         .map(|arg| (*arg).into())
         .collect(),
-        ["test", "--workspace", "--locked"]
+        ["nextest", "run", "--workspace", "--locked"]
             .iter()
             .map(|arg| (*arg).into())
             .collect(),
     ];
-    match affected::select(&affected::load(&top)?, &changed) {
+    let workspace = affected::load(&top)?;
+    let selection = affected::select(&workspace, &changed);
+    let workspace_selected = matches!(selection, affected::Selection::Workspace(_));
+    match selection {
         affected::Selection::Packages(packages) => {
             println!(
                 "check: {} changed paths since {}; {} packages: {}",
@@ -2875,6 +2965,13 @@ fn check(root: &Path) -> Result<()> {
             );
             vendor_regressions::include_release_tooling(&top, &mut gates);
         }
+    }
+    if workspace_selected && top.join("crates/susi-core/Cargo.toml").is_file() {
+        let all: BTreeSet<String> = ["xtask".to_owned()].into();
+        include_release_tooling_for_xtask(&mut gates, &all);
+    }
+    if let Some(doc) = doc_gate(&gates[2], Some(&workspace.libraries)) {
+        gates.push(doc);
     }
     let target = top.join("target");
     let home = target.join("susi-check-home");
@@ -2912,6 +3009,7 @@ fn check(root: &Path) -> Result<()> {
             .env("XDG_CONFIG_HOME", home.join("config"))
             .env("XDG_DATA_HOME", home.join("data"))
             .env("XDG_CACHE_HOME", home.join("cache"))
+            .env("NEXTEST_TEST_THREADS", GATE_TEST_THREADS)
             .status()?;
         println!(
             "check: cargo {} => {} in {:.1}s",
@@ -4564,6 +4662,76 @@ mod tests {
                 "xtask/release-tooling"
             ]
         );
+    }
+
+    #[test]
+    fn doc_gate_follows_the_test_gate_and_names_only_libraries() {
+        let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        let whole = strings(&[
+            "nextest",
+            "run",
+            "--workspace",
+            "--offline",
+            "--locked",
+            "--target",
+            "h",
+            "--target-dir",
+            "t",
+            "--features",
+            "xtask/release-tooling",
+        ]);
+        assert_eq!(
+            doc_gate(&whole, None).unwrap(),
+            strings(&[
+                "test",
+                "--doc",
+                "--workspace",
+                "--offline",
+                "--locked",
+                "--target",
+                "h",
+                "--target-dir",
+                "t",
+                "--features",
+                "xtask/release-tooling",
+            ])
+        );
+        let narrowed = strings(&[
+            "nextest",
+            "run",
+            "-p",
+            "susi",
+            "-p",
+            "xtask",
+            "-p",
+            "susi-core",
+            "--offline",
+            "--locked",
+            "--target",
+            "h",
+            "--target-dir",
+            "t",
+        ]);
+        let libraries: BTreeSet<String> = ["susi".to_owned(), "susi-core".to_owned()].into();
+        assert_eq!(
+            doc_gate(&narrowed, Some(&libraries)).unwrap(),
+            strings(&[
+                "test",
+                "--doc",
+                "-p",
+                "susi",
+                "-p",
+                "susi-core",
+                "--offline",
+                "--locked",
+                "--target",
+                "h",
+                "--target-dir",
+                "t",
+            ])
+        );
+        let only_bins = strings(&["nextest", "run", "-p", "xtask", "--offline", "--locked"]);
+        assert!(doc_gate(&only_bins, Some(&libraries)).is_none());
     }
 
     #[test]
