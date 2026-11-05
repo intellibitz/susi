@@ -10,6 +10,7 @@
     ".agents/tasks/t-grokship-1.json",
     ".github/workflows/test.yml",
     "agents.md",
+    "crates/susi-core",
     "crates/susi-gawd/src/admin/tasks.rs",
     "crates/susi-gemi-models/src/lifecycle/provision.rs",
     "crates/susi-gemi/src/spend_tracker.rs",

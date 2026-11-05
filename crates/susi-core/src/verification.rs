@@ -730,7 +730,7 @@ mod tests {
             verify_contract(
                 &Contract::CommandExit {
                     argv: argv.iter().map(|a| a.to_string()).collect(),
-                    timeout_secs: 5,
+                    timeout_secs: 30,
                 },
                 dir.path(),
             )

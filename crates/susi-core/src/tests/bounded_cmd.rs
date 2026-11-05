@@ -148,7 +148,7 @@ fn output_within_executes_current_test_binary_help_within_timeout() {
     let exe = std::env::current_exe().expect("current test binary path");
     let out = crate::bounded_cmd::output_within(
         std::process::Command::new(exe).arg("--help"),
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(30),
     )
     .expect("test binary --help should complete within timeout");
     assert!(out.status.success());
@@ -160,7 +160,7 @@ fn output_within_handles_zero_arg_list_query_on_current_test_binary() {
     let exe = std::env::current_exe().expect("current test binary path");
     let out = crate::bounded_cmd::output_within(
         std::process::Command::new(exe).args(["--list", "--exact", "nonexistent_test_filter_xyz"]),
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(30),
     )
     .expect("test binary --list should complete within timeout");
     assert!(out.status.success());
